@@ -129,20 +129,23 @@ removal.
 Task selection is modeled as z-order, not as a window-state transition:
 
 - `activate(target)` places the selected task at the front of its compatible
-  hierarchy. A background task selected from the taskbar, task overview,
-  Alt+Tab, or MCP follows this operation through `DesktopTaskController`.
+  hierarchy. A target is already foreground only when it is visible, focused,
+  and no managed application is ordered above it. A background or covered task
+  selected from the taskbar, task overview, Alt+Tab, or MCP follows this
+  operation through `DesktopTaskController`.
 - `demote(active)` rotates the foreground task behind the next MRU application.
   Selecting the already-active taskbar item uses this operation. If there is no
   peer, the desktop host comes to the front while the application remains live
   below it.
 
 Both operations preserve the task's windowing mode, bounds, parent, and hidden
-state. In particular, an occluded task is not minimized: a covered fullscreen
-task becomes visible again as soon as the task above it leaves, and it remains
-visible around a freeform task placed above it. A mixed stack is therefore
-ordered as desktop host, fullscreen plane, and freeform windows. The concrete
-parent hierarchy follows workspace ownership, but callers use the same
-semantics and focus gateway.
+state. Occlusion is not minimization: a covered task remains live in the same
+window state. Activating a covered fullscreen task orders its current blockers
+below it, preserving their mutual order; demoting that fullscreen task reveals
+the previous stack without a restore transition. Activating a freeform task
+places it above the current fullscreen plane and other freeform peers. The
+concrete parent hierarchy follows workspace ownership, but callers use the
+same semantics and focus gateway.
 
 `demote` is deliberately distinct from `show desktop`. The latter presents a
 saved workspace as a user command; it does not define the behavior of clicking

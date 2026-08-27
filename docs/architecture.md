@@ -262,19 +262,21 @@ transition sequence.
 Task selection has two explicit z-order operations:
 
 - **Activate** brings a selected task to the front of its compatible desktop
-  hierarchy. Alt+Tab, task overview, taskbar selection of a background task,
-  and MCP focus all request this operation through the common gateway.
+  hierarchy. The task is effective foreground only when it is visible,
+  focused, and has no managed application above it. Alt+Tab, task overview,
+  taskbar selection of a background or covered task, and MCP focus all request
+  this operation through the common gateway.
 - **Demote** rotates the currently active task behind the next MRU application
   without minimizing or hiding it. Taskbar selection of the already-active
   task requests this operation. With no application peer, the desktop host is
   brought forward and the application remains live underneath it.
 
 Occlusion is not minimization. A fullscreen task covered by another fullscreen
-task remains fullscreen, and a fullscreen task below a freeform window remains
-visible around that window. Removing or demoting the covering task reveals the
-previous task without a repair transition. Neither operation changes task
-mode, bounds, parent, or hidden state. For mixed stacks the durable order is
-desktop host, managed fullscreen plane, then freeform windows.
+task or a freeform window remains fullscreen. Activating it moves the blockers
+below its stable plane while preserving their mutual order; demoting it reveals
+that previous stack without a repair transition. Activating a freeform task
+places it above the current fullscreen plane. Neither operation changes task
+mode, bounds, parent, or hidden state.
 
 `ShellFullscreenTaskArea` is the stable facade over both topology strategies.
 `IndependentFullscreenTaskTopology` and `ShellFullscreenTaskPlanes` own

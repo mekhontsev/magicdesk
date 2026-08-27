@@ -101,32 +101,6 @@ public final class DesktopTaskControllerTest {
     }
 
     @Test
-    public void concealedTaskbarTaskActivatesDespiteSyntheticActiveFlag() {
-        final TaskRepository.TaskEntry concealed = task(
-                10,
-                "com.example.concealed/.MainActivity",
-                "fullscreen",
-                true,
-                true);
-
-        assertTrue(DesktopTaskController.shouldActivateTaskbarTask(
-                concealed, true));
-    }
-
-    @Test
-    public void foregroundTaskbarTaskRemainsAConcealmentCandidate() {
-        final TaskRepository.TaskEntry foreground = task(
-                10,
-                "com.example.foreground/.MainActivity",
-                "fullscreen",
-                true,
-                true);
-
-        assertFalse(DesktopTaskController.shouldActivateTaskbarTask(
-                foreground, false));
-    }
-
-    @Test
     public void boundedShortcutRejectsFullscreenFocusedTask() {
         final TaskRepository.TaskEntry fallback = task(
                 10, "com.example.window/.MainActivity", true, false);

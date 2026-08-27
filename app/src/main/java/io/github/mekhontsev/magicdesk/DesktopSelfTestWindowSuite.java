@@ -579,6 +579,7 @@ final class DesktopSelfTestWindowSuite {
                     () -> restoreAppFullscreenPeers(
                             displayId,
                             immersiveTaskId,
+                            expectedBounds,
                             new int[]{peerTaskId, secondPeerTaskId},
                             new Rect[]{peerRestoreBounds, expectedBounds}));
             peersPrepared = false;
@@ -738,6 +739,7 @@ final class DesktopSelfTestWindowSuite {
     private static String restoreAppFullscreenPeers(
             final int displayId,
             final int immersiveTaskId,
+            final Rect immersiveBounds,
             final int[] peerTaskIds,
             final Rect[] peerRestoreBounds) throws IOException {
         DesktopSelfTestHostObserver.stage("WINDOW-020-CLEANUP");
@@ -754,8 +756,26 @@ final class DesktopSelfTestWindowSuite {
                             && DesktopSelfTestGeometry.matches(
                                     entry.bounds, restoreBounds));
         }
-        return "peers=" + formatTaskIds(peerTaskIds) + "/freeform, task="
-                + immersiveTaskId + "/freeform";
+        // Restoring a peer correctly brings that peer forward, which may
+        // detach the hidden target's caption surface. Reactivate the target
+        // through the same focus route a user action takes before inspecting
+        // its visible native decoration.
+        DesktopSelfTestInputSuite.focusTaskThroughDesktop(
+                displayId, immersiveTaskId);
+        waitForTask(
+                displayId,
+                BROWSER_FIXTURE_CLASS,
+                entry -> entry.taskId == immersiveTaskId
+                        && entry.visible
+                        && "freeform".equals(entry.windowingMode)
+                        && DesktopSelfTestGeometry.matches(
+                                entry.bounds, immersiveBounds));
+        waitForFrontTask(displayId, immersiveTaskId);
+        DesktopSelfTestInputSuite.waitForTaskInputFocus(
+                displayId, immersiveTaskId);
+        return "peers=" + formatTaskIds(peerTaskIds)
+                + "/freeform, task=" + immersiveTaskId
+                + "/freeform/visible";
     }
 
     private static void restorePeerTasksBestEffort(

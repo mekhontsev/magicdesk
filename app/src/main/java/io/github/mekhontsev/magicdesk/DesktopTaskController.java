@@ -852,8 +852,13 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, "task unavailable");
                 return;
             }
-            final boolean concealed = isTaskbarTaskConcealed(taskId);
-            if (shouldActivateTaskbarTask(task, concealed)) {
+            final Set<Integer> effectiveConcealedTaskIds;
+            synchronized (mTaskbarConcealedTaskIds) {
+                effectiveConcealedTaskIds = new LinkedHashSet<>(
+                        mTaskbarConcealedTaskIds);
+            }
+            if (EffectiveTaskStack.shouldActivateTaskbarTarget(
+                    snapshot, task, effectiveConcealedTaskIds)) {
                 focusThroughGateway(
                         Collections.singletonList(Integer.valueOf(taskId)),
                         taskId,
@@ -943,11 +948,56 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             return new ArrayList<>(requestedTaskIds);
         }
 
+        final TaskRepository.TaskEntry desktopHost = findDesktopHostTask(
+                latestTasks, mDisplayId);
+        if (desktopHost != null
+                && requestedTaskIds.contains(
+                        Integer.valueOf(desktopHost.taskId))) {
+            // Demotion already supplies the complete semantic stack around the
+            // desktop host. Preserve it rather than reclassifying the same
+            // action as activation.
+            return completeFullscreenFocusContext(
+                    requestedTaskIds,
+                    latestTasks,
+                    focusedTaskId);
+        }
+
+        final Set<Integer> concealedTaskIds;
+        synchronized (mTaskbarConcealedTaskIds) {
+            concealedTaskIds = new LinkedHashSet<>(
+                    mTaskbarConcealedTaskIds);
+        }
+        final List<TaskRepository.TaskEntry> blockers =
+                EffectiveTaskStack.foregroundBlockersTopFirst(
+                        latestTasks, target, concealedTaskIds);
+        final LinkedHashSet<Integer> activationOrder = new LinkedHashSet<>();
+        boolean lowersFreeformWorkspace = false;
+        for (int index = blockers.size() - 1; index >= 0; index--) {
+            final TaskRepository.TaskEntry blocker = blockers.get(index);
+            if (blocker.isFreeform()) {
+                activationOrder.add(Integer.valueOf(blocker.taskId));
+                lowersFreeformWorkspace = true;
+            }
+        }
+        if (lowersFreeformWorkspace && desktopHost != null) {
+            activationOrder.add(Integer.valueOf(desktopHost.taskId));
+        }
+        activationOrder.addAll(completeFullscreenFocusContext(
+                Collections.emptyList(), latestTasks, focusedTaskId));
+        return new ArrayList<>(activationOrder);
+    }
+
+    private List<Integer> completeFullscreenFocusContext(
+            final List<Integer> requestedTaskIds,
+            final List<TaskRepository.TaskEntry> latestTasks,
+            final int focusedTaskId) {
         // Supply the complete fullscreen hierarchy as preparation context.
         // The shell owner reparents only missing managed tasks, then activates
         // the selected task alone. Taskbar, Alt+Tab, overview, and automation
         // therefore share one focus path without rebuilding a prepared area.
         final LinkedHashSet<Integer> orderedTaskIds = new LinkedHashSet<>();
+        orderedTaskIds.addAll(requestedTaskIds);
+        orderedTaskIds.remove(Integer.valueOf(focusedTaskId));
         for (int index = latestTasks.size() - 1; index >= 0; index--) {
             final TaskRepository.TaskEntry task = latestTasks.get(index);
             if (task != null && task.displayId == mDisplayId
@@ -958,6 +1008,20 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         orderedTaskIds.remove(Integer.valueOf(focusedTaskId));
         orderedTaskIds.add(Integer.valueOf(focusedTaskId));
         return new ArrayList<>(orderedTaskIds);
+    }
+
+    private static TaskRepository.TaskEntry findDesktopHostTask(
+            final List<TaskRepository.TaskEntry> tasks,
+            final int displayId) {
+        if (tasks != null) {
+            for (final TaskRepository.TaskEntry task : tasks) {
+                if (task != null && task.displayId == displayId
+                        && isDesktopHostTask(task)) {
+                    return task;
+                }
+            }
+        }
+        return null;
     }
 
     private TaskRepository.ActionCallback beginFocusTracking(
@@ -1676,13 +1740,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         synchronized (mTaskbarConcealedTaskIds) {
             mTaskbarConcealedTaskIds.retainAll(liveTaskIds);
         }
-    }
-
-    static boolean shouldActivateTaskbarTask(
-            final TaskRepository.TaskEntry task,
-            final boolean concealed) {
-        return concealed || !task.active
-                || (!task.isFullscreen() && !task.isFreeform());
     }
 
     private boolean isTaskbarTaskConcealed(final int taskId) {

@@ -902,9 +902,6 @@ final class DesktopSelfTestInputSuite {
                     "FULLSCREEN-MIXED-001-PREPARE");
             prepareFullscreenPair(
                     displayId, first.taskId, second.taskId, geometry);
-            final boolean keepsFreeformAboveFullscreen =
-                    DesktopDisplayDrivers.activeTaskAreaPolicy(displayId)
-                            .usesIndependentFullscreenPlanes();
 
             DesktopSelfTestHostObserver.stage(
                     "FULLSCREEN-MIXED-001-SWITCH");
@@ -944,18 +941,11 @@ final class DesktopSelfTestInputSuite {
                     sampleY,
                     DesktopSelfTestFixtureAppearance.SECONDARY.color());
 
-            focusTaskThroughDesktop(displayId, first.taskId);
-            waitForFreeformState(
-                    displayId, fixture, keepsFreeformAboveFullscreen);
-            if (keepsFreeformAboveFullscreen) {
-                waitForFrontTask(displayId, fixture.taskId);
-                waitForTaskInputFocus(displayId, fixture.taskId);
-            } else {
-                waitForFrontTask(displayId, first.taskId);
-                waitForTaskInputFocus(displayId, first.taskId);
-            }
-            waitForTaskbarVisibility(
-                    displayId, keepsFreeformAboveFullscreen);
+            toggleTaskbarTaskThroughDesktop(displayId, first.taskId);
+            waitForFreeformState(displayId, fixture, false);
+            waitForFrontTask(displayId, first.taskId);
+            waitForTaskInputFocus(displayId, first.taskId);
+            waitForTaskbarVisibility(displayId, false);
             inspectFullscreenModes(
                     displayId,
                     first.taskId,
@@ -970,22 +960,13 @@ final class DesktopSelfTestInputSuite {
                     captureSource,
                     freeformSampleX,
                     freeformSampleY,
-                    keepsFreeformAboveFullscreen
-                            ? DesktopSelfTestFixtureAppearance.TRANSITION.color()
-                            : DesktopSelfTestFixtureAppearance.PRIMARY.color());
+                    DesktopSelfTestFixtureAppearance.PRIMARY.color());
 
             focusTaskThroughDesktop(displayId, second.taskId);
-            waitForFreeformState(
-                    displayId, fixture, keepsFreeformAboveFullscreen);
-            if (keepsFreeformAboveFullscreen) {
-                waitForFrontTask(displayId, fixture.taskId);
-                waitForTaskInputFocus(displayId, fixture.taskId);
-            } else {
-                waitForFrontTask(displayId, second.taskId);
-                waitForTaskInputFocus(displayId, second.taskId);
-            }
-            waitForTaskbarVisibility(
-                    displayId, keepsFreeformAboveFullscreen);
+            waitForFreeformState(displayId, fixture, false);
+            waitForFrontTask(displayId, second.taskId);
+            waitForTaskInputFocus(displayId, second.taskId);
+            waitForTaskbarVisibility(displayId, false);
             inspectFullscreenModes(
                     displayId,
                     second.taskId,
@@ -1000,9 +981,7 @@ final class DesktopSelfTestInputSuite {
                     captureSource,
                     freeformSampleX,
                     freeformSampleY,
-                    keepsFreeformAboveFullscreen
-                            ? DesktopSelfTestFixtureAppearance.TRANSITION.color()
-                            : DesktopSelfTestFixtureAppearance.SECONDARY.color());
+                    DesktopSelfTestFixtureAppearance.SECONDARY.color());
 
             // The simulated-display removal suite requires every remaining
             // fixture to be fullscreen. This is a normal user transition and
@@ -1014,7 +993,7 @@ final class DesktopSelfTestInputSuite {
             result.add(
                     DesktopSelfTestResult.State.PASS,
                     code,
-                    "Keep the selected fullscreen background behind freeform",
+                    "Activate selected fullscreen above covering freeform",
                     freeformFocus
                             + ", backgrounds="
                             + DesktopTransitionSurfaceProbe.formatColor(
@@ -1036,14 +1015,12 @@ final class DesktopSelfTestInputSuite {
                                     secondForegroundColor)
                             + ", fullscreen=" + second.taskId
                             + ", older=" + first.taskId
-                            + ", freeform-on-fullscreen="
-                            + (keepsFreeformAboveFullscreen
-                                    ? "visible" : "occluded"));
+                            + ", freeform-on-fullscreen=occluded");
         } catch (Exception error) {
             result.add(
                     DesktopSelfTestResult.State.FAIL,
                     code,
-                    "Keep the selected fullscreen background behind freeform",
+                    "Activate selected fullscreen above covering freeform",
                     usefulMessage(error));
         }
     }
