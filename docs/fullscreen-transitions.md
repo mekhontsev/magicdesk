@@ -42,12 +42,18 @@ application's own insets request updates its client window; retrying or
 rebuilding the Activity can discard transient state such as the browser's HTML
 Fullscreen API session.
 
-The `DEFAULT` topology generalizes MagicDesk 1.8's characterized two-plane
-state to any number of fullscreen tasks. Each task enters its own
+Under `DEFAULT` ownership, each fullscreen task enters its own
 organizer-created ordering plane and retains that task/plane relationship for
-its complete fullscreen residency. The plane's organizer leash also retains a
-stable surface-order identity. Phone desktop instead keeps the host and every
-application in its single persistent session parent.
+its complete fullscreen residency. The plane's organizer leash retains a
+stable surface-order identity, so selection can change z-order without an
+application-visible lifecycle, mode, bounds, or parent change.
+
+Phone desktop uses `DesktopTaskAreaPolicy.SESSION`. This is an ownership
+decision rather than a vendor check: its persistent session area isolates the
+desktop from Android HOME and the MagicDesk control panel and remains the sole
+parent of the host, freeform tasks, managed fullscreen tasks, and
+application-requested fullscreen tasks. It never creates independent
+fullscreen planes or a second organizer hierarchy.
 
 Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. Once a task
 has entered fullscreen, activation raises that task and its existing ordering
@@ -56,9 +62,21 @@ hidden state. Phone desktop provides the same activation semantics by
 reordering only children of its session parent; it does not create a second
 organizer area. The focus WCT does not request BLAST draw synchronization and
 is not repeated through `TRANSIT_TO_FRONT`.
-The immutable external behavior and the phone ownership decision are recorded
-in
-[MagicDesk 1.8 fullscreen reference](fullscreen-1.8-reference.md).
+
+## Rejected approaches
+
+- Moving fullscreen peers into one shared organizer area while switching can
+  avoid a firmware mode-loss symptom, but the preparation reparents live tasks
+  and can make browser-style applications leave immersive fullscreen.
+- Keeping one task in the display parent and another in an organizer area can
+  make a particular two-task order fast, but the accidental asymmetry does not
+  provide stable ordering identities for an arbitrary number of tasks.
+- Creating independent fullscreen planes inside a `SESSION` desktop adds a
+  second hierarchy and breaks the session area's responsibility for isolating
+  phone desktop tasks from HOME and the control panel.
+- Using BLAST draw synchronization or a second `TRANSIT_TO_FRONT` for ordinary
+  focus adds an unnecessary app-visible handoff; a stopped target can also
+  leave the sync waiting for a surface that is not expected to draw.
 
 ## Window transition ownership
 

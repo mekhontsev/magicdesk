@@ -21,48 +21,52 @@ self-tests require an awake, unlocked device and must retain production paths
 and assertions. Do not weaken a test to make a device pass. Close an active
 desktop through its production cleanup path before installing another APK.
 
-## Fullscreen Focus Work
+## Local Device Automation
+
+After a phone reboot, start Shizuku with
+`./scripts/start-shizuku-shell.sh` before privileged testing. This is the
+canonical launcher: it starts the service as UID 2000 in the adb-shell SELinux
+domain with the verified supplementary groups. Run it only after a reboot or
+when Shizuku is unavailable; do not replace it with ad hoc `su` or `adb`
+commands or restart a healthy service.
+
+The MagicDesk MCP connection is already configured in `~/.codex/config.toml`.
+Do not add a duplicate server or replace its endpoint or token unless the user
+has reset the MCP token or application data. The server lives in the MagicDesk
+process. After a reboot, open MagicDesk once from its launcher before the first
+Codex `resume`; the process exposes MCP even before Shizuku becomes ready and
+promotes the same runtime after Shizuku starts. If MCP tools are absent, first
+search the complete tool catalog for the deferred `mcp__magicdesk__` tools;
+they may be omitted from the short tool declaration shown in the session. If
+the complete catalog contains them, MCP is available immediately: call those
+tools directly and do not request another `resume`. Only if that search is
+empty, verify that MagicDesk is open and **Local MCP
+automation server** remains enabled, then request one `resume` so Codex can
+discover the server. Reopening MagicDesk after an APK reinstall reuses the
+existing MCP configuration.
+
+## Fullscreen and Focus Work
 
 Before changing fullscreen, task focus, Alt+Tab, taskbar activation, or task
-display-area ownership, read `docs/fullscreen-1.8-reference.md`. Taskbar,
+display-area ownership, read `docs/fullscreen-transitions.md`. Taskbar,
 Alt+Tab, overview, and MCP focus must continue through the same
-`DesktopTaskController` gateway. Preserve the activate/demote contract in
-`docs/fullscreen-transitions.md`: activation and demotion only change z-order;
+`DesktopTaskController` gateway. Activation and demotion change only z-order;
 they never hide, minimize, reparent, resize, or change an application's
 windowing mode.
 
-For `DEFAULT` ownership, a fullscreen task must retain a stable ordering plane
-for its entire fullscreen residency. Steady-state activation must not collapse
-peers into one parent, move a task between parents, use
-`startNewTransition`, or repeat the reorder as a synthetic focus transition.
-Those operations expose a visible WMShell handoff and browser-style apps can
-interpret it as an immersive exit. Do not use `applySyncTransaction` for
-steady-state focus: a stopped target can have `NO_SURFACE`, making BLAST wait
-for its draw timeout. `SESSION` ownership keeps all phone desktop tasks in its
-one existing parent and reorders children only.
+Respect the selected ownership policy. A `DEFAULT` fullscreen task retains one
+stable ordering plane for its complete fullscreen residency. `SESSION` keeps
+all phone desktop tasks in its one existing parent. Every shell transaction has
+one explicit owner, and steady-state focus only reorders the existing
+hierarchy. Do not remove an owned desktop display until its transitions are
+quiescent. Low-level transition boundaries and rejected approaches are
+documented in `docs/fullscreen-transitions.md`.
 
-All shell WCT submission must have one explicit owner. Ordinary reorder, mode,
-bounds, and parent operations are atomic WCTs, not raw transitions. A cold
-freeform launch starts behind the desktop host and, after its task ID is known,
-uses one complete WMShell `OPEN` transition for mode, bounds, and order. Do not
-retain a raw opening token across the launch boundary. Structural fullscreen
-plane anchors also launch behind the foreground task and never participate in
-the user's focus transition. Never remove an owned desktop display while a
-WindowManager performance session still references it.
-
-The established surface-producing fallback is centralized as
-`ShellWindowTransitionExecutor.startForShellAdoption`. It creates a transition
-in WMCore without registering it in SystemUI's process-local pending list;
-current WMShell versions adopt it when it becomes ready. Treat the returned
-token as opaque: do not finish it from MagicDesk. Experiments may
-replace this boundary, but must not change existing WCT contents, transition
-types, ordering, or call sites until equivalent surface behavior is proven.
-
-Before completing such a change, compare the transaction sequence directly
-with tag `v1.8.0`, run the focused unit tests and the simulated and phone
-desktop self-tests, and verify repeated fullscreen switching on a wired display
-with a browser-style application. Both self-tests must retain zero failures;
-never weaken their assertions to accommodate an implementation change.
+Before completing such a change, run the focused unit tests and the simulated
+and phone desktop self-tests. Changes to shared task-area ownership or display
+lifecycle also require the wired self-test. Required self-tests must retain
+zero failures; never weaken their assertions to accommodate an implementation
+change.
 
 ## Releases
 

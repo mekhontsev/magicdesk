@@ -936,7 +936,8 @@ task, and verifies distinct stable planes on `DEFAULT` ownership or one shared
 session parent on `SESSION`, all three task modes, real input focus, the
 application's immersive marker, and the rendered fullscreen surface. This
 catches a repeated hierarchy rebuild and an implementation that works only for
-a pair of tasks.
+a pair of tasks. `WINDOW-015` and `WINDOW-020` identify these
+application-fullscreen hierarchy checks.
 
 The simulated target owns its display through a Binder-owned shell stream;
 closing the stream or losing its owner closes stdin, runs a shell `trap`, and
@@ -1019,6 +1020,13 @@ guesses. Android can deliver remote `onTaskMovedToFront` before the matching
 visibility update; only a gap beginning at that callback may remain pending,
 and it must resolve by the coalesced `onTaskStackChanged` callback or the test
 stage boundary. Other visibility gaps fail immediately.
+
+`SelfTestTaskStackInvariantAnalyzerTest` exercises these structural rules
+without an Android device. Simulated, phone, and wired self-tests exercise the
+same assertions against real WindowManager and firmware paths. All targets
+verify parent continuity, mode, input focus, browser-style immersive state, and
+the absence of desktop visibility gaps without weakening assertions by display
+kind.
 
 A separate one-shot launch probe captures the first
 `onTaskMovedToFront` configuration, so the test distinguishes a true initial
