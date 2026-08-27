@@ -29,6 +29,7 @@ final class DesktopContextMenuController {
     private ScrollView mMenuRoot;
     private View mHoveredTargetView;
     private boolean mRetainOwnerPanel;
+    private boolean mRequestKeyboardFocus = true;
 
     DesktopContextMenuController(
             final DesktopShellActivity activity,
@@ -145,14 +146,15 @@ final class DesktopContextMenuController {
     }
 
     void handleSecondaryClick(final float x, final float y) {
+        mRequestKeyboardFocus = false;
         final TaskbarController.ContextArea taskbarArea =
                 mActivity.taskbar().contextAreaAt(x, y);
         if (taskbarArea == TaskbarController.ContextArea.START) {
-            showStartButtonMenu(x, y);
+            populateStartButtonMenu(x, y);
             return;
         }
         if (taskbarArea == TaskbarController.ContextArea.BLANK) {
-            showTaskbarMenu(x, y);
+            populateTaskbarMenu(x, y);
             return;
         }
         final OverlayPanelController overlays = mActivity.overlayPanels();
@@ -171,10 +173,15 @@ final class DesktopContextMenuController {
         if (insidePanel) {
             return;
         }
-        showDesktopMenu(x, y);
+        populateDesktopMenu(x, y);
     }
 
     void showStartButtonMenu(final float x, final float y) {
+        mRequestKeyboardFocus = true;
+        populateStartButtonMenu(x, y);
+    }
+
+    private void populateStartButtonMenu(final float x, final float y) {
         mRetainOwnerPanel = false;
         prepareMenuTitle(mActivity.getString(R.string.action_start));
         addAction(
@@ -219,6 +226,11 @@ final class DesktopContextMenuController {
     }
 
     void showTaskbarMenu(final float x, final float y) {
+        mRequestKeyboardFocus = true;
+        populateTaskbarMenu(x, y);
+    }
+
+    private void populateTaskbarMenu(final float x, final float y) {
         mRetainOwnerPanel = false;
         prepareMenuTitle(mActivity.getString(R.string.context_taskbar));
         addAction(
@@ -247,6 +259,7 @@ final class DesktopContextMenuController {
     }
 
     void showForRegisteredView(final View view) {
+        mRequestKeyboardFocus = true;
         final ContextTarget target = mTargets.get(view);
         if (target != null && view.isAttachedToWindow() && view.isShown()) {
             mActivity.captureInteractionStackForPanel();
@@ -255,6 +268,11 @@ final class DesktopContextMenuController {
     }
 
     void showDesktopMenu(final float x, final float y) {
+        mRequestKeyboardFocus = true;
+        populateDesktopMenu(x, y);
+    }
+
+    private void populateDesktopMenu(final float x, final float y) {
         final OverlayPanelController overlays = mActivity.overlayPanels();
         if (mPanel == null || overlays == null) {
             return;
@@ -383,6 +401,7 @@ final class DesktopContextMenuController {
     private void showForView(
             final View view,
             final ContextTarget target) {
+        mRequestKeyboardFocus = true;
         final int[] location = new int[2];
         view.getLocationOnScreen(location);
         final OverlayPanelController overlays = mActivity.overlayPanels();
@@ -999,7 +1018,7 @@ final class DesktopContextMenuController {
                                 top,
                                 width,
                                 menuHeight,
-                                true,
+                                mRequestKeyboardFocus,
                                 false,
                                 "MagicDesk context menu"));
         if (!shown) {
