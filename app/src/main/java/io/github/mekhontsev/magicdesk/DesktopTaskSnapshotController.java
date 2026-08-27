@@ -83,12 +83,27 @@ final class DesktopTaskSnapshotController {
         if (tasks == null) {
             return false;
         }
+        // Running tasks are top-first. Independent task-display areas may
+        // report a freeform task as visible even while an opaque fullscreen
+        // plane covers it, so only inspect applications above that plane.
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (task != null && task.taskId != excludedTaskId
-                    && task.visible && task.isFreeform()
-                    && DesktopManagedTaskPolicy
-                            .isControllableApplicationTask(task)) {
+            if (task == null || task.taskId == excludedTaskId
+                    || !task.visible
+                    || TaskAreaBackstopActivity.isBackstopTask(task)) {
+                continue;
+            }
+            if (DesktopTaskController.isDesktopHostTask(task)) {
+                return false;
+            }
+            if (!DesktopManagedTaskPolicy
+                    .isControllableApplicationTask(task)) {
+                continue;
+            }
+            if (task.isFreeform()) {
                 return true;
+            }
+            if (task.isFullscreen()) {
+                return false;
             }
         }
         return false;

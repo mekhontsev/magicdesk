@@ -51,6 +51,33 @@ public final class DesktopTaskSnapshotControllerTest {
                         false))));
     }
 
+    @Test
+    public void fullscreenPlaneOccludesNominallyVisibleFreeformTask() {
+        assertFalse(DesktopTaskSnapshotController.hasVisibleFreeformTask(
+                Arrays.asList(
+                        app(true),
+                        freeform(true),
+                        desktopHost(true))));
+    }
+
+    @Test
+    public void freeformAboveFullscreenPlaneKeepsTaskbarVisible() {
+        assertTrue(DesktopTaskSnapshotController.hasVisibleFreeformTask(
+                Arrays.asList(
+                        freeform(true),
+                        app(true),
+                        desktopHost(true))));
+    }
+
+    @Test
+    public void structuralBackstopDoesNotOccludeFreeformTask() {
+        assertTrue(DesktopTaskSnapshotController.hasVisibleFreeformTask(
+                Arrays.asList(
+                        backstop(true),
+                        freeform(true),
+                        app(true))));
+    }
+
     private static TaskRepository.TaskEntry desktopHost(
             final boolean visible) {
         return new TaskRepository.TaskEntry(
@@ -80,6 +107,21 @@ public final class DesktopTaskSnapshotControllerTest {
                 false,
                 visible,
                 true);
+    }
+
+    private static TaskRepository.TaskEntry freeform(final boolean visible) {
+        return new TaskRepository.TaskEntry(
+                21,
+                21,
+                2,
+                "example.window",
+                "example.window/.MainActivity",
+                "example.window/.MainActivity",
+                "freeform",
+                new Rect(100, 100, 900, 700),
+                false,
+                visible,
+                false);
     }
 
     private static TaskRepository.TaskEntry backstop(
