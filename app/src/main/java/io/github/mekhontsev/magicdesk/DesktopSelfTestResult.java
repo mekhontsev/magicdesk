@@ -36,6 +36,10 @@ public final class DesktopSelfTestResult {
         mStartedAtMillis = startedAtMillis;
     }
 
+    long startedAtMillis() {
+        return mStartedAtMillis;
+    }
+
     public void add(final State state, final String code,
             final String label, final String detail) {
         if (state == null || code == null || label == null) {

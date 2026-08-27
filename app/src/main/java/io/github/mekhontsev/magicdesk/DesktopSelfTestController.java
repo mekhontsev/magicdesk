@@ -193,6 +193,8 @@ final class DesktopSelfTestController {
                     restoreExternalMirror);
             recordWindowTransitionHealth(
                     appContext, result, staleTransitionBaseline);
+            recordWindowTransitionLogHealth(
+                    result, displayId);
             restoreResultTask(result, target, resultTaskId);
             RUNNING.set(false);
         }
@@ -326,6 +328,35 @@ final class DesktopSelfTestController {
             }
         }
         return total;
+    }
+
+    private static void recordWindowTransitionLogHealth(
+            final DesktopSelfTestResult result,
+            final int displayId) {
+        final WindowTransitionLogDiagnostics.Snapshot snapshot =
+                WindowTransitionLogDiagnostics.capture(
+                        result.startedAtMillis(), displayId);
+        if (!snapshot.available) {
+            result.add(
+                    DesktopSelfTestResult.State.WARN,
+                    "SELFTEST-SYSTEM-003",
+                    "System transition ownership log",
+                    snapshot.error);
+            return;
+        }
+        if (snapshot.errorCount() > 0) {
+            result.add(
+                    DesktopSelfTestResult.State.WARN,
+                    "SELFTEST-SYSTEM-003",
+                    "System transition ownership log",
+                    snapshot.detail());
+            return;
+        }
+        result.add(
+                DesktopSelfTestResult.State.PASS,
+                "SELFTEST-SYSTEM-003",
+                "System transition ownership log",
+                "no ownership errors during the self-test");
     }
 
     private static void preparePhoneSystemPanel(
