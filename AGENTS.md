@@ -23,6 +23,10 @@ desktop through its production cleanup path before installing another APK.
 
 ## Local Device Automation
 
+Never reboot the phone without asking the user and receiving explicit
+confirmation immediately before the reboot command. An earlier discussion or
+agreement that a reboot may be needed later does not count as confirmation.
+
 After a phone reboot, start Shizuku with
 `./scripts/start-shizuku-shell.sh` before privileged testing. This is the
 canonical launcher: it starts the service as UID 2000 in the adb-shell SELinux
