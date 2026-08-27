@@ -138,7 +138,7 @@ APK at a stable URL:
 The [development release page](https://github.com/mekhontsev/magicdesk/releases/tag/development)
 includes the exact commit, checksum, and CI run. The version shown in About
 and Diagnostics contains the build number and short commit, for example
-`1.8.1-dev.123.abcdef0`.
+`1.9.1-dev.123.abcdef0`.
 
 Development builds use the release signing certificate but contain unreleased
 changes. Tagged releases remain available from the normal Releases page.
