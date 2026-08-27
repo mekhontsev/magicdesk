@@ -305,24 +305,31 @@ final class DesktopWindowTransitionController {
         if (task.isFullscreen()) {
             request = DesktopWindowTransitionRequest.closeFullscreen(
                     mRuntimeState.displayId(), task.taskId);
-            if (submit(request)) {
-                return;
-            }
+        } else if (task.isFreeform()) {
+            request = DesktopWindowTransitionRequest.closeFreeform(
+                            mRuntimeState.displayId(), task.taskId);
         } else {
             request = null;
         }
-        if (task.isFreeform()) {
-            final DesktopWindowTransitionRequest closeFreeform =
-                    DesktopWindowTransitionRequest.closeFreeform(
-                            mRuntimeState.displayId(), task.taskId);
-            if (!submit(closeFreeform)) {
-                Log.w(TAG, "desktop close failed task=" + task.taskId);
-            }
-            return;
-        }
         if (request != null) {
+            final TaskRepository.ActionCallback callback =
+                    result -> mHandler.post(() -> {
+                        if (result.success) {
+                            return;
+                        }
+                        recordFallback(request);
+                        closeThroughRepository(task);
+                    });
+            if (submit(request, callback)) {
+                return;
+            }
             recordFallback(request);
         }
+        closeThroughRepository(task);
+    }
+
+    private static void closeThroughRepository(
+            final TaskRepository.TaskEntry task) {
         TaskRepository.closeTask(task, result -> {
             if (!result.success) {
                 Log.w(TAG, "native close failed task=" + task.taskId
@@ -402,12 +409,19 @@ final class DesktopWindowTransitionController {
         final DesktopWindowTransitionRequest request =
                 DesktopWindowTransitionRequest.restoreFreeform(
                         mRuntimeState.displayId(), taskId, targetBounds);
-        if (submit(request)) {
-            callback.onComplete(new TaskRepository.ActionResult(true, ""));
-        } else {
+        final TaskRepository.ActionCallback submissionCallback = result -> {
+            if (result.success) {
+                callback.onComplete(result);
+                return;
+            }
             recordFallback(request);
             TaskRepository.setFreeform(task, targetBounds, callback);
+        };
+        if (submit(request, submissionCallback)) {
+            return;
         }
+        recordFallback(request);
+        TaskRepository.setFreeform(task, targetBounds, callback);
     }
 
     private void restoreOrMinimize(
@@ -510,18 +524,19 @@ final class DesktopWindowTransitionController {
                         displayId, taskId, task.bounds)
                 : DesktopWindowTransitionRequest.enterFullscreen(
                         displayId, taskId);
-        if (submit(request)) {
-            if (appRequested) {
-                mRuntimeState.scheduleRefresh();
+        final TaskRepository.ActionCallback submissionCallback = result -> {
+            if (result.success) {
+                callback.onComplete(result);
                 return;
             }
-            state.finishFullscreenTransition();
-            finishWorkspaceTransition(displayId, true);
-            if (BuiltInDesktopAppCatalog.remembersWindowState(task)) {
-                AppWindowStateStore.rememberMode(
-                        BuiltInDesktopAppCatalog.appIdentityKey(task),
-                        AppWindowState.Mode.FULLSCREEN);
+            recordFallback(request);
+            if (appRequested) {
+                TaskRepository.setAppRequestedFullscreen(task, callback);
+            } else {
+                TaskRepository.setFullscreen(task, callback);
             }
+        };
+        if (submit(request, submissionCallback)) {
             return;
         }
         recordFallback(request);
@@ -571,19 +586,36 @@ final class DesktopWindowTransitionController {
         final DesktopWindowTransitionRequest request =
                 DesktopWindowTransitionRequest.restoreFreeform(
                         mRuntimeState.displayId(), taskId, targetBounds);
-        if (submit(request)) {
-            callback.onComplete(new TaskRepository.ActionResult(true, ""));
-        } else if (task.isFreeform()) {
+        final TaskRepository.ActionCallback submissionCallback = result -> {
+            if (result.success) {
+                callback.onComplete(result);
+                return;
+            }
             recordFallback(request);
+            restoreThroughRepository(task, targetBounds, callback);
+        };
+        if (submit(request, submissionCallback)) {
+            return;
+        }
+        recordFallback(request);
+        restoreThroughRepository(task, targetBounds, callback);
+    }
+
+    private static void restoreThroughRepository(
+            final TaskRepository.TaskEntry task,
+            final Rect targetBounds,
+            final TaskRepository.ActionCallback callback) {
+        if (task.isFreeform()) {
             TaskRepository.rebuildFreeform(task, targetBounds, callback);
         } else {
-            recordFallback(request);
             TaskRepository.setFreeform(task, targetBounds, callback);
         }
     }
 
-    private boolean submit(final DesktopWindowTransitionRequest request) {
-        final boolean accepted = mGateway.submit(request);
+    private boolean submit(
+            final DesktopWindowTransitionRequest request,
+            final TaskRepository.ActionCallback callback) {
+        final boolean accepted = mGateway.submit(request, callback);
         DesktopWindowTransitionDiagnostics.recordSubmission(
                 request, accepted);
         return accepted;

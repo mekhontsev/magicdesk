@@ -409,6 +409,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mAppWindowStates.stop();
         mPhoneUiReconciler.reset();
         mDisplayTaskState.clear();
+        mTaskRuntimeStates.clear();
         mAutomationEvents.reset();
     }
 
@@ -467,13 +468,31 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         final int generation = mGeneration;
         mHandler.post(() -> {
-            final boolean success = mRunning && generation == mGeneration
-                    && mDisplayId == task.displayId
-                    && mTaskWatcherReady
-                    && closeDesktopTaskInternal(task.taskId);
-            if (success) {
-                scheduleRefresh(0);
-                completeActionCallback(callback, true, "");
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != task.displayId
+                    || !mTaskWatcherReady) {
+                TaskRepository.closeTask(task, callback);
+                return;
+            }
+            final boolean submitted = closeDesktopTaskInternal(
+                    task.taskId,
+                    result -> {
+                        if (!mRunning || generation != mGeneration
+                                || mDisplayId != task.displayId) {
+                            completeActionCallback(
+                                    callback,
+                                    false,
+                                    "desktop session changed");
+                            return;
+                        }
+                        if (result.success) {
+                            scheduleRefresh(0);
+                            completeActionCallback(callback, true, "");
+                            return;
+                        }
+                        TaskRepository.closeTask(task, callback);
+                    });
+            if (submitted) {
                 return;
             }
             // Returning true transfers the whole asynchronous close operation
@@ -553,7 +572,9 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         return true;
     }
 
-    private boolean closeDesktopTaskInternal(final int taskId) {
+    private boolean closeDesktopTaskInternal(
+            final int taskId,
+            final TaskRepository.ActionCallback callback) {
         if (!mRunning || !mTaskWatcherReady || taskId < 0) {
             return false;
         }
@@ -571,37 +592,52 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         // freeform task disappears on the phone display.
         DesktopRuntimeBridge.prepareTaskFocus(mDisplayId, focusTaskId);
         return mTaskWatcher.closeDesktopTask(
-                mDisplayId, taskId, focusTaskId);
+                mDisplayId, taskId, focusTaskId, callback);
     }
 
     private boolean submitWindowTransition(
-            final DesktopWindowTransitionRequest request) {
-        if (request == null || request.displayId != mDisplayId) {
+            final DesktopWindowTransitionRequest request,
+            final TaskRepository.ActionCallback callback) {
+        if (request == null || request.displayId != mDisplayId
+                || !mRunning || !mTaskWatcherReady) {
             return false;
         }
+        final int generation = mGeneration;
+        final int displayId = mDisplayId;
+        final TaskRepository.ActionCallback scopedCallback = result -> {
+            if (!mRunning || generation != mGeneration
+                    || displayId != mDisplayId) {
+                return;
+            }
+            completeActionCallback(
+                    callback, result.success, result.message);
+        };
         switch (request.operation) {
             case ENTER_FULLSCREEN:
-                return mTaskWatcherReady
-                        && mTaskWatcher.beginFullscreenTask(
-                                request.displayId, request.taskId);
+                return mTaskWatcher.beginFullscreenTask(
+                        request.displayId,
+                        request.taskId,
+                        scopedCallback);
             case ENTER_APP_FULLSCREEN:
-                return mTaskWatcherReady
-                        && mTaskWatcher.beginAppFullscreenTask(
-                                request.displayId,
-                                request.taskId,
-                                request.bounds());
+                return mTaskWatcher.beginAppFullscreenTask(
+                        request.displayId,
+                        request.taskId,
+                        request.bounds(),
+                        scopedCallback);
             case RESTORE_FREEFORM:
-                return mTaskWatcherReady
-                        && mTaskWatcher.restoreFullscreenTask(
-                                request.displayId,
-                                request.taskId,
-                                request.bounds());
+                return mTaskWatcher.restoreFullscreenTask(
+                        request.displayId,
+                        request.taskId,
+                        request.bounds(),
+                        scopedCallback);
             case CLOSE_FULLSCREEN:
-                return mTaskWatcherReady
-                        && mTaskWatcher.closeFullscreenTask(
-                                request.displayId, request.taskId);
+                return mTaskWatcher.closeFullscreenTask(
+                        request.displayId,
+                        request.taskId,
+                        scopedCallback);
             case CLOSE_FREEFORM:
-                return closeDesktopTaskInternal(request.taskId);
+                return closeDesktopTaskInternal(
+                        request.taskId, scopedCallback);
             default:
                 return false;
         }

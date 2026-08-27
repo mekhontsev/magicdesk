@@ -36,6 +36,10 @@ final class DesktopTaskRuntimeRegistry {
         }
     }
 
+    void clear() {
+        mStates.clear();
+    }
+
     List<DesktopTaskRuntimeState> snapshot() {
         return new ArrayList<>(mStates.values());
     }

@@ -325,49 +325,41 @@ final class DesktopTaskWatcher {
     boolean restoreFullscreenTask(
             final int displayId,
             final int taskId,
-            final Rect bounds) {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
-            return false;
-        }
-        try {
-            return handle.restoreFullscreenTask(displayId, taskId, bounds);
-        } catch (IOException error) {
-            Log.w(TAG, "failed to restore fullscreen task=" + taskId, error);
-            return false;
-        }
+            final Rect bounds,
+            final TaskRepository.ActionCallback callback) {
+        final Rect requestedBounds = bounds == null ? null : new Rect(bounds);
+        return submitTaskMutation(
+                "restore fullscreen task",
+                taskId,
+                handle -> handle.restoreFullscreenTask(
+                        displayId, taskId, requestedBounds),
+                callback);
     }
 
     boolean beginAppFullscreenTask(
             final int displayId,
             final int taskId,
-            final Rect restoreBounds) {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
-            return false;
-        }
-        try {
-            return handle.beginAppFullscreenTask(
-                    displayId, taskId, restoreBounds);
-        } catch (IOException error) {
-            Log.w(TAG, "failed to begin app fullscreen task=" + taskId, error);
-            return false;
-        }
+            final Rect restoreBounds,
+            final TaskRepository.ActionCallback callback) {
+        final Rect requestedRestoreBounds = restoreBounds == null
+                ? null : new Rect(restoreBounds);
+        return submitTaskMutation(
+                "begin app fullscreen task",
+                taskId,
+                handle -> handle.beginAppFullscreenTask(
+                        displayId, taskId, requestedRestoreBounds),
+                callback);
     }
 
     boolean beginFullscreenTask(
             final int displayId,
-            final int taskId) {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
-            return false;
-        }
-        try {
-            return handle.beginFullscreenTask(displayId, taskId);
-        } catch (IOException error) {
-            Log.w(TAG, "failed to begin fullscreen task=" + taskId, error);
-            return false;
-        }
+            final int taskId,
+            final TaskRepository.ActionCallback callback) {
+        return submitTaskMutation(
+                "begin fullscreen task",
+                taskId,
+                handle -> handle.beginFullscreenTask(displayId, taskId),
+                callback);
     }
 
     boolean protectExplicitFullscreenTask(
@@ -388,34 +380,84 @@ final class DesktopTaskWatcher {
 
     boolean closeFullscreenTask(
             final int displayId,
-            final int taskId) {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
-            return false;
-        }
-        try {
-            return handle.closeFullscreenTask(displayId, taskId);
-        } catch (IOException error) {
-            Log.w(TAG, "failed to close fullscreen task=" + taskId, error);
-            return false;
-        }
+            final int taskId,
+            final TaskRepository.ActionCallback callback) {
+        return submitTaskMutation(
+                "close fullscreen task",
+                taskId,
+                handle -> handle.closeFullscreenTask(displayId, taskId),
+                callback);
     }
 
     boolean closeDesktopTask(
             final int displayId,
             final int taskId,
-            final int focusTaskId) {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
-            return false;
+            final int focusTaskId,
+            final TaskRepository.ActionCallback callback) {
+        return submitTaskMutation(
+                "close desktop task",
+                taskId,
+                handle -> handle.closeDesktopTask(
+                        displayId, taskId, focusTaskId),
+                callback);
+    }
+
+    private boolean submitTaskMutation(
+            final String operation,
+            final int taskId,
+            final TaskMutation mutation,
+            final TaskRepository.ActionCallback callback) {
+        final ShellTaskObserverHandle handle;
+        final long lifecycleGeneration;
+        synchronized (this) {
+            handle = mHandle;
+            lifecycleGeneration = mLifecycleGeneration;
+            if (mDestroyed || handle == null) {
+                return false;
+            }
         }
         try {
-            return handle.closeDesktopTask(
-                    displayId, taskId, focusTaskId);
-        } catch (IOException error) {
-            Log.w(TAG, "failed to close desktop task=" + taskId, error);
+            mExecutor.execute(() -> {
+                synchronized (DesktopTaskWatcher.this) {
+                    if (mDestroyed
+                            || lifecycleGeneration != mLifecycleGeneration
+                            || handle != mHandle) {
+                        postMutationResult(
+                                callback, false, "task observer changed");
+                        return;
+                    }
+                }
+                boolean success = false;
+                String message = operation + " rejected";
+                try {
+                    success = mutation.apply(handle);
+                    if (success) {
+                        message = operation + " completed";
+                    }
+                } catch (IOException error) {
+                    message = ShellAccess.usefulMessage(error);
+                    Log.w(TAG, "failed to " + operation
+                            + " task=" + taskId, error);
+                }
+                postMutationResult(callback, success, message);
+            });
+            return true;
+        } catch (RejectedExecutionException error) {
+            Log.w(TAG, "task observer mutation executor stopped", error);
             return false;
         }
+    }
+
+    private void postMutationResult(
+            final TaskRepository.ActionCallback callback,
+            final boolean success,
+            final String message) {
+        mHandler.post(() -> completeFocusCallback(
+                callback, success, message));
+    }
+
+    private interface TaskMutation {
+        boolean apply(ShellTaskObserverHandle handle) throws IOException;
     }
 
     void removeDesktopPackageTasks(
