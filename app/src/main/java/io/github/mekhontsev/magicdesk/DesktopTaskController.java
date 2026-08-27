@@ -71,6 +71,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private volatile List<TaskRepository.TaskEntry> mLatestTasks =
             Collections.emptyList();
     private Set<Integer> mSessionOwnedTaskIds = Collections.emptySet();
+    private final Set<Integer> mTaskbarConcealedTaskIds =
+            new LinkedHashSet<>();
 
     DesktopTaskController(
             final Context context,
@@ -399,6 +401,9 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mFocusingTaskId = -1;
         mActiveTaskId = -1;
         mLatestTasks = Collections.emptyList();
+        synchronized (mTaskbarConcealedTaskIds) {
+            mTaskbarConcealedTaskIds.clear();
+        }
         clearSessionOwnership();
         mNativeWindowBounds.reset();
         mAppWindowStates.stop();
@@ -756,18 +761,104 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         focusThroughGateway(taskIds, focusedTaskId, null, callback);
     }
 
+    @Override
+    public void toggleTaskbarTask(
+            final int displayId,
+            final int taskId,
+            final TaskRepository.ActionCallback callback) {
+        if (displayId < 0 || taskId < 0) {
+            completeActionCallback(callback, false, "invalid task");
+            return;
+        }
+        final int generation = mGeneration;
+        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != displayId || !mTaskWatcherReady) {
+                completeActionCallback(
+                        callback, false, "desktop task runtime unavailable");
+                return;
+            }
+            if (!snapshot.available) {
+                completeActionCallback(callback, false, snapshot.error);
+                return;
+            }
+            final TaskRepository.TaskEntry task = findTask(
+                    snapshot.tasks, taskId);
+            if (task == null || !isFocusableTask(task)) {
+                completeActionCallback(callback, false, "task unavailable");
+                return;
+            }
+            if (!task.active || (!task.isFullscreen() && !task.isFreeform())) {
+                focusThroughGateway(
+                        Collections.singletonList(Integer.valueOf(taskId)),
+                        taskId,
+                        task,
+                        callback);
+                return;
+            }
+
+            final boolean alreadyConcealed;
+            final Set<Integer> concealedTaskIds;
+            synchronized (mTaskbarConcealedTaskIds) {
+                alreadyConcealed = !mTaskbarConcealedTaskIds.add(
+                        Integer.valueOf(taskId));
+                concealedTaskIds = new LinkedHashSet<>(
+                        mTaskbarConcealedTaskIds);
+            }
+            final List<Integer> focusOrder =
+                    TaskbarTaskOrder.concealActiveTask(
+                            snapshot,
+                            taskId,
+                            mDisplayTaskState.lastVisibleTasks(),
+                            concealedTaskIds);
+            if (focusOrder.size() < 2) {
+                if (!alreadyConcealed) {
+                    restoreTaskbarTask(taskId);
+                }
+                completeActionCallback(
+                        callback, false, "task stack unavailable");
+                return;
+            }
+            final int targetTaskId = focusOrder.get(
+                    focusOrder.size() - 1).intValue();
+            final TaskRepository.TaskEntry targetTask = findTask(
+                    snapshot.tasks, targetTaskId);
+            focusThroughGateway(
+                    focusOrder,
+                    targetTaskId,
+                    targetTask,
+                    result -> {
+                        if (!result.success && !alreadyConcealed) {
+                            restoreTaskbarTask(taskId);
+                        }
+                        completeActionCallback(
+                                callback, result.success, result.message);
+                    });
+        }));
+    }
+
     /** Common focus route for taskbar, Alt+Tab, overview, and automation. */
     private void focusThroughGateway(
             final List<Integer> requestedTaskIds,
             final int focusedTaskId,
             final TaskRepository.TaskEntry focusedTask,
             final TaskRepository.ActionCallback callback) {
+        final boolean restoredConcealedTask =
+                restoreTaskbarTask(focusedTaskId);
         final List<Integer> preparedTaskIds = prepareFocusTaskIds(
                 requestedTaskIds, focusedTaskId, focusedTask);
         sendFocusTasks(
                 mDisplayId,
                 preparedTaskIds,
-                beginFocusTracking(focusedTaskId, callback));
+                beginFocusTracking(
+                        focusedTaskId,
+                        result -> {
+                            if (!result.success && restoredConcealedTask) {
+                                concealTaskbarTask(focusedTaskId);
+                            }
+                            completeActionCallback(
+                                    callback, result.success, result.message);
+                        }));
     }
 
     private List<Integer> prepareFocusTaskIds(
@@ -1378,6 +1469,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         mLatestTasks = Collections.unmodifiableList(
                 new ArrayList<>(snapshot.tasks));
+        reconcileTaskbarConcealment(snapshot.tasks);
         if (mSnapshotListener != null) {
             mSnapshotListener.onSnapshot(
                     mDisplayId,
@@ -1436,6 +1528,39 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 snapshot.tasks,
                 visibleTasks,
                 focusingTaskId >= 0);
+    }
+
+    private void reconcileTaskbarConcealment(
+            final List<TaskRepository.TaskEntry> tasks) {
+        final Set<Integer> liveTaskIds = new HashSet<>();
+        final Set<Integer> externallyFocusedTaskIds = new HashSet<>();
+        if (tasks != null) {
+            for (final TaskRepository.TaskEntry task : tasks) {
+                if (task == null || task.displayId != mDisplayId) {
+                    continue;
+                }
+                liveTaskIds.add(Integer.valueOf(task.taskId));
+                if (task.active && mFocusingTaskId < 0) {
+                    externallyFocusedTaskIds.add(Integer.valueOf(task.taskId));
+                }
+            }
+        }
+        synchronized (mTaskbarConcealedTaskIds) {
+            mTaskbarConcealedTaskIds.retainAll(liveTaskIds);
+            mTaskbarConcealedTaskIds.removeAll(externallyFocusedTaskIds);
+        }
+    }
+
+    private boolean concealTaskbarTask(final int taskId) {
+        synchronized (mTaskbarConcealedTaskIds) {
+            return mTaskbarConcealedTaskIds.add(Integer.valueOf(taskId));
+        }
+    }
+
+    private boolean restoreTaskbarTask(final int taskId) {
+        synchronized (mTaskbarConcealedTaskIds) {
+            return mTaskbarConcealedTaskIds.remove(Integer.valueOf(taskId));
+        }
     }
 
     private void clearSessionOwnership() {

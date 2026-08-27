@@ -538,6 +538,18 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void toggleTaskbarTask(
+            final int displayId,
+            final int taskId,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            completeTaskAction(callback, false, "desktop task runtime unavailable");
+            return;
+        }
+        tasks.toggleTaskbarTask(displayId, taskId, callback);
+    }
+
     static boolean handleActiveTaskShortcut(final int shortcut) {
         final DesktopTaskRuntime tasks = desktopTasks();
         return tasks != null && tasks.handleActiveTaskShortcut(shortcut);

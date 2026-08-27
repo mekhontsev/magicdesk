@@ -6,6 +6,7 @@ import android.graphics.Rect;
 import android.os.SystemClock;
 
 import java.io.IOException;
+import java.util.List;
 
 /** Shared task-stack queries used by self-test suites and cleanup. */
 final class DesktopSelfTestTasks {
@@ -134,6 +135,57 @@ final class DesktopSelfTestTasks {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException(
                 "desktop host returned without a visible taskbar");
+    }
+
+    static String waitForDesktopHostAboveTasks(
+            final int displayId,
+            final int hostTaskId,
+            final int... lowerTaskIds) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        String lastOrder = "unavailable";
+        do {
+            final List<TaskStackParser.Entry> tasks = TaskStackParser.parse(
+                    ShellAccess.run("/system/bin/cmd activity stack list"));
+            final int hostIndex = indexOfTask(
+                    tasks, displayId, hostTaskId);
+            boolean ordered = hostIndex >= 0 && tasks.get(hostIndex).visible;
+            final StringBuilder order = new StringBuilder()
+                    .append("host=").append(hostTaskId)
+                    .append('@').append(hostIndex);
+            if (lowerTaskIds != null) {
+                for (final int lowerTaskId : lowerTaskIds) {
+                    final int lowerIndex = indexOfTask(
+                            tasks, displayId, lowerTaskId);
+                    order.append(", task=").append(lowerTaskId)
+                            .append('@').append(lowerIndex);
+                    ordered &= lowerIndex > hostIndex;
+                }
+            }
+            lastOrder = order.toString();
+            if (ordered
+                    && DesktopRuntimeBridge.isDesktopReadyOnDisplay(displayId)
+                    && DesktopRuntimeBridge.isTaskbarVisibleOnDisplay(
+                            displayId)) {
+                return lastOrder + ", taskbar=visible";
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("desktop host did not settle above concealed "
+                + "tasks on display " + displayId + "; " + lastOrder);
+    }
+
+    private static int indexOfTask(
+            final List<TaskStackParser.Entry> tasks,
+            final int displayId,
+            final int taskId) {
+        for (int index = 0; index < tasks.size(); index++) {
+            final TaskStackParser.Entry task = tasks.get(index);
+            if (task.displayId == displayId && task.taskId == taskId) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     static void sendSystemBack(final int displayId) throws IOException {

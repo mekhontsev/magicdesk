@@ -5,20 +5,16 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Builds activate/demote z-orders without changing task window state.
- *
- * <p>Demotion rotates the active task behind its next MRU peer. It never
- * minimizes, hides, reparents, resizes, or changes the mode of that task.</p>
- */
+/** Builds taskbar concealment z-orders without changing task window state. */
 final class TaskbarTaskOrder {
     private TaskbarTaskOrder() {
     }
 
-    static List<Integer> demoteActiveTask(
+    static List<Integer> concealActiveTask(
             final TaskRepository.Snapshot snapshot,
             final int activeTaskId,
-            final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst) {
+            final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
+            final Set<Integer> concealedTaskIds) {
         final List<Integer> order = new ArrayList<>();
         if (snapshot == null || !snapshot.available || activeTaskId < 0) {
             return order;
@@ -35,43 +31,54 @@ final class TaskbarTaskOrder {
             return order;
         }
 
-        final List<TaskRepository.TaskEntry> nextTasksTopFirst =
-                resolveNextTasks(
+        final Set<Integer> concealed = new HashSet<>();
+        if (concealedTaskIds != null) {
+            concealed.addAll(concealedTaskIds);
+        }
+        concealed.add(Integer.valueOf(activeTaskId));
+        final List<TaskRepository.TaskEntry> visibleTasksTopFirst =
+                resolveVisibleTasks(
                         snapshot.tasks,
                         savedWorkspaceTopFirst,
-                        activeTask);
+                        activeTask,
+                        concealed);
         final Set<Integer> includedTaskIds = new HashSet<>();
-        if (nextTasksTopFirst.isEmpty()) {
-            // With no peer, bringing the desktop host forward is the same
-            // z-order operation: the application remains live beneath it.
-            addTask(order, includedTaskIds, activeTask.taskId);
-            addTask(order, includedTaskIds, desktopHost.taskId);
-            return order;
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (task != null && task.displayId == activeTask.displayId
+                    && concealed.contains(Integer.valueOf(task.taskId))) {
+                addTask(order, includedTaskIds, task.taskId);
+            }
         }
-
-        // focusDesktopTasks consumes a bottom-first order. Keep the desktop
-        // below the demoted task, preserve every peer's relative order, and
-        // activate the task that was immediately behind the old foreground.
         addTask(order, includedTaskIds, desktopHost.taskId);
-        addTask(order, includedTaskIds, activeTask.taskId);
-        for (int index = nextTasksTopFirst.size() - 1; index >= 0; index--) {
+        for (int index = visibleTasksTopFirst.size() - 1;
+                index >= 0;
+                index--) {
             addTask(
                     order,
                     includedTaskIds,
-                    nextTasksTopFirst.get(index).taskId);
+                    visibleTasksTopFirst.get(index).taskId);
         }
         return order;
     }
 
-    private static List<TaskRepository.TaskEntry> resolveNextTasks(
+    private static List<TaskRepository.TaskEntry> resolveVisibleTasks(
             final List<TaskRepository.TaskEntry> liveTasks,
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
-            final TaskRepository.TaskEntry activeTask) {
+            final TaskRepository.TaskEntry activeTask,
+            final Set<Integer> concealedTaskIds) {
         final List<TaskRepository.TaskEntry> tasks = new ArrayList<>();
         final Set<Integer> includedTaskIds = new HashSet<>();
         if (liveTasks != null) {
             for (final TaskRepository.TaskEntry liveTask : liveTasks) {
-                addPeerTask(tasks, includedTaskIds, liveTask, activeTask);
+                if (DesktopTaskController.isDesktopHostTask(liveTask)) {
+                    break;
+                }
+                addVisibleTask(
+                        tasks,
+                        includedTaskIds,
+                        liveTask,
+                        activeTask,
+                        concealedTaskIds);
             }
         }
         // A saved workspace can contain live freeform roots that a vendor dump
@@ -81,19 +88,26 @@ final class TaskbarTaskOrder {
                     : savedWorkspaceTopFirst) {
                 final TaskRepository.TaskEntry liveTask = savedTask == null
                         ? null : findTask(liveTasks, savedTask.taskId);
-                addPeerTask(tasks, includedTaskIds, liveTask, activeTask);
+                addVisibleTask(
+                        tasks,
+                        includedTaskIds,
+                        liveTask,
+                        activeTask,
+                        concealedTaskIds);
             }
         }
         return tasks;
     }
 
-    private static void addPeerTask(
+    private static void addVisibleTask(
             final List<TaskRepository.TaskEntry> tasks,
             final Set<Integer> includedTaskIds,
             final TaskRepository.TaskEntry task,
-            final TaskRepository.TaskEntry activeTask) {
+            final TaskRepository.TaskEntry activeTask,
+            final Set<Integer> concealedTaskIds) {
         if (task == null || task.taskId == activeTask.taskId
                 || task.displayId != activeTask.displayId
+                || concealedTaskIds.contains(Integer.valueOf(task.taskId))
                 || !DesktopManagedTaskPolicy
                         .isControllableApplicationTask(task)
                 || !includedTaskIds.add(Integer.valueOf(task.taskId))) {

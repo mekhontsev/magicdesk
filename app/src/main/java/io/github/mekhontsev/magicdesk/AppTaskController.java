@@ -725,75 +725,15 @@ final class AppTaskController {
             return;
         }
         final int displayId = mActivity.getCurrentDisplayId();
-        final List<TaskRepository.TaskEntry> savedWorkspace =
-                MagicDeskRuntime.getLastVisibleFreeformTasks(displayId);
-        TaskRepository.load(displayId, snapshot ->
-                mActivity.runOnUiThread(() -> toggleTaskbarTask(
-                        app, task.taskId, displayId, savedWorkspace, snapshot)));
-    }
-
-    private void toggleTaskbarTask(
-            final AppItem app,
-            final int taskId,
-            final int displayId,
-            final List<TaskRepository.TaskEntry> savedWorkspace,
-            final TaskRepository.Snapshot snapshot) {
-        if (mActivity.isActivityUnavailable()
-                || displayId != mActivity.getCurrentDisplayId()) {
-            return;
-        }
-        if (!snapshot.available) {
-            showTaskbarActionFailure(app, snapshot.error);
-            return;
-        }
-        mActivity.setTaskSnapshot(snapshot);
-        final TaskRepository.TaskEntry currentTask =
-                DesktopShellActivity.findTask(snapshot, taskId);
-        if (currentTask == null) {
-            showTaskbarActionFailure(app, "task unavailable");
-            return;
-        }
-        if (!currentTask.active) {
-            focusTask(app, currentTask);
-            return;
-        }
-        if (!currentTask.isFullscreen() && !currentTask.isFreeform()) {
-            focusTask(app, currentTask);
-            return;
-        }
-        demoteTaskbarTask(
-                app, currentTask, displayId, savedWorkspace, snapshot);
-    }
-
-    private void demoteTaskbarTask(
-            final AppItem app,
-            final TaskRepository.TaskEntry task,
-            final int displayId,
-            final List<TaskRepository.TaskEntry> savedWorkspace,
-            final TaskRepository.Snapshot snapshot) {
-        final List<Integer> focusOrder =
-                TaskbarTaskOrder.demoteActiveTask(
-                        snapshot, task.taskId, savedWorkspace);
-        if (focusOrder.size() < 2) {
-            showTaskbarActionFailure(app, "task stack unavailable");
-            return;
-        }
-        final TaskRepository.TaskEntry target =
-                DesktopShellActivity.findTask(
-                        snapshot,
-                        focusOrder.get(focusOrder.size() - 1).intValue());
-        MagicDeskRuntime.focusDesktopTasks(
+        MagicDeskRuntime.toggleTaskbarTask(
                 displayId,
-                focusOrder,
+                task.taskId,
                 result -> mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {
                         return;
                     }
                     if (!result.success) {
                         showTaskbarActionFailure(app, result.message);
-                    } else {
-                        mActivity.setTaskbarVisible(
-                                target == null || !target.isFullscreen());
                     }
                     mActivity.refreshTaskSnapshot();
                 }));

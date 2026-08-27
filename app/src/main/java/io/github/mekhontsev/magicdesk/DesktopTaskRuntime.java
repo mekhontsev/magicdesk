@@ -66,6 +66,11 @@ interface DesktopTaskRuntime {
             List<Integer> taskIds,
             TaskRepository.ActionCallback callback);
 
+    void toggleTaskbarTask(
+            int displayId,
+            int taskId,
+            TaskRepository.ActionCallback callback);
+
     boolean handleActiveTaskShortcut(int shortcut);
 
     boolean arrangeTask(int taskId, int shortcut);

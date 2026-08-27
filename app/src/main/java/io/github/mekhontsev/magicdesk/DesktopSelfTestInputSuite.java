@@ -431,7 +431,6 @@ final class DesktopSelfTestInputSuite {
                 () -> focusFieldThroughMouse(
                         context, displayId, secondTaskId,
                         secondToken, rightBounds, "5"));
-
         runNativeCaptionPlacementFocusTests(
                 context,
                 result,
@@ -798,6 +797,8 @@ final class DesktopSelfTestInputSuite {
                         secondToken,
                         firstTaskId,
                         "3"));
+        runFullscreenTaskbarConcealmentTests(
+                result, displayId, firstTaskId, secondTaskId);
         runFullscreenTaskAreaLifecycleTests(
                 context,
                 result,
@@ -807,6 +808,60 @@ final class DesktopSelfTestInputSuite {
                 secondTaskId,
                 secondToken,
                 geometry);
+    }
+
+    private static void runFullscreenTaskbarConcealmentTests(
+            final DesktopSelfTestResult result,
+            final int displayId,
+            final int firstTaskId,
+            final int secondTaskId) {
+        check(result,
+                "FULLSCREEN-TASKBAR-002",
+                "Conceal the active fullscreen task behind its peer",
+                () -> {
+                    toggleTaskbarTaskThroughDesktop(displayId, secondTaskId);
+                    waitForFrontTask(displayId, firstTaskId);
+                    waitForTaskInputFocus(displayId, firstTaskId);
+                    return inspectFullscreenPair(
+                            displayId, firstTaskId, secondTaskId);
+                });
+        check(result,
+                "FULLSCREEN-TASKBAR-003",
+                "Conceal the remaining fullscreen task to the desktop",
+                () -> {
+                    toggleTaskbarTaskThroughDesktop(displayId, firstTaskId);
+                    final DesktopSessionSnapshot session =
+                            DesktopRuntimeBridge.getSessionSnapshot();
+                    if (session.activeDisplayId() != displayId
+                            || session.hostTaskId() < 0) {
+                        throw new IOException("desktop host is unavailable");
+                    }
+                    final String desktop =
+                            DesktopSelfTestTasks.waitForDesktopHostAboveTasks(
+                                    displayId,
+                                    session.hostTaskId(),
+                                    firstTaskId,
+                                    secondTaskId);
+                    waitForTaskInputFocus(
+                            displayId, session.hostTaskId());
+                    inspectFullscreenModes(
+                            displayId,
+                            firstTaskId,
+                            secondTaskId,
+                            "after taskbar concealment");
+                    return desktop + ", concealed="
+                            + firstTaskId + ',' + secondTaskId;
+                });
+        check(result,
+                "FULLSCREEN-TASKBAR-004",
+                "Restore a concealed fullscreen task explicitly",
+                () -> {
+                    focusTaskThroughDesktop(displayId, secondTaskId);
+                    waitForFrontTask(displayId, secondTaskId);
+                    waitForTaskInputFocus(displayId, secondTaskId);
+                    return inspectFullscreenPair(
+                            displayId, secondTaskId, firstTaskId);
+                });
     }
 
     static void runMixedFullscreenFreeformTest(
@@ -1329,7 +1384,7 @@ final class DesktopSelfTestInputSuite {
         }
     }
 
-    private static String demoteFullscreenBehindWorkspace(
+    private static String concealFullscreenBehindWorkspace(
             final Context context,
             final int displayId,
             final int fullscreenTaskId,
@@ -1346,21 +1401,10 @@ final class DesktopSelfTestInputSuite {
                     "taskbar fullscreen task is not active: task="
                             + fullscreenTaskId);
         }
-        final List<Integer> focusOrder =
-                TaskbarTaskOrder.demoteActiveTask(
-                        snapshot,
-                        fullscreenTaskId,
-                        MagicDeskRuntime.getLastVisibleFreeformTasks(
-                                displayId));
-        if (focusOrder.size() < 3
-                || !focusOrder.contains(Integer.valueOf(windowedTaskId))) {
-            throw new IOException(
-                    "saved freeform workspace is incomplete: " + focusOrder);
-        }
         final DesktopSelfTestTaskHierarchy.Snapshot before =
                 DesktopSelfTestTaskHierarchy.inspect(
                         displayId, fullscreenTaskId);
-        focusTasksThroughDesktop(displayId, focusOrder);
+        toggleTaskbarTaskThroughDesktop(displayId, fullscreenTaskId);
 
         waitForFrontTask(displayId, windowedTaskId);
         waitForTaskInputFocus(displayId, windowedTaskId);
@@ -1387,8 +1431,7 @@ final class DesktopSelfTestInputSuite {
         return "demoted=" + demoted.taskId + "/fullscreen/feature="
                 + demoted.featureId
                 + "/plane-local-focus=" + demoted.focused
-                + ", workspace=" + workspace.taskId + "/freeform"
-                + ", order=" + focusOrder;
+                + ", workspace=" + workspace.taskId + "/freeform";
     }
 
     private static void runFullscreenTaskbarTest(
@@ -1400,7 +1443,7 @@ final class DesktopSelfTestInputSuite {
             final String windowedToken) {
         check(result,
                 "FULLSCREEN-TASKBAR-001",
-                "Demote fullscreen behind the saved window workspace",
+                "Conceal fullscreen behind the saved window workspace",
                 () -> {
                     final TaskStackParser.Entry initial = waitForTask(
                             displayId,
@@ -1421,7 +1464,7 @@ final class DesktopSelfTestInputSuite {
                                 displayId, fullscreenTaskId);
                         DesktopSelfTestHostObserver.stage(
                                 "FULLSCREEN-TASKBAR-001-CONCEAL");
-                        return demoteFullscreenBehindWorkspace(
+                        return concealFullscreenBehindWorkspace(
                                 context,
                                 displayId,
                                 fullscreenTaskId,
@@ -1573,6 +1616,34 @@ final class DesktopSelfTestInputSuite {
         if (!success.get()) {
             throw new IOException(
                     "desktop task focus failed: " + message);
+        }
+    }
+
+    private static void toggleTaskbarTaskThroughDesktop(
+            final int displayId,
+            final int taskId) throws IOException {
+        final CountDownLatch complete = new CountDownLatch(1);
+        final AtomicBoolean success = new AtomicBoolean();
+        final StringBuilder message = new StringBuilder();
+        MagicDeskRuntime.toggleTaskbarTask(
+                displayId,
+                taskId,
+                action -> {
+                    success.set(action.success);
+                    message.append(action.message);
+                    complete.countDown();
+                });
+        try {
+            if (!complete.await(
+                    STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                throw new IOException("taskbar task toggle timed out");
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("taskbar task toggle interrupted", error);
+        }
+        if (!success.get()) {
+            throw new IOException("taskbar task toggle failed: " + message);
         }
     }
 

@@ -9,11 +9,13 @@ import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public final class TaskbarTaskOrderTest {
     @Test
-    public void demotesFullscreenBehindCompleteWorkspaceButAboveHost() {
+    public void concealsFullscreenBelowHostAndRestoresCompleteWorkspace() {
         final TaskRepository.TaskEntry fullscreen = task(
                 10, "com.example.fullscreen", "fullscreen", false, true);
         final TaskRepository.TaskEntry topWindow = task(
@@ -25,11 +27,12 @@ public final class TaskbarTaskOrderTest {
                 fullscreen, topWindow, lowerWindow, host);
 
         assertEquals(
-                Arrays.asList(99, 10, 12, 11),
-                TaskbarTaskOrder.demoteActiveTask(
+                Arrays.asList(10, 99, 12, 11),
+                TaskbarTaskOrder.concealActiveTask(
                         snapshot,
                         fullscreen.taskId,
-                        Arrays.asList(topWindow, lowerWindow)));
+                        Arrays.asList(topWindow, lowerWindow),
+                        ids(10)));
     }
 
     @Test
@@ -43,11 +46,12 @@ public final class TaskbarTaskOrderTest {
         final TaskRepository.TaskEntry host = host(99);
 
         assertEquals(
-                Arrays.asList(99, 10, 11),
-                TaskbarTaskOrder.demoteActiveTask(
+                Arrays.asList(10, 99, 11),
+                TaskbarTaskOrder.concealActiveTask(
                         snapshot(fullscreen, topWindow, host),
                         fullscreen.taskId,
-                        Arrays.asList(topWindow, closedWindow)));
+                        Arrays.asList(topWindow, closedWindow),
+                        ids(10)));
     }
 
     @Test
@@ -60,11 +64,12 @@ public final class TaskbarTaskOrderTest {
                 12, "com.example.lower", "freeform", true, false);
 
         assertEquals(
-                Arrays.asList(99, 10, 12, 11),
-                TaskbarTaskOrder.demoteActiveTask(
+                Arrays.asList(10, 99, 12, 11),
+                TaskbarTaskOrder.concealActiveTask(
                         snapshot(fullscreen, topWindow, lowerWindow, host(99)),
                         fullscreen.taskId,
-                        Collections.emptyList()));
+                        Collections.emptyList(),
+                        ids(10)));
     }
 
     @Test
@@ -72,14 +77,15 @@ public final class TaskbarTaskOrderTest {
         final TaskRepository.TaskEntry fullscreen = task(
                 10, "com.example.fullscreen", "fullscreen", true, true);
 
-        assertTrue(TaskbarTaskOrder.demoteActiveTask(
+        assertTrue(TaskbarTaskOrder.concealActiveTask(
                 snapshot(fullscreen),
                 fullscreen.taskId,
-                Collections.emptyList()).isEmpty());
+                Collections.emptyList(),
+                ids(10)).isEmpty());
     }
 
     @Test
-    public void cyclesToFullscreenPeerWithoutChangingEitherMode() {
+    public void revealsFullscreenPeerWithoutChangingEitherMode() {
         final TaskRepository.TaskEntry active = task(
                 10, "com.example.first", "fullscreen", true, true);
         final TaskRepository.TaskEntry peer = task(
@@ -88,24 +94,46 @@ public final class TaskbarTaskOrderTest {
                 12, "com.example.window", "freeform", false, false);
 
         assertEquals(
-                Arrays.asList(99, 10, 12, 11),
-                TaskbarTaskOrder.demoteActiveTask(
+                Arrays.asList(10, 99, 12, 11),
+                TaskbarTaskOrder.concealActiveTask(
                         snapshot(active, peer, window, host(99)),
                         active.taskId,
-                        Collections.emptyList()));
+                        Collections.emptyList(),
+                        ids(10)));
     }
 
     @Test
-    public void demotesOnlyTaskBehindDesktopWithoutHidingIt() {
+    public void concealsOnlyTaskBehindDesktop() {
         final TaskRepository.TaskEntry active = task(
                 10, "com.example.only", "freeform", true, true);
 
         assertEquals(
                 Arrays.asList(10, 99),
-                TaskbarTaskOrder.demoteActiveTask(
+                TaskbarTaskOrder.concealActiveTask(
                         snapshot(active, host(99)),
                         active.taskId,
-                        Collections.emptyList()));
+                        Collections.emptyList(),
+                        ids(10)));
+    }
+
+    @Test
+    public void secondFullscreenConcealmentRevealsDesktopNotFirstTask() {
+        final TaskRepository.TaskEntry first = task(
+                10, "com.example.first", "fullscreen", false, false);
+        final TaskRepository.TaskEntry activeSecond = task(
+                11, "com.example.second", "fullscreen", true, true);
+
+        assertEquals(
+                Arrays.asList(11, 10, 99),
+                TaskbarTaskOrder.concealActiveTask(
+                        snapshot(activeSecond, first, host(99)),
+                        activeSecond.taskId,
+                        Collections.emptyList(),
+                        ids(10, 11)));
+    }
+
+    private static Set<Integer> ids(final Integer... taskIds) {
+        return new HashSet<>(Arrays.asList(taskIds));
     }
 
     private static TaskRepository.Snapshot snapshot(
