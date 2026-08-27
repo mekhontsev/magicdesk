@@ -407,6 +407,9 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 Class.forName("android.window.WindowContainerTransaction");
         final Object transaction =
                 transactionClass.getConstructor().newInstance();
+        final boolean launchEnteringTask = forceEnteringFullscreen
+                && acquiredPlanes.containsKey(
+                        Integer.valueOf(enteringTaskId));
         try {
             for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
                     : acquiredPlanes.entrySet()) {
@@ -423,6 +426,10 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                                 transaction,
                                 planeToken,
                                 Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+                if (launchEnteringTask
+                        && entry.getKey().intValue() == enteringTaskId) {
+                    continue;
+                }
                 final Object taskToken = HiddenTaskApi.requireTaskToken(
                         service, displayId, entry.getKey().intValue());
                 transactionClass.getMethod(
@@ -433,7 +440,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                                 planeToken,
                                 Boolean.TRUE);
             }
-            if (forceEnteringFullscreen) {
+            if (forceEnteringFullscreen && !launchEnteringTask) {
                 final Object taskToken = HiddenTaskApi.requireTaskToken(
                         service, displayId, enteringTaskId);
                 transactionClass.getMethod(
@@ -475,13 +482,11 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     tokenClass,
                     effectivePlanes,
                     mReleaseParentToken);
-            if (forceEnteringFullscreen) {
-                final Object enteringTaskToken =
-                        HiddenTaskApi.requireTaskToken(
-                                service, displayId, enteringTaskId);
+            if (forceEnteringFullscreen && !launchEnteringTask) {
+                final Object enteringTaskToken = HiddenTaskApi.requireTaskToken(
+                        service, displayId, enteringTaskId);
                 // Select the application after its plane is raised. Doing this
-                // earlier lets the plane's structural anchor retain focus when
-                // the transaction is finally applied by WMShell.
+                // earlier lets the plane's structural anchor retain focus.
                 transactionClass.getMethod(
                         "reorder",
                         tokenClass,
@@ -492,16 +497,35 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                                 enteringTaskToken,
                                 Boolean.TRUE,
                                 Boolean.TRUE);
-                ShellWindowTransitionExecutor.playSystemTransition(
+            }
+            // Applying the hierarchy directly avoids creating a transition
+            // token unknown to WMShell, which could outlive a removed display.
+            ShellWindowTransitionExecutor.applyAtomic(
+                    service, transactionClass, transaction);
+            applySurfaceOrder(stableOrder, effectivePlanes);
+            if (launchEnteringTask) {
+                final TaskDisplayAreaHandle enteringPlane = acquiredPlanes.get(
+                        Integer.valueOf(enteringTaskId));
+                // Nubia does not resize an organized task's surface for a
+                // direct WCT. ActivityTaskManager owns this user-equivalent
+                // focus transition, so WMShell receives the task leash and
+                // commits fullscreen geometry without restarting the Activity.
+                TaskDisplayAreaLaunchCommand.moveExistingTaskAsFullscreen(
+                        service,
                         displayId,
-                        ShellWindowTransitionExecutor.SystemTransition.CHANGE,
-                        transactionClass,
-                        transaction,
-                        "enter-fullscreen-plane");
-            } else {
-                ShellWindowTransitionExecutor.applyAtomic(
-                        service, transactionClass, transaction);
-                applySurfaceOrder(stableOrder, effectivePlanes);
+                        enteringTaskId,
+                        tokenClass,
+                        enteringPlane.token());
+                TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
+                        service,
+                        displayId,
+                        enteringTaskId,
+                        WINDOWING_MODE_FULLSCREEN);
+                waitForTaskInsidePlane(
+                        service,
+                        displayId,
+                        enteringTaskId,
+                        enteringPlane.featureId());
             }
             mPlanes.putAll(acquiredPlanes);
             mPlaneOrder.clear();

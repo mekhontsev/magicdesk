@@ -63,11 +63,20 @@ in
 ## Window transition ownership target
 
 Shell-side WCT submission and raw opening transition tokens have one owner.
-Ordinary focus, reorder, windowing, bounds, and parent changes use an atomic WCT
-without `startNewTransition`. A launch that must append its early freeform WCT
-to the system opening transition retains the token until that continuation is
-accepted. WMShell owns visual playback and completion; MagicDesk must not call
-`finishTransition` merely because task mode already changed.
+Ordinary focus and reorder changes use an atomic WCT without
+`startNewTransition`. A live task entering an independent fullscreen plane is
+a surface-producing boundary: MagicDesk first prepares the plane order, then
+uses ActivityTaskManager's `moveTaskToFront` with fullscreen launch options and
+the target task display area. Android creates the recognized transition and
+WMShell receives the task leash; the Activity instance is preserved. This is
+required on Nubia firmware, where a direct WCT updates an organized task's
+logical fullscreen bounds but deliberately leaves its old freeform surface
+crop in place.
+
+A launch that must append its early freeform WCT to the system opening
+transition retains the token until that continuation is accepted. WMShell owns
+visual playback and completion; MagicDesk must not call `finishTransition`
+merely because task mode already changed.
 
 A synchronously hidden prepared task is revealed through a system-played
 transition rather than a plain WCT. This is a surface-producing boundary:

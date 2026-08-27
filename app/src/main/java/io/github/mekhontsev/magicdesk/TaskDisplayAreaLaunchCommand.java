@@ -22,7 +22,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
 
-/** Launches or moves a task directly into its requested freeform state. */
+/** Launches or moves a live task into its requested desktop hierarchy. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskDisplayAreaLaunchCommand {
     interface TransitionStartedCallback {
@@ -806,16 +806,94 @@ public final class TaskDisplayAreaLaunchCommand {
             throw new IllegalArgumentException(
                     "invalid existing task freeform restart");
         }
-        HiddenTaskApi.requireTask(service, displayId, taskId);
+        final ActivityOptions options = existingTaskOptions(
+                displayId,
+                WINDOWING_MODE_FREEFORM,
+                bounds,
+                null,
+                null);
+        restartExistingTask(service, displayId, taskId, options);
+    }
+
+    /** Moves a live task into an organizer area through Android task focus. */
+    static void moveExistingTaskAsFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Class<?> containerTokenClass,
+            final Object areaToken) throws ReflectiveOperationException {
+        if (service == null || displayId < 0 || taskId < 0
+                || containerTokenClass == null || areaToken == null) {
+            throw new IllegalArgumentException(
+                    "invalid existing task fullscreen move");
+        }
+        final Object task = HiddenTaskApi.requireTask(
+                service, displayId, taskId);
+        final Object windowConfiguration =
+                HiddenTaskApi.getWindowConfiguration(task);
+        final Rect fullscreenBounds = new Rect(
+                (Rect) windowConfiguration.getClass()
+                        .getMethod("getMaxBounds")
+                        .invoke(windowConfiguration));
+        if (fullscreenBounds.isEmpty()) {
+            throw new IllegalStateException(
+                    "fullscreen task max bounds are unavailable");
+        }
+        final ActivityOptions options = existingTaskOptions(
+                displayId,
+                WINDOWING_MODE_FULLSCREEN,
+                fullscreenBounds,
+                containerTokenClass,
+                areaToken);
+        final Class<?> applicationThreadClass =
+                Class.forName("android.app.IApplicationThread");
+        service.getClass().getMethod(
+                "moveTaskToFront",
+                applicationThreadClass,
+                String.class,
+                Integer.TYPE,
+                Integer.TYPE,
+                Bundle.class)
+                .invoke(
+                        service,
+                        null,
+                        "com.android.shell",
+                        Integer.valueOf(taskId),
+                        Integer.valueOf(0),
+                        options.toBundle());
+    }
+
+    private static ActivityOptions existingTaskOptions(
+            final int displayId,
+            final int windowingMode,
+            final Rect bounds,
+            final Class<?> containerTokenClass,
+            final Object areaToken) throws ReflectiveOperationException {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
-        options.setLaunchBounds(new Rect(bounds));
+        if (bounds != null) {
+            options.setLaunchBounds(new Rect(bounds));
+        }
+        if (areaToken != null) {
+            ActivityOptions.class.getMethod(
+                    "setLaunchTaskDisplayArea", containerTokenClass)
+                    .invoke(options, areaToken);
+        }
         ActivityOptions.class.getMethod(
                 "setLaunchWindowingMode", Integer.TYPE)
-                .invoke(options, Integer.valueOf(WINDOWING_MODE_FREEFORM));
+                .invoke(options, Integer.valueOf(windowingMode));
         ActivityOptions.class.getMethod(
                 "setFlexibleLaunchSize", Boolean.TYPE)
                 .invoke(options, Boolean.TRUE);
+        return options;
+    }
+
+    private static void restartExistingTask(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final ActivityOptions options) throws ReflectiveOperationException {
+        HiddenTaskApi.requireTask(service, displayId, taskId);
         final Object result = service.getClass().getMethod(
                 "startActivityFromRecents", Integer.TYPE, Bundle.class)
                 .invoke(
@@ -825,7 +903,7 @@ public final class TaskDisplayAreaLaunchCommand {
         if (!(result instanceof Integer)
                 || ((Integer) result).intValue() < 0) {
             throw new IllegalStateException(
-                    "existing task freeform restart failed: " + result);
+                    "existing task restart failed: " + result);
         }
     }
 
