@@ -663,6 +663,8 @@
     <string name="console_clear">Clear</string>
     <string name="console_copy_output">Copy transcript</string>
     <string name="console_paste">Paste</string>
+    <string name="console_hide_toolbar">Hide toolbar</string>
+    <string name="console_show_toolbar">Show toolbar</string>
     <string name="console_terminal_starting">Starting terminal&#8230;</string>
     <string name="console_terminal_ready">Interactive PTY</string>
     <string name="console_shell_termux">Termux</string>

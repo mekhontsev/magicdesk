@@ -15,8 +15,10 @@ import android.view.Display;
 import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -46,8 +48,11 @@ public final class CommandConsoleActivity extends Activity
     private static final int COLOR_AMBER = 0xFFF59E0B;
 
     private ConsoleTerminalView mTerminalView;
+    private FrameLayout mTerminalContainer;
     private ConsoleTerminalSession mSession;
     private TextView mShellStatus;
+    private LinearLayout mToolbar;
+    private ImageButton mShowToolbar;
     private ImageButton mClear;
     private ImageButton mCopy;
     private ImageButton mPaste;
@@ -58,6 +63,7 @@ public final class CommandConsoleActivity extends Activity
     private String mTerminalRegistryId = "";
     private boolean mTerminalFailed;
     private boolean mPermissionRequested;
+    private boolean mToolbarVisible = true;
 
     static Intent createIntent(final Context context) {
         return new Intent(context, CommandConsoleActivity.class).putExtra(
@@ -227,6 +233,18 @@ public final class CommandConsoleActivity extends Activity
                     mSession.workingDirectory());
         }
         super.onSaveInstanceState(state);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(final KeyEvent event) {
+        if (!isToggleToolbarShortcut(event)) {
+            return super.dispatchKeyEvent(event);
+        }
+        if (event.getAction() == KeyEvent.ACTION_DOWN
+                && event.getRepeatCount() == 0) {
+            setToolbarVisible(!mToolbarVisible);
+        }
+        return true;
     }
 
     @Override
@@ -400,16 +418,16 @@ public final class CommandConsoleActivity extends Activity
         SystemBarInsets.addToPadding(page);
         page.setBackgroundColor(COLOR_BACKGROUND);
 
-        final LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
+        mToolbar = new LinearLayout(this);
+        mToolbar.setOrientation(LinearLayout.HORIZONTAL);
+        mToolbar.setGravity(Gravity.CENTER_VERTICAL);
 
         mShellStatus = new TextView(this);
         mShellStatus.setTextColor(COLOR_CYAN);
         mShellStatus.setTextSize(12);
         mShellStatus.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         mShellStatus.setSingleLine(true);
-        header.addView(mShellStatus, new LinearLayout.LayoutParams(
+        mToolbar.addView(mShellStatus, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
         mClear = createIconButton(
@@ -419,38 +437,93 @@ public final class CommandConsoleActivity extends Activity
                     mSession.clear();
                     mTerminalView.clearSelection();
                 });
-        header.addView(mClear, buttonParams());
+        mToolbar.addView(mClear, buttonParams());
         mCopy = createIconButton(
                 R.drawable.ic_file_copy,
                 R.string.console_copy_output,
                 view -> copySelection());
-        header.addView(mCopy, buttonParams());
+        mToolbar.addView(mCopy, buttonParams());
         mPaste = createIconButton(
                 android.R.drawable.ic_menu_set_as,
                 R.string.console_paste,
                 view -> pasteClipboard());
-        header.addView(mPaste, buttonParams());
+        mToolbar.addView(mPaste, buttonParams());
         final ImageButton createApplication = createIconButton(
                 android.R.drawable.ic_menu_add,
                 R.string.action_new_terminal_application,
                 view -> createTerminalApplication());
-        header.addView(createApplication, buttonParams());
+        mToolbar.addView(createApplication, buttonParams());
         final ImageButton openFiles = createIconButton(
                 R.drawable.ic_desktop_folder,
                 R.string.console_open_working_directory,
                 view -> openSelectedPathOrWorkingDirectory());
-        header.addView(openFiles, buttonParams());
-        page.addView(header, new LinearLayout.LayoutParams(
+        mToolbar.addView(openFiles, buttonParams());
+        final ImageButton hideToolbar = createIconButton(
+                android.R.drawable.arrow_up_float,
+                R.string.console_hide_toolbar,
+                view -> setToolbarVisible(false));
+        mToolbar.addView(hideToolbar, buttonParams());
+        mToolbar.setVisibility(mToolbarVisible ? View.VISIBLE : View.GONE);
+        page.addView(mToolbar, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
         mTerminalView = new ConsoleTerminalView(this);
         mTerminalView.setOnDragListener(this::handleFileDrop);
+        mTerminalContainer = new FrameLayout(this);
+        mTerminalContainer.addView(mTerminalView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        mShowToolbar = createIconButton(
+                android.R.drawable.arrow_down_float,
+                R.string.console_show_toolbar,
+                view -> setToolbarVisible(true));
+        mShowToolbar.setPadding(dp(6), dp(6), dp(6), dp(6));
+        mShowToolbar.setVisibility(View.GONE);
+        final FrameLayout.LayoutParams showToolbarParams =
+                new FrameLayout.LayoutParams(dp(32), dp(32));
+        showToolbarParams.gravity = Gravity.TOP | Gravity.END;
+        mTerminalContainer.addView(mShowToolbar, showToolbarParams);
         mTerminalParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
-        mTerminalParams.setMargins(0, dp(4), 0, taskbarInset());
-        page.addView(mTerminalView, mTerminalParams);
+        mTerminalParams.setMargins(
+                0, mToolbarVisible ? dp(4) : 0, 0, taskbarInset());
+        page.addView(mTerminalContainer, mTerminalParams);
         return page;
+    }
+
+    private void setToolbarVisible(final boolean visible) {
+        if (mToolbarVisible == visible || mToolbar == null) {
+            return;
+        }
+        mToolbarVisible = visible;
+        mToolbar.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (mShowToolbar != null) {
+            mShowToolbar.setVisibility(visible ? View.GONE : View.VISIBLE);
+        }
+        if (mTerminalParams != null
+                && mTerminalContainer != null
+                && mTerminalView != null) {
+            mTerminalParams.topMargin = visible ? dp(4) : 0;
+            mTerminalContainer.setLayoutParams(mTerminalParams);
+            mTerminalView.requestFocus();
+        }
+    }
+
+    private static boolean isToggleToolbarShortcut(final KeyEvent event) {
+        if (event.getKeyCode() != KeyEvent.KEYCODE_M) {
+            return false;
+        }
+        final int normalized = KeyEvent.normalizeMetaState(
+                event.getMetaState());
+        final int commandModifiers = KeyEvent.META_CTRL_ON
+                | KeyEvent.META_SHIFT_ON
+                | KeyEvent.META_ALT_ON
+                | KeyEvent.META_META_ON
+                | KeyEvent.META_SYM_ON
+                | KeyEvent.META_FUNCTION_ON;
+        return (normalized & commandModifiers)
+                == (KeyEvent.META_CTRL_ON | KeyEvent.META_SHIFT_ON);
     }
 
     private void createTerminalApplication() {
@@ -708,7 +781,7 @@ public final class CommandConsoleActivity extends Activity
             return;
         }
         mTerminalParams.bottomMargin = taskbarInset(inMultiWindowMode);
-        mTerminalView.setLayoutParams(mTerminalParams);
+        mTerminalContainer.setLayoutParams(mTerminalParams);
     }
 
     private int taskbarInset() {

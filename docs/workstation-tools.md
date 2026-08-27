@@ -115,6 +115,11 @@ shell and installed tools. Both provide:
 - current-directory tracking and a direct action to open that directory in
   Files.
 
+The collapse button hides the Console toolbar for that window. A compact
+restore button remains at the terminal's top-right corner; a newly opened
+Console starts with its toolbar visible. `Ctrl+Shift+M` toggles the same toolbar,
+following the Konsole menu-bar convention.
+
 Files and Desktop items can be dropped onto Console to insert safely quoted
 paths at the command cursor. A selected absolute output path can be revealed
 in Files after shell-side validation.
