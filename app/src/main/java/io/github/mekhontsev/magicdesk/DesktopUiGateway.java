@@ -191,13 +191,15 @@ final class DesktopUiGateway {
                 return;
             }
         }
-        MagicDeskRuntime.releaseDesktopTaskSession(() ->
-                TaskCommandQueue.execute(() -> {
-                    flushWindowSessionState();
-                    if (completion != null) {
-                        completion.run();
-                    }
-                }));
+        // Keep the task topology alive until Android reports that the display
+        // is gone. Releasing it here empties the display before the platform
+        // removal transition and can strand per-display framework state.
+        TaskCommandQueue.execute(() -> {
+            flushWindowSessionState();
+            if (completion != null) {
+                completion.run();
+            }
+        });
     }
 
     void resumeDesktopSessionAfterFailedRemoval(final int displayId) {

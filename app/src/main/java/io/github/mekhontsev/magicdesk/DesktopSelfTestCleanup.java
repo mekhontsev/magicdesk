@@ -44,6 +44,9 @@ final class DesktopSelfTestCleanup {
                         .append(usefulMessage(error)).append("; ");
             }
         }
+        final boolean removeExternalDisplay =
+                target == DesktopSelfTestTarget.EXTERNAL
+                        && restoreExternalMirror;
         if (displayId >= Display.DEFAULT_DISPLAY) {
             final DesktopDisplayTarget displayTarget =
                     DesktopRuntimeBridge.getDesktopTarget(displayId);
@@ -52,8 +55,10 @@ final class DesktopSelfTestCleanup {
                             .features().phoneTouchpad) {
                 PhoneTouchpadController.release(displayId);
             }
-            DesktopRuntimeBridge.closeDesktopSession(displayId);
-            if (ShellAccess.isReady()) {
+            if (!removeExternalDisplay) {
+                DesktopRuntimeBridge.closeDesktopSession(displayId);
+            }
+            if (!removeExternalDisplay && ShellAccess.isReady()) {
                 try {
                     waitForTaskAbsent(DesktopSelfTestComponents.DESKTOP_CLASS);
                     if (target == DesktopSelfTestTarget.PHONE) {
@@ -86,6 +91,10 @@ final class DesktopSelfTestCleanup {
                 && restoreExternalMirror) {
             try {
                 restoreMirrorMode();
+                if (ShellAccess.isReady()) {
+                    waitForTaskAbsent(
+                            DesktopSelfTestComponents.DESKTOP_CLASS);
+                }
             } catch (IOException error) {
                 clean = false;
                 detail.append("mirror restore: ")
