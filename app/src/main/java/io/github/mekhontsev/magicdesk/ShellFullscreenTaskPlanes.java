@@ -17,6 +17,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private static final String TAG = "MagicDeskFullscreenPlanes";
     private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
+    private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private final Map<Integer, TaskDisplayAreaHandle> mPlanes =
             new LinkedHashMap<>();
@@ -76,13 +77,21 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         if (fullscreenTaskIds.isEmpty() && mPlanes.isEmpty()) {
             return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
         }
+        final MixedStackOrder mixedOrder = mixedStackOrder(
+                service,
+                displayId,
+                targetTaskId,
+                requestedTaskIds,
+                fullscreenTaskIds,
+                ownership);
         applyStableOrder(
                 service,
                 displayId,
                 fullscreenTaskIds,
                 requestedTaskIds,
                 -1,
-                false);
+                false,
+                mixedOrder);
         return mPlanes.containsKey(Integer.valueOf(targetTaskId))
                 ? ShellFullscreenTaskArea.FocusResult.FULLSCREEN_FOREGROUND
                 : ShellFullscreenTaskArea.FocusResult.SESSION_FOREGROUND;
@@ -118,7 +127,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     fullscreenTaskIds,
                     new int[]{taskId},
                     taskId,
-                    true);
+                    true,
+                    null);
             TaskFullscreenTransitionCommand.refreshCaptionIfRequested(
                     service,
                     displayId,
@@ -208,6 +218,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     displayId,
                     anchorTaskId,
                     plane.featureId());
+            makeAnchorNonFocusable(service, displayId, anchorTaskId);
             mPlaneAnchorTaskIds.put(
                     plane, Integer.valueOf(anchorTaskId));
             return plane;
@@ -247,6 +258,27 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                             + plane.featureId());
         }
         return anchorTaskId.intValue();
+    }
+
+    private static void makeAnchorNonFocusable(
+            final Object service,
+            final int displayId,
+            final int anchorTaskId) throws ReflectiveOperationException {
+        final Class<?> tokenClass =
+                Class.forName("android.window.WindowContainerToken");
+        final Class<?> transactionClass =
+                Class.forName("android.window.WindowContainerTransaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        final Object anchorToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, anchorTaskId);
+        // The anchor keeps the organizer area non-empty but must never become
+        // WindowManager's focused application when its plane is reordered.
+        transactionClass.getMethod(
+                "setFocusable", tokenClass, Boolean.TYPE)
+                .invoke(transaction, anchorToken, Boolean.FALSE);
+        ShellWindowTransitionExecutor.applyAtomic(
+                service, transactionClass, transaction);
     }
 
     private static boolean isStandardBackstop(final Object task)
@@ -382,7 +414,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final List<Integer> fullscreenTaskIds,
             final int[] requestedTaskIds,
             final int enteringTaskId,
-            final boolean forceEnteringFullscreen)
+            final boolean forceEnteringFullscreen,
+            final MixedStackOrder mixedOrder)
             throws ReflectiveOperationException {
         discardStalePlaneRecords(service, displayId);
 
@@ -482,6 +515,16 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     tokenClass,
                     effectivePlanes,
                     mReleaseParentToken);
+            if (mixedOrder != null) {
+                addMixedOrderOperations(
+                        service,
+                        displayId,
+                        mixedOrder,
+                        transactionClass,
+                        transaction,
+                        tokenClass,
+                        effectivePlanes);
+            }
             if (forceEnteringFullscreen && !launchEnteringTask) {
                 final Object enteringTaskToken = HiddenTaskApi.requireTaskToken(
                         service, displayId, enteringTaskId);
@@ -502,7 +545,13 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             // token unknown to WMShell, which could outlive a removed display.
             ShellWindowTransitionExecutor.applyAtomic(
                     service, transactionClass, transaction);
-            applySurfaceOrder(stableOrder, effectivePlanes);
+            applySurfaceOrder(
+                    mixedOrder == null
+                            ? stableOrder
+                            : planeOnlyOrder(
+                                    stableOrder,
+                                    effectivePlanes.keySet()),
+                    effectivePlanes);
             if (launchEnteringTask) {
                 final TaskDisplayAreaHandle enteringPlane = acquiredPlanes.get(
                         Integer.valueOf(enteringTaskId));
@@ -609,6 +658,135 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         return output;
     }
 
+    static int[] planeOnlyOrder(
+            final int[] taskIds,
+            final Set<Integer> planeTaskIds) {
+        if (taskIds == null || taskIds.length == 0
+                || planeTaskIds == null || planeTaskIds.isEmpty()) {
+            return new int[0];
+        }
+        final int[] output = new int[planeTaskIds.size()];
+        int count = 0;
+        for (final int taskId : taskIds) {
+            if (planeTaskIds.contains(Integer.valueOf(taskId))) {
+                output[count++] = taskId;
+            }
+        }
+        return count == output.length
+                ? output : java.util.Arrays.copyOf(output, count);
+    }
+
+    static MixedStackOrder buildMixedStackOrder(
+            final int targetTaskId,
+            final int desktopHostTaskId,
+            final int[] requestedTaskIds,
+            final Set<Integer> planeTaskIds,
+            final List<Integer> visibleFreeformTaskIds,
+            final int currentFullscreenTaskId,
+            final boolean targetIsFreeform) {
+        if (targetTaskId < 0 || desktopHostTaskId < 0
+                || targetTaskId == desktopHostTaskId
+                || planeTaskIds == null || planeTaskIds.isEmpty()) {
+            return null;
+        }
+        final int fullscreenTaskId = planeTaskIds.contains(
+                Integer.valueOf(targetTaskId))
+                        ? targetTaskId : currentFullscreenTaskId;
+        if (!planeTaskIds.contains(Integer.valueOf(fullscreenTaskId))) {
+            return null;
+        }
+        final LinkedHashSet<Integer> retainedFreeforms =
+                new LinkedHashSet<>();
+        int hostIndex = -1;
+        if (requestedTaskIds != null) {
+            for (int index = 0; index < requestedTaskIds.length; index++) {
+                if (requestedTaskIds[index] == desktopHostTaskId) {
+                    hostIndex = index;
+                    break;
+                }
+            }
+        }
+        if (hostIndex >= 0) {
+            for (int index = hostIndex + 1;
+                    index < requestedTaskIds.length;
+                    index++) {
+                final int taskId = requestedTaskIds[index];
+                if (taskId != desktopHostTaskId
+                        && !planeTaskIds.contains(Integer.valueOf(taskId))) {
+                    retainedFreeforms.add(Integer.valueOf(taskId));
+                }
+            }
+        } else if (visibleFreeformTaskIds != null) {
+            retainedFreeforms.addAll(visibleFreeformTaskIds);
+        }
+        if (targetIsFreeform) {
+            retainedFreeforms.remove(Integer.valueOf(targetTaskId));
+            retainedFreeforms.add(Integer.valueOf(targetTaskId));
+        }
+        if (retainedFreeforms.isEmpty()) {
+            return null;
+        }
+        return new MixedStackOrder(
+                desktopHostTaskId,
+                fullscreenTaskId,
+                toIntArray(new ArrayList<>(retainedFreeforms)));
+    }
+
+    static final class MixedStackOrder {
+        final int desktopHostTaskId;
+        final int fullscreenTaskId;
+        final int[] freeformTaskIds;
+
+        MixedStackOrder(
+                final int desktopHostTaskId,
+                final int fullscreenTaskId,
+                final int[] freeformTaskIds) {
+            this.desktopHostTaskId = desktopHostTaskId;
+            this.fullscreenTaskId = fullscreenTaskId;
+            this.freeformTaskIds = freeformTaskIds;
+        }
+    }
+
+    private MixedStackOrder mixedStackOrder(
+            final Object service,
+            final int displayId,
+            final int targetTaskId,
+            final int[] requestedTaskIds,
+            final List<Integer> fullscreenTaskIds,
+            final ShellDesktopTaskOwnership ownership)
+            throws ReflectiveOperationException {
+        final Set<Integer> planeTaskIds = new LinkedHashSet<>(
+                fullscreenTaskIds);
+        planeTaskIds.addAll(mPlanes.keySet());
+        int currentFullscreenTaskId = -1;
+        for (int index = mPlaneOrder.size() - 1; index >= 0; index--) {
+            final int taskId = mPlaneOrder.get(index).intValue();
+            if (planeTaskIds.contains(Integer.valueOf(taskId))) {
+                currentFullscreenTaskId = taskId;
+                break;
+            }
+        }
+        if (currentFullscreenTaskId < 0 && !fullscreenTaskIds.isEmpty()) {
+            currentFullscreenTaskId = fullscreenTaskIds.get(
+                    fullscreenTaskIds.size() - 1).intValue();
+        }
+        final Object targetTask = HiddenTaskApi.requireTask(
+                service, displayId, targetTaskId);
+        final boolean targetIsFreeform =
+                HiddenTaskApi.getWindowConfigurationValue(
+                        targetTask, "getWindowingMode")
+                        == WINDOWING_MODE_FREEFORM;
+        return buildMixedStackOrder(
+                targetTaskId,
+                ownership.desktopHostTaskId(),
+                requestedTaskIds,
+                planeTaskIds,
+                visibleFreeformTaskIds(
+                        service, displayId, -1, ownership),
+                currentFullscreenTaskId,
+                targetIsFreeform);
+    }
+
     private static void addOrderOperations(
             final Object service,
             final int displayId,
@@ -693,6 +871,46 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                                 Boolean.TRUE,
                                 Boolean.TRUE);
             }
+        }
+    }
+
+    private static void addMixedOrderOperations(
+            final Object service,
+            final int displayId,
+            final MixedStackOrder order,
+            final Class<?> transactionClass,
+            final Object transaction,
+            final Class<?> tokenClass,
+            final Map<Integer, TaskDisplayAreaHandle> planes)
+            throws ReflectiveOperationException {
+        final TaskDisplayAreaHandle fullscreenPlane = planes.get(
+                Integer.valueOf(order.fullscreenTaskId));
+        if (fullscreenPlane == null) {
+            throw new IllegalStateException(
+                    "mixed stack lost fullscreen plane task="
+                            + order.fullscreenTaskId);
+        }
+        final Object hostToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, order.desktopHostTaskId);
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE)
+                .invoke(transaction, hostToken, Boolean.FALSE);
+        transactionClass.getMethod(
+                "reorder", tokenClass, Boolean.TYPE)
+                .invoke(
+                        transaction,
+                        fullscreenPlane.token(),
+                        Boolean.TRUE);
+        for (final int taskId : order.freeformTaskIds) {
+            final Object taskToken = HiddenTaskApi.requireTaskToken(
+                    service, displayId, taskId);
+            transactionClass.getMethod(
+                    "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
+                    .invoke(
+                            transaction,
+                            taskToken,
+                            Boolean.TRUE,
+                            Boolean.FALSE);
         }
     }
 
@@ -923,6 +1141,33 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             }
         }
         return taskIds;
+    }
+
+    private static List<Integer> visibleFreeformTaskIds(
+            final Object service,
+            final int displayId,
+            final int excludedTaskId,
+            final ShellDesktopTaskOwnership ownership)
+            throws ReflectiveOperationException {
+        final List<Integer> topFirst = new ArrayList<>();
+        for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
+            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+            if (taskId == excludedTaskId
+                    || ownership.isDesktopHostTask(taskId)
+                    || TaskAreaBackstopActivity.isBackstopComponent(
+                            HiddenTaskApi.getTaskComponent(task))
+                    || !ownership.isDesktopTask(task)
+                    || HiddenTaskApi.getWindowConfigurationValue(
+                            task, "getWindowingMode")
+                            != WINDOWING_MODE_FREEFORM) {
+                continue;
+            }
+            if (HiddenTaskApi.getBooleanField(task, "isVisible")) {
+                topFirst.add(Integer.valueOf(taskId));
+            }
+        }
+        Collections.reverse(topFirst);
+        return topFirst;
     }
 
     private int findFullscreenSurvivor(

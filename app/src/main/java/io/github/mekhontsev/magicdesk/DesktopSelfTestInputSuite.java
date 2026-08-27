@@ -922,6 +922,16 @@ final class DesktopSelfTestInputSuite {
                     first.taskId,
                     "behind freeform after Alt+Tab");
             waitForFreeformState(displayId, fixture, true);
+            waitForTaskbarVisibility(displayId, true);
+
+            final int freeformSampleX = fixture.bounds.left + Math.min(
+                    24, Math.max(1, fixture.bounds.width() / 8));
+            final int freeformSampleY = fixture.bounds.centerY();
+            final int initialFreeformColor = awaitDisplayColor(
+                    captureSource,
+                    freeformSampleX,
+                    freeformSampleY,
+                    DesktopSelfTestFixtureAppearance.TRANSITION.color());
 
             final int sampleX = fixture.bounds.right
                     + Math.max(1,
@@ -935,10 +945,17 @@ final class DesktopSelfTestInputSuite {
                     DesktopSelfTestFixtureAppearance.SECONDARY.color());
 
             focusTaskThroughDesktop(displayId, first.taskId);
-            waitForFrontTask(displayId, first.taskId);
-            waitForTaskInputFocus(displayId, first.taskId);
             waitForFreeformState(
                     displayId, fixture, keepsFreeformAboveFullscreen);
+            if (keepsFreeformAboveFullscreen) {
+                waitForFrontTask(displayId, fixture.taskId);
+                waitForTaskInputFocus(displayId, fixture.taskId);
+            } else {
+                waitForFrontTask(displayId, first.taskId);
+                waitForTaskInputFocus(displayId, first.taskId);
+            }
+            waitForTaskbarVisibility(
+                    displayId, keepsFreeformAboveFullscreen);
             inspectFullscreenModes(
                     displayId,
                     first.taskId,
@@ -949,12 +966,26 @@ final class DesktopSelfTestInputSuite {
                     sampleX,
                     sampleY,
                     DesktopSelfTestFixtureAppearance.PRIMARY.color());
+            final int firstForegroundColor = awaitDisplayColor(
+                    captureSource,
+                    freeformSampleX,
+                    freeformSampleY,
+                    keepsFreeformAboveFullscreen
+                            ? DesktopSelfTestFixtureAppearance.TRANSITION.color()
+                            : DesktopSelfTestFixtureAppearance.PRIMARY.color());
 
             focusTaskThroughDesktop(displayId, second.taskId);
-            waitForFrontTask(displayId, second.taskId);
-            waitForTaskInputFocus(displayId, second.taskId);
             waitForFreeformState(
                     displayId, fixture, keepsFreeformAboveFullscreen);
+            if (keepsFreeformAboveFullscreen) {
+                waitForFrontTask(displayId, fixture.taskId);
+                waitForTaskInputFocus(displayId, fixture.taskId);
+            } else {
+                waitForFrontTask(displayId, second.taskId);
+                waitForTaskInputFocus(displayId, second.taskId);
+            }
+            waitForTaskbarVisibility(
+                    displayId, keepsFreeformAboveFullscreen);
             inspectFullscreenModes(
                     displayId,
                     second.taskId,
@@ -965,6 +996,13 @@ final class DesktopSelfTestInputSuite {
                     sampleX,
                     sampleY,
                     DesktopSelfTestFixtureAppearance.SECONDARY.color());
+            final int secondForegroundColor = awaitDisplayColor(
+                    captureSource,
+                    freeformSampleX,
+                    freeformSampleY,
+                    keepsFreeformAboveFullscreen
+                            ? DesktopSelfTestFixtureAppearance.TRANSITION.color()
+                            : DesktopSelfTestFixtureAppearance.SECONDARY.color());
 
             // The simulated-display removal suite requires every remaining
             // fixture to be fullscreen. This is a normal user transition and
@@ -987,6 +1025,15 @@ final class DesktopSelfTestInputSuite {
                             + "/"
                             + DesktopTransitionSurfaceProbe.formatColor(
                                     secondBackgroundColor)
+                            + ", foregrounds="
+                            + DesktopTransitionSurfaceProbe.formatColor(
+                                    initialFreeformColor)
+                            + "/"
+                            + DesktopTransitionSurfaceProbe.formatColor(
+                                    firstForegroundColor)
+                            + "/"
+                            + DesktopTransitionSurfaceProbe.formatColor(
+                                    secondForegroundColor)
                             + ", fullscreen=" + second.taskId
                             + ", older=" + first.taskId
                             + ", freeform-on-fullscreen="
@@ -1065,11 +1112,29 @@ final class DesktopSelfTestInputSuite {
             }
             SystemClock.sleep(POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new IOException("fullscreen background did not match: expected="
+        throw new IOException("display color did not match: expected="
                 + DesktopTransitionSurfaceProbe.formatColor(expectedColor)
                 + ", actual="
                 + DesktopTransitionSurfaceProbe.formatColor(actualColor)
                 + ", sample=" + x + "," + y);
+    }
+
+    private static void waitForTaskbarVisibility(
+            final int displayId,
+            final boolean expectedVisible) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        boolean actualVisible = false;
+        do {
+            actualVisible = DesktopRuntimeBridge.isTaskbarVisibleOnDisplay(
+                    displayId);
+            if (actualVisible == expectedVisible) {
+                return;
+            }
+            SystemClock.sleep(POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("taskbar visibility did not match: expected="
+                + expectedVisible + ", actual=" + actualVisible);
     }
 
     private static boolean colorsMatch(
@@ -1475,7 +1540,9 @@ final class DesktopSelfTestInputSuite {
                         // consumed by the following maximize/fullscreen tests.
                         DesktopSelfTestHostObserver.stage(
                                 "FULLSCREEN-TASKBAR-001-RESTORE");
-                        restoreFullscreenThroughShortcut(
+                        restoreFullscreenTaskThroughDesktop(
+                                displayId, fullscreenTaskId);
+                        waitForRestoredTask(
                                 displayId,
                                 fullscreenTaskId,
                                 restoreBounds,

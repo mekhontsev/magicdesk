@@ -19,6 +19,12 @@ public final class DesktopTaskbarVisibilityPolicyTest {
     }
 
     @Test
+    public void visibleFreeformAboveActiveFullscreenKeepsTaskbarVisible() {
+        assertTrue(DesktopTaskbarVisibilityPolicy.isVisible(
+                false, true, true, false, false));
+    }
+
+    @Test
     public void incompleteLocalSnapshotPreservesLifecycleState() {
         assertFalse(DesktopTaskbarVisibilityPolicy.isVisible(
                 true, false, false, false, false));

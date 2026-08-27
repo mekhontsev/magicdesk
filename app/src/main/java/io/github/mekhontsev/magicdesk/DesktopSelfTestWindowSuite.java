@@ -1937,6 +1937,10 @@ final class DesktopSelfTestWindowSuite {
                                 || DesktopSelfTestGeometry.matches(
                                         entry.bounds, expectedBounds)));
         waitForFrontTask(displayId, taskId);
+        // An organized child can own the display's input focus while Nubia
+        // still reports TaskInfo.isFocused on its structural backstop. Verify
+        // the user-visible focus contract against InputDispatcher instead.
+        DesktopSelfTestInputSuite.waitForTaskInputFocus(displayId, taskId);
 
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
@@ -1947,7 +1951,6 @@ final class DesktopSelfTestWindowSuite {
             if (observed.displayId == displayId
                     && observed.windowingMode == expectedMode
                     && observed.visible
-                    && observed.focused
                     && (expectedFeatureId == null
                             || observed.featureId
                                     == expectedFeatureId.intValue())) {

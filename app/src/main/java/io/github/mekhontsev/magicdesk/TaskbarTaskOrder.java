@@ -14,7 +14,8 @@ final class TaskbarTaskOrder {
             final TaskRepository.Snapshot snapshot,
             final int activeTaskId,
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
-            final Set<Integer> concealedTaskIds) {
+            final Set<Integer> concealedTaskIds,
+            final boolean includeFlattenedFullscreenPlanes) {
         final List<Integer> order = new ArrayList<>();
         if (snapshot == null || !snapshot.available || activeTaskId < 0) {
             return order;
@@ -41,7 +42,8 @@ final class TaskbarTaskOrder {
                         snapshot.tasks,
                         savedWorkspaceTopFirst,
                         activeTask,
-                        concealed);
+                        concealed,
+                        includeFlattenedFullscreenPlanes);
         final Set<Integer> includedTaskIds = new HashSet<>();
         for (final TaskRepository.TaskEntry task : snapshot.tasks) {
             if (task != null && task.displayId == activeTask.displayId
@@ -65,13 +67,26 @@ final class TaskbarTaskOrder {
             final List<TaskRepository.TaskEntry> liveTasks,
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
             final TaskRepository.TaskEntry activeTask,
-            final Set<Integer> concealedTaskIds) {
+            final Set<Integer> concealedTaskIds,
+            final boolean includeFlattenedFullscreenPlanes) {
         final List<TaskRepository.TaskEntry> tasks = new ArrayList<>();
         final Set<Integer> includedTaskIds = new HashSet<>();
+        boolean desktopHostSeen = false;
         if (liveTasks != null) {
             for (final TaskRepository.TaskEntry liveTask : liveTasks) {
                 if (DesktopTaskController.isDesktopHostTask(liveTask)) {
-                    break;
+                    desktopHostSeen = true;
+                    continue;
+                }
+                // Independent fullscreen planes are siblings of the ordinary
+                // workspace and may be flattened after its desktop host in a
+                // task snapshot. They remain valid demotion targets; ordinary
+                // tasks after the host are already concealed by that host.
+                if (desktopHostSeen
+                        && (!includeFlattenedFullscreenPlanes
+                                || liveTask == null
+                                || !liveTask.isFullscreen())) {
+                    continue;
                 }
                 addVisibleTask(
                         tasks,

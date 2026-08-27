@@ -7,10 +7,12 @@ final class DesktopTaskbarVisibilityPolicy {
     static boolean isVisible(
             final boolean localDisplay,
             final boolean hasActiveTask,
-            final boolean activeTaskFreeform,
+            final boolean hasVisibleFreeformTask,
             final boolean desktopActive,
             final boolean previouslyVisible) {
-        if (desktopActive || activeTaskFreeform) {
+        // This is workspace policy visibility. The reveal controller still
+        // applies the user's auto-hide setting to the rendered taskbar.
+        if (desktopActive || hasVisibleFreeformTask) {
             return true;
         }
         if (hasActiveTask) {

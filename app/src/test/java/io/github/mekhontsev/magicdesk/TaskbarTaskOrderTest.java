@@ -32,7 +32,8 @@ public final class TaskbarTaskOrderTest {
                         snapshot,
                         fullscreen.taskId,
                         Arrays.asList(topWindow, lowerWindow),
-                        ids(10)));
+                        ids(10),
+                        false));
     }
 
     @Test
@@ -51,7 +52,8 @@ public final class TaskbarTaskOrderTest {
                         snapshot(fullscreen, topWindow, host),
                         fullscreen.taskId,
                         Arrays.asList(topWindow, closedWindow),
-                        ids(10)));
+                        ids(10),
+                        false));
     }
 
     @Test
@@ -69,7 +71,8 @@ public final class TaskbarTaskOrderTest {
                         snapshot(fullscreen, topWindow, lowerWindow, host(99)),
                         fullscreen.taskId,
                         Collections.emptyList(),
-                        ids(10)));
+                        ids(10),
+                        false));
     }
 
     @Test
@@ -81,7 +84,8 @@ public final class TaskbarTaskOrderTest {
                 snapshot(fullscreen),
                 fullscreen.taskId,
                 Collections.emptyList(),
-                ids(10)).isEmpty());
+                ids(10),
+                false).isEmpty());
     }
 
     @Test
@@ -99,7 +103,8 @@ public final class TaskbarTaskOrderTest {
                         snapshot(active, peer, window, host(99)),
                         active.taskId,
                         Collections.emptyList(),
-                        ids(10)));
+                        ids(10),
+                        false));
     }
 
     @Test
@@ -113,7 +118,42 @@ public final class TaskbarTaskOrderTest {
                         snapshot(active, host(99)),
                         active.taskId,
                         Collections.emptyList(),
-                        ids(10)));
+                        ids(10),
+                        false));
+    }
+
+    @Test
+    public void revealsFullscreenPlaneFlattenedAfterDesktopHost() {
+        final TaskRepository.TaskEntry activeWindow = task(
+                10, "com.example.window", "freeform", true, true);
+        final TaskRepository.TaskEntry fullscreenPeer = task(
+                11, "com.example.fullscreen", "fullscreen", false, false);
+
+        assertEquals(
+                Arrays.asList(10, 99, 11),
+                TaskbarTaskOrder.concealActiveTask(
+                        snapshot(activeWindow, host(99), fullscreenPeer),
+                        activeWindow.taskId,
+                        Collections.emptyList(),
+                        ids(10),
+                        true));
+    }
+
+    @Test
+    public void sessionLeavesFullscreenTasksAfterHostConcealed() {
+        final TaskRepository.TaskEntry activeWindow = task(
+                10, "com.example.window", "freeform", true, true);
+        final TaskRepository.TaskEntry concealedFullscreen = task(
+                11, "com.example.fullscreen", "fullscreen", false, false);
+
+        assertEquals(
+                Arrays.asList(10, 99),
+                TaskbarTaskOrder.concealActiveTask(
+                        snapshot(activeWindow, host(99), concealedFullscreen),
+                        activeWindow.taskId,
+                        Collections.emptyList(),
+                        ids(10),
+                        false));
     }
 
     @Test
@@ -129,7 +169,8 @@ public final class TaskbarTaskOrderTest {
                         snapshot(activeSecond, first, host(99)),
                         activeSecond.taskId,
                         Collections.emptyList(),
-                        ids(10, 11)));
+                        ids(10, 11),
+                        false));
     }
 
     private static Set<Integer> ids(final Integer... taskIds) {

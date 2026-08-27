@@ -1885,6 +1885,8 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void setTaskbarVisible(final boolean visible) {
+        // Keep policy separate from presentation: auto-hide may collapse a
+        // policy-visible taskbar to its reveal edge.
         final boolean changed = mTaskbarVisible != visible;
         mTaskbarVisible = visible;
         if (mTaskbarRevealController != null) {

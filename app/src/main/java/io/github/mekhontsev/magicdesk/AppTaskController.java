@@ -561,7 +561,9 @@ final class AppTaskController {
                                 windowStateKey(app),
                                 AppWindowState.Mode.FULLSCREEN)
                         : null;
-        mActivity.setTaskbarVisible(false);
+        mActivity.setTaskbarVisible(
+                DesktopTaskSnapshotController.hasVisibleFreeformTask(
+                        visibleTasks, excludedTaskId));
         mActivity.setStatus(mActivity.getString(
                 R.string.status_launching_fullscreen, label));
         TaskCommandQueue.execute(() -> {
@@ -753,7 +755,12 @@ final class AppTaskController {
                                     return;
                                 }
                                 mActivity.setTaskbarVisible(
-                                        currentTask.isFreeform());
+                                        currentTask.isFreeform()
+                                                || DesktopTaskSnapshotController
+                                                        .hasVisibleFreeformTask(
+                                                                visibleTasks,
+                                                                currentTask
+                                                                        .taskId));
                                 mActivity.refreshTaskSnapshot();
                                 runFocusCompletion(completion, true);
                             }));
@@ -807,6 +814,9 @@ final class AppTaskController {
     void openTaskFullscreen(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
+        final boolean keepTaskbarVisible =
+                DesktopTaskSnapshotController.hasVisibleFreeformTask(
+                        takeInteractionVisibleTasks(), task.taskId);
         rememberWindowBounds(task);
         final int displayId =
                 beginFullscreenTransition(task.taskId);
@@ -827,7 +837,8 @@ final class AppTaskController {
                                         windowStateKey(app),
                                         AppWindowState.Mode.FULLSCREEN);
                             }
-                            mActivity.setTaskbarVisible(false);
+                            mActivity.setTaskbarVisible(
+                                    keepTaskbarVisible);
                         }
                         mActivity.setStatus(mActivity.getString(
                                 result.success

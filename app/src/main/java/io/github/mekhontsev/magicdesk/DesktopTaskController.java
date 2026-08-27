@@ -810,7 +810,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             snapshot,
                             taskId,
                             mDisplayTaskState.lastVisibleTasks(),
-                            concealedTaskIds);
+                            concealedTaskIds,
+                            DesktopDisplayDrivers.activeTaskAreaPolicy(
+                                    mDisplayId)
+                                    .usesIndependentFullscreenPlanes());
             if (focusOrder.size() < 2) {
                 if (!alreadyConcealed) {
                     restoreTaskbarTask(taskId);

@@ -51,10 +51,12 @@ final class DesktopTaskSnapshotController {
                 isDesktopHostForeground(snapshot.tasks);
         final boolean desktopPlaneActive = desktopHostActive
                 || (localSession && mActivity.isDesktopPlaneForeground());
+        final boolean hasVisibleFreeformTask = hasVisibleFreeformTask(
+                snapshot.tasks);
         final boolean taskbarVisible = DesktopTaskbarVisibilityPolicy.isVisible(
                 mActivity.getCurrentDisplayId() == android.view.Display.DEFAULT_DISPLAY,
                 activeTask != null,
-                activeTask != null && activeTask.isFreeform(),
+                hasVisibleFreeformTask,
                 desktopPlaneActive,
                 mActivity.isTaskbarVisible());
         mSnapshot = snapshot;
@@ -68,6 +70,28 @@ final class DesktopTaskSnapshotController {
         mActivity.setTaskbarVisible(taskbarVisible);
         mActivity.setDesktopWindowFocusable(
                 activeTask == null || desktopHostActive);
+    }
+
+    static boolean hasVisibleFreeformTask(
+            final List<TaskRepository.TaskEntry> tasks) {
+        return hasVisibleFreeformTask(tasks, -1);
+    }
+
+    static boolean hasVisibleFreeformTask(
+            final List<TaskRepository.TaskEntry> tasks,
+            final int excludedTaskId) {
+        if (tasks == null) {
+            return false;
+        }
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (task != null && task.taskId != excludedTaskId
+                    && task.visible && task.isFreeform()
+                    && DesktopManagedTaskPolicy
+                            .isControllableApplicationTask(task)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static boolean isDesktopHostForeground(

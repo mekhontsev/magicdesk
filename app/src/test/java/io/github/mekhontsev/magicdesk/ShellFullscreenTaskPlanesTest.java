@@ -2,6 +2,8 @@ package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 import org.junit.Test;
 
@@ -101,6 +103,75 @@ public final class ShellFullscreenTaskPlanesTest {
                 ShellFullscreenTaskPlanes.planeBottomReorderOrder(
                         new int[]{10, 20, 11, 21, 12, 22},
                         planeIds(10, 11, 12)));
+    }
+
+    @Test
+    public void surfaceOrderContainsOnlyFullscreenPlanes() {
+        assertArrayEquals(
+                new int[]{10, 11},
+                ShellFullscreenTaskPlanes.planeOnlyOrder(
+                        new int[]{20, 10, 21, 11, 22},
+                        planeIds(10, 11)));
+    }
+
+    @Test
+    public void raisesWorkspaceForSelectedFreeformTask() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        20,
+                        99,
+                        new int[]{20},
+                        planeIds(10, 11),
+                        Arrays.asList(20),
+                        11,
+                        true);
+        assertNotNull(order);
+        assertEquals(99, order.desktopHostTaskId);
+        assertEquals(11, order.fullscreenTaskId);
+        assertArrayEquals(new int[]{20}, order.freeformTaskIds);
+    }
+
+    @Test
+    public void keepsVisibleFreeformWorkspaceAboveSelectedFullscreen() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        11,
+                        99,
+                        new int[]{10, 11},
+                        planeIds(10, 11),
+                        Arrays.asList(20),
+                        10,
+                        false);
+        assertNotNull(order);
+        assertEquals(11, order.fullscreenTaskId);
+        assertArrayEquals(new int[]{20}, order.freeformTaskIds);
+    }
+
+    @Test
+    public void lowersDemotedFreeformWorkspaceBelowFullscreenPeer() {
+        assertNull(ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                11,
+                99,
+                new int[]{20, 99, 11},
+                planeIds(10, 11),
+                Arrays.asList(20),
+                10,
+                false));
+    }
+
+    @Test
+    public void retainsOtherFreeformWindowsAboveFullscreenPeer() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        11,
+                        99,
+                        new int[]{20, 99, 21, 11},
+                        planeIds(10, 11),
+                        Arrays.asList(20, 21),
+                        10,
+                        false);
+        assertNotNull(order);
+        assertArrayEquals(new int[]{21}, order.freeformTaskIds);
     }
 
     private static java.util.List<Integer> asList(final int[] values) {
