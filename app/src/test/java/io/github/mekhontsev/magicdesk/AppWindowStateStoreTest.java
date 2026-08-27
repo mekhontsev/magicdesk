@@ -11,7 +11,66 @@ import java.util.Collections;
 public final class AppWindowStateStoreTest {
     @After
     public void restoreStorage() {
+        AppWindowStateStore.clearPendingModeUpdatesForTests();
         DesktopStateStore.useStorageForTests(null);
+    }
+
+    @Test
+    public void pendingModeIsVisibleBeforePersistentCommit() {
+        DesktopStateStore.useStorageForTests(memoryStorage());
+        final String stateKey = "example.application";
+        assertTrue(AppWindowStateStore.rememberMode(
+                stateKey, AppWindowState.Mode.WINDOWED));
+
+        final AppWindowStateStore.PendingModeUpdate update =
+                AppWindowStateStore.beginModeUpdate(
+                        stateKey, AppWindowState.Mode.FULLSCREEN);
+
+        assertEquals(
+                AppWindowState.Mode.FULLSCREEN,
+                AppWindowStateStore.load(stateKey).mode);
+        assertTrue(AppWindowStateStore.commitModeUpdate(update));
+        assertEquals(
+                AppWindowState.Mode.FULLSCREEN,
+                AppWindowStateStore.load(stateKey).mode);
+    }
+
+    @Test
+    public void olderCompletionDoesNotHideNewerPendingMode() {
+        DesktopStateStore.useStorageForTests(memoryStorage());
+        final String stateKey = "example.application";
+        final AppWindowStateStore.PendingModeUpdate older =
+                AppWindowStateStore.beginModeUpdate(
+                        stateKey, AppWindowState.Mode.FULLSCREEN);
+        final AppWindowStateStore.PendingModeUpdate newer =
+                AppWindowStateStore.beginModeUpdate(
+                        stateKey, AppWindowState.Mode.WINDOWED);
+
+        assertTrue(AppWindowStateStore.commitModeUpdate(older));
+        assertEquals(
+                AppWindowState.Mode.WINDOWED,
+                AppWindowStateStore.load(stateKey).mode);
+        assertTrue(AppWindowStateStore.commitModeUpdate(newer));
+        assertEquals(
+                AppWindowState.Mode.WINDOWED,
+                AppWindowStateStore.load(stateKey).mode);
+    }
+
+    @Test
+    public void cancelledPendingModeRestoresPersistedChoice() {
+        DesktopStateStore.useStorageForTests(memoryStorage());
+        final String stateKey = "example.application";
+        assertTrue(AppWindowStateStore.rememberMode(
+                stateKey, AppWindowState.Mode.WINDOWED));
+        final AppWindowStateStore.PendingModeUpdate update =
+                AppWindowStateStore.beginModeUpdate(
+                        stateKey, AppWindowState.Mode.FULLSCREEN);
+
+        AppWindowStateStore.cancelModeUpdate(update);
+
+        assertEquals(
+                AppWindowState.Mode.WINDOWED,
+                AppWindowStateStore.load(stateKey).mode);
     }
 
     @Test
@@ -87,5 +146,21 @@ public final class AppWindowStateStoreTest {
         assertEquals(
                 consoleBounds,
                 AppWindowStateStore.load(consoleKey).windowBounds);
+    }
+
+    private static DesktopStateStore.Storage memoryStorage() {
+        return new DesktopStateStore.Storage() {
+            private String encoded = "";
+
+            @Override
+            public String read() {
+                return encoded;
+            }
+
+            @Override
+            public void write(final String value) {
+                encoded = value;
+            }
+        };
     }
 }

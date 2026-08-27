@@ -387,23 +387,37 @@ final class AppTaskController {
                     preparedTaskAction(onPrepared));
             return;
         }
+        final AppWindowStateStore.PendingModeUpdate modeUpdate =
+                explicitWindowed && remembersWindowState(app)
+                        ? AppWindowStateStore.beginModeUpdate(
+                                windowStateKey(app),
+                                AppWindowState.Mode.WINDOWED)
+                        : null;
         final TaskRepository.TaskEntry existingTask =
                 mActivity.findFirstTask(app.launchTarget);
         if (reusePolicy == WindowedAppLauncher.TaskReusePolicy.REUSE_EXISTING
                 && existingTask != null
                 && existingTask.displayId == mActivity.getCurrentDisplayId()
                 && existingTask.isFreeform()) {
-            if (explicitWindowed && remembersWindowState(app)) {
-                AppWindowStateStore.rememberMode(
-                        windowStateKey(app),
-                        AppWindowState.Mode.WINDOWED);
-            }
-            focusTaskOnSuccess(app, existingTask, onPrepared);
+            focusTaskWithResult(
+                    app,
+                    existingTask,
+                    success -> {
+                        if (success) {
+                            TaskCommandQueue.execute(() ->
+                                    AppWindowStateStore.commitModeUpdate(
+                                            modeUpdate));
+                            runIfPresent(onPrepared);
+                        } else {
+                            AppWindowStateStore.cancelModeUpdate(modeUpdate);
+                        }
+                    });
             return;
         }
         final Intent launchIntent = app.launchTarget.resolve(
                 mActivity.getPackageManager());
         if (launchIntent == null) {
+            AppWindowStateStore.cancelModeUpdate(modeUpdate);
             showMissingLauncher(app);
             return;
         }
@@ -418,13 +432,10 @@ final class AppTaskController {
                 preferredBounds,
                 reusePolicy,
                 (displayId, taskId) -> {
-                    if (explicitWindowed && remembersWindowState(app)) {
-                        AppWindowStateStore.rememberMode(
-                                windowStateKey(app),
-                                AppWindowState.Mode.WINDOWED);
-                    }
+                    AppWindowStateStore.commitModeUpdate(modeUpdate);
                     runIfPresent(onPrepared);
-                });
+                },
+                () -> AppWindowStateStore.cancelModeUpdate(modeUpdate));
     }
 
     private static PreparedTaskAction preparedTaskAction(
@@ -443,6 +454,26 @@ final class AppTaskController {
             final RelativeWindowBounds preferredBounds,
             final WindowedAppLauncher.TaskReusePolicy reusePolicy,
             final PreparedTaskAction afterLaunch) {
+        launchWindow(
+                launchIntent,
+                launchTarget,
+                label,
+                explicitWindowed,
+                preferredBounds,
+                reusePolicy,
+                afterLaunch,
+                null);
+    }
+
+    private void launchWindow(
+            final Intent launchIntent,
+            final AppLaunchTarget launchTarget,
+            final String label,
+            final boolean explicitWindowed,
+            final RelativeWindowBounds preferredBounds,
+            final WindowedAppLauncher.TaskReusePolicy reusePolicy,
+            final PreparedTaskAction afterLaunch,
+            final Runnable onFailure) {
         mActivity.setTaskbarVisible(true);
         mActivity.setStatus(mActivity.getString(
                 R.string.status_launching_window, label));
@@ -472,6 +503,7 @@ final class AppTaskController {
                     mActivity.refreshTaskSnapshot();
                 });
             } catch (IOException | RuntimeException error) {
+                runIfPresent(onFailure);
                 TaskRepository.bringStackToFront(
                         visibleTasks, null, null);
                 mActivity.runOnUiThread(() -> {
@@ -518,48 +550,72 @@ final class AppTaskController {
             final PreparedTaskAction afterLaunch) {
         Log.i(TAG, "launch fullscreen package=" + app.packageName
                 + " display=" + mActivity.getCurrentDisplayId());
-        final int displayId =
-                beginFullscreenTransition(app.packageName);
+        final List<TaskRepository.TaskEntry> visibleTasks =
+                takeInteractionVisibleTasks();
+        final int excludedTaskId = findPackageTaskId(
+                visibleTasks, app.packageName);
+        final int displayId = mActivity.getCurrentDisplayId();
+        final AppWindowStateStore.PendingModeUpdate modeUpdate =
+                rememberMode && remembersWindowState(app)
+                        ? AppWindowStateStore.beginModeUpdate(
+                                windowStateKey(app),
+                                AppWindowState.Mode.FULLSCREEN)
+                        : null;
         mActivity.setTaskbarVisible(false);
         mActivity.setStatus(mActivity.getString(
                 R.string.status_launching_fullscreen, label));
-        try {
-            final int taskId = prepareFullscreenTask(app, displayId);
-            if (!MagicDeskRuntime.protectExplicitFullscreenTask(
-                    displayId, taskId)) {
-                Log.w(TAG, "fullscreen activity handoff guard unavailable"
-                        + " package=" + app.packageName
-                        + " task=" + taskId
-                        + " display=" + displayId);
+        TaskCommandQueue.execute(() -> {
+            try {
+                MagicDeskRuntime.beginFullscreenTransition(
+                        displayId, visibleTasks, excludedTaskId);
+                final int taskId = prepareFullscreenTask(app, displayId);
+                if (!MagicDeskRuntime.protectExplicitFullscreenTask(
+                        displayId, taskId)) {
+                    Log.w(TAG, "fullscreen activity handoff guard unavailable"
+                            + " package=" + app.packageName
+                            + " task=" + taskId
+                            + " display=" + displayId);
+                }
+                if (afterLaunch != null) {
+                    afterLaunch.run(displayId, taskId);
+                }
+                if (modeUpdate != null) {
+                    AppWindowStateStore.commitModeUpdate(modeUpdate);
+                }
+                MagicDeskRuntime.finishFullscreenTransition(
+                        displayId, true);
+            } catch (IOException | RuntimeException error) {
+                AppWindowStateStore.cancelModeUpdate(modeUpdate);
+                MagicDeskRuntime.finishFullscreenTransition(
+                        displayId, false);
+                reportFullscreenLaunchFailure(app, displayId, error);
             }
-            if (afterLaunch != null) {
-                afterLaunch.run(displayId, taskId);
+        });
+    }
+
+    private void reportFullscreenLaunchFailure(
+            final AppItem app,
+            final int displayId,
+            final Exception error) {
+        mActivity.runOnUiThread(() -> {
+            if (mActivity.isActivityUnavailable()
+                    || displayId != mActivity.getCurrentDisplayId()) {
+                return;
             }
-            if (rememberMode && remembersWindowState(app)) {
-                AppWindowStateStore.rememberMode(
-                        windowStateKey(app),
-                        AppWindowState.Mode.FULLSCREEN);
-            }
-            MagicDeskRuntime.finishFullscreenTransition(
-                    displayId, true);
-        } catch (IOException e) {
-            MagicDeskRuntime.finishFullscreenTransition(
-                    displayId, false);
             mActivity.setTaskbarVisible(true);
-            mActivity.setErrorStatus(
-                    "TASK-FULLSCREEN-001",
-                    mActivity.getString(
-                            R.string.status_switch_failed,
-                            e.getMessage()),
-                    "package=" + app.packageName
-                            + " display=" + displayId,
-                    e);
-        } catch (RuntimeException e) {
-            MagicDeskRuntime.finishFullscreenTransition(
-                    displayId, false);
-            mActivity.setTaskbarVisible(true);
-            mActivity.showLaunchFailure(e);
-        }
+            if (error instanceof IOException) {
+                mActivity.setErrorStatus(
+                        "TASK-FULLSCREEN-001",
+                        mActivity.getString(
+                                R.string.status_switch_failed,
+                                error.getMessage()),
+                        "package=" + app.packageName
+                                + " display=" + displayId,
+                        error);
+            } else {
+                mActivity.showLaunchFailure(error);
+            }
+        });
     }
 
     private int prepareFullscreenTask(
@@ -971,20 +1027,15 @@ final class AppTaskController {
         return displayId;
     }
 
-    private int beginFullscreenTransition(final String packageName) {
-        final List<TaskRepository.TaskEntry> visibleTasks =
-                takeInteractionVisibleTasks();
-        int excludedTaskId = -1;
-        for (final TaskRepository.TaskEntry task : visibleTasks) {
+    private static int findPackageTaskId(
+            final List<TaskRepository.TaskEntry> tasks,
+            final String packageName) {
+        for (final TaskRepository.TaskEntry task : tasks) {
             if (packageName.equals(task.packageName)) {
-                excludedTaskId = task.taskId;
-                break;
+                return task.taskId;
             }
         }
-        final int displayId = mActivity.getCurrentDisplayId();
-        MagicDeskRuntime.beginFullscreenTransition(
-                displayId, visibleTasks, excludedTaskId);
-        return displayId;
+        return -1;
     }
 
     private List<TaskRepository.TaskEntry>

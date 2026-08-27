@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Rect;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -456,6 +457,10 @@ final class ExistingTaskController {
     }
 
     private static String runCommand(final String command) throws IOException {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            throw new IllegalStateException(
+                    "task reuse commands must not run on the main thread");
+        }
         return ShellAccess.run(command);
     }
 
