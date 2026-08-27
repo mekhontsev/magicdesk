@@ -15,6 +15,7 @@ final class DesktopSessionTransitionCoordinator {
 
     private static final String TAG = "MagicDeskConsoleSwitcher";
     private static final long SESSION_CLOSE_TIMEOUT_SECONDS = 15L;
+    private static final long DISPLAY_TRANSITION_IDLE_TIMEOUT_MILLIS = 5_000L;
 
     private final SerializedDesktopOperationQueue mOperations;
     private final Context mContext;
@@ -286,15 +287,25 @@ final class DesktopSessionTransitionCoordinator {
         final boolean displayRemovalPrepared = !success
                 && MagicDeskRuntime.prepareDesktopDisplayRemoval(
                         desktopDisplayId);
-        if (!success && mProjection.requestMirrorMode()) {
+        final boolean teardownReady = success
+                || prepareDesktopDisplayTeardown(desktopDisplayId);
+        if (!success && teardownReady && mProjection.requestMirrorMode()) {
             success = mProjection.waitForDesktopStop(mContext);
             if (!success) {
                 Log.w(TAG,
                         "Console display remained active after Mirror request");
             }
         }
-        if (!success && displayRemovalPrepared) {
-            MagicDeskRuntime.cancelDesktopDisplayRemoval(
+        if (!success) {
+            if (!teardownReady) {
+                Log.w(TAG, "Mirror request withheld because display teardown "
+                        + "did not quiesce for display=" + desktopDisplayId);
+            }
+            if (displayRemovalPrepared) {
+                MagicDeskRuntime.cancelDesktopDisplayRemoval(
+                        desktopDisplayId);
+            }
+            DesktopRuntimeBridge.resumeDesktopSessionAfterFailedRemoval(
                     desktopDisplayId);
         }
         if (success && ShellAccess.isReady()) {
@@ -302,6 +313,40 @@ final class DesktopSessionTransitionCoordinator {
                     PlatformProjectionDriver.Transport.NONE);
         }
         return success;
+    }
+
+    private boolean prepareDesktopDisplayTeardown(final int displayId) {
+        final CountDownLatch prepared = new CountDownLatch(1);
+        DesktopRuntimeBridge.prepareDesktopSessionRemoval(
+                displayId, prepared::countDown);
+        try {
+            if (!prepared.await(
+                    SESSION_CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                Log.w(TAG, "Desktop display teardown preparation timed out for "
+                        + "display=" + displayId);
+                return false;
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            Log.w(TAG, "Desktop display teardown preparation interrupted for "
+                    + "display=" + displayId, error);
+            return false;
+        }
+        final WindowTransitionHealthDiagnostics.IdleResult idle =
+                WindowTransitionHealthDiagnostics.awaitDisplayIdle(
+                        mContext,
+                        displayId,
+                        DISPLAY_TRANSITION_IDLE_TIMEOUT_MILLIS);
+        if (idle.idle) {
+            return true;
+        }
+        Log.w(TAG, "Desktop display teardown blocked for display=" + displayId
+                + ": " + idle.detail);
+        CompatibilityDiagnostics.record(
+                "DISPLAY-TRANSITION-002",
+                "Could not safely remove the desktop display",
+                "display=" + displayId + "; " + idle.detail);
+        return false;
     }
 
     private void showPreferredDesktopNow() {
