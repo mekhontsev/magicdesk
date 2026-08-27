@@ -257,15 +257,17 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                                 previousMode,
                                 currentMode,
                                 backgroundAppFullscreenReleased);
-                        // MagicDesk fullscreen commands already refresh the
-                        // client caption and retain restore geometry. Only a
-                        // native caption-button transition needs this repair.
-                        if (!mWindowTransitions.hasManagedFullscreenState(taskId)
-                                && TaskCaptionInsetsRefresher
-                                        .shouldRefreshAfterWindowingModeChange(
-                                                previousMode,
-                                                currentMode,
-                                                previousCaptionSourceId)) {
+                        // Managed fullscreen performs an immediate refresh.
+                        // Repeat it once when the existing task monitor sees
+                        // the mode change: a late client relayout can restore
+                        // the old Nubia caption source after the first update.
+                        // Native caption-button transitions use this same
+                        // one-shot path as their primary refresh.
+                        if (TaskCaptionInsetsRefresher
+                                .shouldRefreshAfterWindowingModeChange(
+                                        previousMode,
+                                        currentMode,
+                                        previousCaptionSourceId)) {
                             mTaskWatcher.refreshTaskCaption(
                                     mDisplayId,
                                     taskId,

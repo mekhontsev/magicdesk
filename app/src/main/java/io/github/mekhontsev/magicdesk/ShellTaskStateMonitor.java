@@ -94,8 +94,6 @@ final class ShellTaskStateMonitor implements Closeable {
     private static final int MAX_TASKS_TO_SCAN = 16;
     private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
-    private static final String MAGICDESK_PACKAGE =
-            "io.github.mekhontsev.magicdesk";
     private final Object mService;
     private final ActivityManager mActivityManager;
     private final Field mTopActivityInfo;
@@ -526,9 +524,10 @@ final class ShellTaskStateMonitor implements Closeable {
                         taskKey,
                         new FreeformBoundsState(stateKey, state.bounds));
             }
-            if (MAGICDESK_PACKAGE.equals(state.packageName)) {
-                continue;
-            }
+            // A valid built-in key identifies a user-facing MagicDesk window.
+            // Infrastructure activities returned no key and were rejected
+            // above, so native caption transitions must observe these tasks
+            // just like applications from another package.
             liveTaskIds.add(taskKey);
             windowingModes.put(
                     taskKey, Integer.valueOf(state.windowingMode));
