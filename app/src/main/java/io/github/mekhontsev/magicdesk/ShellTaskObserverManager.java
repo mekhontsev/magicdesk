@@ -79,6 +79,13 @@ final class ShellTaskObserverManager implements Closeable {
                 desktopHostTaskId);
     }
 
+    boolean clearConfiguration(
+            final ITaskObserverCallback callback,
+            final int expectedDisplayId) {
+        return requireSession(callback).observer.clearConfiguration(
+                expectedDisplayId);
+    }
+
     void focusStack(
             final ITaskObserverCallback callback,
             final long sequence,

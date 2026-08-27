@@ -395,7 +395,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mHandler.removeCallbacks(mRefreshRunnable);
         mRefreshDueUptimeMillis = -1;
         mTaskWatcher.setPhoneTouchpadRequested(false);
-        mTaskWatcher.clearConfiguration();
+        mTaskWatcher.clearConfiguration(mDisplayId);
         mWindowContext = null;
         mDisplayId = -1;
         mFocusingTaskId = -1;

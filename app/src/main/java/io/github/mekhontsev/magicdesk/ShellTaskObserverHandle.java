@@ -71,6 +71,13 @@ final class ShellTaskObserverHandle implements Closeable {
                 desktopHostTaskId));
     }
 
+    boolean clearConfiguration(final int expectedDisplayId)
+            throws IOException {
+        return callServiceForResult(() ->
+                mService.clearTaskObserverConfiguration(
+                        mCallback, expectedDisplayId));
+    }
+
     void focusStack(
             final long sequence,
             final int displayId,

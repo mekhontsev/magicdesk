@@ -164,6 +164,10 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         return mEnabled && mDisplayId == displayId;
     }
 
+    synchronized int managedDisplayId() {
+        return mEnabled ? mDisplayId : -1;
+    }
+
     synchronized boolean matchesConfiguration(
             final int displayId,
             final boolean enabled,

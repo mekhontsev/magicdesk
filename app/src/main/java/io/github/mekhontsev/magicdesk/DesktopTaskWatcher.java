@@ -56,6 +56,8 @@ final class DesktopTaskWatcher {
     private final Listener mListener;
     private final ExecutorService mExecutor =
             Executors.newSingleThreadExecutor();
+    private final LatestOperationSerializer mConfigurationOperations =
+            new LatestOperationSerializer();
     private final Map<Long, TaskRepository.ActionCallback> mFocusCallbacks =
             new HashMap<>();
 
@@ -90,6 +92,7 @@ final class DesktopTaskWatcher {
         final ShellTaskObserverHandle handle;
         synchronized (this) {
             mLifecycleGeneration++;
+            mConfigurationOperations.invalidate();
             callbacks = drainPendingFocusCallbacksLocked();
             handle = detachHandleLocked();
         }
@@ -131,18 +134,26 @@ final class DesktopTaskWatcher {
             final Rect workAreaBounds,
             final boolean managedTaskArea,
             final int desktopHostTaskId) {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
-            return false;
+        final ShellTaskObserverHandle handle;
+        final LatestOperationSerializer.Ticket ticket;
+        synchronized (this) {
+            handle = mHandle;
+            if (handle == null) {
+                return false;
+            }
+            ticket = mConfigurationOperations.supersede();
         }
         try {
-            handle.configure(
-                    displayId,
-                    displayBounds,
-                    workAreaBounds,
-                    managedTaskArea,
-                    desktopHostTaskId);
-            return true;
+            // clearConfiguration() is intentionally asynchronous. Serialize it
+            // with replacement configurations so cleanup from the previous
+            // display can never dismantle the newly registered session area.
+            return mConfigurationOperations.executeIfCurrent(ticket, () ->
+                    handle.configure(
+                            displayId,
+                            displayBounds,
+                            workAreaBounds,
+                            managedTaskArea,
+                            desktopHostTaskId));
         } catch (IOException error) {
             Log.w(TAG, "failed to configure task observer", error);
             recordFailure(
@@ -154,15 +165,24 @@ final class DesktopTaskWatcher {
         }
     }
 
-    void clearConfiguration() {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
+    void clearConfiguration(final int expectedDisplayId) {
+        if (expectedDisplayId < 0) {
             return;
+        }
+        final ShellTaskObserverHandle handle;
+        final LatestOperationSerializer.Ticket ticket;
+        synchronized (this) {
+            handle = mHandle;
+            if (handle == null) {
+                return;
+            }
+            ticket = mConfigurationOperations.supersede();
         }
         try {
             mExecutor.execute(() -> {
                 try {
-                    handle.configure(-1, new Rect(), new Rect(), false, -1);
+                    mConfigurationOperations.executeIfCurrent(ticket, () ->
+                            handle.clearConfiguration(expectedDisplayId));
                 } catch (IOException error) {
                     Log.w(TAG,
                             "failed to clear task observer configuration",
@@ -625,6 +645,7 @@ final class DesktopTaskWatcher {
             if (mCallback != callback) {
                 return;
             }
+            mConfigurationOperations.invalidate();
             mHandle = null;
             mCallback = null;
         }

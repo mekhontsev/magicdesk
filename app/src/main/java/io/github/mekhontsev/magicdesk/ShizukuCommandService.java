@@ -417,6 +417,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public boolean clearTaskObserverConfiguration(
+            final ITaskObserverCallback callback,
+            final int expectedDisplayId) {
+        return mTaskObserverManager.clearConfiguration(
+                callback, expectedDisplayId);
+    }
+
+    @Override
     public void focusTaskStack(
             final ITaskObserverCallback callback,
             final long sequence,

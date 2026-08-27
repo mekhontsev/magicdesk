@@ -460,6 +460,28 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         reportDesktopTaskOwnership();
     }
 
+    boolean clearConfiguration(final int expectedDisplayId) {
+        final int managedAreaDisplayId =
+                mDesktopTaskArea.managedDisplayId();
+        if (!DesktopTaskConfigurationGuard.canClear(
+                expectedDisplayId,
+                mConfiguredDisplayId,
+                managedAreaDisplayId)) {
+            Log.i(TAG, "ignored stale task observer clear expectedDisplay="
+                    + expectedDisplayId
+                    + " configuredDisplay=" + mConfiguredDisplayId
+                    + " managedAreaDisplay=" + managedAreaDisplayId);
+            return false;
+        }
+        configure(
+                Display.INVALID_DISPLAY,
+                new Rect(),
+                new Rect(),
+                false,
+                -1);
+        return true;
+    }
+
     void setExternalTaskMigrationProtection(final boolean enabled) {
         mMigrationGuard.configure(mConfiguredDisplayId, enabled);
     }

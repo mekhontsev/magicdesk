@@ -362,4 +362,8 @@ interface IShizukuCommandService {
 
     long getPtyProcessId(long requestId) = 94;
 
+    boolean clearTaskObserverConfiguration(
+        ITaskObserverCallback callback,
+        int expectedDisplayId) = 95;
+
 }
