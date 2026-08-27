@@ -140,16 +140,8 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             final String intentUri) throws ReflectiveOperationException {
         requireConfigured(displayId);
         ensureArea();
-        final Intent intent = TaskDisplayAreaLaunchCommand.createAppIntent(
-                intentUri);
-        final int taskId = TaskDisplayAreaLaunchCommand.launchFullscreenTask(
-                mService,
-                displayId,
-                intent,
-                intent.getComponent().getPackageName(),
-                Class.forName("android.window.WindowContainerToken"),
-                mArea.token());
-        mOwnership.markDesktop(taskId);
+        final int taskId = mTaskLauncher.launchFullscreen(
+                displayId, intentUri, mArea.token());
         mTaskIds.add(Integer.valueOf(taskId));
         waitForTaskArea(taskId, mArea.featureId(), true);
         TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(

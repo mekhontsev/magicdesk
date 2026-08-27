@@ -111,6 +111,13 @@ final class ShellTaskLauncher {
     synchronized int launchFullscreen(
             final int displayId,
             final String intentUri) throws ReflectiveOperationException {
+        return launchFullscreen(displayId, intentUri, null);
+    }
+
+    synchronized int launchFullscreen(
+            final int displayId,
+            final String intentUri,
+            final Object taskAreaToken) throws ReflectiveOperationException {
         if (displayId < 0) {
             throw new IllegalArgumentException(
                     "fullscreen launch requires a display");
@@ -140,7 +147,12 @@ final class ShellTaskLauncher {
                             mService,
                             displayId,
                             intent,
-                            intent.getComponent().getPackageName());
+                            intent.getComponent().getPackageName(),
+                            taskAreaToken == null
+                                    ? null
+                                    : Class.forName(
+                                            "android.window.WindowContainerToken"),
+                            taskAreaToken);
             pending.complete(taskId);
             TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
                     mService,
