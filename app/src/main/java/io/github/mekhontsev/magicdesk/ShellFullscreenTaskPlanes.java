@@ -575,12 +575,14 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 mConcealedForShowDesktop = false;
             }
             mPlaneFocusSuppressedForWorkspace = workspaceForeground;
+            // Keep the organizer leashes in the same mixed order as the WCT.
+            // The explicit layers make plane swaps immediate; retaining the
+            // workspace placeholders prevents either commit order from putting
+            // a focused task above a stale surface.
             applySurfaceOrder(
                     mixedOrder == null
                             ? stableOrder
-                            : planeOnlyOrder(
-                                    stableOrder,
-                                    effectivePlanes.keySet()),
+                            : mixedSurfaceOrder(stableOrder, mixedOrder),
                     effectivePlanes);
             if (mixedOrder != null && !mixedOrder.fullscreenForeground) {
                 // WCT owns the mixed hierarchy, but on Nubia it can commit a
@@ -697,24 +699,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         return output;
     }
 
-    static int[] planeOnlyOrder(
-            final int[] taskIds,
-            final Set<Integer> planeTaskIds) {
-        if (taskIds == null || taskIds.length == 0
-                || planeTaskIds == null || planeTaskIds.isEmpty()) {
-            return new int[0];
-        }
-        final int[] output = new int[planeTaskIds.size()];
-        int count = 0;
-        for (final int taskId : taskIds) {
-            if (planeTaskIds.contains(Integer.valueOf(taskId))) {
-                output[count++] = taskId;
-            }
-        }
-        return count == output.length
-                ? output : java.util.Arrays.copyOf(output, count);
-    }
-
     static MixedStackOrder buildMixedStackOrder(
             final int targetTaskId,
             final int desktopHostTaskId,
@@ -771,6 +755,29 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 fullscreenTaskId,
                 toIntArray(new ArrayList<>(retainedFreeforms)),
                 !targetIsFreeform);
+    }
+
+    static int[] mixedSurfaceOrder(
+            final int[] stableOrder,
+            final MixedStackOrder mixedOrder) {
+        if (stableOrder == null || mixedOrder == null) {
+            return stableOrder == null ? new int[0] : stableOrder.clone();
+        }
+        final LinkedHashSet<Integer> order = new LinkedHashSet<>();
+        for (final int taskId : stableOrder) {
+            order.add(Integer.valueOf(taskId));
+        }
+        order.remove(Integer.valueOf(mixedOrder.targetTaskId));
+        for (final int taskId : mixedOrder.freeformTaskIds) {
+            order.remove(Integer.valueOf(taskId));
+        }
+        for (final int taskId : mixedOrder.freeformTaskIds) {
+            order.add(Integer.valueOf(taskId));
+        }
+        if (mixedOrder.fullscreenForeground) {
+            order.add(Integer.valueOf(mixedOrder.targetTaskId));
+        }
+        return toIntArray(new ArrayList<>(order));
     }
 
     static final class MixedStackOrder {

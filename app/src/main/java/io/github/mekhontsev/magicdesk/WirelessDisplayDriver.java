@@ -29,9 +29,10 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
     @Override
     public void showReady(
             final Activity source,
-            final DesktopDisplayTarget target) {
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
         requireTarget(target);
-        DesktopDisplayDriverSupport.showReadySecondary(target);
+        DesktopDisplayDriverSupport.showReadySecondary(target, policy);
     }
 
     @Override

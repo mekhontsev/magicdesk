@@ -12,6 +12,12 @@ final class DesktopSessionRegistry {
         mSnapshot = mSnapshot.noteTarget(target);
     }
 
+    void noteTarget(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
+        mSnapshot = mSnapshot.noteTarget(target, policy);
+    }
+
     void clearTarget(final DesktopDisplayTarget target) {
         mSnapshot = mSnapshot.clearTarget(target);
     }

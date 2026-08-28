@@ -57,6 +57,20 @@ final class DesktopSelfTestController {
             final DesktopSelfTestTarget requestedTarget,
             final boolean restoreExternalMirror,
             final int resultTaskId) {
+        return run(
+                context,
+                requestedTarget,
+                restoreExternalMirror,
+                resultTaskId,
+                DesktopSelfTestExecutionPolicy.FULL);
+    }
+
+    static DesktopSelfTestResult run(
+            final Context context,
+            final DesktopSelfTestTarget requestedTarget,
+            final boolean restoreExternalMirror,
+            final int resultTaskId,
+            final DesktopSelfTestExecutionPolicy executionPolicy) {
         final DesktopSelfTestResult result =
                 new DesktopSelfTestResult(System.currentTimeMillis());
         if (context == null) {
@@ -92,9 +106,12 @@ final class DesktopSelfTestController {
         }
         int displayId = Display.INVALID_DISPLAY;
         SimulatedDisplayLease lease = null;
+        WorkspaceIsolationLease workspaceLease = null;
+        PhoneOrientationLease orientationLease = null;
         boolean observationsRecorded = false;
         boolean displayRemovalRecorded = false;
         Map<String, Integer> staleTransitionBaseline = Collections.emptyMap();
+        result.arm(executionPolicy);
         try {
             result.add(DesktopSelfTestResult.State.PASS,
                     "SELFTEST-TARGET-001",
@@ -107,6 +124,12 @@ final class DesktopSelfTestController {
                 }
                 return "uid=" + uid;
             });
+            orientationLease = lockPhoneOrientation(appContext, result);
+            result.add(DesktopSelfTestResult.State.PASS,
+                    "SELFTEST-WORKSPACE-001",
+                    "Isolate the self-test workspace",
+                    "saved workspace restore and persistence disabled");
+            workspaceLease = WorkspaceIsolationLease.open();
             staleTransitionBaseline = inspectWindowTransitionPrecondition(
                     appContext, result);
             if (target == DesktopSelfTestTarget.PHONE) {
@@ -145,9 +168,10 @@ final class DesktopSelfTestController {
                         }, null).intValue();
             } else {
                 displayId = requirePreparedDisplay(target, result);
+                workspaceLease.adoptPreparedSession(displayId);
             }
             DesktopSelfTestWindowSuite.run(
-                    appContext, target, displayId, result);
+                    appContext, target, displayId, result, workspaceLease);
             if (target == DesktopSelfTestTarget.SIMULATED) {
                 // Expected display destruction must not be classified as host
                 // or phone-UI instability by the lifecycle observers.
@@ -169,36 +193,104 @@ final class DesktopSelfTestController {
                         "the selected display is not owned by the self-test");
             }
             displayRemovalRecorded = true;
+        } catch (DesktopSelfTestResult.StopAfterFirstFailure stopped) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "SELFTEST-FAIL-FAST-001",
+                    "Remaining self-test workflow",
+                    "stopped after " + stopped.code
+                            + "; cleanup and final diagnostics still run");
         } catch (AbortSelfTest ignored) {
             // The failing required step has already been added to the result.
         } catch (RuntimeException error) {
+            result.disarm();
             result.add(DesktopSelfTestResult.State.FAIL,
                     "SELFTEST-003", "Unexpected self-test failure",
                     usefulMessage(error));
         } finally {
-            DesktopSelfTestTaskStackGuard.finish(result);
-            if (!observationsRecorded) {
-                recordDesktopHostObservation(result, displayId);
-                recordPhoneUiObservation(result, displayId);
+            result.disarm();
+            try {
+                try {
+                    DesktopSelfTestTaskStackGuard.finish(result);
+                    if (!observationsRecorded) {
+                        recordDesktopHostObservation(result, displayId);
+                        recordPhoneUiObservation(result, displayId);
+                    }
+                    if (!displayRemovalRecorded) {
+                        DesktopSelfTestDisplayRemovalSuite.addNotTested(
+                                result,
+                                "window workflow did not reach display removal");
+                    }
+                } finally {
+                    DesktopSelfTestCleanup.run(result,
+                            target,
+                            displayId,
+                            lease,
+                            restoreExternalMirror);
+                }
+            } finally {
+                try {
+                    if (workspaceLease != null) {
+                        workspaceLease.close();
+                    }
+                } finally {
+                    restorePhoneOrientation(result, orientationLease);
+                    try {
+                        recordWindowTransitionHealth(
+                                appContext,
+                                result,
+                                staleTransitionBaseline);
+                        recordWindowTransitionLogHealth(result, displayId);
+                        restoreResultTask(result, target, resultTaskId);
+                    } finally {
+                        RUNNING.set(false);
+                    }
+                }
             }
-            if (!displayRemovalRecorded) {
-                DesktopSelfTestDisplayRemovalSuite.addNotTested(
-                        result,
-                        "window workflow did not reach display removal");
-            }
-            DesktopSelfTestCleanup.run(result,
-                    target,
-                    displayId,
-                    lease,
-                    restoreExternalMirror);
-            recordWindowTransitionHealth(
-                    appContext, result, staleTransitionBaseline);
-            recordWindowTransitionLogHealth(
-                    result, displayId);
-            restoreResultTask(result, target, resultTaskId);
-            RUNNING.set(false);
         }
         return finish(result, appContext);
+    }
+
+    private static void restorePhoneOrientation(
+            final DesktopSelfTestResult result,
+            final PhoneOrientationLease lease) {
+        if (lease == null) {
+            return;
+        }
+        try {
+            final String detail = lease.detail();
+            lease.close();
+            result.add(DesktopSelfTestResult.State.PASS,
+                    "SELFTEST-ORIENTATION-002",
+                    "Restore phone orientation policy",
+                    detail);
+        } catch (IOException | RuntimeException error) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    "SELFTEST-ORIENTATION-002",
+                    "Restore phone orientation policy",
+                    usefulMessage(error));
+        }
+    }
+
+    private static PhoneOrientationLease lockPhoneOrientation(
+            final Context context,
+            final DesktopSelfTestResult result) throws AbortSelfTest {
+        DesktopSelfTestHostObserver.stage("SELFTEST-ORIENTATION-001");
+        try {
+            final PhoneOrientationLease lease =
+                    PhoneOrientationLease.open(context);
+            result.add(DesktopSelfTestResult.State.PASS,
+                    "SELFTEST-ORIENTATION-001",
+                    "Lock phone orientation for the self-test",
+                    lease.detail());
+            return lease;
+        } catch (IOException | RuntimeException error) {
+            failAndAbort(
+                    result,
+                    "SELFTEST-ORIENTATION-001",
+                    "Lock phone orientation for the self-test",
+                    usefulMessage(error));
+            throw new AssertionError("unreachable");
+        }
     }
 
     private static void restoreResultTask(

@@ -31,6 +31,7 @@ public final class DesktopSelfTestResult {
     private final long mStartedAtMillis;
     private final List<Check> mChecks = new ArrayList<>();
     private long mFinishedAtMillis;
+    private boolean mFailFastArmed;
 
     DesktopSelfTestResult(final long startedAtMillis) {
         mStartedAtMillis = startedAtMillis;
@@ -46,6 +47,18 @@ public final class DesktopSelfTestResult {
             throw new IllegalArgumentException("self-test check is incomplete");
         }
         mChecks.add(new Check(state, code, label, clean(detail)));
+        if (state == State.FAIL && mFailFastArmed) {
+            mFailFastArmed = false;
+            throw new StopAfterFirstFailure(code);
+        }
+    }
+
+    void arm(final DesktopSelfTestExecutionPolicy policy) {
+        mFailFastArmed = policy != null && policy.stopsAfterFailure();
+    }
+
+    void disarm() {
+        mFailFastArmed = false;
     }
 
     void finish(final long finishedAtMillis) {
@@ -188,6 +201,16 @@ public final class DesktopSelfTestResult {
             this.code = code;
             this.label = label;
             this.detail = detail;
+        }
+    }
+
+    static final class StopAfterFirstFailure extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        final String code;
+
+        StopAfterFirstFailure(final String code) {
+            super(code);
+            this.code = code;
         }
     }
 }

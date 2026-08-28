@@ -34,6 +34,12 @@ final class DesktopSessionController {
 
     static ShowResult show(final DesktopDisplayTarget target)
             throws IOException {
+        return show(target, DesktopSessionPolicy.USER);
+    }
+
+    static ShowResult show(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) throws IOException {
         if (target == null) {
             throw new IllegalArgumentException("display target is required");
         }
@@ -46,20 +52,27 @@ final class DesktopSessionController {
                     "desktop display no longer exists: "
                             + preparedTarget.displayId);
         }
-        DesktopRuntimeBridge.noteDesktopTarget(preparedTarget);
+        final DesktopSessionPolicy resolvedPolicy = policy == null
+                ? DesktopSessionPolicy.USER : policy;
+        DesktopRuntimeBridge.noteDesktopTarget(
+                preparedTarget, resolvedPolicy);
         try {
             prepareDisplayWindowing(preparedTarget);
             final Boolean visibleTaskSnapshot =
                     MagicDeskRuntime.hasVisibleAppTaskSnapshot(
                             preparedTarget.displayId);
-            final boolean restoreWindows = visibleTaskSnapshot != null
+            final boolean restoreWindows = resolvedPolicy.restoreWorkspace
+                    && visibleTaskSnapshot != null
                     && !visibleTaskSnapshot.booleanValue();
             final int desktopTaskId = findDesktopTask(preparedTarget.displayId);
             if (desktopTaskId >= 0) {
                 Log.i(TAG, "restoring desktop kind=" + preparedTarget.kind
                         + " display=" + preparedTarget.displayId
                         + " task=" + desktopTaskId);
-                if (restoreWindows) {
+                if (!resolvedPolicy.restoreWorkspace) {
+                    Log.i(TAG, "isolated desktop reuses host without restoring"
+                            + " display=" + preparedTarget.displayId);
+                } else if (restoreWindows) {
                     MagicDeskRuntime.restoreLastVisibleWindows();
                 } else {
                     MagicDeskRuntime.restoreSessionWorkspace(
@@ -68,8 +81,10 @@ final class DesktopSessionController {
                                     Integer.valueOf(desktopTaskId)),
                             null);
                 }
-                MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
-                        preparedTarget);
+                if (resolvedPolicy.restoreWorkspace) {
+                    MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
+                            preparedTarget);
+                }
                 return new ShowResult(true, false);
             }
 
@@ -96,6 +111,9 @@ final class DesktopSessionController {
                             + " --es "
                             + DesktopShellActivity.EXTRA_ACTIVATION_SOURCE
                             + " " + preparedTarget.activationSource.name()
+                            + " --es "
+                            + DesktopShellActivity.EXTRA_SESSION_POLICY
+                            + " " + resolvedPolicy.name()
                             + (restoreWindows
                                     ? " --es " + DesktopShellActivity.EXTRA_ACTION
                                             + " "
@@ -118,7 +136,7 @@ final class DesktopSessionController {
                 MagicDeskRuntime.reconcileFailedDesktopLaunch(
                         preparedTarget.displayId);
             }
-            if (ready) {
+            if (ready && resolvedPolicy.restoreWorkspace) {
                 MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
                         preparedTarget);
             }

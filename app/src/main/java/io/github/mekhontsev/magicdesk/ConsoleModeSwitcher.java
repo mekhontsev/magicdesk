@@ -91,8 +91,18 @@ public final class ConsoleModeSwitcher {
         TRANSITIONS.showWiredDesktop();
     }
 
+    static void showWiredDesktop(final DesktopSessionPolicy policy) {
+        TRANSITIONS.showWiredDesktop(policy);
+    }
+
     static void showDesktop(final DesktopDisplayTarget target) {
         TRANSITIONS.showDesktop(target);
+    }
+
+    static void showDesktop(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
+        TRANSITIONS.showDesktop(target, policy);
     }
 
     static void closeDesktop(

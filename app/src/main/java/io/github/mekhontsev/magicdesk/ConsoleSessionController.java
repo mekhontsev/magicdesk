@@ -18,6 +18,13 @@ final class ConsoleSessionController {
     static void show(
             final int displayId,
             final PlatformProjectionDriver projection) {
+        show(displayId, projection, DesktopSessionPolicy.USER);
+    }
+
+    static void show(
+            final int displayId,
+            final PlatformProjectionDriver projection,
+            final DesktopSessionPolicy policy) {
         if (projection == null) {
             throw new IllegalArgumentException("projection driver is required");
         }
@@ -127,7 +134,7 @@ final class ConsoleSessionController {
                 target = target.withProfile(
                         physicalDisplayId, displayProfile.key);
             }
-            DesktopDisplayDriverSupport.showReadySecondary(target);
+            DesktopDisplayDriverSupport.showReadySecondary(target, policy);
         } catch (IOException error) {
             Log.w(TAG, "Shell MagicDesk launch failed", error);
             CompatibilityDiagnostics.record(

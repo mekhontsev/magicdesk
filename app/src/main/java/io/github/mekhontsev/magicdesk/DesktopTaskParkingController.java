@@ -113,6 +113,10 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 || target.displayId < Display.DEFAULT_DISPLAY) {
             return;
         }
+        if (!DesktopRuntimeBridge.getSessionSnapshot()
+                .policy().restoreWorkspace) {
+            return;
+        }
         synchronized (mLock) {
             if (mParked.isEmpty()) {
                 return;
@@ -124,6 +128,10 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
 
     @Override
     public void onDesktopHostReady(final int displayId) {
+        if (!DesktopRuntimeBridge.getSessionSnapshot()
+                .policy().restoreWorkspace) {
+            return;
+        }
         final DesktopDisplayTarget target;
         synchronized (mLock) {
             target = mPendingTarget != null

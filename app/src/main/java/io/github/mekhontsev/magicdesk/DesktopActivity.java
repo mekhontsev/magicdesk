@@ -32,6 +32,13 @@ public final class DesktopActivity extends DesktopShellActivity {
     static void launch(
             final Activity source,
             final DesktopDisplayTarget target) {
+        launch(source, target, DesktopSessionPolicy.USER);
+    }
+
+    static void launch(
+            final Activity source,
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
         if (target == null
                 || target.kind != DesktopDisplayTarget.Kind.PHONE
                 || target.displayId != Display.DEFAULT_DISPLAY) {
@@ -64,16 +71,19 @@ public final class DesktopActivity extends DesktopShellActivity {
                         Toast.LENGTH_LONG).show();
                 return;
             }
-            launchNow(source, target, generation);
+            launchNow(source, target, policy, generation);
         });
     }
 
     private static void launchNow(
             final Activity source,
             final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy,
             final long generation) {
         final int displayId = target.displayId;
-        DesktopRuntimeBridge.noteDesktopTarget(target);
+        final DesktopSessionPolicy resolvedPolicy = policy == null
+                ? DesktopSessionPolicy.USER : policy;
+        DesktopRuntimeBridge.noteDesktopTarget(target, resolvedPolicy);
         if (DesktopRuntimeBridge.focusDesktopOnDisplay(displayId)) {
             return;
         }
@@ -85,7 +95,8 @@ public final class DesktopActivity extends DesktopShellActivity {
                 .putExtra(EXTRA_TARGET_KIND, target.kind.name())
                 .putExtra(
                         EXTRA_ACTIVATION_SOURCE,
-                        target.activationSource.name());
+                        target.activationSource.name())
+                .putExtra(EXTRA_SESSION_POLICY, resolvedPolicy.name());
         LAUNCH_EXECUTOR.execute(() -> {
             try {
                 ShellAccess.launchDesktopHost(displayId, intent);

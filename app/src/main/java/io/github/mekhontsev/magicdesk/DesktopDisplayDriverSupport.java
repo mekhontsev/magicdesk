@@ -14,6 +14,12 @@ final class DesktopDisplayDriverSupport {
     }
 
     static void showReadySecondary(final DesktopDisplayTarget target) {
+        showReadySecondary(target, DesktopSessionPolicy.USER);
+    }
+
+    static void showReadySecondary(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
         if (target == null
                 || target.displayId <= Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException(
@@ -35,15 +41,21 @@ final class DesktopDisplayDriverSupport {
                         error);
             }
         }
-        showPrepared(preparedTarget);
+        showPrepared(preparedTarget, policy);
     }
 
     static void showPrepared(final DesktopDisplayTarget target) {
+        showPrepared(target, DesktopSessionPolicy.USER);
+    }
+
+    static void showPrepared(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
         final DesktopDisplayDriver driver =
                 DesktopDisplayDrivers.forTarget(target);
         try {
             final DesktopSessionController.ShowResult result =
-                    DesktopSessionController.show(target);
+                    DesktopSessionController.show(target, policy);
             if (result.ready && result.created
                     && driver.features().phoneTouchpad
                     && MagicDeskSettings.load()

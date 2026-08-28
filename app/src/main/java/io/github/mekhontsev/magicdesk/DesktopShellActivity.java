@@ -61,6 +61,7 @@ public abstract class DesktopShellActivity extends Activity
     static final String EXTRA_TARGET_KIND = "magicdesk_target_kind";
     static final String EXTRA_ACTIVATION_SOURCE =
             "magicdesk_activation_source";
+    static final String EXTRA_SESSION_POLICY = "magicdesk_session_policy";
     private static final String ACTION_SHOW_START = "show_start";
     static final String ACTION_RESTORE_WINDOWS = "restore_windows";
     private static final String STATE_TOOLS_VISIBLE = "tools_visible";
@@ -72,6 +73,7 @@ public abstract class DesktopShellActivity extends Activity
     private static final String STATE_TARGET_KIND = "target_kind";
     private static final String STATE_ACTIVATION_SOURCE =
             "activation_source";
+    private static final String STATE_SESSION_POLICY = "session_policy";
     private static final Map<Integer, Integer> EXPECTED_DISPLAY_BY_TASK =
             new HashMap<>();
     static final int TASKBAR_HEIGHT_DP = 64;
@@ -118,6 +120,7 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopDisplayTarget.Kind mDesktopTargetKind;
     private DesktopDisplayTarget.ActivationSource mActivationSource =
             DesktopDisplayTarget.ActivationSource.UNKNOWN;
+    private DesktopSessionPolicy mSessionPolicy = DesktopSessionPolicy.USER;
     private List<AppItem> mLastApps = Collections.emptyList();
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -156,6 +159,10 @@ public abstract class DesktopShellActivity extends Activity
                             ? EXTRA_ACTIVATION_SOURCE
                             : STATE_ACTIVATION_SOURCE,
                     ""));
+            mSessionPolicy = DesktopSessionPolicy.parse(source.getString(
+                    savedInstanceState == null
+                            ? EXTRA_SESSION_POLICY : STATE_SESSION_POLICY,
+                    ""));
         }
         final DisplayManager displayManager =
                 getSystemService(DisplayManager.class);
@@ -190,7 +197,8 @@ public abstract class DesktopShellActivity extends Activity
                             mExpectedDisplayId,
                             mDesktopProfileDisplayId,
                             mDesktopProfileKey,
-                            mActivationSource));
+                            mActivationSource),
+                    mSessionPolicy);
         }
         mUi = new DesktopUiFactory(this);
         mAutomationUi = new DesktopAutomationUiRegistry();
@@ -303,6 +311,7 @@ public abstract class DesktopShellActivity extends Activity
         outState.putString(
                 STATE_ACTIVATION_SOURCE,
                 mActivationSource.name());
+        outState.putString(STATE_SESSION_POLICY, mSessionPolicy.name());
         outState.putBoolean(
                 STATE_TOOLS_VISIBLE,
                 mStartMenuController != null

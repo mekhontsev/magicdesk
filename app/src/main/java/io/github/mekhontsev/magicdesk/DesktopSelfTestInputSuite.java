@@ -877,24 +877,27 @@ final class DesktopSelfTestInputSuite {
             final DisplayCaptureSource captureSource,
             final DesktopSelfTestGeometry geometry) {
         final String code = "FULLSCREEN-MIXED-001";
+        MixedFreeformFixture fixture = null;
+        MixedFreeformFixture first = null;
+        MixedFreeformFixture second = null;
         try {
             DesktopSelfTestHostObserver.stage(
                     "FULLSCREEN-MIXED-001-LAUNCH-FREEFORM");
-            final MixedFreeformFixture fixture = launchMixedFreeformFixture(
+            fixture = launchMixedFreeformFixture(
                     context,
                     displayId,
                     geometry.primaryWindow(),
                     DesktopSelfTestFixtureAppearance.TRANSITION);
             DesktopSelfTestHostObserver.stage(
                     "FULLSCREEN-MIXED-001-LAUNCH-FIRST");
-            final MixedFreeformFixture first = launchMixedFreeformFixture(
+            first = launchMixedFreeformFixture(
                     context,
                     displayId,
                     geometry.captionControlsWindow(false),
                     DesktopSelfTestFixtureAppearance.PRIMARY);
             DesktopSelfTestHostObserver.stage(
                     "FULLSCREEN-MIXED-001-LAUNCH-SECOND");
-            final MixedFreeformFixture second = launchMixedFreeformFixture(
+            second = launchMixedFreeformFixture(
                     context,
                     displayId,
                     geometry.captionControlsWindow(true),
@@ -1028,6 +1031,38 @@ final class DesktopSelfTestInputSuite {
                     code,
                     "Activate selected fullscreen above covering freeform",
                     usefulMessage(error));
+        } finally {
+            // Display removal is only reliable after every surviving fixture
+            // has left the default freeform workspace. Preserve the assertion
+            // result above, but always reach the same production cleanup state.
+            normalizeMixedFixtureForCleanup(displayId, fixture);
+            normalizeMixedFixtureForCleanup(displayId, first);
+            normalizeMixedFixtureForCleanup(displayId, second);
+        }
+    }
+
+    private static void normalizeMixedFixtureForCleanup(
+            final int displayId,
+            final MixedFreeformFixture fixture) {
+        if (fixture == null) {
+            return;
+        }
+        try {
+            final TaskStackParser.Entry task =
+                    DesktopSelfTestTasks.findTaskById(
+                            ShellAccess.run(
+                                    "/system/bin/cmd activity stack list"),
+                            fixture.taskId);
+            if (task == null || task.displayId != displayId
+                    || !"freeform".equals(task.windowingMode)) {
+                return;
+            }
+            focusTaskThroughDesktop(displayId, fixture.taskId);
+            waitForFrontTask(displayId, fixture.taskId);
+            waitForTaskInputFocus(displayId, fixture.taskId);
+            enterFullscreenThroughShortcut(displayId, fixture.taskId);
+        } catch (Exception ignored) {
+            // The global cleanup reports any task that could not be normalized.
         }
     }
 

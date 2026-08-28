@@ -780,6 +780,9 @@ final class DesktopAutomationController {
         }
         final String rawTarget = optionalString(args, "target", "simulated")
                 .toLowerCase(Locale.ROOT);
+        final DesktopSelfTestExecutionPolicy executionPolicy =
+                DesktopSelfTestExecutionPolicy.parse(optionalString(
+                        args, "mode", "full"));
         final DesktopSelfTestTarget target;
         DesktopDisplayTarget.Kind displayKind = null;
         switch (rawTarget) {
@@ -805,7 +808,10 @@ final class DesktopAutomationController {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra(
                         DiagnosticsActivity.EXTRA_SELF_TEST_TARGET,
-                        target.name());
+                        target.name())
+                .putExtra(
+                        DiagnosticsActivity.EXTRA_SELF_TEST_EXECUTION_POLICY,
+                        executionPolicy.name());
         if (displayKind != null) {
             intent.putExtra(
                     DiagnosticsActivity.EXTRA_SELF_TEST_DISPLAY_KIND,
@@ -817,6 +823,7 @@ final class DesktopAutomationController {
                 "self-test launch accepted",
                 new JSONObject()
                         .put("target", rawTarget)
+                        .put("mode", executionPolicy.wireName())
                         .put("requestedAtMillis", requestedAtMillis));
     }
 

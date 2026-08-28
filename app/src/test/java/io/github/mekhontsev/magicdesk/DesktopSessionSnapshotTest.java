@@ -101,4 +101,22 @@ public final class DesktopSessionSnapshotTest {
         assertFalse(snapshot.hasHost());
         assertNull(snapshot.target());
     }
+
+    @Test
+    public void isolatedPolicySurvivesHostLifecycleUntilSessionEnds() {
+        final DesktopSessionSnapshot configured =
+                DesktopSessionSnapshot.empty()
+                        .noteTarget(
+                                DesktopDisplayTarget.simulated(7),
+                                DesktopSessionPolicy.ISOLATED_SELF_TEST)
+                        .registerHost(7, 42, false)
+                        .unregisterHost(7, true);
+
+        assertEquals(
+                DesktopSessionPolicy.ISOLATED_SELF_TEST,
+                configured.policy());
+        assertEquals(
+                DesktopSessionPolicy.USER,
+                configured.unregisterHost(7, false).policy());
+    }
 }

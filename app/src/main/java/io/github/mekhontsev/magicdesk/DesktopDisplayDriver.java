@@ -23,8 +23,18 @@ interface DesktopDisplayDriver {
         return DisplayCaptureSource.logical(captureDisplayId(target));
     }
 
-    /** Opens the desktop on a ready logical task-host display. */
-    void showReady(Activity source, DesktopDisplayTarget target);
+    /** Opens a normal user desktop on a ready logical task-host display. */
+    default void showReady(
+            final Activity source,
+            final DesktopDisplayTarget target) {
+        showReady(source, target, DesktopSessionPolicy.USER);
+    }
+
+    /** Opens the desktop with an explicit workspace lifecycle policy. */
+    void showReady(
+            Activity source,
+            DesktopDisplayTarget target,
+            DesktopSessionPolicy policy);
 
     boolean isSessionDisplayRemoval(
             DesktopDisplayTarget target,

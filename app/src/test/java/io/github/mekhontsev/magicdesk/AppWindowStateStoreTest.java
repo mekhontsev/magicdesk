@@ -111,6 +111,30 @@ public final class AppWindowStateStoreTest {
     }
 
     @Test
+    public void isolatedSessionDiscardsOnlyItsWindowStateChanges() {
+        final RecordingStorage storage = new RecordingStorage();
+        DesktopStateStore.useStorageForTests(storage);
+        final String stateKey = "example.application";
+        assertTrue(AppWindowStateStore.rememberMode(
+                stateKey, AppWindowState.Mode.WINDOWED));
+        final int writesBeforeTest = storage.writeCount;
+
+        AppWindowStateStore.beginSession(
+                DesktopSessionPolicy.ISOLATED_SELF_TEST, false);
+        assertTrue(AppWindowStateStore.rememberMode(
+                stateKey, AppWindowState.Mode.FULLSCREEN));
+        assertEquals(
+                AppWindowState.Mode.FULLSCREEN,
+                AppWindowStateStore.load(stateKey).mode);
+
+        assertTrue(AppWindowStateStore.endSession());
+        assertEquals(writesBeforeTest, storage.writeCount);
+        assertEquals(
+                AppWindowState.Mode.WINDOWED,
+                AppWindowStateStore.load(stateKey).mode);
+    }
+
+    @Test
     public void fullscreenModeKeepsLastWindowBounds() {
         DesktopStateStore.useStorageForTests(
                 new DesktopStateStore.Storage() {

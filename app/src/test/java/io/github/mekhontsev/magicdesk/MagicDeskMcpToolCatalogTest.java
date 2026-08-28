@@ -135,6 +135,19 @@ public final class MagicDeskMcpToolCatalogTest {
     }
 
     @Test
+    public void selfTestSchemaExposesFullAndFailFastModes() throws Exception {
+        final JSONObject schema = tool(
+                MagicDeskMcpToolCatalog.create(true), "run_self_test")
+                .getJSONObject("inputSchema");
+        final JSONArray modes = schema.getJSONObject("properties")
+                .getJSONObject("mode")
+                .getJSONArray("enum");
+
+        assertTrue(contains(modes, "full"));
+        assertTrue(contains(modes, "fail_fast"));
+    }
+
+    @Test
     public void semanticUiAndWaitSchemasExposeStableStateFields()
             throws Exception {
         final JSONArray tools = MagicDeskMcpToolCatalog.create(false);

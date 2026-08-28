@@ -291,11 +291,14 @@ final class MagicDeskMcpToolCatalog {
                         "run_self_test",
                         "Run desktop self-test",
                         "Launch the built-in UI self-test on an exact display target.",
-                        objectSchema(new JSONObject().put(
-                                "target", enumProperty(
+                        objectSchema(new JSONObject()
+                                .put("target", enumProperty(
                                         "Self-test display target.",
                                         "phone", "simulated",
-                                        "wired", "wireless")))))
+                                        "wired", "wireless"))
+                                .put("mode", enumProperty(
+                                        "Execution mode. fail_fast stops after the first FAIL but still runs cleanup.",
+                                        "full", "fail_fast")))))
                 .put(actionTool(
                         "send_key",
                         "Send key",

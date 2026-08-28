@@ -50,7 +50,9 @@ final class DesktopSelfTestWindowSuite {
             final Context appContext,
             final DesktopSelfTestTarget target,
             final int displayId,
-            final DesktopSelfTestResult result) throws AbortSelfTest {
+            final DesktopSelfTestResult result,
+            final WorkspaceIsolationLease workspaceLease)
+            throws AbortSelfTest {
         verifyDisplayGeometry(appContext, displayId, target, result);
 
         final int targetDisplayId = displayId;
@@ -60,12 +62,13 @@ final class DesktopSelfTestWindowSuite {
             if (target == DesktopSelfTestTarget.SIMULATED) {
                 // Exercise the same display policy as a user-started session,
                 // including profiles and the phone-side touchpad.
-                DesktopDisplayDrivers
-                        .forKind(DesktopDisplayTarget.Kind.SIMULATED)
-                        .showReady(
-                                null,
-                                DesktopDisplayTarget.simulated(
-                                        targetDisplayId));
+                if (workspaceLease == null) {
+                    throw new IOException(
+                            "workspace isolation lease is unavailable");
+                }
+                workspaceLease.showReady(
+                        null,
+                        DesktopDisplayTarget.simulated(targetDisplayId));
             }
             final TaskStackParser.Entry desktop = waitForTask(
                     targetDisplayId, DESKTOP_CLASS, null);

@@ -5,25 +5,33 @@ import android.view.Display;
 /** Immutable desktop target and host identity observed as one runtime state. */
 final class DesktopSessionSnapshot {
     private final DesktopDisplayTarget mTarget;
+    private final DesktopSessionPolicy mPolicy;
     private final int mHostDisplayId;
     private final int mHostTaskId;
 
     private DesktopSessionSnapshot(
             final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy,
             final int hostDisplayId,
             final int hostTaskId) {
         mTarget = target;
+        mPolicy = policy == null ? DesktopSessionPolicy.USER : policy;
         mHostDisplayId = hostDisplayId;
         mHostTaskId = hostTaskId;
     }
 
     static DesktopSessionSnapshot empty() {
         return new DesktopSessionSnapshot(
-                null, Display.INVALID_DISPLAY, -1);
+                null, DesktopSessionPolicy.USER,
+                Display.INVALID_DISPLAY, -1);
     }
 
     DesktopDisplayTarget target() {
         return mTarget;
+    }
+
+    DesktopSessionPolicy policy() {
+        return mPolicy;
     }
 
     DesktopDisplayTarget targetForDisplay(final int displayId) {
@@ -51,10 +59,16 @@ final class DesktopSessionSnapshot {
     }
 
     DesktopSessionSnapshot noteTarget(final DesktopDisplayTarget target) {
+        return noteTarget(target, DesktopSessionPolicy.USER);
+    }
+
+    DesktopSessionSnapshot noteTarget(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
         return target == null
                 ? this
                 : new DesktopSessionSnapshot(
-                        target, mHostDisplayId, mHostTaskId);
+                        target, policy, mHostDisplayId, mHostTaskId);
     }
 
     DesktopSessionSnapshot clearTarget(final DesktopDisplayTarget target) {
@@ -62,7 +76,8 @@ final class DesktopSessionSnapshot {
             return this;
         }
         return new DesktopSessionSnapshot(
-                null, mHostDisplayId, mHostTaskId);
+                null, DesktopSessionPolicy.USER,
+                mHostDisplayId, mHostTaskId);
     }
 
     DesktopSessionSnapshot registerHost(
@@ -78,7 +93,8 @@ final class DesktopSessionSnapshot {
                         ? DesktopDisplayTarget.phone() : null;
             }
         }
-        return new DesktopSessionSnapshot(target, displayId, taskId);
+        return new DesktopSessionSnapshot(
+                target, mPolicy, displayId, taskId);
     }
 
     DesktopSessionSnapshot observeHost(
@@ -86,7 +102,8 @@ final class DesktopSessionSnapshot {
         if (mHostDisplayId == displayId && mHostTaskId == taskId) {
             return this;
         }
-        return new DesktopSessionSnapshot(mTarget, displayId, taskId);
+        return new DesktopSessionSnapshot(
+                mTarget, mPolicy, displayId, taskId);
     }
 
     DesktopSessionSnapshot unregisterHost(
@@ -100,7 +117,10 @@ final class DesktopSessionSnapshot {
             target = null;
         }
         return new DesktopSessionSnapshot(
-                target, Display.INVALID_DISPLAY, -1);
+                target,
+                target == null ? DesktopSessionPolicy.USER : mPolicy,
+                Display.INVALID_DISPLAY,
+                -1);
     }
 
     DesktopSessionSnapshot close() {

@@ -106,15 +106,6 @@ public final class ShellFullscreenTaskPlanesTest {
     }
 
     @Test
-    public void surfaceOrderContainsOnlyFullscreenPlanes() {
-        assertArrayEquals(
-                new int[]{10, 11},
-                ShellFullscreenTaskPlanes.planeOnlyOrder(
-                        new int[]{20, 10, 21, 11, 22},
-                        planeIds(10, 11)));
-    }
-
-    @Test
     public void selectsFullscreenChildWhenFocusCrossesWorkspaceBoundary() {
         assertEquals(
                 true,
@@ -195,6 +186,42 @@ public final class ShellFullscreenTaskPlanesTest {
         assertNotNull(order);
         assertArrayEquals(new int[]{21}, order.freeformTaskIds);
         assertEquals(true, order.fullscreenForeground);
+    }
+
+    @Test
+    public void layersFreeformWorkspaceBelowSelectedFullscreenPlane() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        11,
+                        99,
+                        new int[]{11},
+                        planeIds(10, 11),
+                        Arrays.asList(20),
+                        10,
+                        false);
+
+        assertArrayEquals(
+                new int[]{10, 20, 11},
+                ShellFullscreenTaskPlanes.mixedSurfaceOrder(
+                        new int[]{10, 11}, order));
+    }
+
+    @Test
+    public void layersSelectedFreeformWorkspaceAboveFullscreenPlanes() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        20,
+                        99,
+                        new int[]{20},
+                        planeIds(10, 11),
+                        Arrays.asList(20),
+                        11,
+                        true);
+
+        assertArrayEquals(
+                new int[]{10, 11, 20},
+                ShellFullscreenTaskPlanes.mixedSurfaceOrder(
+                        new int[]{10, 11, 20}, order));
     }
 
     private static java.util.List<Integer> asList(final int[] values) {

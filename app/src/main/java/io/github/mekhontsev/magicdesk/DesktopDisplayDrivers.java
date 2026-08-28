@@ -56,7 +56,13 @@ final class DesktopDisplayDrivers {
     }
 
     static void activateWired(final android.app.Activity source) {
-        WIRED.activate(source);
+        activateWired(source, DesktopSessionPolicy.USER);
+    }
+
+    static void activateWired(
+            final android.app.Activity source,
+            final DesktopSessionPolicy policy) {
+        WIRED.activate(source, policy);
     }
 
     static DesktopDisplayDriver forActiveDisplay(final int displayId) {

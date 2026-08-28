@@ -57,6 +57,12 @@ public final class DesktopRuntimeBridge {
         UI.noteDesktopTarget(target);
     }
 
+    static void noteDesktopTarget(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
+        UI.noteDesktopTarget(target, policy);
+    }
+
     static void clearDesktopTarget(final DesktopDisplayTarget target) {
         UI.clearDesktopTarget(target);
     }

@@ -27,6 +27,8 @@ public final class DiagnosticsActivity extends Activity {
             "io.github.mekhontsev.magicdesk.extra.SELF_TEST_TARGET";
     static final String EXTRA_SELF_TEST_DISPLAY_KIND =
             "io.github.mekhontsev.magicdesk.extra.SELF_TEST_DISPLAY_KIND";
+    static final String EXTRA_SELF_TEST_EXECUTION_POLICY =
+            "io.github.mekhontsev.magicdesk.extra.SELF_TEST_EXECUTION_POLICY";
     private static final int COLOR_BACKGROUND = 0xFF090D14;
     private static final int COLOR_PANEL_ALT = 0xFF172033;
     private static final int COLOR_TEXT = 0xFFE5E7EB;
@@ -47,6 +49,9 @@ public final class DiagnosticsActivity extends Activity {
     private boolean mSelfTestRunning;
     private DesktopSelfTestTarget mPendingSelfTestTarget;
     private DesktopDisplayTarget.Kind mPendingSelfTestDisplayKind;
+    private DesktopSelfTestExecutionPolicy mPendingSelfTestExecutionPolicy;
+    private DesktopSelfTestExecutionPolicy mSelfTestExecutionPolicy =
+            DesktopSelfTestExecutionPolicy.FULL;
     private DisplayManager mDisplayManager;
     private DisplayManager.DisplayListener mWirelessDisplayListener;
 
@@ -77,21 +82,26 @@ public final class DiagnosticsActivity extends Activity {
         }
         final DesktopDisplayTarget.Kind displayKind =
                 requestedSelfTestDisplayKind(intent);
+        final DesktopSelfTestExecutionPolicy executionPolicy =
+                requestedSelfTestExecutionPolicy(intent);
         // The debug launcher is a one-shot trigger. Consuming its extras keeps
         // activity recreation during a display test from starting another run.
         intent.removeExtra(EXTRA_SELF_TEST_TARGET);
         intent.removeExtra(EXTRA_SELF_TEST_DISPLAY_KIND);
+        intent.removeExtra(EXTRA_SELF_TEST_EXECUTION_POLICY);
         if (mSelfTestRunning || DesktopSelfTestController.isRunning()) {
             return true;
         }
         if (mLoading) {
             mPendingSelfTestTarget = target;
             mPendingSelfTestDisplayKind = displayKind;
+            mPendingSelfTestExecutionPolicy = executionPolicy;
             return true;
         }
         getWindow().addFlags(
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        mSelfTest.post(() -> prepareSelfTest(target, displayKind));
+        mSelfTest.post(() -> prepareSelfTest(
+                target, displayKind, executionPolicy));
         return true;
     }
 
@@ -234,11 +244,17 @@ public final class DiagnosticsActivity extends Activity {
         }
         final DesktopDisplayTarget.Kind displayKind =
                 mPendingSelfTestDisplayKind;
+        final DesktopSelfTestExecutionPolicy executionPolicy =
+                mPendingSelfTestExecutionPolicy == null
+                        ? DesktopSelfTestExecutionPolicy.FULL
+                        : mPendingSelfTestExecutionPolicy;
         mPendingSelfTestTarget = null;
         mPendingSelfTestDisplayKind = null;
+        mPendingSelfTestExecutionPolicy = null;
         getWindow().addFlags(
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        mSelfTest.post(() -> prepareSelfTest(target, displayKind));
+        mSelfTest.post(() -> prepareSelfTest(
+                target, displayKind, executionPolicy));
     }
 
     private void chooseDesktopSelfTestTarget() {
@@ -254,6 +270,8 @@ public final class DiagnosticsActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle(R.string.diagnostics_self_test_target)
                 .setItems(choices, (dialog, which) -> {
+                    mSelfTestExecutionPolicy =
+                            DesktopSelfTestExecutionPolicy.FULL;
                     if (which == 0) {
                         prepareSimulatedSelfTest();
                     } else if (which == 1) {
@@ -275,7 +293,10 @@ public final class DiagnosticsActivity extends Activity {
 
     private void prepareSelfTest(
             final DesktopSelfTestTarget target,
-            final DesktopDisplayTarget.Kind displayKind) {
+            final DesktopDisplayTarget.Kind displayKind,
+            final DesktopSelfTestExecutionPolicy executionPolicy) {
+        mSelfTestExecutionPolicy = executionPolicy == null
+                ? DesktopSelfTestExecutionPolicy.FULL : executionPolicy;
         if (target == DesktopSelfTestTarget.SIMULATED) {
             prepareSimulatedSelfTest();
         } else if (target == DesktopSelfTestTarget.EXTERNAL) {
@@ -322,13 +343,25 @@ public final class DiagnosticsActivity extends Activity {
         }
     }
 
+    private static DesktopSelfTestExecutionPolicy
+            requestedSelfTestExecutionPolicy(final Intent intent) {
+        if (intent == null) {
+            return DesktopSelfTestExecutionPolicy.FULL;
+        }
+        return DesktopSelfTestExecutionPolicy.parse(intent.getStringExtra(
+                EXTRA_SELF_TEST_EXECUTION_POLICY));
+    }
+
     private void preparePhoneSelfTest() {
         if (!beginSelfTestPreparation()) {
             return;
         }
         DesktopDisplayDrivers
                 .forKind(DesktopDisplayTarget.Kind.PHONE)
-                .showReady(this, DesktopDisplayTarget.phone());
+                .showReady(
+                        this,
+                        DesktopDisplayTarget.phone(),
+                        DesktopSessionPolicy.ISOLATED_SELF_TEST);
         waitForPreparedDesktop(DesktopSelfTestTarget.PHONE, false);
     }
 
@@ -354,7 +387,8 @@ public final class DiagnosticsActivity extends Activity {
                     || physicalWiredDisplayId > Display.DEFAULT_DISPLAY)) {
                 final boolean restoreMirror =
                         activeWiredDisplayId <= Display.DEFAULT_DISPLAY;
-                ConsoleModeSwitcher.showWiredDesktop();
+                ConsoleModeSwitcher.showWiredDesktop(
+                        DesktopSessionPolicy.ISOLATED_SELF_TEST);
                 runOnUiThread(() -> {
                     if (!isFinishing() && !isDestroyed()) {
                         waitForPreparedDesktop(
@@ -393,7 +427,8 @@ public final class DiagnosticsActivity extends Activity {
                 }
                 ConsoleModeSwitcher.showDesktop(
                         DesktopDisplayTarget.wireless(
-                                wirelessDisplayId));
+                                wirelessDisplayId),
+                        DesktopSessionPolicy.ISOLATED_SELF_TEST);
                 waitForPreparedDesktop(
                         DesktopSelfTestTarget.EXTERNAL,
                         false,
@@ -446,7 +481,8 @@ public final class DiagnosticsActivity extends Activity {
         }
         stopAwaitingWirelessDisplay();
         ConsoleModeSwitcher.showDesktop(
-                DesktopDisplayTarget.wireless(displayId));
+                DesktopDisplayTarget.wireless(displayId),
+                DesktopSessionPolicy.ISOLATED_SELF_TEST);
         waitForPreparedDesktop(
                 DesktopSelfTestTarget.EXTERNAL,
                 false,
@@ -586,7 +622,8 @@ public final class DiagnosticsActivity extends Activity {
                             getApplicationContext(),
                             target,
                             restoreExternalMirror,
-                            getTaskId());
+                            getTaskId(),
+                            mSelfTestExecutionPolicy);
             final String report =
                     CompatibilityDiagnostics.buildReport(getApplicationContext());
             runOnUiThread(() -> {

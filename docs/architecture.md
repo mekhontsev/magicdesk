@@ -1011,8 +1011,11 @@ built-in simulated self-test without replacing the running app process.
 The built-in **Diagnostics > Run desktop self-test** runs the same bounded core
 on a selected simulated, external, or phone display. A desktop session must be
 closed when the test starts; mirror mode and a physically connected display are
-allowed. The target owner prepares the session once, while the common core
-derives bounds from the actual viewport, adopts any larger minimum window size
+allowed. Its explicit isolated session policy suppresses saved-workspace restore
+and persistence on every display driver. A scoped orientation lease locks the
+phone at its current rotation and restores the exact previous auto/locked mode
+through the common finalizer. The target owner prepares the session once, while
+the common core derives bounds from the actual viewport, adopts any larger minimum window size
 enforced by WMShell, and uses production session and task controllers to verify
 a freeform Activity, task-local native
 caption source and geometry, display-targeted application input, native caption
@@ -1534,6 +1537,9 @@ display which owns tasks; its optional profile display identifies the physical
 output behind it. Raw physical display IDs never enter the ready-host API.
 Phone, simulated, wired, wireless, UI, self-test, MCP, and App Functions starts
 all converge on this boundary before the common session controller runs.
+Normal starts use `DesktopSessionPolicy.USER`; diagnostics can select the
+non-restoring, non-persisting `ISOLATED_SELF_TEST` policy without adding
+display-specific restore exceptions.
 
 ### Output timing and fill policy
 

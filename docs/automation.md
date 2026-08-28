@@ -300,4 +300,11 @@ shell execution.
 
 Interactive self-tests require an awake, unlocked device and a visible target.
 MCP can start and observe phone, simulated, wired, and wireless tests without
-weakening their assertions or changing their production cleanup path.
+weakening their assertions or changing their production cleanup path. The
+optional `mode` is `full` by default. `fail_fast` stops the workflow after the
+first recorded FAIL, while still running task/display cleanup, restoring the
+phone orientation policy, and writing final transition diagnostics.
+
+Every self-test session uses an isolated workspace policy: it neither restores
+the saved user window stack nor persists test window state. The phone rotation
+is locked at its current value for the run and restored exactly afterward.

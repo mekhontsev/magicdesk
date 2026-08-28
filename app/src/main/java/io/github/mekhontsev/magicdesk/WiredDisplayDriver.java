@@ -66,10 +66,18 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
     }
 
     void activate(final Activity source) {
+        activate(source, DesktopSessionPolicy.USER);
+    }
+
+    void activate(
+            final Activity source,
+            final DesktopSessionPolicy policy) {
         if (mProjection.ownsTransportLifecycle(
                 PlatformProjectionDriver.Transport.WIRED)) {
             ConsoleSessionController.show(
-                    android.view.Display.INVALID_DISPLAY, mProjection);
+                    android.view.Display.INVALID_DISPLAY,
+                    mProjection,
+                    policy);
             return;
         }
         final int connectedDisplayId =
@@ -81,20 +89,22 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                     "no connected wired display was reported");
             return;
         }
-        showReady(source, target(connectedDisplayId));
+        showReady(source, target(connectedDisplayId), policy);
     }
 
     @Override
     public void showReady(
             final Activity source,
-            final DesktopDisplayTarget target) {
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
         requireTarget(target);
         if (mProjection.ownsTransportLifecycle(
                 PlatformProjectionDriver.Transport.WIRED)) {
-            ConsoleSessionController.show(target.displayId, mProjection);
+            ConsoleSessionController.show(
+                    target.displayId, mProjection, policy);
             return;
         }
-        DesktopDisplayDriverSupport.showReadySecondary(target);
+        DesktopDisplayDriverSupport.showReadySecondary(target, policy);
     }
 
     private static boolean isBackedBySeparateOutput(

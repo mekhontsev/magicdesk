@@ -44,16 +44,26 @@ final class DesktopSessionTransitionCoordinator {
     }
 
     void showWiredDesktop() {
+        showWiredDesktop(DesktopSessionPolicy.USER);
+    }
+
+    void showWiredDesktop(final DesktopSessionPolicy policy) {
         if (!mFeatures.supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRED)) {
             throw new IllegalStateException(
                     "wired displays are unsupported by the current platform");
         }
         enqueueDesktopStart(
-                () -> DesktopDisplayDrivers.activateWired(null));
+                () -> DesktopDisplayDrivers.activateWired(null, policy));
     }
 
     void showDesktop(final DesktopDisplayTarget target) {
+        showDesktop(target, DesktopSessionPolicy.USER);
+    }
+
+    void showDesktop(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
         if (target == null
                 || target.displayId <= Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException(
@@ -64,7 +74,7 @@ final class DesktopSessionTransitionCoordinator {
                     "display target is unsupported by the current platform");
         }
         enqueueDesktopStart(() -> DesktopDisplayDrivers.forTarget(target)
-                .showReady(null, target));
+                .showReady(null, target, policy));
     }
 
     void closeDesktop(

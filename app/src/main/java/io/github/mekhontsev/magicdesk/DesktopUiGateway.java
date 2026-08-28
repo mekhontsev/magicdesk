@@ -40,6 +40,7 @@ final class DesktopUiGateway {
         final boolean replacingSameTask;
         final boolean previousWasLocal;
         final int previousDisplayId;
+        final DesktopSessionPolicy previousPolicy;
         final int displayId = activity.getCurrentDisplayId();
         synchronized (mHostLock) {
             previous = mDesktop.get();
@@ -53,15 +54,19 @@ final class DesktopUiGateway {
             previousDisplayId = previous == null
                     ? Display.INVALID_DISPLAY
                     : previous.getCurrentDisplayId();
+            previousPolicy = mSession.snapshot().policy();
             mDesktop = new WeakReference<>(activity);
             mSession.registerHost(
                     displayId, activity.getTaskId(), replacingSameTask);
         }
-        AppWindowStateStore.beginSession();
+        AppWindowStateStore.beginSession(
+                sessionSnapshot().policy(), replacingSameTask);
         if (previous != null && previous != activity) {
             if (previousDisplayId >= Display.DEFAULT_DISPLAY
                     && previousDisplayId != displayId) {
-                MagicDeskRuntime.preserveDesktopTasks(previousDisplayId);
+                if (previousPolicy.persistWorkspace) {
+                    MagicDeskRuntime.preserveDesktopTasks(previousDisplayId);
+                }
             }
             // Nubia may move the phone task before the dedicated Console HOME
             // starts.
@@ -92,11 +97,13 @@ final class DesktopUiGateway {
                 activity.isChangingConfigurations();
         final int displayId = activity.getCurrentDisplayId();
         final boolean desktopRemoved;
+        final DesktopSessionPolicy policy;
         synchronized (mHostLock) {
             if (mShell.get() == activity) {
                 mShell.clear();
             }
             desktopRemoved = mDesktop.get() == activity;
+            policy = mSession.snapshot().policy();
             if (desktopRemoved) {
                 mDesktop.clear();
                 mSession.unregisterHost(displayId, changingConfigurations);
@@ -105,7 +112,9 @@ final class DesktopUiGateway {
         if (!desktopRemoved || changingConfigurations) {
             return;
         }
-        MagicDeskRuntime.preserveDesktopTasks(displayId);
+        if (policy.persistWorkspace) {
+            MagicDeskRuntime.preserveDesktopTasks(displayId);
+        }
         MagicDeskRuntime.refreshDesktopTasks();
         MagicDeskRuntime.releaseDesktopTaskSession(() ->
                 TaskCommandQueue.execute(
@@ -120,6 +129,7 @@ final class DesktopUiGateway {
             final int displayId,
             final Runnable completion) {
         final DesktopShellActivity activity;
+        final DesktopSessionPolicy policy;
         synchronized (mHostLock) {
             activity = usableDesktopLocked(false);
             final DesktopDisplayTarget target = mSession.snapshot().target();
@@ -132,13 +142,16 @@ final class DesktopUiGateway {
                 }
                 return;
             }
+            policy = mSession.snapshot().policy();
             mDesktop.clear();
             if (mShell.get() == activity) {
                 mShell.clear();
             }
             mSession.close();
         }
-        MagicDeskRuntime.preserveDesktopTasks(displayId);
+        if (policy.persistWorkspace) {
+            MagicDeskRuntime.preserveDesktopTasks(displayId);
+        }
         final AtomicInteger remainingCloseParts = new AtomicInteger(2);
         final Runnable closePartFinished = () -> {
             if (remainingCloseParts.decrementAndGet() == 0
@@ -211,7 +224,8 @@ final class DesktopUiGateway {
                 return;
             }
         }
-        AppWindowStateStore.beginSession();
+        AppWindowStateStore.beginSession(
+                sessionSnapshot().policy(), false);
         MagicDeskRuntime.refreshDesktopTasks();
     }
 
@@ -229,11 +243,17 @@ final class DesktopUiGateway {
     }
 
     void noteDesktopTarget(final DesktopDisplayTarget target) {
+        noteDesktopTarget(target, DesktopSessionPolicy.USER);
+    }
+
+    void noteDesktopTarget(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
         if (target == null) {
             return;
         }
         synchronized (mHostLock) {
-            mSession.noteTarget(target);
+            mSession.noteTarget(target, policy);
         }
         recordSession("target_selected", target.displayId, -1);
     }

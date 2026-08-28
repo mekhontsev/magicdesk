@@ -57,6 +57,8 @@ final class AppWindowStateStore {
     private static long sPendingModeSequence;
     private static long sSessionPatchSequence;
     private static boolean sSessionActive;
+    private static boolean sSessionPersistent = true;
+    private static long sSessionStartSequence;
 
     private AppWindowStateStore() {
     }
@@ -85,8 +87,20 @@ final class AppWindowStateStore {
     }
 
     static void beginSession() {
+        beginSession(DesktopSessionPolicy.USER, false);
+    }
+
+    static void beginSession(
+            final DesktopSessionPolicy policy,
+            final boolean replacingSameTask) {
         synchronized (STATE_LOCK) {
+            if (sSessionActive && replacingSameTask) {
+                return;
+            }
             sSessionActive = true;
+            sSessionPersistent = policy == null
+                    || policy.persistWorkspace;
+            sSessionStartSequence = sSessionPatchSequence;
         }
     }
 
@@ -94,8 +108,17 @@ final class AppWindowStateStore {
         while (true) {
             final Map<String, SessionPatch> snapshot;
             synchronized (STATE_LOCK) {
+                if (!sSessionPersistent) {
+                    SESSION_PATCHES.entrySet().removeIf(
+                            entry -> entry.getValue().sequence
+                                    > sSessionStartSequence);
+                    sSessionActive = false;
+                    sSessionPersistent = true;
+                    return true;
+                }
                 if (SESSION_PATCHES.isEmpty()) {
                     sSessionActive = false;
+                    sSessionPersistent = true;
                     return true;
                 }
                 snapshot = new LinkedHashMap<>(SESSION_PATCHES);
@@ -112,6 +135,7 @@ final class AppWindowStateStore {
             if (!saved) {
                 synchronized (STATE_LOCK) {
                     sSessionActive = false;
+                    sSessionPersistent = true;
                 }
                 return false;
             }
@@ -288,6 +312,8 @@ final class AppWindowStateStore {
             sPendingModeSequence = 0L;
             sSessionPatchSequence = 0L;
             sSessionActive = false;
+            sSessionPersistent = true;
+            sSessionStartSequence = 0L;
         }
     }
 }
