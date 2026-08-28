@@ -88,7 +88,7 @@ final class KeyboardShortcutWatcher {
             LOCK.notifyAll();
         }
         if (cancelAltTab) {
-            ConsoleModeSwitcher.cancelAltTab();
+            DesktopOperations.cancelAltTab();
         }
         if (routingWasReady && routingListener != null) {
             routingListener.onRoutingChanged(routingDisplayId, false);
@@ -442,56 +442,56 @@ final class KeyboardShortcutWatcher {
             return;
         }
         if ("ALT_F4".equals(action)) {
-            ConsoleModeSwitcher.manageActiveWindow(
+            DesktopOperations.manageActiveWindow(
                     DesktopTaskController.SHORTCUT_CLOSE);
             return;
         }
         if ("META_BACKSPACE".equals(action)) {
-            ConsoleModeSwitcher.sendSystemBack();
+            DesktopOperations.sendSystemBack();
             return;
         }
         if ("META_L".equals(action)) {
-            ConsoleModeSwitcher.lockDevice();
+            DesktopOperations.lockDevice();
             return;
         }
         if ("META_N".equals(action)) {
-            ConsoleModeSwitcher.toggleNotificationCenter();
+            DesktopOperations.toggleNotificationCenter();
             return;
         }
         if ("META_Q".equals(action)) {
-            ConsoleModeSwitcher.toggleSystemPanel();
+            DesktopOperations.toggleSystemPanel();
             return;
         }
         if ("META_I".equals(action)) {
-            ConsoleModeSwitcher.openSettings();
+            DesktopOperations.openSettings();
             return;
         }
         if ("META_UP".equals(action)) {
-            ConsoleModeSwitcher.manageActiveWindow(
+            DesktopOperations.manageActiveWindow(
                     DesktopTaskController.SHORTCUT_FULLSCREEN);
             return;
         }
         if ("META_DOWN".equals(action)) {
-            ConsoleModeSwitcher.manageActiveWindow(
+            DesktopOperations.manageActiveWindow(
                     DesktopTaskController.SHORTCUT_RESTORE);
             return;
         }
         if ("META_LEFT".equals(action)) {
-            ConsoleModeSwitcher.manageActiveWindow(
+            DesktopOperations.manageActiveWindow(
                     DesktopTaskController.SHORTCUT_SNAP_LEFT);
             return;
         }
         if ("META_RIGHT".equals(action)) {
-            ConsoleModeSwitcher.manageActiveWindow(
+            DesktopOperations.manageActiveWindow(
                     DesktopTaskController.SHORTCUT_SNAP_RIGHT);
             return;
         }
         if ("META_D".equals(action)) {
-            ConsoleModeSwitcher.toggleDesktopWorkspace();
+            DesktopOperations.toggleDesktopWorkspace();
             return;
         }
         if ("META_PRINT_SCREEN".equals(action)) {
-            ConsoleModeSwitcher.captureScreenshot();
+            DesktopOperations.captureScreenshot();
             return;
         }
         if ("META_SHIFT_PRINT_SCREEN".equals(action)) {
@@ -499,7 +499,7 @@ final class KeyboardShortcutWatcher {
             return;
         }
         if ("META_SLASH".equals(action)) {
-            ConsoleModeSwitcher.showShortcutHelp();
+            DesktopOperations.showShortcutHelp();
         }
     }
 
@@ -527,66 +527,66 @@ final class KeyboardShortcutWatcher {
             final KeyboardShortcutStateMachine.Action action) {
         switch (action) {
             case ALT_TAB_FORWARD:
-                ConsoleModeSwitcher.advanceAltTab(false);
+                DesktopOperations.advanceAltTab(false);
                 break;
             case ALT_TAB_REVERSE:
-                ConsoleModeSwitcher.advanceAltTab(true);
+                DesktopOperations.advanceAltTab(true);
                 break;
             case ALT_TAB_COMMIT:
-                ConsoleModeSwitcher.finishAltTab();
+                DesktopOperations.finishAltTab();
                 break;
             case TOGGLE_LAYOUT:
-                ConsoleModeSwitcher.toggleHardwareKeyboardLayout();
+                DesktopOperations.toggleHardwareKeyboardLayout();
                 break;
             case DISMISS:
                 MagicDeskRuntime.dismissTransientActivity();
                 break;
             case CLOSE:
-                ConsoleModeSwitcher.manageActiveWindow(
+                DesktopOperations.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_CLOSE);
                 break;
             case BACK:
-                ConsoleModeSwitcher.sendSystemBack();
+                DesktopOperations.sendSystemBack();
                 break;
             case LOCK:
-                ConsoleModeSwitcher.lockDevice();
+                DesktopOperations.lockDevice();
                 break;
             case NOTIFICATIONS:
-                ConsoleModeSwitcher.toggleNotificationCenter();
+                DesktopOperations.toggleNotificationCenter();
                 break;
             case SYSTEM:
-                ConsoleModeSwitcher.toggleSystemPanel();
+                DesktopOperations.toggleSystemPanel();
                 break;
             case SETTINGS:
-                ConsoleModeSwitcher.openSettings();
+                DesktopOperations.openSettings();
                 break;
             case FULLSCREEN:
-                ConsoleModeSwitcher.manageActiveWindow(
+                DesktopOperations.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_FULLSCREEN);
                 break;
             case RESTORE:
-                ConsoleModeSwitcher.manageActiveWindow(
+                DesktopOperations.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_RESTORE);
                 break;
             case SNAP_LEFT:
-                ConsoleModeSwitcher.manageActiveWindow(
+                DesktopOperations.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_SNAP_LEFT);
                 break;
             case SNAP_RIGHT:
-                ConsoleModeSwitcher.manageActiveWindow(
+                DesktopOperations.manageActiveWindow(
                         DesktopTaskController.SHORTCUT_SNAP_RIGHT);
                 break;
             case SHOW_DESKTOP:
-                ConsoleModeSwitcher.toggleDesktopWorkspace();
+                DesktopOperations.toggleDesktopWorkspace();
                 break;
             case SCREENSHOT:
-                ConsoleModeSwitcher.captureScreenshot();
+                DesktopOperations.captureScreenshot();
                 break;
             case SCREEN_RECORDING:
                 DisplayRecordingController.get().toggle();
                 break;
             case SHORTCUT_HELP:
-                ConsoleModeSwitcher.showShortcutHelp();
+                DesktopOperations.showShortcutHelp();
                 break;
             case NONE:
             default:
@@ -596,7 +596,7 @@ final class KeyboardShortcutWatcher {
 
     private static void clearModifierState() {
         if (SHORTCUTS.reset()) {
-            ConsoleModeSwitcher.cancelAltTab();
+            DesktopOperations.cancelAltTab();
         }
     }
 

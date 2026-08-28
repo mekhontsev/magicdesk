@@ -18,7 +18,6 @@ final class PhoneDesktopTaskRecovery {
             "io.github.mekhontsev.magicdesk";
     private static final List<String> TRANSIENT_MAGICDESK_CLASSES =
             Arrays.asList(
-                    MAGICDESK_PACKAGE + ".ConsoleSeedActivity",
                     MAGICDESK_PACKAGE + ".DesktopActivity",
                     MAGICDESK_PACKAGE + ".DesktopSelfTestActivity",
                     MAGICDESK_PACKAGE + ".DesktopSelfTestBrowserActivity",

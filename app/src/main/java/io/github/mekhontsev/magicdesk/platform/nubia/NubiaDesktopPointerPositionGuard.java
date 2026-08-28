@@ -3,19 +3,19 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 import android.graphics.Point;
 import android.util.Log;
 
-final class NubiaPointerPositionGuard implements AutoCloseable {
+final class NubiaDesktopPointerPositionGuard implements AutoCloseable {
     private static final String TAG = "MagicDeskPointer";
     private static final int MAX_NATURAL_MOTION_PX = 128;
 
     private Point mCapturedPosition;
 
-    NubiaPointerPositionGuard() {
+    NubiaDesktopPointerPositionGuard() {
     }
 
     boolean capture() {
         try {
-            NubiaMouseController.preparePointerPositionControl();
-            final Point position = NubiaMouseController.getPosition();
+            NubiaDesktopPointerController.preparePointerPositionControl();
+            final Point position = NubiaDesktopPointerController.getPosition();
             synchronized (this) {
                 mCapturedPosition = position;
             }
@@ -38,7 +38,7 @@ final class NubiaPointerPositionGuard implements AutoCloseable {
             return null;
         }
         try {
-            final Point current = NubiaMouseController.getPosition();
+            final Point current = NubiaDesktopPointerController.getPosition();
             final long deltaX = (long) current.x - captured.x;
             final long deltaY = (long) current.y - captured.y;
             final long maximum = (long) MAX_NATURAL_MOTION_PX
@@ -48,7 +48,7 @@ final class NubiaPointerPositionGuard implements AutoCloseable {
                         + current.x + "," + current.y);
                 return current;
             }
-            NubiaMouseController.setPosition(captured);
+            NubiaDesktopPointerController.setPosition(captured);
             Log.i(TAG, "restored displaced pointer from="
                     + current.x + "," + current.y
                     + " to=" + captured.x + "," + captured.y);
@@ -73,7 +73,7 @@ final class NubiaPointerPositionGuard implements AutoCloseable {
 
     private static Throwable usefulCause(final Throwable error) {
         if (error instanceof ReflectiveOperationException) {
-            return NubiaMouseController.usefulCause(
+            return NubiaDesktopPointerController.usefulCause(
                     (ReflectiveOperationException) error);
         }
         return error;

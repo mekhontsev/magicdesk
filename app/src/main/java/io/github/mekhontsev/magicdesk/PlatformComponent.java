@@ -10,7 +10,7 @@ public enum PlatformComponent {
     DIAGNOSTICS("diagnostics"),
     AUDIO_CAPTURE("audioCapture"),
     TEXT_INPUT("textInput"),
-    INPUT_ROUTING("inputRouting"),
+    EXTERNAL_INPUT("externalInput"),
     SYSTEM_CONTROLS("systemControls"),
     LAUNCH_TARGETS("launchTargets"),
     RUNTIME("runtime");

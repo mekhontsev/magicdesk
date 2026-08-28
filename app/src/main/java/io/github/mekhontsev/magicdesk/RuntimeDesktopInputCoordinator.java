@@ -112,16 +112,6 @@ final class RuntimeDesktopInputCoordinator {
         finalizePointerViewportRecovery();
     }
 
-    void onConsoleModeChanged() {
-        if (mDestroyed) {
-            return;
-        }
-        ++mInputSourceRefreshGeneration;
-        if (requiresExternalInputBridge()) {
-            refreshDesktopInputSources();
-        }
-    }
-
     void setDesktopDisplay(
             final int displayId,
             final boolean ownershipChanged) {
@@ -585,7 +575,7 @@ final class RuntimeDesktopInputCoordinator {
 
     private void updateExternalImePolicy() {
         if (!ownsExternalDesktop()
-                || !mPhoneUi.usesMirrorInputPanel()) {
+                || !mPhoneUi.requiresPhoneImeRouting()) {
             mPhoneImePolicyDisplayId = Display.INVALID_DISPLAY;
             return;
         }

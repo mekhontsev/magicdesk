@@ -79,7 +79,7 @@ public final class ShizukuProbeInstrumentation extends Instrumentation {
 
         final CountDownLatch completed = new CountDownLatch(1);
         final AtomicBoolean success = new AtomicBoolean();
-        ConsoleModeSwitcher.setPhoneScreenOff(false, value -> {
+        DesktopOperations.setPhoneScreenOff(false, value -> {
             success.set(value);
             completed.countDown();
         });

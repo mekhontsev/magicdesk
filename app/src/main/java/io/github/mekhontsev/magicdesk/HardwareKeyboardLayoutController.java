@@ -7,7 +7,7 @@ import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class HardwareKeyboardLayoutController {
-    private static final String TAG = "MagicDeskConsoleSwitcher";
+    private static final String TAG = "MagicDeskDesktopOps";
     static final String LAYOUT_STATE =
             "magicdesk_hardware_keyboard_layout";
     static final String LAYOUT_LABEL_STATE =
@@ -36,7 +36,7 @@ final class HardwareKeyboardLayoutController {
             runCompletion(completion);
             return;
         }
-        ConsoleModeSwitcher.executeSerialized(() -> {
+        DesktopOperations.executeSerialized(() -> {
             final boolean pointerCaptured = MagicDeskRuntime
                     .capturePointerPosition();
             try {
@@ -77,11 +77,11 @@ final class HardwareKeyboardLayoutController {
         if (!REFRESH_IN_PROGRESS.compareAndSet(false, true)) {
             Log.d(TAG, "hardware keyboard layout refresh already pending");
             if (completion != null) {
-                ConsoleModeSwitcher.executeSerialized(completion);
+                DesktopOperations.executeSerialized(completion);
             }
             return;
         }
-        ConsoleModeSwitcher.executeSerialized(() -> {
+        DesktopOperations.executeSerialized(() -> {
             try {
                 apply(mode);
             } finally {

@@ -68,7 +68,7 @@ final class DesktopAutomationStateReader {
                         .put("mouseBridgeReady",
                                 MagicDeskRuntime.isDesktopMouseBridgeReady())
                         .put("touchpadVisible",
-                                ConsoleModeSwitcher.isTouchpadVisible())
+                                DesktopOperations.isTouchpadVisible())
                         .put("controlPanelVisible",
                                 ControlActivity.isControlPanelVisible())
                         .put("wakeLockHeld",

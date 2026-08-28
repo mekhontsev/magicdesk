@@ -134,6 +134,9 @@ public final class NubiaFirmwareDetector {
             detected.put(
                     PlatformComponent.POINTER,
                     "Nubia IInputManager pointer API detected");
+            detected.put(
+                    PlatformComponent.EXTERNAL_INPUT,
+                    "MagicDesk external input bridge uses Nubia pointer API");
         }
         if (hasMethod(
                 "com.redmagic.os.RedMagicAppManager$Trigger",
@@ -142,11 +145,6 @@ public final class NubiaFirmwareDetector {
             detected.put(
                     PlatformComponent.PHONE_UI,
                     "RedMagicAppManager phone-screen API detected");
-        }
-        if (hasInputRoutingApi()) {
-            detected.put(
-                    PlatformComponent.INPUT_ROUTING,
-                    "IDisplayManager mirror-panel API detected");
         }
         if (hasMirrorTextApi()) {
             detected.put(
@@ -172,18 +170,8 @@ public final class NubiaFirmwareDetector {
 
     private static boolean hasPointerApi() {
         try {
-            NubiaMouseController.prepareMousePositionControl();
-            NubiaMouseController.preparePointerPositionControl();
-            return true;
-        } catch (ReflectiveOperationException | RuntimeException
-                | LinkageError error) {
-            return false;
-        }
-    }
-
-    private static boolean hasInputRoutingApi() {
-        try {
-            new NubiaInputRoutingDriver().verifyApi();
+            NubiaDesktopPointerController.prepareMousePositionControl();
+            NubiaDesktopPointerController.preparePointerPositionControl();
             return true;
         } catch (ReflectiveOperationException | RuntimeException
                 | LinkageError error) {

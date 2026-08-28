@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
-import io.github.mekhontsev.magicdesk.ConsoleDisplayController;
 import io.github.mekhontsev.magicdesk.DisplayProfileStore;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
 
@@ -13,10 +12,6 @@ import java.util.List;
 
 /** RedMagic projection implementation backed by the stock firmware services. */
 final class NubiaProjectionDriver implements PlatformProjectionDriver {
-    private static final String[] OBSERVED_SETTINGS = {
-            ConsoleModeState.DISPLAY_ID_SETTING
-    };
-
     @Override
     public boolean hasWirelessConnectionUi(final Context context) {
         return WirelessDisplayController.isAvailable(context);
@@ -25,45 +20,6 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
     @Override
     public boolean openWirelessConnectionUi(final Activity activity) {
         return WirelessDisplayController.openPicker(activity);
-    }
-
-    @Override
-    public int activeDesktopDisplayId(final Context context) {
-        // Nubia publishes the target display ID before `cmd display` exposes
-        // the logical display. Input routing starts in that interval and must
-        // still recognize the native Console target; waitForDesktopDisplay()
-        // performs the stricter existence check for lifecycle callers.
-        return ConsoleModeState.activeDisplayId(context);
-    }
-
-    @Override
-    public int waitForDesktopDisplay(final Context context) {
-        return NubiaConsoleModeController.waitForDesktopDisplay(context);
-    }
-
-    @Override
-    public boolean waitForDesktopStop(final Context context) {
-        return NubiaConsoleModeController.waitForDesktopStop(context);
-    }
-
-    @Override
-    public String[] observedSettingKeys() {
-        return OBSERVED_SETTINGS.clone();
-    }
-
-    @Override
-    public boolean isMirrorMode() {
-        return NubiaConsoleModeController.isMirrorMode();
-    }
-
-    @Override
-    public boolean requestDesktopMode(final int physicalDisplayId) {
-        return NubiaConsoleModeController.requestDesktopMode(physicalDisplayId);
-    }
-
-    @Override
-    public boolean requestMirrorMode() {
-        return NubiaConsoleModeController.requestMirrorMode();
     }
 
     @Override
@@ -160,8 +116,4 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
         return true;
     }
 
-    @Override
-    public boolean ownsTransportLifecycle(final Transport transport) {
-        return transport == Transport.WIRED || transport == Transport.WIRELESS;
-    }
 }

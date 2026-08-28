@@ -417,6 +417,42 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         }
     }
 
+    synchronized void commitWorkspaceSurfaceForTask(
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        if (!mEnabled || displayId != mDisplayId
+                || taskId < 0 || mWorkspaceArea == null) {
+            return;
+        }
+        final Object task = HiddenTaskApi.requireTask(
+                mService, displayId, taskId);
+        final boolean workspaceForeground = taskId != mHostTaskId
+                && HiddenTaskApi.getTaskDisplayAreaFeatureId(task)
+                        == mWorkspaceArea.featureId();
+        final Class<?> surfaceClass = Class.forName(
+                "android.view.SurfaceControl");
+        final Class<?> transactionClass = Class.forName(
+                "android.view.SurfaceControl$Transaction");
+        final Object transaction =
+                transactionClass.getConstructor().newInstance();
+        try {
+            // WMS can commit task focus while retaining the organizer
+            // leash's previous Z-order. Reassert only the freeform overlay;
+            // fullscreen planes keep their independent ordering model.
+            transactionClass.getMethod(
+                    "setLayer", surfaceClass, Integer.TYPE)
+                    .invoke(
+                            transaction,
+                            mWorkspaceArea.surfaceLeash(),
+                            Integer.valueOf(workspaceForeground
+                                    ? Integer.MAX_VALUE
+                                    : Integer.MIN_VALUE));
+            transactionClass.getMethod("apply").invoke(transaction);
+        } finally {
+            transactionClass.getMethod("close").invoke(transaction);
+        }
+    }
+
     synchronized Boolean foregroundAfterTaskMovedToFront(
             final ActivityManager.RunningTaskInfo taskInfo) {
         if (taskInfo == null) {
@@ -681,7 +717,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         int workspaceBackstopTaskId = -1;
         try {
             if (mTaskAreaPolicy.usesIndependentFullscreenPlanes()) {
-                workspaceArea = TaskDisplayAreaHandle.create(
+                workspaceArea = TaskDisplayAreaHandle.createSurfaceOrdered(
                         mDisplayId,
                         FEATURE_DEFAULT_TASK_CONTAINER,
                         "MagicDesk freeform overlay");
@@ -798,6 +834,16 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 transaction,
                 HiddenTaskApi.getTaskToken(backstop),
                 false);
+        if (activityType == ACTIVITY_TYPE_STANDARD) {
+            // The workspace anchor keeps its organizer area alive, but a
+            // visible fullscreen task still owns an ActivityRecord input sink
+            // even when its window is not touchable. Hide the structural task
+            // so empty desktop space targets the real desktop host below it.
+            windowing.setHidden(
+                    transaction,
+                    HiddenTaskApi.getTaskToken(backstop),
+                    true);
+        }
         ShellWindowTransitionExecutor.applyAtomic(
                 mService, transactionClass, transaction);
         return taskId;

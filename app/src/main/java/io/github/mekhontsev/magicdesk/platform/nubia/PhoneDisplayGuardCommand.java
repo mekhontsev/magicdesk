@@ -38,7 +38,6 @@ public final class PhoneDisplayGuardCommand {
     private final int mAppUid;
     private final String mRestoreOperation;
     private final int mDesktopDisplayId;
-    private final int mInputPackageUid;
     private final Map<Integer, NubiaCpuFreezerWorkingState.Session>
             mFreezerSessions = new LinkedHashMap<>();
     private Set<Integer> mReportedUids = new LinkedHashSet<>();
@@ -50,12 +49,10 @@ public final class PhoneDisplayGuardCommand {
     private PhoneDisplayGuardCommand(
             final int appUid,
             final String restoreOperation,
-            final int desktopDisplayId,
-            final int inputPackageUid) {
+            final int desktopDisplayId) {
         mAppUid = appUid;
         mRestoreOperation = restoreOperation;
         mDesktopDisplayId = desktopDisplayId;
-        mInputPackageUid = inputPackageUid;
     }
 
     public static void main(final String[] arguments) {
@@ -65,8 +62,7 @@ public final class PhoneDisplayGuardCommand {
             guard = new PhoneDisplayGuardCommand(
                     parseAppUid(arguments[0]),
                     parseRestoreOperation(arguments[1]),
-                    parseDesktopDisplayId(arguments[2]),
-                    parseOptionalAppUid(arguments[3]));
+                    parseDesktopDisplayId(arguments[2]));
         } catch (IllegalArgumentException error) {
             System.out.println(ERROR + " " + usefulMessage(error));
             return;
@@ -182,9 +178,6 @@ public final class PhoneDisplayGuardCommand {
     private void refreshFreezerState() throws ReflectiveOperationException {
         final Set<Integer> desiredUids = new LinkedHashSet<>();
         desiredUids.add(Integer.valueOf(mAppUid));
-        if (mInputPackageUid >= 10_000) {
-            desiredUids.add(Integer.valueOf(mInputPackageUid));
-        }
         try {
             desiredUids.addAll(ShellTaskUidReader.read(mDesktopDisplayId));
             mLastTaskReadFailure = null;
@@ -258,9 +251,9 @@ public final class PhoneDisplayGuardCommand {
     }
 
     private static void validateArguments(final String[] arguments) {
-        if (arguments == null || arguments.length != 4) {
+        if (arguments == null || arguments.length != 3) {
             throw new IllegalArgumentException(
-                    "expected application UID, restore operation, desktop display, and input UID");
+                    "expected application UID, restore operation, and desktop display");
         }
     }
 
@@ -292,16 +285,9 @@ public final class PhoneDisplayGuardCommand {
         return uid;
     }
 
-    private static int parseOptionalAppUid(final String argument) {
-        if ("-1".equals(argument)) {
-            return -1;
-        }
-        return parseAppUid(argument);
-    }
-
     private void refreshPointerViewport() {
         try {
-            NubiaMouseController.createOrUpdateViewport();
+            NubiaDesktopPointerController.createOrUpdateViewport();
             mLastPointerRefreshFailure = null;
         } catch (ReflectiveOperationException | RuntimeException error) {
             final String failure = usefulMessage(error);

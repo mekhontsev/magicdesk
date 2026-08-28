@@ -43,7 +43,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellPackageStopController mPhoneLauncherStopController;
     private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
     private final ShellActivityStartController mActivityStartController;
-    private final PlatformPhoneUiDriver.TaskEventGuard mInputPanelGuard;
     private final FrameworkTaskObservationSource mTaskObservations;
     private final ShellDesktopTaskOwnership mDesktopOwnership =
             new ShellDesktopTaskOwnership();
@@ -74,8 +73,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final ITaskObserverCallback callback,
             final Runnable callbackFailure,
             final PlatformWindowingDriver windowing,
-            final PlatformPhoneUiDriver phoneUi,
-            final PlatformPhoneUiDriver.InputOwner inputOwner)
+            final PlatformPhoneUiDriver phoneUi)
             throws ReflectiveOperationException {
         if (callback == null) {
             throw new IllegalArgumentException("missing task observer callback");
@@ -119,11 +117,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mPhoneUi = phoneUi;
         mFocusController = new ShellDesktopFocusController(
                 mService,
-                windowing.requiresMirrorInputFocusSynchronization(),
+                windowing.requiresDesktopInputFocusSynchronization(),
                 taskId -> callCallback(() ->
                         mCallback.onInputFocusRefreshRequired(taskId)));
-        mInputPanelGuard = phoneUi.createInputPanelGuard(
-                mService, inputOwner);
         mPhoneHome = PhoneHomeComponents.resolve(context);
         mPhoneLauncherGuardEnabled =
                 phoneUi.protectsPhoneLauncherAfterCrash();
@@ -336,18 +332,14 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 });
         mWorkspaceCoordinator = new ShellDesktopWorkspaceCoordinator(
                 mService,
+                mDesktopOwnership,
                 mFullscreenTaskArea,
                 mFocusController,
                 new ShellDesktopWorkspaceCoordinator.ForegroundReporter() {
                     @Override
-                    public void reportForTask(final int taskId) {
+                    public void reportForTask(final int taskId)
+                            throws ReflectiveOperationException {
                         reportDesktopTaskAreaForeground(taskId);
-                    }
-
-                    @Override
-                    public void reportSessionForeground(
-                            final boolean foreground) {
-                        reportCommittedDesktopTaskAreaForeground(foreground);
                     }
                 },
                 mTaskObservations::requestSample);
@@ -408,7 +400,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mFocusController.configure(-1);
             mMigrationGuard.configure(-1, false);
             mFreeformCleanup.configure(-1);
-            mInputPanelGuard.configure(-1);
             mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mTaskObservations.clearConfiguration();
@@ -489,7 +480,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mWindowing.requiresStalePhoneFreeformTaskCleanup()
                         && displayId == Display.DEFAULT_DISPLAY
                                 ? displayId : -1);
-        mInputPanelGuard.configure(displayId);
         mTaskActivityModeGuard.configure(displayId);
         mTaskObservations.configure(
                 displayId,
@@ -929,7 +919,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mPhoneTouchpadTaskId = taskId;
             }
         }
-        mInputPanelGuard.onTaskAppeared(taskId, componentName);
         signalChange("task-created");
     }
 
@@ -942,7 +931,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     mPhoneTouchpadTaskId = -1;
                 }
             }
-            mInputPanelGuard.onTaskRemoved(taskId);
             mMigrationGuard.forget(taskId);
             mTaskActivityModeGuard.onTaskRemoved(taskId);
             mDesktopTaskArea.onTaskRemoved(taskId);
@@ -1064,8 +1052,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             } else if (displayId == Display.DEFAULT_DISPLAY) {
                 preservePhoneTouchpad();
             }
-            mInputPanelGuard.onTaskAppeared(
-                    taskInfo.taskId, taskInfo.topActivity);
         }
         signalChange("task-front");
     }
@@ -1152,7 +1138,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mPhoneTouchpadRequested = false;
         }
         closeSafely("focus controller", mFocusController::close);
-        closeSafely("input panel guard", mInputPanelGuard::close);
         closeSafely("process failure tracker", () ->
                 mProcessFailureTracker.configure(Display.INVALID_DISPLAY));
         closeSafely("process observer", mProcessObserverController::close);
@@ -1225,20 +1210,16 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
-    private void reportDesktopTaskAreaForeground(final int taskId) {
-        try {
-            final Object task = HiddenTaskApi.findTask(
-                    mService, Display.INVALID_DISPLAY, taskId);
-            if (task == null) {
-                return;
-            }
-            final Boolean foreground = mDesktopTaskArea.foregroundForTask(
-                    HiddenTaskApi.getTaskDisplayId(task), taskId);
-            if (foreground != null) {
-                reportDesktopTaskAreaForeground(foreground.booleanValue());
-            }
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.w(TAG, "could not resolve focused task area", error);
+    private void reportDesktopTaskAreaForeground(final int taskId)
+            throws ReflectiveOperationException {
+        final Object task = HiddenTaskApi.requireTask(
+                mService, Display.INVALID_DISPLAY, taskId);
+        final int displayId = HiddenTaskApi.getTaskDisplayId(task);
+        mDesktopTaskArea.commitWorkspaceSurfaceForTask(displayId, taskId);
+        final Boolean foreground = mDesktopTaskArea.foregroundForTask(
+                displayId, taskId);
+        if (foreground != null) {
+            reportDesktopTaskAreaForeground(foreground.booleanValue());
         }
     }
 
@@ -1363,12 +1344,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     && mConfiguredDisplayId > Display.DEFAULT_DISPLAY
                     && mPhoneUi.isTransientSecondaryHomeIntent(intent);
         }
-        final boolean suppressInputPanel =
-                !mInputPanelGuard.allowActivityStart(intent, packageName);
-        if (suppressInputPanel) {
-            Log.i(TAG, "suppressed platform input panel while MagicDesk "
-                    + "input routing is active");
-        } else if (suppressLocalHome) {
+        if (suppressLocalHome) {
             Log.i(TAG, "suppressed HOME fallback inside local desktop session");
         } else if (suppressCrashedPhoneLauncher) {
             Log.i(TAG, "suppressed HOME after phone launcher death");
@@ -1376,8 +1352,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             Log.i(TAG, "suppressed transient secondary HOME while phone "
                     + "touchpad is requested");
         }
-        return !suppressInputPanel
-                && !suppressLocalHome
+        return !suppressLocalHome
                 && !suppressCrashedPhoneLauncher
                 && !suppressExternalSecondaryHome;
     }

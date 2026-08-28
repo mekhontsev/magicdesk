@@ -8,17 +8,16 @@ import java.io.IOException;
 /** Persistent desktop-windowing properties required by Nubia firmware. */
 final class NubiaWindowingDriver implements PlatformWindowingDriver {
     @Override
-    public boolean requiresMirrorInputFocusSynchronization() {
+    public boolean requiresDesktopInputFocusSynchronization() {
         return true;
     }
 
     @Override
     public boolean protectsExternalSessionFromPhoneTaskMigration() {
         // Starting an already running desktop task from Nubia's phone launcher
-        // can remove the entire NubiaAppMirrorDisplay instead of moving only
-        // that task. The shell observer rejects that migration while the
-        // external session is active. The observer also normalizes any
-        // system-driven freeform move that bypasses the launch callback.
+        // can tear down the external desktop task hierarchy instead of moving
+        // only that task. Reject the migration while the session is active
+        // and normalize system-driven moves that bypass the launch callback.
         return true;
     }
 

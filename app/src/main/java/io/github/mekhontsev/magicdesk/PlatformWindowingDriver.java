@@ -4,7 +4,7 @@ import java.io.IOException;
 
 /** Firmware-specific part of desktop windowing provisioning. */
 public interface PlatformWindowingDriver {
-    boolean requiresMirrorInputFocusSynchronization();
+    boolean requiresDesktopInputFocusSynchronization();
 
     /** Whether moving one desktop task to the phone can destroy the display host. */
     boolean protectsExternalSessionFromPhoneTaskMigration();

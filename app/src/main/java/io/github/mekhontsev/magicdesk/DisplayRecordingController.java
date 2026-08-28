@@ -372,8 +372,8 @@ final class DisplayRecordingController implements ShellAccess.StateListener {
 
     private static DisplayRecordingSettings.Dimensions displayDimensions(
             final int displayId) throws IOException {
-        final ConsoleDisplayController.DisplaySize size =
-                ConsoleDisplayController.getDisplaySize(displayId);
+        final ExternalDisplayController.DisplaySize size =
+                ExternalDisplayController.getDisplaySize(displayId);
         return new DisplayRecordingSettings.Dimensions(
                 size.width, size.height);
     }

@@ -8,7 +8,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Platform projection lifecycle and optional external output controls. */
+/** Platform projection UI, captions, and optional external output controls. */
 public interface PlatformProjectionDriver {
     enum Transport {
         NONE,
@@ -110,27 +110,10 @@ public interface PlatformProjectionDriver {
     /** Whether MagicDesk can configure this platform's external output. */
     boolean supportsOutputConfiguration();
 
-    /** Whether closing this desktop should also change the platform transport. */
-    boolean ownsTransportLifecycle(Transport transport);
-
     /** Whether this platform exposes a verified wireless-display connection UI. */
     boolean hasWirelessConnectionUi(Context context);
 
     boolean openWirelessConnectionUi(Activity activity);
-
-    int activeDesktopDisplayId(Context context);
-
-    int waitForDesktopDisplay(Context context);
-
-    boolean waitForDesktopStop(Context context);
-
-    String[] observedSettingKeys();
-
-    boolean isMirrorMode();
-
-    boolean requestDesktopMode(int physicalDisplayId);
-
-    boolean requestMirrorMode();
 
     ModeSelection readExternalDisplayModes(
             Context context,

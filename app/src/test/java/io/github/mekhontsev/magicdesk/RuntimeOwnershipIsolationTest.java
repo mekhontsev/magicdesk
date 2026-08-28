@@ -16,7 +16,7 @@ public final class RuntimeOwnershipIsolationTest {
 
     @Test
     public void consoleCommandsEnterThroughRuntime() throws IOException {
-        assertFalse(read("ConsoleModeSwitcher.java")
+        assertFalse(read("DesktopOperations.java")
                 .contains("DesktopRuntimeBridge."));
     }
 
@@ -25,7 +25,7 @@ public final class RuntimeOwnershipIsolationTest {
             throws IOException {
         final String source = read(
                 "DesktopSessionTransitionCoordinator.java");
-        assertFalse(source.contains("ConsoleModeSwitcher."));
+        assertFalse(source.contains("DesktopOperations."));
         assertFalse(source.contains("PlatformDrivers.current()"));
     }
 

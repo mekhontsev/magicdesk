@@ -1,8 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.ActivityOptions;
-import android.content.Context;
-import android.content.Intent;
 import android.util.Log;
 import android.view.Display;
 
@@ -20,35 +17,6 @@ final class PhoneHomeRecoveryController {
                     + "com.android.wm.shell.desktopmode.DesktopWallpaperActivity";
 
     private PhoneHomeRecoveryController() {
-    }
-
-    static void restoreAfterConsoleExit(final Context context) {
-        if (context == null
-                || ShellAccess.isReady()) {
-            return;
-        }
-        try {
-            final PhoneHomeComponents home =
-                    PhoneHomeComponents.resolve(context);
-            final Intent intent = new Intent(Intent.ACTION_MAIN)
-                    .addCategory(Intent.CATEGORY_HOME)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                            | Intent.FLAG_ACTIVITY_CLEAR_TOP
-                            | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            if (home.hasPrimary()) {
-                intent.setComponent(home.primaryComponentName());
-            }
-            final ActivityOptions options = ActivityOptions.makeBasic();
-            options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
-            context.startActivity(intent, options.toBundle());
-            Log.i(TAG, "requested primary phone Home after Console exit");
-        } catch (RuntimeException error) {
-            Log.w(TAG, "public phone Home restore failed", error);
-            CompatibilityDiagnostics.record(
-                    "PHONE-HOME-002",
-                    "Could not restore the phone launcher after Console Mode",
-                    error.getMessage());
-        }
     }
 
     static void restoreIfNeeded(
@@ -124,12 +92,6 @@ final class PhoneHomeRecoveryController {
                 + " -c android.intent.category.HOME"
                 + (home != null && home.hasPrimary()
                         ? " -n " + home.primaryComponent() : "");
-    }
-
-    static boolean shouldRestoreStrandedDesktop(
-            final boolean consoleModeActive,
-            final boolean consoleExitRecoveryPending) {
-        return !consoleModeActive && consoleExitRecoveryPending;
     }
 
     static boolean needsPrimaryHomeRestore(
@@ -369,7 +331,7 @@ final class PhoneHomeRecoveryController {
             Log.w(TAG, "failed to restore primary phone Home", error);
             CompatibilityDiagnostics.record(
                     "PHONE-HOME-001",
-                    "Could not restore the phone launcher after Console Mode",
+                    "Could not restore the phone launcher after desktop use",
                     error.getMessage());
             complete(callback, false);
         }

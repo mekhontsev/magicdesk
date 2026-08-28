@@ -168,7 +168,7 @@ public final class TaskInputWindowParserTest {
                 "Input Dispatcher State:\n"
                         + "  FocusedApplications:\n"
                         + "    displayId=155, name='ActivityRecord{123 u0 "
-                        + "magicdesk/.ConsoleSeedActivity t12}', "
+                        + "magicdesk/.DesktopActivity t12}', "
                         + "dispatchingTimeout=8000ms\n"
                         + "  FocusedWindows:\n"
                         + "    displayId=155, name='abc example/.Editor'\n"

@@ -130,7 +130,7 @@ final class DesktopSelfTestInputSuite {
         do {
             final ShellAccess.CommandResult response;
             try {
-                response = ShellAccess.executeForConsole(
+                response = ShellAccess.executeCommand(
                         TaskCaptionRenderCommand.createCommand(
                                 captureSource,
                                 taskId,
@@ -184,7 +184,7 @@ final class DesktopSelfTestInputSuite {
         final Rect crop = geometry.captionRenderSample(windowBounds);
         try {
             final ShellAccess.CommandResult response =
-                    ShellAccess.executeForConsole(
+                    ShellAccess.executeCommand(
                             TaskCaptionRenderCommand.createReferenceCommand(
                                     captureSource, crop));
             if (response.exitCode != 0) {
@@ -295,7 +295,7 @@ final class DesktopSelfTestInputSuite {
                 TaskCaptionSurfaceCommand.State.ABSENT;
         do {
             final ShellAccess.CommandResult response =
-                    ShellAccess.executeForConsole(
+                    ShellAccess.executeCommand(
                             TaskCaptionSurfaceCommand.createCommand(taskId));
             if (response.exitCode != 0) {
                 throw new IOException(response.output.trim());

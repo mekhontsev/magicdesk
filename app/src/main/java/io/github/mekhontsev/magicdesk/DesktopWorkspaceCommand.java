@@ -108,6 +108,10 @@ public final class DesktopWorkspaceCommand implements Parcelable {
         return operation == PRESENT_DESKTOP;
     }
 
+    boolean requiresInputFocusCommit() {
+        return operation == ACTIVATE;
+    }
+
     private static boolean isKnownOperation(final int operation) {
         return operation >= ACTIVATE && operation <= RESTORE_SESSION;
     }

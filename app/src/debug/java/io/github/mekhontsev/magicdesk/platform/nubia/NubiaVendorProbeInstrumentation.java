@@ -5,10 +5,7 @@ import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
 
 import android.app.Activity;
 import android.app.Instrumentation;
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.pm.PackageManager;
-import android.content.pm.ServiceInfo;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.system.Os;
@@ -29,7 +26,6 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
     private static final String DESKTOP_RESTRICTIONS_PROPERTY =
             "persist.wm.debug.desktop_mode_enforce_device_restrictions";
     private static final String REDMAGIC_SERVICE = "redmagic.app.manager";
-    private static final String DISPLAY_GET_MIRROR_TYPE_TRANSACTION = "52";
     private static final String SCENE_GET_TEMPERATURE_TRANSACTION = "38";
     private static final String SCENE_GET_FOREGROUND_TRANSACTION = "39";
     private static final String SCENE_GET_VISIBLE_TRANSACTION = "41";
@@ -37,10 +33,6 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
     private static final String SCENE_GET_CURRENT_TRANSACTION = "62";
     private static final String BACKLIGHT_GET_NIT_TRANSACTION = "3";
     private static final String BACKLIGHT_GET_LEVEL_TRANSACTION = "4";
-    private static final ComponentName MIRROR_INPUT_SERVICE =
-            new ComponentName(
-                    "cn.nubia.keymapcenter",
-                    "cn.nubia.keymapcenter.mirror.MirrorInputService");
     private static final long COMMAND_TIMEOUT_MILLIS = 5_000L;
     private static final int MAX_OUTPUT_BYTES = 32 * 1024;
 
@@ -104,13 +96,6 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
         }
 
         try {
-            result.putString("display_read", probeDisplayRead());
-        } catch (IOException | InterruptedException error) {
-            success = false;
-            result.putString("display_read", failure(error));
-        }
-
-        try {
             result.putString("scene_state", probeSceneState());
         } catch (IOException | InterruptedException error) {
             success = false;
@@ -132,15 +117,6 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
         }
 
         result.putString("global_setting_write", probeGlobalSettingWrite());
-
-        try {
-            result.putString(
-                    "mirror_input_service",
-                    probeMirrorInputServiceMetadata());
-        } catch (PackageManager.NameNotFoundException | RuntimeException error) {
-            success = false;
-            result.putString("mirror_input_service", failure(error));
-        }
 
         finish(success ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
     }
@@ -264,19 +240,6 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
                 + original.name().toLowerCase(java.util.Locale.ROOT);
     }
 
-    private static String probeDisplayRead()
-            throws IOException, InterruptedException {
-        final CommandResult result = command(
-                "/system/bin/service",
-                "call",
-                "display",
-                DISPLAY_GET_MIRROR_TYPE_TRANSACTION,
-                "i32",
-                "0");
-        return "exit=" + result.exitCode
-                + " reply=" + oneLine(result.output);
-    }
-
     private static String probeSceneState()
             throws IOException, InterruptedException {
         final CommandResult temperature = command(
@@ -360,16 +323,6 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
         } catch (SecurityException error) {
             return "denied=" + oneLine(String.valueOf(error.getMessage()));
         }
-    }
-
-    private String probeMirrorInputServiceMetadata()
-            throws PackageManager.NameNotFoundException {
-        final ServiceInfo info = getTargetContext()
-                .getPackageManager()
-                .getServiceInfo(MIRROR_INPUT_SERVICE, 0);
-        return "exported=" + info.exported
-                + " enabled=" + info.enabled
-                + " permission=" + String.valueOf(info.permission);
     }
 
     private static CommandResult command(final String... command)

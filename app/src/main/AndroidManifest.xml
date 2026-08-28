@@ -13,7 +13,6 @@
         <package android:name="moe.shizuku.privileged.api" />
         <package android:name="com.termux" />
         <package android:name="com.termux.x11" />
-        <package android:name="cn.nubia.keymapcenter" />
         <package android:name="cn.nubia.redmagickyi" />
         <package android:name="cn.zte.chargeseparation" />
         <package android:name="com.zte.mifavor.launcher" />
@@ -150,19 +149,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- This transient seed requests the landscape external-display configuration. -->
-        <activity
-            android:name=".ConsoleSeedActivity"
-            android:excludeFromRecents="true"
-            android:exported="true"
-            android:launchMode="singleTop"
-            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
-            android:resizeableActivity="true"
-            android:screenOrientation="landscape"
-            android:taskAffinity="${applicationId}.consoleseed"
-            android:theme="@style/ConsoleSeedTheme"
-            tools:ignore="DiscouragedApi" />
 
         <activity
             android:name=".DesktopActivity"

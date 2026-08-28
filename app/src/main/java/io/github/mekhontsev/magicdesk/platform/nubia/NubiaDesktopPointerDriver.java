@@ -7,11 +7,12 @@ import android.graphics.Point;
 import android.util.Log;
 import android.view.MotionEvent;
 
-final class NubiaPointerDriver implements PlatformPointerDriver {
+/** MagicDesk pointer backend implemented with Nubia's hidden input API. */
+final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
     private static final String TAG = "MagicDeskPointer";
 
-    private final NubiaPointerPositionGuard mPositionGuard =
-            new NubiaPointerPositionGuard();
+    private final NubiaDesktopPointerPositionGuard mPositionGuard =
+            new NubiaDesktopPointerPositionGuard();
 
     @Override
     public boolean capturePosition() {
@@ -26,9 +27,10 @@ final class NubiaPointerDriver implements PlatformPointerDriver {
     @Override
     public int[] getPosition(final int displayId) {
         try {
-            NubiaMouseController.prepareMousePositionControl();
-            NubiaMouseController.createOrUpdateViewport();
-            final Point position = NubiaMouseController.getPosition(displayId);
+            NubiaDesktopPointerController.prepareMousePositionControl();
+            NubiaDesktopPointerController.createOrUpdateViewport();
+            final Point position =
+                    NubiaDesktopPointerController.getPosition(displayId);
             return new int[] {position.x, position.y};
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
@@ -41,7 +43,7 @@ final class NubiaPointerDriver implements PlatformPointerDriver {
         try {
             DesktopPointerInjector.injectClickAt(
                     displayId,
-                    NubiaMouseController.getPosition(),
+                    NubiaDesktopPointerController.getPosition(),
                     button);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -59,7 +61,8 @@ final class NubiaPointerDriver implements PlatformPointerDriver {
             final long downTime) {
         try {
             final Point position = new Point(x, y);
-            NubiaMouseController.setMousePosition(displayId, position);
+            NubiaDesktopPointerController.setMousePosition(
+                    displayId, position);
             DesktopPointerInjector.injectTouchpadMotion(
                     displayId,
                     position,
@@ -76,7 +79,7 @@ final class NubiaPointerDriver implements PlatformPointerDriver {
     @Override
     public void refreshViewport() {
         try {
-            NubiaMouseController.createOrUpdateViewport();
+            NubiaDesktopPointerController.createOrUpdateViewport();
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "pointer viewport refresh unavailable", error);
         }

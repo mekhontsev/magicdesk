@@ -34,7 +34,7 @@ final class DesktopDisplayDriverSupport {
                         context, preparedTarget);
         if (profile != null) {
             try {
-                ConsoleDisplayController.applyStartupDensity(
+                ExternalDisplayController.applyStartupDensity(
                         preparedTarget.displayId, profile.dpi);
             } catch (RuntimeException error) {
                 Log.w(TAG, "Could not prepare secondary display density",

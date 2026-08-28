@@ -13,7 +13,6 @@ final class MagicDeskSessionController {
     private final Activity mActivity;
     private final PlatformDriver mPlatform;
     private final PlatformPhoneUiDriver mPhoneUi;
-    private final PlatformProjectionDriver mProjection;
     private volatile boolean mOperationInProgress;
 
     MagicDeskSessionController(final MagicDeskSessionHost host) {
@@ -21,7 +20,6 @@ final class MagicDeskSessionController {
         mActivity = host.sessionActivity();
         mPlatform = PlatformDrivers.current();
         mPhoneUi = mPlatform.phoneUi();
-        mProjection = mPlatform.projection();
     }
 
     void exit() {
@@ -60,14 +58,14 @@ final class MagicDeskSessionController {
                             callback.onComplete(true);
                             return;
                         }
-                        ConsoleModeSwitcher.setPhoneScreenOff(
+                        DesktopOperations.setPhoneScreenOff(
                                 false, callback::onComplete);
                     }
 
                     @Override
-                    public void returnConsoleTasks(
+                    public void returnDesktopTasks(
                             final MagicDeskExitCoordinator.Callback callback) {
-                        ConsoleModeSwitcher.returnConsoleTasksToPhone(
+                        DesktopOperations.returnDesktopTasksToPhone(
                                 desktopTarget, callback::onComplete);
                     }
 
@@ -122,7 +120,7 @@ final class MagicDeskSessionController {
                     R.string.status_close_desktop_failed);
             return;
         }
-        ConsoleModeSwitcher.closeDesktop(
+        DesktopOperations.closeDesktop(
                 target,
                 true,
                 success -> {
@@ -141,7 +139,7 @@ final class MagicDeskSessionController {
             callback.onComplete(true);
             return;
         }
-        ConsoleModeSwitcher.closeDesktop(
+        DesktopOperations.closeDesktop(
                 target,
                 false,
                 callback::onComplete);
@@ -166,12 +164,6 @@ final class MagicDeskSessionController {
         if (target != null
                 && target.kind == DesktopDisplayTarget.Kind.WIRELESS) {
             return "WIRELESS-DISPLAY-002";
-        }
-        if (target != null
-                && target.kind == DesktopDisplayTarget.Kind.WIRED
-                && mProjection.ownsTransportLifecycle(
-                        PlatformProjectionDriver.Transport.WIRED)) {
-            return "DISPLAY-SESSION-001";
         }
         return "DISPLAY-CLOSE-001";
     }
@@ -306,7 +298,7 @@ final class MagicDeskSessionController {
                         "Could not restore the phone screen",
                         error);
                 break;
-            case RETURN_CONSOLE_TASKS:
+            case RETURN_DESKTOP_TASKS:
                 reportExitFailure(
                         "EXIT-002",
                         "Could not return Console tasks to the phone",

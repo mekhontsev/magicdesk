@@ -9,7 +9,6 @@ import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformDiagnostics;
 import io.github.mekhontsev.magicdesk.PlatformExtension;
 import io.github.mekhontsev.magicdesk.PlatformFeatures;
-import io.github.mekhontsev.magicdesk.PlatformInputRoutingDriver;
 import io.github.mekhontsev.magicdesk.PlatformPhoneUiDriver;
 import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
@@ -31,7 +30,7 @@ public final class NubiaPlatformDriver implements PlatformExtension {
     private static final PlatformWindowingDriver WINDOWING =
             new NubiaWindowingDriver();
     private static final PlatformPointerDriver POINTER =
-            new NubiaPointerDriver();
+            new NubiaDesktopPointerDriver();
     private static final PlatformProjectionDriver PROJECTION =
             new NubiaProjectionDriver();
     private static final PlatformPhoneUiDriver PHONE_UI =
@@ -42,8 +41,6 @@ public final class NubiaPlatformDriver implements PlatformExtension {
             new NubiaPlatformDiagnostics();
     private static final PlatformAudioCaptureDriver AUDIO_CAPTURE =
             new NubiaAudioCaptureDriver();
-    private static final PlatformInputRoutingDriver INPUT_ROUTING =
-            new NubiaInputRoutingDriver();
 
     private final NubiaFirmwareDetector.Result mCapabilities;
 
@@ -99,7 +96,7 @@ public final class NubiaPlatformDriver implements PlatformExtension {
                 baseline.wirelessDesktop,
                 baseline.externalInputBridge
                         || components().contains(
-                                PlatformComponent.INPUT_ROUTING),
+                                PlatformComponent.EXTERNAL_INPUT),
                 baseline.vendorHardware
                         || components().contains(
                                 PlatformComponent.SYSTEM_CONTROLS));
@@ -143,11 +140,6 @@ public final class NubiaPlatformDriver implements PlatformExtension {
     @Override
     public PlatformTextInputDriver textInput() {
         return NubiaMirrorTextInputDriver.INSTANCE;
-    }
-
-    @Override
-    public PlatformInputRoutingDriver inputRouting() {
-        return INPUT_ROUTING;
     }
 
     @Override

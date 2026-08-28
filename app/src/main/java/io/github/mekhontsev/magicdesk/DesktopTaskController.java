@@ -9,6 +9,7 @@ import android.util.Log;
 import android.view.Display;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -76,6 +77,25 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private List<Integer> mShowDesktopRestoreOrder = Collections.emptyList();
     private Set<Integer> mShowDesktopNewlyConcealedTaskIds =
             Collections.emptySet();
+    private final ArrayDeque<ShowDesktopToggleRequest>
+            mShowDesktopToggleRequests = new ArrayDeque<>();
+    private boolean mShowDesktopToggleRunning;
+
+    private static final class ShowDesktopToggleRequest {
+        final int displayId;
+        final int desktopHostTaskId;
+        final TaskRepository.ActionCallback callback;
+        boolean completed;
+
+        ShowDesktopToggleRequest(
+                final int displayId,
+                final int desktopHostTaskId,
+                final TaskRepository.ActionCallback callback) {
+            this.displayId = displayId;
+            this.desktopHostTaskId = desktopHostTaskId;
+            this.callback = callback;
+        }
+    }
 
     DesktopTaskController(
             final Context context,
@@ -429,6 +449,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     void stop() {
         mRunning = false;
         mGeneration++;
+        cancelShowDesktopToggleRequests("desktop task runtime stopped");
         mHandler.removeCallbacks(mRefreshRunnable);
         mRefreshDueUptimeMillis = -1;
         mTaskWatcher.setPhoneTouchpadRequested(false);
@@ -1038,6 +1059,86 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public void toggleShowDesktopWorkspace(
+            final int displayId,
+            final int desktopHostTaskId,
+            final TaskRepository.ActionCallback callback) {
+        if (displayId < 0 || desktopHostTaskId < 0) {
+            completeActionCallback(callback, false, "invalid desktop host");
+            return;
+        }
+        mHandler.post(() -> {
+            if (!mRunning || !mTaskWatcherReady || mDisplayId != displayId) {
+                completeActionCallback(
+                        callback, false, "desktop task runtime unavailable");
+                return;
+            }
+            mShowDesktopToggleRequests.addLast(
+                    new ShowDesktopToggleRequest(
+                            displayId, desktopHostTaskId, callback));
+            runNextShowDesktopToggle();
+        });
+    }
+
+    private void runNextShowDesktopToggle() {
+        if (mShowDesktopToggleRunning) {
+            return;
+        }
+        final ShowDesktopToggleRequest request =
+                mShowDesktopToggleRequests.peekFirst();
+        if (request == null) {
+            return;
+        }
+        mShowDesktopToggleRunning = true;
+        final boolean restore;
+        synchronized (mTaskbarConcealedTaskIds) {
+            restore = !mShowDesktopRestoreOrder.isEmpty();
+        }
+        final TaskRepository.ActionCallback completion = result ->
+                mHandler.post(() -> finishShowDesktopToggle(request, result));
+        if (restore) {
+            restoreShowDesktopWorkspace(
+                    request.displayId,
+                    request.desktopHostTaskId,
+                    completion);
+        } else {
+            showDesktop(
+                    request.displayId,
+                    request.desktopHostTaskId,
+                    completion);
+        }
+    }
+
+    private void finishShowDesktopToggle(
+            final ShowDesktopToggleRequest request,
+            final TaskRepository.ActionResult result) {
+        if (request.completed) {
+            return;
+        }
+        request.completed = true;
+        mShowDesktopToggleRequests.remove(request);
+        mShowDesktopToggleRunning = false;
+        completeActionCallback(
+                request.callback,
+                result != null && result.success,
+                result == null ? "desktop workspace command failed"
+                        : result.message);
+        runNextShowDesktopToggle();
+    }
+
+    private void cancelShowDesktopToggleRequests(final String message) {
+        while (!mShowDesktopToggleRequests.isEmpty()) {
+            final ShowDesktopToggleRequest request =
+                    mShowDesktopToggleRequests.removeFirst();
+            if (!request.completed) {
+                request.completed = true;
+                completeActionCallback(request.callback, false, message);
+            }
+        }
+        mShowDesktopToggleRunning = false;
+    }
+
+    @Override
     public void restoreSessionWorkspace(
             final int displayId,
             final List<Integer> backToFrontTaskIds,
@@ -1314,7 +1415,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
             final int focusedTaskId = taskIds.get(
                     taskIds.size() - 1).intValue();
-            if (mWindowing.requiresMirrorInputFocusSynchronization()) {
+            if (mWindowing.requiresDesktopInputFocusSynchronization()) {
                 // Affected firmware can leave input focus on the host while
                 // reporting the raised client task as focused.
                 DesktopRuntimeBridge.prepareTaskFocus(

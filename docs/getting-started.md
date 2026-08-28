@@ -82,9 +82,10 @@ desktop**. For a wireless session, connect through the system projection UI,
 return to Phone Control Panel after Android reports the display, and select
 **Start external desktop**. **Open desktop here** starts on the phone.
 
-The Standard Android driver leaves connection, disconnection, mirror mode,
-and output timing under system control. A supported platform driver may add
-managed transitions, output modes, Fill display, and a connection shortcut.
+The Standard Android driver leaves connection, disconnection, and output timing
+under system control. A supported platform driver may add output modes, Fill
+display, and a connection shortcut without replacing the Android display that
+hosts the desktop.
 
 ## Normal Workflow
 

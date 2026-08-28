@@ -36,6 +36,20 @@ public final class DesktopWorkspaceCommandTest {
         assertEquals("present-desktop", command.operationName());
     }
 
+    @Test
+    public void inputFocusIsRequiredOnlyForInteractiveActivation() {
+        assertTrue(command(DesktopWorkspaceCommand.ACTIVATE)
+                .requiresInputFocusCommit());
+        assertFalse(command(DesktopWorkspaceCommand.DEMOTE)
+                .requiresInputFocusCommit());
+        assertFalse(command(DesktopWorkspaceCommand.PRESENT_DESKTOP)
+                .requiresInputFocusCommit());
+        assertFalse(command(DesktopWorkspaceCommand.RESTORE_WORKSPACE)
+                .requiresInputFocusCommit());
+        assertFalse(command(DesktopWorkspaceCommand.RESTORE_SESSION)
+                .requiresInputFocusCommit());
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsPlanWhoseTargetIsNotFrontmost() {
         DesktopWorkspaceCommand.create(
@@ -52,5 +66,10 @@ public final class DesktopWorkspaceCommandTest {
                 4,
                 20,
                 new int[]{10, 20, 20});
+    }
+
+    private static DesktopWorkspaceCommand command(final int operation) {
+        return DesktopWorkspaceCommand.create(
+                operation, 4, 20, new int[]{20});
     }
 }

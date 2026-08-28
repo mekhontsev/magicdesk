@@ -123,7 +123,7 @@ final class VendorDiscoveryReport {
         report.append(label).append(":\n");
         try {
             final ShellAccess.CommandResult result =
-                    ShellAccess.executeForConsole(command);
+                    ShellAccess.executeCommand(command);
             final String output = result.output == null ? "" : result.output;
             report.append(output, 0, Math.min(output.length(), maxChars));
             if (output.length() > maxChars) {

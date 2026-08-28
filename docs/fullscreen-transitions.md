@@ -7,7 +7,7 @@ shell task observer. If that backend declines a request, the caller retains its
 established `TaskRepository` fallback. This layer adds observability and a
 stable extension boundary; it does not add another transition implementation.
 
-RedMagic Console Mode can retain a native desktop caption inset after a task
+RedMagic external desktop windowing can retain a native caption inset after a task
 changes from freeform to fullscreen. The task and application window already
 have full-display bounds, but application content can still begin below a stale
 `captionBar` inset and leave a black strip at the top.

@@ -184,21 +184,6 @@ final class NubiaCapabilityProbe {
     private static void appendMirrorInputApis(
             final StringBuilder report) {
         try {
-            new NubiaInputRoutingDriver().verifyApi();
-            ShizukuCapabilityProbe.append(
-                    report,
-                    "vendor.mirror_panel",
-                    "present",
-                    "IDisplayManager#noteMirrorInputPanelStatus");
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            ShizukuCapabilityProbe.append(
-                    report,
-                    "vendor.mirror_panel",
-                    "missing",
-                    ShizukuCapabilityProbe.usefulMessage(error));
-        }
-
-        try {
             NubiaMirrorTextInputDriver.INSTANCE.verifyApi();
             ShizukuCapabilityProbe.append(
                     report,

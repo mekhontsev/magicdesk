@@ -115,12 +115,10 @@ their keys and buttons return to a neutral state, so a wake press is never
 split between the physical and virtual devices.
 `DesktopInputRoutingSession` associates those virtual devices with a physical
 display port for USB-C desktops or with the display unique ID for wireless and
-virtual desktops. Only the USB-C path enables Nubia's Console-specific input
-hooks.
+virtual desktops. There is no separate vendor input-panel owner.
 
-Nubia's Touch Panel reads `app_mirror_displayid`, so it cannot target a
-Miracast display without corrupting projection state. MagicDesk therefore uses
-one phone-side `MagicDeskTouchpadActivity` for every external transport. Touch
+MagicDesk uses one phone-side `MagicDeskTouchpadActivity` for every external
+transport. Touch
 motion is converted from a stable gesture origin into an absolute cursor
 position through Nubia's input service. Android `VelocityTracker` selects
 bounded acceleration steps without changing the gesture origin. MagicDesk
@@ -148,12 +146,6 @@ phone keyboard even when a physical keyboard is connected. It remembers the
 previous value and restores it on normal desktop teardown; no persistent
 keyboard preference is imposed during setup.
 
-When MagicDesk's touchpad owns phone input, the task observer removes only an
-automatically launched `cn.nubia.keymapcenter` `MirrorInputActivity` and then
-reclaims the existing MagicDesk panel. It never disables, suspends, or
-force-stops the vendor package, so the stock Touch Panel remains available
-outside that session and devices without the component continue normally.
-
 ### Keep vendor input APIs behind a capability boundary
 
 MagicDesk does not package or link a Nubia binary library. The vendor surface
@@ -161,7 +153,7 @@ used for desktop input consists of private Binder methods added to framework
 interfaces on RedMagic firmware:
 
 - `IInputManager.getMousePosition`, `setMousePosition`, and `sendMouseCmd`;
-- `IDisplayManager.noteMirrorInputPanelStatus` and `getFocusMirrorWindow`;
+- `IDisplayManager.getFocusMirrorWindow`;
 - `IDisplayMirrorWindow` composing, text, deletion, and key dispatch methods;
 - the wired-only `dumpsys display dmctrl inputSource` control.
 
@@ -363,11 +355,6 @@ runtime integration and are not distributed through the same release path.
   it does not own every feature directly.
 - `DeviceSetupActivity`, `DeviceSetupManager`, and `DeviceSetupView` own the
   one-time platform audit and provisioning flow.
-- `ConsoleSeedActivity` is an exported but `MANAGE_ACTIVITY_TASKS`-protected
-  transient visual seed used only when
-  Nubia ignores a Mirror-to-desktop command while Android Home is the sole
-  foreground task. It never appears in Recents and is removed after the real
-  desktop host task is ready.
 - `MagicDeskRuntimeService` composes the persistent notification and
   process-level runtime without duplicating subsystem state. Other components
   use the process-local `MagicDeskRuntime` facade instead of depending on the
@@ -530,7 +517,7 @@ runtime integration and are not distributed through the same release path.
   display. It preserves Android's normal crash/ANR response and reports only a
   bounded process summary, task/display context, and top activity; third-party
   stack traces and ANR process dumps do not cross into application diagnostics.
-- `ShellDesktopFocusController` handles a Nubia mirror-display defect where
+- `ShellDesktopFocusController` handles a Nubia secondary-display defect where
   task focus changes but the InputDispatcher window remains stale. It reports
   only confirmed mismatches. The UI process then relayouts the existing,
   non-focusable desktop host across a committed frame, which makes WMS
@@ -744,12 +731,14 @@ isolated behind these boundaries.
   Setup without suppressing unrelated APIs retained by a hybrid ROM.
   `PlatformDriver` exposes only existing variation points.
   `PlatformWindowingDriver` owns provisioning properties;
-  `PlatformProjectionDriver` owns projection state, output modes, and caption
-  transport; `PlatformPhoneUiDriver` owns phone-screen controls, input-panel
-  guards, launcher reconciliation, and local-navigation policy;
-  `PlatformPointerDriver` owns optional absolute-pointer integration;
-  `PlatformInputRoutingDriver` owns firmware hooks layered over Android's
-  standard input-device display associations; `PlatformTextInputDriver` owns
+  `PlatformProjectionDriver` owns output modes, wireless-launch integration,
+  and caption transport; `PlatformPhoneUiDriver` owns phone-screen controls,
+  launcher reconciliation, and local-navigation policy;
+  `PlatformPointerDriver` owns optional absolute-pointer integration. On Nubia
+  firmware this is implemented by `NubiaDesktopPointerDriver`, the MagicDesk
+  pointer backend over the hidden vendor positioning API. Physical input
+  routing itself stays in the shared Android implementation and uses standard
+  port or unique-id display associations. `PlatformTextInputDriver` owns
   optional projected-window IME forwarding; and
   `PlatformDiagnostics` contributes only the probes for the selected platform.
 - `InternalDisplayDesktopConfig` reads Android's live
@@ -805,22 +794,18 @@ isolated behind these boundaries.
 - `DesktopDisplayDriver` has four implementations: phone, wired, wireless,
   and simulated. A driver owns environment-specific activation, launch-area
   policy, phone-screen and touchpad availability, capture support, and display
-  removal semantics. Closing and mirror transitions are deliberately absent
-  from the drivers: one session coordinator combines the selected display
-  target with the selected platform transport lifecycle.
+  removal semantics. Wired and wireless drivers consume Android's existing
+  physical display directly; neither owns the transport lifecycle.
 - `DesktopDisplayDrivers` is the only registry for resolving those drivers.
-  `ConsoleModeSwitcher` serializes public session transitions and delegates
+  `DesktopOperations` serializes public session transitions and delegates
   the selected target to the registry.
-- `ConsoleSessionController` owns the optional RedMagic wired Console
-  activation path. Standard Android displays bypass it and enter the common
-  desktop session directly.
-- `ConsoleModeSwitcher` remains the compatibility facade used by activities
+- `DesktopOperations` remains the compatibility facade used by activities
   and shortcuts. `DesktopSessionTransitionCoordinator` owns activation,
-  close, and mirror sequencing; `SerializedDesktopOperationQueue` provides the
+  close, and caption transport sequencing; `SerializedDesktopOperationQueue` provides the
   single ordered executor shared with shell settings and input policy. The
   facade owns neither transition flags nor an executor. Platform projection
   and feature contracts are injected into the coordinator, so a close cannot
-  re-enter `ConsoleModeSwitcher` through a display driver.
+  re-enter `DesktopOperations` through a display driver.
 - Desktop shortcut and panel commands enter through `MagicDeskRuntime`. The
   runtime service is the availability and ownership boundary;
   `DesktopRuntimeBridge` remains the lower-level gateway that dispatches a
@@ -831,7 +816,7 @@ isolated behind these boundaries.
   phone-screen request. They do not discover session state through
   `DesktopRuntimeBridge` and publish state changes through the runtime rather
   than reaching a desktop Activity.
-- `ConsoleDisplayController` discovers dynamic display IDs and fixes geometry.
+- `ExternalDisplayController` discovers dynamic display IDs and fixes geometry.
 - `KeyboardShortcutWatcher`, `DesktopMouseBridge`, and
   `HardwareKeyboardLayoutController` own physical input policy.
 - `PhoneTouchpadController` starts and repairs the phone touchpad when the
@@ -948,18 +933,17 @@ are never persisted as constants.
 `DesktopDisplayTarget` describes a secondary display that is already ready for
 desktop content. `DesktopSessionController` then focuses or creates the same
 `DesktopActivity` task for wired, wireless, and simulated targets. The
-transport-specific code stops at that boundary. `ConsoleModeSwitcher` also
+transport-specific code stops at that boundary. `DesktopOperations` also
 owns the common target-aware close operation. Local startup retains its
 launcher-navigation guard, then starts the same desktop host and controllers.
 
-- On the standard Android profile, an already connected wired or wireless
-  secondary display enters `DesktopSessionController` directly. Closing the
-  desktop returns its application tasks to the phone but does not disconnect
-  or reconfigure the system-owned transport.
-- `ConsoleSessionController` is the managed RedMagic extension: it asks the
-  firmware to turn a physical USB-C output into Nubia's virtual desktop
-  display, applies its output profile, and enables the wired input-routing
-  path. The corresponding driver also owns the return to mirror mode.
+- An already connected wired or wireless secondary display enters
+  `DesktopSessionController` directly on every platform. Closing the desktop
+  returns its application tasks to the phone but does not disconnect or
+  reconfigure the system-owned transport.
+- The Nubia projection extension may configure physical HDMI timing, output
+  fill, and native caption visibility. These are independent capabilities and
+  do not create or own a second logical display.
 - Starting an external desktop requires an existing Android secondary display.
   A separate **Wireless** action is exposed only when the
   selected platform driver provides a verified connection UI. The Nubia
@@ -981,9 +965,8 @@ provides absolute pointer positioning, `PhoneTouchpadController` opens
 The runtime asks the selected platform to expose native captions for wired and
 wireless desktops. The Nubia driver applies its matching privacy filter;
 standard Android and simulated displays do not modify vendor SurfaceFlinger
-state. Nubia's mouse and keyboard port association remains limited to its
-wired Console display because Miracast and simulated displays do not expose the
-same physical display port contract. Simulated sessions deliberately exercise
+state. Android associates input by physical port on wired displays and by
+stable display unique ID on Miracast and simulated displays. Simulated sessions deliberately exercise
 the same phone IME policy, keyboard watcher, and virtual input lifecycle as a
 real desktop. Virtual input remains scoped to the session and cleanup waits for
 its removal before the test completes. The test inspects WMShell's caption and
@@ -998,7 +981,7 @@ check.
   control panel remains MagicDesk's only Recents card, while the desktop uses
   the same host model on tablets, phones, and external displays.
 - An external desktop is a display-sized standard multi-window activity on
-  Nubia's virtual desktop display. Its position in the task stack separates
+  the connected Android secondary display. Its position in the task stack separates
   visible windows from resumed minimized windows without replacing the phone
   launcher.
 - Phone control and external desktop are separate tasks and may coexist.
@@ -1010,8 +993,8 @@ built-in simulated self-test without replacing the running app process.
 
 The built-in **Diagnostics > Run desktop self-test** runs the same bounded core
 on a selected simulated, external, or phone display. A desktop session must be
-closed when the test starts; mirror mode and a physically connected display are
-allowed. Its explicit isolated session policy suppresses saved-workspace restore
+closed when the test starts; an already connected secondary display is allowed.
+Its explicit isolated session policy suppresses saved-workspace restore
 and persistence on every display driver. A scoped orientation lease locks the
 phone at its current rotation and restores the exact previous auto/locked mode
 through the common finalizer. The target owner prepares the session once, while
@@ -1056,10 +1039,9 @@ restores the prior setting. Its test deliberately closes that lease once while
 the desktop and a fullscreen fixture are still alive. It verifies that the
 runtime and owned display stop and that a surviving fixture is
 never left freeform on display 0. The external target selects the existing
-wired or wireless transport automatically and never treats the physical
-display or its unrelated tasks as test-owned. If a wired test temporarily
-enters desktop mode from mirror mode, cleanup restores mirror mode. An existing
-Miracast transport remains connected. The phone target uses the normal local-
+wired or wireless display automatically and never treats the physical display
+or its unrelated tasks as test-owned. An existing Miracast transport remains
+connected. The phone target uses the normal local-
 desktop navigation and cleanup path. Each target closes only the MagicDesk host
 and test fixtures that it created. Cleanup closes the host before removing its
 fixture tasks so SystemUI can reconcile live task IDs instead of retaining
@@ -1497,44 +1479,28 @@ request.
 
 ## External Desktop Activation
 
-The stock RedMagic projection UI enters desktop mode through the vendor
-DisplayManager extension:
-
-```text
-DisplayManager.setCmdToDisplay(1, physicalDisplayId, 0, null)
-```
-
-MagicDesk calls the same Binder method from shell UID 2000. It does not infer
-state by writing `app_mirror_status` or hardcode a virtual display ID.
-
-Nubia publishes `app_mirror_displayid` before the corresponding logical display
-is visible through `cmd display`. Early input routing therefore recognizes the
-configured Console target immediately, while lifecycle callers use
-`waitForDesktopDisplay()` to require the stricter display-exists check. Keeping
-those meanings separate prevents the native pointer route from being
-misclassified during startup.
-
 On **Start external desktop** or `Win+D`, MagicDesk:
 
-1. resolves the current physical or virtual display;
-2. creates a landscape transient seed only for the known Home-only Mirror
-   state, avoiding Nubia's synchronous foreground-activity check during an
-   orientation relaunch;
-3. requests RedMagic desktop mode and waits for the real virtual display;
-4. corrects portrait geometry and applies the display profile DPI;
+1. discovers Android's connected wired, wireless, or overlay display;
+2. loads the profile keyed by that display's stable identity;
+3. optionally applies a platform-specific physical output timing;
+4. corrects geometry and applies the display profile DPI;
 5. creates or normalizes one display-sized MagicDesk multi-window host task;
-6. removes the seed and focuses the desktop;
-7. restores the last visible freeform window layout.
+6. focuses the desktop and restores the last visible window layout.
+
+The desktop target always contains the Android display that actually hosts the
+tasks. MagicDesk does not create a vendor projection display, infer lifecycle
+state from vendor settings, or return the physical transport to another mode
+when the desktop closes.
 
 Requests are serialized and duplicate requests during transition are ignored.
 With no external display, the shortcut cannot accidentally create a second
 desktop on display 0.
 
-Display activation and display hosting are separate contracts. A driver may
-activate a missing wired Console display, but the shared desktop-session path
-accepts only a ready `DesktopDisplayTarget`. That target identifies the logical
-display which owns tasks; its optional profile display identifies the physical
-output behind it. Raw physical display IDs never enter the ready-host API.
+Display discovery and display hosting are separate contracts. The shared
+desktop-session path accepts only a ready `DesktopDisplayTarget`. That target
+identifies the Android display which owns tasks and the profile stored for the
+same output.
 Phone, simulated, wired, wireless, UI, self-test, MCP, and App Functions starts
 all converge on this boundary before the common session controller runs.
 Normal starts use `DesktopSessionPolicy.USER`; diagnostics can select the
@@ -1575,8 +1541,7 @@ resolution profile consumed by the projection service, and restores the
 previous bypass property afterward. MagicDesk reproduces Nubia's EDID profile
 selection instead of assigning these values by numeric range. A non-standard
 native timing such as `1920x1200` is applied through Nubia's exact wired-mode
-path after the Console display exists, so the projection service cannot replace
-it with its `1080P` profile during startup. Modes below a 1080-pixel short edge
+path after the physical display exists. Modes below a 1080-pixel short edge
 are not offered as alternatives because RedMagic desktop activation resets
 them to 1080p; a lower mode remains available when it is the display's native
 resolution.
@@ -1627,8 +1592,8 @@ a display disappears or a desktop host is replaced before an explicit close can
 query it. An explicit **Exit MagicDesk** clears this record and closes built-in
 MagicDesk windows instead.
 
-Switching to mirroring, physical display removal, and **Exit MagicDesk** then
-share the common cleanup path:
+Physical display removal, **Close desktop**, and **Exit MagicDesk** share the
+common cleanup path:
 
 - close display-scoped overlays and stop task observation;
 - stop keyboard, mouse, and phone-display streams;
@@ -1752,7 +1717,7 @@ be connected or removed while the session is active; the runtime updates their
 routes without recreating the desktop or phone touchpad for keyboard-only
 configuration changes.
 
-Both helpers keep their virtual devices alive for the complete Console session.
+Both helpers keep their virtual devices alive for the complete desktop session.
 InputManager inventory changes replace only the physical source descriptors,
 so Android does not deliver keyboard/navigation configuration changes to every
 foreground application. This matters for older SDL applications that cannot
@@ -1793,13 +1758,8 @@ from the phone notification or desktop controls. Android's public
 `VelocityTracker` supplies gesture speed; the vendor input service supplies
 absolute cursor placement on the active desktop viewport.
 
-Nubia's separate `HostAssistPanel` is the small handle drawn over the external
-desktop. While MagicDesk owns the session it asks the existing vendor observer
-to remove that panel and immediately restores the observer's original
-`tp_type_for_games` value. The phone-side ProjectionIcon is intentionally left
-alone because it remains useful for switching projection modes. Pointer speed
-uses Android's standard `Settings.System.pointer_speed` range and is observed
-for changes made outside MagicDesk.
+Pointer speed uses Android's standard `Settings.System.pointer_speed` range and
+is observed for changes made outside MagicDesk.
 
 ## Desktop Display Recording
 

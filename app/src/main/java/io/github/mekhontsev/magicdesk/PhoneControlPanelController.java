@@ -57,7 +57,6 @@ final class PhoneControlPanelController {
 
     static final class State {
         final boolean externalDesktopActive;
-        final boolean consoleModeActive;
         final boolean desktopReady;
         final boolean consoleControlAvailable;
         final boolean phoneScreenOff;
@@ -79,7 +78,6 @@ final class PhoneControlPanelController {
 
         State(
                 final boolean externalDesktopActive,
-                final boolean consoleModeActive,
                 final boolean desktopReady,
                 final boolean consoleControlAvailable,
                 final boolean phoneScreenOff,
@@ -99,7 +97,6 @@ final class PhoneControlPanelController {
                 final int currentDisplayId,
                 final int externalDesktopDisplayId) {
             this.externalDesktopActive = externalDesktopActive;
-            this.consoleModeActive = consoleModeActive;
             this.desktopReady = desktopReady;
             this.consoleControlAvailable = consoleControlAvailable;
             this.phoneScreenOff = phoneScreenOff;
@@ -261,7 +258,7 @@ final class PhoneControlPanelController {
         final boolean canOpenTouchpad = state.externalDesktopActive
                 && state.consoleControlAvailable
                 && state.phoneTouchpadAvailable;
-        final boolean canControlPhoneScreen = state.consoleModeActive
+        final boolean canControlPhoneScreen = state.externalDesktopActive
                 && state.phoneScreenControlAvailable;
         mCloseDesktop.setVisibility(
                 canCloseDesktop ? View.VISIBLE : View.GONE);

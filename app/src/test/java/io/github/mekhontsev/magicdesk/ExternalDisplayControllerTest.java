@@ -5,7 +5,7 @@ import static org.junit.Assert.assertNull;
 
 import org.junit.Test;
 
-public final class ConsoleDisplayControllerTest {
+public final class ExternalDisplayControllerTest {
     private static final String DISPLAYS =
             "Display id 0: DisplayInfo{type INTERNAL, "
                     + "uniqueId \"local:4630947168392018835\"}\n"
@@ -16,16 +16,16 @@ public final class ConsoleDisplayControllerTest {
     public void physicalIdIsResolvedForAnyLogicalDisplay() {
         assertEquals(
                 "4630947168392018835",
-                ConsoleDisplayController.parsePhysicalDisplayId(DISPLAYS, 0));
+                ExternalDisplayController.parsePhysicalDisplayId(DISPLAYS, 0));
         assertEquals(
                 "22082479218605",
-                ConsoleDisplayController.parsePhysicalDisplayId(DISPLAYS, 17));
+                ExternalDisplayController.parsePhysicalDisplayId(DISPLAYS, 17));
     }
 
     @Test
     public void missingLogicalDisplayHasNoPhysicalId() {
-        assertNull(ConsoleDisplayController.parsePhysicalDisplayId(DISPLAYS, 3));
-        assertNull(ConsoleDisplayController.parsePhysicalDisplayId(null, 0));
+        assertNull(ExternalDisplayController.parsePhysicalDisplayId(DISPLAYS, 3));
+        assertNull(ExternalDisplayController.parsePhysicalDisplayId(null, 0));
     }
 
     @Test
@@ -35,21 +35,21 @@ public final class ConsoleDisplayControllerTest {
 
         assertEquals(
                 "wifi:aa:bb:cc",
-                ConsoleDisplayController.parseDisplayUniqueId(output, 8));
+                ExternalDisplayController.parseDisplayUniqueId(output, 8));
     }
 
     @Test
     public void firstPositiveDisplayIdIgnoresDiagnostics() {
         assertEquals(
                 23,
-                ConsoleDisplayController.findFirstDisplayId(
+                ExternalDisplayController.findFirstDisplayId(
                         "unsupported entry\n0\n23\n42\n"));
         assertEquals(
                 -1,
-                ConsoleDisplayController.findFirstDisplayId(
+                ExternalDisplayController.findFirstDisplayId(
                         "unsupported entry\n0\n"));
         assertEquals(
                 -1,
-                ConsoleDisplayController.findFirstDisplayId(null));
+                ExternalDisplayController.findFirstDisplayId(null));
     }
 }

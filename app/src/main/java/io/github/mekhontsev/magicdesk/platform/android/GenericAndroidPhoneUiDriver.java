@@ -1,9 +1,6 @@
 package io.github.mekhontsev.magicdesk.platform.android;
 
 import io.github.mekhontsev.magicdesk.PlatformPhoneUiDriver;
-import io.github.mekhontsev.magicdesk.TaskRepository;
-
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.IBinder;
@@ -11,31 +8,6 @@ import android.os.IBinder;
 /** No-op phone UI integration for the Generic Android profile. */
 final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     private static final String[] NO_SETTINGS = new String[0];
-
-    @Override
-    public TaskEventGuard createInputPanelGuard(
-            final Object taskService,
-            final InputOwner inputOwner) {
-        return new TaskEventGuard() {
-            @Override
-            public void configure(final int displayId) {
-            }
-
-            @Override
-            public void onTaskAppeared(
-                    final int taskId,
-                    final ComponentName componentName) {
-            }
-
-            @Override
-            public void onTaskRemoved(final int taskId) {
-            }
-
-            @Override
-            public void close() {
-            }
-        };
-    }
 
     @Override
     public NavigationGuard createNavigationGuard() {
@@ -55,11 +27,6 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
-    public boolean isInputPanelTask(final TaskRepository.TaskEntry task) {
-        return false;
-    }
-
-    @Override
     public boolean requiresPhoneUiReconciliation() {
         return false;
     }
@@ -75,7 +42,7 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
-    public boolean usesMirrorInputPanel() {
+    public boolean requiresPhoneImeRouting() {
         return false;
     }
 
@@ -103,10 +70,6 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     @Override
     public String[] observedSettingKeys() {
         return NO_SETTINGS;
-    }
-
-    @Override
-    public void hideExternalAssistPanel() {
     }
 
     @Override

@@ -44,20 +44,6 @@ public final class PhoneHomeRecoveryControllerTest {
     }
 
     @Test
-    public void activeConsoleRecoveryOnlyRepairsSecondaryHome() {
-        assertFalse(PhoneHomeRecoveryController.shouldRestoreStrandedDesktop(
-                true,
-                true));
-    }
-
-    @Test
-    public void consoleExitRecoveryAlsoRepairsStrandedDesktop() {
-        assertTrue(PhoneHomeRecoveryController.shouldRestoreStrandedDesktop(
-                false,
-                true));
-    }
-
-    @Test
     public void anyTaskRemovalFailureKeepsRecoveryPending() {
         assertTrue(PhoneHomeRecoveryController.allTaskCleanupSucceeded(
                 true, true, true));

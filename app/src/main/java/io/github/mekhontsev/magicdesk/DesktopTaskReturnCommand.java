@@ -11,19 +11,19 @@ import java.util.Locale;
 import java.util.Set;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
-public final class ConsoleTaskReturnCommand {
+public final class DesktopTaskReturnCommand {
     private static final int PHONE_DISPLAY_ID = 0;
     private static final int ACTIVITY_TYPE_STANDARD = 1;
-    private ConsoleTaskReturnCommand() {
+    private DesktopTaskReturnCommand() {
     }
 
     public static void main(final String[] args) {
         final boolean selected = args.length >= 3
                 && "selected".equals(args[0]);
         if (args.length != 1 && !selected) {
-            System.err.println("usage: ConsoleTaskReturnCommand "
-                    + "<console-display-id> | selected "
-                    + "<console-display-id> <task-id>...");
+            System.err.println("usage: DesktopTaskReturnCommand "
+                    + "<desktop-display-id> | selected "
+                    + "<desktop-display-id> <task-id>...");
             System.exit(64);
             return;
         }
@@ -129,7 +129,7 @@ public final class ConsoleTaskReturnCommand {
     private static int parseDisplayId(final String value) {
         final int displayId = Integer.parseInt(value);
         if (displayId <= 0) {
-            throw new IllegalArgumentException("invalid Console display id");
+            throw new IllegalArgumentException("invalid desktop display id");
         }
         return displayId;
     }

@@ -7,8 +7,7 @@ import java.util.Arrays;
 /** Serializes semantic workspace commands over the existing task topology. */
 final class ShellDesktopWorkspaceCoordinator {
     interface ForegroundReporter {
-        void reportForTask(int taskId);
-        void reportSessionForeground(boolean foreground);
+        void reportForTask(int taskId) throws ReflectiveOperationException;
     }
 
     static final class Result {
@@ -38,6 +37,7 @@ final class ShellDesktopWorkspaceCoordinator {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     private final Object mService;
+    private final ShellDesktopTaskOwnership mDesktopOwnership;
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
     private final ShellDesktopFocusController mFocusController;
     private final ForegroundReporter mForegroundReporter;
@@ -45,17 +45,20 @@ final class ShellDesktopWorkspaceCoordinator {
 
     ShellDesktopWorkspaceCoordinator(
             final Object service,
+            final ShellDesktopTaskOwnership desktopOwnership,
             final ShellFullscreenTaskArea fullscreenTaskArea,
             final ShellDesktopFocusController focusController,
             final ForegroundReporter foregroundReporter,
             final Runnable taskSampleRequester) {
-        if (service == null || fullscreenTaskArea == null
+        if (service == null || desktopOwnership == null
+                || fullscreenTaskArea == null
                 || focusController == null || foregroundReporter == null
                 || taskSampleRequester == null) {
             throw new IllegalArgumentException(
                     "workspace coordinator dependencies are required");
         }
         mService = service;
+        mDesktopOwnership = desktopOwnership;
         mFullscreenTaskArea = fullscreenTaskArea;
         mFocusController = focusController;
         mForegroundReporter = foregroundReporter;
@@ -105,15 +108,26 @@ final class ShellDesktopWorkspaceCoordinator {
                     mFocusController.captureCommitBarrier();
             applyPhysicalOrder(command, physicalOrder);
             mTaskSampleRequester.run();
-            if (!mFocusController.convergeAfterCommit(
-                    command.targetTaskId,
-                    commitBarrier,
-                    mTaskSampleRequester)) {
+            final boolean desktopHostTarget = mDesktopOwnership
+                    .isDesktopHostTask(command.targetTaskId);
+            final boolean requiresInputFocus = !desktopHostTarget
+                    && command.requiresInputFocusCommit();
+            final boolean converged = requiresInputFocus
+                    ? mFocusController.convergeAfterCommit(
+                            command.targetTaskId,
+                            commitBarrier,
+                            mTaskSampleRequester)
+                    : mFocusController.convergeTaskAfterCommit(
+                            command.targetTaskId, commitBarrier);
+            if (!converged) {
                 return Result.failure(
                         appliedTaskCount,
-                        "input focus did not converge for task "
+                        (requiresInputFocus
+                                ? "input focus did not converge for task "
+                                : "task commit did not converge for task ")
                                 + command.targetTaskId);
             }
+            mForegroundReporter.reportForTask(command.targetTaskId);
             Log.d(TAG, "completed " + command.operationName()
                     + " display=" + command.displayId
                     + " target=" + command.targetTaskId
@@ -143,12 +157,6 @@ final class ShellDesktopWorkspaceCoordinator {
                                     : physicalOrder;
             TaskWindowingCommand.focusTasks(
                     mService, command.displayId, fallbackTaskIds);
-            mForegroundReporter.reportForTask(targetTaskId);
-        } else {
-            mForegroundReporter.reportSessionForeground(
-                    focusResult
-                            == ShellFullscreenTaskArea.FocusResult
-                                    .SESSION_FOREGROUND);
         }
         if (command.presentsDesktop()
                 && !mFullscreenTaskArea.concealForShowDesktop(

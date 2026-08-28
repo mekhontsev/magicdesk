@@ -164,7 +164,7 @@ public final class ShellAccess {
     }
 
     public static String run(final String command) throws IOException {
-        final CommandResult result = executeForConsole(command);
+        final CommandResult result = executeCommand(command);
         if (result.exitCode != 0) {
             throw new IOException("Shizuku command failed " + result.exitCode + ": "
                     + result.output.trim());
@@ -196,7 +196,7 @@ public final class ShellAccess {
         }
     }
 
-    public static CommandResult executeForConsole(final String command) throws IOException {
+    public static CommandResult executeCommand(final String command) throws IOException {
         final String encoded;
         try {
             encoded = requireService().execute(command);

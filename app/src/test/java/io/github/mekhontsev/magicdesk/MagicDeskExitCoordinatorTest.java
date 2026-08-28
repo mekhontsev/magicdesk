@@ -74,7 +74,7 @@ public final class MagicDeskExitCoordinatorTest {
         }
 
         @Override
-        public void returnConsoleTasks(final MagicDeskExitCoordinator.Callback callback) {
+        public void returnDesktopTasks(final MagicDeskExitCoordinator.Callback callback) {
             calls.add("tasks");
             callback.onComplete(throwFirst);
         }

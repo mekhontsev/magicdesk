@@ -1,7 +1,7 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
-import io.github.mekhontsev.magicdesk.ConsoleDisplayController;
+import io.github.mekhontsev.magicdesk.ExternalDisplayController;
 import io.github.mekhontsev.magicdesk.DesktopSelfTestCapabilityAudit;
 import io.github.mekhontsev.magicdesk.DesktopSelfTestResult;
 import io.github.mekhontsev.magicdesk.DisplayProfileController;
@@ -26,13 +26,6 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
     public void appendCompatibilityReport(
             final StringBuilder report,
             final Context context) {
-        CompatibilityDiagnostics.appendCheck(
-                report,
-                "NUBIA-INPUT-001",
-                CompatibilityDiagnostics.hasPackage(
-                        context, "cn.nubia.keymapcenter"),
-                "Nubia mirror input package",
-                "cn.nubia.keymapcenter");
         report.append("RedMagic charge separation: package=")
                 .append(ChargeSeparationController.isSupported(context))
                 .append(", enabled=")
@@ -55,13 +48,8 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                 .append(", batteryMilliC=")
                 .append(hardware.batteryMilliCelsius)
                 .append('\n');
-        report.append("Console display setting: ")
-                .append(Settings.Global.getString(
-                        context.getContentResolver(),
-                        ConsoleModeState.DISPLAY_ID_SETTING))
-                .append('\n');
         final int physicalDisplayId =
-                ConsoleDisplayController.findExternalDisplayId();
+                ExternalDisplayController.findExternalDisplayId();
         final DisplayProfileStore.Profile displayProfile =
                 DisplayProfileController.prepareExternalProfile(
                         context, physicalDisplayId);
@@ -83,10 +71,8 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                 .append(PhoneDisplayGuard.isActive())
                 .append(", protectedUids=")
                 .append(PhoneDisplayGuard.protectedUidSummary())
-                .append(", inputUid=")
-                .append(PhoneDisplayGuard.inputPackageUid())
                 .append('\n')
-                .append("Nubia projection settings: fit=")
+                .append("Nubia physical output settings: fit=")
                 .append(Settings.Global.getString(
                         context.getContentResolver(),
                         "app_mirror_fit_status"))
@@ -125,7 +111,7 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
     private static String runDisplayCommand(final String arguments) {
         try {
             final ShellAccess.CommandResult result =
-                    ShellAccess.executeForConsole(
+                    ShellAccess.executeCommand(
                             "/system/bin/cmd display " + arguments);
             final String output = result.output == null
                     ? "" : result.output.trim().replace('\n', ' ');
@@ -169,11 +155,7 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
         DesktopSelfTestCapabilityAudit.optional(
                 result, capabilities,
                 "vendor.mouse_position", "present",
-                "API-NUBIA-007", "RedMagic absolute pointer positioning");
-        DesktopSelfTestCapabilityAudit.optional(
-                result, capabilities,
-                "vendor.mirror_panel", "present",
-                "API-NUBIA-008", "RedMagic mirror input panel registration");
+                "API-NUBIA-007", "MagicDesk Nubia desktop pointer backend");
         DesktopSelfTestCapabilityAudit.optional(
                 result, capabilities,
                 "vendor.mirror_text_input", "present",

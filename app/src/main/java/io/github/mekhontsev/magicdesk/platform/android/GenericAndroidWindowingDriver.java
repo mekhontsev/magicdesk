@@ -8,7 +8,7 @@ import java.io.IOException;
 /** Standard Android desktop settings without firmware-specific properties. */
 final class GenericAndroidWindowingDriver implements PlatformWindowingDriver {
     @Override
-    public boolean requiresMirrorInputFocusSynchronization() {
+    public boolean requiresDesktopInputFocusSynchronization() {
         return false;
     }
 

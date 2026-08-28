@@ -884,8 +884,8 @@ final class AppTaskController {
         if (task.displayId != Display.DEFAULT_DISPLAY) {
             return Display.DEFAULT_DISPLAY;
         }
-        final int externalDisplayId = PlatformDrivers.current()
-                .projection().activeDesktopDisplayId(mActivity);
+        final int externalDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
         return externalDisplayId > 0 ? externalDisplayId : -1;
     }
 

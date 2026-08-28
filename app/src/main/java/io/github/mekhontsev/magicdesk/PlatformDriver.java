@@ -33,8 +33,6 @@ public interface PlatformDriver {
 
     PlatformTextInputDriver textInput();
 
-    PlatformInputRoutingDriver inputRouting();
-
     PlatformSystemControls createSystemControls(
             DesktopShellActivity activity,
             DesktopUiFactory ui);

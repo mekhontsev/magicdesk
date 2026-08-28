@@ -690,17 +690,19 @@ public final class DeviceSetupActivity extends Activity {
             }
             case AUTO:
             default: {
-                final int consoleDisplayId = activeConsoleDisplayId();
-                return consoleDisplayId > Display.DEFAULT_DISPLAY
-                        ? consoleDisplayId : currentDisplayId;
+                final int desktopDisplayId =
+                        DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                return desktopDisplayId > Display.DEFAULT_DISPLAY
+                        ? desktopDisplayId : currentDisplayId;
             }
         }
     }
 
     private int activeExternalDisplayId() {
-        final int consoleDisplayId = activeConsoleDisplayId();
-        if (consoleDisplayId > Display.DEFAULT_DISPLAY) {
-            return consoleDisplayId;
+        final int desktopDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        if (desktopDisplayId > Display.DEFAULT_DISPLAY) {
+            return desktopDisplayId;
         }
         final android.hardware.display.DisplayManager displayManager =
                 getSystemService(android.hardware.display.DisplayManager.class);
@@ -713,19 +715,6 @@ public final class DeviceSetupActivity extends Activity {
             if (display != null && display.getDisplayId() > Display.DEFAULT_DISPLAY) {
                 return display.getDisplayId();
             }
-        }
-        return -1;
-    }
-
-    private int activeConsoleDisplayId() {
-        final int configured = PlatformDrivers.current().projection()
-                .activeDesktopDisplayId(this);
-        final android.hardware.display.DisplayManager displayManager =
-                getSystemService(android.hardware.display.DisplayManager.class);
-        if (configured > Display.DEFAULT_DISPLAY
-                && displayManager != null
-                && displayManager.getDisplay(configured) != null) {
-            return configured;
         }
         return -1;
     }

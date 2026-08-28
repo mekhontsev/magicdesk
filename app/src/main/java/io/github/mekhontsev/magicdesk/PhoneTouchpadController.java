@@ -40,7 +40,7 @@ final class PhoneTouchpadController {
     }
 
     static void restoreIfMissing(
-            final ConsoleModeSwitcher.TouchpadRestoreCallback callback) {
+            final DesktopOperations.TouchpadRestoreCallback callback) {
         final int displayId = activeDisplayId();
         final boolean missing = isSupported(displayId)
                 && MagicDeskTouchpadActivity.isRequested(displayId)
@@ -85,13 +85,6 @@ final class PhoneTouchpadController {
     }
 
     private static int activeDisplayId() {
-        final int consoleDisplayId =
-                ConsoleModeSwitcher.getActiveConsoleDisplayId();
-        if (consoleDisplayId > Display.DEFAULT_DISPLAY) {
-            return consoleDisplayId;
-        }
-        final int desktopDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        return desktopDisplayId;
+        return DesktopRuntimeBridge.getActiveDesktopDisplayId();
     }
 }

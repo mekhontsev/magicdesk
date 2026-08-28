@@ -4,37 +4,14 @@ import android.view.Display;
 
 /** Defines behavior that must stay consistent across desktop displays. */
 final class DesktopScreenPolicy {
-    enum WorkspaceAction {
-        START_EXTERNAL_DESKTOP,
-        FOCUS_DESKTOP,
-        RESTORE_WINDOWS
-    }
-
     private DesktopScreenPolicy() {
-    }
-
-    static WorkspaceAction workspaceAction(
-            final int activeDisplayId,
-            final boolean desktopFocused,
-            final Boolean hasVisibleAppTask) {
-        if (activeDisplayId < 0) {
-            return WorkspaceAction.START_EXTERNAL_DESKTOP;
-        }
-        if (!desktopFocused) {
-            return WorkspaceAction.FOCUS_DESKTOP;
-        }
-        return Boolean.FALSE.equals(hasVisibleAppTask)
-                ? WorkspaceAction.RESTORE_WINDOWS
-                : WorkspaceAction.FOCUS_DESKTOP;
     }
 
     static boolean isExternalDesktopSession(
             final int desktopDisplayId,
-            final int activeDesktopDisplayId,
-            final boolean consoleModeActive) {
+            final int activeDesktopDisplayId) {
         return isExternalDesktop(desktopDisplayId)
-                && (consoleModeActive
-                        || activeDesktopDisplayId == desktopDisplayId);
+                && activeDesktopDisplayId == desktopDisplayId;
     }
 
     static boolean isExternalDesktop(final int desktopDisplayId) {

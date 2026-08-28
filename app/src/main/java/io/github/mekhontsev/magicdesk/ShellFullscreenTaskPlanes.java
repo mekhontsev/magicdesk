@@ -599,10 +599,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     && !mixedOrder.fullscreenForeground;
             final int focusTargetTaskId = requestedTaskIds[
                     requestedTaskIds.length - 1];
-            // Parent reordering alone updates focusedTask on Nubia's wired
-            // mirror but can leave FocusedApplication and InputDispatcher on
-            // the old sibling. Exactly one fullscreen plane participates in
-            // focus selection; covered planes remain visible and fullscreen.
+            // Exactly one fullscreen plane participates in focus selection;
+            // covered planes remain visible and retain their fullscreen mode.
             for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
                     : effectivePlanes.entrySet()) {
                 windowing.setFocusable(
@@ -1075,12 +1073,9 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             return;
         }
         windowing.reorder(transaction, fullscreenPlane.token(), true);
-        // The workspace tasks are already live children of the overlay area.
-        // Starting one again from the same WCT makes Nubia's wired mirror
-        // remove the organizer TDA and migrate the desktop hierarchy to the
-        // phone. With fullscreen planes made non-focusable above, reordering
-        // the existing children is sufficient for ATMS to select the target.
-        TaskWindowingCommand.addReorderTasksInManagedArea(
+        // Reuse the normal task activation path so ATMS, focusedApplication
+        // and InputDispatcher converge on the same workspace task.
+        TaskWindowingCommand.addFocusTasksInManagedArea(
                 service,
                 displayId,
                 order.freeformTaskIds,
@@ -1279,7 +1274,13 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 service, displayId, hostTaskId);
         windowing.reorder(transaction, hostToken, true, false);
         windowing.reorder(transaction, mReleaseParentToken, false);
-        TaskWindowingCommand.addFocusTasksInManagedArea(
+        // The desktop host is the stable surface of its organizer area, not
+        // an application to relaunch through WMShell. startTask() is needed
+        // for application siblings whose mFocusedApp can remain stale, but on
+        // a physical desktop display it also reclassifies DesktopActivity as
+        // a freeform app. Reordering the existing host and its parent gives
+        // ATMS the same focus candidate without changing its windowing mode.
+        TaskWindowingCommand.addReorderTasksInManagedArea(
                 service,
                 displayId,
                 new int[]{hostTaskId},

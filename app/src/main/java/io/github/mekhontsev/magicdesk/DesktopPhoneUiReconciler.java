@@ -19,7 +19,6 @@ final class DesktopPhoneUiReconciler {
     private Boolean mLastTouchpadVisible;
     private volatile boolean mTouchpadPreservationArmed;
     private boolean mTouchpadRestorePending;
-    private boolean mAwaitingPlatformPanelRemoval;
 
     DesktopPhoneUiReconciler(
             final Context context,
@@ -33,7 +32,6 @@ final class DesktopPhoneUiReconciler {
         mLastTouchpadVisible = null;
         mTouchpadPreservationArmed = false;
         mTouchpadRestorePending = false;
-        mAwaitingPlatformPanelRemoval = false;
     }
 
     void expectTouchpadDisplacement() {
@@ -57,7 +55,6 @@ final class DesktopPhoneUiReconciler {
             return;
         }
         boolean touchpadVisible = false;
-        boolean platformPanelVisible = false;
         boolean secondaryHomeVisible = false;
         for (final TaskRepository.TaskEntry task : phoneTasks) {
             if (task == null || !task.visible || task.componentName == null) {
@@ -66,25 +63,12 @@ final class DesktopPhoneUiReconciler {
             if (task.componentName.endsWith(
                     MAGICDESK_TOUCHPAD_ACTIVITY)) {
                 touchpadVisible = true;
-            } else if (mPhoneUi.isInputPanelTask(task)) {
-                platformPanelVisible = true;
             } else if (mHomeComponents.hasSecondaryHomeOnTop(task)) {
                 secondaryHomeVisible = true;
             }
         }
 
-        if (platformPanelVisible
-                && PhoneTouchpadController.shouldRemainVisible(displayId)) {
-            mAwaitingPlatformPanelRemoval = true;
-            mTouchpadRestorePending = true;
-        } else if (!platformPanelVisible
-                && mAwaitingPlatformPanelRemoval) {
-            mAwaitingPlatformPanelRemoval = false;
-            attemptPendingTouchpadRestore(displayId);
-        }
-
         if (!touchpadVisible
-                && !platformPanelVisible
                 && (mTouchpadPreservationArmed
                         || (Boolean.TRUE.equals(mLastTouchpadVisible)
                                 && PhoneTouchpadController
@@ -110,7 +94,7 @@ final class DesktopPhoneUiReconciler {
                 mTouchpadRestorePending = true;
             } else {
                 Log.i(TAG, "restore phone Home displaced by external task minimize");
-                ConsoleModeSwitcher.restorePrimaryPhoneHome();
+                DesktopOperations.restorePrimaryPhoneHome();
             }
         }
         attemptPendingTouchpadRestore(displayId);
@@ -121,8 +105,7 @@ final class DesktopPhoneUiReconciler {
     }
 
     private void attemptPendingTouchpadRestore(final int displayId) {
-        if (!mTouchpadRestorePending
-                || mAwaitingPlatformPanelRemoval) {
+        if (!mTouchpadRestorePending) {
             return;
         }
         mTouchpadRestorePending = false;

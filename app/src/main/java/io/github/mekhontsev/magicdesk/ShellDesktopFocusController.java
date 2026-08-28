@@ -131,6 +131,16 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 taskId, barrier, sampleRequester));
     }
 
+    /** Completes a structural task commit without claiming input focus. */
+    boolean convergeTaskAfterCommit(
+            final int taskId,
+            final CommitBarrier barrier) {
+        if (taskId < 0 || barrier == null) {
+            return false;
+        }
+        return call(() -> convergeTaskAfterCommitOnWorker(taskId, barrier));
+    }
+
     void onTasksSampled(final List<FrameworkTaskSnapshot> tasks) {
         final int confirmationTaskId;
         synchronized (mPendingLock) {
@@ -446,6 +456,31 @@ final class ShellDesktopFocusController implements AutoCloseable {
         }
     }
 
+    private boolean convergeTaskAfterCommitOnWorker(
+            final int taskId,
+            final CommitBarrier barrier) {
+        final int displayId = mDisplayId;
+        if (displayId == Display.INVALID_DISPLAY) {
+            return true;
+        }
+        try {
+            if (!awaitTaskSample(barrier.taskSampleGeneration)) {
+                Log.w(TAG, "desktop task commit sample expired display="
+                        + displayId + " task=" + taskId);
+                return false;
+            }
+            final Object task = HiddenTaskApi.findTask(
+                    mTaskService, displayId, taskId);
+            return task != null && HiddenTaskApi.isTaskVisible(task);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not confirm committed desktop task", error);
+            return false;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
     private long inputWindowGeneration() {
         return mInputWindowObservations == null
                 ? 0L : mInputWindowObservations.checkpoint();
@@ -464,7 +499,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 () -> isInputFocused(displayId, taskId));
     }
 
-    private void awaitTaskSample(final long previousGeneration)
+    private boolean awaitTaskSample(final long previousGeneration)
             throws InterruptedException {
         final long deadlineNanos = System.nanoTime()
                 + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
@@ -474,7 +509,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
                     && mTaskSampleGeneration <= previousGeneration) {
                 final long remainingNanos = deadlineNanos - System.nanoTime();
                 if (remainingNanos <= 0L) {
-                    return;
+                    return false;
                 }
                 EventDrivenWaits.await(
                         mPendingLock,
@@ -483,6 +518,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
                                 java.util.concurrent.TimeUnit.NANOSECONDS
                                         .toMillis(remainingNanos)));
             }
+            return mTaskSampleGeneration > previousGeneration;
         }
     }
 

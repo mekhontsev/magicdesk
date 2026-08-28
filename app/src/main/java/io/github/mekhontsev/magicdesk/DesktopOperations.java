@@ -7,10 +7,10 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-public final class ConsoleModeSwitcher {
-    private static final String TAG = "MagicDeskConsoleSwitcher";
-    private static final String CONSOLE_TASK_RETURN_COMMAND =
-            "io.github.mekhontsev.magicdesk.ConsoleTaskReturnCommand";
+public final class DesktopOperations {
+    private static final String TAG = "MagicDeskDesktopOps";
+    private static final String DESKTOP_TASK_RETURN_COMMAND =
+            "io.github.mekhontsev.magicdesk.DesktopTaskReturnCommand";
     private static final String DEVICE_LOCK_COMMAND =
             "io.github.mekhontsev.magicdesk.DeviceLockCommand";
     private static final String SCREENSHOT_DIRECTORY =
@@ -24,11 +24,10 @@ public final class ConsoleModeSwitcher {
     private static final DesktopSessionTransitionCoordinator TRANSITIONS =
             new DesktopSessionTransitionCoordinator(
                     OPERATIONS,
-                    MagicDeskApplication.applicationContext(),
                     PLATFORM.features(),
                     PROJECTION);
 
-    private ConsoleModeSwitcher() {
+    private DesktopOperations() {
     }
 
     interface ResultCallback {
@@ -61,7 +60,8 @@ public final class ConsoleModeSwitcher {
                 }
                 try {
                     final int desktopDisplayId = screenOff
-                            ? TRANSITIONS.activeDesktopDisplayId()
+                            ? DesktopRuntimeBridge
+                                    .getActiveDesktopDisplayId()
                             : android.view.Display.INVALID_DISPLAY;
                     success = PHONE_UI.setPhoneScreenOff(
                             screenOff, desktopDisplayId);
@@ -125,9 +125,9 @@ public final class ConsoleModeSwitcher {
             final ExternalDisplayProbeCallback callback) {
         OPERATIONS.execute(() -> {
             final int wiredDisplayId =
-                    ConsoleDisplayController.findExternalDisplayId();
+                    ExternalDisplayController.findExternalDisplayId();
             final int wirelessDisplayId =
-                    ConsoleDisplayController.findWirelessDisplayId();
+                    ExternalDisplayController.findWirelessDisplayId();
             PlatformProjectionDriver.ModeSelection selection = null;
             DisplayProfileStore.Profile displayProfile = null;
             if (wiredDisplayId > 0) {
@@ -177,30 +177,16 @@ public final class ConsoleModeSwitcher {
     }
 
     static void restorePrimaryPhoneHome() {
-        OPERATIONS.execute(() -> runConsoleCommand(
+        OPERATIONS.execute(() -> runShellCommand(
                 PhoneHomeRecoveryController.primaryHomeCommand()));
     }
 
     static void updateExternalTaskCaptionTarget(
-            final int displayId,
-            final boolean wiredDesktop) {
-        TRANSITIONS.updateCaptionTransport(displayId, wiredDesktop);
+            final DesktopDisplayTarget target) {
+        TRANSITIONS.updateCaptionTransport(target);
     }
 
-    static void switchToMirror(final ResultCallback callback) {
-        TRANSITIONS.switchToMirror(
-                false,
-                callback == null ? null : callback::onComplete);
-    }
-
-    static void switchToMirrorWithControlPanel(
-            final ResultCallback callback) {
-        TRANSITIONS.switchToMirror(
-                true,
-                callback == null ? null : callback::onComplete);
-    }
-
-    static void returnConsoleTasksToPhone(
+    static void returnDesktopTasksToPhone(
             final DesktopDisplayTarget target,
             final ResultCallback callback) {
         MagicDeskRuntime.disableExternalTaskMigrationProtection();
@@ -211,21 +197,23 @@ public final class ConsoleModeSwitcher {
                 try {
                     final int displayId = target != null
                             && target.displayId > 0
-                            ? target.displayId : getActiveConsoleDisplayId();
+                            ? target.displayId
+                            : DesktopRuntimeBridge
+                                    .getActiveDesktopDisplayId();
                     if (displayId <= 0) {
                         success = true;
                         return;
                     }
                     final String output = ShellAccess.run(
                             AppProcessCommand.run(
-                                    CONSOLE_TASK_RETURN_COMMAND,
+                                    DESKTOP_TASK_RETURN_COMMAND,
                                     Integer.toString(displayId))).trim();
                     success = output.contains("tasks-returned=");
                     if (!success) {
-                        Log.w(TAG, "Console task return failed output=" + output);
+                        Log.w(TAG, "Desktop task return failed output=" + output);
                     }
                 } catch (IOException error) {
-                    Log.w(TAG, "Console task return failed", error);
+                    Log.w(TAG, "Desktop task return failed", error);
                 } finally {
                     if (!success) {
                         MagicDeskRuntime
@@ -277,7 +265,7 @@ public final class ConsoleModeSwitcher {
         OPERATIONS.execute(new Runnable() {
             @Override
             public void run() {
-                final String output = runConsoleCommand(
+                final String output = runShellCommand(
                         AppProcessCommand.run(
                                 DEVICE_LOCK_COMMAND)).trim();
                 if (!output.contains("device-locked")) {
@@ -347,10 +335,6 @@ public final class ConsoleModeSwitcher {
         OPERATIONS.execute(action);
     }
 
-    static int getActiveConsoleDisplayId() {
-        return TRANSITIONS.activeDesktopDisplayId();
-    }
-
     private static void captureScreenshotInternal() {
         String path = null;
         DesktopCaptureTarget capture = null;
@@ -408,14 +392,14 @@ public final class ConsoleModeSwitcher {
         }
     }
 
-    static String runConsoleCommand(final String command) {
+    static String runShellCommand(final String command) {
         if (!ShellAccess.isReady()) {
             return "";
         }
         try {
             return ShellAccess.run(command);
         } catch (IOException error) {
-            Log.w(TAG, "Console command failed: " + command, error);
+            Log.w(TAG, "Desktop command failed: " + command, error);
             return "";
         }
     }

@@ -70,6 +70,7 @@ final class ShellTaskLauncher {
                     intent.getComponent(), WINDOWING_MODE_FREEFORM);
         }
         try {
+            final boolean stagedReveal = taskAreaToken == null;
             final int taskId = TaskDisplayAreaLaunchCommand.launchTask(
                     mService,
                     displayId,
@@ -77,14 +78,14 @@ final class ShellTaskLauncher {
                     intent.getComponent().getPackageName(),
                     bounds,
                     taskAreaToken,
-                    true);
+                    stagedReveal);
             pending.complete(taskId);
-            // Phone WindowManager may ignore a freeform ActivityOptions mode.
-            // Keep the new task behind the desktop until its id is known, then
-            // expose its final mode, bounds and order in one complete WMShell
-            // transition. No transition token crosses the launch boundary.
-            ShellPreparedTaskTransition.revealFreeform(
-                    mService, displayId, taskId, bounds);
+            if (stagedReveal) {
+                // Without a known parent, keep the task behind the desktop
+                // until its id is available and reveal its final state once.
+                ShellPreparedTaskTransition.revealFreeform(
+                        mService, displayId, taskId, bounds);
+            }
             // WindowManager may enlarge bounds for an application's minimum
             // size, but the launch contract still requires freeform mode.
             TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(

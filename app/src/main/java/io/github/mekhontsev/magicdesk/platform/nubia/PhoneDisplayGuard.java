@@ -2,12 +2,10 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.AppProcessCommand;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
-import io.github.mekhontsev.magicdesk.MagicDeskApplication;
 import io.github.mekhontsev.magicdesk.MagicDeskRuntime;
 import io.github.mekhontsev.magicdesk.ShellAccess;
 import io.github.mekhontsev.magicdesk.ShellStreamHandle;
 
-import android.content.pm.PackageManager;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -28,8 +26,6 @@ final class PhoneDisplayGuard {
             "/system/bin/cmd display ";
     private static final long START_TIMEOUT_MILLIS = 6_000L;
     private static final long STOP_TIMEOUT_MILLIS = 3_000L;
-    private static final String INPUT_PACKAGE = "cn.nubia.keymapcenter";
-
     private static final Object LOCK = new Object();
     private static Session sSession;
     private static int sGeneration;
@@ -56,8 +52,7 @@ final class PhoneDisplayGuard {
                 session = new Session(
                         ++sGeneration,
                         restoreOperation,
-                        desktopDisplayId,
-                        resolveInputPackageUid());
+                        desktopDisplayId);
                 sSession = session;
                 startSession = true;
             } else {
@@ -123,10 +118,6 @@ final class PhoneDisplayGuard {
         }
     }
 
-    static int inputPackageUid() {
-        return resolveInputPackageUid();
-    }
-
     private static void onReady(final Session session) {
         final boolean current;
         synchronized (LOCK) {
@@ -183,16 +174,6 @@ final class PhoneDisplayGuard {
         }
     }
 
-    private static int resolveInputPackageUid() {
-        try {
-            return MagicDeskApplication.applicationContext()
-                    .getPackageManager()
-                    .getApplicationInfo(INPUT_PACKAGE, 0).uid;
-        } catch (PackageManager.NameNotFoundException error) {
-            return -1;
-        }
-    }
-
     private static String resolveRestoreOperation() {
         final String cached = sRestoreOperation;
         if (cached != null) {
@@ -200,15 +181,15 @@ final class PhoneDisplayGuard {
         }
         try {
             String operation = selectRestoreOperation(
-                    ShellAccess.executeForConsole(DISPLAY_HELP).output);
+                    ShellAccess.executeCommand(DISPLAY_HELP).output);
             if (operation == null && isRecognizedRestoreProbe(
-                    ShellAccess.executeForConsole(
+                    ShellAccess.executeCommand(
                             DISPLAY_COMMAND
                                     + PhoneDisplayGuardCommand.POWER_RESET))) {
                 operation = PhoneDisplayGuardCommand.POWER_RESET;
             }
             if (operation == null && isRecognizedRestoreProbe(
-                    ShellAccess.executeForConsole(
+                    ShellAccess.executeCommand(
                             DISPLAY_COMMAND
                                     + PhoneDisplayGuardCommand.POWER_ON))) {
                 operation = PhoneDisplayGuardCommand.POWER_ON;
@@ -247,7 +228,7 @@ final class PhoneDisplayGuard {
     }
 
     private static void publishState(final boolean screenOff) {
-        if (!ConsoleModeState.setPhoneScreenOff(screenOff)) {
+        if (!NubiaPhoneScreenState.setOff(screenOff)) {
             return;
         }
         MagicDeskRuntime.refreshPlatformState();
@@ -274,7 +255,6 @@ final class PhoneDisplayGuard {
         private final int mGeneration;
         private final String mRestoreOperation;
         private final int mDesktopDisplayId;
-        private final int mInputPackageUid;
         private final CountDownLatch mReady = new CountDownLatch(1);
         private final CountDownLatch mStopped = new CountDownLatch(1);
         private volatile boolean mRestoreRequested;
@@ -286,12 +266,10 @@ final class PhoneDisplayGuard {
         Session(
                 final int generation,
                 final String restoreOperation,
-                final int desktopDisplayId,
-                final int inputPackageUid) {
+                final int desktopDisplayId) {
             mGeneration = generation;
             mRestoreOperation = restoreOperation;
             mDesktopDisplayId = desktopDisplayId;
-            mInputPackageUid = inputPackageUid;
         }
 
         void start() {
@@ -360,8 +338,7 @@ final class PhoneDisplayGuard {
                                 GUARD_COMMAND,
                                 Integer.toString(android.os.Process.myUid())
                                         + " " + mRestoreOperation
-                                        + " " + mDesktopDisplayId
-                                        + " " + mInputPackageUid));
+                                        + " " + mDesktopDisplayId));
                 mStream = stream;
                 if (mRestoreRequested) {
                     requestRestore();

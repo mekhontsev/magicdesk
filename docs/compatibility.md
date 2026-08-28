@@ -37,7 +37,7 @@ source of truth; simulated and secondary-display support is unaffected.
 ## Support levels
 
 - **Maintainer-verified** means the complete build fingerprint is in the tested
-  profile list and the core desktop, window, input, and Console Mode paths were
+  profile list and the core desktop, window, input, and external-display paths were
   tested directly by the maintainer.
 - **Community-tested** means a user supplied a complete diagnostics report and
   confirmed the relevant fixes and desktop workflows on that exact firmware.

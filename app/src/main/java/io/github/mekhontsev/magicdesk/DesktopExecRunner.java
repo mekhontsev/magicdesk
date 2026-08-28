@@ -81,7 +81,7 @@ final class DesktopExecRunner {
         SHELL_COMMANDS.execute(() -> {
             try {
                 final ShellAccess.CommandResult result =
-                        ShellAccess.executeForConsole(
+                        ShellAccess.executeCommand(
                                 withWorkingDirectory(
                                         prepared, workingDirectory));
                 notifyCompletion(completion, result, null);

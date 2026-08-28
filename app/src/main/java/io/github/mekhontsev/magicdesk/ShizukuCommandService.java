@@ -35,9 +35,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final Map<Long, OwnedStreamSession> mStreams =
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager;
-    private final PlatformInputRoutingDriver mInputRoutingDriver;
     private final PlatformPointerDriver mPointerDriver;
-    private final PlatformProjectionDriver mProjectionDriver;
     private final PlatformTextInputDriver mTextInputDriver;
     private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final ShellDisplayRecordingSession mDisplayRecording;
@@ -59,33 +57,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mContext = context;
         final PlatformDriver platform = PlatformDrivers.current();
         final PlatformPhoneUiDriver phoneUi = platform.phoneUi();
-        mInputRoutingDriver = platform.inputRouting();
         mPointerDriver = platform.pointer();
-        mProjectionDriver = platform.projection();
         mTextInputDriver = platform.textInput();
         mNavigationGuard = phoneUi.createNavigationGuard();
         mTaskObserverManager = new ShellTaskObserverManager(
                 context,
                 platform.windowing(),
-                phoneUi,
-                new PlatformPhoneUiDriver.InputOwner() {
-                    @Override
-                    public boolean isActive() {
-                        synchronized (mInputRoutingLock) {
-                            return mInputRoutingSession != null;
-                        }
-                    }
-
-                    @Override
-                    public void preservePointer() {
-                        mPointerDriver.capturePosition();
-                    }
-
-                    @Override
-                    public void reclaimInput() {
-                        reclaimInputAfterPlatformPanel();
-                    }
-                });
+                phoneUi);
         mDisplayRecording = new ShellDisplayRecordingSession(context);
         mDesktopDirectory = new ShellDesktopDirectory();
         mFileSystem = new ShellFileSystem();
@@ -917,9 +895,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                         mContext,
                         displayId,
                         expectedVirtualKeyboardCount,
-                        mInputRoutingDriver,
-                        mPointerDriver,
-                        mProjectionDriver);
+                        mPointerDriver);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);
                 ownerLinked = true;
@@ -1415,43 +1391,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private void stopInputRoutingForOwner(final IBinder ownerToken) {
         synchronized (mInputRoutingLock) {
             stopInputRoutingLocked(ownerToken);
-        }
-    }
-
-    private void reclaimInputAfterPlatformPanel() {
-        final int displayId;
-        synchronized (mInputRoutingLock) {
-            if (mInputRoutingSession == null) {
-                return;
-            }
-            displayId = mInputRoutingSession.displayId();
-            try {
-                mInputRoutingSession.refreshAssociations();
-            } catch (Exception error) {
-                Log.w(TAG,
-                        "could not reclaim input routing after platform panel",
-                        error);
-                return;
-            }
-        }
-        try {
-            final Point position =
-                    mPointerDriver.restorePositionIfDisplaced();
-            if (position != null
-                    && !mPointerDriver.updatePosition(
-                            displayId,
-                            position.x,
-                            position.y,
-                            DesktopPointerInjector.TOUCHPAD_HOVER,
-                            0L)) {
-                throw new IllegalStateException(
-                        "platform pointer restore failed");
-            }
-            Log.i(TAG, "input reclaimed after platform panel task removal");
-        } catch (RuntimeException error) {
-            Log.w(TAG,
-                    "could not restore pointer after platform panel",
-                    error);
         }
     }
 

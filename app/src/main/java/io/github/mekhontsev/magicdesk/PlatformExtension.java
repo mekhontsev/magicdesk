@@ -54,10 +54,6 @@ public interface PlatformExtension {
         return null;
     }
 
-    default PlatformInputRoutingDriver inputRouting() {
-        return null;
-    }
-
     default PlatformSystemControls createSystemControls(
             final DesktopShellActivity activity,
             final DesktopUiFactory ui) {

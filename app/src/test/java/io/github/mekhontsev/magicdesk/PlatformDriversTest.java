@@ -30,13 +30,9 @@ public final class PlatformDriversTest {
         assertTrue(driver.textInput().isAvailable());
         assertTrue(driver.pointer().isAvailable());
         assertTrue(driver.projection().supportsOutputConfiguration());
-        assertTrue(driver.projection().ownsTransportLifecycle(
-                PlatformProjectionDriver.Transport.WIRED));
-        assertTrue(driver.projection().ownsTransportLifecycle(
-                PlatformProjectionDriver.Transport.WIRELESS));
         assertTrue(driver.phoneUi().isAvailable());
         assertTrue(driver.windowing()
-                .requiresMirrorInputFocusSynchronization());
+                .requiresDesktopInputFocusSynchronization());
         assertTrue(driver.windowing()
                 .requiresNativeFullscreenCaptionRefresh());
         assertTrue(driver.windowing().requiresPhoneTaskRecovery());
@@ -76,10 +72,6 @@ public final class PlatformDriversTest {
         assertFalse(driver.projection().supportsOutputConfiguration());
         assertFalse(driver.projection().hasWirelessConnectionUi(null));
         assertFalse(driver.projection().openWirelessConnectionUi(null));
-        assertFalse(driver.projection().ownsTransportLifecycle(
-                PlatformProjectionDriver.Transport.WIRED));
-        assertFalse(driver.projection().ownsTransportLifecycle(
-                PlatformProjectionDriver.Transport.WIRELESS));
         assertTrue(driver.projection().setCaptionTransport(
                 PlatformProjectionDriver.Transport.WIRED));
         assertTrue(driver.projection().setCaptionTransport(
@@ -87,7 +79,7 @@ public final class PlatformDriversTest {
         assertFalse(driver.phoneUi().isAvailable());
         assertFalse(driver.phoneUi().requiresPhoneUiReconciliation());
         assertFalse(driver.windowing()
-                .requiresMirrorInputFocusSynchronization());
+                .requiresDesktopInputFocusSynchronization());
         assertFalse(driver.windowing()
                 .requiresNativeFullscreenCaptionRefresh());
         assertFalse(driver.windowing().requiresPhoneTaskRecovery());

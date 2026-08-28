@@ -579,6 +579,20 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void toggleShowDesktopWorkspace(
+            final int displayId,
+            final int desktopHostTaskId,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks != null) {
+            tasks.toggleShowDesktopWorkspace(
+                    displayId, desktopHostTaskId, callback);
+        } else {
+            completeTaskAction(
+                    callback, false, "desktop task runtime unavailable");
+        }
+    }
+
     static void restoreSessionWorkspace(
             final int displayId,
             final List<Integer> backToFrontTaskIds,

@@ -183,12 +183,11 @@ public final class ControlActivity extends Activity
         mWirelessConnectionUiAvailable =
                 mProjection.hasWirelessConnectionUi(this);
         mStatus = getString(isExternalDesktopActive()
-                ? R.string.control_status_console_active
+                ? R.string.control_status_desktop_active
                 : R.string.control_status_ready);
         setContentView(mPanel.createView());
-        if (mProjection.observedSettingKeys().length > 0
-                || mPhoneUi.observedSettingKeys().length > 0) {
-            registerConsoleStateObserver();
+        if (mPhoneUi.observedSettingKeys().length > 0) {
+            registerPhoneUiStateObserver();
         }
         if (DesktopDisplayDrivers.isExternalDesktopSupported()) {
             registerDisplayListener();
@@ -236,7 +235,7 @@ public final class ControlActivity extends Activity
         mReturnToPanelAfterWirelessConnection = false;
         MagicDeskRuntime.refreshNotification();
         mStatus = getString(isExternalDesktopActive()
-                ? R.string.control_status_console_active
+                ? R.string.control_status_desktop_active
                 : R.string.control_status_ready);
         if (mPanel != null) {
             scheduleExternalDisplayProbe(false, 0L);
@@ -323,14 +322,6 @@ public final class ControlActivity extends Activity
             refresh();
             return;
         }
-        final int consoleDisplayId =
-                mProjection.activeDesktopDisplayId(this);
-        if (consoleDisplayId > Display.DEFAULT_DISPLAY) {
-            mStatus = getString(R.string.status_console_starting);
-            refresh();
-            ConsoleModeSwitcher.showWiredDesktop();
-            return;
-        }
         final int activeDesktopDisplayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
         if (activeDesktopDisplayId > Display.DEFAULT_DISPLAY) {
@@ -338,9 +329,9 @@ public final class ControlActivity extends Activity
                     DesktopRuntimeBridge.getDesktopTarget(
                             activeDesktopDisplayId);
             if (target != null) {
-                mStatus = getString(R.string.status_console_starting);
+                mStatus = getString(R.string.status_desktop_starting);
                 refresh();
-                ConsoleModeSwitcher.showDesktop(target);
+                DesktopOperations.showDesktop(target);
                 return;
             }
         }
@@ -382,20 +373,20 @@ public final class ControlActivity extends Activity
         mExternalDisplaySummary = describeExternalDisplay(displayId, null);
         mStatus = getString(R.string.status_wireless_desktop_starting);
         refresh();
-        ConsoleModeSwitcher.showDesktop(
+        DesktopOperations.showDesktop(
                 DesktopDisplayTarget.wireless(displayId));
     }
 
     private void startExternalDesktopAfterProbe() {
-        mStatus = getString(R.string.status_console_starting);
+        mStatus = getString(R.string.status_desktop_starting);
         refresh();
         if (mWiredDisplayId > Display.DEFAULT_DISPLAY) {
-            ConsoleModeSwitcher.showWiredDesktop();
+            DesktopOperations.showWiredDesktop();
         } else if (mWirelessDisplayId > Display.DEFAULT_DISPLAY) {
-            ConsoleModeSwitcher.showDesktop(
+            DesktopOperations.showDesktop(
                     DesktopDisplayTarget.wireless(mWirelessDisplayId));
         } else {
-            ConsoleModeSwitcher.showMagicDesk();
+            DesktopOperations.showMagicDesk();
         }
     }
 
@@ -429,7 +420,7 @@ public final class ControlActivity extends Activity
             return;
         }
         final int displayId = mWiredDisplayId;
-        ConsoleModeSwitcher.executeSerialized(() -> {
+        DesktopOperations.executeSerialized(() -> {
             // Release MagicDesk's previous explicit mode immediately. A later
             // SmartCast choice must not be erased when the desktop starts.
             if (!profile.resetOutputModePending
@@ -454,14 +445,6 @@ public final class ControlActivity extends Activity
         }
         DesktopDisplayTarget target =
                 DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (target == null) {
-            final int displayId = mProjection.activeDesktopDisplayId(this);
-            if (displayId > Display.DEFAULT_DISPLAY) {
-                // A platform-owned wired session may be active before its
-                // desktop activity has registered the complete target.
-                target = DesktopDisplayTarget.wired(displayId);
-            }
-        }
         if (target == null
                 || target.displayId <= Display.DEFAULT_DISPLAY) {
             mStatus = getString(R.string.status_external_display_unavailable);
@@ -475,7 +458,7 @@ public final class ControlActivity extends Activity
     public void openTouchpad() {
         mStatus = getString(R.string.status_touchpad_opening);
         refresh();
-        ConsoleModeSwitcher.openTouchpad();
+        DesktopOperations.openTouchpad();
     }
 
     @Override
@@ -487,7 +470,7 @@ public final class ControlActivity extends Activity
                 !mPhoneUi.isPhoneScreenOff(this);
         mStatus = getString(R.string.status_phone_screen_applying);
         refresh();
-        ConsoleModeSwitcher.setPhoneScreenOff(
+        DesktopOperations.setPhoneScreenOff(
                 screenOff,
                 success -> runOnUiThread(() -> {
                     if (isActivityUnavailable()) {
@@ -549,10 +532,6 @@ public final class ControlActivity extends Activity
         if (mPanel == null) {
             return;
         }
-        final int consoleDisplayId =
-                mProjection.activeDesktopDisplayId(this);
-        final boolean consoleModeActive =
-                consoleDisplayId > Display.DEFAULT_DISPLAY;
         final int activeDesktopDisplayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
         final DesktopDisplayTarget activeTarget =
@@ -560,13 +539,10 @@ public final class ControlActivity extends Activity
         final boolean externalRuntimeDesktop = activeTarget != null
                 && activeTarget.kind != DesktopDisplayTarget.Kind.PHONE;
         final boolean externalDesktopActive =
-                consoleModeActive
-                        || externalRuntimeDesktop;
-        final int externalDesktopDisplayId = consoleModeActive
-                ? consoleDisplayId : activeDesktopDisplayId;
+                externalRuntimeDesktop;
+        final int externalDesktopDisplayId = activeDesktopDisplayId;
         mPanel.render(new PhoneControlPanelController.State(
                 externalDesktopActive,
-                consoleModeActive,
                 activeDesktopDisplayId > Display.DEFAULT_DISPLAY
                         && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
                                 activeDesktopDisplayId),
@@ -592,25 +568,19 @@ public final class ControlActivity extends Activity
                 externalDesktopDisplayId));
     }
 
-    private void registerConsoleStateObserver() {
+    private void registerPhoneUiStateObserver() {
         mConsoleStateObserver = new ContentObserver(
                 mMainHandler) {
             @Override
             public void onChange(final boolean selfChange) {
                 mStatus = getString(isExternalDesktopActive()
-                        ? R.string.control_status_console_active
+                        ? R.string.control_status_desktop_active
                         : R.string.control_status_ready);
                 scheduleExternalDisplayProbe(
                         false, DISPLAY_PROBE_SETTLE_MILLIS);
                 refresh();
             }
         };
-        for (final String setting : mProjection.observedSettingKeys()) {
-            getContentResolver().registerContentObserver(
-                    android.provider.Settings.Global.getUriFor(setting),
-                    false,
-                    mConsoleStateObserver);
-        }
         for (final String setting : mPhoneUi.observedSettingKeys()) {
             getContentResolver().registerContentObserver(
                     android.provider.Settings.Global.getUriFor(setting),
@@ -681,7 +651,7 @@ public final class ControlActivity extends Activity
 
     private void startExternalDisplayProbe() {
         final int generation = mDisplayProbeGeneration;
-        ConsoleModeSwitcher.probeExternalDisplay((
+        DesktopOperations.probeExternalDisplay((
                 wiredDisplayId, wirelessDisplayId, profile, selection) ->
                 runOnUiThread(() -> finishExternalDisplayProbe(
                         generation,
@@ -750,15 +720,10 @@ public final class ControlActivity extends Activity
     }
 
     private boolean isExternalDesktopActive() {
-        if (mProjection.activeDesktopDisplayId(this)
-                > Display.DEFAULT_DISPLAY) {
-            return true;
-        }
-        final int displayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
         final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getDesktopTarget(displayId);
+                DesktopRuntimeBridge.getActiveDesktopTarget();
         return target != null
+                && target.displayId > Display.DEFAULT_DISPLAY
                 && target.kind != DesktopDisplayTarget.Kind.PHONE;
     }
 

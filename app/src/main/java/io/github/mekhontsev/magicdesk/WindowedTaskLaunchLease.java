@@ -15,7 +15,7 @@ final class WindowedTaskLaunchLease implements AutoCloseable {
 
     static WindowedTaskLaunchLease acquire() {
         return new WindowedTaskLaunchLease(
-                ConsoleModeSwitcher.isTouchpadVisible());
+                DesktopOperations.isTouchpadVisible());
     }
 
     void protectStartupTask(final int taskId) {
@@ -46,7 +46,7 @@ final class WindowedTaskLaunchLease implements AutoCloseable {
         }
         if (mRestoreTouchpad) {
             MagicDeskRuntime.finishTouchpadPreservation();
-            ConsoleModeSwitcher.restoreTouchpadIfMissing();
+            DesktopOperations.restoreTouchpadIfMissing();
         }
     }
 }

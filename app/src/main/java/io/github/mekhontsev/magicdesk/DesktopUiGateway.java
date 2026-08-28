@@ -500,20 +500,10 @@ final class DesktopUiGateway {
     boolean toggleDesktopWorkspace(
             final TaskRepository.ActionCallback callback) {
         final DesktopShellActivity activity = usableDesktop(false);
-        final int displayId = activity == null
-                ? Display.INVALID_DISPLAY : activity.getCurrentDisplayId();
-        final DesktopScreenPolicy.WorkspaceAction action =
-                DesktopScreenPolicy.workspaceAction(
-                        displayId,
-                        activity != null && activity.hasWindowFocus(),
-                        displayId < 0 ? null
-                                : MagicDeskRuntime
-                                        .hasVisibleAppTaskSnapshot(displayId));
-        if (activity == null
-                || action == DesktopScreenPolicy.WorkspaceAction
-                        .START_EXTERNAL_DESKTOP) {
+        if (activity == null) {
             return false;
         }
+        final int displayId = activity.getCurrentDisplayId();
         activity.runOnUiThread(() -> {
             if (!isUsable(activity)) {
                 completeTaskAction(
@@ -521,15 +511,8 @@ final class DesktopUiGateway {
                 return;
             }
             activity.hideAllPanels();
-            if (action == DesktopScreenPolicy.WorkspaceAction.RESTORE_WINDOWS) {
-                restoreShowDesktopWorkspaceOnDisplay(displayId, callback);
-            } else {
-                // A system activity can become focused before the task watcher
-                // publishes its next snapshot. Win+D must still expose an
-                // immediate route back to the desktop and taskbar.
-                activity.setTaskbarVisible(true);
-                showDesktopOnDisplay(displayId, callback);
-            }
+            activity.setTaskbarVisible(true);
+            toggleShowDesktopWorkspaceOnDisplay(displayId, callback);
         });
         return true;
     }
@@ -848,11 +831,7 @@ final class DesktopUiGateway {
         return true;
     }
 
-    private boolean showDesktopOnDisplay(final int displayId) {
-        return showDesktopOnDisplay(displayId, null);
-    }
-
-    private boolean showDesktopOnDisplay(
+    private boolean toggleShowDesktopWorkspaceOnDisplay(
             final int displayId,
             final TaskRepository.ActionCallback callback) {
         final DesktopShellActivity activity = usableDesktop(false);
@@ -862,42 +841,12 @@ final class DesktopUiGateway {
             return false;
         }
         final int taskId = activity.getTaskId();
-        MagicDeskRuntime.showDesktop(
+        MagicDeskRuntime.toggleShowDesktopWorkspace(
                 displayId,
                 taskId,
                 result -> {
                     if (!result.success) {
-                        Log.w(TAG, "Could not show desktop task=" + taskId
-                                + " display=" + displayId
-                                + " result=" + result.message);
-                    }
-                    completeTaskAction(
-                            callback, result.success, result.message);
-                });
-        return true;
-    }
-
-    private boolean restoreShowDesktopWorkspaceOnDisplay(
-            final int displayId) {
-        return restoreShowDesktopWorkspaceOnDisplay(displayId, null);
-    }
-
-    private boolean restoreShowDesktopWorkspaceOnDisplay(
-            final int displayId,
-            final TaskRepository.ActionCallback callback) {
-        final DesktopShellActivity activity = usableDesktop(false);
-        if (activity == null
-                || activity.getCurrentDisplayId() != displayId) {
-            completeTaskAction(callback, false, "desktop UI is unavailable");
-            return false;
-        }
-        final int taskId = activity.getTaskId();
-        MagicDeskRuntime.restoreShowDesktopWorkspace(
-                displayId,
-                taskId,
-                result -> {
-                    if (!result.success) {
-                        Log.w(TAG, "Could not restore desktop workspace task="
+                        Log.w(TAG, "Could not toggle desktop workspace task="
                                 + taskId + " display=" + displayId
                                 + " result=" + result.message);
                     }

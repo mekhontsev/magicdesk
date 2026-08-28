@@ -140,7 +140,7 @@ final class PointerSpeedPanelController {
         }
         mWritePending = true;
         refresh();
-        ConsoleModeSwitcher.executeSerialized(() -> {
+        DesktopOperations.executeSerialized(() -> {
             boolean success = false;
             String detail = "";
             try {

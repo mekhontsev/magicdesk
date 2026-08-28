@@ -521,12 +521,6 @@ public final class CompatibilityDiagnostics {
                 .append(platform.pointer().isAvailable())
                 .append(", outputControls=")
                 .append(platform.projection().supportsOutputConfiguration())
-                .append(", managedWired=")
-                .append(platform.projection().ownsTransportLifecycle(
-                        PlatformProjectionDriver.Transport.WIRED))
-                .append(", managedWireless=")
-                .append(platform.projection().ownsTransportLifecycle(
-                        PlatformProjectionDriver.Transport.WIRELESS))
                 .append(", phoneUi=")
                 .append(platform.phoneUi().isAvailable())
                 .append('\n');
@@ -763,7 +757,7 @@ public final class CompatibilityDiagnostics {
     private static void appendMagicDeskLogcat(final StringBuilder report) {
         report.append("## Recent MagicDesk logcat\n");
         final String command = "/system/bin/logcat -d -v threadtime -t 600 "
-                + "MagicDesk:V MagicDeskConsoleSwitcher:V MagicDeskFreeform:V "
+                + "MagicDesk:V MagicDeskDesktopOps:V MagicDeskFreeform:V "
                 + "MagicDeskNativeDesktop:V MagicDeskNotifications:V MagicDeskPanels:V "
                 + "MagicDeskProfiles:V MagicDeskRightButton:V MagicDeskKeys:V "
                 + "MagicDeskSetup:V MagicDeskTaskReuse:V MagicDeskTasks:V "

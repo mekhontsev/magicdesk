@@ -147,13 +147,6 @@ final class ComposedPlatformDriver implements PlatformDriver {
     }
 
     @Override
-    public PlatformInputRoutingDriver inputRouting() {
-        return component(
-                PlatformComponent.INPUT_ROUTING,
-                mExtension.inputRouting(), mBaseline.inputRouting());
-    }
-
-    @Override
     public PlatformSystemControls createSystemControls(
             final DesktopShellActivity activity,
             final DesktopUiFactory ui) {

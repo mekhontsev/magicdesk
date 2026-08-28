@@ -8,47 +8,13 @@ import org.junit.Test;
 
 public final class DesktopScreenPolicyTest {
     @Test
-    public void workspaceActionDoesNotDependOnInternalOrExternalDisplay() {
-        assertEquals(
-                DesktopScreenPolicy.WorkspaceAction.FOCUS_DESKTOP,
-                DesktopScreenPolicy.workspaceAction(0, true, Boolean.TRUE));
-        assertEquals(
-                DesktopScreenPolicy.WorkspaceAction.RESTORE_WINDOWS,
-                DesktopScreenPolicy.workspaceAction(0, true, Boolean.FALSE));
-        assertEquals(
-                DesktopScreenPolicy.WorkspaceAction.FOCUS_DESKTOP,
-                DesktopScreenPolicy.workspaceAction(7, true, Boolean.TRUE));
-        assertEquals(
-                DesktopScreenPolicy.WorkspaceAction.FOCUS_DESKTOP,
-                DesktopScreenPolicy.workspaceAction(7, true, null));
-        assertEquals(
-                DesktopScreenPolicy.WorkspaceAction.RESTORE_WINDOWS,
-                DesktopScreenPolicy.workspaceAction(7, true, Boolean.FALSE));
-    }
-
-    @Test
-    public void unfocusedDesktopWinsOverStaleEmptyTaskSnapshot() {
-        assertEquals(
-                DesktopScreenPolicy.WorkspaceAction.FOCUS_DESKTOP,
-                DesktopScreenPolicy.workspaceAction(7, false, Boolean.FALSE));
-    }
-
-    @Test
-    public void missingDesktopStartsExternalSession() {
-        assertEquals(
-                DesktopScreenPolicy.WorkspaceAction.START_EXTERNAL_DESKTOP,
-                DesktopScreenPolicy.workspaceAction(-1, false, null));
-    }
-
-    @Test
     public void phoneScreenControlRequiresExternalDesktopSession() {
         assertFalse(DesktopScreenPolicy.isExternalDesktop(0));
         assertTrue(DesktopScreenPolicy.isExternalDesktop(7));
-        assertFalse(DesktopScreenPolicy.isExternalDesktopSession(0, 0, true));
-        assertFalse(DesktopScreenPolicy.isExternalDesktopSession(7, -1, false));
-        assertTrue(DesktopScreenPolicy.isExternalDesktopSession(7, -1, true));
-        assertTrue(DesktopScreenPolicy.isExternalDesktopSession(7, 7, false));
-        assertFalse(DesktopScreenPolicy.isExternalDesktopSession(7, 8, false));
+        assertFalse(DesktopScreenPolicy.isExternalDesktopSession(0, 0));
+        assertFalse(DesktopScreenPolicy.isExternalDesktopSession(7, -1));
+        assertTrue(DesktopScreenPolicy.isExternalDesktopSession(7, 7));
+        assertFalse(DesktopScreenPolicy.isExternalDesktopSession(7, 8));
 
         assertFalse(DesktopScreenPolicy.canControlPhoneScreen(
                 false, DesktopDisplayTarget.wireless(7), true, true));

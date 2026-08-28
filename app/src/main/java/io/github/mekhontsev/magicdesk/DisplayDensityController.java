@@ -104,19 +104,11 @@ final class DisplayDensityController implements AutoCloseable {
         mApplyStarted = true;
         OPERATIONS.execute(() -> {
             try {
-                final int mirrorDisplayId = PlatformDrivers.current()
-                        .projection().activeDesktopDisplayId(mActivity);
-                if (mirrorDisplayId != displayId) {
-                    Log.i(TAG,
-                            "skip default DPI for non-mirror display "
-                                    + displayId);
-                    return;
-                }
                 final int configuredDpi =
                         getConfiguredDisplayDensity(displayId);
                 if (configuredDpi == targetDpi) {
                     Log.i(TAG,
-                            "Console display DPI already configured display="
+                            "External display DPI already configured display="
                                     + displayId + " dpi=" + targetDpi);
                     return;
                 }

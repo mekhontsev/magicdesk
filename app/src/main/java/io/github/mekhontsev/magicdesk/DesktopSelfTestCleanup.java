@@ -14,9 +14,6 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Restores all state owned by a desktop self-test run. */
 final class DesktopSelfTestCleanup {
@@ -27,8 +24,7 @@ final class DesktopSelfTestCleanup {
             final DesktopSelfTestResult result,
             final DesktopSelfTestTarget target,
             final int displayId,
-            final SimulatedDisplayLease lease,
-            final boolean restoreExternalMirror) {
+            final SimulatedDisplayLease lease) {
         final StringBuilder detail = new StringBuilder();
         final Set<Integer> phoneFixtureTaskIds = new LinkedHashSet<>();
         boolean clean = true;
@@ -44,9 +40,6 @@ final class DesktopSelfTestCleanup {
                         .append(usefulMessage(error)).append("; ");
             }
         }
-        final boolean removeExternalDisplay =
-                target == DesktopSelfTestTarget.EXTERNAL
-                        && restoreExternalMirror;
         if (displayId >= Display.DEFAULT_DISPLAY) {
             final DesktopDisplayTarget displayTarget =
                     DesktopRuntimeBridge.getDesktopTarget(displayId);
@@ -55,10 +48,8 @@ final class DesktopSelfTestCleanup {
                             .features().phoneTouchpad) {
                 PhoneTouchpadController.release(displayId);
             }
-            if (!removeExternalDisplay) {
-                DesktopRuntimeBridge.closeDesktopSession(displayId);
-            }
-            if (!removeExternalDisplay && ShellAccess.isReady()) {
+            DesktopRuntimeBridge.closeDesktopSession(displayId);
+            if (ShellAccess.isReady()) {
                 try {
                     waitForTaskAbsent(DesktopSelfTestComponents.DESKTOP_CLASS);
                     if (target == DesktopSelfTestTarget.PHONE) {
@@ -84,20 +75,6 @@ final class DesktopSelfTestCleanup {
             } catch (IOException error) {
                 clean = false;
                 detail.append("desktop repository cleanup: ")
-                        .append(usefulMessage(error)).append("; ");
-            }
-        }
-        if (target == DesktopSelfTestTarget.EXTERNAL
-                && restoreExternalMirror) {
-            try {
-                restoreMirrorMode();
-                if (ShellAccess.isReady()) {
-                    waitForTaskAbsent(
-                            DesktopSelfTestComponents.DESKTOP_CLASS);
-                }
-            } catch (IOException error) {
-                clean = false;
-                detail.append("mirror restore: ")
                         .append(usefulMessage(error)).append("; ");
             }
         }
@@ -129,7 +106,7 @@ final class DesktopSelfTestCleanup {
                     + STEP_TIMEOUT_MILLIS;
             boolean removed = false;
             do {
-                if (!ConsoleDisplayController.displayExists(displayId)) {
+                if (!ExternalDisplayController.displayExists(displayId)) {
                     removed = true;
                     break;
                 }
@@ -293,27 +270,6 @@ final class DesktopSelfTestCleanup {
                     POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("phone desktop cleanup did not complete");
-    }
-
-    private static void restoreMirrorMode() throws IOException {
-        final CountDownLatch complete = new CountDownLatch(1);
-        final AtomicBoolean success = new AtomicBoolean();
-        ConsoleModeSwitcher.switchToMirror(restored -> {
-            success.set(restored);
-            complete.countDown();
-        });
-        try {
-            if (!complete.await(
-                    STEP_TIMEOUT_MILLIS * 2L, TimeUnit.MILLISECONDS)) {
-                throw new IOException("mirror restore timed out");
-            }
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            throw new IOException("mirror restore interrupted", error);
-        }
-        if (!success.get()) {
-            throw new IOException("mirror restore failed");
-        }
     }
 
     private static void waitForTaskAbsent(final String className)

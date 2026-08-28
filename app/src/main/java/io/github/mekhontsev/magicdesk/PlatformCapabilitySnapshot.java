@@ -77,12 +77,6 @@ public final class PlatformCapabilitySnapshot {
         add(entries, platform, PlatformCapabilityId.DESKTOP_WIRELESS,
                 features.supportsDisplay(
                         DesktopDisplayTarget.Kind.WIRELESS), "");
-        probe(entries, platform, PlatformCapabilityId.MANAGED_WIRED,
-                () -> platform.projection().ownsTransportLifecycle(
-                        PlatformProjectionDriver.Transport.WIRED), () -> "");
-        probe(entries, platform, PlatformCapabilityId.MANAGED_WIRELESS,
-                () -> platform.projection().ownsTransportLifecycle(
-                        PlatformProjectionDriver.Transport.WIRELESS), () -> "");
         probe(entries, platform, PlatformCapabilityId.OUTPUT_CONFIGURATION,
                 () -> platform.projection().supportsOutputConfiguration(),
                 () -> "");

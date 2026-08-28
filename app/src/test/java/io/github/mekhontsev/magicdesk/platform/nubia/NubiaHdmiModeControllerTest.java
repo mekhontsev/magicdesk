@@ -154,7 +154,7 @@ public final class NubiaHdmiModeControllerTest {
     }
 
     @Test
-    public void vendorListKeepsNativeResolutionAndConsolePresets() {
+    public void vendorListKeepsNativeResolutionAndOutputPresets() {
         final NubiaHdmiModeController.Selection selection = select(
                 null,
                 "1920x1200 120 0\n"
@@ -171,7 +171,7 @@ public final class NubiaHdmiModeControllerTest {
     }
 
     @Test
-    public void temporaryLowResolutionIsNotOfferedForConsoleMode() {
+    public void temporaryLowResolutionIsNotOfferedForDesktopOutput() {
         final NubiaHdmiModeController.Selection selection = select(
                 null,
                 "1280x720 60 2\n"
@@ -193,7 +193,7 @@ public final class NubiaHdmiModeControllerTest {
     }
 
     @Test
-    public void nativeVitureModeIsDeferredPastNubiaConsoleProfile() {
+    public void nativeVitureModeIsDeferredPastNubiaOutputProfile() {
         final NubiaHdmiModeController.Selection selection = select(
                 null,
                 "1920x1080 120 2\n"

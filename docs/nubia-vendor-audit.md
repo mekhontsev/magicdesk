@@ -38,12 +38,11 @@ community compatibility result, not the complete maintainer interface matrix.
 | Interface | Ordinary app access | Finding | Production decision |
 | --- | --- | --- | --- |
 | `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Production setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
-| `IDisplayManager` Nubia extensions | Read and command | Mirror state and `setCmdToDisplay` calls are accepted from the app UID. | Production routes the complete Console transition through Shizuku so display, task, and input ownership share one lifecycle. |
+| `IDisplayManager` Nubia extensions | Read and command | Display state and `setCmdToDisplay` calls are accepted from the app UID. | Production uses only the physical-output refresh command; Android's existing display remains the desktop target. |
 | `IInputManager` Nubia mouse extensions | Shell read and command verified | `getMousePosition`, `setMousePosition`, and `sendMouseCmd` expose the firmware cursor viewport used by wired and wireless projection. | Production resolves the methods inside the Shizuku UserService and combines absolute position updates with display-targeted events from MagicDesk's virtual pointer. |
-| `IDisplayManager` mirror-input extensions | Shell command verified | `noteMirrorInputPanelStatus` registers an input owner; `getFocusMirrorWindow` returns the currently focused projected window. | Registration is lifecycle-bound to input routing. The focused window is retained only for an explicit software-keyboard session. |
+| `IDisplayManager` text-input extension | Shell command verified | `getFocusMirrorWindow` returns the currently focused projected window. | The focused window is retained only for an explicit software-keyboard session. |
 | `IDisplayMirrorWindow` | Shell command verified | The focused window accepts composing text, committed text, deletion, and key events. | A bounded phone-side `InputConnection` forwards standard IME operations without selecting or embedding an IME. |
 | `SurfaceControl.setSFOption(1100/1102, ...)` | Write verified | The app UID can change wireless/wired privacy and caption visibility. No corresponding SurfaceFlinger getter was found. | Shizuku uses transport-aware lifecycle ownership and restores the separate preferences reported by Nubia's exported projection provider. |
-| `MirrorInputService` | Exported, no permission | The explicit service accepts open/close input-panel and Touch Panel reasons; its `MirrorInputActivity` can automatically replace another phone input panel. | MagicDesk does not disable the package. While its own touchpad is active, it removes only the automatically created activity task and reclaims its existing panel. |
 | `ZteScreenRefreshRate` | Binder accepted | The implementation selects `DisplayControl.getPhysicalDisplayIds()[0]`. | Do not present it as external-monitor refresh control. |
 | `ColorfulLightService` | Binder discoverable; methods have no local permission check | It can preview and apply RedMagic lighting scenes. | Out of scope: it duplicates device settings and mutates unrelated hardware. |
 | `VendorPowerManagerService` | Binder discoverable | The interface contains no callable methods. | No use. |
@@ -126,45 +125,17 @@ shell's existing `android.permission.STATUS_BAR`, requires no polling, and is
 released only after the display-0 task repository has been normalized.
 External-display sessions do not use this guard.
 
-## Console And Caption Control
+## Physical Output And Caption Control
 
 The Nubia `IDisplayManager` additions have no local permission checks for:
 
 - `setCmdToDisplay`
-- `getMirrorDisplayType`
-- `getMirrorDisplayState`
 - `getFocusMirrorWindow`
-- `noteMirrorInputPanelStatus`
 - `requestInputMethodChange`
 
-The app UID can execute the no-op read transaction and Console command helper.
-`DisplayMirrorCtrl` defines these command values:
-
-| Value | Observed purpose |
-| --- | --- |
-| 0 | Exit application mirror |
-| 1 | Enter Console mode / mirror top activity |
-| 2 | Alternate exit |
-| 3 | Fit to display |
-| 4 | Start GameBox |
-| 5 | Stop GameBox |
-| 6 | Go to GameBox |
-| 7 | Continue a reused foreground task |
-| 8 | Open Touch Panel |
-| 9 | Toggle Touch Panel |
-| 10 | Temporarily allow another component to change display mode |
-| 11 | 3D fullscreen |
-| 12 | 3D mouse display |
-
-Values 4-7 and 11-12 are internal state-machine operations, not independent
-public commands. MagicDesk must not call them without reproducing and
-validating their complete surrounding transition.
-
-The firmware writes `Settings.Global.app_mirror_displayid` before the logical
-Console display appears in `cmd display`. The configured ID is therefore a
-valid early input-routing target but not proof that display activation has
-completed. MagicDesk uses the setting for startup classification and keeps a
-separate display-exists wait for lifecycle transitions.
+`DisplayMirrorCtrl` command 10 temporarily allows the physical HDMI mode to be
+refreshed after a timing change. MagicDesk uses only this command. It does not
+invoke the vendor commands that create, switch, or destroy projection modes.
 
 The firmware uses SurfaceFlinger option `1100` for wireless privacy and `1102`
 for wired privacy. Value `1` hides external layers whose names include `Task=`,
@@ -174,7 +145,7 @@ The exported `cn.nubia.touping.TouPingProvider` reports the independent current
 preferences through `CALL_4_KEY12` (`CALL_4`, wireless) and `CALL_5_KEY3`
 (`CALL_5`, wired). MagicDesk records transport ownership, temporarily writes
 `0` only for the active transport, and restores the provider value on transport
-change, mirror transition, normal teardown, or interrupted-session recovery.
+change, normal teardown, or interrupted-session recovery.
 It does not read another package's private files.
 
 ## Stock Cooling Policy
@@ -209,34 +180,18 @@ This path preserves Nubia's own thermal and safety policy and is the only
 MagicDesk cooling-control backend. The main application does not write cooling
 nodes directly.
 
-## Phone Input-Panel Wake
-
-When a mirrored application requests text input, `DisplayMirrorCtrl` starts
-`MirrorInputService` with `reason=open_input_panel`. The service launches
-`MirrorInputActivity`; its `onResume()` checks
-`Settings.Global.nubia_screen_off_tp` and immediately calls
-`RedMagicAppManager.openScreenOffTP(false)` when the phone is dimmed. No
-reviewed `DisplayMirrorCtrl` command or setting disables only this automatic
-input-panel path.
-
-Closing the panel after launch is too late because the activity has already
-woken the phone. Registering a panel token changes input routing but does not
-suppress the launch. Android 16 also rejects UID 2000 changing the enabled
-state of `MirrorInputService`. Suspending or repeatedly force-stopping the
-entire `cn.nubia.keymapcenter` package would remove the user-requested Touch
-Panel and is not used.
+## Phone Screen Power
 
 The firmware also exposes `cmd display power-off 0` and
 `cmd display power-reset 0` to shell UID 2000. Unlike
 `RedMagicAppManager.openScreenOffTP(true)`, `power-off` requests the physical
-state directly and leaves `nubia_screen_off_tp=0`; `MirrorInputActivity`
-therefore has no dimmed-panel flag to undo when a mirrored application asks
-for text input. A local test confirmed that display 0 reached the committed
+state directly and leaves vendor input-panel state untouched. A local test
+confirmed that display 0 reached the committed
 `OFF` state, `power-reset` restored the DisplayManager-owned state, and the
 physical power button could still wake the phone. This is the preferred
 mechanism used by the Shizuku wake guard. It remains lifecycle-owned and fail
 open: a heartbeat-bound helper always issues `power-reset` when the MagicDesk
-process, Shizuku service, or Console session ends. The helper is not restarted
+process, Shizuku service, or external desktop session ends. The helper is not restarted
 after an unexpected failure, so it cannot turn a user-restored screen off
 again.
 
@@ -249,7 +204,7 @@ unfreeze --sticky` did not override this separate vendor freezer. The service's
 UID 2000 and is the firmware's own transient protection for an executing
 service. The display helper refreshes it with the existing heartbeat for
 MagicDesk and every application UID that owns a live task on the desktop
-display, plus Nubia's mirror-input package when present. It retains that union
+display. It retains that union
 for the screen-off interval because a briefly absent task must not freeze
 shared desktop input, and refreshes the firmware mouse viewport after the
 display power transition. All entries are cleared after `power-reset`. If
@@ -264,12 +219,12 @@ Two apparent event sources are not sufficient by themselves. Nubia's
 device without replacing its logical power state, so a public
 `DisplayListener` is not an authoritative ownership signal. Self-test and
 device coverage include real text focus, physical wake, process death,
-UserService death, Console exit, and cable removal. The heartbeat stream, not a
+UserService death, desktop exit, and cable removal. The heartbeat stream, not a
 poll-only listener, owns restoration.
 
 ## Physical Input Findings
 
-Nubia's Console input path reinjects physical-keyboard events through
+Nubia's stock projected-input path reinjects physical-keyboard events through
 `InputManagerService.injectInputEventWithDeviceId()` with flags
 `0x08010000`. The `0x08000000` bit is Android's
 `POLICY_FLAG_DISABLE_KEY_REPEAT`, which explains why held keys did not repeat
@@ -279,11 +234,8 @@ on the external display.
 firmware assignment that disables it was found. Its right-button handler
 converts secondary-button down/up into `KEYCODE_BACK`.
 
-Registering a panel token through `noteMirrorInputPanelStatus` suppresses
-Nubia's key reinjection only while the stock input panel reports text input.
-It does not associate the physical keyboard with the external display.
-MagicDesk's input-port association plus keyboard bridge is therefore still
-required for correct target display, layout switching, shortcuts, and repeat.
+MagicDesk's input-port association plus keyboard bridge is required for the
+correct target display, layout switching, shortcuts, and repeat.
 The mouse bridge remains required to keep physical motion and buttons on the
 target display. It consumes `BTN_RIGHT` and asks the UserService to inject one
 secondary click at the vendor-reported cursor position, preventing the

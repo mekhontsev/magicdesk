@@ -369,7 +369,7 @@
     <string name="status_phone_screen_off">Phone screen turned off</string>
     <string name="status_phone_screen_on">Phone screen turned on</string>
     <string name="status_phone_screen_failed">Phone screen command failed</string>
-    <string name="status_console_starting">Starting external desktop&#8230;</string>
+    <string name="status_desktop_starting">Starting external desktop&#8230;</string>
     <string name="status_external_display_checking">Checking external display&#8230;</string>
     <string name="status_external_display_unavailable">No external display detected</string>
     <string name="status_wireless_display_connecting">Choose a wireless display&#8230;</string>
@@ -416,7 +416,7 @@
     <string name="control_panel_title">MagicDesk %1$s</string>
     <string name="control_panel_subtitle">Phone control panel</string>
     <string name="control_status_ready">Ready</string>
-    <string name="control_status_console_active">External desktop active</string>
+    <string name="control_status_desktop_active">External desktop active</string>
     <string name="control_runtime_status">Shell access: %1$s</string>
     <string name="control_display_status">This display: %1$d | External desktop: %2$s</string>
     <string name="control_external_display_status">Output: %1$s</string>

@@ -86,14 +86,14 @@ final class SimulatedDesktopDisplayController {
 
     private static synchronized int acquire() throws IOException {
         if (sDisplayId > Display.DEFAULT_DISPLAY
-                && ConsoleDisplayController.displayExists(sDisplayId)) {
+                && ExternalDisplayController.displayExists(sDisplayId)) {
             return sDisplayId;
         }
         sDisplayId = Display.INVALID_DISPLAY;
         closeStaleLease();
 
         final int existingDisplayId =
-                ConsoleDisplayController.findOverlayDisplayId();
+                ExternalDisplayController.findOverlayDisplayId();
         if (existingDisplayId > Display.DEFAULT_DISPLAY) {
             sDisplayId = existingDisplayId;
             return existingDisplayId;
@@ -101,10 +101,10 @@ final class SimulatedDesktopDisplayController {
 
         final SimulatedDisplayLease lease = SimulatedDisplayLease.open();
         final long deadline = SystemClock.uptimeMillis()
-                + ConsoleDisplayController.START_TIMEOUT_MS;
+                + ExternalDisplayController.START_TIMEOUT_MS;
         do {
             final int createdDisplayId =
-                    ConsoleDisplayController.findOverlayDisplayId();
+                    ExternalDisplayController.findOverlayDisplayId();
             if (createdDisplayId > Display.DEFAULT_DISPLAY) {
                 sLease = lease;
                 sDisplayId = createdDisplayId;
@@ -112,7 +112,7 @@ final class SimulatedDesktopDisplayController {
             }
             BoundedStateAwaiter.pause(
                     BoundedStateAwaiter.Reason.DISPLAY_STATE,
-                    ConsoleDisplayController.STATE_POLL_MS);
+                    ExternalDisplayController.STATE_POLL_MS);
         } while (SystemClock.uptimeMillis() < deadline);
 
         try {

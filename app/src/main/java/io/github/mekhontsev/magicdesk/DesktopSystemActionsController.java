@@ -11,19 +11,19 @@ final class DesktopSystemActionsController {
     }
 
     void showDesktop() {
-        ConsoleModeSwitcher.toggleDesktopWorkspace();
+        DesktopOperations.toggleDesktopWorkspace();
     }
 
     void captureScreenshot() {
         mActivity.hideAllPanels();
         final View decor = mActivity.getWindow().getDecorView();
         if (!decor.isAttachedToWindow()) {
-            ConsoleModeSwitcher.captureScreenshot();
+            DesktopOperations.captureScreenshot();
             return;
         }
         // Give WindowManager two frames to remove overlay windows from the capture.
         decor.postOnAnimation(() ->
-                decor.postOnAnimation(ConsoleModeSwitcher::captureScreenshot));
+                decor.postOnAnimation(DesktopOperations::captureScreenshot));
     }
 
     void toggleRecording() {

@@ -6,13 +6,10 @@ public enum PlatformCapabilityId {
     DESKTOP_SIMULATED("desktop.simulated", PlatformComponent.RUNTIME),
     DESKTOP_WIRED("desktop.wired", PlatformComponent.PROJECTION),
     DESKTOP_WIRELESS("desktop.wireless", PlatformComponent.PROJECTION),
-    MANAGED_WIRED("projection.managedWired", PlatformComponent.PROJECTION),
-    MANAGED_WIRELESS(
-            "projection.managedWireless", PlatformComponent.PROJECTION),
     OUTPUT_CONFIGURATION(
             "projection.outputConfiguration", PlatformComponent.PROJECTION),
     EXTERNAL_INPUT_BRIDGE(
-            "input.externalBridge", PlatformComponent.INPUT_ROUTING),
+            "input.externalBridge", PlatformComponent.EXTERNAL_INPUT),
     ABSOLUTE_POINTER("input.absolutePointer", PlatformComponent.POINTER),
     MIRROR_TEXT_INPUT("input.mirrorText", PlatformComponent.TEXT_INPUT),
     PHONE_UI("phone.ui", PlatformComponent.PHONE_UI),

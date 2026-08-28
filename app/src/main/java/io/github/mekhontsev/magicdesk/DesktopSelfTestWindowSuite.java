@@ -1333,7 +1333,7 @@ final class DesktopSelfTestWindowSuite {
 
     private static <T> T preservePhoneTouchpad(
             final CheckedSupplier<T> operation) throws Exception {
-        final boolean preserve = ConsoleModeSwitcher.isTouchpadVisible();
+        final boolean preserve = DesktopOperations.isTouchpadVisible();
         if (preserve) {
             MagicDeskRuntime.expectTouchpadDisplacement();
         }
@@ -1342,7 +1342,7 @@ final class DesktopSelfTestWindowSuite {
         } finally {
             if (preserve) {
                 MagicDeskRuntime.finishTouchpadPreservation();
-                ConsoleModeSwitcher.restoreTouchpadIfMissing();
+                DesktopOperations.restoreTouchpadIfMissing();
             }
         }
     }

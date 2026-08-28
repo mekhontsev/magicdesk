@@ -8,7 +8,7 @@ import android.os.RemoteException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-final class NubiaMouseController {
+final class NubiaDesktopPointerController {
     private static final int MOUSE_CMD_CREATE_OR_UPDATE = 0;
     private static final int MOUSE_CMD_SHOW = 2;
     private static final String INPUT_MANAGER_DESCRIPTOR =
@@ -23,7 +23,7 @@ final class NubiaMouseController {
     private static int sKnownMouseDisplayId = -1;
     private static Point sKnownMousePosition;
 
-    private NubiaMouseController() {
+    private NubiaDesktopPointerController() {
     }
 
     static void setPosition(final Point position)
@@ -118,7 +118,7 @@ final class NubiaMouseController {
         }
         final Point displaySize = getLogicalDisplaySize(displayId);
         Point position = null;
-        synchronized (NubiaMouseController.class) {
+        synchronized (NubiaDesktopPointerController.class) {
             if (sKnownMouseDisplayId == displayId
                     && sKnownMousePosition != null) {
                 position = new Point(sKnownMousePosition);
@@ -237,7 +237,7 @@ final class NubiaMouseController {
         if (transaction != 0) {
             return transaction;
         }
-        synchronized (NubiaMouseController.class) {
+        synchronized (NubiaDesktopPointerController.class) {
             transaction = sSetPointerPositionTransaction;
             if (transaction == 0) {
                 transaction = findTransactionCode(
@@ -254,7 +254,7 @@ final class NubiaMouseController {
         if (transaction != 0) {
             return transaction;
         }
-        synchronized (NubiaMouseController.class) {
+        synchronized (NubiaDesktopPointerController.class) {
             transaction = sSendMouseCommandTransaction;
             if (transaction == 0) {
                 transaction = findTransactionCode(
@@ -271,7 +271,7 @@ final class NubiaMouseController {
         if (access != null) {
             return access;
         }
-        synchronized (NubiaMouseController.class) {
+        synchronized (NubiaDesktopPointerController.class) {
             access = sMousePositionAccess;
             if (access == null) {
                 access = new MousePositionAccess();

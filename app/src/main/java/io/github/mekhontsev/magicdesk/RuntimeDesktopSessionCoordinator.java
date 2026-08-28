@@ -15,20 +15,13 @@ final class RuntimeDesktopSessionCoordinator {
 
     interface Listener {
         void onOwnershipRefreshed(boolean changed);
-
-        void onConsoleModeChanged();
     }
 
     private final Context mContext;
     private final Handler mHandler;
-    private final PlatformProjectionDriver mProjection;
     private final IntPredicate mDisplayExists;
     private final Listener mListener;
-    private boolean mConsoleModeActive;
-    private int mConsoleDisplayId = Display.INVALID_DISPLAY;
     private int mDesktopDisplayId = Display.INVALID_DISPLAY;
-    private boolean mOwnsConsoleDesktop;
-    private boolean mConsoleExitRecoveryPending;
     private boolean mPhoneHomeRecoveryInFlight;
     private boolean mPhoneHomeRecoveryAgain;
     private boolean mAllowUnsettledDisplayRecovery;
@@ -51,19 +44,15 @@ final class RuntimeDesktopSessionCoordinator {
     RuntimeDesktopSessionCoordinator(
             final Context context,
             final Handler handler,
-            final PlatformProjectionDriver projection,
             final IntPredicate displayExists,
             final Listener listener) {
         mContext = context;
         mHandler = handler;
-        mProjection = projection;
         mDisplayExists = displayExists;
         mListener = listener;
     }
 
     void start() {
-        mConsoleDisplayId = resolveConsoleDisplayId();
-        mConsoleModeActive = mConsoleDisplayId > Display.DEFAULT_DISPLAY;
         refreshOwnership();
         if (LocalDesktopSessionState.isCleanupPending(mContext)) {
             maintainLocalDesktopNavigationGuard();
@@ -81,14 +70,6 @@ final class RuntimeDesktopSessionCoordinator {
 
     int desktopDisplayId() {
         return mDesktopDisplayId;
-    }
-
-    int consoleDisplayId() {
-        return mConsoleDisplayId;
-    }
-
-    boolean ownsConsoleDesktop() {
-        return mOwnsConsoleDesktop;
     }
 
     boolean ownsExternalDesktop() {
@@ -158,51 +139,9 @@ final class RuntimeDesktopSessionCoordinator {
                 scheduleDisplayRemovalWatchdog();
             }
         }
-        handleConsoleStateMaybeChanged();
         refreshOwnership();
         if (displayRemoved) {
             schedulePhoneHomeRecovery();
-        }
-    }
-
-    void handleConsoleStateMaybeChanged() {
-        final int consoleDisplayId = resolveConsoleDisplayId();
-        final boolean consoleModeActive =
-                consoleDisplayId > Display.DEFAULT_DISPLAY;
-        if (consoleModeActive == mConsoleModeActive
-                && consoleDisplayId == mConsoleDisplayId) {
-            refreshOwnership();
-            return;
-        }
-        final boolean wasConsoleModeActive = mConsoleModeActive;
-        final int previousConsoleDisplayId = mConsoleDisplayId;
-        final boolean activeStateChanged =
-                consoleModeActive != wasConsoleModeActive;
-        mConsoleModeActive = consoleModeActive;
-        mConsoleDisplayId = consoleDisplayId;
-        refreshOwnership();
-        Log.i(TAG, "consoleMode=" + mConsoleModeActive
-                + " display=" + mConsoleDisplayId);
-        if (activeStateChanged && consoleModeActive) {
-            mConsoleExitRecoveryPending = false;
-        }
-        if (wasConsoleModeActive && !consoleModeActive) {
-            DesktopRuntimeBridge.closeDesktopSession(
-                    previousConsoleDisplayId);
-        }
-        mListener.onConsoleModeChanged();
-        if (wasConsoleModeActive && !consoleModeActive
-                && ShellAccess.isReady()) {
-            ConsoleModeSwitcher.setPhoneScreenOff(false, null);
-        }
-        if (wasConsoleModeActive && !consoleModeActive) {
-            mConsoleExitRecoveryPending = true;
-            if (ShellAccess.isReady()) {
-                schedulePhoneHomeRecovery();
-            } else {
-                PhoneHomeRecoveryController.restoreAfterConsoleExit(mContext);
-                mConsoleExitRecoveryPending = false;
-            }
         }
     }
 
@@ -210,10 +149,6 @@ final class RuntimeDesktopSessionCoordinator {
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
         final int desktopDisplayId = session.activeDisplayId();
-        final boolean ownsConsoleDesktop =
-                desktopDisplayId > Display.DEFAULT_DISPLAY
-                        && mConsoleModeActive
-                        && desktopDisplayId == mConsoleDisplayId;
         if (mExpectedRemovedDisplayId > Display.DEFAULT_DISPLAY
                 && desktopDisplayId != mExpectedRemovedDisplayId
                 && mDisplayExists.test(mExpectedRemovedDisplayId)) {
@@ -222,16 +157,13 @@ final class RuntimeDesktopSessionCoordinator {
             // the expected transition marker.
             mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
         }
-        final boolean changed = desktopDisplayId != mDesktopDisplayId
-                || ownsConsoleDesktop != mOwnsConsoleDesktop;
+        final boolean changed = desktopDisplayId != mDesktopDisplayId;
         mDesktopDisplayId = desktopDisplayId;
-        mOwnsConsoleDesktop = ownsConsoleDesktop;
         mListener.onOwnershipRefreshed(changed);
     }
 
     void onTaskStackChanged() {
         if (mRemovedDesktopDisplayId > Display.DEFAULT_DISPLAY
-                || mConsoleExitRecoveryPending
                 || mLocalDesktopExitRecoveryPending) {
             schedulePhoneHomeRecovery();
         }
@@ -254,12 +186,6 @@ final class RuntimeDesktopSessionCoordinator {
         mHandler.postDelayed(
                 mLocalDesktopCleanupRunnable,
                 LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS);
-    }
-
-    private int resolveConsoleDisplayId() {
-        final int displayId = mProjection.activeDesktopDisplayId(mContext);
-        return mDisplayExists.test(displayId)
-                ? displayId : Display.INVALID_DISPLAY;
     }
 
     private void schedulePhoneHomeRecovery(
@@ -295,10 +221,7 @@ final class RuntimeDesktopSessionCoordinator {
         final boolean allowUnsettledDisplayRecovery =
                 mAllowUnsettledDisplayRecovery;
         final boolean includeStrandedDesktop =
-                PhoneHomeRecoveryController.shouldRestoreStrandedDesktop(
-                        mConsoleModeActive,
-                        mConsoleExitRecoveryPending)
-                        || mLocalDesktopExitRecoveryPending;
+                mLocalDesktopExitRecoveryPending;
         final boolean localDesktopExitRecoveryPending =
                 mLocalDesktopExitRecoveryPending;
         final int removedDisplayId = mRemovedDesktopDisplayId;
@@ -330,12 +253,8 @@ final class RuntimeDesktopSessionCoordinator {
                     }
                     if (!mDestroyed && restorePhonePanel) {
                         mRestorePhonePanelAfterRecovery = false;
-                        ConsoleModeSwitcher
+                        DesktopOperations
                                 .restorePhoneAfterExternalDesktop();
-                    }
-                    if (!mDestroyed && recoveryComplete
-                            && includeStrandedDesktop) {
-                        mConsoleExitRecoveryPending = false;
                     }
                     if (!mDestroyed && recoveryComplete
                             && localDesktopExitRecoveryPending

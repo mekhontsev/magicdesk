@@ -17,7 +17,7 @@ import java.util.Set;
 final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     private static final String TAG = "MagicDeskTaskParking";
     private static final String RETURN_COMMAND =
-            "io.github.mekhontsev.magicdesk.ConsoleTaskReturnCommand";
+            "io.github.mekhontsev.magicdesk.DesktopTaskReturnCommand";
 
     private final Object mLock = new Object();
     private final Map<Integer, ParkedTask> mParked =

@@ -21,36 +21,26 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
 
     private final Set<String> mAssociatedInputPorts =
             new LinkedHashSet<>();
-    private final PlatformInputRoutingDriver mInputRouting;
     private final PlatformPointerDriver mPointer;
-    private final PlatformProjectionDriver mProjection;
-
     private Object mInputManager;
     private Method mAddAssociation;
     private Method mRemoveAssociation;
     private Object mAssociationTarget;
-    private PlatformInputRoutingDriver.Session mPlatformSession;
     private int mDisplayId = -1;
     private int mKeyboardAssociationCount;
     private int mVirtualKeyboardCount;
     private boolean mClosed;
 
     private DesktopInputRoutingSession(
-            final PlatformInputRoutingDriver inputRouting,
-            final PlatformPointerDriver pointer,
-            final PlatformProjectionDriver projection) {
-        mInputRouting = inputRouting;
+            final PlatformPointerDriver pointer) {
         mPointer = pointer;
-        mProjection = projection;
     }
 
     static DesktopInputRoutingSession open(
             final Context context,
             final int displayId,
             final int expectedVirtualKeyboardCount,
-            final PlatformInputRoutingDriver inputRouting,
-            final PlatformPointerDriver pointer,
-            final PlatformProjectionDriver projection) throws Exception {
+            final PlatformPointerDriver pointer) throws Exception {
         if (context == null) {
             throw new IllegalArgumentException(
                     "input routing requires a service context");
@@ -69,8 +59,7 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                 waitForVirtualMouse();
         cleanupStaleAssociations();
         final DesktopInputRoutingSession session =
-                new DesktopInputRoutingSession(
-                        inputRouting, pointer, projection);
+                new DesktopInputRoutingSession(pointer);
         try {
             session.start(context, displayId, keyboards, mice);
             session.mVirtualKeyboardCount =
@@ -142,8 +131,7 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                 "input", "android.hardware.input.IInputManager");
         final Class<?> inputManagerInterface =
                 Class.forName("android.hardware.input.IInputManager");
-        final RoutingTarget target = findRoutingTarget(
-                context, displayId, mProjection);
+        final RoutingTarget target = findRoutingTarget(displayId);
         mDisplayId = displayId;
         mAssociationTarget = target.associationTarget;
         if (target.physicalPort) {
@@ -180,10 +168,9 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             associatePort(mouse.location);
         }
 
-        mPlatformSession = mInputRouting.open(target.platformConsole);
         // InputManager rebuilds pointer viewports when associations change.
-        // Finalize that rebuild after both the Android associations and the
-        // optional vendor route exist, before the caller enables capture.
+        // Finalize that rebuild after Android associations are complete and
+        // before the caller enables capture.
         mPointer.refreshViewport();
     }
 
@@ -191,9 +178,6 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         if (mClosed || mInputManager == null
                 || mAddAssociation == null || mAssociationTarget == null) {
             return 0;
-        }
-        if (mPlatformSession != null) {
-            mPlatformSession.refresh();
         }
         int added = 0;
         for (final DesktopKeyboardDevice keyboard
@@ -241,22 +225,12 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         }
     }
 
-    private static RoutingTarget findRoutingTarget(
-            final Context context,
-            final int displayId,
-            final PlatformProjectionDriver projection)
+    private static RoutingTarget findRoutingTarget(final int displayId)
             throws Exception {
         final Object displayManager = getService(
                 "display", "android.hardware.display.IDisplayManager");
         final Class<?> displayManagerInterface =
                 Class.forName("android.hardware.display.IDisplayManager");
-        if (displayId == projection.activeDesktopDisplayId(context)) {
-            final int physicalPort = findExternalDisplayPort(
-                    displayManager, displayManagerInterface);
-            if (physicalPort >= 0) {
-                return RoutingTarget.platformConsole(physicalPort);
-            }
-        }
         final Method getDisplayInfo = displayManagerInterface.getMethod(
                 "getDisplayInfo", int.class);
         final Object info = getDisplayInfo.invoke(displayManager, displayId);
@@ -288,40 +262,6 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         return RoutingTarget.uniqueId(uniqueId);
     }
 
-    private static int findExternalDisplayPort(
-            final Object displayManager,
-            final Class<?> displayManagerInterface) throws Exception {
-        final Method getDisplayIds = displayManagerInterface.getMethod(
-                "getDisplayIds", boolean.class);
-        final Method getDisplayInfo = displayManagerInterface.getMethod(
-                "getDisplayInfo", int.class);
-        final int[] displayIds = (int[]) getDisplayIds.invoke(
-                displayManager, true);
-        for (final int candidateDisplayId : displayIds) {
-            final Object info = getDisplayInfo.invoke(
-                    displayManager, candidateDisplayId);
-            if (info == null
-                    || getIntField(info, "type")
-                            != DISPLAY_TYPE_EXTERNAL) {
-                continue;
-            }
-            final Object address = getField(info, "address");
-            if (address == null) {
-                continue;
-            }
-            try {
-                final Object port = address.getClass()
-                        .getMethod("getPort").invoke(address);
-                if (port instanceof Number) {
-                    return ((Number) port).intValue();
-                }
-            } catch (ReflectiveOperationException ignored) {
-                // Wireless display addresses do not expose a physical port.
-            }
-        }
-        return -1;
-    }
-
     @Override
     public synchronized void close() {
         if (mClosed) {
@@ -329,10 +269,6 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         }
         mClosed = true;
 
-        if (mPlatformSession != null) {
-            mPlatformSession.close();
-            mPlatformSession = null;
-        }
         boolean associationsRemoved = mAssociatedInputPorts.isEmpty();
         if (mRemoveAssociation != null && mInputManager != null) {
             try {
@@ -459,30 +395,22 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
 
     private static final class RoutingTarget {
         final boolean physicalPort;
-        final boolean platformConsole;
         final Object associationTarget;
 
         private RoutingTarget(
                 final boolean physicalPort,
-                final boolean platformConsole,
                 final Object associationTarget) {
             this.physicalPort = physicalPort;
-            this.platformConsole = platformConsole;
             this.associationTarget = associationTarget;
         }
 
         static RoutingTarget physical(final int displayPort) {
             return new RoutingTarget(
-                    true, false, Integer.valueOf(displayPort));
-        }
-
-        static RoutingTarget platformConsole(final int displayPort) {
-            return new RoutingTarget(
-                    true, true, Integer.valueOf(displayPort));
+                    true, Integer.valueOf(displayPort));
         }
 
         static RoutingTarget uniqueId(final String displayUniqueId) {
-            return new RoutingTarget(false, false, displayUniqueId);
+            return new RoutingTarget(false, displayUniqueId);
         }
     }
 }

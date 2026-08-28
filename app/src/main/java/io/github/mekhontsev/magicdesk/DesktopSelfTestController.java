@@ -42,25 +42,16 @@ final class DesktopSelfTestController {
     static DesktopSelfTestResult run(
             final Context context,
             final DesktopSelfTestTarget requestedTarget) {
-        return run(context, requestedTarget, false);
+        return run(context, requestedTarget, -1);
     }
 
     static DesktopSelfTestResult run(
             final Context context,
             final DesktopSelfTestTarget requestedTarget,
-            final boolean restoreExternalMirror) {
-        return run(context, requestedTarget, restoreExternalMirror, -1);
-    }
-
-    static DesktopSelfTestResult run(
-            final Context context,
-            final DesktopSelfTestTarget requestedTarget,
-            final boolean restoreExternalMirror,
             final int resultTaskId) {
         return run(
                 context,
                 requestedTarget,
-                restoreExternalMirror,
                 resultTaskId,
                 DesktopSelfTestExecutionPolicy.FULL);
     }
@@ -68,7 +59,6 @@ final class DesktopSelfTestController {
     static DesktopSelfTestResult run(
             final Context context,
             final DesktopSelfTestTarget requestedTarget,
-            final boolean restoreExternalMirror,
             final int resultTaskId,
             final DesktopSelfTestExecutionPolicy executionPolicy) {
         final DesktopSelfTestResult result =
@@ -224,8 +214,7 @@ final class DesktopSelfTestController {
                     DesktopSelfTestCleanup.run(result,
                             target,
                             displayId,
-                            lease,
-                            restoreExternalMirror);
+                            lease);
                 }
             } finally {
                 try {
@@ -500,8 +489,7 @@ final class DesktopSelfTestController {
             final DesktopSelfTestResult result) throws AbortSelfTest {
         final int activeDisplay = findBlockingDesktopDisplay(
                 DesktopRuntimeBridge.getActiveDesktopDisplayId(),
-                PlatformDrivers.current().projection()
-                        .activeDesktopDisplayId(context));
+                Display.INVALID_DISPLAY);
         if (activeDisplay >= 0) {
             failAndAbort(result, "SELFTEST-PRECONDITION-001",
                     "No active desktop session",
@@ -665,7 +653,7 @@ final class DesktopSelfTestController {
     private static int waitForOverlayDisplay() throws IOException {
         final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
         do {
-            final int displayId = ConsoleDisplayController.findFirstDisplayId(
+            final int displayId = ExternalDisplayController.findFirstDisplayId(
                     ShellAccess.run(
                             "/system/bin/cmd display get-displays"
                                     + " --ids-only --type overlay"));

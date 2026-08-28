@@ -66,7 +66,7 @@ public final class DebugSelfTestActivity extends Activity {
     private void waitForRuntime(final LaunchTarget target) {
         new Thread(() -> {
             final long deadline = SystemClock.uptimeMillis()
-                    + ConsoleDisplayController.START_TIMEOUT_MS;
+                    + ExternalDisplayController.START_TIMEOUT_MS;
             do {
                 if (runtimeReady()) {
                     runOnUiThread(() -> {
@@ -76,7 +76,7 @@ public final class DebugSelfTestActivity extends Activity {
                     });
                     return;
                 }
-                SystemClock.sleep(ConsoleDisplayController.STATE_POLL_MS);
+                SystemClock.sleep(ExternalDisplayController.STATE_POLL_MS);
             } while (SystemClock.uptimeMillis() < deadline);
             Log.e(TAG, "self-test runtime did not become ready");
             runOnUiThread(() -> {

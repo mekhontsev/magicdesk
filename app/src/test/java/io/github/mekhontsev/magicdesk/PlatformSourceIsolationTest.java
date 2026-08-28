@@ -34,8 +34,6 @@ public final class PlatformSourceIsolationTest {
         "\"com.redmagic",
         "\"redmagic.app.manager",
         "\"nubia_screen_off_tp",
-        "\"app_mirror_displayid",
-        "\"NubiaAppMirrorDisplay",
         "\"setCmdToDisplay",
         "\"RedMagicAppManager",
         "\"ColorfulLightService",

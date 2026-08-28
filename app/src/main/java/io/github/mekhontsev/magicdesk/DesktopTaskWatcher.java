@@ -923,7 +923,7 @@ final class DesktopTaskWatcher {
             final int desktopDisplayId =
                     DesktopRuntimeBridge.getActiveDesktopDisplayId();
             final boolean touchpadVisible =
-                    ConsoleModeSwitcher.isTouchpadVisible();
+                    DesktopOperations.isTouchpadVisible();
             final boolean controlPanelVisible =
                     ControlActivity.isControlPanelVisible();
             final int visiblePhoneFreeformTasks = phoneFreeformTasks == null

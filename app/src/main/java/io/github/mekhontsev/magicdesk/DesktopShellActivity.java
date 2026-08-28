@@ -284,7 +284,7 @@ public abstract class DesktopShellActivity extends Activity
         mDisplayProfiles.start();
         MagicDeskRuntime.start(this);
         if (ShellAccess.isReady()) {
-            ConsoleModeSwitcher.refreshHardwareKeyboardLayout();
+            DesktopOperations.refreshHardwareKeyboardLayout();
         }
         if (!ShellAccess.isReady()) {
             KeyboardShortcutWatcher.stop();
@@ -292,7 +292,7 @@ public abstract class DesktopShellActivity extends Activity
         renderApps();
         updateDesktopControls();
         handleLaunchAction(getIntent());
-        ensurePreferredConsoleDensity();
+        ensurePreferredDesktopDensity();
         if (savedInstanceState != null
                 && savedInstanceState.getBoolean(STATE_TOOLS_VISIBLE)) {
             mDesktopRoot.post(this::toggleToolsMenu);
@@ -547,7 +547,7 @@ public abstract class DesktopShellActivity extends Activity
         refreshDesktopFolder(true);
         updateDesktopControls();
         mNotifications.refresh();
-        ensurePreferredConsoleDensity();
+        ensurePreferredDesktopDensity();
         if (mHostWindowController != null) {
             mHostWindowController.ensureConfigured();
         }
@@ -2027,7 +2027,7 @@ public abstract class DesktopShellActivity extends Activity
         return mDisplayProfiles.getRecommendedDpi();
     }
 
-    private void ensurePreferredConsoleDensity() {
+    private void ensurePreferredDesktopDensity() {
         mDisplayDensityController.ensurePreferred();
     }
 

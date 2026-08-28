@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 import io.github.mekhontsev.magicdesk.AppProcessCommand;
 import io.github.mekhontsev.magicdesk.BoundedStateAwaiter;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
-import io.github.mekhontsev.magicdesk.ConsoleDisplayController;
+import io.github.mekhontsev.magicdesk.ExternalDisplayController;
 import io.github.mekhontsev.magicdesk.ShellAccess;
 import io.github.mekhontsev.magicdesk.RuntimeDelays;
 import io.github.mekhontsev.magicdesk.SocDisplayModeBackend;
@@ -33,7 +33,7 @@ final class NubiaHdmiModeController {
             "/sys/kernel/lcd_enhance/edid_modes";
     private static final String HPD = "/sys/kernel/lcd_enhance/hpd";
     private static final String DISPLAY_COMMAND =
-            "io.github.mekhontsev.magicdesk.platform.nubia.ConsoleDisplayCommand";
+            "io.github.mekhontsev.magicdesk.platform.nubia.NubiaDisplayRefreshCommand";
     private static final long MODE_TIMEOUT_MS = 10_000L;
     private static final long MODE_POLL_MS = 100L;
     private static final Object PROBE_LOCK = new Object();
@@ -519,7 +519,7 @@ final class NubiaHdmiModeController {
         while (SystemClock.uptimeMillis() < deadline) {
             if (manager != null) {
                 final int displayId =
-                        ConsoleDisplayController.findExternalDisplayId();
+                        ExternalDisplayController.findExternalDisplayId();
                 final Display display = displayId <= Display.DEFAULT_DISPLAY
                         ? null : manager.getDisplay(displayId);
                 final Display.Mode mode = display == null

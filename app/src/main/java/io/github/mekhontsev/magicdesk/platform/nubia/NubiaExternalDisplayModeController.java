@@ -1,7 +1,7 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
-import io.github.mekhontsev.magicdesk.ConsoleDisplayController;
+import io.github.mekhontsev.magicdesk.ExternalDisplayController;
 import io.github.mekhontsev.magicdesk.DisplayProfileStore;
 import io.github.mekhontsev.magicdesk.ShellAccess;
 
@@ -157,10 +157,10 @@ final class NubiaExternalDisplayModeController {
             final NubiaHdmiModeController.Mode target =
                     mDeferredSelection.target;
             final int currentDisplayId =
-                    ConsoleDisplayController.findExternalDisplayId();
+                    ExternalDisplayController.findExternalDisplayId();
             if (currentDisplayId <= 0) {
                 throw new IOException(
-                        "external display disappeared during Console startup");
+                        "external display disappeared during output setup");
             }
             final NubiaHdmiModeController.Selection refreshed =
                     NubiaHdmiModeController.readSelection(
@@ -170,7 +170,7 @@ final class NubiaExternalDisplayModeController {
             if (refreshed == null || refreshed.target == null
                     || !target.sameTiming(refreshed.target)) {
                 throw new IOException(
-                        "native output timing disappeared during Console startup");
+                        "native output timing disappeared during output setup");
             }
             mPhysicalDisplayId = NubiaHdmiModeController.applyIfNeeded(
                     mDeferredContext, currentDisplayId, refreshed);

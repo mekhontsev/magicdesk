@@ -165,7 +165,7 @@ final class DesktopSelfTestDisplayRemovalSuite {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
         do {
-            if (!ConsoleDisplayController.displayExists(displayId)) {
+            if (!ExternalDisplayController.displayExists(displayId)) {
                 return;
             }
             BoundedStateAwaiter.pause(

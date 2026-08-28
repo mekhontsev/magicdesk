@@ -11,8 +11,6 @@ import java.io.IOException;
 /** Standard Android projection entry points without transport ownership. */
 final class GenericAndroidProjectionDriver
         implements PlatformProjectionDriver {
-    private static final String[] NO_SETTINGS = new String[0];
-
     @Override
     public boolean hasWirelessConnectionUi(final Context context) {
         return false;
@@ -20,41 +18,6 @@ final class GenericAndroidProjectionDriver
 
     @Override
     public boolean openWirelessConnectionUi(final Activity activity) {
-        return false;
-    }
-
-    @Override
-    public int activeDesktopDisplayId(final Context context) {
-        return -1;
-    }
-
-    @Override
-    public int waitForDesktopDisplay(final Context context) {
-        return -1;
-    }
-
-    @Override
-    public boolean waitForDesktopStop(final Context context) {
-        return true;
-    }
-
-    @Override
-    public String[] observedSettingKeys() {
-        return NO_SETTINGS;
-    }
-
-    @Override
-    public boolean isMirrorMode() {
-        return false;
-    }
-
-    @Override
-    public boolean requestDesktopMode(final int physicalDisplayId) {
-        return false;
-    }
-
-    @Override
-    public boolean requestMirrorMode() {
         return false;
     }
 
@@ -93,8 +56,4 @@ final class GenericAndroidProjectionDriver
         return false;
     }
 
-    @Override
-    public boolean ownsTransportLifecycle(final Transport transport) {
-        return false;
-    }
 }

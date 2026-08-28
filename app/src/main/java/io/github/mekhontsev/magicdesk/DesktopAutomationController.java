@@ -262,7 +262,7 @@ final class DesktopAutomationController {
         final String target = rawTarget.toLowerCase(Locale.ROOT);
         switch (target) {
             case "auto":
-                ConsoleModeSwitcher.showMagicDesk();
+                DesktopOperations.showMagicDesk();
                 break;
             case "phone":
                 mContext.startActivity(
@@ -272,26 +272,21 @@ final class DesktopAutomationController {
                 SimulatedDesktopDisplayController.show();
                 break;
             case "wired":
-                if (ConsoleModeSwitcher.getActiveConsoleDisplayId()
-                                <= Display.DEFAULT_DISPLAY
-                        && ConsoleDisplayController.findExternalDisplayId()
+                if (ExternalDisplayController.findExternalDisplayId()
                                 <= Display.DEFAULT_DISPLAY) {
                     return DesktopAutomationResult.failure(
                             "no connected wired display");
                 }
-                // A physical HDMI display can back a separate vendor Console
-                // display. Use the same activation path as the control panel
-                // so the physical output is never mistaken for the task host.
-                ConsoleModeSwitcher.showWiredDesktop();
+                DesktopOperations.showWiredDesktop();
                 break;
             case "wireless":
                 final int wirelessDisplayId =
-                        ConsoleDisplayController.findWirelessDisplayId();
+                        ExternalDisplayController.findWirelessDisplayId();
                 if (wirelessDisplayId <= Display.DEFAULT_DISPLAY) {
                     return DesktopAutomationResult.failure(
                             "no connected wireless display");
                 }
-                ConsoleModeSwitcher.showDesktop(
+                DesktopOperations.showDesktop(
                         DesktopDisplayTarget.wireless(wirelessDisplayId));
                 break;
             default:
@@ -314,7 +309,7 @@ final class DesktopAutomationController {
         }
         final CountDownLatch completed = new CountDownLatch(1);
         final boolean[] success = new boolean[1];
-        ConsoleModeSwitcher.closeDesktop(target, true, value -> {
+        DesktopOperations.closeDesktop(target, true, value -> {
             success[0] = value;
             completed.countDown();
         });
@@ -1062,7 +1057,7 @@ final class DesktopAutomationController {
                         visible = ui.wallpaperRendered;
                         break;
                     case "touchpad":
-                        visible = ConsoleModeSwitcher.isTouchpadVisible();
+                        visible = DesktopOperations.isTouchpadVisible();
                         break;
                     case "control_panel":
                         visible = ControlActivity.isControlPanelVisible();

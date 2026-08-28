@@ -29,7 +29,7 @@ final class DesktopCaptureTarget {
         }
         final String physicalDisplayId = source.isPhysical()
                 ? source.physicalDisplayId
-                : ConsoleDisplayController.getPhysicalDisplayId(
+                : ExternalDisplayController.getPhysicalDisplayId(
                         source.logicalDisplayId);
         return new DesktopCaptureTarget(
                 desktopDisplayId,

@@ -7,7 +7,7 @@ final class MagicDeskExitCoordinator {
     enum Step {
         RESTORE_HARDWARE,
         RESTORE_PHONE_SCREEN,
-        RETURN_CONSOLE_TASKS,
+        RETURN_DESKTOP_TASKS,
         CLOSE_DESKTOP,
         CLEAN_PHONE_TASKS
     }
@@ -25,7 +25,7 @@ final class MagicDeskExitCoordinator {
 
         void restorePhoneScreen(Callback callback);
 
-        void returnConsoleTasks(Callback callback);
+        void returnDesktopTasks(Callback callback);
 
         void closeDesktop(Callback callback);
 
@@ -56,8 +56,8 @@ final class MagicDeskExitCoordinator {
                         Step.RESTORE_PHONE_SCREEN,
                         mOperations::restorePhoneScreen,
                         () -> runStep(
-                                Step.RETURN_CONSOLE_TASKS,
-                                mOperations::returnConsoleTasks,
+                                Step.RETURN_DESKTOP_TASKS,
+                                mOperations::returnDesktopTasks,
                                 () -> runStep(
                                         Step.CLOSE_DESKTOP,
                                         mOperations::closeDesktop,

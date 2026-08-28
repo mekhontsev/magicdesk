@@ -8,7 +8,6 @@ import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformDiagnostics;
 import io.github.mekhontsev.magicdesk.PlatformDriver;
 import io.github.mekhontsev.magicdesk.PlatformFeatures;
-import io.github.mekhontsev.magicdesk.PlatformInputRoutingDriver;
 import io.github.mekhontsev.magicdesk.PlatformPhoneUiDriver;
 import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
@@ -45,8 +44,6 @@ public final class GenericAndroidPlatformDriver implements PlatformDriver {
             new GenericAndroidAudioCaptureDriver();
     private static final PlatformTextInputDriver TEXT_INPUT =
             new GenericAndroidTextInputDriver();
-    private static final PlatformInputRoutingDriver INPUT_ROUTING =
-            new GenericAndroidInputRoutingDriver();
 
     @Override
     public String id() {
@@ -112,11 +109,6 @@ public final class GenericAndroidPlatformDriver implements PlatformDriver {
     @Override
     public PlatformTextInputDriver textInput() {
         return TEXT_INPUT;
-    }
-
-    @Override
-    public PlatformInputRoutingDriver inputRouting() {
-        return INPUT_ROUTING;
     }
 
     @Override

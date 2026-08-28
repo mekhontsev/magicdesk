@@ -4,8 +4,9 @@ import android.app.Activity;
 
 import java.io.IOException;
 
-/** Hosts MagicDesk on a wired display, with optional platform mode switching. */
+/** Hosts MagicDesk directly on a connected physical wired display. */
 final class WiredDisplayDriver implements DesktopDisplayDriver {
+    private static final String TAG = "MagicDeskWiredDisplay";
     private static final DesktopDisplayFeatures FEATURES =
             new DesktopDisplayFeatures(
                     DesktopTaskAreaPolicy.INDEPENDENT,
@@ -36,35 +37,6 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
         return DesktopDisplayTarget.wired(displayId);
     }
 
-    @Override
-    public int captureDisplayId(final DesktopDisplayTarget target) {
-        requireTarget(target);
-        if (!isBackedBySeparateOutput(target)) {
-            return target.displayId;
-        }
-        // Nubia hosts tasks on a virtual display backed by this physical output.
-        return target.profileDisplayId;
-    }
-
-    @Override
-    public DisplayCaptureSource captureSource(
-            final DesktopDisplayTarget target) {
-        if (!isBackedBySeparateOutput(target)) {
-            requireTarget(target);
-            return DisplayCaptureSource.logical(target.displayId);
-        }
-        final int logicalDisplayId = captureDisplayId(target);
-        try {
-            return DisplayCaptureSource.physical(
-                    logicalDisplayId,
-                    ConsoleDisplayController.getPhysicalDisplayId(
-                            logicalDisplayId));
-        } catch (IOException ignored) {
-            // Some Android builds expose only a capturable logical display.
-            return DisplayCaptureSource.logical(logicalDisplayId);
-        }
-    }
-
     void activate(final Activity source) {
         activate(source, DesktopSessionPolicy.USER);
     }
@@ -72,16 +44,8 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
     void activate(
             final Activity source,
             final DesktopSessionPolicy policy) {
-        if (mProjection.ownsTransportLifecycle(
-                PlatformProjectionDriver.Transport.WIRED)) {
-            ConsoleSessionController.show(
-                    android.view.Display.INVALID_DISPLAY,
-                    mProjection,
-                    policy);
-            return;
-        }
         final int connectedDisplayId =
-                ConsoleDisplayController.findExternalDisplayId();
+                ExternalDisplayController.findExternalDisplayId();
         if (connectedDisplayId <= 0) {
             CompatibilityDiagnostics.record(
                     "DISPLAY-EXTERNAL-001",
@@ -98,20 +62,50 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         requireTarget(target);
-        if (mProjection.ownsTransportLifecycle(
-                PlatformProjectionDriver.Transport.WIRED)) {
-            ConsoleSessionController.show(
-                    target.displayId, mProjection, policy);
-            return;
+        final android.content.Context context =
+                MagicDeskApplication.applicationContext();
+        final DesktopDisplayTarget profiledTarget =
+                DisplayProfileController.prepareTarget(context, target);
+        final DisplayProfileStore.Profile profile =
+                DisplayProfileController.loadPreparedProfile(
+                        context, profiledTarget);
+        PlatformProjectionDriver.PreparedMode preparedMode = null;
+        try {
+            DesktopDisplayTarget readyTarget = profiledTarget;
+            if (mProjection.supportsOutputConfiguration()) {
+                preparedMode = mProjection.prepareExternalDisplay(
+                        context,
+                        profiledTarget.profileDisplayId,
+                        profile);
+                preparedMode.applyDeferredMode();
+                final int currentDisplayId =
+                        ExternalDisplayController.findExternalDisplayId();
+                if (currentDisplayId <= android.view.Display.DEFAULT_DISPLAY) {
+                    throw new IOException(
+                            "wired display disappeared during output setup");
+                }
+                readyTarget = DesktopDisplayTarget.wired(currentDisplayId)
+                        .withActivationSource(target.activationSource);
+                if (profile != null) {
+                    readyTarget = readyTarget.withProfile(
+                            currentDisplayId, profile.key);
+                }
+            }
+            ExternalDisplayController.ensureLandscape(readyTarget.displayId);
+            DesktopDisplayDriverSupport.showReadySecondary(
+                    readyTarget, policy);
+        } catch (IOException | RuntimeException error) {
+            android.util.Log.w(TAG, "Wired display preparation failed", error);
+            CompatibilityDiagnostics.record(
+                    "DISPLAY-MODE-001",
+                    "Could not prepare the wired display",
+                    error.getMessage(),
+                    error);
+        } finally {
+            if (preparedMode != null) {
+                preparedMode.close();
+            }
         }
-        DesktopDisplayDriverSupport.showReadySecondary(target, policy);
-    }
-
-    private static boolean isBackedBySeparateOutput(
-            final DesktopDisplayTarget target) {
-        return target != null
-                && target.hasProfile()
-                && target.profileDisplayId != target.displayId;
     }
 
     @Override

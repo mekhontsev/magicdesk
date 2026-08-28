@@ -49,7 +49,7 @@ final class DesktopSessionController {
                 DisplayProfileController.prepareTarget(
                         MagicDeskApplication.applicationContext(), target);
         DesktopStateStore.load();
-        if (!ConsoleDisplayController.displayExists(preparedTarget.displayId)) {
+        if (!ExternalDisplayController.displayExists(preparedTarget.displayId)) {
             throw new IOException(
                     "desktop display no longer exists: "
                             + preparedTarget.displayId);
@@ -228,7 +228,7 @@ final class DesktopSessionController {
             final DesktopDisplayTarget target) throws IOException {
         if (target.displayId <= 0
                 || !PlatformDrivers.current().windowing()
-                        .requiresMirrorInputFocusSynchronization()) {
+                        .requiresDesktopInputFocusSynchronization()) {
             return;
         }
         ShellAccess.run(AppProcessCommand.run(
@@ -254,9 +254,9 @@ final class DesktopSessionController {
     private static boolean waitForDesktopReady(final int displayId)
             throws IOException {
         final long deadline = SystemClock.uptimeMillis()
-                + ConsoleDisplayController.START_TIMEOUT_MS;
+                + ExternalDisplayController.START_TIMEOUT_MS;
         while (SystemClock.uptimeMillis() < deadline) {
-            if (!ConsoleDisplayController.displayExists(displayId)) {
+            if (!ExternalDisplayController.displayExists(displayId)) {
                 return false;
             }
             if (findDesktopTask(displayId) >= 0) {
@@ -264,7 +264,7 @@ final class DesktopSessionController {
             }
             BoundedStateAwaiter.pause(
                     BoundedStateAwaiter.Reason.DISPLAY_STATE,
-                    ConsoleDisplayController.STATE_POLL_MS);
+                    ExternalDisplayController.STATE_POLL_MS);
         }
         return false;
     }

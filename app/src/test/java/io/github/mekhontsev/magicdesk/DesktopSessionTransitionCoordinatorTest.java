@@ -7,50 +7,20 @@ import org.junit.Test;
 
 public final class DesktopSessionTransitionCoordinatorTest {
     @Test
-    public void adoptedWiredDisplayRemainsSystemOwned() {
-        assertFalse(DesktopSessionTransitionCoordinator
-                .shouldReturnTransportToMirror(
-                        DesktopDisplayTarget.wired(7), true));
-    }
-
-    @Test
-    public void requestedWiredDisplayReturnsToMirror() {
-        assertTrue(DesktopSessionTransitionCoordinator
-                .shouldReturnTransportToMirror(
-                        DesktopDisplayTarget.wired(7).withActivationSource(
-                                DesktopDisplayTarget.ActivationSource
-                                        .MAGICDESK_REQUESTED),
-                        true));
-    }
-
-    @Test
-    public void managedWirelessDisplayReturnsToMirror() {
-        assertTrue(DesktopSessionTransitionCoordinator
-                .shouldReturnTransportToMirror(
-                        DesktopDisplayTarget.wireless(8), true));
-    }
-
-    @Test
-    public void unmanagedTransportNeverReturnsToMirror() {
-        assertFalse(DesktopSessionTransitionCoordinator
-                .shouldReturnTransportToMirror(
-                        DesktopDisplayTarget.wired(7).withActivationSource(
-                                DesktopDisplayTarget.ActivationSource
-                                        .MAGICDESK_REQUESTED),
-                        false));
-    }
-
-    @Test
-    public void adoptedDisplayReusesVisiblePhonePanel() {
+    public void visiblePhonePanelIsReused() {
         assertFalse(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
-                true, false, true));
-        assertTrue(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
-                true, false, false));
+                true, true));
     }
 
     @Test
-    public void managedDisplayRestoresPanelAfterModeTransition() {
+    public void missingPhonePanelIsRestoredWhenRequested() {
         assertTrue(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
-                true, true, true));
+                true, false));
+    }
+
+    @Test
+    public void phonePanelIsNotOpenedDuringFullExit() {
+        assertFalse(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
+                false, false));
     }
 }

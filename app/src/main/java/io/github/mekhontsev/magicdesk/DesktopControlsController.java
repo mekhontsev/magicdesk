@@ -151,7 +151,7 @@ final class DesktopControlsController {
                     DesktopUiFactory.COLOR_CYAN);
             mTouchpadAction.setOnClickListener(view -> {
                 mActivity.hideAllPanels();
-                ConsoleModeSwitcher.openTouchpad();
+                DesktopOperations.openTouchpad();
             });
             addActionButton(actionGrid, mTouchpadAction);
         }
@@ -257,7 +257,6 @@ final class DesktopControlsController {
         mActivity.taskbar().updateKeyboardLayout();
         mPointerSpeed.refresh();
 
-        final boolean consoleModeActive = isConsoleModeActive();
         final boolean externalDesktop =
                 DesktopScreenPolicy.isExternalDesktop(
                         mActivity.getCurrentDisplayId());
@@ -266,8 +265,7 @@ final class DesktopControlsController {
         final boolean externalDesktopSession =
                 DesktopScreenPolicy.isExternalDesktopSession(
                         mActivity.getCurrentDisplayId(),
-                        activeDesktopDisplayId,
-                        consoleModeActive);
+                        activeDesktopDisplayId);
         final DesktopDisplayTarget target =
                 DesktopRuntimeBridge.getDesktopTarget(
                         mActivity.getCurrentDisplayId());
@@ -326,8 +324,7 @@ final class DesktopControlsController {
         final boolean externalDesktopSession =
                 DesktopScreenPolicy.isExternalDesktopSession(
                         displayId,
-                        DesktopRuntimeBridge.getActiveDesktopDisplayId(),
-                        isConsoleModeActive());
+                        DesktopRuntimeBridge.getActiveDesktopDisplayId());
         if (!DesktopScreenPolicy.canControlPhoneScreen(
                 externalDesktopSession,
                 DesktopRuntimeBridge.getDesktopTarget(displayId),
@@ -341,7 +338,7 @@ final class DesktopControlsController {
             mPhoneScreenAction.setEnabled(false);
         }
         mActivity.setStatus(R.string.status_phone_screen_applying);
-        ConsoleModeSwitcher.setPhoneScreenOff(
+        DesktopOperations.setPhoneScreenOff(
                 screenOff,
                 success -> mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {
@@ -372,11 +369,6 @@ final class DesktopControlsController {
     private boolean isPhoneScreenOff() {
         return PlatformDrivers.current().phoneUi()
                 .isPhoneScreenOff(mActivity);
-    }
-
-    private boolean isConsoleModeActive() {
-        return PlatformDrivers.current().projection()
-                .activeDesktopDisplayId(mActivity) > 0;
     }
 
     private void registerBatteryReceiver() {
@@ -414,11 +406,6 @@ final class DesktopControlsController {
                 .observedSettingKeys()) {
             registerSetting(setting);
         }
-        for (final String setting : PlatformDrivers.current().projection()
-                .observedSettingKeys()) {
-            registerSetting(setting);
-        }
-
         mInputMethodSubtypeObserver = new ContentObserver(
                 new Handler(Looper.getMainLooper())) {
             @Override

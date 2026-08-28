@@ -76,8 +76,8 @@ leaving a separate `app_process` behind.
 
 ## Input Streams
 
-RedMagic routes physical input differently on its virtual desktop display.
-MagicDesk therefore uses two lifecycle-bound native helpers:
+MagicDesk uses two lifecycle-bound native helpers to associate physical input
+with the active Android desktop display and to implement global shortcuts:
 
 - `libmagicdesk_keyboard_bridge.so` forwards physical keyboard events through
   a virtual external keyboard associated with the active desktop display. It
@@ -90,7 +90,7 @@ MagicDesk therefore uses two lifecycle-bound native helpers:
 The UserService links each helper stream to an APK Binder owner. If the APK,
 UserService, or stream disappears, EOF or Binder death releases the physical
 devices and destroys the virtual device; idle helpers do not send keepalives.
-During a live RedMagic Console Mode session, input hot-plug updates the
+During a live RedMagic external desktop session, input hot-plug updates the
 physical source descriptors inside the existing helpers. Their virtual device
 identity remains stable, avoiding application configuration changes. A source
 is grabbed only after it reaches a neutral key/button state, so a wake sequence
@@ -128,7 +128,7 @@ Without that signal the firmware can freeze those processes while display 0 is
 off. Normal teardown clears the state, and the vendor service expires it after
 an abnormal stop.
 
-Physical power, MagicDesk's Wake action, switching to mirroring, display cable
+Physical power, MagicDesk's Wake action, display cable
 removal, APK shutdown, and Shizuku death all restore normal DisplayManager
 ownership. This is a fail-open guard, not a persistent screen policy.
 

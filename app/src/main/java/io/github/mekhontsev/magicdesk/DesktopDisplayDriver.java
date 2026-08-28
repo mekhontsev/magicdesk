@@ -2,7 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 
-/** Owns transport-specific lifecycle and policy for one display environment. */
+/** Owns lifecycle and policy for one desktop display environment. */
 interface DesktopDisplayDriver {
     DesktopDisplayTarget.Kind kind();
 

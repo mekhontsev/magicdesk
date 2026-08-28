@@ -11,7 +11,7 @@ final class SerializedDesktopOperationQueue {
                 @Override
                 public Thread newThread(final Runnable runnable) {
                     final Thread thread = new Thread(
-                            runnable, "MagicDeskConsoleSwitcher");
+                            runnable, "MagicDeskDesktopOps");
                     thread.setDaemon(true);
                     return thread;
                 }

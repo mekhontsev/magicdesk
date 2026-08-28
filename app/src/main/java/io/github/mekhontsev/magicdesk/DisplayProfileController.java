@@ -214,7 +214,7 @@ public final class DisplayProfileController {
 
     private static String readDisplayUniqueId(final int displayId) {
         try {
-            return ConsoleDisplayController.getDisplayUniqueId(displayId);
+            return ExternalDisplayController.getDisplayUniqueId(displayId);
         } catch (IOException | RuntimeException error) {
             Log.w(TAG, "Cannot read stable display id=" + displayId, error);
             return "";

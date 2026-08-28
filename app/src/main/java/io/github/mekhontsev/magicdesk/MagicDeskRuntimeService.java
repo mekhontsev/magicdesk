@@ -12,12 +12,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.database.ContentObserver;
 import android.graphics.Point;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.provider.Settings;
 import android.util.Log;
 
 public final class MagicDeskRuntimeService extends Service
@@ -45,7 +43,6 @@ public final class MagicDeskRuntimeService extends Service
     private DesktopSessionWakeLock mSessionWakeLock;
     private MagicDeskMcpRuntime mMcpRuntime;
     private BroadcastReceiver mConfigurationReceiver;
-    private ContentObserver mConsoleModeObserver;
     private volatile boolean mDestroyed;
     private boolean mInitialized;
     private String mOperationStatus;
@@ -407,19 +404,12 @@ public final class MagicDeskRuntimeService extends Service
         mDesktopSession = new RuntimeDesktopSessionCoordinator(
                 this,
                 mHandler,
-                mProjection,
                 displayId -> mDisplayCoordinator.hasDisplay(displayId),
                 new RuntimeDesktopSessionCoordinator.Listener() {
                     @Override
                     public void onOwnershipRefreshed(
                             final boolean changed) {
                         handleDesktopOwnershipRefreshed(changed);
-                    }
-
-                    @Override
-                    public void onConsoleModeChanged() {
-                        mDesktopInput.onConsoleModeChanged();
-                        updateDesktopTasks();
                     }
                 });
         mDesktopTaskRuntime = new RuntimeDesktopTaskCoordinator(
@@ -432,9 +422,6 @@ public final class MagicDeskRuntimeService extends Service
         mDisplayCoordinator.start();
         mDesktopInput.reconcileSoftwareKeyboardPolicy();
         registerConfigurationReceiver();
-        if (mProjection.observedSettingKeys().length > 0) {
-            registerConsoleModeObserver();
-        }
         if (ShellAccess.isReady()) {
             updatePlatformCaptionTarget();
         } else {
@@ -472,7 +459,7 @@ public final class MagicDeskRuntimeService extends Service
                 openPhoneControlPanel();
             } else if (ACTION_OPEN_TOUCHPAD.equals(intent.getAction())
                     && ShellAccess.isReady()) {
-                ConsoleModeSwitcher.openTouchpad();
+                DesktopOperations.openTouchpad();
             }
         }
         mDesktopInput.reconcileRuntime(desktopDisplayId());
@@ -486,7 +473,8 @@ public final class MagicDeskRuntimeService extends Service
             return;
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
-        final int displayId = mProjection.activeDesktopDisplayId(this);
+        final int displayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
         if (displayId > 0) {
             options.setLaunchDisplayId(displayId);
         }
@@ -508,10 +496,6 @@ public final class MagicDeskRuntimeService extends Service
         if (mConfigurationReceiver != null) {
             unregisterReceiver(mConfigurationReceiver);
             mConfigurationReceiver = null;
-        }
-        if (mConsoleModeObserver != null) {
-            getContentResolver().unregisterContentObserver(mConsoleModeObserver);
-            mConsoleModeObserver = null;
         }
         if (mHandler != null) {
             if (mDesktopSession != null) {
@@ -570,7 +554,7 @@ public final class MagicDeskRuntimeService extends Service
                     }
                 } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
                         && mPhoneUi.isPhoneScreenControlActive()) {
-                    ConsoleModeSwitcher.setPhoneScreenOff(false, null);
+                    DesktopOperations.setPhoneScreenOff(false, null);
                 }
             }
         };
@@ -578,23 +562,6 @@ public final class MagicDeskRuntimeService extends Service
                 new IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED);
         filter.addAction(Intent.ACTION_SCREEN_ON);
         registerReceiver(mConfigurationReceiver, filter);
-    }
-
-    private void registerConsoleModeObserver() {
-        mConsoleModeObserver = new ContentObserver(mHandler) {
-            @Override
-            public void onChange(final boolean selfChange) {
-                if (mDesktopSession != null) {
-                    mDesktopSession.handleConsoleStateMaybeChanged();
-                }
-            }
-        };
-        for (final String setting : mProjection.observedSettingKeys()) {
-            getContentResolver().registerContentObserver(
-                    Settings.Global.getUriFor(setting),
-                    false,
-                    mConsoleModeObserver);
-        }
     }
 
     private void handleShellStateChanged() {
@@ -605,9 +572,6 @@ public final class MagicDeskRuntimeService extends Service
         mDesktopInput.reconcileRuntime(desktopDisplayId());
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
-            if (mDesktopSession.ownsConsoleDesktop()) {
-                mPhoneUi.hideExternalAssistPanel();
-            }
             updatePlatformCaptionTarget();
             mPlatform.startRuntime(this);
             mDesktopSession.onShellReady();
@@ -629,11 +593,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         updateSessionWakeLock();
         Log.i(TAG, "ownsExternalDesktop=" + ownsExternalDesktop()
-                + " desktopDisplay=" + desktopDisplayId()
-                + " consoleDisplay=" + mDesktopSession.consoleDisplayId());
-        if (mDesktopSession.ownsConsoleDesktop()) {
-            mPhoneUi.hideExternalAssistPanel();
-        }
+                + " desktopDisplay=" + desktopDisplayId());
         if (ShellAccess.isReady()) {
             updatePlatformCaptionTarget();
         }
@@ -660,9 +620,8 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void updatePlatformCaptionTarget() {
-        ConsoleModeSwitcher.updateExternalTaskCaptionTarget(
-                desktopDisplayId(),
-                mDesktopSession.ownsConsoleDesktop());
+        DesktopOperations.updateExternalTaskCaptionTarget(
+                DesktopRuntimeBridge.getDesktopTarget(desktopDisplayId()));
     }
 
     private boolean ownsExternalDesktop() {

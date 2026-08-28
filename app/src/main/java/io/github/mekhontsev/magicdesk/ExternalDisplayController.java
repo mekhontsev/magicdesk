@@ -7,11 +7,11 @@ import java.io.IOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class ConsoleDisplayController {
+public final class ExternalDisplayController {
     static final long START_TIMEOUT_MS = 10_000L;
     static final long STATE_POLL_MS = 100L;
 
-    private static final String TAG = "MagicDeskConsoleDisplay";
+    private static final String TAG = "MagicDeskExternalDisplay";
     private static final String DISPLAY = "/system/bin/cmd display";
     private static final String WM = "/system/bin/wm";
     private static final long DENSITY_APPLY_TIMEOUT_MS = 2_000L;
@@ -22,7 +22,7 @@ public final class ConsoleDisplayController {
     private static final Pattern WM_DENSITY_PATTERN =
             Pattern.compile("Override density: (\\d+)");
 
-    private ConsoleDisplayController() {
+    private ExternalDisplayController() {
     }
 
     public static int findExternalDisplayId() {
@@ -86,7 +86,7 @@ public final class ConsoleDisplayController {
                 ? WM + " density reset -d " + displayId
                 : WM + " density " + dpi + " -d " + displayId;
         final String output = runCommand(command).trim();
-        Log.i(TAG, "prepared Console display density display=" + displayId
+        Log.i(TAG, "prepared external display density display=" + displayId
                 + " dpi=" + dpi + " output="
                 + output.replace('\n', ' '));
         final long deadline =
@@ -106,7 +106,7 @@ public final class ConsoleDisplayController {
                     BoundedStateAwaiter.Reason.DISPLAY_STATE,
                     STATE_POLL_MS);
         }
-        Log.w(TAG, "Console display density did not settle display="
+        Log.w(TAG, "External display density did not settle display="
                 + displayId + " dpi=" + dpi);
     }
 
@@ -122,7 +122,7 @@ public final class ConsoleDisplayController {
             height = Integer.parseInt(matcher.group(2));
         }
         if (width <= 0 || height <= 0) {
-            throw new IOException("could not read Console display size: "
+            throw new IOException("could not read external display size: "
                     + output.trim());
         }
         if (width < height) {
