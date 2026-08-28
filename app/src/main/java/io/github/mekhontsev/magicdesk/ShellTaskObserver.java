@@ -1363,7 +1363,12 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     && mConfiguredDisplayId > Display.DEFAULT_DISPLAY
                     && mPhoneUi.isTransientSecondaryHomeIntent(intent);
         }
-        if (suppressLocalHome) {
+        final boolean suppressInputPanel =
+                !mInputPanelGuard.allowActivityStart(intent, packageName);
+        if (suppressInputPanel) {
+            Log.i(TAG, "suppressed platform input panel while MagicDesk "
+                    + "input routing is active");
+        } else if (suppressLocalHome) {
             Log.i(TAG, "suppressed HOME fallback inside local desktop session");
         } else if (suppressCrashedPhoneLauncher) {
             Log.i(TAG, "suppressed HOME after phone launcher death");
@@ -1371,7 +1376,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             Log.i(TAG, "suppressed transient secondary HOME while phone "
                     + "touchpad is requested");
         }
-        return !suppressLocalHome
+        return !suppressInputPanel
+                && !suppressLocalHome
                 && !suppressCrashedPhoneLauncher
                 && !suppressExternalSecondaryHome;
     }

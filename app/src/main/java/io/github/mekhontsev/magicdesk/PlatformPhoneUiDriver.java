@@ -18,6 +18,12 @@ public interface PlatformPhoneUiDriver {
     interface TaskEventGuard extends AutoCloseable {
         void configure(int displayId);
 
+        default boolean allowActivityStart(
+                final Intent intent,
+                final String packageName) {
+            return true;
+        }
+
         void onTaskAppeared(int taskId, ComponentName componentName);
 
         void onTaskRemoved(int taskId);

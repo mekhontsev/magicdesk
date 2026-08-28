@@ -4,6 +4,7 @@ import io.github.mekhontsev.magicdesk.PlatformPhoneUiDriver;
 import io.github.mekhontsev.magicdesk.TaskControlCommand;
 
 import android.content.ComponentName;
+import android.content.Intent;
 import android.util.Log;
 
 /** Prevents Nubia's phone panel from replacing MagicDesk's active touchpad. */
@@ -35,6 +36,24 @@ final class NubiaMirrorInputPanelGuard
         if (!mEnabled) {
             mRemovingTaskId = -1;
         }
+    }
+
+    @Override
+    public boolean allowActivityStart(
+            final Intent intent,
+            final String packageName) {
+        if (intent == null || !PANEL_ACTIVITY.equals(intent.getComponent())) {
+            return true;
+        }
+        final boolean enabled;
+        synchronized (this) {
+            enabled = mEnabled && !mClosed;
+        }
+        if (!enabled || !mInputOwner.isActive()) {
+            return true;
+        }
+        Log.i(TAG, "suppressed automatic Nubia input panel start");
+        return false;
     }
 
     @Override

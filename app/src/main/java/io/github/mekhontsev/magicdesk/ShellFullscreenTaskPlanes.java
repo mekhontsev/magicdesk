@@ -33,7 +33,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private Object mReleaseParentToken;
     private int mNextPlaneSlotId;
     private boolean mConcealedForShowDesktop;
-    private boolean mPlaneFocusSuppressedForWorkspace;
 
     synchronized void configure(
             final int displayId,
@@ -307,7 +306,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             waitForTaskOutsidePlane(
                     service, displayId, taskId, planeFeatureId);
             releasePlane(service, taskId);
-            mPlaneFocusSuppressedForWorkspace = !mPlanes.isEmpty();
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not restore fullscreen plane task="
@@ -599,18 +597,20 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             }
             final boolean workspaceForeground = mixedOrder != null
                     && !mixedOrder.fullscreenForeground;
-            if (workspaceForeground) {
-                for (final TaskDisplayAreaHandle plane
-                        : effectivePlanes.values()) {
-                    windowing.setFocusable(
-                            transaction, plane.token(), false);
-                }
-            } else if (mPlaneFocusSuppressedForWorkspace) {
-                for (final TaskDisplayAreaHandle plane
-                        : effectivePlanes.values()) {
-                    windowing.setFocusable(
-                            transaction, plane.token(), true);
-                }
+            final int focusTargetTaskId = requestedTaskIds[
+                    requestedTaskIds.length - 1];
+            // Parent reordering alone updates focusedTask on Nubia's wired
+            // mirror but can leave FocusedApplication and InputDispatcher on
+            // the old sibling. Exactly one fullscreen plane participates in
+            // focus selection; covered planes remain visible and fullscreen.
+            for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
+                    : effectivePlanes.entrySet()) {
+                windowing.setFocusable(
+                        transaction,
+                        entry.getValue().token(),
+                        !workspaceForeground
+                                && entry.getKey().intValue()
+                                        == focusTargetTaskId);
             }
             if (forceEnteringFullscreen && !launchEnteringTask) {
                 final Object taskToken = HiddenTaskApi.requireTaskToken(
@@ -680,7 +680,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 setPlaneSurfacesVisible(true);
                 mConcealedForShowDesktop = false;
             }
-            mPlaneFocusSuppressedForWorkspace = workspaceForeground;
             // Keep the organizer leashes in the same mixed order as the WCT.
             // The explicit layers make plane swaps immediate; retaining the
             // workspace placeholders prevents either commit order from putting
@@ -1076,7 +1075,12 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             return;
         }
         windowing.reorder(transaction, fullscreenPlane.token(), true);
-        TaskWindowingCommand.addFocusTasksInManagedArea(
+        // The workspace tasks are already live children of the overlay area.
+        // Starting one again from the same WCT makes Nubia's wired mirror
+        // remove the organizer TDA and migrate the desktop hierarchy to the
+        // phone. With fullscreen planes made non-focusable above, reordering
+        // the existing children is sufficient for ATMS to select the target.
+        TaskWindowingCommand.addReorderTasksInManagedArea(
                 service,
                 displayId,
                 order.freeformTaskIds,
@@ -1284,7 +1288,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 transaction);
         ShellWindowTransitionExecutor.applyAtomic(
                 service, transactionClass, transaction);
-        mPlaneFocusSuppressedForWorkspace = !mPlanes.isEmpty();
         applySurfaceOrderBelowWorkspace(mPlaneOrder, mPlanes);
         Log.i(TAG, "fullscreen planes display=" + displayId
                 + " tasks=" + mPlanes.keySet()
@@ -1472,7 +1475,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         mService = null;
         mNextPlaneSlotId = 0;
         mConcealedForShowDesktop = false;
-        mPlaneFocusSuppressedForWorkspace = false;
     }
 
 

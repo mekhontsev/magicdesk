@@ -427,6 +427,13 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 synchronized (mPendingLock) {
                     mMissingWindowRepairTaskId = -1;
                 }
+            } else {
+                final String inputState =
+                        FrameworkInputSnapshotSource.readLocal();
+                Log.w(TAG, "desktop focus convergence expired display="
+                        + displayId + " task=" + taskId + "; "
+                        + TaskInputWindowParser.describeFocus(
+                                inputState, displayId));
             }
             return converged;
         } catch (IOException | ReflectiveOperationException
