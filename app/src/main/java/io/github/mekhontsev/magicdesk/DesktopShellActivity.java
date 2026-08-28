@@ -609,7 +609,12 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void refreshDesktopInputFocus() {
+        refreshDesktopInputFocus(null);
+    }
+
+    void refreshDesktopInputFocus(final Runnable completion) {
         if (mDesktopWindowFocusable || isActivityUnavailable()) {
+            runIfPresent(completion);
             return;
         }
         final Window window = getWindow();
@@ -623,13 +628,26 @@ public abstract class DesktopShellActivity extends Activity
                     if (generation != mInputFocusRefreshGeneration
                             || isActivityUnavailable()
                             || mDesktopWindowFocusable) {
+                        runIfPresent(completion);
                         return;
                     }
                     window.addFlags(
                             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+                    // Completion describes the final non-focusable host
+                    // relayout, not merely submission of its LayoutParams.
+                    decor.getViewTreeObserver().registerFrameCommitCallback(
+                            () -> decor.post(() ->
+                                    runIfPresent(completion)));
+                    decor.invalidate();
                 }));
         window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
         decor.invalidate();
+    }
+
+    private static void runIfPresent(final Runnable action) {
+        if (action != null) {
+            action.run();
+        }
     }
 
     boolean isDesktopHostReady() {

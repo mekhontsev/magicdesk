@@ -86,6 +86,19 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, sequence, displayId, taskIds));
     }
 
+    void executeWorkspaceCommand(
+            final long sequence,
+            final DesktopWorkspaceCommand command) throws IOException {
+        callService(() -> mService.executeDesktopWorkspaceCommand(
+                mCallback, sequence, command));
+    }
+
+    void notifyInputFocusRefreshComplete(final int taskId)
+            throws IOException {
+        callService(() -> mService.notifyDesktopInputFocusRefreshComplete(
+                mCallback, taskId));
+    }
+
     boolean concealFullscreenTaskPlanes(final int displayId)
             throws IOException {
         return callServiceForResult(() ->

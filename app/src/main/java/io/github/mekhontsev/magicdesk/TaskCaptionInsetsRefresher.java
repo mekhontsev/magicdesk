@@ -6,10 +6,8 @@ import android.os.Binder;
 import android.os.IBinder;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -107,16 +105,11 @@ final class TaskCaptionInsetsRefresher {
             final int sourceId) throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        refresh(service, transactionClass, tokenClass, taskToken, sourceId);
+        refresh(service, taskToken, sourceId);
     }
 
-    static void refresh(final Object service,
-            final Class<?> transactionClass,
-            final Class<?> tokenClass,
+    static void refresh(
+            final Object service,
             final Object taskToken,
             final int sourceId) throws ReflectiveOperationException {
         if (sourceId == TaskLocalInsetsSourceParser.NO_SOURCE_ID) {
@@ -124,40 +117,20 @@ final class TaskCaptionInsetsRefresher {
         }
         final int captionType = TaskCaptionInsetsCommand.getCaptionBarType();
         final IBinder owner = new Binder();
+        final FrameworkRuntime framework = FrameworkRuntime.current();
+        final FrameworkWindowingApi windowing = framework.windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
 
-        final Object add = transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod(
-                "addInsetsSource", tokenClass, IBinder.class,
-                Integer.TYPE, Integer.TYPE, Rect.class, Rect[].class,
-                Integer.TYPE)
-                .invoke(add, taskToken, owner, Integer.valueOf(0),
-                        Integer.valueOf(captionType), new Rect(), null,
-                        Integer.valueOf(0));
-        setLastProviderId(transactionClass, add, sourceId);
+        final Object add = windowing.newTransaction();
+        framework.windowingCompat().addEmptyCaptionSource(
+                add, taskToken, owner, captionType, new Rect(), sourceId);
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, add);
 
-        final Object remove = transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod(
-                "removeInsetsSource", tokenClass, IBinder.class,
-                Integer.TYPE, Integer.TYPE)
-                .invoke(remove, taskToken, owner, Integer.valueOf(0),
-                        Integer.valueOf(captionType));
-        setLastProviderId(transactionClass, remove, sourceId);
+        final Object remove = windowing.newTransaction();
+        framework.windowingCompat().removeCaptionSource(
+                remove, taskToken, owner, captionType, sourceId);
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, remove);
-    }
-
-    private static void setLastProviderId(final Class<?> transactionClass,
-            final Object transaction, final int sourceId)
-            throws ReflectiveOperationException {
-        final List<?> operations = (List<?>) transactionClass
-                .getMethod("getHierarchyOps").invoke(transaction);
-        final Object operation = operations.get(operations.size() - 1);
-        final Object provider = operation.getClass()
-                .getMethod("getInsetsFrameProvider").invoke(operation);
-        final Field id = provider.getClass().getDeclaredField("mId");
-        id.setAccessible(true);
-        id.setInt(provider, sourceId);
     }
 }

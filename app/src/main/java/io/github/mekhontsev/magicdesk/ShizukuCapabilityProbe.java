@@ -77,6 +77,7 @@ public final class ShizukuCapabilityProbe {
         appendInputControlAccess(report);
         appendInputMonitor(report);
         appendTaskAccess(report);
+        appendFrameworkWindowing(report);
         AppFunctionCapabilityProbe.append(report, context);
         SocDisplayModeBackends.appendCapabilityProbe(report);
         PlatformDrivers.current().diagnostics()
@@ -310,6 +311,81 @@ public final class ShizukuCapabilityProbe {
                 }
             }
         }
+    }
+
+    private static void appendFrameworkWindowing(
+            final StringBuilder report) {
+        final FrameworkWindowingCompat.Capabilities capabilities =
+                FrameworkRuntime.current().capabilities();
+        append(report,
+                "framework.windowing_profile",
+                capabilities.profile,
+                capabilities.profile.equals("automatic")
+                        ? "runtime capability detection"
+                        : "debug emulation override");
+        append(report,
+                "framework.task_requested_visible_types",
+                capabilities.requestedVisibleTypesEnabled
+                        ? "available" : "unavailable",
+                capabilities.requestedVisibleTypesDetected
+                        ? (capabilities.requestedVisibleTypesEnabled
+                                ? "TaskInfo field detected"
+                                : "detected but disabled by test profile")
+                        : "TaskInfo field absent");
+        append(report,
+                "framework.caption_inset_exclusion",
+                capabilities.captionStrategy(),
+                capabilities.captionExclusionDetected
+                        ? (capabilities.captionExclusionEnabled
+                                ? "native WCT operation"
+                                : "native operation disabled by test profile")
+                        : "native WCT operation absent");
+        append(report,
+                "framework.caption_source_api",
+                capabilities.insetsSourceApi,
+                "runtime WindowContainerTransaction signature");
+        final FrameworkWindowingCompat.TaskObservationCapabilities
+                observation = capabilities.taskObservation;
+        append(report,
+                "framework.task_observation",
+                observation.strategy,
+                "framework callbacks plus bounded snapshot reconciliation");
+        append(report,
+                "framework.task_observation_interval_ms",
+                Long.toString(observation.fallbackIntervalMillis),
+                "active desktop sessions only");
+        append(report,
+                "framework.task_observation_limit",
+                Integer.toString(observation.taskLimit),
+                "maximum tasks per selected-display snapshot");
+        append(report,
+                "framework.task_lifecycle",
+                observation.lifecycle.label,
+                "TaskStackListener with sampled reconciliation");
+        append(report,
+                "framework.task_stack",
+                observation.stack.label,
+                "callbacks with sampled organizer-child reconciliation");
+        append(report,
+                "framework.window_geometry",
+                observation.windowGeometry.label,
+                "windowing mode and freeform bounds");
+        append(report,
+                "framework.immersive_request",
+                observation.immersiveRequest.label,
+                observation.immersiveRequest
+                                == FrameworkWindowingCompat
+                                        .ObservationProvenance.UNAVAILABLE
+                        ? "TaskInfo requested visible types unavailable"
+                        : "TaskInfo requested visible types");
+        append(report,
+                "framework.caption_source",
+                observation.captionSource.label,
+                observation.captionSource
+                                == FrameworkWindowingCompat
+                                        .ObservationProvenance.UNAVAILABLE
+                        ? "local task InsetsSource API unavailable"
+                        : "sampled when platform caption repair is required");
     }
 
     public static void appendMethodPresence(

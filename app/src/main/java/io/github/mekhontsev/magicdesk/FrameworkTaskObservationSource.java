@@ -1,16 +1,13 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityManager;
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.pm.ActivityInfo;
 import android.graphics.Rect;
 import android.util.Log;
 import android.view.WindowInsets;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -18,14 +15,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-final class ShellTaskStateMonitor implements Closeable {
+/**
+ * Central hybrid source for framework task observations unavailable through a
+ * complete callback API.
+ */
+final class FrameworkTaskObservationSource implements Closeable {
     private static final String TAG = "MagicDeskTasks";
 
     interface Listener {
         void onTasksSampled(
                 int displayId,
                 List<?> tasks,
-                List<TaskWindowState> windowStates);
+                List<FrameworkTaskSnapshot> taskSnapshots);
         void onTaskStackChanged();
         void onImmersiveRequest(
                 int taskId, boolean requesting, boolean initialSample,
@@ -45,65 +46,13 @@ final class ShellTaskStateMonitor implements Closeable {
         void onError(String error);
     }
 
-    static final class TaskWindowState {
-        final Object task;
-        final int taskId;
-        final boolean visible;
-        final boolean focused;
-        final int requestedVisibleTypes;
-        final int windowingMode;
-        final int activityType;
-        final ComponentName rootComponent;
-        final ComponentName topComponent;
-        final String packageName;
-        final String topPackage;
-        final Rect bounds;
-
-        TaskWindowState(
-                final Object rawTask,
-                final int observedTaskId,
-                final boolean observedVisible,
-                final boolean observedFocused,
-                final int observedVisibleTypes,
-                final int observedWindowingMode,
-                final int observedActivityType,
-                final ComponentName observedRootComponent,
-                final ComponentName observedTopComponent,
-                final String observedPackageName,
-                final String observedTopPackage,
-                final Rect observedBounds) {
-            task = rawTask;
-            taskId = observedTaskId;
-            visible = observedVisible;
-            focused = observedFocused;
-            requestedVisibleTypes = observedVisibleTypes;
-            windowingMode = observedWindowingMode;
-            activityType = observedActivityType;
-            rootComponent = observedRootComponent;
-            topComponent = observedTopComponent;
-            packageName = observedPackageName;
-            topPackage = observedTopPackage;
-            bounds = new Rect(observedBounds);
-        }
-
-        boolean requestingImmersive() {
-            return isRequestingImmersive(requestedVisibleTypes);
-        }
-    }
-
-    // Nubia can change organizer-child focus/Z-order without a matching
-    // TaskStackListener callback. This shared TaskInfo sample lets the UI
-    // hide the taskbar when a fullscreen plane covers nominally visible
-    // freeform tasks within 150 ms. Stack reconciliation only compares the
-    // in-memory sample; it does not add another poll or shell command.
-    private static final long POLL_INTERVAL_MILLIS = 150;
-    private static final int MAX_TASKS_TO_SCAN = 16;
     private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private final Object mService;
+    private final FrameworkWindowingCompat mFrameworkCompat;
+    private final FrameworkWindowingCompat.TaskObservationCapabilities
+            mCapabilities;
     private final ActivityManager mActivityManager;
-    private final Field mTopActivityInfo;
-    private final Field mRequestedVisibleTypes;
     private final Listener mListener;
     private final boolean mRefreshCaptionAfterNativeFullscreen;
     private final Object mLock = new Object();
@@ -126,7 +75,7 @@ final class ShellTaskStateMonitor implements Closeable {
     private Rect mDisplayBounds = new Rect();
     private Rect mWorkAreaBounds = new Rect();
 
-    ShellTaskStateMonitor(
+    FrameworkTaskObservationSource(
             final Context context,
             final Object service,
             final boolean refreshCaptionAfterNativeFullscreen,
@@ -135,17 +84,19 @@ final class ShellTaskStateMonitor implements Closeable {
             throw new IllegalArgumentException("missing task observer context");
         }
         mService = service;
+        mFrameworkCompat = FrameworkRuntime.current().windowingCompat();
+        mCapabilities = mFrameworkCompat.capabilities().taskObservation;
         mActivityManager = context.getSystemService(ActivityManager.class);
         if (mActivityManager == null) {
             throw new IllegalStateException("activity manager unavailable");
         }
         mListener = listener;
         mRefreshCaptionAfterNativeFullscreen =
-                refreshCaptionAfterNativeFullscreen;
-        final Class<?> taskInfo = Class.forName("android.app.TaskInfo");
-        mTopActivityInfo = taskInfo.getField("topActivityInfo");
-        mRequestedVisibleTypes = taskInfo.getField("requestedVisibleTypes");
-        mThread = new Thread(this::run, "MagicDeskTaskStateMonitor");
+                refreshCaptionAfterNativeFullscreen
+                        && mCapabilities.captionSource
+                                != FrameworkWindowingCompat
+                                        .ObservationProvenance.UNAVAILABLE;
+        mThread = new Thread(this::run, "MagicDeskFrameworkTasks");
         mThread.setDaemon(true);
     }
 
@@ -167,7 +118,8 @@ final class ShellTaskStateMonitor implements Closeable {
         }
         synchronized (mLock) {
             if (mClosed) {
-                throw new IllegalStateException("task state monitor is closed");
+                throw new IllegalStateException(
+                        "framework task observation source is closed");
             }
             if (mDisplayId == displayId
                     && mDisplayBounds.equals(displayBounds)
@@ -252,7 +204,10 @@ final class ShellTaskStateMonitor implements Closeable {
                 while (!mClosed
                         && (mDisplayId < 0 || mDisplayBounds.isEmpty())) {
                     try {
-                        mLock.wait();
+                        EventDrivenWaits.await(
+                                mLock,
+                                EventDrivenWaits.Reason
+                                        .FRAMEWORK_OBSERVER_ACTIVATION);
                     } catch (InterruptedException error) {
                         Thread.currentThread().interrupt();
                         return;
@@ -267,14 +222,20 @@ final class ShellTaskStateMonitor implements Closeable {
                 sampleGeneration = mSampleGeneration;
             }
             try {
-                final List<?> tasks = loadTasks(displayId);
-                final List<TaskWindowState> windowStates =
-                        readWindowStates(tasks);
+                final FrameworkTaskSnapshotSource.Sample sample =
+                        FrameworkTaskSnapshotSource.read(
+                                mService,
+                                displayId,
+                                mCapabilities.taskLimit,
+                                mFrameworkCompat);
+                final List<?> tasks = sample.rawTasks;
+                final List<FrameworkTaskSnapshot> taskSnapshots =
+                        sample.snapshots;
                 mListener.onTasksSampled(
-                        displayId, tasks, windowStates);
-                publishTaskStackChanges(displayId, windowStates);
-                publishWindowChanges(displayId, windowStates);
-                publishImmersiveChanges(displayId, windowStates);
+                        displayId, tasks, taskSnapshots);
+                publishTaskStackChanges(displayId, taskSnapshots);
+                publishWindowChanges(displayId, taskSnapshots);
+                publishImmersiveChanges(displayId, taskSnapshots);
                 failureReported = false;
             } catch (ReflectiveOperationException | RuntimeException error) {
                 if (!failureReported) {
@@ -289,7 +250,11 @@ final class ShellTaskStateMonitor implements Closeable {
                         && workAreaBounds.equals(mWorkAreaBounds)
                         && sampleGeneration == mSampleGeneration) {
                     try {
-                        mLock.wait(POLL_INTERVAL_MILLIS);
+                        EventDrivenWaits.await(
+                                mLock,
+                                EventDrivenWaits.Reason
+                                        .FRAMEWORK_OBSERVER_RESAMPLE,
+                                mCapabilities.fallbackIntervalMillis);
                     } catch (InterruptedException error) {
                         Thread.currentThread().interrupt();
                         return;
@@ -299,68 +264,9 @@ final class ShellTaskStateMonitor implements Closeable {
         }
     }
 
-    private List<?> loadTasks(final int displayId)
-            throws ReflectiveOperationException {
-        return HiddenTaskApi.getTasks(
-                mService, displayId, MAX_TASKS_TO_SCAN);
-    }
-
-    private List<TaskWindowState> readWindowStates(final List<?> tasks)
-            throws ReflectiveOperationException {
-        final List<TaskWindowState> states = new ArrayList<>();
-        if (tasks == null) {
-            return states;
-        }
-        for (final Object task : tasks) {
-            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
-            final boolean visible =
-                    HiddenTaskApi.getBooleanField(task, "isVisible");
-            final boolean focused =
-                    HiddenTaskApi.getBooleanField(task, "isFocused");
-            final int requestedVisibleTypes = visible
-                    ? mRequestedVisibleTypes.getInt(task) : 0;
-            final int windowingMode =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode");
-            final int activityType =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getActivityType");
-            final Object windowConfiguration =
-                    HiddenTaskApi.getWindowConfiguration(task);
-            final Rect bounds = (Rect) windowConfiguration.getClass()
-                    .getMethod("getBounds")
-                    .invoke(windowConfiguration);
-            final ComponentName rootComponent =
-                    HiddenTaskApi.getTaskComponent(task);
-            final ComponentName topComponent =
-                    HiddenTaskApi.getTaskTopComponent(task);
-            final String packageName = rootComponent == null
-                    ? null : rootComponent.getPackageName();
-            final Object topActivityInfo = mTopActivityInfo.get(task);
-            final String topPackage = topActivityInfo instanceof ActivityInfo
-                    ? ((ActivityInfo) topActivityInfo).packageName
-                    : topComponent == null
-                            ? null : topComponent.getPackageName();
-            states.add(new TaskWindowState(
-                    task,
-                    taskId,
-                    visible,
-                    focused,
-                    requestedVisibleTypes,
-                    windowingMode,
-                    activityType,
-                    rootComponent,
-                    topComponent,
-                    packageName,
-                    topPackage,
-                    bounds));
-        }
-        return states;
-    }
-
     private void publishTaskStackChanges(
             final int displayId,
-            final List<TaskWindowState> states) {
+            final List<FrameworkTaskSnapshot> states) {
         final List<Long> fingerprint = taskStackFingerprint(states);
         final boolean changed;
         synchronized (mLock) {
@@ -380,12 +286,12 @@ final class ShellTaskStateMonitor implements Closeable {
     }
 
     static List<Long> taskStackFingerprint(
-            final List<TaskWindowState> states) {
+            final List<FrameworkTaskSnapshot> states) {
         final List<Long> fingerprint = new ArrayList<>();
         if (states == null) {
             return fingerprint;
         }
-        for (final TaskWindowState state : states) {
+        for (final FrameworkTaskSnapshot state : states) {
             if (state == null) {
                 continue;
             }
@@ -405,7 +311,7 @@ final class ShellTaskStateMonitor implements Closeable {
 
     private void publishImmersiveChanges(
             final int displayId,
-            final List<TaskWindowState> states)
+            final List<FrameworkTaskSnapshot> states)
             throws ReflectiveOperationException {
         if (states == null) {
             return;
@@ -415,19 +321,24 @@ final class ShellTaskStateMonitor implements Closeable {
         final Map<Integer, Integer> processIdsByTask = new HashMap<>();
         final Map<Integer, Boolean> focusedByTask = new HashMap<>();
         final Map<ProcessIdentity, Integer> runningProcesses =
-                loadRunningProcesses();
-        for (final TaskWindowState state : states) {
+                mCapabilities.immersiveRequest
+                        != FrameworkWindowingCompat.ObservationProvenance
+                                .UNAVAILABLE
+                        ? loadRunningProcesses()
+                        : new HashMap<>();
+        for (final FrameworkTaskSnapshot state : states) {
             final Integer taskId = Integer.valueOf(state.taskId);
             liveTaskIds.add(taskId);
             if (!state.visible) {
                 continue;
             }
-            visibleTypesByTask.put(
-                    taskId,
-                    Integer.valueOf(state.requestedVisibleTypes));
+            if (state.requestedVisibleTypes == null) {
+                continue;
+            }
+            visibleTypesByTask.put(taskId, state.requestedVisibleTypes);
             focusedByTask.put(taskId, Boolean.valueOf(state.focused));
             final Integer processId = findProcessId(
-                    state.task, runningProcesses);
+                    state, runningProcesses);
             if (processId != null) {
                 processIdsByTask.put(taskId, processId);
             }
@@ -485,7 +396,7 @@ final class ShellTaskStateMonitor implements Closeable {
                 if (!foreground && !inputStateRead) {
                     inputStateRead = true;
                     try {
-                        inputState = InputStateDump.read();
+                        inputState = FrameworkInputSnapshotSource.readLocal();
                     } catch (IOException error) {
                         Log.w(TAG, "could not inspect immersive input focus",
                                 error);
@@ -535,32 +446,27 @@ final class ShellTaskStateMonitor implements Closeable {
     }
 
     private Integer findProcessId(
-            final Object task,
-            final Map<ProcessIdentity, Integer> runningProcesses)
-            throws IllegalAccessException {
-        final Object value = mTopActivityInfo.get(task);
-        if (!(value instanceof ActivityInfo)) {
-            return null;
-        }
-        final ActivityInfo activity = (ActivityInfo) value;
-        if (activity.applicationInfo == null || activity.processName == null) {
+            final FrameworkTaskSnapshot task,
+            final Map<ProcessIdentity, Integer> runningProcesses) {
+        if (task.topUid < 0 || task.topProcessName == null
+                || task.topProcessName.isEmpty()) {
             return null;
         }
         return runningProcesses.get(new ProcessIdentity(
-                activity.applicationInfo.uid,
-                activity.processName));
+                task.topUid,
+                task.topProcessName));
     }
 
     private void publishWindowChanges(
             final int displayId,
-            final List<TaskWindowState> states) {
+            final List<FrameworkTaskSnapshot> states) {
         final Set<Integer> liveTaskIds = new HashSet<>();
         final Set<Integer> visibleTaskIds = new HashSet<>();
         final Set<String> observedStateKeys = new HashSet<>();
         final Map<Integer, Integer> windowingModes = new HashMap<>();
         final Map<Integer, FreeformBoundsState> freeformBounds =
                 new HashMap<>();
-        for (final TaskWindowState state : states) {
+        for (final FrameworkTaskSnapshot state : states) {
             if (state.activityType != ACTIVITY_TYPE_STANDARD
                     || !PackageNameValidator.isSafe(state.packageName)
                     || (state.topPackage != null
@@ -696,15 +602,15 @@ final class ShellTaskStateMonitor implements Closeable {
         }
     }
 
-    private static boolean isRequestingImmersive(
+    static boolean isRequestingImmersive(
             final int requestedVisibleTypes) {
         return (requestedVisibleTypes & WindowInsets.Type.statusBars()) == 0;
     }
 
     private static boolean findFocusedState(
-            final List<TaskWindowState> states,
+            final List<FrameworkTaskSnapshot> states,
             final int taskId) {
-        for (final TaskWindowState state : states) {
+        for (final FrameworkTaskSnapshot state : states) {
             if (state.taskId == taskId) {
                 return state.focused;
             }

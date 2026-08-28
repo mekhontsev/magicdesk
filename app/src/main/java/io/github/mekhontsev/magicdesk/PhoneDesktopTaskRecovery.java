@@ -61,6 +61,16 @@ final class PhoneDesktopTaskRecovery {
                         ? "I/O error" : error.getMessage());
             }
         }
+
+        @Override
+        public TaskReadResult readTasks() {
+            try {
+                return TaskReadResult.success(indexPhoneTasks(
+                        ShellAccess.readTaskSnapshots(-1, 200)));
+            } catch (IOException error) {
+                return TaskReadResult.failure(usefulMessage(error));
+            }
+        }
     };
 
     private PhoneDesktopTaskRecovery() {
@@ -173,8 +183,7 @@ final class PhoneDesktopTaskRecovery {
         if (cancelled(continuation)) {
             return Result.cancelled();
         }
-        final CommandResult stack = runRead(
-                CMD + " activity stack list", continuation, environment);
+        final TaskReadResult stack = readTasks(continuation, environment);
         if (stack.cancelled) {
             return Result.cancelled();
         }
@@ -191,7 +200,7 @@ final class PhoneDesktopTaskRecovery {
         }
         final boolean removedDisplaySettled = removedDisplayId <= 0
                 || removedDisplayTransitionSettled(
-                        stack.output,
+                        stack.tasks,
                         repository.output,
                         removedDisplayId);
         if (!removedDisplaySettled && !allowUnsettledRemoval) {
@@ -199,7 +208,7 @@ final class PhoneDesktopTaskRecovery {
                     "waiting for tasks from removed display "
                             + removedDisplayId);
         }
-        Map<Integer, PhoneTask> liveTasks = indexPhoneTasks(stack.output);
+        Map<Integer, PhoneTask> liveTasks = stack.tasks;
         final Set<Integer> unavailableRemovedTaskIds = new LinkedHashSet<>();
         if (!removedDisplaySettled) {
             unavailableRemovedTaskIds.addAll(
@@ -252,17 +261,15 @@ final class PhoneDesktopTaskRecovery {
                         continuation,
                         environment);
             } else {
-                final CommandResult currentStack = runRead(
-                        CMD + " activity stack list",
-                        continuation,
-                        environment);
+                final TaskReadResult currentStack = readTasks(
+                        continuation, environment);
                 if (currentStack.cancelled) {
                     return Result.cancelled();
                 }
                 if (!currentStack.success) {
                     return Result.failure(currentStack.output.trim());
                 }
-                liveTasks = indexPhoneTasks(currentStack.output);
+                liveTasks = currentStack.tasks;
             }
             unavailableRemovedTaskIds.removeAll(liveTasks.keySet());
         }
@@ -366,8 +373,8 @@ final class PhoneDesktopTaskRecovery {
         }
 
         for (int attempt = 0; attempt < 20; attempt++) {
-            final CommandResult currentStack = runRead(
-                    CMD + " activity stack list", continuation, environment);
+            final TaskReadResult currentStack = readTasks(
+                    continuation, environment);
             final CommandResult currentRepository = runRead(
                     repositoryDumpCommand(), continuation, environment);
             if (currentStack.cancelled || currentRepository.cancelled) {
@@ -382,7 +389,7 @@ final class PhoneDesktopTaskRecovery {
                     SystemUiDesktopRepositoryParser.parseTaskIds(
                             currentRepository.output, 0));
             final Map<Integer, PhoneTask> currentTasks =
-                    indexPhoneTasks(currentStack.output);
+                    currentStack.tasks;
             excludeNonRecoverableTasks(remaining, currentTasks);
             final Set<Integer> unavailablePhoneTaskIdsNow =
                     new LinkedHashSet<>(remaining);
@@ -417,12 +424,14 @@ final class PhoneDesktopTaskRecovery {
                                 + removedDisplayId + ": "
                                 + unavailableRemovedTaskIdsNow);
             }
-            if (!sleepForStatePoll(continuation)) {
+            if (cancelled(continuation)) {
                 return cancelled(continuation)
                         ? Result.cancelled()
                         : Result.failure(
                                 "phone desktop recovery interrupted");
             }
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_WINDOWING_MODE, 100L);
         }
         return Result.failure("SystemUI still retains phone desktop tasks");
     }
@@ -441,6 +450,14 @@ final class PhoneDesktopTaskRecovery {
             final Continuation continuation,
             final Environment environment) {
         return runRead(command, continuation, environment);
+    }
+
+    private static TaskReadResult readTasks(
+            final Continuation continuation,
+            final Environment environment) {
+        return cancelled(continuation)
+                ? TaskReadResult.cancelled()
+                : environment.readTasks();
     }
 
     private static String createReviveCommand(final Set<Integer> taskIds) {
@@ -464,21 +481,15 @@ final class PhoneDesktopTaskRecovery {
             final Continuation continuation,
             final Environment environment) {
         Map<Integer, PhoneTask> tasks = Collections.emptyMap();
-        for (int attempt = 0; attempt < 20; attempt++) {
-            final CommandResult stack = runRead(
-                    CMD + " activity stack list", continuation, environment);
-            if (!stack.success) {
-                return tasks;
-            }
-            tasks = indexPhoneTasks(stack.output);
-            if (tasks.keySet().containsAll(taskIds)) {
-                return tasks;
-            }
-            if (!sleepForStatePoll(continuation)) {
-                return tasks;
-            }
-        }
-        return tasks;
+        final TaskReadResult result = BoundedStateAwaiter.awaitUnchecked(
+                BoundedStateAwaiter.Reason.TASK_APPEARANCE,
+                2_000L,
+                100L,
+                () -> readTasks(continuation, environment),
+                current -> current.cancelled
+                        || !current.success
+                        || current.tasks.keySet().containsAll(taskIds));
+        return result == null ? tasks : result.tasks;
     }
 
     private static boolean waitForTaskMode(
@@ -486,37 +497,19 @@ final class PhoneDesktopTaskRecovery {
             final boolean freeform,
             final Continuation continuation,
             final Environment environment) {
-        for (int attempt = 0; attempt < 30; attempt++) {
-            final CommandResult stack = runRead(
-                    CMD + " activity stack list", continuation, environment);
-            if (!stack.success) {
-                return false;
-            }
-            final PhoneTask task = indexPhoneTasks(stack.output).get(
-                    Integer.valueOf(taskId));
-            if (task != null
-                    && (freeform ? task.freeform : task.fullscreen)) {
-                return true;
-            }
-            if (!sleepForStatePoll(continuation)) {
-                return false;
-            }
-        }
-        return false;
-    }
-
-    private static boolean sleepForStatePoll(
-            final Continuation continuation) {
-        if (cancelled(continuation)) {
-            return false;
-        }
-        try {
-            Thread.sleep(100L);
-            return !cancelled(continuation);
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
+        final TaskReadResult result = BoundedStateAwaiter.awaitUnchecked(
+                BoundedStateAwaiter.Reason.TASK_WINDOWING_MODE,
+                3_000L,
+                100L,
+                () -> readTasks(continuation, environment),
+                current -> current.cancelled
+                        || !current.success
+                        || matchesMode(current.tasks.get(
+                                Integer.valueOf(taskId)), freeform));
+        return result != null
+                && result.success
+                && matchesMode(
+                        result.tasks.get(Integer.valueOf(taskId)), freeform);
     }
 
     private static Map<Integer, PhoneTask> indexPhoneTasks(
@@ -540,6 +533,35 @@ final class PhoneDesktopTaskRecovery {
         return result;
     }
 
+    private static Map<Integer, PhoneTask> indexPhoneTasks(
+            final FrameworkTaskSnapshot[] snapshots) {
+        final Map<Integer, PhoneTask> result = new LinkedHashMap<>();
+        if (snapshots == null) {
+            return result;
+        }
+        for (final FrameworkTaskSnapshot task : snapshots) {
+            if (task == null || task.displayId != 0) {
+                continue;
+            }
+            result.put(Integer.valueOf(task.taskId), new PhoneTask(
+                    task.taskId,
+                    task.packageName,
+                    task.componentName,
+                    task.isHome(),
+                    task.windowingMode
+                            == FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM,
+                    task.windowingMode
+                            == FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN));
+        }
+        return result;
+    }
+
+    private static boolean matchesMode(
+            final PhoneTask task,
+            final boolean freeform) {
+        return task != null && (freeform ? task.freeform : task.fullscreen);
+    }
+
     static boolean removedDisplayTransitionSettled(
             final String stackOutput,
             final String repositoryOutput,
@@ -553,6 +575,17 @@ final class PhoneDesktopTaskRecovery {
         final Set<Integer> phoneTaskIds =
                 indexPhoneTasks(stackOutput).keySet();
         return phoneTaskIds.containsAll(removedTaskIds);
+    }
+
+    private static boolean removedDisplayTransitionSettled(
+            final Map<Integer, PhoneTask> phoneTasks,
+            final String repositoryOutput,
+            final int removedDisplayId) {
+        final Set<Integer> removedTaskIds =
+                SystemUiDesktopRepositoryParser.parseTaskIds(
+                        repositoryOutput, removedDisplayId);
+        return removedTaskIds.isEmpty()
+                || phoneTasks.keySet().containsAll(removedTaskIds);
     }
 
     private static void excludeNonRecoverableTasks(
@@ -636,6 +669,51 @@ final class PhoneDesktopTaskRecovery {
         boolean isReady();
 
         CommandResult run(String command);
+
+        TaskReadResult readTasks();
+    }
+
+    static TaskReadResult readTextTaskFixtureForTest(
+            final CommandResult command) {
+        return command.cancelled
+                ? TaskReadResult.cancelled()
+                : command.success
+                        ? TaskReadResult.success(indexPhoneTasks(command.output))
+                        : TaskReadResult.failure(command.output);
+    }
+
+    static final class TaskReadResult {
+        final boolean success;
+        final boolean cancelled;
+        final String output;
+        final Map<Integer, PhoneTask> tasks;
+
+        private TaskReadResult(
+                final boolean success,
+                final boolean cancelled,
+                final String output,
+                final Map<Integer, PhoneTask> tasks) {
+            this.success = success;
+            this.cancelled = cancelled;
+            this.output = output == null ? "" : output;
+            this.tasks = tasks == null
+                    ? Collections.emptyMap() : tasks;
+        }
+
+        static TaskReadResult success(
+                final Map<Integer, PhoneTask> tasks) {
+            return new TaskReadResult(true, false, "", tasks);
+        }
+
+        static TaskReadResult failure(final String output) {
+            return new TaskReadResult(
+                    false, false, output, Collections.emptyMap());
+        }
+
+        static TaskReadResult cancelled() {
+            return new TaskReadResult(
+                    false, true, "cancelled", Collections.emptyMap());
+        }
     }
 
     static final class Result {

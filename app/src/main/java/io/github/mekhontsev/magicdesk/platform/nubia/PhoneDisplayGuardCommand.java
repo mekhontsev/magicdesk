@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
+import io.github.mekhontsev.magicdesk.RuntimeDelays;
 import io.github.mekhontsev.magicdesk.ShellTaskUidReader;
 
 import java.io.BufferedReader;
@@ -142,7 +143,9 @@ public final class PhoneDisplayGuardCommand {
                     return;
                 }
                 try {
-                    Thread.sleep(WATCHDOG_INTERVAL_MILLIS);
+                    RuntimeDelays.pauseInterruptibly(
+                            RuntimeDelays.Reason.WATCHDOG_TICK,
+                            WATCHDOG_INTERVAL_MILLIS);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
                     return;

@@ -69,6 +69,8 @@ interface MagicDeskRuntimeBackend {
 
     boolean toggleDesktopWorkspace();
 
+    boolean toggleDesktopWorkspace(TaskRepository.ActionCallback callback);
+
     boolean restoreLastVisibleWindows();
 
     boolean advanceAltTab(boolean reverse);

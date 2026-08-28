@@ -995,6 +995,45 @@ public final class ShellAccess {
         }
     }
 
+    static FrameworkTaskSnapshot[] readTaskSnapshots(
+            final int displayId,
+            final int limit) throws IOException {
+        try {
+            final FrameworkTaskSnapshot[] snapshots =
+                    requireService().readTaskSnapshots(displayId, limit);
+            return snapshots == null
+                    ? new FrameworkTaskSnapshot[0] : snapshots;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException(
+                    "Shizuku task snapshot read failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku task snapshot read failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    static String frameworkRuntimeDiagnostics() throws IOException {
+        try {
+            return requireService().getFrameworkRuntimeDiagnostics();
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException(
+                    "framework runtime diagnostics failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "framework runtime diagnostics failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     static void writeDesktopState(final String encodedState)
             throws IOException {
         try {

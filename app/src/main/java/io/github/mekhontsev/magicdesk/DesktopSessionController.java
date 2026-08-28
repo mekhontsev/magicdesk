@@ -4,7 +4,6 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -57,17 +56,17 @@ final class DesktopSessionController {
                     && !visibleTaskSnapshot.booleanValue();
             final int desktopTaskId = findDesktopTask(preparedTarget.displayId);
             if (desktopTaskId >= 0) {
-                final String focusOutput = ShellAccess.run(
-                        TaskFocusCommands.createShellCommand(
-                                preparedTarget.displayId,
-                                Collections.singletonList(
-                                        Integer.valueOf(desktopTaskId)))).trim();
-                Log.i(TAG, "focused desktop kind=" + preparedTarget.kind
+                Log.i(TAG, "restoring desktop kind=" + preparedTarget.kind
                         + " display=" + preparedTarget.displayId
-                        + " task=" + desktopTaskId
-                        + " output=" + focusOutput.replace('\n', ' '));
+                        + " task=" + desktopTaskId);
                 if (restoreWindows) {
                     MagicDeskRuntime.restoreLastVisibleWindows();
+                } else {
+                    MagicDeskRuntime.restoreSessionWorkspace(
+                            preparedTarget.displayId,
+                            java.util.Collections.singletonList(
+                                    Integer.valueOf(desktopTaskId)),
+                            null);
                 }
                 MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
                         preparedTarget);
@@ -170,7 +169,9 @@ final class DesktopSessionController {
             if (findDesktopTask(displayId) >= 0) {
                 return true;
             }
-            SystemClock.sleep(ConsoleDisplayController.STATE_POLL_MS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                    ConsoleDisplayController.STATE_POLL_MS);
         }
         return false;
     }

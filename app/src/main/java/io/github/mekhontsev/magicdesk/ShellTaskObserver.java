@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private static final String TAG = "MagicDeskTasks";
+    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final ComponentName PHONE_TOUCHPAD_ACTIVITY =
             new ComponentName(
@@ -32,6 +33,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellFreeformTaskCleanup mFreeformCleanup;
     private final ShellDesktopFocusController mFocusController;
+    private final ShellDesktopWorkspaceCoordinator mWorkspaceCoordinator;
     private final ShellExternalTaskMigrationGuard mMigrationGuard;
     private final ShellProcessFailureTracker mProcessFailureTracker;
     private final ShellProcessObserverController mProcessObserverController;
@@ -42,7 +44,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
     private final ShellActivityStartController mActivityStartController;
     private final PlatformPhoneUiDriver.TaskEventGuard mInputPanelGuard;
-    private final ShellTaskStateMonitor mStateMonitor;
+    private final FrameworkTaskObservationSource mTaskObservations;
     private final ShellDesktopTaskOwnership mDesktopOwnership =
             new ShellDesktopTaskOwnership();
     private final ShellTaskLauncher mTaskLauncher;
@@ -63,6 +65,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private volatile int mConfiguredDisplayId = Display.INVALID_DISPLAY;
     private int mReportedOwnershipDisplayId = Display.INVALID_DISPLAY;
     private int[] mReportedDesktopTaskIds = new int[0];
+    private final Object mPostRemovalFocusLock = new Object();
+    private int mPendingRemovedDesktopTaskId = -1;
+    private int mPendingRemovalDisplayId = Display.INVALID_DISPLAY;
 
     ShellTaskObserver(
             final Context context,
@@ -115,8 +120,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mFocusController = new ShellDesktopFocusController(
                 mService,
                 windowing.requiresMirrorInputFocusSynchronization(),
-                () -> callCallback(
-                        mCallback::onInputFocusRefreshRequired));
+                taskId -> callCallback(() ->
+                        mCallback.onInputFocusRefreshRequired(taskId)));
         mInputPanelGuard = phoneUi.createInputPanelGuard(
                 mService, inputOwner);
         mPhoneHome = PhoneHomeComponents.resolve(context);
@@ -233,28 +238,31 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mFreeformCleanup = new ShellFreeformTaskCleanup(
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)));
-        mStateMonitor = new ShellTaskStateMonitor(
+        mTaskObservations = new FrameworkTaskObservationSource(
                 context,
                 mService,
                 windowing.requiresNativeFullscreenCaptionRefresh(),
-                new ShellTaskStateMonitor.Listener() {
+                new FrameworkTaskObservationSource.Listener() {
                     @Override
                     public void onTasksSampled(
                             final int displayId,
                             final java.util.List<?> tasks,
                             final java.util.List<
-                                    ShellTaskStateMonitor.TaskWindowState>
-                                    windowStates) {
+                                    FrameworkTaskSnapshot>
+                                    taskSnapshots) {
                         mProcessFailureTracker.observeTasks(
-                                displayId, windowStates);
+                                displayId, taskSnapshots);
                         mTaskActivityModeGuard.observeTasks(
-                                displayId, windowStates);
+                                displayId, taskSnapshots);
+                        mFocusController.onTasksSampled(taskSnapshots);
                         for (final Integer taskId
                                 : mDesktopOwnership.observeTasks(
                                         displayId, tasks)) {
                             restoreUnexpectedPhoneFreeform(
                                     displayId, taskId.intValue());
                         }
+                        reconcileFocusAfterTaskRemoval(
+                                displayId, taskSnapshots);
                         reportDesktopTaskOwnership();
                         mDesktopTaskArea.removeOrphanedTransientTasks(
                                 displayId, tasks);
@@ -264,8 +272,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     @Override
                     public void onTaskStackChanged() {
                         // TaskStackListener can miss focus/Z-order callbacks
-                        // for organizer children on Nubia. The existing state
-                        // monitor reports only actual sampled changes.
+                        // for organizer children. The framework observation
+                        // source reports only actual sampled changes.
                         callCallback(mCallback::onTasksChanged);
                     }
 
@@ -326,6 +334,23 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         callCallback(() -> mCallback.onObserverError(error));
                     }
                 });
+        mWorkspaceCoordinator = new ShellDesktopWorkspaceCoordinator(
+                mService,
+                mFullscreenTaskArea,
+                mFocusController,
+                new ShellDesktopWorkspaceCoordinator.ForegroundReporter() {
+                    @Override
+                    public void reportForTask(final int taskId) {
+                        reportDesktopTaskAreaForeground(taskId);
+                    }
+
+                    @Override
+                    public void reportSessionForeground(
+                            final boolean foreground) {
+                        reportDesktopTaskAreaForeground(foreground);
+                    }
+                },
+                mTaskObservations::requestSample);
     }
 
     void refreshTaskCaption(
@@ -344,7 +369,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             HiddenTaskApi.registerTaskStackListener(mService, this);
             mRegistered = true;
             mProcessObserverController.start();
-            mStateMonitor.start();
+            mFocusController.start();
+            mTaskObservations.start();
         } catch (ReflectiveOperationException | RuntimeException error) {
             mActivityStartController.close();
             mProcessObserverController.close();
@@ -377,6 +403,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mActivityStartController.close();
             mPhoneLauncherCircuitBreaker.configure(false);
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
+            clearPendingPostRemovalFocus();
             mTaskAreaPolicy = DesktopTaskAreaPolicy.DEFAULT;
             mFocusController.configure(-1);
             mMigrationGuard.configure(-1, false);
@@ -384,7 +411,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mInputPanelGuard.configure(-1);
             mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
-            mStateMonitor.clearConfiguration();
+            mTaskObservations.clearConfiguration();
             // Release reusable fullscreen slots before the workspace task
             // area is torn down.
             mFullscreenTaskArea.configure(
@@ -446,6 +473,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mDesktopTaskAreaForeground = null;
         }
         mConfiguredDisplayId = displayId;
+        clearPendingPostRemovalFocus();
         mFocusController.configure(displayId);
         mMigrationGuard.configure(displayId, false);
         // External tasks must remain outside phone-side Recents cleanup.
@@ -455,7 +483,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                 ? displayId : -1);
         mInputPanelGuard.configure(displayId);
         mTaskActivityModeGuard.configure(displayId);
-        mStateMonitor.configure(
+        mTaskObservations.configure(
                 displayId,
                 displayBounds,
                 workAreaBounds);
@@ -492,75 +520,52 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final long sequence,
             final int displayId,
             final int[] taskIds) {
-        int appliedTaskCount = 0;
+        ShellDesktopWorkspaceCoordinator.Result result;
         try {
-            if (sequence < 0 || displayId < 0
-                    || taskIds == null || taskIds.length == 0) {
-                throw new IllegalArgumentException(
-                        "invalid task stack focus request");
-            }
-            final int[] liveTaskIds = new int[taskIds.length];
-            for (int index = 0; index < taskIds.length; index++) {
-                final int taskId = taskIds[index];
-                if (taskId < 0) {
-                    throw new IllegalArgumentException("invalid task id");
-                }
-                if (HiddenTaskApi.findTask(mService, displayId, taskId) == null) {
-                    if (index == taskIds.length - 1) {
-                        throw new IllegalStateException(
-                                "task " + taskId
-                                        + " not found on display " + displayId);
-                    }
-                    Log.w(TAG, "task focus skipped stale task=" + taskId);
-                    continue;
-                }
-                liveTaskIds[appliedTaskCount++] = taskId;
-            }
-            if (appliedTaskCount == 0) {
-                throw new IllegalStateException("no live tasks to focus");
-            }
-            final int[] focusTaskIds =
-                    Arrays.copyOf(liveTaskIds, appliedTaskCount);
-            final int targetTaskId =
-                    focusTaskIds[focusTaskIds.length - 1];
-            final ShellFullscreenTaskArea.FocusResult focusResult =
-                    mFullscreenTaskArea.focusStack(
-                            mService, displayId, focusTaskIds);
-            if (focusResult
-                    == ShellFullscreenTaskArea.FocusResult.NOT_HANDLED) {
-                final Object targetTask = HiddenTaskApi.requireTask(
-                        mService, displayId, targetTaskId);
-                final int[] fallbackTaskIds =
-                        HiddenTaskApi.getWindowConfigurationValue(
-                                targetTask, "getWindowingMode")
-                                == WINDOWING_MODE_FULLSCREEN
-                                        ? new int[]{targetTaskId}
-                                        : focusTaskIds;
-                TaskWindowingCommand.focusTasks(
-                        mService, displayId, fallbackTaskIds);
-                reportDesktopTaskAreaForeground(targetTaskId);
-            } else {
-                // The fullscreen owner knows the destination hierarchy before
-                // WMS applies its queued transition. Do not infer foreground
-                // from the still-stale task parent.
-                reportDesktopTaskAreaForeground(
-                        focusResult
-                                == ShellFullscreenTaskArea.FocusResult
-                                        .SESSION_FOREGROUND);
-            }
-            // Organizer-area reorders do not reliably emit the framework
-            // focus callback on Nubia. Reuse the normal stale-input detector
-            // explicitly so task and InputDispatcher focus converge without
-            // a second task transition.
-            mFocusController.requestFocusReconciliation(targetTaskId);
-            signalFocusStackResult(
-                    sequence, true, appliedTaskCount, "");
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            final String message = usefulMessage(error);
-            signalFocusStackResult(
-                    sequence, false, appliedTaskCount, message);
-            Log.w(TAG, "task stack focus failed: " + message, error);
+            final int targetTaskId = taskIds == null || taskIds.length == 0
+                    ? -1 : taskIds[taskIds.length - 1];
+            result = executeWorkspaceCommand(DesktopWorkspaceCommand.create(
+                    DesktopWorkspaceCommand.ACTIVATE,
+                    displayId,
+                    targetTaskId,
+                    taskIds));
+        } catch (RuntimeException error) {
+            result = ShellDesktopWorkspaceCoordinator.Result.failure(
+                    0, usefulMessage(error));
         }
+        signalFocusStackResult(
+                sequence, result.success, result.taskCount, result.error);
+    }
+
+    void executeWorkspaceCommand(
+            final long sequence,
+            final DesktopWorkspaceCommand command) {
+        final ShellDesktopWorkspaceCoordinator.Result result =
+                executeWorkspaceCommand(command);
+        signalDesktopWorkspaceCommandResult(
+                sequence, result.success, result.taskCount, result.error);
+    }
+
+    void notifyInputFocusRefreshComplete(final int taskId) {
+        mFocusController.onInputFocusRefreshCompleted(taskId);
+    }
+
+    private ShellDesktopWorkspaceCoordinator.Result executeWorkspaceCommand(
+            final DesktopWorkspaceCommand command) {
+        if (mClosed) {
+            return ShellDesktopWorkspaceCoordinator.Result.failure(
+                    0, "task observer is closed");
+        }
+        if (command == null) {
+            return ShellDesktopWorkspaceCoordinator.Result.failure(
+                    0, "missing desktop workspace command");
+        }
+        if (command.displayId != mConfiguredDisplayId) {
+            return ShellDesktopWorkspaceCoordinator.Result.failure(
+                    0, "stale workspace display " + command.displayId
+                            + "; configured=" + mConfiguredDisplayId);
+        }
+        return mWorkspaceCoordinator.execute(command);
     }
 
     TaskWindowSnapshot inspectTaskWindow(
@@ -576,22 +581,21 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             boolean visibilityKnown = true;
             boolean visible = false;
             try {
-                visible = HiddenTaskApi.getBooleanField(task, "isVisible");
+                visible = HiddenTaskApi.isTaskVisible(task);
             } catch (ReflectiveOperationException error) {
                 visibilityKnown = false;
             }
             boolean focusKnown = true;
             boolean focused = false;
             try {
-                focused = HiddenTaskApi.getBooleanField(task, "isFocused");
+                focused = HiddenTaskApi.isTaskFocused(task);
             } catch (ReflectiveOperationException error) {
                 focusKnown = false;
             }
             return new TaskWindowSnapshot(
                     taskId,
                     displayId,
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode"),
+                    HiddenTaskApi.getTaskWindowingMode(task),
                     visible,
                     visibilityKnown,
                     focused,
@@ -920,6 +924,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     @Override
     public void onTaskRemoved(final int taskId) {
         if (!mClosed) {
+            rememberDesktopTaskRemoval(taskId);
             synchronized (this) {
                 if (mPhoneTouchpadTaskId == taskId) {
                     mPhoneTouchpadTaskId = -1;
@@ -934,6 +939,98 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             reportDesktopTaskOwnership();
             callCallback(() -> mCallback.onTaskGone(taskId));
             signalChange("task-removed");
+        }
+    }
+
+    private void rememberDesktopTaskRemoval(final int taskId) {
+        final int displayId = mConfiguredDisplayId;
+        if (displayId == Display.INVALID_DISPLAY
+                || !mDesktopOwnership.isRememberedDesktopTask(taskId)) {
+            return;
+        }
+        synchronized (mPostRemovalFocusLock) {
+            mPendingRemovedDesktopTaskId = taskId;
+            mPendingRemovalDisplayId = displayId;
+        }
+    }
+
+    private void reconcileFocusAfterTaskRemoval(
+            final int displayId,
+            final java.util.List<FrameworkTaskSnapshot> tasks) {
+        final int removedTaskId;
+        synchronized (mPostRemovalFocusLock) {
+            if (mPendingRemovalDisplayId != displayId
+                    || mPendingRemovedDesktopTaskId < 0) {
+                return;
+            }
+            removedTaskId = mPendingRemovedDesktopTaskId;
+        }
+
+        boolean removedTaskStillPresent = false;
+        FrameworkTaskSnapshot candidate = null;
+        for (final FrameworkTaskSnapshot task : tasks) {
+            if (task.taskId == removedTaskId) {
+                removedTaskStillPresent = true;
+                continue;
+            }
+            if (!isPostRemovalFocusCandidate(displayId, task)) {
+                continue;
+            }
+            if (candidate == null || task.focused) {
+                candidate = task;
+            }
+            if (task.focused) {
+                break;
+            }
+        }
+        if (candidate == null && removedTaskStillPresent) {
+            return;
+        }
+        synchronized (mPostRemovalFocusLock) {
+            if (mPendingRemovalDisplayId != displayId
+                    || mPendingRemovedDesktopTaskId != removedTaskId) {
+                return;
+            }
+            mPendingRemovedDesktopTaskId = -1;
+            mPendingRemovalDisplayId = Display.INVALID_DISPLAY;
+        }
+        if (candidate == null) {
+            return;
+        }
+
+        final int focusedTaskId = candidate.taskId;
+        // Removing the focused task can expose a survivor without producing a
+        // framework focus callback. Reuse the normal focus path once the typed
+        // root hierarchy confirms which desktop task is now in front.
+        mFocusController.requestFocusReconciliation(focusedTaskId);
+        callCallback(() -> mCallback.onTaskFocusChanged(
+                focusedTaskId, displayId, true));
+        Log.i(TAG, "reconciled desktop focus after task removal removed="
+                + removedTaskId + " survivor=" + focusedTaskId
+                + " display=" + displayId);
+    }
+
+    private boolean isPostRemovalFocusCandidate(
+            final int displayId,
+            final FrameworkTaskSnapshot task) {
+        if (task == null
+                || task.displayId != displayId
+                || !task.visible
+                || task.activityType != ACTIVITY_TYPE_STANDARD
+                || task.taskId == mDesktopOwnership.desktopHostTaskId()
+                || TaskAreaBackstopActivity.isBackstopComponent(
+                        task.rootComponent)
+                || TaskAreaBackstopActivity.isBackstopComponent(
+                        task.topComponent)) {
+            return false;
+        }
+        return task.task != null && mDesktopOwnership.isDesktopTask(task.task);
+    }
+
+    private void clearPendingPostRemovalFocus() {
+        synchronized (mPostRemovalFocusLock) {
+            mPendingRemovedDesktopTaskId = -1;
+            mPendingRemovalDisplayId = Display.INVALID_DISPLAY;
         }
     }
 
@@ -1051,7 +1148,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mActivityStartController::close);
         closeSafely("migration guard", mMigrationGuard::close);
         closeSafely("freeform cleanup", mFreeformCleanup::close);
-        closeSafely("state monitor", mStateMonitor::close);
+        closeSafely("framework task observations", mTaskObservations::close);
         closeSafely("fullscreen task area", mFullscreenTaskArea::close);
         closeSafely("desktop task area", mDesktopTaskArea::close);
         closeSafely("self-test task stack guard",
@@ -1305,7 +1402,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private void signalChange(final String reason) {
         if (!mClosed) {
             mSelfTestTaskStackGuard.sample(reason);
-            mStateMonitor.requestSample();
+            mTaskObservations.requestSample();
             callCallback(mCallback::onTasksChanged);
         }
     }
@@ -1316,6 +1413,15 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int taskCount,
             final String error) {
         callCallback(() -> mCallback.onFocusStackResult(
+                sequence, success, taskCount, error));
+    }
+
+    private void signalDesktopWorkspaceCommandResult(
+            final long sequence,
+            final boolean success,
+            final int taskCount,
+            final String error) {
+        callCallback(() -> mCallback.onDesktopWorkspaceCommandResult(
                 sequence, success, taskCount, error));
     }
 

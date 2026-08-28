@@ -160,8 +160,18 @@ public final class DesktopRuntimeBridge {
         UI.refreshDesktopControls();
     }
 
-    static boolean refreshDesktopInputFocus(final int displayId) {
-        return UI.refreshDesktopInputFocus(displayId);
+    static boolean refreshDesktopInputFocus(
+            final int displayId,
+            final int focusedTaskId) {
+        return UI.refreshDesktopInputFocus(displayId, focusedTaskId);
+    }
+
+    static boolean refreshDesktopInputFocus(
+            final int displayId,
+            final int focusedTaskId,
+            final Runnable completion) {
+        return UI.refreshDesktopInputFocus(
+                displayId, focusedTaskId, completion);
     }
 
     static void setDesktopPlaneForeground(
@@ -176,6 +186,11 @@ public final class DesktopRuntimeBridge {
 
     static boolean toggleDesktopWorkspace() {
         return UI.toggleDesktopWorkspace();
+    }
+
+    static boolean toggleDesktopWorkspace(
+            final TaskRepository.ActionCallback callback) {
+        return UI.toggleDesktopWorkspace(callback);
     }
 
     static boolean recreateShellOnDisplay(final int displayId) {

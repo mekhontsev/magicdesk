@@ -1,9 +1,11 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.AppProcessCommand;
+import io.github.mekhontsev.magicdesk.BoundedStateAwaiter;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
 import io.github.mekhontsev.magicdesk.ConsoleDisplayController;
 import io.github.mekhontsev.magicdesk.ShellAccess;
+import io.github.mekhontsev.magicdesk.RuntimeDelays;
 import io.github.mekhontsev.magicdesk.SocDisplayModeBackend;
 import io.github.mekhontsev.magicdesk.SocDisplayModeBackends;
 import io.github.mekhontsev.magicdesk.display.DisplayTiming;
@@ -255,7 +257,9 @@ final class NubiaHdmiModeController {
                 + target.width + " " + target.height + " "
                 + target.refreshRate + " " + target.pictureAspect
                 + "' > " + EDID_MODES);
-        SystemClock.sleep(200L);
+        RuntimeDelays.pause(
+                RuntimeDelays.Reason.VENDOR_COMMAND_SETTLE,
+                200L);
 
         boolean hpdLow = false;
         try {
@@ -268,7 +272,9 @@ final class NubiaHdmiModeController {
             }
             ShellAccess.run("/system/bin/printf 0 > " + HPD);
             hpdLow = true;
-            SystemClock.sleep(800L);
+            RuntimeDelays.pause(
+                    RuntimeDelays.Reason.VENDOR_COMMAND_SETTLE,
+                    800L);
             ShellAccess.run("/system/bin/printf 1 > " + HPD);
             hpdLow = false;
         } finally {
@@ -537,7 +543,9 @@ final class NubiaHdmiModeController {
                     stableSamples = 0;
                 }
             }
-            SystemClock.sleep(MODE_POLL_MS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.VENDOR_STATE,
+                    MODE_POLL_MS);
         }
         return -1;
     }

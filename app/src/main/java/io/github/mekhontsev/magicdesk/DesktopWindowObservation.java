@@ -8,9 +8,6 @@ import java.io.IOException;
 
 /** Joins input-window state with shell process-failure observations. */
 final class DesktopWindowObservation {
-    private static final String INPUT_DUMP_COMMAND =
-            "/system/bin/dumpsys input";
-
     private final TaskInputWindowParser.WindowSnapshot mWindows;
     private final String mError;
 
@@ -25,7 +22,7 @@ final class DesktopWindowObservation {
         try {
             final TaskInputWindowParser.WindowSnapshot windows =
                     TaskInputWindowParser.readWindowSnapshot(
-                            ShellAccess.run(INPUT_DUMP_COMMAND));
+                            FrameworkInputSnapshotSource.readRemote());
             return windows.available
                     ? new DesktopWindowObservation(windows, "")
                     : unavailable("input dispatcher state unavailable");

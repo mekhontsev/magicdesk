@@ -8,7 +8,6 @@ import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.os.SystemClock;
 import android.view.Display;
 
 import java.lang.reflect.Method;
@@ -204,7 +203,6 @@ public final class TaskDisplayAreaLaunchCommand {
                         intent.getComponent().getPackageName(),
                         bounds,
                         null,
-                        null,
                         true);
                 // Keep the desktop surface visible until the cold task has
                 // drawn its first freeform frame.
@@ -266,7 +264,6 @@ public final class TaskDisplayAreaLaunchCommand {
             final Intent intent,
             final String expectedPackage,
             final Rect bounds,
-            final Class<?> containerTokenClass,
             final Object areaToken,
             final boolean launchBehind)
             throws ReflectiveOperationException {
@@ -275,7 +272,8 @@ public final class TaskDisplayAreaLaunchCommand {
         options.setLaunchBounds(bounds);
         if (areaToken != null) {
             ActivityOptions.class.getMethod(
-                    "setLaunchTaskDisplayArea", containerTokenClass)
+                    "setLaunchTaskDisplayArea",
+                    FrameworkRuntime.current().windowing().tokenClass())
                     .invoke(options, areaToken);
         }
         ActivityOptions.class.getMethod(
@@ -310,7 +308,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 intent,
                 expectedPackage,
                 null,
-                null,
                 ACTIVITY_TYPE_UNDEFINED);
     }
 
@@ -319,14 +316,12 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId,
             final Intent intent,
             final String expectedPackage,
-            final Class<?> containerTokenClass,
             final Object areaToken) throws ReflectiveOperationException {
         return launchFullscreenTask(
                 service,
                 displayId,
                 intent,
                 expectedPackage,
-                containerTokenClass,
                 areaToken,
                 ACTIVITY_TYPE_UNDEFINED,
                 false);
@@ -337,7 +332,6 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId,
             final Intent intent,
             final String expectedPackage,
-            final Class<?> containerTokenClass,
             final Object areaToken,
             final int activityType) throws ReflectiveOperationException {
         return launchFullscreenTask(
@@ -345,7 +339,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 displayId,
                 intent,
                 expectedPackage,
-                containerTokenClass,
                 areaToken,
                 activityType,
                 false);
@@ -356,7 +349,6 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId,
             final Intent intent,
             final String expectedPackage,
-            final Class<?> containerTokenClass,
             final Object areaToken,
             final int activityType) throws ReflectiveOperationException {
         return launchFullscreenTask(
@@ -364,7 +356,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 displayId,
                 intent,
                 expectedPackage,
-                containerTokenClass,
                 areaToken,
                 activityType,
                 true);
@@ -375,12 +366,10 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId,
             final Intent intent,
             final String expectedPackage,
-            final Class<?> containerTokenClass,
             final Object areaToken,
             final int activityType,
             final boolean launchBehind) throws ReflectiveOperationException {
-        if (intent == null || intent.getComponent() == null
-                || (areaToken == null) != (containerTokenClass == null)) {
+        if (intent == null || intent.getComponent() == null) {
             throw new IllegalArgumentException(
                     "fullscreen launch requires an explicit target");
         }
@@ -388,7 +377,8 @@ public final class TaskDisplayAreaLaunchCommand {
         options.setLaunchDisplayId(displayId);
         if (areaToken != null) {
             ActivityOptions.class.getMethod(
-                    "setLaunchTaskDisplayArea", containerTokenClass)
+                    "setLaunchTaskDisplayArea",
+                    FrameworkRuntime.current().windowing().tokenClass())
                     .invoke(options, areaToken);
         }
         ActivityOptions.class.getMethod(
@@ -490,25 +480,23 @@ public final class TaskDisplayAreaLaunchCommand {
             final String expectedPackage,
             final Set<Integer> excludedTaskIds)
             throws ReflectiveOperationException {
-        final long deadline = SystemClock.uptimeMillis() + TASK_TIMEOUT_MILLIS;
-        do {
-            final List<?> tasks = HiddenTaskApi.getTasks(service, displayId);
-            for (final Object task : tasks) {
-                final int taskId = HiddenTaskApi.getIntField(task, "taskId");
-                final boolean matchesTask = expectedTaskId >= 0
-                        ? taskId == expectedTaskId
-                        : expectedPackage != null
-                                && (excludedTaskIds == null
-                                        || !excludedTaskIds.contains(
-                                                Integer.valueOf(taskId)))
-                                && expectedPackage.equals(
-                                        HiddenTaskApi.getTaskPackage(task));
-                if (matchesTask) {
-                    return taskId;
-                }
-            }
-            SystemClock.sleep(50L);
-        } while (SystemClock.uptimeMillis() < deadline);
+        final List<FrameworkTaskSnapshot> tasks =
+                BoundedStateAwaiter.awaitFramework(
+                        BoundedStateAwaiter.Reason.TASK_APPEARANCE,
+                        TASK_TIMEOUT_MILLIS,
+                        50L,
+                        () -> FrameworkTaskSnapshotSource.readWindowState(
+                                service, displayId, 100),
+                        current -> findMatchingTask(
+                                current,
+                                expectedTaskId,
+                                expectedPackage,
+                                excludedTaskIds) != null);
+        final FrameworkTaskSnapshot task = findMatchingTask(
+                tasks, expectedTaskId, expectedPackage, excludedTaskIds);
+        if (task != null) {
+            return task.taskId;
+        }
         throw new IllegalStateException("task did not appear");
     }
 
@@ -517,33 +505,25 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId,
             final int taskId,
             final int windowingMode) throws ReflectiveOperationException {
-        final long deadline = SystemClock.uptimeMillis()
-                + TASK_TIMEOUT_MILLIS;
+        final FrameworkTaskSnapshot settled =
+                BoundedStateAwaiter.awaitFramework(
+                        BoundedStateAwaiter.Reason.TASK_WINDOWING_MODE,
+                        TASK_TIMEOUT_MILLIS,
+                        50L,
+                        () -> FrameworkTaskSnapshotSource.findTask(
+                                service, displayId, taskId),
+                        task -> task != null
+                                && task.windowingMode == windowingMode);
+        if (settled != null && settled.windowingMode == windowingMode) {
+            return;
+        }
         String observedState = "task unavailable";
-        do {
-            for (final Object task : HiddenTaskApi.getTasks(
-                    service, displayId)) {
-                if (HiddenTaskApi.getIntField(task, "taskId") == taskId) {
-                    final int observedMode =
-                            HiddenTaskApi.getWindowConfigurationValue(
-                                    task, "getWindowingMode");
-                    observedState = "display=" + displayId
-                            + ", mode=" + observedMode;
-                    if (observedMode == windowingMode) {
-                        return;
-                    }
-                }
-            }
-            SystemClock.sleep(50L);
-        } while (SystemClock.uptimeMillis() < deadline);
-        final Object movedTask = HiddenTaskApi.findTask(
-                service, Display.INVALID_DISPLAY, taskId);
+        final FrameworkTaskSnapshot movedTask =
+                FrameworkTaskSnapshotSource.findTask(
+                        service, Display.INVALID_DISPLAY, taskId);
         if (movedTask != null) {
-            observedState = "display="
-                    + HiddenTaskApi.getTaskDisplayId(movedTask)
-                    + ", mode="
-                    + HiddenTaskApi.getWindowConfigurationValue(
-                            movedTask, "getWindowingMode");
+            observedState = "display=" + movedTask.displayId
+                    + ", mode=" + movedTask.windowingMode;
         }
         throw new IllegalStateException(
                 "task did not enter requested windowing mode; observed "
@@ -556,33 +536,27 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId,
             final int taskId,
             final Rect expectedBounds) throws ReflectiveOperationException {
-        final long deadline = SystemClock.uptimeMillis()
-                + TASK_TIMEOUT_MILLIS;
-        String observedState = "task unavailable";
-        do {
-            for (final Object task : HiddenTaskApi.getTasks(
-                    service, displayId)) {
-                if (HiddenTaskApi.getIntField(task, "taskId") == taskId) {
-                    final int windowingMode =
-                            HiddenTaskApi.getWindowConfigurationValue(
-                                    task, "getWindowingMode");
-                    final Object windowConfiguration =
-                            HiddenTaskApi.getWindowConfiguration(task);
-                    final Rect bounds = (Rect) windowConfiguration.getClass()
-                            .getMethod("getBounds")
-                            .invoke(windowConfiguration);
-                    observedState = "mode=" + windowingMode
-                            + ", bounds=" + bounds;
-                    if (windowingMode != WINDOWING_MODE_FREEFORM) {
-                        continue;
-                    }
-                    if (satisfiesRequestedBounds(bounds, expectedBounds)) {
-                        return;
-                    }
-                }
-            }
-            SystemClock.sleep(50L);
-        } while (SystemClock.uptimeMillis() < deadline);
+        final FrameworkTaskSnapshot task =
+                BoundedStateAwaiter.awaitFramework(
+                        BoundedStateAwaiter.Reason.TASK_BOUNDS,
+                        TASK_TIMEOUT_MILLIS,
+                        50L,
+                        () -> FrameworkTaskSnapshotSource.findTask(
+                                service, displayId, taskId),
+                        current -> current != null
+                                && current.windowingMode
+                                        == WINDOWING_MODE_FREEFORM
+                                && satisfiesRequestedBounds(
+                                        current.bounds, expectedBounds));
+        if (task != null
+                && task.windowingMode == WINDOWING_MODE_FREEFORM
+                && satisfiesRequestedBounds(task.bounds, expectedBounds)) {
+            return;
+        }
+        final String observedState = task == null
+                ? "task unavailable"
+                : "mode=" + task.windowingMode
+                        + ", bounds=" + task.bounds;
         throw new IllegalStateException(
                 "task did not reach the requested freeform bounds; observed "
                         + observedState + ", requested=" + expectedBounds);
@@ -632,7 +606,7 @@ public final class TaskDisplayAreaLaunchCommand {
         final Set<Integer> taskIds = new HashSet<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
             taskIds.add(Integer.valueOf(
-                    HiddenTaskApi.getIntField(task, "taskId")));
+                    HiddenTaskApi.getTaskId(task)));
         }
         return taskIds;
     }
@@ -721,37 +695,20 @@ public final class TaskDisplayAreaLaunchCommand {
         ActivityOptions.class.getMethod(
                 "setFlexibleLaunchSize", Boolean.TYPE)
                 .invoke(options, Boolean.TRUE);
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Object transaction = transactionClass
-                .getConstructor().newInstance();
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
         // Apply the display move, mode and geometry in one visible transition.
-        transactionClass.getMethod(
-                "setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FREEFORM));
-        transactionClass.getMethod(
-                "setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, bounds);
-        transactionClass.getMethod(
-                "setForceTranslucent", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.FALSE);
+        windowing.setWindowingMode(
+                transaction, taskToken, WINDOWING_MODE_FREEFORM);
+        windowing.setBounds(transaction, taskToken, bounds);
+        windowing.setForceTranslucent(transaction, taskToken, false);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass,
                 transaction,
-                tokenClass,
                 taskToken,
                 false);
-        transactionClass.getMethod(
-                "startTask", Integer.TYPE, Bundle.class)
-                .invoke(
-                        transaction,
-                        Integer.valueOf(taskId),
-                        options.toBundle());
+        windowing.startTask(transaction, taskId, options.toBundle());
         ShellWindowTransitionExecutor.startForShellAdoption(
                 targetDisplayId,
                 ShellWindowTransitionExecutor.SystemTransition.OPEN,
@@ -778,7 +735,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 displayId,
                 WINDOWING_MODE_FREEFORM,
                 bounds,
-                null,
                 null);
         restartExistingTask(service, displayId, taskId, options);
     }
@@ -788,10 +744,9 @@ public final class TaskDisplayAreaLaunchCommand {
             final Object service,
             final int displayId,
             final int taskId,
-            final Class<?> containerTokenClass,
             final Object areaToken) throws ReflectiveOperationException {
         if (service == null || displayId < 0 || taskId < 0
-                || containerTokenClass == null || areaToken == null) {
+                || areaToken == null) {
             throw new IllegalArgumentException(
                     "invalid existing task fullscreen move");
         }
@@ -811,7 +766,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 displayId,
                 WINDOWING_MODE_FULLSCREEN,
                 fullscreenBounds,
-                containerTokenClass,
                 areaToken);
         final Class<?> applicationThreadClass =
                 Class.forName("android.app.IApplicationThread");
@@ -835,7 +789,6 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId,
             final int windowingMode,
             final Rect bounds,
-            final Class<?> containerTokenClass,
             final Object areaToken) throws ReflectiveOperationException {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
@@ -844,7 +797,8 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         if (areaToken != null) {
             ActivityOptions.class.getMethod(
-                    "setLaunchTaskDisplayArea", containerTokenClass)
+                    "setLaunchTaskDisplayArea",
+                    FrameworkRuntime.current().windowing().tokenClass())
                     .invoke(options, areaToken);
         }
         ActivityOptions.class.getMethod(
@@ -887,8 +841,7 @@ public final class TaskDisplayAreaLaunchCommand {
         final Object originalTask = HiddenTaskApi.requireTask(
                 service, sourceDisplayId, taskId);
         final int originalWindowingMode =
-                HiddenTaskApi.getWindowConfigurationValue(
-                        originalTask, "getWindowingMode");
+                HiddenTaskApi.getTaskWindowingMode(originalTask);
         final Object originalWindowConfiguration =
                 HiddenTaskApi.getWindowConfiguration(originalTask);
         final Rect originalBounds = new Rect(
@@ -918,10 +871,8 @@ public final class TaskDisplayAreaLaunchCommand {
             waitForTaskVisibility(
                     service, sourceDisplayId, taskId, false);
             final boolean sourcePreparedVisible =
-                    HiddenTaskApi.getBooleanField(
-                            HiddenTaskApi.requireTask(
-                                    service, sourceDisplayId, taskId),
-                            "isVisible");
+                    HiddenTaskApi.isTaskVisible(HiddenTaskApi.requireTask(
+                            service, sourceDisplayId, taskId));
             System.out.println("source-prepared-visible="
                     + sourcePreparedVisible);
             if (sourcePreparedVisible) {
@@ -945,10 +896,8 @@ public final class TaskDisplayAreaLaunchCommand {
             waitForTaskVisibility(
                     service, targetDisplayId, taskId, false);
             final boolean targetPreparedVisible =
-                    HiddenTaskApi.getBooleanField(
-                            HiddenTaskApi.requireTask(
-                                    service, targetDisplayId, taskId),
-                            "isVisible");
+                    HiddenTaskApi.isTaskVisible(HiddenTaskApi.requireTask(
+                            service, targetDisplayId, taskId));
             System.out.println("target-prepared-visible="
                     + targetPreparedVisible);
             if (targetPreparedVisible) {
@@ -1023,21 +972,44 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId,
             final int taskId,
             final boolean visible) throws ReflectiveOperationException {
-        final long deadline = SystemClock.uptimeMillis()
-                + TASK_TIMEOUT_MILLIS;
-        do {
-            final Object task = HiddenTaskApi.findTask(
-                    service, displayId, taskId);
-            if (task != null
-                    && HiddenTaskApi.getBooleanField(task, "isVisible")
-                            == visible) {
-                return;
-            }
-            SystemClock.sleep(50L);
-        } while (SystemClock.uptimeMillis() < deadline);
+        final FrameworkTaskSnapshot task =
+                BoundedStateAwaiter.awaitFramework(
+                        BoundedStateAwaiter.Reason.TASK_VISIBILITY,
+                        TASK_TIMEOUT_MILLIS,
+                        50L,
+                        () -> FrameworkTaskSnapshotSource.findTask(
+                                service, displayId, taskId),
+                        current -> current != null
+                                && current.visible == visible);
+        if (task != null && task.visible == visible) {
+            return;
+        }
         throw new IllegalStateException(
                 "task did not become "
                         + (visible ? "visible" : "hidden"));
+    }
+
+    private static FrameworkTaskSnapshot findMatchingTask(
+            final List<FrameworkTaskSnapshot> tasks,
+            final int expectedTaskId,
+            final String expectedPackage,
+            final Set<Integer> excludedTaskIds) {
+        if (tasks == null) {
+            return null;
+        }
+        for (final FrameworkTaskSnapshot task : tasks) {
+            final boolean matches = expectedTaskId >= 0
+                    ? task.taskId == expectedTaskId
+                    : expectedPackage != null
+                            && (excludedTaskIds == null
+                                    || !excludedTaskIds.contains(
+                                            Integer.valueOf(task.taskId)))
+                            && expectedPackage.equals(task.packageName);
+            if (matches) {
+                return task;
+            }
+        }
+        return null;
     }
 
     private static Rect parseBounds(

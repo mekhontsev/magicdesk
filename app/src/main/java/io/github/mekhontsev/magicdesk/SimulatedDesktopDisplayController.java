@@ -110,7 +110,9 @@ final class SimulatedDesktopDisplayController {
                 sDisplayId = createdDisplayId;
                 return createdDisplayId;
             }
-            SystemClock.sleep(ConsoleDisplayController.STATE_POLL_MS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                    ConsoleDisplayController.STATE_POLL_MS);
         } while (SystemClock.uptimeMillis() < deadline);
 
         try {

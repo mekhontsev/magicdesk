@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Rect;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.IOException;
@@ -13,7 +12,6 @@ import java.util.Set;
 
 final class ExistingTaskController {
     private static final String TAG = "MagicDeskTaskReuse";
-    private static final String CMD = "/system/bin/cmd";
     private static final String MODE_FULLSCREEN = "fullscreen";
     private static final String MODE_FREEFORM = "freeform";
     private static final long TASK_APPEAR_TIMEOUT_MILLIS = 6000;
@@ -276,46 +274,46 @@ final class ExistingTaskController {
 
     private static TaskInfo waitForBestTask(final AppLaunchTarget target,
             final int targetDisplayId, final boolean targetFreeform) throws IOException {
-        final long deadline = SystemClock.uptimeMillis() + TASK_APPEAR_TIMEOUT_MILLIS;
-        TaskInfo task;
-        do {
-            task = findBestTask(target, targetDisplayId, targetFreeform);
-            if (task != null && task.visible) {
-                return task;
-            }
-            SystemClock.sleep(TASK_STATE_POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
-        return null;
+        return BoundedStateAwaiter.awaitIo(
+                BoundedStateAwaiter.Reason.TASK_APPEARANCE,
+                TASK_APPEAR_TIMEOUT_MILLIS,
+                TASK_STATE_POLL_MILLIS,
+                () -> findBestTask(
+                        target, targetDisplayId, targetFreeform),
+                task -> task != null && task.visible);
     }
 
     private static void waitForTaskDisplay(final int taskId, final int displayId)
             throws IOException {
-        final long deadline = SystemClock.uptimeMillis() + TASK_STATE_TIMEOUT_MILLIS;
-        TaskInfo task;
-        do {
-            task = findTask(taskId);
-            if (task != null && task.displayId == displayId) {
-                return;
-            }
-            SystemClock.sleep(TASK_STATE_POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
+        final TaskInfo task = BoundedStateAwaiter.awaitIo(
+                BoundedStateAwaiter.Reason.TASK_DISPLAY,
+                TASK_STATE_TIMEOUT_MILLIS,
+                TASK_STATE_POLL_MILLIS,
+                () -> findTask(taskId),
+                current -> current != null
+                        && current.displayId == displayId);
+        if (task != null && task.displayId == displayId) {
+            return;
+        }
         throw new IOException("task " + taskId
                 + " did not move to display " + displayId);
     }
 
     private static void waitForTaskState(final int taskId, final int displayId,
             final String windowingMode) throws IOException {
-        final long deadline = SystemClock.uptimeMillis() + TASK_STATE_TIMEOUT_MILLIS;
-        TaskInfo task;
-        do {
-            task = findTask(taskId);
-            if (task != null
-                    && task.displayId == displayId
-                    && windowingMode.equals(task.windowingMode)) {
-                return;
-            }
-            SystemClock.sleep(TASK_STATE_POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
+        final TaskInfo task = BoundedStateAwaiter.awaitIo(
+                BoundedStateAwaiter.Reason.TASK_WINDOWING_MODE,
+                TASK_STATE_TIMEOUT_MILLIS,
+                TASK_STATE_POLL_MILLIS,
+                () -> findTask(taskId),
+                current -> current != null
+                        && current.displayId == displayId
+                        && windowingMode.equals(current.windowingMode));
+        if (task != null
+                && task.displayId == displayId
+                && windowingMode.equals(task.windowingMode)) {
+            return;
+        }
         throw new IOException("task " + taskId
                 + " did not enter " + windowingMode
                 + " mode on display " + displayId);
@@ -410,10 +408,10 @@ final class ExistingTaskController {
 
     private static List<TaskInfo> findTasks(final AppLaunchTarget target)
             throws IOException {
-        final String output = runCommand(CMD + " activity stack list");
+        ensureOffMainThread();
         final List<TaskInfo> result = new ArrayList<>();
-        for (final TaskStackParser.Entry task :
-                TaskStackParser.parse(output)) {
+        for (final FrameworkTaskSnapshot task :
+                ShellAccess.readTaskSnapshots(-1, 200)) {
             if (target.matchesTask(
                     task.packageName,
                     task.componentName,
@@ -422,7 +420,7 @@ final class ExistingTaskController {
                         task.rootTaskId,
                         task.taskId,
                         task.displayId,
-                        task.windowingMode,
+                        task.windowingModeName(),
                         task.packageName,
                         task.visible));
             }
@@ -431,15 +429,15 @@ final class ExistingTaskController {
     }
 
     private static TaskInfo findTask(final int taskId) throws IOException {
-        final String output = runCommand(CMD + " activity stack list");
-        for (final TaskStackParser.Entry task :
-                TaskStackParser.parse(output)) {
+        ensureOffMainThread();
+        for (final FrameworkTaskSnapshot task :
+                ShellAccess.readTaskSnapshots(-1, 200)) {
             if (task.taskId == taskId) {
                 return new TaskInfo(
                         task.rootTaskId,
                         task.taskId,
                         task.displayId,
-                        task.windowingMode,
+                        task.windowingModeName(),
                         task.packageName,
                         task.visible);
             }
@@ -455,11 +453,15 @@ final class ExistingTaskController {
     }
 
     private static String runCommand(final String command) throws IOException {
+        ensureOffMainThread();
+        return ShellAccess.run(command);
+    }
+
+    private static void ensureOffMainThread() {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             throw new IllegalStateException(
                     "task reuse commands must not run on the main thread");
         }
-        return ShellAccess.run(command);
     }
 
     static final class ReuseResult {

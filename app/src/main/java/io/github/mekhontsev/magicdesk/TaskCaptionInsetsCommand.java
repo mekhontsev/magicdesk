@@ -2,14 +2,11 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 
-import java.lang.reflect.Field;
-import java.util.List;
-
 /**
  * Controls whether a task receives the desktop caption inset.
  *
- * <p>Android only exposes the IME variant of this WindowContainerTransaction operation,
- * so the caption type is selected on the generated hierarchy operation via reflection.</p>
+ * <p>The framework compatibility layer selects the native operation or the
+ * source-based Android 15 fallback.</p>
  */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskCaptionInsetsCommand {
@@ -35,8 +32,12 @@ public final class TaskCaptionInsetsCommand {
             } else {
                 throw new IllegalArgumentException("invalid caption inset operation");
             }
-            setCaptionInsetExcluded(displayId, taskId, exclude);
-            System.out.println("task-caption-inset=" + (exclude ? "excluded" : "included")
+            final boolean applied = setCaptionInsetExcluded(
+                    displayId, taskId, exclude);
+            System.out.println("task-caption-inset="
+                    + (applied
+                            ? (exclude ? "excluded" : "included")
+                            : "unsupported")
                     + " task=" + taskId + " display=" + displayId);
         } catch (ReflectiveOperationException | RuntimeException e) {
             Throwable cause = e;
@@ -48,52 +49,47 @@ public final class TaskCaptionInsetsCommand {
         }
     }
 
-    private static void setCaptionInsetExcluded(final int displayId, final int taskId,
+    private static boolean setCaptionInsetExcluded(
+            final int displayId,
+            final int taskId,
             final boolean exclude) throws ReflectiveOperationException {
         final Object service = HiddenTaskApi.getService();
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
-        final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
 
-        addCaptionInsetOperation(
-                transactionClass, transaction, tokenClass, taskToken, exclude);
-        final List<?> hierarchyOps = (List<?>) transactionClass
-                .getMethod("getHierarchyOps")
-                .invoke(transaction);
-        final Object hierarchyOp = hierarchyOps.get(hierarchyOps.size() - 1);
-        final int requestedTypes = ((Integer) hierarchyOp.getClass()
-                .getMethod("getExcludeInsetsTypes")
-                .invoke(hierarchyOp)).intValue();
+        final boolean applied = addCaptionInsetOperation(
+                transaction, taskToken, exclude);
+        if (!applied) {
+            System.out.println("caption-inset-strategy="
+                    + FrameworkRuntime.current()
+                            .capabilities().captionStrategy());
+            return false;
+        }
+        final int requestedTypes = FrameworkRuntime.current()
+                .windowingCompat()
+                .lastExcludeInsetsTypes(transaction);
         System.out.println("caption-inset-types=" + requestedTypes);
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
+        return true;
     }
 
-    static void addCaptionInsetOperation(final Class<?> transactionClass,
-            final Object transaction, final Class<?> tokenClass,
-            final Object taskToken, final boolean exclude)
+    static boolean addCaptionInsetOperation(
+            final Object transaction,
+            final Object taskToken,
+            final boolean exclude)
             throws ReflectiveOperationException {
-        transactionClass.getMethod("setExcludeImeInsets", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.valueOf(exclude));
-        if (!exclude) {
-            return;
-        }
-        final List<?> hierarchyOps = (List<?>) transactionClass
-                .getMethod("getHierarchyOps")
-                .invoke(transaction);
-        final Object hierarchyOp = hierarchyOps.get(hierarchyOps.size() - 1);
-        final Field excludeInsetsTypes =
-                hierarchyOp.getClass().getDeclaredField("mExcludeInsetsTypes");
-        excludeInsetsTypes.setAccessible(true);
-        excludeInsetsTypes.setInt(hierarchyOp, getCaptionBarType());
+        return FrameworkRuntime.current().windowingCompat()
+                .addCaptionExclusion(
+                transaction, taskToken, exclude, getCaptionBarType());
     }
 
-    static int getCaptionBarType() throws ReflectiveOperationException {
-        final Class<?> typeClass = Class.forName("android.view.WindowInsets$Type");
-        return ((Integer) typeClass.getMethod("captionBar").invoke(null)).intValue();
+    static int getCaptionBarType() {
+        return FrameworkRuntime.current().windowingCompat().captionBarType();
     }
 
     private static int parseInt(final String value, final String label) {

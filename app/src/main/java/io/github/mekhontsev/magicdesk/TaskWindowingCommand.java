@@ -3,8 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
 
-import java.lang.reflect.Method;
-
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskWindowingCommand {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
@@ -186,15 +184,12 @@ public final class TaskWindowingCommand {
                 service, displayId, taskId);
         final Object focusTaskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, focusTaskId);
-        final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod("reorder", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.FALSE);
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(transaction, focusTaskToken, Boolean.TRUE, Boolean.TRUE);
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        windowing.reorder(transaction, taskToken, false);
+        windowing.reorder(transaction, focusTaskToken, true, true);
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
         System.out.println("task-minimized=" + taskId
@@ -216,10 +211,10 @@ public final class TaskWindowingCommand {
             final Object service,
             final int displayId,
             final int[] taskIds) throws ReflectiveOperationException {
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
         focusTasks(service, displayId, taskIds, transactionClass, transaction);
     }
 
@@ -257,10 +252,10 @@ public final class TaskWindowingCommand {
             final Object service,
             final int displayId,
             final int[] taskIds) throws ReflectiveOperationException {
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
         focusTasksWithinCurrentParent(
                 service, displayId, taskIds, transactionClass, transaction);
     }
@@ -316,18 +311,13 @@ public final class TaskWindowingCommand {
         if (taskIds == null || taskIds.length == 0) {
             throw new IllegalArgumentException("missing tasks to focus");
         }
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Method reorderTask = transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE);
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
         for (final int taskId : taskIds) {
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId);
-            reorderTask.invoke(
-                    transaction,
-                    taskToken,
-                    Boolean.TRUE,
-                    Boolean.valueOf(includeParents));
+            windowing.reorder(
+                    transaction, taskToken, true, includeParents);
         }
     }
 
@@ -354,41 +344,25 @@ public final class TaskWindowingCommand {
             throw new IllegalArgumentException(
                     "closed and surviving task match");
         }
-        final Class<?> tokenClass = Class.forName(
-                "android.window.WindowContainerToken");
-        final Class<?> transactionClass = Class.forName(
-                "android.window.WindowContainerTransaction");
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
         final Object survivorToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, survivorTaskId);
 
         // Move focus while both tasks still share the valid fullscreen area.
         // The sync callback replaces the old visibility polling and confirms
         // that the handoff reached WindowManager before the close begins.
-        final Object focusTransaction =
-                transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(
-                        focusTransaction,
-                        survivorToken,
-                        Boolean.TRUE,
-                        Boolean.TRUE);
+        final Object focusTransaction = windowing.newTransaction();
+        windowing.reorder(focusTransaction, survivorToken, true, true);
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, focusTransaction);
 
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
+        final Object transaction = windowing.newTransaction();
         final Object closingToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
-        transactionClass.getMethod("removeTask", tokenClass)
-                .invoke(transaction, closingToken);
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(
-                        transaction,
-                        survivorToken,
-                        Boolean.TRUE,
-                        Boolean.TRUE);
+        windowing.removeTask(transaction, closingToken);
+        windowing.reorder(transaction, survivorToken, true, true);
         // Keep the survivor in the same fullscreen parent. The removed task is
         // already in the background, so it cannot replace survivor input focus.
         ShellWindowTransitionExecutor.applySynchronized(
@@ -404,21 +378,14 @@ public final class TaskWindowingCommand {
         if (taskIds == null || taskIds.length == 0) {
             throw new IllegalArgumentException("missing tasks to close");
         }
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass = Class.forName(
-                "android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
         final Object focusTaskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, focusTaskId);
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(
-                        transaction,
-                        focusTaskToken,
-                        Boolean.TRUE,
-                        Boolean.valueOf(reorderParents));
+        windowing.reorder(
+                transaction, focusTaskToken, true, reorderParents);
         for (final int taskId : taskIds) {
             if (taskId == focusTaskId) {
                 throw new IllegalArgumentException(
@@ -426,8 +393,7 @@ public final class TaskWindowingCommand {
             }
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId);
-            transactionClass.getMethod("removeTask", tokenClass)
-                    .invoke(transaction, taskToken);
+            windowing.removeTask(transaction, taskToken);
         }
         ShellWindowTransitionExecutor.startForShellAdoption(
                 displayId,
@@ -441,28 +407,20 @@ public final class TaskWindowingCommand {
             final Object service,
             final int displayId,
             final int taskId) throws ReflectiveOperationException {
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
         final Object task = HiddenTaskApi.requireTask(
                 service, displayId, taskId);
-        final Object taskToken = HiddenTaskApi.getField(task, "token");
-        final int currentMode = HiddenTaskApi.getWindowConfigurationValue(
-                task, "getWindowingMode");
+        final Object taskToken = HiddenTaskApi.getTaskToken(task);
+        final int currentMode = HiddenTaskApi.getTaskWindowingMode(task);
         if (currentMode != WINDOWING_MODE_FULLSCREEN) {
-            transactionClass.getMethod(
-                    "setWindowingMode", tokenClass, Integer.TYPE)
-                    .invoke(transaction, taskToken,
-                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-            transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                    .invoke(transaction, taskToken, new Rect());
+            windowing.setWindowingMode(
+                    transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
+            windowing.setBounds(transaction, taskToken, new Rect());
         }
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
+        windowing.reorder(transaction, taskToken, true, true);
         ShellWindowTransitionExecutor.startForShellAdoption(
                 displayId,
                 ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
@@ -479,9 +437,8 @@ public final class TaskWindowingCommand {
         if (task == null) {
             throw new IllegalArgumentException("task is required");
         }
-        final int taskId = HiddenTaskApi.getIntField(task, "taskId");
-        final int originalMode = HiddenTaskApi.getWindowConfigurationValue(
-                task, "getWindowingMode");
+        final int taskId = HiddenTaskApi.getTaskId(task);
+        final int originalMode = HiddenTaskApi.getTaskWindowingMode(task);
         if (originalMode == WINDOWING_MODE_FULLSCREEN) {
             return false;
         }
@@ -577,39 +534,25 @@ public final class TaskWindowingCommand {
                 || (bounds != null && bounds.length != taskIds.length)) {
             throw new IllegalArgumentException("invalid task layout");
         }
-        final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
-        final Method setWindowingMode = transactionClass.getMethod(
-                "setWindowingMode", tokenClass, Integer.TYPE);
-        final Method setBounds = bounds == null ? null : transactionClass.getMethod(
-                "setBounds", tokenClass, Rect.class);
-        final Method setForceTranslucent = transactionClass.getMethod(
-                "setForceTranslucent", tokenClass, Boolean.TYPE);
-        final Method reorderTask = reorder ? transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE) : null;
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
         for (int index = 0; index < taskIds.length; index++) {
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskIds[index]);
-            setWindowingMode.invoke(
-                    transaction,
-                    taskToken,
-                    Integer.valueOf(WINDOWING_MODE_FREEFORM));
-            if (setBounds != null) {
-                setBounds.invoke(transaction, taskToken, bounds[index]);
+            windowing.setWindowingMode(
+                    transaction, taskToken, WINDOWING_MODE_FREEFORM);
+            if (bounds != null) {
+                windowing.setBounds(transaction, taskToken, bounds[index]);
             }
-            setForceTranslucent.invoke(
-                    transaction, taskToken, Boolean.FALSE);
+            windowing.setForceTranslucent(transaction, taskToken, false);
             TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                    transactionClass,
                     transaction,
-                    tokenClass,
                     taskToken,
                     false);
-            if (reorderTask != null) {
-                reorderTask.invoke(
-                        transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
+            if (reorder) {
+                windowing.reorder(transaction, taskToken, true, true);
             }
         }
         // Finalize all restored windows in one transition. Independent task

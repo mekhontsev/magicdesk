@@ -1038,7 +1038,9 @@ final class DesktopSelfTestWindowSuite {
                                         + DesktopTransitionSurfaceProbe
                                                 .formatColor(frameTopColor));
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_VISIBILITY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         if (!isTransitionFixtureColor(contentCenterColor)) {
             throw new IOException("fullscreen fixture content is not rendered: "
@@ -1287,7 +1289,9 @@ final class DesktopSelfTestWindowSuite {
                                 + " name=" + display.getName();
                     }
                 }
-                SystemClock.sleep(POLL_MILLIS);
+                BoundedStateAwaiter.pause(
+                        BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                        POLL_MILLIS);
             } while (SystemClock.uptimeMillis() < deadline);
             throw new IOException(target == DesktopSelfTestTarget.SIMULATED
                     ? "expected " + SimulatedDisplayLease.SPEC
@@ -1379,7 +1383,9 @@ final class DesktopSelfTestWindowSuite {
                                         rotation));
                     }
                 }
-                SystemClock.sleep(POLL_MILLIS);
+                BoundedStateAwaiter.pause(
+                        BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                        POLL_MILLIS);
             } while (SystemClock.uptimeMillis() < deadline);
             throw new IOException("desktop viewport did not settle");
         }, null);
@@ -1442,7 +1448,9 @@ final class DesktopSelfTestWindowSuite {
                             }
                             return "wallpaper rendered";
                         }
-                        SystemClock.sleep(POLL_MILLIS);
+                        BoundedStateAwaiter.pause(
+                                BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                                POLL_MILLIS);
                     } while (SystemClock.uptimeMillis() < deadline);
                     throw new IOException(
                             "desktop wallpaper did not finish rendering");
@@ -1976,7 +1984,9 @@ final class DesktopSelfTestWindowSuite {
                                     == expectedFeatureId.intValue())) {
                 return observed;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task hierarchy did not settle: observed="
                 + observed
@@ -2243,7 +2253,9 @@ final class DesktopSelfTestWindowSuite {
                     == desktopFocused) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException(desktopFocused
                 ? "desktop window did not receive focus"

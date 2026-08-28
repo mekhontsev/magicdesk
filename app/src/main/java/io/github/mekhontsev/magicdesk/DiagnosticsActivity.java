@@ -527,7 +527,9 @@ public final class DiagnosticsActivity extends Activity {
                     ready = true;
                     break;
                 }
-                SystemClock.sleep(ConsoleDisplayController.STATE_POLL_MS);
+                BoundedStateAwaiter.pause(
+                        BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                        ConsoleDisplayController.STATE_POLL_MS);
             } while (SystemClock.uptimeMillis() < deadline);
             final boolean prepared = ready;
             runOnUiThread(() -> {

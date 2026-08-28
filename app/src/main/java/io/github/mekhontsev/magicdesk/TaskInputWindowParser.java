@@ -65,6 +65,24 @@ final class TaskInputWindowParser {
         return hasFocusedWindow(windows, displayId) && focusedApplication;
     }
 
+    static boolean isTaskFocusConsistent(
+            final String dump, final int displayId, final int taskId) {
+        final String dispatcher = currentDispatcherState(dump);
+        if (dispatcher.isEmpty()) {
+            return false;
+        }
+        final int applicationTaskId = findFocusedApplicationTaskId(
+                section(dispatcher,
+                        "FocusedApplications:", "FocusedWindows:"),
+                displayId);
+        final int windowTaskId = findFocusedWindowTaskId(
+                dispatcher,
+                section(dispatcher,
+                        "FocusedWindows:", "FocusRequests:"),
+                displayId);
+        return applicationTaskId == taskId && windowTaskId == taskId;
+    }
+
     static int findFocusedTaskId(final String dump, final int displayId) {
         final String dispatcher = currentDispatcherState(dump);
         if (dispatcher.isEmpty()) {

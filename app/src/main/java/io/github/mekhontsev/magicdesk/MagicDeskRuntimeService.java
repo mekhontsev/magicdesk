@@ -290,6 +290,13 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public boolean toggleDesktopWorkspace(
+            final TaskRepository.ActionCallback callback) {
+        return !mDestroyed
+                && DesktopRuntimeBridge.toggleDesktopWorkspace(callback);
+    }
+
+    @Override
     public boolean restoreLastVisibleWindows() {
         return !mDestroyed && DesktopRuntimeBridge.restoreLastVisibleWindows();
     }

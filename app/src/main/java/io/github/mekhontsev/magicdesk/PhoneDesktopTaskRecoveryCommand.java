@@ -107,7 +107,7 @@ public final class PhoneDesktopTaskRecoveryCommand {
         final Map<Integer, Object> result = new HashMap<>();
         for (final Object task : tasks) {
             result.put(Integer.valueOf(
-                    HiddenTaskApi.getIntField(task, "taskId")), task);
+                    HiddenTaskApi.getTaskId(task)), task);
         }
         return result;
     }

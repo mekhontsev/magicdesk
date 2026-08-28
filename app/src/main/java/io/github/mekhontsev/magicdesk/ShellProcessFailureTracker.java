@@ -125,7 +125,7 @@ final class ShellProcessFailureTracker implements
 
     synchronized void observeTasks(
             final int displayId,
-            final List<ShellTaskStateMonitor.TaskWindowState> tasks) {
+            final List<FrameworkTaskSnapshot> tasks) {
         if (displayId != mDisplayId) {
             return;
         }
@@ -133,7 +133,7 @@ final class ShellProcessFailureTracker implements
         if (tasks == null) {
             return;
         }
-        for (final ShellTaskStateMonitor.TaskWindowState task : tasks) {
+        for (final FrameworkTaskSnapshot task : tasks) {
             if (task.activityType != ACTIVITY_TYPE_STANDARD
                     || (task.packageName == null
                             && task.topPackage == null)) {
@@ -322,7 +322,7 @@ final class ShellProcessFailureTracker implements
         final String topActivity;
 
         TaskContext(
-                final ShellTaskStateMonitor.TaskWindowState task,
+                final FrameworkTaskSnapshot task,
                 final int observedDisplayId) {
             taskId = task.taskId;
             displayId = observedDisplayId;

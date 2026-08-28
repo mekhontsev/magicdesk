@@ -341,6 +341,12 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
             return PhoneDesktopTaskRecovery.CommandResult.success("");
         }
 
+        @Override
+        public PhoneDesktopTaskRecovery.TaskReadResult readTasks() {
+            return PhoneDesktopTaskRecovery.readTextTaskFixtureForTest(
+                    run("/system/bin/cmd activity stack list"));
+        }
+
         boolean hasReviveCommand() {
             return indexOfRevive() >= 0;
         }

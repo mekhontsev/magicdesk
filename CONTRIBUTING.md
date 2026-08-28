@@ -67,6 +67,36 @@ This debug-only override changes platform-driver selection without introducing
 a product flavor or a separate device build. Compatibility Diagnostics records
 the active override. Release builds always use automatic platform selection.
 
+To exercise Android 15 windowing semantics on a newer device, build:
+
+```sh
+./gradlew :app:assembleDebug -PMAGICDESK_FRAMEWORK_OVERRIDE=android15
+```
+
+The framework profile masks newer task observations and selects the Android 15
+caption-source strategy while retaining the host device's actual Binder ABI.
+It is independent from platform selection, so both axes can be tested together:
+
+```sh
+./gradlew :app:assembleDebug \
+  -PMAGICDESK_FRAMEWORK_OVERRIDE=android15 \
+  -PMAGICDESK_PLATFORM_OVERRIDE=android
+```
+
+Framework and platform overrides are debug-only and are recorded in
+Compatibility Diagnostics. A future vendor driver belongs in the existing
+platform composition root; its test profile must not pretend that unavailable
+firmware services exist.
+
+Framework compatibility code has enforced ownership boundaries. Add hidden
+window-container primitives only to `FrameworkWindowingApi`, release-specific
+semantics only to `FrameworkWindowingCompat`, raw task members only to
+`HiddenTaskApi`, and normalized task/input state only through their snapshot
+sources. Timing is similarly explicit: use `BoundedStateAwaiter` for bounded
+state polling, `EventDrivenWaits` for monitor signals, and `RuntimeDelays` only
+for intentional non-state delays. The isolation unit tests reject direct
+reflection, task/input text dumps, and raw sleep/wait calls elsewhere.
+
 ## Adding Platform Support
 
 Start from a complete compatibility report and the manual checklist in

@@ -20,14 +20,10 @@ public final class TaskHierarchyCommand {
             System.out.println("task-hierarchy"
                     + " task=" + taskId
                     + " display=" + HiddenTaskApi.getTaskDisplayId(task)
-                    + " feature=" + HiddenTaskApi.getIntField(
-                            task, "displayAreaFeatureId")
-                    + " mode=" + HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode")
-                    + " visible=" + HiddenTaskApi.getBooleanField(
-                            task, "isVisible")
-                    + " focused=" + HiddenTaskApi.getBooleanField(
-                            task, "isFocused"));
+                    + " feature=" + HiddenTaskApi.getTaskDisplayAreaFeatureId(task)
+                    + " mode=" + HiddenTaskApi.getTaskWindowingMode(task)
+                    + " visible=" + HiddenTaskApi.isTaskVisible(task)
+                    + " focused=" + HiddenTaskApi.isTaskFocused(task));
         } catch (ReflectiveOperationException | RuntimeException error) {
             System.err.println("task hierarchy query failed: "
                     + usefulMessage(error));

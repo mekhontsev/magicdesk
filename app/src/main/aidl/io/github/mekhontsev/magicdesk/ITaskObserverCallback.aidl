@@ -23,7 +23,7 @@ oneway interface ITaskObserverCallback {
         int taskId, String stateKey, int displayId,
         int left, int top, int right, int bottom) = 7;
 
-    void onInputFocusRefreshRequired() = 8;
+    void onInputFocusRefreshRequired(int focusedTaskId) = 8;
 
     void onPhoneTaskNormalized(int taskId) = 9;
 
@@ -49,4 +49,7 @@ oneway interface ITaskObserverCallback {
 
     void onTaskFocusChanged(
         int taskId, int displayId, boolean focused) = 16;
+
+    void onDesktopWorkspaceCommandResult(
+        long sequence, boolean success, int taskCount, String error) = 17;
 }

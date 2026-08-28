@@ -90,7 +90,7 @@ final class ShellExternalTaskMigrationGuard implements
         try {
             for (final Object task : HiddenTaskApi.getTasks(
                     mService, Display.DEFAULT_DISPLAY)) {
-                final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+                final int taskId = HiddenTaskApi.getTaskId(task);
                 if (!normalizeObservedPhoneTask(
                         taskId, Display.DEFAULT_DISPLAY, task)) {
                     forget(taskId);
@@ -186,13 +186,12 @@ final class ShellExternalTaskMigrationGuard implements
 
     private static TaskState createTaskState(final Object task)
             throws ReflectiveOperationException {
-        if (HiddenTaskApi.getWindowConfigurationValue(
-                task, "getActivityType") != ACTIVITY_TYPE_STANDARD
+        if (HiddenTaskApi.getTaskActivityType(task) != ACTIVITY_TYPE_STANDARD
                 || MAGICDESK_PACKAGE.equals(
                         HiddenTaskApi.getTaskPackage(task))) {
             return null;
         }
-        final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+        final int taskId = HiddenTaskApi.getTaskId(task);
         final ComponentName component = findLaunchComponent(task);
         return component == null ? null : new TaskState(taskId, component);
     }
@@ -200,7 +199,7 @@ final class ShellExternalTaskMigrationGuard implements
     private static ComponentName findLaunchComponent(final Object task) {
         try {
             final Object baseIntent =
-                    HiddenTaskApi.getField(task, "baseIntent");
+                    HiddenTaskApi.getTaskBaseIntent(task);
             if (baseIntent instanceof Intent) {
                 final ComponentName component =
                         ((Intent) baseIntent).getComponent();
@@ -321,8 +320,7 @@ final class ShellExternalTaskMigrationGuard implements
         }
         final boolean freeform;
         try {
-            freeform = HiddenTaskApi.getWindowConfigurationValue(
-                    task, "getWindowingMode") == WINDOWING_MODE_FREEFORM;
+            freeform = HiddenTaskApi.getTaskWindowingMode(task) == WINDOWING_MODE_FREEFORM;
         } catch (ReflectiveOperationException | RuntimeException error) {
             report("could not inspect phone task " + taskId + ": "
                     + usefulMessage(error));

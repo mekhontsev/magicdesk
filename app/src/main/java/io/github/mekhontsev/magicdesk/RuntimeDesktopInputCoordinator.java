@@ -490,8 +490,8 @@ final class RuntimeDesktopInputCoordinator {
         final int generation = ++mInputSourceRefreshGeneration;
         mInputSourceWorker.execute(() -> {
             try {
-                final String inputDump = ShellAccess.run(
-                        "/system/bin/dumpsys input");
+                final String inputDump =
+                        FrameworkInputSnapshotSource.readRemote();
                 final List<DesktopKeyboardDevice> keyboards =
                         DesktopInputDeviceDiscovery.findKeyboards(inputDump);
                 final List<DesktopMouseDevice> mice =

@@ -108,10 +108,8 @@ final class ShellFreeformTaskCleanup implements Closeable {
         }
         for (final Object task : tasks) {
             if (HiddenTaskApi.getTaskDisplayId(task) != displayId
-                    || HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getActivityType") != ACTIVITY_TYPE_STANDARD
-                    || HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode") != WINDOWING_MODE_FREEFORM) {
+                    || HiddenTaskApi.getTaskActivityType(task) != ACTIVITY_TYPE_STANDARD
+                    || HiddenTaskApi.getTaskWindowingMode(task) != WINDOWING_MODE_FREEFORM) {
                 continue;
             }
             final String packageName = HiddenTaskApi.getTaskPackage(task);
@@ -119,7 +117,7 @@ final class ShellFreeformTaskCleanup implements Closeable {
                     || MAGICDESK_PACKAGE.equals(packageName)) {
                 continue;
             }
-            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+            final int taskId = HiddenTaskApi.getTaskId(task);
             result.put(Integer.valueOf(taskId),
                     new Record(taskId, packageName, displayId));
         }
@@ -135,8 +133,7 @@ final class ShellFreeformTaskCleanup implements Closeable {
         final int liveDisplayId = liveTask == null
                 ? -1 : HiddenTaskApi.getTaskDisplayId(liveTask);
         final boolean liveFreeform = liveTask != null
-                && HiddenTaskApi.getWindowConfigurationValue(
-                        liveTask, "getWindowingMode") == WINDOWING_MODE_FREEFORM;
+                && HiddenTaskApi.getTaskWindowingMode(liveTask) == WINDOWING_MODE_FREEFORM;
         final String recentPackage = recentTask == null
                 ? null : HiddenTaskApi.getTaskPackage(recentTask);
         final int recentDisplayId = recentTask == null
@@ -158,7 +155,7 @@ final class ShellFreeformTaskCleanup implements Closeable {
         final Map<Integer, Object> result = new HashMap<>();
         for (final Object task : tasks) {
             result.put(Integer.valueOf(
-                    HiddenTaskApi.getIntField(task, "taskId")), task);
+                    HiddenTaskApi.getTaskId(task)), task);
         }
         return result;
     }

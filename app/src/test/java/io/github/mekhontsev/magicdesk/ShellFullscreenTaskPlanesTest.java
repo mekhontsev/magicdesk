@@ -115,6 +115,24 @@ public final class ShellFullscreenTaskPlanesTest {
     }
 
     @Test
+    public void selectsFullscreenChildWhenFocusCrossesWorkspaceBoundary() {
+        assertEquals(
+                true,
+                ShellFullscreenTaskPlanes.crossesFullscreenPlaneBoundary(
+                        new int[]{20, 99, 10, 11},
+                        planeIds(10, 11)));
+    }
+
+    @Test
+    public void leavesFullscreenPlaneSwitchChildLifecycleUntouched() {
+        assertEquals(
+                false,
+                ShellFullscreenTaskPlanes.crossesFullscreenPlaneBoundary(
+                        new int[]{10, 11},
+                        planeIds(10, 11)));
+    }
+
+    @Test
     public void raisesWorkspaceForSelectedFreeformTask() {
         final ShellFullscreenTaskPlanes.MixedStackOrder order =
                 ShellFullscreenTaskPlanes.buildMixedStackOrder(
@@ -126,13 +144,15 @@ public final class ShellFullscreenTaskPlanesTest {
                         11,
                         true);
         assertNotNull(order);
+        assertEquals(20, order.targetTaskId);
         assertEquals(99, order.desktopHostTaskId);
         assertEquals(11, order.fullscreenTaskId);
         assertArrayEquals(new int[]{20}, order.freeformTaskIds);
+        assertEquals(false, order.fullscreenForeground);
     }
 
     @Test
-    public void keepsVisibleFreeformWorkspaceAboveSelectedFullscreen() {
+    public void raisesSelectedFullscreenAboveVisibleFreeformWorkspace() {
         final ShellFullscreenTaskPlanes.MixedStackOrder order =
                 ShellFullscreenTaskPlanes.buildMixedStackOrder(
                         11,
@@ -143,8 +163,10 @@ public final class ShellFullscreenTaskPlanesTest {
                         10,
                         false);
         assertNotNull(order);
+        assertEquals(11, order.targetTaskId);
         assertEquals(11, order.fullscreenTaskId);
         assertArrayEquals(new int[]{20}, order.freeformTaskIds);
+        assertEquals(true, order.fullscreenForeground);
     }
 
     @Test
@@ -160,7 +182,7 @@ public final class ShellFullscreenTaskPlanesTest {
     }
 
     @Test
-    public void retainsOtherFreeformWindowsAboveFullscreenPeer() {
+    public void movesExplicitFreeformBlockersBelowFullscreenPeer() {
         final ShellFullscreenTaskPlanes.MixedStackOrder order =
                 ShellFullscreenTaskPlanes.buildMixedStackOrder(
                         11,
@@ -172,6 +194,7 @@ public final class ShellFullscreenTaskPlanesTest {
                         false);
         assertNotNull(order);
         assertArrayEquals(new int[]{21}, order.freeformTaskIds);
+        assertEquals(true, order.fullscreenForeground);
     }
 
     private static java.util.List<Integer> asList(final int[] values) {

@@ -4,6 +4,7 @@ import android.util.Log;
 import android.view.Display;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -12,13 +13,38 @@ import java.util.concurrent.Future;
 /** Keeps task and input focus synchronized on a secondary desktop display. */
 final class ShellDesktopFocusController implements AutoCloseable {
     interface Listener {
-        void onInputFocusRefreshRequired();
+        void onInputFocusRefreshRequired(int focusedTaskId);
     }
 
     private static final String TAG = "MagicDeskFocus";
+    private static final int ACTIVITY_TYPE_STANDARD = 1;
+    private static final String BACKSTOP_COMPONENT_SHORT =
+            BuildConfig.APPLICATION_ID + "/.TaskAreaBackstopActivity";
+    private static final String BACKSTOP_COMPONENT_FULL =
+            BuildConfig.APPLICATION_ID + "/" + BuildConfig.APPLICATION_ID
+                    + ".TaskAreaBackstopActivity";
+    private static final long TASK_COMMIT_TIMEOUT_MILLIS = 700L;
+    private static final long INPUT_FOCUS_COMMIT_TIMEOUT_MILLIS = 2_000L;
+
+    static final class CommitBarrier {
+        final long taskSampleGeneration;
+        final long inputWindowGeneration;
+        final boolean inputWindowEventsAvailable;
+
+        CommitBarrier(
+                final long taskSampleGeneration,
+                final long inputWindowGeneration,
+                final boolean inputWindowEventsAvailable) {
+            this.taskSampleGeneration = taskSampleGeneration;
+            this.inputWindowGeneration = inputWindowGeneration;
+            this.inputWindowEventsAvailable = inputWindowEventsAvailable;
+        }
+    }
 
     private final Object mTaskService;
     private final Listener mListener;
+    private final FrameworkInputWindowObservationSource
+            mInputWindowObservations;
     private final ExecutorService mExecutor =
             Executors.newSingleThreadExecutor(runnable -> {
                 final Thread thread = new Thread(
@@ -31,9 +57,15 @@ final class ShellDesktopFocusController implements AutoCloseable {
 
     private int mDisplayId = Display.INVALID_DISPLAY;
     private int mPendingFocusedTaskId = -1;
+    private boolean mPendingConfirmationRequested;
+    private int mFocusConfirmationTaskId = -1;
+    private int mMissingWindowRepairTaskId = -1;
     private boolean mDrainScheduled;
     private boolean mAcceptingEvents = true;
     private boolean mAvailable;
+    private long mTaskSampleGeneration;
+    private long mInputFocusRefreshGeneration;
+    private int mInputFocusRefreshTaskId = -1;
 
     ShellDesktopFocusController(
             final Object taskService,
@@ -42,6 +74,14 @@ final class ShellDesktopFocusController implements AutoCloseable {
         mTaskService = taskService;
         mListener = listener;
         mAvailable = enabled;
+        mInputWindowObservations = enabled
+                ? new FrameworkInputWindowObservationSource() : null;
+    }
+
+    void start() {
+        if (mInputWindowObservations != null) {
+            mInputWindowObservations.start();
+        }
     }
 
     void configure(final int displayId) {
@@ -59,6 +99,103 @@ final class ShellDesktopFocusController implements AutoCloseable {
     }
 
     void requestFocusReconciliation(final int taskId) {
+        enqueueFocusReconciliation(taskId, true);
+    }
+
+    CommitBarrier captureCommitBarrier() {
+        synchronized (mPendingLock) {
+            return new CommitBarrier(
+                    mTaskSampleGeneration,
+                    mInputWindowObservations == null
+                            ? 0L : mInputWindowObservations.checkpoint(),
+                    mInputWindowObservations != null
+                            && mInputWindowObservations.isAvailable());
+        }
+    }
+
+    private long taskSampleGeneration() {
+        synchronized (mPendingLock) {
+            return mTaskSampleGeneration;
+        }
+    }
+
+    /** Completes a workspace command only after its input target is usable. */
+    boolean convergeAfterCommit(
+            final int taskId,
+            final CommitBarrier barrier,
+            final Runnable sampleRequester) {
+        if (taskId < 0 || barrier == null || sampleRequester == null) {
+            return false;
+        }
+        return call(() -> convergeAfterCommitOnWorker(
+                taskId, barrier, sampleRequester));
+    }
+
+    void onTasksSampled(final List<FrameworkTaskSnapshot> tasks) {
+        final int confirmationTaskId;
+        synchronized (mPendingLock) {
+            mTaskSampleGeneration++;
+            mPendingLock.notifyAll();
+            confirmationTaskId = mFocusConfirmationTaskId;
+        }
+        if (confirmationTaskId < 0 || tasks == null) {
+            return;
+        }
+        if (!isFocusConfirmationReady(confirmationTaskId, tasks)) {
+            return;
+        }
+        synchronized (mPendingLock) {
+            if (mFocusConfirmationTaskId != confirmationTaskId) {
+                return;
+            }
+            mFocusConfirmationTaskId = -1;
+        }
+        // Organizer children do not always expose isFocused=true, and sibling
+        // organizer planes have no reliable child order in RootTaskInfo. The
+        // requested task already identifies the owner; a visible typed sample
+        // is only the commit barrier before the strict InputDispatcher check.
+        enqueueFocusReconciliation(confirmationTaskId, false);
+    }
+
+    void onInputFocusRefreshCompleted(final int taskId) {
+        if (taskId < 0) {
+            return;
+        }
+        synchronized (mPendingLock) {
+            mInputFocusRefreshTaskId = taskId;
+            mInputFocusRefreshGeneration++;
+            mPendingLock.notifyAll();
+        }
+    }
+
+    static boolean isFocusConfirmationReady(
+            final int confirmationTaskId,
+            final List<FrameworkTaskSnapshot> tasks) {
+        if (confirmationTaskId < 0 || tasks == null) {
+            return false;
+        }
+        for (final FrameworkTaskSnapshot task : tasks) {
+            if (task.taskId == confirmationTaskId
+                    && task.visible
+                    && task.activityType == ACTIVITY_TYPE_STANDARD
+                    && !isBackstopSnapshot(task)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isBackstopSnapshot(
+            final FrameworkTaskSnapshot task) {
+        return BACKSTOP_COMPONENT_SHORT.equals(task.componentName)
+                || BACKSTOP_COMPONENT_FULL.equals(task.componentName)
+                || BACKSTOP_COMPONENT_SHORT.equals(task.topActivityName)
+                || BACKSTOP_COMPONENT_FULL.equals(task.topActivityName);
+    }
+
+    private void enqueueFocusReconciliation(
+            final int taskId,
+            final boolean requestConfirmation) {
         if (taskId < 0) {
             return;
         }
@@ -67,6 +204,10 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 return;
             }
             mPendingFocusedTaskId = taskId;
+            mPendingConfirmationRequested = requestConfirmation;
+            if (requestConfirmation) {
+                mFocusConfirmationTaskId = -1;
+            }
             if (mDrainScheduled) {
                 return;
             }
@@ -85,6 +226,8 @@ final class ShellDesktopFocusController implements AutoCloseable {
             }
             mAcceptingEvents = false;
             mPendingFocusedTaskId = -1;
+            mPendingConfirmationRequested = false;
+            mFocusConfirmationTaskId = -1;
         }
         try {
             call(() -> {
@@ -92,6 +235,9 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 return null;
             });
         } finally {
+            if (mInputWindowObservations != null) {
+                mInputWindowObservations.close();
+            }
             mExecutor.shutdownNow();
         }
     }
@@ -114,21 +260,27 @@ final class ShellDesktopFocusController implements AutoCloseable {
         mDisplayId = Display.INVALID_DISPLAY;
         synchronized (mPendingLock) {
             mPendingFocusedTaskId = -1;
+            mPendingConfirmationRequested = false;
+            mFocusConfirmationTaskId = -1;
+            mMissingWindowRepairTaskId = -1;
         }
     }
 
     private void drainFocusChanges() {
         while (true) {
             final int taskId;
+            final boolean requestConfirmation;
             synchronized (mPendingLock) {
                 taskId = mPendingFocusedTaskId;
+                requestConfirmation = mPendingConfirmationRequested;
                 mPendingFocusedTaskId = -1;
+                mPendingConfirmationRequested = false;
                 if (taskId < 0 || !mAcceptingEvents) {
                     mDrainScheduled = false;
                     return;
                 }
             }
-            repairFocus(taskId);
+            repairFocus(taskId, requestConfirmation);
             synchronized (mPendingLock) {
                 if (mPendingFocusedTaskId < 0 || !mAcceptingEvents) {
                     mDrainScheduled = false;
@@ -138,17 +290,30 @@ final class ShellDesktopFocusController implements AutoCloseable {
         }
     }
 
-    private void repairFocus(final int focusedTaskId) {
+    private void repairFocus(
+            final int focusedTaskId,
+            final boolean requestConfirmation) {
         final int displayId = mDisplayId;
         if (displayId == Display.INVALID_DISPLAY) {
             return;
         }
+        boolean taskObserved = false;
         try {
-            if (HiddenTaskApi.findTask(
-                    mTaskService, displayId, focusedTaskId) == null) {
+            final Object focusedTask = HiddenTaskApi.findTask(
+                    mTaskService, displayId, focusedTaskId);
+            if (focusedTask == null) {
                 return;
             }
-            final String inputState = InputStateDump.read();
+            taskObserved = true;
+            final String inputState =
+                    FrameworkInputSnapshotSource.readLocal();
+            if (TaskInputWindowParser.isTaskFocused(
+                    inputState, displayId, focusedTaskId)) {
+                synchronized (mPendingLock) {
+                    mMissingWindowRepairTaskId = -1;
+                }
+                return;
+            }
             final int inputTaskId = TaskInputWindowParser.findFocusedTaskId(
                     inputState, displayId);
             synchronized (mPendingLock) {
@@ -156,23 +321,268 @@ final class ShellDesktopFocusController implements AutoCloseable {
                     return;
                 }
             }
-            if (inputTaskId < 0 || inputTaskId == focusedTaskId
-                    || HiddenTaskApi.findTask(
-                            mTaskService, displayId, inputTaskId) == null) {
+            if (!requiresInputFocusRefresh(
+                    focusedTaskId, inputTaskId,
+                    inputTaskId >= 0 && HiddenTaskApi.findTask(
+                            mTaskService, displayId, inputTaskId) != null)) {
                 return;
             }
+            boolean hierarchyRepair = false;
+            synchronized (mPendingLock) {
+                if (inputTaskId < 0
+                        && mMissingWindowRepairTaskId != focusedTaskId) {
+                    mMissingWindowRepairTaskId = focusedTaskId;
+                    hierarchyRepair = true;
+                } else if (inputTaskId >= 0) {
+                    mMissingWindowRepairTaskId = -1;
+                }
+            }
+            if (hierarchyRepair) {
+                final int windowingMode =
+                        HiddenTaskApi.getTaskWindowingMode(focusedTask);
+                if (requiresParentReorderForMissingWindow(windowingMode)) {
+                    // A freeform task is its own root. Reorder that root through
+                    // the normal activation path so WindowManager can rebuild
+                    // the missing input target exposed after another root dies.
+                    TaskWindowingCommand.focusTasks(
+                            mTaskService,
+                            displayId,
+                            new int[] {focusedTaskId});
+                } else {
+                    // Fullscreen tasks keep a stable organizer plane. Reassert
+                    // only the child order; moving the parent here would bypass
+                    // the fullscreen topology owner.
+                    TaskWindowingCommand.focusTasksWithinCurrentParent(
+                            mTaskService,
+                            displayId,
+                            new int[] {focusedTaskId});
+                }
+            }
             if (mListener != null) {
-                mListener.onInputFocusRefreshRequired();
+                mListener.onInputFocusRefreshRequired(focusedTaskId);
             }
             Log.i(TAG, "reported stale desktop input focus display=" + displayId
                     + " task=" + focusedTaskId
-                    + " staleInputTask=" + inputTaskId);
+                    + " staleInputTask=" + inputTaskId
+                    + " hierarchyRepair=" + hierarchyRepair
+                    + " parentRepair=" + (hierarchyRepair
+                            && requiresParentReorderForMissingWindow(
+                                    HiddenTaskApi.getTaskWindowingMode(
+                                            focusedTask))));
         } catch (IOException | ReflectiveOperationException
                 | RuntimeException error) {
             Log.w(TAG, "could not repair desktop input focus", error);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
+        } finally {
+            if (requestConfirmation && taskObserved) {
+                armFocusConfirmation(focusedTaskId);
+            }
         }
+    }
+
+    private boolean convergeAfterCommitOnWorker(
+            final int taskId,
+            final CommitBarrier barrier,
+            final Runnable sampleRequester) {
+        final int displayId = mDisplayId;
+        if (displayId == Display.INVALID_DISPLAY) {
+            return true;
+        }
+        try {
+            final Object task = HiddenTaskApi.findTask(
+                    mTaskService, displayId, taskId);
+            if (task == null) {
+                return false;
+            }
+            awaitTaskSample(barrier.taskSampleGeneration);
+            if (awaitCommittedInputFocus(
+                    displayId,
+                    taskId,
+                    barrier.inputWindowGeneration,
+                    barrier.inputWindowEventsAvailable)) {
+                synchronized (mPendingLock) {
+                    mMissingWindowRepairTaskId = -1;
+                }
+                return true;
+            }
+            final long repairInputWindowGeneration =
+                    inputWindowGeneration();
+            final long refreshGeneration = inputFocusRefreshGeneration();
+            final boolean refreshRequested = repairMissingInputTarget(
+                    displayId, taskId, task);
+            if (refreshRequested) {
+                awaitInputFocusRefresh(taskId, refreshGeneration);
+            }
+            final long repairedSampleGeneration = taskSampleGeneration();
+            sampleRequester.run();
+            awaitTaskSample(repairedSampleGeneration);
+            final boolean converged = awaitCommittedInputFocus(
+                    displayId,
+                    taskId,
+                    repairInputWindowGeneration,
+                    mInputWindowObservations != null
+                            && mInputWindowObservations.isAvailable());
+            if (converged) {
+                synchronized (mPendingLock) {
+                    mMissingWindowRepairTaskId = -1;
+                }
+            }
+            return converged;
+        } catch (IOException | ReflectiveOperationException
+                | RuntimeException error) {
+            Log.w(TAG, "could not confirm committed desktop focus", error);
+            return false;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private long inputWindowGeneration() {
+        return mInputWindowObservations == null
+                ? 0L : mInputWindowObservations.checkpoint();
+    }
+
+    private boolean awaitCommittedInputFocus(
+            final int displayId,
+            final int taskId,
+            final long initialGeneration,
+            final boolean eventsAvailable)
+            throws IOException, InterruptedException {
+        return InputFocusCommitAwaiter.await(
+                eventsAvailable ? mInputWindowObservations : null,
+                initialGeneration,
+                INPUT_FOCUS_COMMIT_TIMEOUT_MILLIS,
+                () -> isInputFocused(displayId, taskId));
+    }
+
+    private void awaitTaskSample(final long previousGeneration)
+            throws InterruptedException {
+        final long deadlineNanos = System.nanoTime()
+                + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
+                        TASK_COMMIT_TIMEOUT_MILLIS);
+        synchronized (mPendingLock) {
+            while (mAcceptingEvents
+                    && mTaskSampleGeneration <= previousGeneration) {
+                final long remainingNanos = deadlineNanos - System.nanoTime();
+                if (remainingNanos <= 0L) {
+                    return;
+                }
+                EventDrivenWaits.await(
+                        mPendingLock,
+                        EventDrivenWaits.Reason.FRAMEWORK_OBSERVER_RESAMPLE,
+                        Math.max(1L,
+                                java.util.concurrent.TimeUnit.NANOSECONDS
+                                        .toMillis(remainingNanos)));
+            }
+        }
+    }
+
+    private static boolean isInputFocused(
+            final int displayId,
+            final int taskId) throws IOException, InterruptedException {
+        return TaskInputWindowParser.isTaskFocusConsistent(
+                FrameworkInputSnapshotSource.readLocal(),
+                displayId,
+                taskId);
+    }
+
+    private long inputFocusRefreshGeneration() {
+        synchronized (mPendingLock) {
+            return mInputFocusRefreshGeneration;
+        }
+    }
+
+    private boolean awaitInputFocusRefresh(
+            final int taskId,
+            final long previousGeneration) throws InterruptedException {
+        final long deadlineNanos = System.nanoTime()
+                + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
+                        TASK_COMMIT_TIMEOUT_MILLIS);
+        synchronized (mPendingLock) {
+            while (mAcceptingEvents
+                    && (mInputFocusRefreshGeneration <= previousGeneration
+                            || mInputFocusRefreshTaskId != taskId)) {
+                final long remainingNanos = deadlineNanos - System.nanoTime();
+                if (remainingNanos <= 0L) {
+                    return false;
+                }
+                EventDrivenWaits.await(
+                        mPendingLock,
+                        EventDrivenWaits.Reason.INPUT_FOCUS_RELAYOUT,
+                        Math.max(1L,
+                                java.util.concurrent.TimeUnit.NANOSECONDS
+                                        .toMillis(remainingNanos)));
+            }
+            return mInputFocusRefreshGeneration > previousGeneration
+                    && mInputFocusRefreshTaskId == taskId;
+        }
+    }
+
+    private boolean repairMissingInputTarget(
+            final int displayId,
+            final int taskId,
+            final Object task)
+            throws IOException, ReflectiveOperationException,
+            InterruptedException {
+        final String inputState = FrameworkInputSnapshotSource.readLocal();
+        final int inputTaskId = TaskInputWindowParser.findFocusedTaskId(
+                inputState, displayId);
+        final boolean inputTaskExists = inputTaskId >= 0
+                && HiddenTaskApi.findTask(
+                        mTaskService, displayId, inputTaskId) != null;
+        if (!requiresInputFocusRefresh(
+                taskId, inputTaskId, inputTaskExists)) {
+            return false;
+        }
+        final int windowingMode = HiddenTaskApi.getTaskWindowingMode(task);
+        if (requiresParentReorderForMissingWindow(windowingMode)) {
+            // A WCT reorder can select the freeform window while leaving
+            // ActivityTaskManager's focused application on the previously
+            // active organizer plane. The task-service operation is the
+            // framework owner of that application-level selection.
+            TaskControlCommand.moveTaskToFront(mTaskService, taskId);
+        } else {
+            TaskWindowingCommand.focusTasksWithinCurrentParent(
+                    mTaskService, displayId, new int[]{taskId});
+        }
+        synchronized (mPendingLock) {
+            mMissingWindowRepairTaskId = taskId;
+        }
+        if (mListener != null) {
+            mListener.onInputFocusRefreshRequired(taskId);
+        }
+        Log.i(TAG, "repaired committed desktop input target display="
+                + displayId + " task=" + taskId
+                + " staleInputTask=" + inputTaskId);
+        return mListener != null;
+    }
+
+    private void armFocusConfirmation(final int taskId) {
+        synchronized (mPendingLock) {
+            if (mAcceptingEvents && mPendingFocusedTaskId < 0) {
+                mFocusConfirmationTaskId = taskId;
+            }
+        }
+    }
+
+    static boolean requiresParentReorderForMissingWindow(
+            final int windowingMode) {
+        return windowingMode == FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM;
+    }
+
+    static boolean requiresInputFocusRefresh(
+            final int focusedTaskId,
+            final int inputTaskId,
+            final boolean inputTaskExists) {
+        if (focusedTaskId < 0 || inputTaskId == focusedTaskId) {
+            return false;
+        }
+        // A missing focused window is the other stale-focus state observed on
+        // secondary displays. Relayout the desktop host just as when focus is
+        // still attached to a different live task.
+        return inputTaskId < 0 || inputTaskExists;
     }
 
     private <T> T call(final Operation<T> operation) {

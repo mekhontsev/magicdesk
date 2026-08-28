@@ -330,6 +330,17 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
+        public boolean toggleDesktopWorkspace(
+                final TaskRepository.ActionCallback callback) {
+            uiCommands |= 1;
+            if (callback != null) {
+                callback.onComplete(
+                        new TaskRepository.ActionResult(true, "completed"));
+            }
+            return true;
+        }
+
+        @Override
         public boolean restoreLastVisibleWindows() {
             uiCommands |= 256;
             return true;

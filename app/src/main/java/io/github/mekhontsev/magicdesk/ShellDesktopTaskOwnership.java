@@ -57,6 +57,11 @@ final class ShellDesktopTaskOwnership {
         }
     }
 
+    synchronized boolean isRememberedDesktopTask(final int taskId) {
+        return taskId >= 0
+                && mDesktopTaskIds.contains(Integer.valueOf(taskId));
+    }
+
     synchronized boolean isDesktopHostTask(final int taskId) {
         return taskId >= 0 && taskId == mDesktopHostTaskId;
     }
@@ -103,9 +108,8 @@ final class ShellDesktopTaskOwnership {
             return false;
         }
         try {
-            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
-            final int mode = HiddenTaskApi.getWindowConfigurationValue(
-                    task, "getWindowingMode");
+            final int taskId = HiddenTaskApi.getTaskId(task);
+            final int mode = HiddenTaskApi.getTaskWindowingMode(task);
             final boolean activeExternalDisplayTask =
                     mDesktopDisplayId > Display.DEFAULT_DISPLAY
                             && HiddenTaskApi.getTaskDisplayId(task)
@@ -169,9 +173,8 @@ final class ShellDesktopTaskOwnership {
         }
         try {
             final Integer taskId = Integer.valueOf(
-                    HiddenTaskApi.getIntField(task, "taskId"));
-            final int mode = HiddenTaskApi.getWindowConfigurationValue(
-                    task, "getWindowingMode");
+                    HiddenTaskApi.getTaskId(task));
+            final int mode = HiddenTaskApi.getTaskWindowingMode(task);
             if (mode == WINDOWING_MODE_FREEFORM) {
                 final boolean restorePhoneTask =
                         shouldRestoreKnownPhoneFreeform(
@@ -206,8 +209,7 @@ final class ShellDesktopTaskOwnership {
             return false;
         }
         try {
-            return HiddenTaskApi.getWindowConfigurationValue(
-                    task, "getActivityType") == ACTIVITY_TYPE_STANDARD;
+            return HiddenTaskApi.getTaskActivityType(task) == ACTIVITY_TYPE_STANDARD;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not inspect desktop task type", error);
             return false;

@@ -3,13 +3,11 @@ package io.github.mekhontsev.magicdesk;
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
 
-import java.util.concurrent.TimeUnit;
-
 /** Establishes fullscreen geometry and optionally refreshes a stale caption inset. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskFullscreenTransitionCommand {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
-    private static final long TRANSITION_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(3);
+    private static final long TRANSITION_TIMEOUT_MILLIS = 3_000L;
     private static final long TRANSITION_POLL_MILLIS = 20L;
 
     private TaskFullscreenTransitionCommand() {
@@ -58,25 +56,18 @@ public final class TaskFullscreenTransitionCommand {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
 
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object fullscreenTransaction =
-                transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod("setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(fullscreenTransaction, taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(fullscreenTransaction, taskToken, new Rect());
-        transactionClass.getMethod("reorder", tokenClass, Boolean.TYPE)
-                .invoke(fullscreenTransaction, taskToken, Boolean.TRUE);
-        transactionClass.getMethod(
-                "setForceTranslucent", tokenClass, Boolean.TYPE)
-                .invoke(fullscreenTransaction, taskToken,
-                        Boolean.valueOf(forceTranslucent));
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object fullscreenTransaction = windowing.newTransaction();
+        windowing.setWindowingMode(
+                fullscreenTransaction, taskToken, WINDOWING_MODE_FULLSCREEN);
+        windowing.setBounds(fullscreenTransaction, taskToken, new Rect());
+        windowing.reorder(fullscreenTransaction, taskToken, true);
+        windowing.setForceTranslucent(
+                fullscreenTransaction, taskToken, forceTranslucent);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass, fullscreenTransaction, tokenClass, taskToken, true);
+                fullscreenTransaction, taskToken, true);
 
         ShellWindowTransitionExecutor.startForShellAdoption(
                 displayId,
@@ -117,22 +108,19 @@ public final class TaskFullscreenTransitionCommand {
 
     static void awaitFullscreen(final Object service, final int displayId,
             final int taskId) throws ReflectiveOperationException {
-        final long deadline = System.nanoTime() + TRANSITION_TIMEOUT_NANOS;
-        while (System.nanoTime() < deadline) {
-            final Object task = HiddenTaskApi.requireTask(
-                    service, displayId, taskId);
-            final int windowingMode =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode");
-            if (windowingMode == WINDOWING_MODE_FULLSCREEN) {
-                return;
-            }
-            try {
-                Thread.sleep(TRANSITION_POLL_MILLIS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("fullscreen transition interrupted", e);
-            }
+        final FrameworkTaskSnapshot task =
+                BoundedStateAwaiter.awaitFramework(
+                        BoundedStateAwaiter.Reason.TASK_WINDOWING_MODE,
+                        TRANSITION_TIMEOUT_MILLIS,
+                        TRANSITION_POLL_MILLIS,
+                        () -> FrameworkTaskSnapshotSource.findTask(
+                                service, displayId, taskId),
+                        current -> current != null
+                                && current.windowingMode
+                                        == WINDOWING_MODE_FULLSCREEN);
+        if (task != null
+                && task.windowingMode == WINDOWING_MODE_FULLSCREEN) {
+            return;
         }
         throw new IllegalStateException("fullscreen transition timed out");
     }

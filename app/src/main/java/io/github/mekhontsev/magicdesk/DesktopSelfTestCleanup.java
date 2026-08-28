@@ -133,7 +133,9 @@ final class DesktopSelfTestCleanup {
                     removed = true;
                     break;
                 }
-                SystemClock.sleep(POLL_MILLIS);
+                BoundedStateAwaiter.pause(
+                        BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                        POLL_MILLIS);
             } while (SystemClock.uptimeMillis() < deadline);
             if (!removed) {
                 clean = false;
@@ -286,7 +288,9 @@ final class DesktopSelfTestCleanup {
             if (!LocalDesktopSessionState.isCleanupPending(context)) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("phone desktop cleanup did not complete");
     }
@@ -322,7 +326,9 @@ final class DesktopSelfTestCleanup {
             if (task == null) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_VISIBILITY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + className + " remained after close");
     }
@@ -340,7 +346,9 @@ final class DesktopSelfTestCleanup {
             if (remaining == null) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_VISIBILITY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("secondary Home task " + remaining.taskId
                 + " remained on display " + Display.DEFAULT_DISPLAY
@@ -377,7 +385,9 @@ final class DesktopSelfTestCleanup {
             if (retainedTasks.isEmpty()) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("SystemUI retained tasks for display "
                 + displayId + ": " + retainedTasks);
@@ -407,7 +417,9 @@ final class DesktopSelfTestCleanup {
             if (retainedTasks.isEmpty()) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("SystemUI retained live desktop tasks for display "
                 + displayId + ": " + retainedTasks);
@@ -427,7 +439,9 @@ final class DesktopSelfTestCleanup {
             if (!taskIds.contains(Integer.valueOf(taskId))) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("SystemUI retained task " + taskId
                 + " for display " + displayId);

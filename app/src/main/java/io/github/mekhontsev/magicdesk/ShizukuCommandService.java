@@ -434,6 +434,23 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void executeDesktopWorkspaceCommand(
+            final ITaskObserverCallback callback,
+            final long sequence,
+            final DesktopWorkspaceCommand command) {
+        mTaskObserverManager.executeWorkspaceCommand(
+                callback, sequence, command);
+    }
+
+    @Override
+    public void notifyDesktopInputFocusRefreshComplete(
+            final ITaskObserverCallback callback,
+            final int taskId) {
+        mTaskObserverManager.notifyInputFocusRefreshComplete(
+                callback, taskId);
+    }
+
+    @Override
     public boolean concealFullscreenTaskPlanes(
             final ITaskObserverCallback callback,
             final int displayId) {
@@ -636,6 +653,36 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int taskId) {
         return mTaskObserverManager.inspectTaskWindow(
                 callback, displayId, taskId);
+    }
+
+    @Override
+    public FrameworkTaskSnapshot[] readTaskSnapshots(
+            final int displayId,
+            final int limit) {
+        try {
+            return FrameworkTaskSnapshotSource.readArray(
+                    HiddenTaskApi.getService(),
+                    displayId,
+                    Math.max(1, Math.min(limit, 200)),
+                    FrameworkRuntime.current().windowingCompat());
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot read framework task snapshots: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    @Override
+    public String getFrameworkRuntimeDiagnostics() {
+        return FrameworkRuntime.current().diagnosticDetail()
+                + "; boundedWaits={" + BoundedStateAwaiter.diagnostics() + "}"
+                + "; eventWaits={" + EventDrivenWaits.diagnostics() + "}"
+                + "; inputWindowEvents={"
+                + FrameworkInputWindowObservationSource.diagnostics() + "}"
+                + "; inputFocusCommits={"
+                + InputFocusCommitAwaiter.diagnostics() + "}"
+                + "; delays={" + RuntimeDelays.diagnostics() + "}";
     }
 
     @Override
@@ -1592,7 +1639,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             while (!stopped) {
                 try {
                     writeLine("ping");
-                    Thread.sleep(HEARTBEAT_INTERVAL_MILLIS);
+                    RuntimeDelays.pauseInterruptibly(
+                            RuntimeDelays.Reason.STREAM_HEARTBEAT,
+                            HEARTBEAT_INTERVAL_MILLIS);
                 } catch (IOException error) {
                     if (!stopped) {
                         Log.w(TAG,

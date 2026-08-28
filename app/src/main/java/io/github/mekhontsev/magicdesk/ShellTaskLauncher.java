@@ -76,10 +76,6 @@ final class ShellTaskLauncher {
                     intent,
                     intent.getComponent().getPackageName(),
                     bounds,
-                    taskAreaToken == null
-                            ? null
-                            : Class.forName(
-                                    "android.window.WindowContainerToken"),
                     taskAreaToken,
                     true);
             pending.complete(taskId);
@@ -148,10 +144,6 @@ final class ShellTaskLauncher {
                             displayId,
                             intent,
                             intent.getComponent().getPackageName(),
-                            taskAreaToken == null
-                                    ? null
-                                    : Class.forName(
-                                            "android.window.WindowContainerToken"),
                             taskAreaToken);
             pending.complete(taskId);
             TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(

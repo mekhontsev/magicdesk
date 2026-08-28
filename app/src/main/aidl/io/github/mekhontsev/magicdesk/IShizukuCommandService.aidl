@@ -3,6 +3,8 @@ package io.github.mekhontsev.magicdesk;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import io.github.mekhontsev.magicdesk.DesktopFileInfo;
+import io.github.mekhontsev.magicdesk.DesktopWorkspaceCommand;
+import io.github.mekhontsev.magicdesk.FrameworkTaskSnapshot;
 import io.github.mekhontsev.magicdesk.IDesktopFolderObserverCallback;
 import io.github.mekhontsev.magicdesk.IFileOperationCallback;
 import io.github.mekhontsev.magicdesk.IFileSearchCallback;
@@ -369,5 +371,20 @@ interface IShizukuCommandService {
     boolean concealFullscreenTaskPlanes(
         ITaskObserverCallback callback,
         int displayId) = 96;
+
+    FrameworkTaskSnapshot[] readTaskSnapshots(
+        int displayId,
+        int limit) = 97;
+
+    String getFrameworkRuntimeDiagnostics() = 98;
+
+    void executeDesktopWorkspaceCommand(
+        ITaskObserverCallback callback,
+        long sequence,
+        in DesktopWorkspaceCommand command) = 99;
+
+    void notifyDesktopInputFocusRefreshComplete(
+        ITaskObserverCallback callback,
+        int taskId) = 100;
 
 }

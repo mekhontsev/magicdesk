@@ -8,6 +8,7 @@ import android.view.Display;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.List;
 
 @SuppressLint("BlockedPrivateApi")
@@ -60,6 +61,29 @@ final class HiddenTaskApi {
         return getTasks(service, Display.INVALID_DISPLAY);
     }
 
+    static List<?> getRootTaskInfos(
+            final Object service,
+            final int displayId) throws ReflectiveOperationException {
+        final Object result;
+        if (displayId == Display.INVALID_DISPLAY) {
+            result = service.getClass()
+                    .getMethod("getAllRootTaskInfos")
+                    .invoke(service);
+        } else {
+            result = service.getClass()
+                    .getMethod("getAllRootTaskInfosOnDisplay", Integer.TYPE)
+                    .invoke(service, Integer.valueOf(displayId));
+        }
+        if (result == null) {
+            return Collections.emptyList();
+        }
+        if (!(result instanceof List)) {
+            throw new IllegalStateException(
+                    "root task query returned no task list");
+        }
+        return (List<?>) result;
+    }
+
     static List<?> getRecentTasks(final Object service)
             throws ReflectiveOperationException {
         final Object slice = service.getClass()
@@ -85,7 +109,7 @@ final class HiddenTaskApi {
             final int displayId,
             final int taskId) throws ReflectiveOperationException {
         for (final Object task : getTasks(service, displayId)) {
-            if (getIntField(task, "taskId") == taskId) {
+            if (getTaskId(task) == taskId) {
                 return task;
             }
         }
@@ -109,8 +133,107 @@ final class HiddenTaskApi {
             final Object service,
             final int displayId,
             final int taskId) throws ReflectiveOperationException {
-        return getField(
-                requireTask(service, displayId, taskId), "token");
+        return getTaskToken(requireTask(service, displayId, taskId));
+    }
+
+    static int getTaskId(final Object task)
+            throws ReflectiveOperationException {
+        return getIntField(task, "taskId");
+    }
+
+    static int getTaskDisplayAreaFeatureId(final Object task)
+            throws ReflectiveOperationException {
+        return getIntField(task, "displayAreaFeatureId");
+    }
+
+    static int[] getRootTaskChildTaskIds(final Object rootTask)
+            throws ReflectiveOperationException {
+        final Object value = getField(rootTask, "childTaskIds");
+        if (value == null) {
+            return new int[0];
+        }
+        if (!(value instanceof int[])) {
+            throw new IllegalStateException(
+                    "root task child ids have an unexpected type");
+        }
+        return (int[]) value;
+    }
+
+    static int getTaskEffectiveUid(final Object task)
+            throws ReflectiveOperationException {
+        return getIntField(task, "effectiveUid");
+    }
+
+    static boolean isTaskVisible(final Object task)
+            throws ReflectiveOperationException {
+        return getBooleanField(task, "isVisible");
+    }
+
+    static boolean isTaskFocused(final Object task)
+            throws ReflectiveOperationException {
+        return getBooleanField(task, "isFocused");
+    }
+
+    static int getTaskWindowingMode(final Object task)
+            throws ReflectiveOperationException {
+        return getWindowConfigurationValue(task, "getWindowingMode");
+    }
+
+    static int getTaskActivityType(final Object task)
+            throws ReflectiveOperationException {
+        return getWindowConfigurationValue(task, "getActivityType");
+    }
+
+    static Object getTaskToken(final Object task)
+            throws ReflectiveOperationException {
+        return getField(task, "token");
+    }
+
+    static Object getContainerToken(final Object containerInfo)
+            throws ReflectiveOperationException {
+        return getField(containerInfo, "token");
+    }
+
+    static int getContainerFeatureId(final Object containerInfo)
+            throws ReflectiveOperationException {
+        return getIntField(containerInfo, "featureId");
+    }
+
+    static ComponentName getTaskTopActivity(final Object task)
+            throws ReflectiveOperationException {
+        return (ComponentName) getField(task, "topActivity");
+    }
+
+    static ComponentName getTaskBaseActivity(final Object task)
+            throws ReflectiveOperationException {
+        return (ComponentName) getField(task, "baseActivity");
+    }
+
+    static Object getTaskTopActivityInfo(final Object task)
+            throws ReflectiveOperationException {
+        return getField(task, "topActivityInfo");
+    }
+
+    static Intent getTaskBaseIntent(final Object task)
+            throws ReflectiveOperationException {
+        final Object value = getField(task, "baseIntent");
+        return value instanceof Intent ? (Intent) value : null;
+    }
+
+    static boolean removeTask(final Object service, final int taskId)
+            throws ReflectiveOperationException {
+        for (final Method method : service.getClass().getMethods()) {
+            final Class<?>[] parameterTypes = method.getParameterTypes();
+            if ("removeTask".equals(method.getName())
+                    && parameterTypes.length == 1
+                    && parameterTypes[0] == Integer.TYPE) {
+                final Object result = method.invoke(
+                        service, Integer.valueOf(taskId));
+                return !(result instanceof Boolean)
+                        || ((Boolean) result).booleanValue();
+            }
+        }
+        throw new NoSuchMethodException("removeTask(int)");
     }
 
     static Object getField(

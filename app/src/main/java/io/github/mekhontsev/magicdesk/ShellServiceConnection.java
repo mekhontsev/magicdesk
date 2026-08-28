@@ -71,7 +71,10 @@ final class ShellServiceConnection {
                     throw new IOException("timed out binding Shizuku command service");
                 }
                 try {
-                    mLock.wait(remaining);
+                    EventDrivenWaits.await(
+                            mLock,
+                            EventDrivenWaits.Reason.SERVICE_BINDING,
+                            remaining);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
                     throw new IOException(

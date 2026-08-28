@@ -55,13 +55,30 @@ parent of the host, freeform tasks, managed fullscreen tasks, and
 application-requested fullscreen tasks. It never creates independent
 fullscreen planes or a second organizer hierarchy.
 
-Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. Once a task
-has entered fullscreen, activation raises that task and its existing ordering
-plane in one atomic WCT and does not change any task's mode, bounds, parent, or
-hidden state. Phone desktop provides the same activation semantics by
-reordering only children of its session parent; it does not create a second
-organizer area. The focus WCT does not request BLAST draw synchronization and
-is not repeated through `TRANSIT_TO_FRONT`.
+Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. The app
+process emits a typed `DesktopWorkspaceCommand`: `ACTIVATE`, `DEMOTE`,
+`PRESENT_DESKTOP`, `RESTORE_WORKSPACE`, or `RESTORE_SESSION`. Its task IDs are
+an explicit back-to-front physical plan, not an overloaded indication of the
+requested behavior. `ShellDesktopWorkspaceCoordinator` serializes those
+commands for the configured display, completes the live fullscreen and mixed
+workspace order from shell-owned topology, and applies the existing WCT path.
+
+Once a task has entered fullscreen, activation raises that task and its
+existing ordering plane in one atomic WCT and does not change any task's mode,
+bounds, parent, or hidden state. Phone desktop provides the same activation
+semantics by reordering only children of its session parent; it does not create
+a second organizer area. The focus WCT does not request BLAST draw
+synchronization and is not repeated through `TRANSIT_TO_FRONT`.
+
+The coordinator captures typed task and SurfaceFlinger input-window event
+generations before commit, requests one framework task sample, and waits for
+both generations to advance. It then reads InputDispatcher once. A missing
+input target receives the ownership-appropriate one-shot repair and one more
+event-driven commit confirmation. `WindowInfosListener` is the primary commit
+signal; the 150 ms framework task snapshot remains the separately documented
+fallback for task facts that Android does not publish through callbacks. There
+is no periodic input poll, and command success means both hierarchy order and
+usable input focus have converged.
 
 ## Rejected approaches
 
@@ -150,6 +167,15 @@ same semantics and focus gateway.
 `demote` is deliberately distinct from `show desktop`. The latter presents a
 saved workspace as a user command; it does not define the behavior of clicking
 an active application icon.
+
+`PRESENT_DESKTOP` orders the desktop host and then conceals independent
+fullscreen plane surfaces as one semantic command. The direct surface
+concealment remains necessary because affected firmware can reassert a
+fullscreen plane after its hierarchy was demoted. `RESTORE_WORKSPACE` reveals
+those same retained planes through the normal topology owner. Session startup
+is two-phase: freeform geometry and parked-task residency are prepared first,
+then `RESTORE_SESSION` publishes one final workspace order instead of focusing
+the host through a separate raw shell route.
 
 An orientation change can make Android report the saved freeform mode and
 bounds before WMShell has recreated the task decoration. Orientation task

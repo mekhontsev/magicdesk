@@ -66,9 +66,8 @@ final class TaskDisplayAreaHandle {
         final Object areaInfo = appeared.getClass()
                 .getMethod("getDisplayAreaInfo")
                 .invoke(appeared);
-        final Object token = HiddenTaskApi.getField(areaInfo, "token");
-        final int featureId = HiddenTaskApi.getIntField(
-                areaInfo, "featureId");
+        final Object token = HiddenTaskApi.getContainerToken(areaInfo);
+        final int featureId = HiddenTaskApi.getContainerFeatureId(areaInfo);
         final Object leash = appeared.getClass()
                 .getMethod("getLeash")
                 .invoke(appeared);
@@ -101,15 +100,12 @@ final class TaskDisplayAreaHandle {
     void setIgnoreOrientationRequest(
             final Object service,
             final boolean ignore) throws ReflectiveOperationException {
-        final Class<?> tokenClass = Class.forName(
-                "android.window.WindowContainerToken");
-        final Class<?> transactionClass = Class.forName(
-                "android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod(
-                "setIgnoreOrientationRequest", tokenClass, Boolean.TYPE)
-                .invoke(transaction, mToken, Boolean.valueOf(ignore));
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        windowing.setIgnoreOrientationRequest(
+                transaction, mToken, ignore);
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
     }
@@ -154,10 +150,9 @@ final class TaskDisplayAreaHandle {
         final List<Object> childTaskTokens = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
             final Integer taskId = Integer.valueOf(
-                    HiddenTaskApi.getIntField(task, "taskId"));
+                    HiddenTaskApi.getTaskId(task));
             if (!ownedTaskIds.contains(taskId)
-                    || HiddenTaskApi.getIntField(
-                            task, "displayAreaFeatureId") != mFeatureId) {
+                    || HiddenTaskApi.getTaskDisplayAreaFeatureId(task) != mFeatureId) {
                 continue;
             }
             childTaskIds.add(taskId);
@@ -168,21 +163,18 @@ final class TaskDisplayAreaHandle {
             return;
         }
 
-        final Class<?> tokenClass = Class.forName(
-                "android.window.WindowContainerToken");
-        final Class<?> transactionClass = Class.forName(
-                "android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
         // Running tasks are returned top-first. Reparent bottom-first so their
         // relative z-order remains unchanged in the destination parent.
         for (int index = childTaskTokens.size() - 1; index >= 0; index--) {
-            transactionClass.getMethod(
-                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                    .invoke(transaction, new Object[]{
-                            childTaskTokens.get(index),
-                            targetParentToken,
-                            Boolean.valueOf(onTop)});
+            windowing.reparent(
+                    transaction,
+                    childTaskTokens.get(index),
+                    targetParentToken,
+                    onTop);
         }
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
@@ -232,8 +224,8 @@ final class TaskDisplayAreaHandle {
         }
         final Throwable directFailure;
         try {
-            final Class<?> tokenClass =
-                    Class.forName("android.window.WindowContainerToken");
+            final Class<?> tokenClass = FrameworkRuntime.current()
+                    .windowing().tokenClass();
             mOrganizer.getClass().getMethod(
                     "deleteTaskDisplayArea", tokenClass)
                     .invoke(mOrganizer, mToken);
@@ -273,10 +265,9 @@ final class TaskDisplayAreaHandle {
         }
         final List<Integer> taskIds = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
-            if (HiddenTaskApi.getIntField(
-                    task, "displayAreaFeatureId") == mFeatureId) {
+            if (HiddenTaskApi.getTaskDisplayAreaFeatureId(task) == mFeatureId) {
                 taskIds.add(Integer.valueOf(
-                        HiddenTaskApi.getIntField(task, "taskId")));
+                        HiddenTaskApi.getTaskId(task)));
             }
         }
         return taskIds;

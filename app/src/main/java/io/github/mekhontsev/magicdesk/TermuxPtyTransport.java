@@ -224,7 +224,10 @@ final class TermuxPtyTransport implements TerminalTransport {
                     throw new IOException("Termux PTY directory timed out");
                 }
                 try {
-                    mDirectoryLock.wait(remaining);
+                    EventDrivenWaits.await(
+                            mDirectoryLock,
+                            EventDrivenWaits.Reason.PTY_RESPONSE,
+                            remaining);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
                     throw new IOException(
@@ -273,7 +276,10 @@ final class TermuxPtyTransport implements TerminalTransport {
                                 "Termux foreground process lookup timed out");
                     }
                     try {
-                        mProcessLock.wait(remaining);
+                        EventDrivenWaits.await(
+                                mProcessLock,
+                                EventDrivenWaits.Reason.PTY_RESPONSE,
+                                remaining);
                     } catch (InterruptedException error) {
                         Thread.currentThread().interrupt();
                         throw new IOException(

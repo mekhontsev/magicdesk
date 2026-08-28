@@ -140,7 +140,8 @@ public final class DesktopPointerInjector {
             context.injectTouch(displayId, position, downTime,
                     MotionEvent.ACTION_DOWN, 1.0f);
             pressed = true;
-            SystemClock.sleep(durationMillis);
+            RuntimeDelays.pause(
+                    RuntimeDelays.Reason.INPUT_GESTURE, durationMillis);
         } finally {
             if (pressed) {
                 context.injectTouch(displayId, position, downTime,
@@ -174,7 +175,9 @@ public final class DesktopPointerInjector {
             final int steps = 8;
             for (int step = 1; step <= steps; step++) {
                 if (durationMillis > 0L) {
-                    SystemClock.sleep(durationMillis / steps);
+                    RuntimeDelays.pause(
+                            RuntimeDelays.Reason.INPUT_GESTURE,
+                            durationMillis / steps);
                 }
                 context.injectMouse(displayId,
                         interpolate(start, end, step, steps),

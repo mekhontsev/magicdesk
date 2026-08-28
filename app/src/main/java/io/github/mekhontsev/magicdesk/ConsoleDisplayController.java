@@ -63,7 +63,9 @@ public final class ConsoleDisplayController {
             if (findWirelessDisplayId() <= 0) {
                 return true;
             }
-            SystemClock.sleep(STATE_POLL_MS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                    STATE_POLL_MS);
         }
         return false;
     }
@@ -100,7 +102,9 @@ public final class ConsoleDisplayController {
                     && Integer.toString(dpi).equals(matcher.group(1)))) {
                 return;
             }
-            SystemClock.sleep(STATE_POLL_MS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                    STATE_POLL_MS);
         }
         Log.w(TAG, "Console display density did not settle display="
                 + displayId + " dpi=" + dpi);

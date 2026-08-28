@@ -15,8 +15,6 @@ final class DesktopMouseBridge {
     private static final String TAG = "MagicDeskMouse";
     private static final String HELPER_NAME =
             "libmagicdesk_uinput_bridge.so";
-    private static final String DUMPSYS_INPUT =
-            "/system/bin/dumpsys input";
     private static final long RESTART_DELAY_MILLIS = 1_000L;
     private static final long CAPTURE_STOP_TIMEOUT_MILLIS = 1_000L;
     private final Object mLock = new Object();
@@ -146,7 +144,10 @@ final class DesktopMouseBridge {
                     return;
                 }
                 try {
-                    mLock.wait(remaining);
+                    EventDrivenWaits.await(
+                            mLock,
+                            EventDrivenWaits.Reason.INPUT_CAPTURE_RELEASE,
+                            remaining);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
                     return;
@@ -270,7 +271,9 @@ final class DesktopMouseBridge {
                 break;
             }
             try {
-                Thread.sleep(RESTART_DELAY_MILLIS);
+                RuntimeDelays.pauseInterruptibly(
+                        RuntimeDelays.Reason.SUPERVISOR_BACKOFF,
+                        RESTART_DELAY_MILLIS);
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
                 break;
@@ -284,7 +287,7 @@ final class DesktopMouseBridge {
     }
 
     private void runOnce(final int generation) throws IOException {
-        final String inputDump = ShellAccess.run(DUMPSYS_INPUT);
+        final String inputDump = FrameworkInputSnapshotSource.readRemote();
         final List<DesktopMouseDevice> mice =
                 DesktopInputDeviceDiscovery.findMice(inputDump);
         final File helper = new File(

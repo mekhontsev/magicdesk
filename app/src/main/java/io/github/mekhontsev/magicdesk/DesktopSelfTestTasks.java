@@ -31,7 +31,9 @@ final class DesktopSelfTestTasks {
             if (task != null) {
                 return task;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_APPEARANCE,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + className
                 + " did not reach the expected state on display " + displayId
@@ -53,7 +55,9 @@ final class DesktopSelfTestTasks {
                     && lastObserved.featureId == expectedFeatureId) {
                 return lastObserved;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + taskId
                 + " did not remain fullscreen in feature "
@@ -83,7 +87,9 @@ final class DesktopSelfTestTasks {
             if (front != null && front.taskId == taskId) {
                 return front;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + taskId
                 + " did not receive front focus on display " + displayId);
@@ -109,7 +115,9 @@ final class DesktopSelfTestTasks {
                                     && lastApp.taskId == taskId)) {
                 return lastHost;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("desktop host " + taskId
                 + " did not become the front desktop task on display "
@@ -131,7 +139,9 @@ final class DesktopSelfTestTasks {
                             displayId)) {
                 return "host=" + taskId + ", taskbar=visible";
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_VISIBILITY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException(
                 "desktop host returned without a visible taskbar");
@@ -169,7 +179,9 @@ final class DesktopSelfTestTasks {
                             displayId)) {
                 return lastOrder + ", taskbar=visible";
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("desktop host did not settle above concealed "
                 + "tasks on display " + displayId + "; " + lastOrder);
@@ -232,7 +244,9 @@ final class DesktopSelfTestTasks {
                     taskId) == null) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_VISIBILITY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + taskId + " remained after close");
     }

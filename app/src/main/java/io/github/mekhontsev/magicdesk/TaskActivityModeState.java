@@ -51,7 +51,7 @@ final class TaskActivityModeState {
             final String topComponent,
             final String topPackage,
             final int windowingMode,
-            final boolean requestingImmersive) {
+            final Boolean requestingImmersive) {
         if (!mArmed) {
             return Decision.NONE;
         }
@@ -81,7 +81,13 @@ final class TaskActivityModeState {
                         && mRootPackage.equals(topPackage))) {
             return Decision.NONE;
         }
-        if (requestingImmersive && expectedActivityVisible) {
+        if (requestingImmersive == null && expectedActivityVisible) {
+            // Without a framework observation, fullscreen may have been
+            // requested by the activity. Preserve the application state.
+            return Decision.NONE;
+        }
+        if (Boolean.TRUE.equals(requestingImmersive)
+                && expectedActivityVisible) {
             clear();
             return Decision.ALLOW_IMMERSIVE;
         }

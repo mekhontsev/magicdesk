@@ -283,6 +283,12 @@ public final class MagicDeskRuntime {
         return backend != null && backend.toggleDesktopWorkspace();
     }
 
+    static boolean toggleDesktopWorkspace(
+            final TaskRepository.ActionCallback callback) {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.toggleDesktopWorkspace(callback);
+    }
+
     static boolean restoreLastVisibleWindows() {
         final MagicDeskRuntimeBackend backend = backend();
         return backend != null && backend.restoreLastVisibleWindows();
@@ -570,6 +576,20 @@ public final class MagicDeskRuntime {
         } else {
             completeTaskAction(
                     callback, false, "desktop task runtime unavailable");
+        }
+    }
+
+    static void restoreSessionWorkspace(
+            final int displayId,
+            final List<Integer> backToFrontTaskIds,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks != null) {
+            tasks.restoreSessionWorkspace(
+                    displayId, backToFrontTaskIds, callback);
+        } else {
+            TaskRepository.runFocusAction(
+                    displayId, backToFrontTaskIds, callback);
         }
     }
 

@@ -21,8 +21,6 @@ final class KeyboardShortcutWatcher {
             "/system/bin/getevent -lt";
     private static final String KEYBOARD_HELPER =
             "libmagicdesk_keyboard_bridge.so";
-    private static final String DUMPSYS_INPUT =
-            "/system/bin/dumpsys input";
     private static final long RESTART_DELAY_MS = 1000L;
 
     private static final Object LOCK = new Object();
@@ -224,7 +222,7 @@ final class KeyboardShortcutWatcher {
         try {
             final List<DesktopKeyboardDevice> keyboards =
                     DesktopInputDeviceDiscovery.findKeyboards(
-                            ShellAccess.run(DUMPSYS_INPUT));
+                            FrameworkInputSnapshotSource.readRemote());
             if (keyboards.isEmpty()) {
                 runPointerOnlySession(routingDisplayId, generation);
                 return;
@@ -329,7 +327,9 @@ final class KeyboardShortcutWatcher {
         synchronized (LOCK) {
             while (sRunning && sGeneration == generation) {
                 try {
-                    LOCK.wait();
+                    EventDrivenWaits.await(
+                            LOCK,
+                            EventDrivenWaits.Reason.INPUT_WORKER_STOP);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
                     return;
@@ -678,7 +678,9 @@ final class KeyboardShortcutWatcher {
 
     private static void sleepBeforeRestart() {
         try {
-            Thread.sleep(RESTART_DELAY_MS);
+            RuntimeDelays.pauseInterruptibly(
+                    RuntimeDelays.Reason.SUPERVISOR_BACKOFF,
+                    RESTART_DELAY_MS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

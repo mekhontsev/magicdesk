@@ -55,6 +55,17 @@ public final class TaskActivityModeStateTest {
     }
 
     @Test
+    public void unavailableImmersiveObservationDoesNotGuess() {
+        final TaskActivityModeState state = windowedState();
+        state.arm(MAIN, ROOT);
+
+        assertEquals(
+                TaskActivityModeState.Decision.NONE,
+                state.observe(MAIN, ROOT, 1, null));
+        assertTrue(state.isArmed());
+    }
+
+    @Test
     public void ignoresUnrelatedModeChangesWithoutActivityStart() {
         final TaskActivityModeState state = windowedState();
 

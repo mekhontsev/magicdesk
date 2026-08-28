@@ -92,6 +92,21 @@ final class ShellTaskObserverManager implements Closeable {
                 sequence, displayId, taskIds);
     }
 
+    void executeWorkspaceCommand(
+            final ITaskObserverCallback callback,
+            final long sequence,
+            final DesktopWorkspaceCommand command) {
+        requireSession(callback).observer.executeWorkspaceCommand(
+                sequence, command);
+    }
+
+    void notifyInputFocusRefreshComplete(
+            final ITaskObserverCallback callback,
+            final int taskId) {
+        requireSession(callback).observer
+                .notifyInputFocusRefreshComplete(taskId);
+    }
+
     boolean concealFullscreenTaskPlanes(
             final ITaskObserverCallback callback,
             final int displayId) {

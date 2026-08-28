@@ -60,7 +60,10 @@ final class DesktopAutomationEventJournal {
         synchronized (LOCK) {
             long remaining = timeoutMillis;
             while (NEXT_ID.get() <= observedId && remaining > 0L) {
-                LOCK.wait(remaining);
+                EventDrivenWaits.await(
+                        LOCK,
+                        EventDrivenWaits.Reason.AUTOMATION_EVENT,
+                        remaining);
                 remaining = deadline - android.os.SystemClock.uptimeMillis();
             }
             return NEXT_ID.get();

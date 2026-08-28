@@ -139,13 +139,12 @@ public final class TaskControlCommand {
             throws ReflectiveOperationException {
         for (final Object task :
                 HiddenTaskApi.getTasks(service, displayId)) {
-            if (!HiddenTaskApi.getBooleanField(task, "isVisible")
+            if (!HiddenTaskApi.isTaskVisible(task)
                     || isMagicDeskTask(task)) {
                 continue;
             }
             final int activityType =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getActivityType");
+                    HiddenTaskApi.getTaskActivityType(task);
             if (activityType != ACTIVITY_TYPE_HOME) {
                 return true;
             }
@@ -160,17 +159,16 @@ public final class TaskControlCommand {
             if (!isDesktopTask(task)) {
                 continue;
             }
-            return HiddenTaskApi.getIntField(task, "taskId");
+            return HiddenTaskApi.getTaskId(task);
         }
         return -1;
     }
 
     private static boolean isDesktopTask(final Object task)
             throws ReflectiveOperationException {
-        return isDesktopComponent((ComponentName) HiddenTaskApi.getField(
-                        task, "topActivity"))
-                || isDesktopComponent((ComponentName) HiddenTaskApi.getField(
-                        task, "baseActivity"));
+        return isDesktopComponent(HiddenTaskApi.getTaskTopActivity(task))
+                || isDesktopComponent(
+                        HiddenTaskApi.getTaskBaseActivity(task));
     }
 
     private static boolean isDesktopComponent(final ComponentName component) {
@@ -183,28 +181,17 @@ public final class TaskControlCommand {
     private static boolean isMagicDeskTask(final Object task)
             throws ReflectiveOperationException {
         final ComponentName topActivity =
-                (ComponentName) HiddenTaskApi.getField(
-                        task, "topActivity");
+                HiddenTaskApi.getTaskTopActivity(task);
         if (topActivity != null && PACKAGE_NAME.equals(topActivity.getPackageName())) {
             return true;
         }
         final ComponentName baseActivity =
-                (ComponentName) HiddenTaskApi.getField(
-                        task, "baseActivity");
+                HiddenTaskApi.getTaskBaseActivity(task);
         return baseActivity != null && PACKAGE_NAME.equals(baseActivity.getPackageName());
     }
 
     public static boolean removeTask(final Object service, final int taskId)
             throws ReflectiveOperationException {
-        for (final Method method : service.getClass().getMethods()) {
-            final Class<?>[] parameterTypes = method.getParameterTypes();
-            if ("removeTask".equals(method.getName())
-                    && parameterTypes.length == 1
-                    && parameterTypes[0] == Integer.TYPE) {
-                final Object result = method.invoke(service, Integer.valueOf(taskId));
-                return !(result instanceof Boolean) || ((Boolean) result).booleanValue();
-            }
-        }
-        throw new NoSuchMethodException("removeTask(int)");
+        return HiddenTaskApi.removeTask(service, taskId);
     }
 }

@@ -35,24 +35,20 @@ final class DesktopSelfTestDisplayRemovalSuite {
             }
             // This suite owns its removal fixture. Earlier window tests are
             // free to finish every task they create, including through Back.
-            launchFullscreenFixture(displayId);
+            final int fixtureTaskId = launchFullscreenFixture(displayId);
             final String stack = ShellAccess.run(
                     "/system/bin/cmd activity stack list");
-            for (final TaskStackParser.Entry task
-                    : TaskStackParser.parse(stack)) {
-                if (task.displayId == displayId
-                        && DesktopSelfTestComponents.isFixtureTask(task)) {
-                    if (!"fullscreen".equals(task.windowingMode)) {
-                        throw new IOException("fixture task " + task.taskId
-                                + " was not fullscreen before display removal");
-                    }
-                    fixtureTaskIds.add(Integer.valueOf(task.taskId));
-                }
-            }
-            if (fixtureTaskIds.isEmpty()) {
+            final TaskStackParser.Entry fixture = findTaskById(
+                    stack, fixtureTaskId);
+            if (fixture == null || fixture.displayId != displayId) {
                 throw new IOException(
-                        "no live fullscreen fixture on display " + displayId);
+                        "no live removal fixture on display " + displayId);
             }
+            if (!"fullscreen".equals(fixture.windowingMode)) {
+                throw new IOException("fixture task " + fixture.taskId
+                        + " was not fullscreen before display removal");
+            }
+            fixtureTaskIds.add(Integer.valueOf(fixture.taskId));
             final WindowTransitionHealthDiagnostics.IdleResult idle =
                     WindowTransitionHealthDiagnostics.awaitDisplayIdle(
                             MagicDeskApplication.applicationContext(),
@@ -126,7 +122,7 @@ final class DesktopSelfTestDisplayRemovalSuite {
                 reason);
     }
 
-    private static void launchFullscreenFixture(final int displayId)
+    private static int launchFullscreenFixture(final int displayId)
             throws IOException {
         final String token = "display-removal-"
                 + Long.toHexString(System.nanoTime());
@@ -161,6 +157,7 @@ final class DesktopSelfTestDisplayRemovalSuite {
                 task -> task.taskId == observation.taskId
                         && task.visible
                         && "fullscreen".equals(task.windowingMode));
+        return observation.taskId;
     }
 
     private static void waitForDisplayRemoval(final int displayId)
@@ -171,7 +168,9 @@ final class DesktopSelfTestDisplayRemovalSuite {
             if (!ConsoleDisplayController.displayExists(displayId)) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("display " + displayId + " remained available");
     }
@@ -200,7 +199,9 @@ final class DesktopSelfTestDisplayRemovalSuite {
                 return "display=" + displayId
                         + ", runtime=inactive, task-area=removed";
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_DISPLAY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("runtime cleanup incomplete: active="
                 + activeDisplay + ", target=" + target
@@ -263,7 +264,9 @@ final class DesktopSelfTestDisplayRemovalSuite {
             if (settled) {
                 return lastState + " phoneFullscreen=" + phoneFullscreen;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("unsafe migrated task state: " + lastState);
     }

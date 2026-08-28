@@ -259,6 +259,17 @@ Steady-state switches do not change task mode, bounds, parent, or hidden state.
 UI and automation controllers never construct their own fullscreen stack or
 transition sequence.
 
+The process boundary is `DesktopWorkspaceCommand`, with distinct activate,
+demote, desktop presentation, workspace restore, and session restore
+operations. The command carries a named back-to-front plan; it is never
+interpreted as an operation merely from the shape of an integer list.
+`ShellDesktopWorkspaceCoordinator` serializes the commands for the configured
+display and is the sole adapter from logical workspace intent to
+`ShellFullscreenTaskArea` and ordinary task ordering. The application retains
+UX intent such as taskbar concealment and persisted restore state; shell owns
+the live organizer topology and completes mixed fullscreen/freeform ordering
+from framework task state.
+
 Task selection has two explicit z-order operations:
 
 - **Activate** brings a selected task to the front of its compatible desktop
@@ -282,7 +293,12 @@ mode, bounds, parent, or hidden state.
 `IndependentFullscreenTaskTopology` and `ShellFullscreenTaskPlanes` own
 `DEFAULT` plane creation, ordering, restore, and removal. `SESSION` reorders
 children only within the existing phone session area. No delayed mode repair
-or guessed focus timeout is involved.
+or fixed post-transition delay is involved. On affected external firmware,
+workspace command completion captures a task-sample generation and a
+SurfaceFlinger input-window generation before submission. It then waits for
+both event sources and performs one InputDispatcher check. A missing input
+target gets one ownership-aware repair followed by one more event-driven
+commit confirmation.
 
 Application-driven restores are completed by the observer before their result
 crosses Binder. A `DEFAULT` task leaves its independent plane through
@@ -492,7 +508,8 @@ runtime integration and are not distributed through the same release path.
   and immediate focus acknowledgements.
 - `ShellTaskObserverManager` owns one Binder-scoped observer session inside the
   shell UserService. `ShellTaskObserver` registers the framework listener, and
-  `ShellTaskStateMonitor` isolates the supplemental bounds/immersive polling.
+  `FrameworkTaskObservationSource` centralizes the supplemental task snapshot
+  and its typed observations.
 - `ShellWindowedTaskLauncher` owns every fresh windowed launch, independent of
   display type. It observes the new task through the persistent framework
   listener and joins mode and bounds to the task's original OPEN transition;
@@ -608,6 +625,96 @@ runtime integration and are not distributed through the same release path.
   the same platform policy. Shell input recovery calls the selected
   `PlatformPointerDriver`; the Nubia driver alone chooses its firmware-specific
   finger-tool hover event.
+
+### Framework compatibility services
+
+Android release differences and firmware differences are independent axes.
+`FrameworkRuntime` resolves one process-wide framework profile and exposes
+focused adapters rather than one broad compatibility utility.
+
+- `FrameworkWindowingApi` is the only owner of hidden
+  `WindowContainerTransaction` and token primitives. It resolves and caches
+  construction, bounds, mode, ordering, parenting, visibility, focusability,
+  density, orientation, task-start, and task-removal operations once.
+- `FrameworkWindowingCompat` owns release-dependent meaning and polyfills,
+  including requested-visible-types and caption-inset strategies. Transition
+  code does not reflect optional signatures itself.
+- `HiddenTaskApi` owns raw ActivityTaskManager task members and service access.
+  `FrameworkTaskSnapshotSource` converts them into the parcelable
+  `FrameworkTaskSnapshot` returned through typed AIDL. Application policy and
+  recovery code no longer parse `cmd activity stack list` in production.
+- `FrameworkInputSnapshotSource` is the only runtime owner of the bounded
+  InputDispatcher dump used when no typed focus/cursor API exists.
+- `FrameworkInputWindowObservationSource` is the shell-side owner of hidden
+  `WindowInfosListener`. It exposes only commit generations: policy cannot
+  inspect or reinterpret raw `InputWindowHandle` objects. Workspace focus
+  waits on this SurfaceFlinger callback before taking its one-shot
+  InputDispatcher snapshot.
+
+Repository isolation tests enforce these ownership rules. Version-specific
+member names, WCT class lookups, raw task fields, direct input dumps, and text
+production task queries cannot silently spread back into policy code.
+
+`FrameworkTaskObservationSource` is the corresponding dynamic compatibility
+service. It combines `TaskStackListener` wakeups with one bounded selected-
+display snapshot every 150 ms while a desktop session is active, scanning at
+most 16 tasks. One normalized `FrameworkTaskSnapshot` feeds stack reconciliation,
+windowing-mode and bounds changes, immersive requests, caption-source
+lifecycle, activity handoff protection, ownership reconciliation, and process
+failure correlation. Consumers do not start their own polling loops or read
+version-specific `TaskInfo` members.
+
+Every observed facet records its provenance as `event`, `sampled`,
+`event+sampled`, or `unavailable`. The periodic snapshot exists because even
+the current framework does not reliably callback organizer-child Z-order,
+native freeform bounds, or app-requested system-bar changes. It sleeps
+indefinitely outside an active session and an explicit production operation can
+wake it immediately; reconciliation reuses the same snapshot and adds no
+second task query.
+
+Runtime timing has three explicit mechanisms:
+
+- `EventDrivenWaits` wraps monitor waits released by a concrete callback or
+  state publication. These waits consume no periodic CPU while idle.
+- `BoundedStateAwaiter` owns polling only where the framework provides no
+  reliable callback. Every call declares a semantic reason, deadline, and
+  sample interval; self-tests use the same classification.
+- `RuntimeDelays` owns intentional non-state pauses such as input gesture
+  spacing, supervisor backoff, recording drain, vendor command settling,
+  watchdog ticks, and stream heartbeats.
+
+Direct `Thread.sleep`, `SystemClock.sleep`, and `Object.wait` calls are rejected
+outside these timing boundaries. Compatibility Diagnostics reports their
+runtime counters and the last classified reason. The task observer's 150 ms
+fallback remains separately visible in the framework runtime line because it
+is a permanent active-session observation source, not a transition delay.
+Input-window event registration, callback count, bounded waits, and timeouts
+are reported separately as `inputWindowEvents`; they never share that polling
+interval.
+
+On frameworks that expose `TaskInfo.requestedVisibleTypes`, the task observer
+uses it to correlate application-requested immersive state. Android 15 does not
+publish that field through `TaskInfo`; the observation is therefore unavailable
+rather than being reported as a synthetic non-immersive request. The task
+listener and all other task state continue operating. A policy that needs to
+distinguish app-requested fullscreen from an accidental activity handoff fails
+open when this observation is unavailable and does not force a window mode.
+
+Caption-inset handling selects the native exclusion operation when present.
+On Android 15 it uses the older six-argument local InsetsSource operation; a
+newer host running the Android 15 debug profile may bridge that semantic call
+through the flags overload with flags set to zero. The source identity still
+comes from the task and cleanup still uses the paired add/remove transactions.
+The adapter does not register a competing display-insets controller or replace
+SystemUI ownership.
+
+`MAGICDESK_FRAMEWORK_OVERRIDE=android15` is a debug-only semantic profile. It
+can be combined with the independent `MAGICDESK_PLATFORM_OVERRIDE=android`
+selection to test Android 15 framework behavior with the Standard Android
+driver on newer vendor hardware. Release builds always detect the live
+framework and platform. Future vendor fixtures are added at `PlatformDrivers`,
+not as branches in the framework adapter or desktop runtime, and cannot claim
+firmware APIs that the host does not expose.
 
 ### Platform services
 
@@ -824,11 +931,10 @@ root-backed Shizuku session cannot leave ownership that breaks a later
 shell-backed session.
 
 `TaskStackListener` does not reliably report changes to app-requested system-bar
-visibility or native freeform bounds on the verified firmware. While a desktop
-session is active, `ShellTaskStateMonitor` therefore samples at 150 ms and scans
-at most 16 tasks on the selected display. It reuses one task snapshot for both
-checks and sleeps indefinitely before the observer is configured or after it is
-closed.
+visibility, native freeform bounds, or organizer-child ordering. The centralized
+`FrameworkTaskObservationSource` supplies these observations as described in
+Framework compatibility services; no policy consumer owns an additional task
+poll.
 
 Framework commands that need hidden signatures run from the shell UserService
 through `app_process` with the main APK on the class path. `hidden-api-stubs`

@@ -438,13 +438,29 @@ final class DesktopUiGateway {
         }
     }
 
-    boolean refreshDesktopInputFocus(final int displayId) {
+    boolean refreshDesktopInputFocus(
+            final int displayId,
+            final int focusedTaskId) {
+        return refreshDesktopInputFocus(displayId, focusedTaskId, null);
+    }
+
+    boolean refreshDesktopInputFocus(
+            final int displayId,
+            final int focusedTaskId,
+            final Runnable completion) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
                 || activity.getCurrentDisplayId() != displayId) {
+            if (completion != null) {
+                completion.run();
+            }
             return false;
         }
-        activity.runOnUiThread(activity::refreshDesktopInputFocus);
+        activity.runOnUiThread(() -> {
+            activity.setDesktopWindowFocusable(
+                    focusedTaskId == activity.getTaskId());
+            activity.refreshDesktopInputFocus(completion);
+        });
         return true;
     }
 
@@ -458,6 +474,11 @@ final class DesktopUiGateway {
     }
 
     boolean toggleDesktopWorkspace() {
+        return toggleDesktopWorkspace(null);
+    }
+
+    boolean toggleDesktopWorkspace(
+            final TaskRepository.ActionCallback callback) {
         final DesktopShellActivity activity = usableDesktop(false);
         final int displayId = activity == null
                 ? Display.INVALID_DISPLAY : activity.getCurrentDisplayId();
@@ -475,17 +496,19 @@ final class DesktopUiGateway {
         }
         activity.runOnUiThread(() -> {
             if (!isUsable(activity)) {
+                completeTaskAction(
+                        callback, false, "desktop UI is unavailable");
                 return;
             }
             activity.hideAllPanels();
             if (action == DesktopScreenPolicy.WorkspaceAction.RESTORE_WINDOWS) {
-                restoreShowDesktopWorkspaceOnDisplay(displayId);
+                restoreShowDesktopWorkspaceOnDisplay(displayId, callback);
             } else {
                 // A system activity can become focused before the task watcher
                 // publishes its next snapshot. Win+D must still expose an
                 // immediate route back to the desktop and taskbar.
                 activity.setTaskbarVisible(true);
-                showDesktopOnDisplay(displayId);
+                showDesktopOnDisplay(displayId, callback);
             }
         });
         return true;
@@ -806,9 +829,16 @@ final class DesktopUiGateway {
     }
 
     private boolean showDesktopOnDisplay(final int displayId) {
+        return showDesktopOnDisplay(displayId, null);
+    }
+
+    private boolean showDesktopOnDisplay(
+            final int displayId,
+            final TaskRepository.ActionCallback callback) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
                 || activity.getCurrentDisplayId() != displayId) {
+            completeTaskAction(callback, false, "desktop UI is unavailable");
             return false;
         }
         final int taskId = activity.getTaskId();
@@ -821,15 +851,24 @@ final class DesktopUiGateway {
                                 + " display=" + displayId
                                 + " result=" + result.message);
                     }
+                    completeTaskAction(
+                            callback, result.success, result.message);
                 });
         return true;
     }
 
     private boolean restoreShowDesktopWorkspaceOnDisplay(
             final int displayId) {
+        return restoreShowDesktopWorkspaceOnDisplay(displayId, null);
+    }
+
+    private boolean restoreShowDesktopWorkspaceOnDisplay(
+            final int displayId,
+            final TaskRepository.ActionCallback callback) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
                 || activity.getCurrentDisplayId() != displayId) {
+            completeTaskAction(callback, false, "desktop UI is unavailable");
             return false;
         }
         final int taskId = activity.getTaskId();
@@ -842,8 +881,20 @@ final class DesktopUiGateway {
                                 + taskId + " display=" + displayId
                                 + " result=" + result.message);
                     }
+                    completeTaskAction(
+                            callback, result.success, result.message);
                 });
         return true;
+    }
+
+    private static void completeTaskAction(
+            final TaskRepository.ActionCallback callback,
+            final boolean success,
+            final String message) {
+        if (callback != null) {
+            callback.onComplete(new TaskRepository.ActionResult(
+                    success, message));
+        }
     }
 
     void prepareTaskFocus(final int displayId, final int taskId) {

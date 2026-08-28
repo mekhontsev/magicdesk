@@ -15,8 +15,6 @@ public final class TaskRepository {
     private static final String TAG = "MagicDeskTasks";
     private static final String CMD = "/system/bin/cmd";
     private static final String AM = "/system/bin/am";
-    private static final String DUMPSYS_INPUT =
-            "/system/bin/dumpsys input";
     private static final String CLOSE_SYSTEM_DIALOGS =
             AM + " broadcast --user 0"
                     + " -a android.intent.action.CLOSE_SYSTEM_DIALOGS"
@@ -52,29 +50,40 @@ public final class TaskRepository {
 
     static Snapshot loadNow(final int displayId) {
         return TaskCommandQueue.call(() -> {
-            final CommandResult command = runCommand(
-                    CMD + " activity stack list");
-            final List<TaskEntry> tasks = command.success
-                    ? parseTasks(command.output, displayId)
-                    : Collections.<TaskEntry>emptyList();
-            final List<TaskEntry> phoneTasks = command.success && displayId != 0
-                    ? parseTasks(command.output, 0)
-                    : Collections.<TaskEntry>emptyList();
-            return new Snapshot(
-                    tasks, phoneTasks, command.success, command.output);
+            try {
+                final FrameworkTaskSnapshot[] snapshots =
+                        ShellAccess.readTaskSnapshots(-1, 200);
+                return new Snapshot(
+                        parseTasks(snapshots, displayId),
+                        displayId == 0
+                                ? Collections.emptyList()
+                                : parseTasks(snapshots, 0),
+                        true,
+                        "");
+            } catch (IOException error) {
+                return new Snapshot(
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        false,
+                        usefulMessage(error));
+            }
         });
     }
 
     static Snapshot loadAllNow() {
         return TaskCommandQueue.call(() -> {
-            final CommandResult command = runCommand(
-                    CMD + " activity stack list");
-            return new Snapshot(
-                    command.success
-                            ? parseTasks(command.output, -1)
-                            : Collections.<TaskEntry>emptyList(),
-                    command.success,
-                    command.output);
+            try {
+                return new Snapshot(
+                        parseTasks(
+                                ShellAccess.readTaskSnapshots(-1, 200), -1),
+                        true,
+                        "");
+            } catch (IOException error) {
+                return new Snapshot(
+                        Collections.emptyList(),
+                        false,
+                        usefulMessage(error));
+            }
         });
     }
 
@@ -155,13 +164,16 @@ public final class TaskRepository {
         TaskCommandQueue.execute(new Runnable() {
             @Override
             public void run() {
-                final CommandResult stackResult = runCommand(CMD + " activity stack list");
-                if (!stackResult.success) {
-                    complete(callback, false, stackResult.output.trim());
+                final FrameworkTaskSnapshot[] snapshots;
+                try {
+                    snapshots = ShellAccess.readTaskSnapshots(-1, 200);
+                } catch (IOException error) {
+                    complete(callback, false, usefulMessage(error));
                     return;
                 }
 
-                final List<TaskEntry> currentTasks = parseTasks(stackResult.output, displayId);
+                final List<TaskEntry> currentTasks =
+                        parseTasks(snapshots, displayId);
                 final List<RestoredTask> restoredTopFirst = new ArrayList<>();
                 for (final TaskEntry savedTask : savedTasks) {
                     final TaskEntry currentTask = findMatchingTask(currentTasks, savedTask);
@@ -401,10 +413,14 @@ public final class TaskRepository {
     }
 
     private static boolean hasPackageErrorDialog(final String packageName) {
-        final CommandResult input = runCommand(DUMPSYS_INPUT);
-        return input.success
-                && TaskInputWindowParser.readWindowSnapshot(input.output)
-                        .hasErrorDialogForPackage(packageName);
+        try {
+            return TaskInputWindowParser.readWindowSnapshot(
+                    FrameworkInputSnapshotSource.readRemote())
+                    .hasErrorDialogForPackage(packageName);
+        } catch (IOException error) {
+            Log.d(TAG, "input state unavailable: " + usefulMessage(error));
+            return false;
+        }
     }
 
     private static void runAction(final String command, final ActionCallback callback) {
@@ -563,6 +579,49 @@ public final class TaskRepository {
                     active));
         }
         return tasks;
+    }
+
+    private static List<TaskEntry> parseTasks(
+            final FrameworkTaskSnapshot[] snapshots,
+            final int targetDisplayId) {
+        final List<TaskEntry> tasks = new ArrayList<>();
+        final Set<Integer> activeDisplays = new LinkedHashSet<>();
+        if (snapshots == null) {
+            return tasks;
+        }
+        for (final FrameworkTaskSnapshot snapshot : snapshots) {
+            if (snapshot == null
+                    || (targetDisplayId >= 0
+                            && snapshot.displayId != targetDisplayId)
+                    || !PackageNameValidator.isSafe(snapshot.packageName)) {
+                continue;
+            }
+            final boolean home = snapshot.isHome();
+            final boolean active = snapshot.visible
+                    && !home
+                    && activeDisplays.add(Integer.valueOf(snapshot.displayId));
+            tasks.add(new TaskEntry(
+                    snapshot.rootTaskId,
+                    snapshot.taskId,
+                    snapshot.displayId,
+                    snapshot.packageName,
+                    snapshot.componentName,
+                    snapshot.topActivityName,
+                    snapshot.windowingModeName(),
+                    snapshot.bounds,
+                    home,
+                    snapshot.visible,
+                    active));
+        }
+        return tasks;
+    }
+
+    private static String usefulMessage(final Throwable error) {
+        final String message = error == null ? null : error.getMessage();
+        return message == null || message.isBlank()
+                ? error == null ? "unknown error"
+                        : error.getClass().getSimpleName()
+                : message;
     }
 
     private static CommandResult runCommand(final String command) {

@@ -151,15 +151,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             return;
                         }
                         if (mTaskWatcherReady) {
-                            final List<Integer> focusTaskIds =
-                                    prepareFocusTaskIds(
-                                            Collections.singletonList(
-                                                    Integer.valueOf(taskId)),
-                                            taskId,
-                                            null);
-                            sendFocusTasks(
+                            sendWorkspaceCommand(
+                                    DesktopWorkspaceCommand.ACTIVATE,
                                     mDisplayId,
-                                    focusTaskIds,
+                                    Collections.singletonList(
+                                            Integer.valueOf(taskId)),
                                     null);
                         } else {
                             TaskRepository.bringTaskToFront(
@@ -305,10 +301,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
 
                     @Override
                     public void onInputFocusRefreshRequired(
-                            final int generation) {
+                            final int generation,
+                            final int focusedTaskId) {
                         if (mRunning) {
                             DesktopRuntimeBridge.refreshDesktopInputFocus(
-                                    mDisplayId);
+                                    mDisplayId,
+                                    focusedTaskId,
+                                    () -> mTaskWatcher
+                                            .notifyInputFocusRefreshComplete(
+                                                    focusedTaskId));
                         }
                     }
 
@@ -322,6 +323,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                                 || displayId != mDisplayId) {
                             return;
                         }
+                        // System Back and native task activation bypass the
+                        // requested-focus path. Keep host focusability in sync
+                        // with the framework callback before input repair runs.
+                        DesktopRuntimeBridge.prepareTaskFocus(
+                                displayId, taskId);
                         if (mFocusingTaskId >= 0
                                 && mFocusingTaskId != taskId) {
                             mFocusingTaskId = -1;
@@ -810,7 +816,9 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         final int focusedTaskId = orderedTaskIdList.get(
                 orderedTaskIdList.size() - 1).intValue();
         focusThroughGateway(
-                orderedTaskIdList, focusedTaskId, topTask, callback);
+                orderedTaskIdList,
+                focusedTaskId,
+                callback);
     }
 
     @Override
@@ -826,8 +834,31 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             TaskRepository.runFocusAction(displayId, taskIds, callback);
             return;
         }
-        final int focusedTaskId = taskIds.get(taskIds.size() - 1).intValue();
-        focusThroughGateway(taskIds, focusedTaskId, null, callback);
+        final int generation = mGeneration;
+        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != displayId || !mTaskWatcherReady) {
+                completeActionCallback(
+                        callback, false, "desktop task runtime unavailable");
+                return;
+            }
+            if (!snapshot.available) {
+                completeActionCallback(callback, false, snapshot.error);
+                return;
+            }
+            final int focusedTaskId = taskIds.get(
+                    taskIds.size() - 1).intValue();
+            final TaskRepository.TaskEntry focusedTask = findTask(
+                    snapshot.tasks, focusedTaskId);
+            if (focusedTask == null || !isFocusableTask(focusedTask)) {
+                completeActionCallback(callback, false, "task unavailable");
+                return;
+            }
+            focusThroughGateway(
+                    taskIds,
+                    focusedTaskId,
+                    callback);
+        }));
     }
 
     @Override
@@ -887,35 +918,29 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             desktopHostTaskId,
                             concealedTaskIds);
             if (activeTask == null) {
-                final boolean submitted =
-                        mTaskWatcher.concealFullscreenTaskPlanes(
-                                displayId,
-                                result -> {
-                                    if (result.success) {
-                                        synchronized (
-                                                mTaskbarConcealedTaskIds) {
-                                            mShowDesktopRestoreOrder =
-                                                    new ArrayList<>(
-                                                            restoreOrder);
-                                            mShowDesktopNewlyConcealedTaskIds =
-                                                    new LinkedHashSet<>(
-                                                            newlyConcealedTaskIds);
-                                        }
-                                        scheduleRefresh(0);
-                                    }
-                                    completeActionCallback(
-                                            callback,
-                                            result.success,
-                                            result.success
-                                                    ? "desktop shown"
-                                                    : result.message);
-                                });
-                if (!submitted) {
-                    completeActionCallback(
-                            callback,
-                            false,
-                            "desktop task runtime unavailable");
-                }
+                sendWorkspaceCommand(
+                        DesktopWorkspaceCommand.PRESENT_DESKTOP,
+                        displayId,
+                        Collections.singletonList(
+                                Integer.valueOf(desktopHostTaskId)),
+                        result -> {
+                            if (result.success) {
+                                synchronized (mTaskbarConcealedTaskIds) {
+                                    mShowDesktopRestoreOrder =
+                                            new ArrayList<>(restoreOrder);
+                                    mShowDesktopNewlyConcealedTaskIds =
+                                            new LinkedHashSet<>(
+                                                    newlyConcealedTaskIds);
+                                }
+                                scheduleRefresh(0);
+                            }
+                            completeActionCallback(
+                                    callback,
+                                    result.success,
+                                    result.success
+                                            ? "desktop shown"
+                                            : result.message);
+                        });
                 return;
             }
             demoteTaskbarTask(
@@ -990,9 +1015,9 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final int targetTaskId = liveOrder.get(
                     liveOrder.size() - 1).intValue();
             focusThroughGateway(
+                    DesktopWorkspaceCommand.RESTORE_WORKSPACE,
                     liveOrder,
                     targetTaskId,
-                    findTask(snapshot.tasks, targetTaskId),
                     result -> {
                         synchronized (mTaskbarConcealedTaskIds) {
                             if (result.success) {
@@ -1009,6 +1034,44 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         completeActionCallback(
                                 callback, result.success, result.message);
                     });
+        }));
+    }
+
+    @Override
+    public void restoreSessionWorkspace(
+            final int displayId,
+            final List<Integer> backToFrontTaskIds,
+            final TaskRepository.ActionCallback callback) {
+        if (displayId < 0 || backToFrontTaskIds == null
+                || backToFrontTaskIds.isEmpty()) {
+            completeActionCallback(callback, false, "invalid session workspace");
+            return;
+        }
+        final int generation = mGeneration;
+        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != displayId || !mTaskWatcherReady) {
+                TaskRepository.runFocusAction(
+                        displayId, backToFrontTaskIds, callback);
+                return;
+            }
+            if (!snapshot.available) {
+                completeActionCallback(callback, false, snapshot.error);
+                return;
+            }
+            final List<Integer> liveOrder = liveTaskOrder(
+                    snapshot.tasks, displayId, backToFrontTaskIds);
+            if (liveOrder.isEmpty()) {
+                completeActionCallback(callback, false, "session tasks unavailable");
+                return;
+            }
+            final int targetTaskId = liveOrder.get(
+                    liveOrder.size() - 1).intValue();
+            focusThroughGateway(
+                    DesktopWorkspaceCommand.RESTORE_SESSION,
+                    liveOrder,
+                    targetTaskId,
+                    callback);
         }));
     }
 
@@ -1049,7 +1112,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 focusThroughGateway(
                         Collections.singletonList(Integer.valueOf(taskId)),
                         taskId,
-                        task,
                         callback);
                 return;
             }
@@ -1089,12 +1151,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         final int targetTaskId = focusOrder.get(
                 focusOrder.size() - 1).intValue();
-        final TaskRepository.TaskEntry targetTask = findTask(
-                snapshot.tasks, targetTaskId);
         focusThroughGateway(
+                DesktopWorkspaceCommand.DEMOTE,
                 focusOrder,
                 targetTaskId,
-                targetTask,
                 result -> {
                     if (!result.success && !alreadyConcealed) {
                         restoreTaskbarTask(taskId);
@@ -1108,15 +1168,25 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private void focusThroughGateway(
             final List<Integer> requestedTaskIds,
             final int focusedTaskId,
-            final TaskRepository.TaskEntry focusedTask,
+            final TaskRepository.ActionCallback callback) {
+        focusThroughGateway(
+                DesktopWorkspaceCommand.ACTIVATE,
+                requestedTaskIds,
+                focusedTaskId,
+                callback);
+    }
+
+    private void focusThroughGateway(
+            final int operation,
+            final List<Integer> requestedTaskIds,
+            final int focusedTaskId,
             final TaskRepository.ActionCallback callback) {
         final boolean restoredConcealedTask =
                 restoreTaskbarTask(focusedTaskId);
-        final List<Integer> preparedTaskIds = prepareFocusTaskIds(
-                requestedTaskIds, focusedTaskId, focusedTask);
-        sendFocusTasks(
+        sendWorkspaceCommand(
+                operation,
                 mDisplayId,
-                preparedTaskIds,
+                requestedTaskIds,
                 beginFocusTracking(
                         focusedTaskId,
                         result -> {
@@ -1126,96 +1196,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             completeActionCallback(
                                     callback, result.success, result.message);
                         }));
-    }
-
-    private List<Integer> prepareFocusTaskIds(
-            final List<Integer> requestedTaskIds,
-            final int focusedTaskId,
-            final TaskRepository.TaskEntry focusedTask) {
-        final List<TaskRepository.TaskEntry> latestTasks = mLatestTasks;
-        final TaskRepository.TaskEntry target = focusedTask != null
-                && focusedTask.taskId == focusedTaskId
-                        ? focusedTask
-                        : findTask(latestTasks, focusedTaskId);
-        if (target == null || !target.isFullscreen()
-                || !isFocusableTask(target)) {
-            return new ArrayList<>(requestedTaskIds);
-        }
-
-        final TaskRepository.TaskEntry desktopHost = findDesktopHostTask(
-                latestTasks, mDisplayId);
-        if (desktopHost != null
-                && requestedTaskIds.contains(
-                        Integer.valueOf(desktopHost.taskId))) {
-            // Demotion already supplies the complete semantic stack around the
-            // desktop host. Preserve it rather than reclassifying the same
-            // action as activation.
-            return completeFullscreenFocusContext(
-                    requestedTaskIds,
-                    latestTasks,
-                    focusedTaskId);
-        }
-
-        final Set<Integer> concealedTaskIds;
-        synchronized (mTaskbarConcealedTaskIds) {
-            concealedTaskIds = new LinkedHashSet<>(
-                    mTaskbarConcealedTaskIds);
-        }
-        final List<TaskRepository.TaskEntry> blockers =
-                EffectiveTaskStack.foregroundBlockersTopFirst(
-                        latestTasks, target, concealedTaskIds);
-        final LinkedHashSet<Integer> activationOrder = new LinkedHashSet<>();
-        boolean lowersFreeformWorkspace = false;
-        for (int index = blockers.size() - 1; index >= 0; index--) {
-            final TaskRepository.TaskEntry blocker = blockers.get(index);
-            if (blocker.isFreeform()) {
-                activationOrder.add(Integer.valueOf(blocker.taskId));
-                lowersFreeformWorkspace = true;
-            }
-        }
-        if (lowersFreeformWorkspace && desktopHost != null) {
-            activationOrder.add(Integer.valueOf(desktopHost.taskId));
-        }
-        activationOrder.addAll(completeFullscreenFocusContext(
-                Collections.emptyList(), latestTasks, focusedTaskId));
-        return new ArrayList<>(activationOrder);
-    }
-
-    private List<Integer> completeFullscreenFocusContext(
-            final List<Integer> requestedTaskIds,
-            final List<TaskRepository.TaskEntry> latestTasks,
-            final int focusedTaskId) {
-        // Supply the complete fullscreen hierarchy as preparation context.
-        // The shell owner reparents only missing managed tasks, then activates
-        // the selected task alone. Taskbar, Alt+Tab, overview, and automation
-        // therefore share one focus path without rebuilding a prepared area.
-        final LinkedHashSet<Integer> orderedTaskIds = new LinkedHashSet<>();
-        orderedTaskIds.addAll(requestedTaskIds);
-        orderedTaskIds.remove(Integer.valueOf(focusedTaskId));
-        for (int index = latestTasks.size() - 1; index >= 0; index--) {
-            final TaskRepository.TaskEntry task = latestTasks.get(index);
-            if (task != null && task.displayId == mDisplayId
-                    && task.isFullscreen() && isFocusableTask(task)) {
-                orderedTaskIds.add(Integer.valueOf(task.taskId));
-            }
-        }
-        orderedTaskIds.remove(Integer.valueOf(focusedTaskId));
-        orderedTaskIds.add(Integer.valueOf(focusedTaskId));
-        return new ArrayList<>(orderedTaskIds);
-    }
-
-    private static TaskRepository.TaskEntry findDesktopHostTask(
-            final List<TaskRepository.TaskEntry> tasks,
-            final int displayId) {
-        if (tasks != null) {
-            for (final TaskRepository.TaskEntry task : tasks) {
-                if (task != null && task.displayId == displayId
-                        && isDesktopHostTask(task)) {
-                    return task;
-                }
-            }
-        }
-        return null;
     }
 
     static TaskRepository.TaskEntry selectShowDesktopDemotionTask(
@@ -1322,7 +1302,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mFocusingTaskId = -1;
     }
 
-    private void sendFocusTasks(
+    private void sendWorkspaceCommand(
+            final int operation,
             final int displayId,
             final List<Integer> taskIds,
             final TaskRepository.ActionCallback callback) {
@@ -1339,8 +1320,47 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 DesktopRuntimeBridge.prepareTaskFocus(
                         displayId, focusedTaskId);
             }
-            mTaskWatcher.sendFocusStack(displayId, taskIds, callback);
+            final int[] physicalOrder = new int[taskIds.size()];
+            for (int index = 0; index < taskIds.size(); index++) {
+                physicalOrder[index] = taskIds.get(index).intValue();
+            }
+            final DesktopWorkspaceCommand command =
+                    DesktopWorkspaceCommand.create(
+                            operation,
+                            displayId,
+                            focusedTaskId,
+                            physicalOrder);
+            mTaskWatcher.sendWorkspaceCommand(command, result -> {
+                recordWorkspaceCommandEvent(command, result);
+                completeActionCallback(
+                        callback, result.success, result.message);
+            });
         });
+    }
+
+    private static void recordWorkspaceCommandEvent(
+            final DesktopWorkspaceCommand command,
+            final TaskRepository.ActionResult result) {
+        try {
+            DesktopAutomationEventJournal.record(
+                    "workspace",
+                    "command_completed",
+                    result.success,
+                    command.operationName(),
+                    new org.json.JSONObject()
+                            .put("operation", command.operationName())
+                            .put("displayId", command.displayId)
+                            .put("targetTaskId", command.targetTaskId)
+                            .put("taskCount",
+                                    command.backToFrontTaskIds.length)
+                            .put("focusConverged", result.success));
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "workspace",
+                    "command_completed",
+                    result.success,
+                    command.operationName());
+        }
     }
 
     @Override

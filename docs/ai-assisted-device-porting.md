@@ -184,6 +184,9 @@ Then verify on the target device:
 4. On hardware with a vendor extension, build once with
    `-PMAGICDESK_PLATFORM_OVERRIDE=android` and verify that the standard driver
    remains isolated and functional where its declared capabilities permit.
+   For an Android 15 report investigated on newer hardware, additionally build
+   with `-PMAGICDESK_FRAMEWORK_OVERRIDE=android15`; combine both properties when
+   framework and vendor behavior must be isolated at the same time.
 5. Refresh Diagnostics and compare platform providers, displays, task/window
    state, input routing, launcher health, failures, and cleanup with the
    baseline.

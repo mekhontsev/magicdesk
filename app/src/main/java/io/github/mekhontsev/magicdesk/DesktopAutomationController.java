@@ -101,7 +101,7 @@ final class DesktopAutomationController {
                     result = forceStopApp(requiredString(args, "package"));
                     break;
                 case SET_WINDOW_MODE:
-                    result = setWindowMode(args);
+                    result = setRawWindowMode(args);
                     break;
                 case SET_WINDOW_BOUNDS:
                     result = setWindowBounds(args);
@@ -114,9 +114,7 @@ final class DesktopAutomationController {
                             MagicDeskRuntime.showStart(), "Start menu shown");
                     break;
                 case SHOW_DESKTOP:
-                    result = simpleRuntimeAction(
-                            MagicDeskRuntime.toggleDesktopWorkspace(),
-                            "desktop visibility toggled");
+                    result = toggleDesktopWorkspace();
                     break;
                 case OPEN_SETTINGS:
                     result = openSettings();
@@ -542,8 +540,46 @@ final class DesktopAutomationController {
         if (task == null) {
             return taskNotFound(taskId);
         }
-        return awaitTaskAction(callback -> MagicDeskRuntime.focusDesktopTask(
-                task.displayId, task.taskId, callback));
+        final DesktopAutomationResult result = awaitTaskAction(
+                callback -> MagicDeskRuntime.focusDesktopTask(
+                        task.displayId, task.taskId, callback));
+        if (!result.success) {
+            return result;
+        }
+        try {
+            return DesktopAutomationResult.success(
+                    result.message,
+                    new JSONObject()
+                            .put("taskId", taskId)
+                            .put("workspaceOperation", "activate")
+                            .put("transitionPath", "managed-workspace")
+                            .put("focusConverged", true));
+        } catch (JSONException error) {
+            return result;
+        }
+    }
+
+    private DesktopAutomationResult toggleDesktopWorkspace()
+            throws InterruptedException {
+        final DesktopAutomationResult result = awaitTaskAction(callback -> {
+            if (!MagicDeskRuntime.toggleDesktopWorkspace(callback)) {
+                callback.onComplete(new TaskRepository.ActionResult(
+                        false, "desktop UI is unavailable"));
+            }
+        });
+        if (!result.success) {
+            return result;
+        }
+        try {
+            return DesktopAutomationResult.success(
+                    result.message,
+                    new JSONObject()
+                            .put("workspaceOperation", "toggle-desktop")
+                            .put("transitionPath", "managed-workspace")
+                            .put("focusConverged", true));
+        } catch (JSONException error) {
+            return result;
+        }
     }
 
     private DesktopAutomationResult closeTask(final int taskId)
@@ -565,7 +601,7 @@ final class DesktopAutomationController {
                 MagicDeskRuntime.forceStopPackage(packageName, callback));
     }
 
-    private DesktopAutomationResult setWindowMode(final JSONObject args)
+    private DesktopAutomationResult setRawWindowMode(final JSONObject args)
             throws IOException, JSONException, InterruptedException {
         final int taskId = requiredInt(args, "taskId");
         final TaskRepository.TaskEntry task = findTask(taskId);
@@ -574,18 +610,28 @@ final class DesktopAutomationController {
         }
         final String mode = requiredString(args, "mode")
                 .toLowerCase(Locale.ROOT);
+        final DesktopAutomationResult result;
         if ("fullscreen".equals(mode)) {
-            return awaitTaskAction(callback ->
+            result = awaitTaskAction(callback ->
                     TaskRepository.setFullscreen(task, callback));
-        }
-        if (!"windowed".equals(mode) && !"freeform".equals(mode)) {
+        } else if ("windowed".equals(mode) || "freeform".equals(mode)) {
+            final Rect bounds = readBounds(
+                    args.optJSONObject("bounds"), task.displayId);
+            result = awaitTaskAction(callback ->
+                    TaskRepository.setFreeform(task, bounds, callback));
+        } else {
             throw new IllegalArgumentException(
                     "mode must be windowed or fullscreen");
         }
-        final Rect bounds = readBounds(
-                args.optJSONObject("bounds"), task.displayId);
-        return awaitTaskAction(callback ->
-                TaskRepository.setFreeform(task, bounds, callback));
+        if (!result.success) {
+            return result;
+        }
+        return DesktopAutomationResult.success(
+                result.message,
+                new JSONObject()
+                        .put("taskId", taskId)
+                        .put("mode", mode)
+                        .put("transitionPath", "raw"));
     }
 
     private DesktopAutomationResult setWindowBounds(final JSONObject args)

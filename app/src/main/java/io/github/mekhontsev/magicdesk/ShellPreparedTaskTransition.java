@@ -127,17 +127,13 @@ final class ShellPreparedTaskTransition {
             final int taskId) throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
         // Preserve the current mode so the reveal transition retains a real
         // freeform/fullscreen boundary for WMShell to rebuild decorations.
-        transactionClass.getMethod(
-                "setHidden", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.TRUE);
+        windowing.setHidden(transaction, taskToken, true);
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
     }
@@ -220,34 +216,16 @@ final class ShellPreparedTaskTransition {
             final Rect bounds) throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod(
-                "setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Integer.valueOf(windowingMode));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, new Rect(bounds));
-        transactionClass.getMethod(
-                "setHidden", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.FALSE);
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Boolean.TRUE,
-                        Boolean.TRUE);
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        windowing.setWindowingMode(transaction, taskToken, windowingMode);
+        windowing.setBounds(transaction, taskToken, new Rect(bounds));
+        windowing.setHidden(transaction, taskToken, false);
+        windowing.reorder(transaction, taskToken, true, true);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass,
                 transaction,
-                tokenClass,
                 taskToken,
                 windowingMode != WINDOWING_MODE_FREEFORM);
         ShellWindowTransitionExecutor.applySynchronized(
@@ -280,54 +258,34 @@ final class ShellPreparedTaskTransition {
             throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod("setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FREEFORM));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, bounds);
-        transactionClass.getMethod(
-                "setForceTranslucent", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.FALSE);
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        windowing.setWindowingMode(
+                transaction, taskToken, WINDOWING_MODE_FREEFORM);
+        windowing.setBounds(transaction, taskToken, bounds);
+        windowing.setForceTranslucent(transaction, taskToken, false);
         if (application == FreeformApplication.HIDE_SYNC
                 || application == FreeformApplication.SHOW_TRANSITION
                 || application
                         == FreeformApplication.DETACH_AND_SHOW_TRANSITION) {
-            transactionClass.getMethod(
-                    "setHidden", tokenClass, Boolean.TYPE)
-                    .invoke(
-                            transaction,
-                            taskToken,
-                            Boolean.valueOf(
-                                    application
-                                            == FreeformApplication.HIDE_SYNC));
+            windowing.setHidden(
+                    transaction,
+                    taskToken,
+                    application == FreeformApplication.HIDE_SYNC);
         }
         if (application
                 == FreeformApplication.DETACH_AND_SHOW_TRANSITION) {
             // The fullscreen parent belongs to the long-lived shell observer.
             // Reparent and reveal in the same WMShell transition so no
             // intermediate parent or fullscreen frame becomes visible.
-            transactionClass.getMethod(
-                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                    .invoke(transaction, new Object[]{
-                            taskToken, targetParentToken, Boolean.TRUE});
+            windowing.reparent(
+                    transaction, taskToken, targetParentToken, true);
         }
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                .invoke(
-                        transaction,
-                        taskToken,
-                        Boolean.TRUE,
-                        Boolean.TRUE);
+        windowing.reorder(transaction, taskToken, true, true);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass, transaction, tokenClass, taskToken, false);
+                transaction, taskToken, false);
         if (application == FreeformApplication.HIDE_SYNC) {
             ShellWindowTransitionExecutor.applySynchronized(
                     service, transactionClass, transaction);
@@ -370,46 +328,29 @@ final class ShellPreparedTaskTransition {
                         || application == FullscreenApplication.DETACH_SYNC;
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod(
-                "setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken,
-                        Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, new Rect());
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        windowing.setWindowingMode(
+                transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
+        windowing.setBounds(transaction, taskToken, new Rect());
         if (!detachFromParent) {
             // Cross-display fullscreen moves normalize task overrides. An app
             // fullscreen restore must preserve the existing client density and
             // translucency while only rebuilding its window hierarchy.
-            transactionClass.getMethod(
-                    "setDensityDpi", tokenClass, Integer.TYPE)
-                    .invoke(transaction, taskToken, Integer.valueOf(0));
-            transactionClass.getMethod(
-                    "setForceTranslucent", tokenClass, Boolean.TYPE)
-                    .invoke(transaction, taskToken, Boolean.FALSE);
+            windowing.setDensityDpi(transaction, taskToken, 0);
+            windowing.setForceTranslucent(transaction, taskToken, false);
         }
-        transactionClass.getMethod(
-                "setHidden", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.valueOf(hidden));
+        windowing.setHidden(transaction, taskToken, hidden);
         if (detachFromParent) {
-            transactionClass.getMethod(
-                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                    .invoke(transaction, new Object[]{
-                            taskToken, targetParentToken, Boolean.TRUE});
+            windowing.reparent(
+                    transaction, taskToken, targetParentToken, true);
         } else {
-            transactionClass.getMethod(
-                    "reorder", tokenClass, Boolean.TYPE, Boolean.TYPE)
-                    .invoke(transaction, taskToken, Boolean.TRUE, Boolean.TRUE);
+            windowing.reorder(transaction, taskToken, true, true);
         }
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass,
                 transaction,
-                tokenClass,
                 taskToken,
                 true);
         if (application != FullscreenApplication.SHOW_TRANSITION) {

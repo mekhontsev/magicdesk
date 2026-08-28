@@ -122,7 +122,7 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
 
         final Set<String> remaining =
                 DesktopInputRoutingOwnership.findActiveAssociations(
-                        InputStateDump.read());
+                        FrameworkInputSnapshotSource.readLocal());
         remaining.retainAll(ownedPorts);
         if (!remaining.isEmpty()) {
             throw new IOException(
@@ -379,7 +379,9 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             if (countVirtualKeyboards(keyboards) == expectedCount) {
                 return keyboards;
             }
-            Thread.sleep(VIRTUAL_DEVICE_POLL_MILLIS);
+            BoundedStateAwaiter.pauseInterruptibly(
+                    BoundedStateAwaiter.Reason.INPUT_DEVICE,
+                    VIRTUAL_DEVICE_POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException(
                 "Expected " + expectedCount
@@ -398,7 +400,9 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                     return mice;
                 }
             }
-            Thread.sleep(VIRTUAL_DEVICE_POLL_MILLIS);
+            BoundedStateAwaiter.pauseInterruptibly(
+                    BoundedStateAwaiter.Reason.INPUT_DEVICE,
+                    VIRTUAL_DEVICE_POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException(
                 "MagicDesk virtual mouse is missing from EventHub");

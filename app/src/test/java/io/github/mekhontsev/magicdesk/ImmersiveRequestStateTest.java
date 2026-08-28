@@ -10,17 +10,17 @@ import org.junit.Test;
 public final class ImmersiveRequestStateTest {
     @Test
     public void changedProcessStartsANewClientSample() {
-        assertTrue(ShellTaskStateMonitor.isInitialClientSample(
+        assertTrue(FrameworkTaskObservationSource.isInitialClientSample(
                 Integer.valueOf(1), Integer.valueOf(100), Integer.valueOf(101)));
-        assertFalse(ShellTaskStateMonitor.isInitialClientSample(
+        assertFalse(FrameworkTaskObservationSource.isInitialClientSample(
                 Integer.valueOf(1), Integer.valueOf(100), Integer.valueOf(100)));
     }
 
     @Test
     public void missingProcessIdentityDoesNotInventAClientRestart() {
-        assertTrue(ShellTaskStateMonitor.isInitialClientSample(
+        assertTrue(FrameworkTaskObservationSource.isInitialClientSample(
                 null, null, null));
-        assertFalse(ShellTaskStateMonitor.isInitialClientSample(
+        assertFalse(FrameworkTaskObservationSource.isInitialClientSample(
                 Integer.valueOf(1), Integer.valueOf(100), null));
     }
 

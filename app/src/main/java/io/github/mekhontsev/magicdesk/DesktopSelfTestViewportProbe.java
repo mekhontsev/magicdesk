@@ -109,7 +109,9 @@ final class DesktopSelfTestViewportProbe {
                     previousRotation = -1;
                 }
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("desktop viewport did not settle after "
                 + "application fullscreen");

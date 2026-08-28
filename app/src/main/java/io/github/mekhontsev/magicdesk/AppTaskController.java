@@ -1005,28 +1005,68 @@ final class AppTaskController {
                 MagicDeskRuntime.getLastVisibleFreeformTasks(
                         displayId);
         if (savedTasks.isEmpty()) {
-            mActivity.setStatus(R.string.status_desktop_visible);
+            restorePreparedSessionWorkspace(
+                    displayId,
+                    Collections.emptyList(),
+                    new TaskRepository.ActionResult(
+                            true, "no saved windows"));
             return;
         }
         mActivity.setStatus(R.string.status_restoring_windows);
         TaskRepository.restoreFreeformStack(
                 displayId,
                 savedTasks,
-                result -> mActivity.runOnUiThread(() -> {
-                    if (mActivity.isActivityUnavailable()) {
-                        return;
-                    }
-                    mActivity.setStatus(result.success
-                            ? mActivity.getString(
-                                    R.string.status_windows_restored)
-                            : mActivity.getString(
-                                    R.string.status_switch_failed,
-                                    result.message.length() == 0
-                                            ? mActivity.getString(
-                                                    R.string.status_restoring_windows)
-                                            : result.message));
-                    mActivity.refreshTaskSnapshot();
-                }));
+                result -> restorePreparedSessionWorkspace(
+                        displayId, savedTasks, result));
+    }
+
+    private void restorePreparedSessionWorkspace(
+            final int displayId,
+            final List<TaskRepository.TaskEntry> savedTopFirstTasks,
+            final TaskRepository.ActionResult preparationResult) {
+        mActivity.runOnUiThread(() -> {
+            if (mActivity.isActivityUnavailable()) {
+                return;
+            }
+            if (!preparationResult.success) {
+                mActivity.setStatus(mActivity.getString(
+                        R.string.status_switch_failed,
+                        preparationResult.message.length() == 0
+                                ? mActivity.getString(
+                                        R.string.status_restoring_windows)
+                                : preparationResult.message));
+                mActivity.refreshTaskSnapshot();
+                return;
+            }
+            final java.util.LinkedHashSet<Integer> order =
+                    new java.util.LinkedHashSet<>();
+            order.add(Integer.valueOf(mActivity.getTaskId()));
+            for (int index = savedTopFirstTasks.size() - 1;
+                    index >= 0; index--) {
+                final TaskRepository.TaskEntry task =
+                        savedTopFirstTasks.get(index);
+                if (task != null && task.displayId == displayId) {
+                    order.add(Integer.valueOf(task.taskId));
+                }
+            }
+            MagicDeskRuntime.restoreSessionWorkspace(
+                    displayId,
+                    new ArrayList<>(order),
+                    result -> mActivity.runOnUiThread(() -> {
+                        if (mActivity.isActivityUnavailable()) {
+                            return;
+                        }
+                        mActivity.setStatus(result.success
+                                ? mActivity.getString(
+                                        savedTopFirstTasks.isEmpty()
+                                                ? R.string.status_desktop_visible
+                                                : R.string.status_windows_restored)
+                                : mActivity.getString(
+                                        R.string.status_switch_failed,
+                                        result.message));
+                        mActivity.refreshTaskSnapshot();
+                    }));
+        });
     }
 
     private int beginFullscreenTransition(final int excludedTaskId) {

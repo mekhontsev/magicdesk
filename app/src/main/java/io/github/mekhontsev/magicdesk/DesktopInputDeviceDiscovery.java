@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -10,7 +9,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class DesktopInputDeviceDiscovery {
-    private static final String DUMPSYS = "/system/bin/dumpsys";
     private static final int MAGICDESK_VENDOR_ID = 0x4d44;
     private static final int MAGICDESK_MOUSE_PRODUCT_ID = 0x0001;
     private static final Pattern EVENT_HUB_DEVICE =
@@ -125,20 +123,10 @@ final class DesktopInputDeviceDiscovery {
 
     private static List<DeviceRecord> readEventHubDevices()
             throws IOException, InterruptedException {
-        final Process process = new ProcessBuilder(DUMPSYS, "input")
-                .redirectErrorStream(true)
-                .start();
-        final List<DeviceRecord> result;
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            result = readEventHubDevices(reader);
+        try (BufferedReader reader = new BufferedReader(new StringReader(
+                FrameworkInputSnapshotSource.readLocal()))) {
+            return readEventHubDevices(reader);
         }
-        final int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IOException(
-                    "dumpsys input failed with exit code " + exitCode);
-        }
-        return result;
     }
 
     private static List<DeviceRecord> readEventHubDevices(

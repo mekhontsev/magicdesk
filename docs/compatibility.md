@@ -61,7 +61,22 @@ change without an Android API-level change.
 Android 15 is an installable compatibility baseline, not yet a verified
 firmware profile. Its WMShell uses the older `desktopmode moveToDesktop`
 command when that backend is enabled; MagicDesk detects either command name
-and retains its direct transaction fallback.
+and retains its direct transaction fallback. Its older window-container API is
+handled by the central framework compatibility adapter. Android 15 does not
+expose application-requested visible inset types through `TaskInfo`, so that
+specific immersive-state observation is reported as unavailable while the task
+observer continues to provide lifecycle, focus, visibility, mode, and bounds.
+MagicDesk does not infer a negative immersive request from that absence, so an
+activity-mode guard will not override ambiguous application fullscreen.
+Diagnostics reports the selected framework profile, immersive observation,
+caption strategy, and InsetsSource signature separately from the vendor
+platform composition. It also records the hybrid task-observation strategy,
+150 ms active-session fallback interval, 16-task bound, and per-facet
+provenance. These values identify behavior reconstructed from a bounded
+typed Binder snapshot instead of a framework callback. Separate diagnostics
+lines expose bounded polling, event-driven waits, and intentional runtime
+delays, including their latest classified reason. Direct unclassified sleeps
+and monitor waits are rejected by repository tests.
 
 ## Tested firmware
 

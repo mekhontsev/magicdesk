@@ -120,7 +120,10 @@ final class ConsoleTerminalRegistry {
             long remaining = timeoutMillis;
             while (!ENTRIES.containsKey(id) && remaining > 0L) {
                 try {
-                    ENTRIES.wait(remaining);
+                    EventDrivenWaits.await(
+                            ENTRIES,
+                            EventDrivenWaits.Reason.TERMINAL_REGISTRATION,
+                            remaining);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
                     return false;

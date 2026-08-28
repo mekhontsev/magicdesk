@@ -17,7 +17,7 @@ public final class ShellTaskUidReader {
         final LinkedHashSet<Integer> uids = new LinkedHashSet<>();
         final Object taskService = HiddenTaskApi.getService();
         for (final Object task : HiddenTaskApi.getTasks(taskService, displayId)) {
-            final int uid = HiddenTaskApi.getIntField(task, "effectiveUid");
+            final int uid = HiddenTaskApi.getTaskEffectiveUid(task);
             if (uid >= 10_000) {
                 uids.add(Integer.valueOf(uid));
             }

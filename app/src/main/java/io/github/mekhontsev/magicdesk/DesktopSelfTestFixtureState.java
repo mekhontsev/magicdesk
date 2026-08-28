@@ -42,7 +42,9 @@ final class DesktopSelfTestFixtureState {
             final Context context,
             final String token,
             final int displayId) throws IOException {
-        SystemClock.sleep(POLL_MILLIS);
+        BoundedStateAwaiter.pause(
+                BoundedStateAwaiter.Reason.TASK_APPEARANCE,
+                POLL_MILLIS);
         final File marker = new File(
                 context.getFilesDir(),
                 DesktopSelfTestActivity.WINDOW_MODE_MARKER_FILE);
@@ -117,7 +119,9 @@ final class DesktopSelfTestFixtureState {
                     }
                 }
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_APPEARANCE,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("expected immersive surface marker="
                 + prefix + "<bounds>, actual=" + actual
@@ -143,7 +147,9 @@ final class DesktopSelfTestFixtureState {
             if (expected.equals(actual)) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_WINDOWING_MODE,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("expected marker=" + expected
                 + ", actual=" + actual

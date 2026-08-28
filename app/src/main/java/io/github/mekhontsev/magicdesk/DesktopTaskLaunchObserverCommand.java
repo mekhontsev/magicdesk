@@ -114,8 +114,7 @@ public final class DesktopTaskLaunchObserverCommand {
     private static String format(
             final ActivityManager.RunningTaskInfo task)
             throws ReflectiveOperationException {
-        final int windowingMode = HiddenTaskApi.getWindowConfigurationValue(
-                task, "getWindowingMode");
+        final int windowingMode = HiddenTaskApi.getTaskWindowingMode(task);
         final Object windowConfiguration =
                 HiddenTaskApi.getWindowConfiguration(task);
         final Rect bounds = new Rect((Rect) windowConfiguration.getClass()

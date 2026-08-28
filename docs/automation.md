@@ -148,7 +148,12 @@ parallel menu policy.
 Normal commands include:
 
 - start or close a desktop session;
-- launch, focus, close, resize, or change the mode of a task;
+- launch, focus, close, or resize a task;
+- change a task's managed window mode through the production transition
+  gateway, including stable per-task fullscreen-plane ownership where the
+  selected desktop policy provides it;
+- directly change a task's raw Android windowing mode for diagnostics without
+  creating or preserving MagicDesk fullscreen-plane ownership;
 - arrange a task left, right, maximized, or restored through the same window
   transition path used by MagicDesk shortcuts;
 - show Start or the desktop and open Files, Console, Task Manager, or Settings;
@@ -159,6 +164,13 @@ Normal commands include:
 - start, stop, and inspect screen recording.
 
 Use `tools/list` as the authoritative command and argument catalog.
+
+`magicdesk.arrange_task` with `maximize` or `restore` is the normal managed
+fullscreen/windowed command. It shares the production transition path with
+taskbar and Alt+Tab. `magicdesk.set_window_mode` is intentionally raw and
+exists for compatibility investigation: it changes Android's task mode
+directly and can therefore reproduce firmware behavior that managed
+fullscreen planes are designed to isolate.
 
 Developer-only commands are:
 

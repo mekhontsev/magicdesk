@@ -198,22 +198,29 @@ public final class ShellProcessFailureTrackerTest {
                 true);
     }
 
-    private static ShellTaskStateMonitor.TaskWindowState task(
+    private static FrameworkTaskSnapshot task(
             final String packageName,
             final String topPackage) {
-        return new ShellTaskStateMonitor.TaskWindowState(
+        return new FrameworkTaskSnapshot(
                 null,
                 TASK_ID,
-                true,
-                false,
-                0,
+                TASK_ID,
+                DISPLAY_ID,
+                1,
                 WINDOWING_MODE_FREEFORM,
                 1,
                 new ComponentName(packageName, packageName + ".MainActivity"),
                 null,
+                packageName + "/.MainActivity",
+                "",
                 packageName,
                 topPackage,
-                new Rect(10, 20, 800, 600));
+                -1,
+                null,
+                new Rect(10, 20, 800, 600),
+                true,
+                false,
+                Integer.valueOf(0));
     }
 
     private static final class RecordingListener implements

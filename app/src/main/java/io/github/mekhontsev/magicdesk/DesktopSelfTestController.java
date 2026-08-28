@@ -380,7 +380,9 @@ final class DesktopSelfTestController {
                             "closed");
                     return;
                 }
-                SystemClock.sleep(POLL_MILLIS);
+                BoundedStateAwaiter.pause(
+                        BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                        POLL_MILLIS);
             }
             failAndAbort(result,
                     "SELFTEST-PRECONDITION-002",
@@ -397,7 +399,7 @@ final class DesktopSelfTestController {
 
     private static boolean isPhoneSystemPanelVisible() throws IOException {
         return TaskInputWindowParser.hasVisibleNotificationPanel(
-                ShellAccess.run("/system/bin/dumpsys input"),
+                FrameworkInputSnapshotSource.readRemote(),
                 Display.DEFAULT_DISPLAY);
     }
 
@@ -578,7 +580,9 @@ final class DesktopSelfTestController {
             if (displayId > Display.DEFAULT_DISPLAY) {
                 return displayId;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_HIERARCHY,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         return -1;
     }

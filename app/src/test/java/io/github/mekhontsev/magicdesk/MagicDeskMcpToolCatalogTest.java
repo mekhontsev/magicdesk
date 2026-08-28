@@ -117,6 +117,24 @@ public final class MagicDeskMcpToolCatalogTest {
     }
 
     @Test
+    public void rawAndManagedFullscreenPathsAreExplicit() throws Exception {
+        final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
+        final JSONObject raw = tool(tools, "set_window_mode");
+        final JSONObject managed = tool(tools, "arrange_task");
+
+        assertTrue(raw.getString("description").contains(
+                "without MagicDesk fullscreen-plane ownership"));
+        assertTrue(managed.getString("description").contains(
+                "preserve fullscreen-plane ownership"));
+        assertTrue(raw.getJSONObject("inputSchema")
+                .getJSONObject("properties").has("bounds"));
+        assertFalse(managed.getJSONObject("inputSchema")
+                .getJSONObject("properties").has("bounds"));
+        assertEquals(2, managed.getJSONObject("inputSchema")
+                .getJSONArray("required").length());
+    }
+
+    @Test
     public void semanticUiAndWaitSchemasExposeStableStateFields()
             throws Exception {
         final JSONArray tools = MagicDeskMcpToolCatalog.create(false);

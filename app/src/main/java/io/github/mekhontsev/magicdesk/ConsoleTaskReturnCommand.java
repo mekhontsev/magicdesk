@@ -78,7 +78,7 @@ public final class ConsoleTaskReturnCommand {
             throws ReflectiveOperationException {
         final List<Integer> taskIds = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
-            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+            final int taskId = HiddenTaskApi.getTaskId(task);
             if (getActivityType(task) == ACTIVITY_TYPE_STANDARD
                     && requestedTaskIds.contains(Integer.valueOf(taskId))) {
                 taskIds.add(Integer.valueOf(taskId));
@@ -97,7 +97,7 @@ public final class ConsoleTaskReturnCommand {
                 continue;
             }
             taskIds.add(Integer.valueOf(
-                    HiddenTaskApi.getIntField(task, "taskId")));
+                    HiddenTaskApi.getTaskId(task)));
         }
         return taskIds;
     }
@@ -105,14 +105,12 @@ public final class ConsoleTaskReturnCommand {
     private static boolean isMagicDeskTask(final Object task)
             throws ReflectiveOperationException {
         final ComponentName topActivity =
-                (ComponentName) HiddenTaskApi.getField(
-                        task, "topActivity");
+                HiddenTaskApi.getTaskTopActivity(task);
         if (isMagicDeskPackage(topActivity)) {
             return true;
         }
         final ComponentName baseActivity =
-                (ComponentName) HiddenTaskApi.getField(
-                        task, "baseActivity");
+                HiddenTaskApi.getTaskBaseActivity(task);
         return isMagicDeskPackage(baseActivity);
     }
 
@@ -125,8 +123,7 @@ public final class ConsoleTaskReturnCommand {
 
     private static int getActivityType(final Object task)
             throws ReflectiveOperationException {
-        return HiddenTaskApi.getWindowConfigurationValue(
-                task, "getActivityType");
+        return HiddenTaskApi.getTaskActivityType(task);
     }
 
     private static int parseDisplayId(final String value) {

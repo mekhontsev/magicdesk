@@ -42,7 +42,8 @@ final class DesktopTaskWatcher {
                 String stateKey,
                 int displayId,
                 Rect bounds);
-        void onInputFocusRefreshRequired(int generation);
+        void onInputFocusRefreshRequired(
+                int generation, int focusedTaskId);
         void onTaskFocusChanged(
                 int generation, int taskId, int displayId, boolean focused);
         void onDesktopTaskAreaForegroundChanged(
@@ -283,10 +284,26 @@ final class DesktopTaskWatcher {
             final int displayId,
             final List<Integer> taskIds,
             final TaskRepository.ActionCallback callback) {
+        if (taskIds == null || taskIds.isEmpty()) {
+            completeFocusCallback(callback, false, "no tasks");
+            return;
+        }
         final int[] taskIdArray = new int[taskIds.size()];
         for (int index = 0; index < taskIds.size(); index++) {
             taskIdArray[index] = taskIds.get(index).intValue();
         }
+        sendWorkspaceCommand(
+                DesktopWorkspaceCommand.create(
+                        DesktopWorkspaceCommand.ACTIVATE,
+                        displayId,
+                        taskIdArray[taskIdArray.length - 1],
+                        taskIdArray),
+                callback);
+    }
+
+    void sendWorkspaceCommand(
+            final DesktopWorkspaceCommand command,
+            final TaskRepository.ActionCallback callback) {
         final ShellTaskObserverHandle handle;
         final long sequence;
         synchronized (this) {
@@ -306,22 +323,52 @@ final class DesktopTaskWatcher {
             return;
         }
         try {
-            handle.focusStack(sequence, displayId, taskIdArray);
-        } catch (IOException error) {
-            final TaskRepository.ActionCallback failedCallback;
-            synchronized (this) {
-                failedCallback = mFocusCallbacks.remove(
-                        Long.valueOf(sequence));
-            }
-            completeFocusCallback(
-                    failedCallback, false, "task observer focus failed");
-            Log.w(TAG, "failed to focus task stack", error);
-            recordFailure(
-                    "TASK-OBSERVER-FOCUS-001",
-                    "Could not focus the requested desktop tasks",
-                    "display=" + displayId + " tasks=" + taskIds.size(),
-                    error);
+            mExecutor.execute(() -> {
+                try {
+                    handle.executeWorkspaceCommand(sequence, command);
+                } catch (IOException error) {
+                    failWorkspaceCommand(sequence, command, error);
+                }
+            });
+        } catch (RejectedExecutionException error) {
+            failWorkspaceCommand(sequence, command, error);
         }
+    }
+
+    void notifyInputFocusRefreshComplete(final int taskId) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null || taskId < 0) {
+            return;
+        }
+        // Workspace submission occupies the observer command executor until
+        // shell-side convergence completes. Send the frame acknowledgement on
+        // the independent task queue so the convergence barrier can wake.
+        TaskCommandQueue.execute(() -> {
+            try {
+                handle.notifyInputFocusRefreshComplete(taskId);
+            } catch (IOException error) {
+                Log.w(TAG, "failed to acknowledge input focus relayout", error);
+            }
+        });
+    }
+
+    private void failWorkspaceCommand(
+            final long sequence,
+            final DesktopWorkspaceCommand command,
+            final Exception error) {
+        final TaskRepository.ActionCallback failedCallback;
+        synchronized (this) {
+            failedCallback = mFocusCallbacks.remove(
+                    Long.valueOf(sequence));
+        }
+        completeFocusCallback(
+                failedCallback, false, "workspace command failed");
+        Log.w(TAG, "failed to execute workspace command", error);
+        recordFailure(
+                "TASK-OBSERVER-FOCUS-001",
+                "Could not execute the requested workspace command",
+                command == null ? "missing command" : command.toString(),
+                error);
     }
 
     boolean restoreFullscreenTask(
@@ -817,9 +864,12 @@ final class DesktopTaskWatcher {
         });
     }
 
-    private void onInputFocusRefreshRequired(final int generation) {
+    private void onInputFocusRefreshRequired(
+            final int generation,
+            final int focusedTaskId) {
         postIfActive(generation, () ->
-                mListener.onInputFocusRefreshRequired(generation));
+                mListener.onInputFocusRefreshRequired(
+                        generation, focusedTaskId));
     }
 
     private void onTaskFocusChanged(
@@ -1155,6 +1205,16 @@ final class DesktopTaskWatcher {
         }
 
         @Override
+        public void onDesktopWorkspaceCommandResult(
+                final long sequence,
+                final boolean success,
+                final int taskCount,
+                final String error) throws RemoteException {
+            mOwner.onFocusStackResult(
+                    mGeneration, sequence, success, taskCount, error);
+        }
+
+        @Override
         public void onObserverError(final String error)
                 throws RemoteException {
             mOwner.onObserverError(mGeneration, error);
@@ -1178,9 +1238,10 @@ final class DesktopTaskWatcher {
         }
 
         @Override
-        public void onInputFocusRefreshRequired()
+        public void onInputFocusRefreshRequired(final int focusedTaskId)
                 throws RemoteException {
-            mOwner.onInputFocusRefreshRequired(mGeneration);
+            mOwner.onInputFocusRefreshRequired(
+                    mGeneration, focusedTaskId);
         }
 
         @Override

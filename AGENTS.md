@@ -16,6 +16,30 @@ drivers, and window policy in the existing transition gateway. Do not add model
 checks, fixed runtime delays, coordinate-based production actions, root
 requirements, or device-specific forks.
 
+Keep Android-release differences in `FrameworkRuntime` and its focused
+adapters. `FrameworkWindowingApi` is the only owner of hidden
+`WindowContainerTransaction` primitives; `FrameworkWindowingCompat` owns
+release-dependent semantics and polyfills; `HiddenTaskApi` owns raw task
+members; `FrameworkTaskSnapshotSource` publishes typed Binder snapshots; and
+`FrameworkInputWindowObservationSource` owns SurfaceFlinger input-window
+commit events, while `FrameworkInputSnapshotSource` owns one-shot
+InputDispatcher snapshots. Callers must
+not reflect these APIs, pass raw framework member names, or introduce text task
+queries themselves. An unavailable framework observation remains unknown; do
+not synthesize a value that can be mistaken for an application request. Use
+the debug-only
+`MAGICDESK_FRAMEWORK_OVERRIDE` profile to exercise older semantics on a newer
+device. Framework task observation belongs to
+`FrameworkTaskObservationSource`; policy consumers may reuse its typed
+snapshots but must not add another periodic task query.
+
+Every wait must identify its mechanism and reason. State polling belongs in
+`BoundedStateAwaiter`, event-driven monitor waits in `EventDrivenWaits`, and
+intentional protocol/backoff/gesture delays in `RuntimeDelays`. Do not call
+`Thread.sleep`, `SystemClock.sleep`, or `Object.wait` directly. Prefer an
+existing callback or observer; the 150 ms framework task snapshot is the one
+documented active-session fallback, not a general polling interval.
+
 Use semantic MCP actions and event-driven waits when available. Interactive
 self-tests require an awake, unlocked device and must retain production paths
 and assertions. Do not weaken a test to make a device pass. Close an active

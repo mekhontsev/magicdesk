@@ -91,8 +91,7 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final int[] appTaskIds = withoutInfrastructureTasks(focusTaskIds);
             if (mArea != null && displayId == mDisplayId
                     && hasPreparedHierarchy(appTaskIds)
-                    && HiddenTaskApi.getWindowConfigurationValue(
-                            targetTask, "getWindowingMode")
+                    && HiddenTaskApi.getTaskWindowingMode(targetTask)
                             == WINDOWING_MODE_FULLSCREEN) {
                 if (mTaskIds.contains(Integer.valueOf(targetTaskId))) {
                     focusExistingHierarchy(
@@ -149,14 +148,11 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final int targetTaskId,
             final boolean areaForeground)
             throws ReflectiveOperationException {
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass = Class.forName(
-                "android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        setAreaForeground(
-                transactionClass, transaction, tokenClass, areaForeground);
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        setAreaForeground(windowing, transaction, areaForeground);
         if (areaForeground) {
             TaskWindowingCommand.focusTasksWithinCurrentParent(
                     service,
@@ -183,8 +179,7 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final Object task = HiddenTaskApi.requireTask(
                     service, displayId, taskId);
             if (taskId == mBackstopTaskId
-                    || HiddenTaskApi.getWindowConfigurationValue(
-                    task, "getWindowingMode")
+                    || HiddenTaskApi.getTaskWindowingMode(task)
                     != WINDOWING_MODE_FULLSCREEN) {
                 containsNonFullscreenTask = true;
                 break;
@@ -196,10 +191,9 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
 
         final List<Integer> fullscreenTaskIds = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
-            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+            final int taskId = HiddenTaskApi.getTaskId(task);
             if (taskId == mBackstopTaskId
-                    || HiddenTaskApi.getWindowConfigurationValue(
-                    task, "getWindowingMode")
+                    || HiddenTaskApi.getTaskWindowingMode(task)
                     != WINDOWING_MODE_FULLSCREEN
                     || !mOwnership.isDesktopTask(task)
                     || mOwnership.isDesktopHostTask(taskId)) {
@@ -221,33 +215,28 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
         if (mArea == null) {
             ensureArea(service, displayId);
         }
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass = Class.forName(
-                "android.window.WindowContainerTransaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
         addMissingAreaTasks(
                 service,
                 displayId,
                 fullscreenTaskIds,
-                transactionClass,
                 transaction,
-                tokenClass);
+                windowing);
         final int targetTaskId = focusTaskIds[focusTaskIds.length - 1];
         final Object targetTask = HiddenTaskApi.requireTask(
                 service, displayId, targetTaskId);
         final boolean targetFullscreen =
-                    HiddenTaskApi.getWindowConfigurationValue(
-                            targetTask, "getWindowingMode")
+                    HiddenTaskApi.getTaskWindowingMode(targetTask)
                         == WINDOWING_MODE_FULLSCREEN;
         if (targetFullscreen) {
             final boolean targetOutsideArea =
                     isAppFullscreenOutsideArea(targetTaskId);
             setAreaForeground(
-                    transactionClass,
+                    windowing,
                     transaction,
-                    tokenClass,
                     !targetOutsideArea);
             if (targetOutsideArea) {
                 TaskWindowingCommand.focusTasks(
@@ -269,7 +258,7 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             // minimizing it. When that window is demoted or closed, the former
             // fullscreen foreground is exposed again with its mode intact.
             setAreaForeground(
-                    transactionClass, transaction, tokenClass, true);
+                    windowing, transaction, true);
             TaskWindowingCommand.focusTasks(
                     service,
                     displayId,
@@ -295,8 +284,7 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final Object task = HiddenTaskApi.requireTask(
                     service, displayId, taskId);
             if (taskId != mBackstopTaskId
-                    && HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode")
+                    && HiddenTaskApi.getTaskWindowingMode(task)
                             != WINDOWING_MODE_FULLSCREEN) {
                 output.add(Integer.valueOf(taskId));
             }
@@ -388,12 +376,10 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
                 close();
             }
             mDisplayId = displayId;
-            final Class<?> tokenClass =
-                    Class.forName("android.window.WindowContainerToken");
-            final Class<?> transactionClass = Class.forName(
-                    "android.window.WindowContainerTransaction");
-            final Object transaction =
-                    transactionClass.getConstructor().newInstance();
+            final FrameworkWindowingApi windowing =
+                    FrameworkRuntime.current().windowing();
+            final Class<?> transactionClass = windowing.transactionClass();
+            final Object transaction = windowing.newTransaction();
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId);
             final boolean joinPreparedArea = shouldJoinPreparedArea(
@@ -402,34 +388,22 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
                     mTaskAreaPolicy);
             if (joinPreparedArea) {
                 setAreaForeground(
-                        transactionClass,
+                        windowing,
                         transaction,
-                        tokenClass,
                         true);
             }
-            transactionClass.getMethod(
-                    "setWindowingMode", tokenClass, Integer.TYPE)
-                    .invoke(transaction, taskToken,
-                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-            transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                    .invoke(transaction, taskToken, new Rect());
+            windowing.setWindowingMode(
+                    transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
+            windowing.setBounds(transaction, taskToken, new Rect());
             if (!joinPreparedArea && !useSessionParent) {
-                transactionClass.getMethod(
-                        "reorder", tokenClass, Boolean.TYPE)
-                        .invoke(transaction, taskToken, Boolean.TRUE);
+                windowing.reorder(transaction, taskToken, true);
             }
             if (joinPreparedArea) {
-                transactionClass.getMethod(
-                        "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                        .invoke(transaction,
-                                taskToken,
-                                mArea.token(),
-                                Boolean.TRUE);
+                windowing.reparent(
+                        transaction, taskToken, mArea.token(), true);
             }
             TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                    transactionClass,
                     transaction,
-                    tokenClass,
                     taskToken,
                     true);
             if (joinPreparedArea) {
@@ -517,40 +491,29 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final int captionSourceId = refreshCaption
                     ? TaskCaptionInsetsRefresher.captureCaptionSourceId(taskId)
                     : TaskLocalInsetsSourceParser.NO_SOURCE_ID;
-            final Class<?> tokenClass =
-                    Class.forName("android.window.WindowContainerToken");
-            final Class<?> transactionClass = Class.forName(
-                    "android.window.WindowContainerTransaction");
-            final Object transaction =
-                    transactionClass.getConstructor().newInstance();
+            final FrameworkWindowingApi windowing =
+                    FrameworkRuntime.current().windowing();
+            final Class<?> transactionClass = windowing.transactionClass();
+            final Object transaction = windowing.newTransaction();
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId);
             setAreaForeground(
-                    transactionClass,
+                    windowing,
                     transaction,
-                    tokenClass,
                     true);
             addMissingAreaTasks(
                     service,
                     displayId,
                     fullscreenPeers,
-                    transactionClass,
                     transaction,
-                    tokenClass);
-            transactionClass.getMethod(
-                    "setWindowingMode", tokenClass, Integer.TYPE)
-                    .invoke(transaction, taskToken,
-                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-            transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                    .invoke(transaction, taskToken, new Rect());
-            transactionClass.getMethod(
-                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                    .invoke(transaction, taskToken,
-                            mArea.token(), Boolean.TRUE);
+                    windowing);
+            windowing.setWindowingMode(
+                    transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
+            windowing.setBounds(transaction, taskToken, new Rect());
+            windowing.reparent(
+                    transaction, taskToken, mArea.token(), true);
             TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                    transactionClass,
                     transaction,
-                    tokenClass,
                     taskToken,
                     true);
             mTaskIds.add(Integer.valueOf(taskId));
@@ -582,14 +545,13 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final int excludedTaskId) throws ReflectiveOperationException {
         final List<Integer> taskIds = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
-            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+            final int taskId = HiddenTaskApi.getTaskId(task);
             if (taskId == excludedTaskId
                     || taskId == mBackstopTaskId
                     || mOwnership.isDesktopHostTask(taskId)
                     || !mOwnership.isDesktopTask(task)
                     || isAppFullscreenOutsideArea(taskId)
-                    || HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode")
+                    || HiddenTaskApi.getTaskWindowingMode(task)
                             != WINDOWING_MODE_FULLSCREEN) {
                 continue;
             }
@@ -671,25 +633,22 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final Object service,
             final int displayId,
             final int[] appTaskIds) throws ReflectiveOperationException {
-        final Class<?> tokenClass =
-                Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
         final int targetTaskId = appTaskIds[appTaskIds.length - 1];
         addMissingAreaTasks(
                 service,
                 displayId,
                 toIntegerList(appTaskIds),
-                transactionClass,
                 transaction,
-                tokenClass);
+                windowing);
         final boolean targetOutsideArea =
                 isAppFullscreenOutsideArea(targetTaskId);
         setAreaForeground(
-                transactionClass,
+                windowing,
                 transaction,
-                tokenClass,
                 !targetOutsideArea);
         if (targetOutsideArea) {
             // Session-owned application fullscreen remains outside the sibling
@@ -724,9 +683,9 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final Object service,
             final int displayId,
             final List<Integer> taskIds,
-            final Class<?> transactionClass,
             final Object transaction,
-            final Class<?> tokenClass) throws ReflectiveOperationException {
+            final FrameworkWindowingApi windowing)
+            throws ReflectiveOperationException {
         final Object areaToken = mArea.token();
         for (final Integer taskIdValue : taskIds) {
             final int taskId = taskIdValue.intValue();
@@ -738,15 +697,10 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             }
             final Object taskToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, taskId);
-            transactionClass.getMethod(
-                    "setWindowingMode", tokenClass, Integer.TYPE)
-                    .invoke(transaction, taskToken,
-                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-            transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                    .invoke(transaction, taskToken, new Rect());
-            transactionClass.getMethod(
-                    "reparent", tokenClass, tokenClass, Boolean.TYPE)
-                    .invoke(transaction, taskToken, areaToken, Boolean.TRUE);
+            windowing.setWindowingMode(
+                    transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
+            windowing.setBounds(transaction, taskToken, new Rect());
+            windowing.reparent(transaction, taskToken, areaToken, true);
         }
     }
 
@@ -772,8 +726,7 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final Object task = HiddenTaskApi.findTask(
                     service, displayId, taskId);
             if (task == null
-                    || HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode")
+                    || HiddenTaskApi.getTaskWindowingMode(task)
                             != WINDOWING_MODE_FULLSCREEN) {
                 return false;
             }
@@ -874,12 +827,10 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final int closingTaskId) throws ReflectiveOperationException {
         // ActivityTaskManager returns running tasks in top-first order.
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
-            final int candidateTaskId = HiddenTaskApi.getIntField(
-                    task, "taskId");
+            final int candidateTaskId = HiddenTaskApi.getTaskId(task);
             if (candidateTaskId != closingTaskId
                     && mTaskIds.contains(Integer.valueOf(candidateTaskId))
-                    && HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode")
+                    && HiddenTaskApi.getTaskWindowingMode(task)
                             == WINDOWING_MODE_FULLSCREEN) {
                 return candidateTaskId;
             }
@@ -910,16 +861,12 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
         final Object areaToken = area.token();
         int backstopTaskId = -1;
         try {
-            final Class<?> tokenClass =
-                    Class.forName("android.window.WindowContainerToken");
-            final Class<?> transactionClass =
-                    Class.forName("android.window.WindowContainerTransaction");
-            final Object transaction =
-                    transactionClass.getConstructor().newInstance();
-            transactionClass.getMethod(
-                    "setWindowingMode", tokenClass, Integer.TYPE)
-                    .invoke(transaction, areaToken,
-                            Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
+            final FrameworkWindowingApi windowing =
+                    FrameworkRuntime.current().windowing();
+            final Class<?> transactionClass = windowing.transactionClass();
+            final Object transaction = windowing.newTransaction();
+            windowing.setWindowingMode(
+                    transaction, areaToken, WINDOWING_MODE_FULLSCREEN);
             ShellWindowTransitionExecutor.applySynchronized(
                     service, transactionClass, transaction);
             if (mTaskAreaPolicy.requiresFullscreenBackstop()) {
@@ -933,15 +880,13 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
                                         "fullscreen:" + displayId + ':'
                                                 + area.featureId()),
                                 BuildConfig.APPLICATION_ID,
-                                tokenClass,
                                 areaToken,
                                 ACTIVITY_TYPE_HOME);
                 final Object backstop = HiddenTaskApi.requireTask(
                         service, displayId, backstopTaskId);
                 if (!TaskAreaBackstopActivity.isBackstopComponent(
                                 HiddenTaskApi.getTaskComponent(backstop))
-                        || HiddenTaskApi.getIntField(
-                                backstop, "displayAreaFeatureId")
+                        || HiddenTaskApi.getTaskDisplayAreaFeatureId(backstop)
                                 != area.featureId()) {
                     throw new IllegalStateException(
                             "fullscreen backstop did not enter its task area");
@@ -1075,16 +1020,13 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
                     mAreaService, mDisplayId, hostTaskId) == null) {
                 return false;
             }
-            final Class<?> tokenClass = Class.forName(
-                    "android.window.WindowContainerToken");
-            final Class<?> transactionClass = Class.forName(
-                    "android.window.WindowContainerTransaction");
-            final Object transaction =
-                    transactionClass.getConstructor().newInstance();
+            final FrameworkWindowingApi windowing =
+                    FrameworkRuntime.current().windowing();
+            final Class<?> transactionClass = windowing.transactionClass();
+            final Object transaction = windowing.newTransaction();
             setAreaForeground(
-                    transactionClass,
+                    windowing,
                     transaction,
-                    tokenClass,
                     false);
             // Queue the area/host z-order change behind Android's Back
             // transition. The transparent child remains structurally present
@@ -1105,9 +1047,8 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
     }
 
     private void setAreaForeground(
-            final Class<?> transactionClass,
+            final FrameworkWindowingApi windowing,
             final Object transaction,
-            final Class<?> tokenClass,
             final boolean onTop) throws ReflectiveOperationException {
         if (mAreaForeground != null
                 && mAreaForeground.booleanValue() == onTop) {
@@ -1117,14 +1058,9 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             // The persistent phone sibling can remain an input target after
             // only changing z-order. Visibility and ordering therefore belong
             // to one WCT. Isolated displays retain the simpler 1.8 hierarchy.
-            transactionClass.getMethod(
-                    "setHidden", tokenClass, Boolean.TYPE)
-                    .invoke(transaction, mArea.token(),
-                            Boolean.valueOf(!onTop));
+            windowing.setHidden(transaction, mArea.token(), !onTop);
         }
-        transactionClass.getMethod(
-                "reorder", tokenClass, Boolean.TYPE)
-                .invoke(transaction, mArea.token(), Boolean.valueOf(onTop));
+        windowing.reorder(transaction, mArea.token(), onTop);
         mAreaForeground = Boolean.valueOf(onTop);
     }
 

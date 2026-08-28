@@ -186,7 +186,7 @@ final class ShellTaskActivityModeGuard implements
 
     void observeTasks(
             final int displayId,
-            final List<ShellTaskStateMonitor.TaskWindowState> tasks) {
+            final List<FrameworkTaskSnapshot> tasks) {
         if (displayId != configuredDisplayId() || tasks == null) {
             return;
         }
@@ -196,7 +196,7 @@ final class ShellTaskActivityModeGuard implements
                 return;
             }
             final List<ObservedTask> observedTasks = new ArrayList<>();
-            for (final ShellTaskStateMonitor.TaskWindowState observation
+            for (final FrameworkTaskSnapshot observation
                     : tasks) {
                 if (!observation.visible) {
                     continue;
@@ -238,7 +238,7 @@ final class ShellTaskActivityModeGuard implements
             correlatePendingStarts(observedTasks);
             for (final ObservedTask observed : observedTasks) {
                 final TaskRecord record = observed.record;
-                final ShellTaskStateMonitor.TaskWindowState observation =
+                final FrameworkTaskSnapshot observation =
                         observed.observation;
                 if (record.preferredWindowingMode
                                 == WINDOWING_MODE_FULLSCREEN
@@ -447,11 +447,12 @@ final class ShellTaskActivityModeGuard implements
 
     private static final class ObservedTask {
         final TaskRecord record;
-        final ShellTaskStateMonitor.TaskWindowState observation;
+        final FrameworkTaskSnapshot observation;
 
         ObservedTask(
                 final TaskRecord taskRecord,
-                final ShellTaskStateMonitor.TaskWindowState taskObservation) {
+                final FrameworkTaskSnapshot
+                        taskObservation) {
             record = taskRecord;
             observation = taskObservation;
         }

@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.AppProcessCommand;
+import io.github.mekhontsev.magicdesk.BoundedStateAwaiter;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
 import io.github.mekhontsev.magicdesk.ConsoleDisplayController;
 import io.github.mekhontsev.magicdesk.ShellAccess;
@@ -66,7 +67,9 @@ final class NubiaConsoleModeController {
             if (displayId > 0) {
                 return displayId;
             }
-            SystemClock.sleep(STATE_POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.VENDOR_STATE,
+                    STATE_POLL_MILLIS);
         }
         return -1;
     }
@@ -78,7 +81,9 @@ final class NubiaConsoleModeController {
             if (activeDisplayId(context) <= 0) {
                 return true;
             }
-            SystemClock.sleep(STATE_POLL_MILLIS);
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.VENDOR_STATE,
+                    STATE_POLL_MILLIS);
         }
         return false;
     }

@@ -236,6 +236,10 @@ public final class CompatibilityDiagnostics {
                 .append(" (").append(audit.platform.id()).append(")\n")
                 .append("Platform selection: ")
                 .append(PlatformDrivers.selectionDetail()).append('\n')
+                .append("Framework windowing profile: ")
+                .append(FrameworkWindowingCompat.overrideDetail()).append('\n')
+                .append("Framework runtime: ")
+                .append(frameworkRuntimeDetail()).append('\n')
                 .append("Shizuku runtime: ")
                 .append(ShellAccess.statusLabel()).append('\n')
                 .append("Display target: ").append(profile.displayWireName()).append('\n')
@@ -483,6 +487,22 @@ public final class CompatibilityDiagnostics {
         return "ready=" + MagicDeskRuntime.isTaskObserverReady()
                 + ", hostDisplay=" + session.activeDisplayId()
                 + ", hostTask=" + session.hostTaskId();
+    }
+
+    private static String frameworkRuntimeDetail() {
+        if (!ShellAccess.isReady()) {
+            return "shell unavailable; profile="
+                    + FrameworkWindowingCompat.overrideDetail();
+        }
+        try {
+            return ShellAccess.frameworkRuntimeDiagnostics();
+        } catch (IOException error) {
+            return "shell probe failed: " + cleanSingleLine(
+                    error.getMessage() == null
+                            ? error.getClass().getSimpleName()
+                            : error.getMessage(),
+                    240);
+        }
     }
 
     private static void appendPlatformDetails(

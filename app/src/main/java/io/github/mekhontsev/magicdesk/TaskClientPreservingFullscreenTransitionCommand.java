@@ -45,18 +45,16 @@ public final class TaskClientPreservingFullscreenTransitionCommand {
         final Object service = HiddenTaskApi.getService();
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, taskId);
-        final Class<?> tokenClass = Class.forName("android.window.WindowContainerToken");
-        final Class<?> transactionClass =
-                Class.forName("android.window.WindowContainerTransaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
-        transactionClass.getMethod("setWindowingMode", tokenClass, Integer.TYPE)
-                .invoke(transaction, taskToken, Integer.valueOf(WINDOWING_MODE_FULLSCREEN));
-        transactionClass.getMethod("setBounds", tokenClass, Rect.class)
-                .invoke(transaction, taskToken, new Rect());
-        transactionClass.getMethod("reorder", tokenClass, Boolean.TYPE)
-                .invoke(transaction, taskToken, Boolean.TRUE);
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        windowing.setWindowingMode(
+                transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
+        windowing.setBounds(transaction, taskToken, new Rect());
+        windowing.reorder(transaction, taskToken, true);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transactionClass, transaction, tokenClass, taskToken, true);
+                transaction, taskToken, true);
         /*
          * The system transition accepts the transaction even when another system
          * transition is still running. Do not wait for the resulting windowing

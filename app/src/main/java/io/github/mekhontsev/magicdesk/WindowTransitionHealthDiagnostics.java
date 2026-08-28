@@ -77,8 +77,11 @@ final class WindowTransitionHealthDiagnostics {
                     >= STABLE_IDLE_MILLIS) {
                 return IdleResult.idle();
             }
-            SystemClock.sleep(Math.min(POLL_MILLIS,
-                    Math.max(1L, deadline - SystemClock.uptimeMillis())));
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TRANSITION_HEALTH,
+                    Math.min(POLL_MILLIS,
+                            Math.max(1L,
+                                    deadline - SystemClock.uptimeMillis())));
         } while (SystemClock.uptimeMillis() < deadline);
         return IdleResult.blocked(lastDetail);
     }

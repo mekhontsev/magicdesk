@@ -182,6 +182,8 @@ public final class TaskInputWindowParserTest {
 
         assertTrue(TaskInputWindowParser.isTaskFocused(
                 focusDump, 155, 6362));
+        assertFalse(TaskInputWindowParser.isTaskFocusConsistent(
+                focusDump, 155, 6362));
         assertFalse(TaskInputWindowParser.isTaskFocused(
                 focusDump, 155, 12));
         assertEquals(6362,

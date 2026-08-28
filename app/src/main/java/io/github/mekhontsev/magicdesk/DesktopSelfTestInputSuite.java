@@ -170,7 +170,8 @@ final class DesktopSelfTestInputSuite {
             } else {
                 lastDetail = response.output.trim();
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         result.add(DesktopSelfTestResult.State.FAIL,
                 code, label, lastDetail);
@@ -278,7 +279,8 @@ final class DesktopSelfTestInputSuite {
             } catch (IOException error) {
                 lastFailure = error;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw lastFailure == null
                 ? new IOException("caption structure is unavailable")
@@ -303,7 +305,8 @@ final class DesktopSelfTestInputSuite {
             if (lastState == TaskCaptionSurfaceCommand.State.VISIBLE) {
                 return "task=" + taskId + ", surface=" + lastState.label;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("caption surface is " + lastState.label
                 + " for task " + taskId);
@@ -317,7 +320,7 @@ final class DesktopSelfTestInputSuite {
             final DesktopSelfTestGeometry geometry) {
         final String dump;
         try {
-            dump = ShellAccess.run("/system/bin/dumpsys input");
+            dump = FrameworkInputSnapshotSource.readRemote();
         } catch (IOException error) {
             final String detail = usefulMessage(error);
             result.add(DesktopSelfTestResult.State.FAIL,
@@ -361,7 +364,8 @@ final class DesktopSelfTestInputSuite {
                             + geometry.scaleFrom160Dpi(
                                     RESIZE_EDGE_OUTSET_PX),
                     centerY);
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
             final String transition = probe.readPointerTransition();
             if (transition == null) {
                 result.add(DesktopSelfTestResult.State.NOT_TESTED,
@@ -604,7 +608,8 @@ final class DesktopSelfTestInputSuite {
             if (lastState == WmShellTransitionStateParser.State.IDLE) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("WMShell transitions did not become idle; last="
                 + lastState);
@@ -628,7 +633,8 @@ final class DesktopSelfTestInputSuite {
                 return current;
             }
             previous = current;
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException(
                 "native caption did not leave both tasks maximized");
@@ -942,7 +948,7 @@ final class DesktopSelfTestInputSuite {
                     DesktopSelfTestFixtureAppearance.SECONDARY.color());
 
             toggleTaskbarTaskThroughDesktop(displayId, first.taskId);
-            waitForFreeformState(displayId, fixture, false);
+            waitForCoveredFreeformTopology(displayId, fixture);
             waitForFrontTask(displayId, first.taskId);
             waitForTaskInputFocus(displayId, first.taskId);
             waitForTaskbarVisibility(displayId, false);
@@ -963,7 +969,7 @@ final class DesktopSelfTestInputSuite {
                     DesktopSelfTestFixtureAppearance.PRIMARY.color());
 
             focusTaskThroughDesktop(displayId, second.taskId);
-            waitForFreeformState(displayId, fixture, false);
+            waitForCoveredFreeformTopology(displayId, fixture);
             waitForFrontTask(displayId, second.taskId);
             waitForTaskInputFocus(displayId, second.taskId);
             waitForTaskbarVisibility(displayId, false);
@@ -1070,6 +1076,22 @@ final class DesktopSelfTestInputSuite {
                                 task.bounds, fixture.bounds));
     }
 
+    private static void waitForCoveredFreeformTopology(
+            final int displayId,
+            final MixedFreeformFixture fixture) throws IOException {
+        // A fullscreen plane can visually cover a freeform root in a sibling
+        // task display area while TaskInfo continues to report both roots as
+        // visible. Preserve the freeform topology here; the color assertions
+        // below verify that the selected fullscreen surface really occludes it.
+        waitForTask(
+                displayId,
+                FIXTURE_CLASS,
+                task -> task.taskId == fixture.taskId
+                        && "freeform".equals(task.windowingMode)
+                        && DesktopSelfTestGeometry.matches(
+                                task.bounds, fixture.bounds));
+    }
+
     private static int awaitDisplayColor(
             final DisplayCaptureSource captureSource,
             final int x,
@@ -1087,7 +1109,8 @@ final class DesktopSelfTestInputSuite {
             if (colorsMatch(expectedColor, actualColor)) {
                 return actualColor;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("display color did not match: expected="
                 + DesktopTransitionSurfaceProbe.formatColor(expectedColor)
@@ -1108,7 +1131,8 @@ final class DesktopSelfTestInputSuite {
             if (actualVisible == expectedVisible) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("taskbar visibility did not match: expected="
                 + expectedVisible + ", actual=" + actualVisible);
@@ -1596,7 +1620,8 @@ final class DesktopSelfTestInputSuite {
                     && hierarchy.focused) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("restored task hierarchy did not settle: task="
                 + taskId + ", expected-feature=" + expectedFeatureId
@@ -1734,7 +1759,8 @@ final class DesktopSelfTestInputSuite {
                     > previousGeneration) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         DesktopRuntimeBridge.cancelAltTab();
         throw new IOException("Alt+Tab panel did not become visible");
@@ -2035,7 +2061,7 @@ final class DesktopSelfTestInputSuite {
         do {
             final TaskInputWindowParser.Entry menu =
                     TaskInputWindowParser.findMaximizeMenu(
-                            ShellAccess.run("/system/bin/dumpsys input"),
+                            FrameworkInputSnapshotSource.readRemote(),
                             taskId);
             lastMenu = menu;
             if (menu != null
@@ -2055,7 +2081,8 @@ final class DesktopSelfTestInputSuite {
                         + " instead of " + displayId + "; frame="
                         + menu.frame);
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("native maximize menu did not become usable for task "
                 + taskId + " on display " + displayId + "; last="
@@ -2182,7 +2209,8 @@ final class DesktopSelfTestInputSuite {
                     > previousGeneration) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         DesktopRuntimeBridge.cancelAltTab();
         throw new IOException("Alt+Tab selection did not advance");
@@ -2206,12 +2234,13 @@ final class DesktopSelfTestInputSuite {
                 + STEP_TIMEOUT_MILLIS;
         String lastDump = "";
         do {
-            lastDump = ShellAccess.run("/system/bin/dumpsys input");
+            lastDump = FrameworkInputSnapshotSource.readRemote();
             if (TaskInputWindowParser.isTaskFocused(
                     lastDump, displayId, taskId)) {
                 return;
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("input focus did not settle on task "
                 + taskId + " on display " + displayId + "; "
@@ -2230,7 +2259,7 @@ final class DesktopSelfTestInputSuite {
         do {
             final TaskInputWindowParser.Entry caption =
                     TaskInputWindowParser.findCaption(
-                            ShellAccess.run("/system/bin/dumpsys input"),
+                            FrameworkInputSnapshotSource.readRemote(),
                             taskId);
             lastCaption = caption;
             final Rect directFrame = caption == null
@@ -2253,7 +2282,8 @@ final class DesktopSelfTestInputSuite {
                     return InputCoordinateSpace.TASK_LOCAL;
                 }
             }
-            SystemClock.sleep(POLL_MILLIS);
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+                    POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("caption did not settle for task " + taskId
                 + " at " + bounds + "; last="

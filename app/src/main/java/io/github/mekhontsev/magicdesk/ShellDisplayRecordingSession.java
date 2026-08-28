@@ -471,7 +471,8 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
                             + readVideoLog());
                 }
             }
-            SystemClock.sleep(10L);
+            RuntimeDelays.pause(
+                    RuntimeDelays.Reason.RECORDING_DRAIN, 10L);
         }
         throw new IOException("screenrecord process id was not published");
     }
@@ -488,7 +489,8 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
                 throw new IOException("screenrecord stopped during startup: "
                         + readVideoLog());
             }
-            SystemClock.sleep(10L);
+            RuntimeDelays.pause(
+                    RuntimeDelays.Reason.RECORDING_DRAIN, 10L);
         }
         throw new IOException("screenrecord produced no video during startup");
     }

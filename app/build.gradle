@@ -16,6 +16,14 @@ if (!(debugPlatformOverride in ['', 'android'])) {
     throw new GradleException(
             'MAGICDESK_PLATFORM_OVERRIDE must be empty or android')
 }
+def requestedFrameworkOverride = providers.gradleProperty(
+        'MAGICDESK_FRAMEWORK_OVERRIDE').orNull
+def debugFrameworkOverride = requestedFrameworkOverride == null
+        ? '' : requestedFrameworkOverride.trim().toLowerCase(Locale.ROOT)
+if (!(debugFrameworkOverride in ['', 'android15'])) {
+    throw new GradleException(
+            'MAGICDESK_FRAMEWORK_OVERRIDE must be empty or android15')
+}
 
 android {
     namespace = 'io.github.mekhontsev.magicdesk'
@@ -31,12 +39,15 @@ android {
                 ? baseVersionName
                 : baseVersionName + '-' + versionSuffix
         buildConfigField 'String', 'PLATFORM_OVERRIDE', '""'
+        buildConfigField 'String', 'FRAMEWORK_OVERRIDE', '""'
     }
 
     buildTypes {
         debug {
             buildConfigField 'String', 'PLATFORM_OVERRIDE',
                     '"' + debugPlatformOverride + '"'
+            buildConfigField 'String', 'FRAMEWORK_OVERRIDE',
+                    '"' + debugFrameworkOverride + '"'
         }
     }
 

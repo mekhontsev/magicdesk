@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
-import android.os.SystemClock;
 import android.view.Display;
 
 /** Moves a task across displays without publishing it in the wrong mode. */
@@ -67,8 +66,7 @@ public final class TaskFullscreenMoveCommand {
         final Object originalTask = HiddenTaskApi.requireTask(
                 service, sourceDisplayId, taskId);
         final int originalWindowingMode =
-                HiddenTaskApi.getWindowConfigurationValue(
-                        originalTask, "getWindowingMode");
+                HiddenTaskApi.getTaskWindowingMode(originalTask);
         final Object originalWindowConfiguration =
                 HiddenTaskApi.getWindowConfiguration(originalTask);
         final Rect originalBounds = new Rect(
@@ -168,20 +166,21 @@ public final class TaskFullscreenMoveCommand {
             final int taskId,
             final int windowingMode,
             final boolean visible) throws ReflectiveOperationException {
-        final long deadline = SystemClock.uptimeMillis()
-                + TASK_TIMEOUT_MILLIS;
-        do {
-            final Object task = HiddenTaskApi.findTask(
-                    service, displayId, taskId);
-            if (task != null
-                    && HiddenTaskApi.getWindowConfigurationValue(
-                            task, "getWindowingMode") == windowingMode
-                    && HiddenTaskApi.getBooleanField(task, "isVisible")
-                            == visible) {
-                return;
-            }
-            SystemClock.sleep(TASK_POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
+        final FrameworkTaskSnapshot task =
+                BoundedStateAwaiter.awaitFramework(
+                        BoundedStateAwaiter.Reason.TASK_WINDOWING_MODE,
+                        TASK_TIMEOUT_MILLIS,
+                        TASK_POLL_MILLIS,
+                        () -> FrameworkTaskSnapshotSource.findTask(
+                                service, displayId, taskId),
+                        current -> current != null
+                                && current.windowingMode == windowingMode
+                                && current.visible == visible);
+        if (task != null
+                && task.windowingMode == windowingMode
+                && task.visible == visible) {
+            return;
+        }
         throw new IllegalStateException(
                 "task " + taskId + " did not settle on display "
                         + displayId + " mode=" + windowingMode

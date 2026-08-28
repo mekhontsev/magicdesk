@@ -128,7 +128,7 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "focus_task",
                         "Focus task",
-                        "Focus a task through MagicDesk's ordered task focus path.",
+                        "Activate a task through MagicDesk's managed workspace path and return only after hierarchy and input focus converge.",
                         taskIdSchema()))
                 .put(destructiveTool(
                         "close_task",
@@ -137,8 +137,8 @@ final class MagicDeskMcpToolCatalog {
                         taskIdSchema()))
                 .put(actionTool(
                         "set_window_mode",
-                        "Set window mode",
-                        "Change a task between native windowed and fullscreen modes.",
+                        "Set raw window mode",
+                        "Directly change a task's native windowing mode without MagicDesk fullscreen-plane ownership. This diagnostic path can expose firmware behavior; use arrange_task maximize or restore for normal desktop behavior.",
                         objectSchema(new JSONObject()
                                         .put("taskId", integerProperty(
                                                 "Android task id."))
@@ -166,7 +166,7 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "show_desktop",
                         "Toggle desktop",
-                        "Toggle between the desktop and the current application workspace.",
+                        "Toggle between the desktop and the current application workspace, waiting for the managed workspace command to complete.",
                         emptySchema()))
                 .put(actionTool(
                         "invoke_ui_action",
@@ -239,7 +239,7 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "arrange_task",
                         "Arrange task",
-                        "Apply the same native task transition used by MagicDesk window shortcuts.",
+                        "Apply the same managed task transition used by MagicDesk window shortcuts. Maximize and restore preserve fullscreen-plane ownership.",
                         objectSchema(new JSONObject()
                                         .put("taskId", integerProperty(
                                                 "Android task id."))

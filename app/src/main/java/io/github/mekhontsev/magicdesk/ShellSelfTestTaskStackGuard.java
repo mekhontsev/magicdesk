@@ -87,7 +87,7 @@ final class ShellSelfTestTaskStackGuard {
                 new ArrayList<>();
         boolean visibilityKnown = true;
         for (final Object task : HiddenTaskApi.getAllTasks(mService)) {
-            final int taskId = HiddenTaskApi.getIntField(task, "taskId");
+            final int taskId = HiddenTaskApi.getTaskId(task);
             final int displayId = HiddenTaskApi.getTaskDisplayId(task);
             final int windowingMode = HiddenTaskApi
                     .getWindowConfigurationValue(task, "getWindowingMode");
@@ -103,7 +103,7 @@ final class ShellSelfTestTaskStackGuard {
             boolean taskVisibilityKnown = true;
             boolean visible = false;
             try {
-                visible = HiddenTaskApi.getBooleanField(task, "isVisible");
+                visible = HiddenTaskApi.isTaskVisible(task);
             } catch (ReflectiveOperationException error) {
                 taskVisibilityKnown = false;
                 visibilityKnown = false;
@@ -125,7 +125,7 @@ final class ShellSelfTestTaskStackGuard {
 
     private static int getDisplayAreaFeatureId(final Object task) {
         try {
-            return HiddenTaskApi.getIntField(task, "displayAreaFeatureId");
+            return HiddenTaskApi.getTaskDisplayAreaFeatureId(task);
         } catch (ReflectiveOperationException | RuntimeException error) {
             return SelfTestTaskStackInvariantAnalyzer
                     .DISPLAY_AREA_FEATURE_UNKNOWN;
