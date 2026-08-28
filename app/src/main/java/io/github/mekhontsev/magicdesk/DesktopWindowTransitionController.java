@@ -178,7 +178,8 @@ final class DesktopWindowTransitionController {
             return;
         }
         final Boolean previous =
-                state.updateImmersiveRequested(requestingImmersive);
+                state.updateImmersiveObservation(
+                        requestingImmersive, foreground);
         if (initialSample) {
             if (shouldReconcileInitialImmersiveSample(
                     previous,
@@ -731,14 +732,19 @@ final class DesktopWindowTransitionController {
                 visibleFreeformTasks.get(0);
         final DesktopTaskRuntimeState topState =
                 mTaskStates.find(topTask.taskId);
-        if (topTask.active
-                && topState != null
-                && topState.isImmersiveRequested()
-                && !topState.isAppRequestedFullscreen()
-                && !topState.hasManualImmersiveOverride()
-                && !topState.isFullscreenTransition()) {
+        if (shouldEnterAppFullscreen(topState)) {
             makeFullscreen(topTask, true);
         }
+    }
+
+    static boolean shouldEnterAppFullscreen(
+            final DesktopTaskRuntimeState state) {
+        return state != null
+                && state.isImmersiveRequested()
+                && state.isImmersiveRequestForeground()
+                && !state.isAppRequestedFullscreen()
+                && !state.hasManualImmersiveOverride()
+                && !state.isFullscreenTransition();
     }
 
     static boolean hasFixedRequestedOrientation(

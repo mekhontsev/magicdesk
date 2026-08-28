@@ -174,14 +174,20 @@ public final class ShellAccess {
 
     static int launchDesktopHost(
             final int displayId,
-            final Intent intent) throws IOException {
+            final Intent intent,
+            final DesktopTaskAreaPolicy taskAreaPolicy) throws IOException {
         if (displayId < 0 || intent == null || intent.getComponent() == null) {
             throw new IOException("invalid desktop host launch");
+        }
+        if (taskAreaPolicy == null
+                || !taskAreaPolicy.usesManagedWorkspaceArea()) {
+            throw new IOException("invalid desktop task-area policy");
         }
         try {
             return requireService().launchDesktopHost(
                     displayId,
-                    intent.toUri(Intent.URI_INTENT_SCHEME));
+                    intent.toUri(Intent.URI_INTENT_SCHEME),
+                    taskAreaPolicy.wireValue());
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException(

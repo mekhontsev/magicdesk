@@ -404,14 +404,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int workTop,
             final int workRight,
             final int workBottom,
-            final boolean managedTaskArea,
+            final int taskAreaPolicy,
             final int desktopHostTaskId) {
         mTaskObserverManager.configure(
                 callback,
                 displayId,
                 new Rect(displayLeft, displayTop, displayRight, displayBottom),
                 new Rect(workLeft, workTop, workRight, workBottom),
-                managedTaskArea,
+                taskAreaPolicy,
                 desktopHostTaskId);
     }
 
@@ -461,8 +461,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public int launchDesktopHost(
             final int displayId,
-            final String intentUri) {
-        return mTaskObserverManager.launchDesktopHost(displayId, intentUri);
+            final String intentUri,
+            final int taskAreaPolicy) {
+        return mTaskObserverManager.launchDesktopHost(
+                displayId, intentUri, taskAreaPolicy);
     }
 
     @Override
@@ -751,6 +753,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int displayId,
             final int x,
             final int y) {
+        if (mPointerDriver.supportsDisplay(displayId)) {
+            return mPointerDriver.updatePosition(
+                    displayId,
+                    x,
+                    y,
+                    DesktopPointerInjector.TOUCHPAD_HOVER,
+                    0L);
+        }
         try {
             DesktopPointerInjector.injectMouseHover(
                     displayId, new Point(x, y));
@@ -767,6 +777,16 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int x,
             final int y,
             final int button) {
+        if (mPointerDriver.supportsDisplay(displayId)) {
+            if (!mPointerDriver.updatePosition(
+                    displayId,
+                    x,
+                    y,
+                    DesktopPointerInjector.TOUCHPAD_HOVER,
+                    0L)) {
+                return false;
+            }
+        }
         try {
             DesktopPointerInjector.injectClickAt(
                     displayId, new Point(x, y), button);

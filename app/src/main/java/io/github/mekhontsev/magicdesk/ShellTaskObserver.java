@@ -347,7 +347,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     @Override
                     public void reportSessionForeground(
                             final boolean foreground) {
-                        reportDesktopTaskAreaForeground(foreground);
+                        reportCommittedDesktopTaskAreaForeground(foreground);
                     }
                 },
                 mTaskObservations::requestSample);
@@ -391,7 +391,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
-            final boolean managedTaskArea,
+            final int taskAreaPolicyValue,
             final int desktopHostTaskId) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
@@ -418,9 +418,12 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     Display.INVALID_DISPLAY,
                     DesktopTaskAreaPolicy.DEFAULT,
                     0,
+                    null,
                     null);
             mDesktopTaskArea.configure(
-                    Display.INVALID_DISPLAY, false, -1);
+                    Display.INVALID_DISPLAY,
+                    DesktopTaskAreaPolicy.DEFAULT,
+                    -1);
             mDesktopOwnership.configure(Display.INVALID_DISPLAY);
             reportDesktopTaskOwnership();
             mDesktopTaskAreaForeground = null;
@@ -442,9 +445,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (desktopHostTaskId >= 0) {
             mDesktopOwnership.markDesktopHost(desktopHostTaskId);
         }
+        final DesktopTaskAreaPolicy taskAreaPolicy =
+                DesktopTaskAreaPolicy.fromWireValue(taskAreaPolicyValue);
         if (!mDesktopTaskArea.matchesConfiguration(
                 displayId,
-                managedTaskArea,
+                taskAreaPolicy,
                 desktopHostTaskId)) {
             // Release any previous fullscreen parent before changing the
             // workspace task-area configuration.
@@ -452,24 +457,27 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     Display.INVALID_DISPLAY,
                     DesktopTaskAreaPolicy.DEFAULT,
                     0,
+                    null,
                     null);
             mDesktopTaskArea.configure(
-                    Display.INVALID_DISPLAY, false, -1);
+                    Display.INVALID_DISPLAY,
+                    DesktopTaskAreaPolicy.DEFAULT,
+                    -1);
         }
         mDesktopTaskArea.configure(
                 displayId,
-                managedTaskArea,
+                taskAreaPolicy,
                 desktopHostTaskId);
-        mTaskAreaPolicy = managedTaskArea
-                ? DesktopTaskAreaPolicy.SESSION
-                : DesktopTaskAreaPolicy.DEFAULT;
+        mTaskAreaPolicy = taskAreaPolicy;
         mFullscreenTaskArea.configure(
                 displayId,
                 mTaskAreaPolicy,
                 mDesktopTaskArea.fullscreenAreaParentFeatureId(),
+                mDesktopTaskArea.fullscreenTaskHostParentToken(
+                        displayId),
                 mDesktopTaskArea.fullscreenTaskReleaseParentToken(
                         displayId));
-        if (!managedTaskArea) {
+        if (!taskAreaPolicy.usesManagedWorkspaceArea()) {
             mDesktopTaskAreaForeground = null;
         }
         mConfiguredDisplayId = displayId;
@@ -507,7 +515,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 Display.INVALID_DISPLAY,
                 new Rect(),
                 new Rect(),
-                false,
+                DesktopTaskAreaPolicy.DEFAULT.wireValue(),
                 -1);
         return true;
     }
@@ -609,13 +617,17 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     int launchDesktopHost(
             final int displayId,
-            final String intentUri) {
+            final String intentUri,
+            final int taskAreaPolicyValue) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
         try {
             final int taskId = mDesktopTaskArea.launchHost(
-                    displayId, intentUri);
+                    displayId,
+                    intentUri,
+                    DesktopTaskAreaPolicy.fromWireValue(
+                            taskAreaPolicyValue));
             reportDesktopTaskOwnership();
             reportDesktopTaskAreaForeground(true);
             return taskId;
@@ -1266,6 +1278,16 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     "desktop task area ordering unavailable: " + message));
             return;
         }
+        publishDesktopTaskAreaForeground(foreground);
+    }
+
+    private synchronized void reportCommittedDesktopTaskAreaForeground(
+            final boolean foreground) {
+        mDesktopTaskArea.noteCommittedSessionForeground(foreground);
+        publishDesktopTaskAreaForeground(foreground);
+    }
+
+    private void publishDesktopTaskAreaForeground(final boolean foreground) {
         if (mDesktopTaskAreaForeground != null
                 && mDesktopTaskAreaForeground.booleanValue() == foreground) {
             return;

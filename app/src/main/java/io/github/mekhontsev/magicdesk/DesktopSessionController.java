@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Context;
+import android.content.Intent;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -65,6 +67,15 @@ final class DesktopSessionController {
                     && visibleTaskSnapshot != null
                     && !visibleTaskSnapshot.booleanValue();
             final int desktopTaskId = findDesktopTask(preparedTarget.displayId);
+            if (DesktopDisplayDrivers.forTarget(preparedTarget)
+                    .features().taskAreaPolicy
+                    .usesManagedWorkspaceArea()) {
+                return showInManagedWorkspace(
+                        preparedTarget,
+                        resolvedPolicy,
+                        restoreWindows,
+                        desktopTaskId);
+            }
             if (desktopTaskId >= 0) {
                 Log.i(TAG, "restoring desktop kind=" + preparedTarget.kind
                         + " display=" + preparedTarget.displayId
@@ -147,6 +158,70 @@ final class DesktopSessionController {
                     preparedTarget.displayId);
             throw error;
         }
+    }
+
+    private static ShowResult showInManagedWorkspace(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy,
+            final boolean restoreWindows,
+            final int previousHostTaskId) throws IOException {
+        final Context context = MagicDeskApplication.applicationContext();
+        final Intent intent = DesktopActivity.createLaunchIntent(context)
+                .addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                .putExtra(
+                        DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID,
+                        target.displayId)
+                .putExtra(
+                        DesktopShellActivity.EXTRA_PROFILE_DISPLAY_ID,
+                        target.profileDisplayId)
+                .putExtra(
+                        DesktopShellActivity.EXTRA_PROFILE_KEY,
+                        target.profileKey)
+                .putExtra(
+                        DesktopShellActivity.EXTRA_TARGET_KIND,
+                        target.kind.name())
+                .putExtra(
+                        DesktopShellActivity.EXTRA_ACTIVATION_SOURCE,
+                        target.activationSource.name())
+                .putExtra(
+                        DesktopShellActivity.EXTRA_SESSION_POLICY,
+                        policy.name());
+        if (restoreWindows) {
+            intent.putExtra(
+                    DesktopShellActivity.EXTRA_ACTION,
+                    DesktopShellActivity.ACTION_RESTORE_WINDOWS);
+        }
+        final int hostTaskId = ShellAccess.launchDesktopHost(
+                target.displayId,
+                intent,
+                DesktopDisplayDrivers.forTarget(target)
+                        .features().taskAreaPolicy);
+        final boolean created = hostTaskId != previousHostTaskId;
+        Log.i(TAG, (created ? "launched" : "restoring")
+                + " managed desktop kind=" + target.kind
+                + " display=" + target.displayId
+                + " task=" + hostTaskId);
+        final boolean ready = waitForDesktopReady(target.displayId);
+        if (!ready) {
+            DesktopRuntimeBridge.clearDesktopTarget(target);
+            MagicDeskRuntime.reconcileFailedDesktopLaunch(target.displayId);
+            return new ShowResult(false, created);
+        }
+        if (policy.restoreWorkspace) {
+            if (!created) {
+                if (restoreWindows) {
+                    MagicDeskRuntime.restoreLastVisibleWindows();
+                } else {
+                    MagicDeskRuntime.restoreSessionWorkspace(
+                            target.displayId,
+                            java.util.Collections.singletonList(
+                                    Integer.valueOf(hostTaskId)),
+                            null);
+                }
+            }
+            MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(target);
+        }
+        return new ShowResult(true, created);
     }
 
     private static void prepareDisplayWindowing(

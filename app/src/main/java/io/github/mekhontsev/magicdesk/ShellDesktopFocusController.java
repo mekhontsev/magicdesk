@@ -537,13 +537,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
             return false;
         }
         final int windowingMode = HiddenTaskApi.getTaskWindowingMode(task);
-        if (requiresParentReorderForMissingWindow(windowingMode)) {
-            // A WCT reorder can select the freeform window while leaving
-            // ActivityTaskManager's focused application on the previously
-            // active organizer plane. The task-service operation is the
-            // framework owner of that application-level selection.
-            TaskControlCommand.moveTaskToFront(mTaskService, taskId);
-        } else {
+        if (!requiresParentReorderForMissingWindow(windowingMode)) {
             TaskWindowingCommand.focusTasksWithinCurrentParent(
                     mTaskService, displayId, new int[]{taskId});
         }

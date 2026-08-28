@@ -386,36 +386,34 @@ final class FrameworkTaskObservationSource implements Closeable {
         String inputState = null;
         boolean inputStateRead = false;
         for (final ImmersiveEvent event : events) {
-            boolean foreground = true;
-            if (!event.requesting && !event.initialSample) {
-                foreground = event.taskFocused;
-                // TaskInfo.isFocused is false for a focused child of an
-                // organizer TaskDisplayArea on some firmware. Confirm every
-                // negative sample against InputDispatcher before treating an
-                // immersive exit as a background event.
-                if (!foreground && !inputStateRead) {
-                    inputStateRead = true;
-                    try {
-                        inputState = FrameworkInputSnapshotSource.readLocal();
-                    } catch (IOException error) {
-                        Log.w(TAG, "could not inspect immersive input focus",
-                                error);
-                    } catch (InterruptedException error) {
-                        Thread.currentThread().interrupt();
-                        Log.w(TAG, "immersive input focus interrupted", error);
-                    }
+            boolean foreground = event.taskFocused;
+            // TaskInfo.isFocused is false for a focused child of an organizer
+            // TaskDisplayArea on some firmware. Confirm every negative sample
+            // against InputDispatcher before classifying the request. Entry
+            // and exit must use the same observed source of foreground truth.
+            if (!foreground && !inputStateRead) {
+                inputStateRead = true;
+                try {
+                    inputState = FrameworkInputSnapshotSource.readLocal();
+                } catch (IOException error) {
+                    Log.w(TAG, "could not inspect immersive input focus",
+                            error);
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    Log.w(TAG, "immersive input focus interrupted", error);
                 }
-                if (!foreground) {
-                    foreground = inputState != null
-                            && TaskInputWindowParser.isTaskFocused(
-                                    inputState, displayId, event.taskId);
-                }
-                Log.i(TAG, "immersive exit focus task=" + event.taskId
-                        + " taskFocused=" + event.taskFocused
-                        + " foreground=" + foreground
-                        + (event.taskFocused
-                                ? " source=task" : " source=task+input"));
             }
+            if (!foreground) {
+                foreground = inputState != null
+                        && TaskInputWindowParser.isTaskFocused(
+                                inputState, displayId, event.taskId);
+            }
+            Log.i(TAG, "immersive focus task=" + event.taskId
+                    + " requesting=" + event.requesting
+                    + " taskFocused=" + event.taskFocused
+                    + " foreground=" + foreground
+                    + (event.taskFocused
+                            ? " source=task" : " source=task+input"));
             mListener.onImmersiveRequest(
                     event.taskId,
                     event.requesting,

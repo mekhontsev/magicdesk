@@ -91,4 +91,11 @@ final class NubiaPointerDriver implements PlatformPointerDriver {
     public boolean isAvailable() {
         return true;
     }
+
+    @Override
+    public boolean supportsDisplay(final int displayId) {
+        // Nubia's absolute cursor service controls projection displays only.
+        // Display 0 uses Android's normal display-targeted input injection.
+        return displayId > 0;
+    }
 }

@@ -98,6 +98,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int displayId,
             final DesktopTaskAreaPolicy taskAreaPolicy,
             final int parentFeatureId,
+            final Object hostParentToken,
             final Object releaseParentToken) {
         if (taskAreaPolicy == null) {
             throw new IllegalArgumentException(
@@ -114,6 +115,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 displayId,
                 taskAreaPolicy,
                 parentFeatureId,
+                hostParentToken,
                 releaseParentToken);
     }
 

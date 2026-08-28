@@ -21,6 +21,8 @@ final class IndependentFullscreenTaskTopology
     private final Map<Integer, Rect> mAppRestoreBounds = new HashMap<>();
 
     private int mDisplayId = -1;
+    private Object mHostToken;
+    private Object mWorkspaceToken;
 
     IndependentFullscreenTaskTopology(
             final ShellDesktopTaskOwnership ownership) {
@@ -198,6 +200,7 @@ final class IndependentFullscreenTaskTopology
             final int displayId,
             final DesktopTaskAreaPolicy taskAreaPolicy,
             final int parentFeatureId,
+            final Object hostParentToken,
             final Object releaseParentToken) {
         if (displayId < 0) {
             close();
@@ -213,9 +216,12 @@ final class IndependentFullscreenTaskTopology
             close();
         }
         mDisplayId = displayId;
+        mHostToken = hostParentToken;
+        mWorkspaceToken = releaseParentToken;
         mPlanes.configure(
                 displayId,
                 parentFeatureId,
+                hostParentToken,
                 releaseParentToken);
     }
 
@@ -241,8 +247,10 @@ final class IndependentFullscreenTaskTopology
 
     @Override
     public synchronized void close() {
-        mPlanes.configure(-1, FEATURE_ROOT, null);
+        mPlanes.configure(-1, FEATURE_ROOT, null, null);
         mAppRestoreBounds.clear();
         mDisplayId = -1;
+        mHostToken = null;
+        mWorkspaceToken = null;
     }
 }

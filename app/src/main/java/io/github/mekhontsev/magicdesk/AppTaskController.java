@@ -641,7 +641,7 @@ final class AppTaskController {
         }
         launchIntent.addFlags(getFullscreenLaunchFlags());
         if (DesktopDisplayDrivers.activeTaskAreaPolicy(displayId)
-                == DesktopTaskAreaPolicy.SESSION) {
+                .usesManagedWorkspaceArea()) {
             return MagicDeskRuntime.launchFullscreenTaskInDesktopArea(
                     displayId, launchIntent);
         }

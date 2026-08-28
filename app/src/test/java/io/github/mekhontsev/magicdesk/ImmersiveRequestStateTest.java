@@ -9,6 +9,20 @@ import org.junit.Test;
 
 public final class ImmersiveRequestStateTest {
     @Test
+    public void foregroundObservationOwnsAutomaticFullscreenEligibility() {
+        final DesktopTaskRuntimeState state =
+                new DesktopTaskRuntimeState(42);
+
+        state.updateImmersiveObservation(true, false);
+        assertFalse(DesktopWindowTransitionController
+                .shouldEnterAppFullscreen(state));
+
+        state.updateImmersiveObservation(true, true);
+        assertTrue(DesktopWindowTransitionController
+                .shouldEnterAppFullscreen(state));
+    }
+
+    @Test
     public void changedProcessStartsANewClientSample() {
         assertTrue(FrameworkTaskObservationSource.isInitialClientSample(
                 Integer.valueOf(1), Integer.valueOf(100), Integer.valueOf(101)));

@@ -810,6 +810,32 @@ public final class TaskDisplayAreaLaunchCommand {
         return options;
     }
 
+    static Bundle existingTaskFocusOptions(
+            final int displayId,
+            final Object areaToken,
+            final int currentWindowingMode,
+            final Rect currentBounds) throws ReflectiveOperationException {
+        if (displayId < 0 || areaToken == null || currentBounds == null
+                || currentWindowingMode <= 0 || currentBounds.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "invalid existing task focus target");
+        }
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(displayId);
+        options.setLaunchBounds(new Rect(currentBounds));
+        ActivityOptions.class.getMethod(
+                "setLaunchWindowingMode", Integer.TYPE)
+                .invoke(options, Integer.valueOf(currentWindowingMode));
+        ActivityOptions.class.getMethod(
+                "setFlexibleLaunchSize", Boolean.TYPE)
+                .invoke(options, Boolean.TRUE);
+        ActivityOptions.class.getMethod(
+                "setLaunchTaskDisplayArea",
+                FrameworkRuntime.current().windowing().tokenClass())
+                .invoke(options, areaToken);
+        return options.toBundle();
+    }
+
     private static void restartExistingTask(
             final Object service,
             final int displayId,

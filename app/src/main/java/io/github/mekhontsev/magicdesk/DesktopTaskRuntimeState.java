@@ -35,6 +35,7 @@ final class DesktopTaskRuntimeState {
     private Rect mWindowRestoreBounds;
     private Rect mFullscreenRestoreBounds;
     private Boolean mImmersiveRequested;
+    private boolean mImmersiveRequestForeground;
     private int mRequestedOrientation =
             ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     private boolean mAppRequestedFullscreen;
@@ -125,10 +126,12 @@ final class DesktopTaskRuntimeState {
         mFullscreenRestoreBounds = null;
     }
 
-    synchronized Boolean updateImmersiveRequested(
-            final boolean requesting) {
+    synchronized Boolean updateImmersiveObservation(
+            final boolean requesting,
+            final boolean foreground) {
         final Boolean previous = mImmersiveRequested;
         mImmersiveRequested = Boolean.valueOf(requesting);
+        mImmersiveRequestForeground = foreground;
         return previous;
     }
 
@@ -138,10 +141,15 @@ final class DesktopTaskRuntimeState {
 
     synchronized void clearImmersiveRequested() {
         mImmersiveRequested = null;
+        mImmersiveRequestForeground = false;
     }
 
     synchronized boolean isImmersiveRequested() {
         return Boolean.TRUE.equals(mImmersiveRequested);
+    }
+
+    synchronized boolean isImmersiveRequestForeground() {
+        return mImmersiveRequestForeground;
     }
 
     synchronized void setRequestedOrientation(final int orientation) {

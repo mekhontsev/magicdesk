@@ -8,7 +8,7 @@ import java.io.IOException;
 final class WiredDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
             new DesktopDisplayFeatures(
-                    DesktopTaskAreaPolicy.DEFAULT,
+                    DesktopTaskAreaPolicy.INDEPENDENT,
                     true,
                     true,
                     true);

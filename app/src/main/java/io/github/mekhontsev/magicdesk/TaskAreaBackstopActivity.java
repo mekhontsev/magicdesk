@@ -12,6 +12,8 @@ import android.window.OnBackInvokedDispatcher;
 
 /** Inert structural task that keeps an organizer-owned task area non-empty. */
 public final class TaskAreaBackstopActivity extends Activity {
+    private static final String EXTRA_PASSIVE_INPUT =
+            BuildConfig.APPLICATION_ID + ".extra.PASSIVE_BACKSTOP_INPUT";
     private static final String CLASS_NAME =
             BuildConfig.APPLICATION_ID + ".TaskAreaBackstopActivity";
     static final ComponentName COMPONENT = new ComponentName(
@@ -26,6 +28,11 @@ public final class TaskAreaBackstopActivity extends Activity {
                 .setComponent(COMPONENT)
                 .setData(Uri.parse("magicdesk-task-area-backstop:"
                         + Uri.encode(instanceKey)))
+                .putExtra(
+                        EXTRA_PASSIVE_INPUT,
+                        instanceKey.startsWith("host:")
+                                || instanceKey.startsWith("session:")
+                                || instanceKey.startsWith("overlay:"))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                         | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
@@ -35,6 +42,34 @@ public final class TaskAreaBackstopActivity extends Activity {
 
     static boolean isBackstopComponent(final ComponentName component) {
         return COMPONENT.equals(component);
+    }
+
+    static TaskAreaBackstopRole getBackstopRole(final Intent intent) {
+        if (intent == null || intent.getData() == null) {
+            return TaskAreaBackstopRole.UNKNOWN;
+        }
+        final Uri data = intent.getData();
+        if (!"magicdesk-task-area-backstop".equals(data.getScheme())) {
+            return TaskAreaBackstopRole.UNKNOWN;
+        }
+        final String instanceKey = Uri.decode(
+                data.getEncodedSchemeSpecificPart());
+        if (instanceKey.startsWith("host:")) {
+            return TaskAreaBackstopRole.HOST;
+        }
+        if (instanceKey.startsWith("session:")) {
+            return TaskAreaBackstopRole.SESSION;
+        }
+        if (instanceKey.startsWith("overlay:")) {
+            return TaskAreaBackstopRole.WORKSPACE;
+        }
+        if (instanceKey.startsWith("fullscreen:")) {
+            return TaskAreaBackstopRole.FULLSCREEN;
+        }
+        if (instanceKey.startsWith("fullscreen-slot:")) {
+            return TaskAreaBackstopRole.FULLSCREEN;
+        }
+        return TaskAreaBackstopRole.UNKNOWN;
     }
 
     static boolean isBackstopTask(final TaskRepository.TaskEntry task) {
@@ -53,12 +88,16 @@ public final class TaskAreaBackstopActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // WindowManager may select the anchor between removal of the client
-        // task and the callback that parks the whole plane. Keep a valid
-        // focusable input channel during that boundary to avoid an input ANR;
-        // the window never accepts pointer input, and an idle plane itself is
-        // made non-focusable by ShellFullscreenTaskPlanes.
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
+        int windowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        if (getIntent().getBooleanExtra(EXTRA_PASSIVE_INPUT, false)) {
+            // Host and overlay anchors always have a real desktop owner below
+            // or above them, so they must never retain keyboard focus. A
+            // fullscreen-slot anchor stays focusable at the brief child-removal
+            // boundary to avoid leaving its still-focusable plane without an
+            // input target before ShellFullscreenTaskPlanes parks the plane.
+            windowFlags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        }
+        getWindow().addFlags(windowFlags);
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
                 () -> { });

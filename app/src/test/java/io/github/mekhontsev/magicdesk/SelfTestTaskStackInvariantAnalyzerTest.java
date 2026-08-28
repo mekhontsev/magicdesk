@@ -568,6 +568,96 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void acceptsFreeformFixtureInsideExplicitWorkspaceArea() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot valid = snapshot(
+                0,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                backstop(THIRD_BACKSTOP_TASK_ID, HOST_FEATURE_ID, false,
+                        TaskAreaBackstopRole.HOST),
+                backstop(BACKSTOP_TASK_ID, FULLSCREEN_FEATURE_ID, false,
+                        TaskAreaBackstopRole.WORKSPACE),
+                taskInArea(FIXTURE_TASK_ID, DISPLAY_ID, 5,
+                        true, true, false, FULLSCREEN_FEATURE_ID),
+                backstop(SECOND_BACKSTOP_TASK_ID,
+                        SECOND_FULLSCREEN_FEATURE_ID, false,
+                        TaskAreaBackstopRole.FULLSCREEN),
+                taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        false, true, false,
+                        SECOND_FULLSCREEN_FEATURE_ID));
+        analyzer.begin("FULLSCREEN-MIXED", valid);
+
+        assertEquals(0, analyzer.finish(valid).anomalies.length);
+    }
+
+    @Test
+    public void rejectsFullscreenFixtureInsideExplicitWorkspaceArea() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot invalid = snapshot(
+                0,
+                taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                backstop(BACKSTOP_TASK_ID, FULLSCREEN_FEATURE_ID, false,
+                        TaskAreaBackstopRole.WORKSPACE),
+                taskInArea(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                        true, true, false, FULLSCREEN_FEATURE_ID));
+        analyzer.begin("FULLSCREEN-MIXED", invalid);
+
+        assertContains(analyzer.finish(invalid),
+                "freeform workspace=" + FULLSCREEN_FEATURE_ID
+                        + " contains non-freeform fixture="
+                        + FIXTURE_TASK_ID);
+    }
+
+    @Test
+    public void acceptsHiddenCrossDisplayModeCallbackInsideWorkspaceArea() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot transition =
+                snapshot(
+                        0,
+                        taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                                true, false, false, HOST_FEATURE_ID),
+                        backstop(BACKSTOP_TASK_ID,
+                                FULLSCREEN_FEATURE_ID, false,
+                                TaskAreaBackstopRole.WORKSPACE),
+                        taskInArea(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                                false, true, false,
+                                FULLSCREEN_FEATURE_ID));
+        analyzer.begin("WINDOW-009", transition);
+
+        assertEquals(0, analyzer.finish(transition).anomalies.length);
+    }
+
+    @Test
+    public void doesNotTreatExplicitHostAnchorAsPhoneSessionArea() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot independent =
+                snapshot(
+                        0,
+                        taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
+                                false, false, false, HOST_FEATURE_ID),
+                        backstop(THIRD_BACKSTOP_TASK_ID,
+                                HOST_FEATURE_ID, false,
+                                TaskAreaBackstopRole.HOST),
+                        backstop(BACKSTOP_TASK_ID,
+                                FULLSCREEN_FEATURE_ID, false,
+                                TaskAreaBackstopRole.FULLSCREEN),
+                        taskInArea(FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                                true, true, false,
+                                FULLSCREEN_FEATURE_ID),
+                        backstop(SECOND_BACKSTOP_TASK_ID,
+                                SECOND_FULLSCREEN_FEATURE_ID, false,
+                                TaskAreaBackstopRole.FULLSCREEN),
+                        taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
+                                false, true, false,
+                                SECOND_FULLSCREEN_FEATURE_ID));
+        analyzer.begin("WINDOW-020-PREPARE", independent);
+
+        assertEquals(0, analyzer.finish(independent).anomalies.length);
+    }
+
+    @Test
     public void acceptsFullscreenStackInStablePhoneSessionArea() {
         final SelfTestTaskStackInvariantAnalyzer analyzer =
                 new SelfTestTaskStackInvariantAnalyzer(
@@ -585,7 +675,8 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                         false,
                         true,
                         HOST_FEATURE_ID,
-                        true),
+                        true,
+                        TaskAreaBackstopRole.SESSION),
                 taskInArea(FIXTURE_TASK_ID, 0, 1,
                         true, true, false, HOST_FEATURE_ID),
                 taskInArea(SECOND_FIXTURE_TASK_ID, 0, 1,
@@ -825,6 +916,24 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                 false,
                 displayAreaFeatureId,
                 true);
+    }
+
+    private static SelfTestTaskStackInvariantAnalyzer.TaskState backstop(
+            final int taskId,
+            final int displayAreaFeatureId,
+            final boolean visible,
+            final TaskAreaBackstopRole role) {
+        return new SelfTestTaskStackInvariantAnalyzer.TaskState(
+                taskId,
+                DISPLAY_ID,
+                1,
+                visible,
+                true,
+                false,
+                false,
+                displayAreaFeatureId,
+                true,
+                role);
     }
 
     private static SelfTestTaskStackInvariantAnalyzer.Snapshot snapshot(

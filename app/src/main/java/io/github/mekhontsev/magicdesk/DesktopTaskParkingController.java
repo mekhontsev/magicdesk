@@ -430,7 +430,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     private static boolean usesSessionTaskArea(
             final DesktopDisplayTarget target) {
         return DesktopDisplayDrivers.forTarget(target)
-                .features().taskAreaPolicy == DesktopTaskAreaPolicy.SESSION;
+                .features().taskAreaPolicy.usesManagedWorkspaceArea();
     }
 
     private static void restoreMode(

@@ -1082,6 +1082,7 @@ final class LegacyFullscreenTaskTopology implements ShellFullscreenTaskTopology 
             final int displayId,
             final DesktopTaskAreaPolicy taskAreaPolicy,
             final int parentFeatureId,
+            final Object hostParentToken,
             final Object releaseParentToken) {
         if (displayId < 0) {
             close();

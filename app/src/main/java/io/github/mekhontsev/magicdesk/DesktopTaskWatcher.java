@@ -135,7 +135,7 @@ final class DesktopTaskWatcher {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
-            final boolean managedTaskArea,
+            final int taskAreaPolicy,
             final int desktopHostTaskId) {
         final ShellTaskObserverHandle handle;
         final LatestOperationSerializer.Ticket ticket;
@@ -155,7 +155,7 @@ final class DesktopTaskWatcher {
                             displayId,
                             displayBounds,
                             workAreaBounds,
-                            managedTaskArea,
+                            taskAreaPolicy,
                             desktopHostTaskId));
         } catch (IOException error) {
             Log.w(TAG, "failed to configure task observer", error);

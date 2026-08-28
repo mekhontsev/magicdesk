@@ -350,7 +350,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             final boolean foreground) {
                         if (mRunning
                                 && taskAreaPolicy()
-                                        == DesktopTaskAreaPolicy.SESSION) {
+                                        .usesManagedWorkspaceArea()) {
                             DesktopRuntimeBridge
                                     .setDesktopPlaneForeground(
                                             mDisplayId, foreground);
@@ -1784,8 +1784,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         final Rect displayBounds = mNativeWindowBounds.getFullscreenBounds();
         final Rect workAreaBounds =
                 mNativeWindowBounds.getTaskbarMaximizedBounds();
-        final boolean managedTaskArea = taskAreaPolicy()
-                == DesktopTaskAreaPolicy.SESSION;
+        final DesktopTaskAreaPolicy taskAreaPolicy = taskAreaPolicy();
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
         final int desktopHostTaskId = session.activeDisplayId() == mDisplayId
@@ -1794,7 +1793,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 mDisplayId,
                 displayBounds,
                 workAreaBounds,
-                managedTaskArea,
+                taskAreaPolicy.wireValue(),
                 desktopHostTaskId);
         mTaskWatcher.setExternalTaskMigrationProtection(
                 shouldProtectExternalSession());
@@ -1900,7 +1899,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private void requireSessionTaskArea(final int displayId)
             throws IOException {
         requireTaskObserver(displayId);
-        if (taskAreaPolicy() != DesktopTaskAreaPolicy.SESSION) {
+        if (!taskAreaPolicy().usesManagedWorkspaceArea()) {
             throw new IOException(
                     "session task area is unavailable for display "
                             + displayId);
@@ -1928,7 +1927,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     mDisplayId,
                     snapshot.tasks,
                     DesktopRuntimeBridge.getDesktopWorkAreaBounds(mDisplayId),
-                    taskAreaPolicy() == DesktopTaskAreaPolicy.SESSION,
+                    taskAreaPolicy().usesManagedWorkspaceArea(),
                     mSessionOwnershipReady,
                     mSessionOwnedTaskIds);
         }

@@ -101,12 +101,30 @@ final class ShellPreparedTaskTransition {
             final Rect bounds,
             final Object targetParentToken)
             throws ReflectiveOperationException {
+        detachAndShowFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                null,
+                targetParentToken);
+    }
+
+    static void detachAndShowFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final Object sourceParentToken,
+            final Object targetParentToken)
+            throws ReflectiveOperationException {
         applyFreeform(
                 service,
                 displayId,
                 taskId,
                 bounds,
                 FreeformApplication.DETACH_AND_SHOW_TRANSITION,
+                sourceParentToken,
                 targetParentToken);
     }
 
@@ -245,6 +263,7 @@ final class ShellPreparedTaskTransition {
                 taskId,
                 bounds,
                 application,
+                null,
                 null);
     }
 
@@ -254,6 +273,7 @@ final class ShellPreparedTaskTransition {
             final int taskId,
             final Rect bounds,
             final FreeformApplication application,
+            final Object sourceParentToken,
             final Object targetParentToken)
             throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
@@ -278,10 +298,23 @@ final class ShellPreparedTaskTransition {
         if (application
                 == FreeformApplication.DETACH_AND_SHOW_TRANSITION) {
             // The fullscreen parent belongs to the long-lived shell observer.
-            // Reparent and reveal in the same WMShell transition so no
-            // intermediate parent or fullscreen frame becomes visible.
+            // Reparent, expose the destination workspace, and reveal the task
+            // in one WMShell transition. A second task-selection transaction
+            // can pause the client between its fullscreen-exit relayout and
+            // first freeform frame.
+            if (sourceParentToken != null) {
+                windowing.setFocusable(
+                        transaction, sourceParentToken, false);
+            }
+            if (targetParentToken != null) {
+                windowing.setFocusable(
+                        transaction, targetParentToken, true);
+            }
             windowing.reparent(
                     transaction, taskToken, targetParentToken, true);
+            if (targetParentToken != null) {
+                windowing.reorder(transaction, targetParentToken, true);
+            }
         }
         windowing.reorder(transaction, taskToken, true, true);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(

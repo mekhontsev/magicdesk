@@ -99,7 +99,11 @@ public final class DesktopActivity extends DesktopShellActivity {
                 .putExtra(EXTRA_SESSION_POLICY, resolvedPolicy.name());
         LAUNCH_EXECUTOR.execute(() -> {
             try {
-                ShellAccess.launchDesktopHost(displayId, intent);
+                ShellAccess.launchDesktopHost(
+                        displayId,
+                        intent,
+                        DesktopDisplayDrivers.forTarget(target)
+                                .features().taskAreaPolicy);
             } catch (IOException | RuntimeException error) {
                 source.runOnUiThread(() -> reportLaunchFailure(
                         source, target, generation, error));

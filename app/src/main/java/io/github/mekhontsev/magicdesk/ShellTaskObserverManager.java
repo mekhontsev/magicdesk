@@ -66,13 +66,13 @@ final class ShellTaskObserverManager implements Closeable {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
-            final boolean managedTaskArea,
+            final int taskAreaPolicy,
             final int desktopHostTaskId) {
         requireSession(callback).observer.configure(
                 displayId,
                 displayBounds,
                 workAreaBounds,
-                managedTaskArea,
+                taskAreaPolicy,
                 desktopHostTaskId);
     }
 
@@ -124,7 +124,8 @@ final class ShellTaskObserverManager implements Closeable {
 
     int launchDesktopHost(
             final int displayId,
-            final String intentUri) {
+            final String intentUri,
+            final int taskAreaPolicy) {
         final Session session;
         synchronized (mLock) {
             if (mSession == null) {
@@ -133,7 +134,8 @@ final class ShellTaskObserverManager implements Closeable {
             }
             session = mSession;
         }
-        return session.observer.launchDesktopHost(displayId, intentUri);
+        return session.observer.launchDesktopHost(
+                displayId, intentUri, taskAreaPolicy);
     }
 
     boolean restoreFullscreenTask(

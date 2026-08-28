@@ -2,8 +2,34 @@ package io.github.mekhontsev.magicdesk;
 
 /** Chooses which task display area owns windows on one desktop target. */
 enum DesktopTaskAreaPolicy {
-    DEFAULT,
-    SESSION;
+    DEFAULT(0),
+    SESSION(1),
+    INDEPENDENT(2);
+
+    private final int mWireValue;
+
+    DesktopTaskAreaPolicy(final int wireValue) {
+        mWireValue = wireValue;
+    }
+
+    int wireValue() {
+        return mWireValue;
+    }
+
+    static DesktopTaskAreaPolicy fromWireValue(final int wireValue) {
+        for (final DesktopTaskAreaPolicy policy : values()) {
+            if (policy.mWireValue == wireValue) {
+                return policy;
+            }
+        }
+        throw new IllegalArgumentException(
+                "unknown desktop task-area policy " + wireValue);
+    }
+
+    /** Whether one organizer area owns the desktop host and freeform roots. */
+    boolean usesManagedWorkspaceArea() {
+        return this != DEFAULT;
+    }
 
     /** Whether application immersive tasks must retain the session parent. */
     boolean usesSessionFullscreenHierarchy() {
@@ -17,7 +43,7 @@ enum DesktopTaskAreaPolicy {
 
     /** Whether each fullscreen task needs an independently reordered plane. */
     boolean usesIndependentFullscreenPlanes() {
-        return this == DEFAULT;
+        return this != SESSION;
     }
 
     /** Number of fullscreen application tasks that require a shared parent. */

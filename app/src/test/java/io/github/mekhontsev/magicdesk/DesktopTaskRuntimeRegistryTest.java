@@ -84,10 +84,14 @@ public final class DesktopTaskRuntimeRegistryTest {
 
         assertTrue(state.consumeStartupWindowed());
         assertFalse(state.consumeStartupWindowed());
-        assertNull(state.updateImmersiveRequested(false));
+        assertNull(state.updateImmersiveObservation(false, false));
         assertEquals(Boolean.FALSE,
-                state.updateImmersiveRequested(true));
+                state.updateImmersiveObservation(true, true));
         assertTrue(state.isImmersiveRequested());
+        assertTrue(state.isImmersiveRequestForeground());
+
+        state.clearImmersiveRequested();
+        assertFalse(state.isImmersiveRequestForeground());
     }
 
     private static void assertRect(

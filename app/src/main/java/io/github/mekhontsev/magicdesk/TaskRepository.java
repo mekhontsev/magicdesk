@@ -325,7 +325,7 @@ public final class TaskRepository {
                                 targetDisplayId);
                 if (DesktopDisplayDrivers.activeTaskAreaPolicy(
                                 targetDisplayId)
-                        == DesktopTaskAreaPolicy.SESSION) {
+                        .usesManagedWorkspaceArea()) {
                     final Rect bounds = FloatingWindowController
                             .getWindowBounds(
                                     targetDisplayId, preferredBounds);

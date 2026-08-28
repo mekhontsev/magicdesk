@@ -1642,7 +1642,7 @@ final class DesktopSelfTestWindowSuite {
             final DesktopTaskAreaPolicy policy =
                     DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
             final String output;
-            if (policy == DesktopTaskAreaPolicy.SESSION) {
+            if (policy.usesManagedWorkspaceArea()) {
                 MagicDeskRuntime.placeTaskInDesktopArea(
                         taskId,
                         currentTask.displayId,

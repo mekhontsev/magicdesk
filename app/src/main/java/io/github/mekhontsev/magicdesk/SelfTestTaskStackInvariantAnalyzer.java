@@ -403,7 +403,13 @@ final class SelfTestTaskStackInvariantAnalyzer {
         for (final TaskState task : snapshot.tasks) {
             if (task.backstop
                     && task.displayId == mDisplayId
-                    && task.displayAreaFeatureId == featureId) {
+                    && task.displayAreaFeatureId == featureId
+                    && (task.backstopRole
+                            == TaskAreaBackstopRole.SESSION
+                            || task.backstopRole
+                                    == TaskAreaBackstopRole.FULLSCREEN
+                            || task.backstopRole
+                                    == TaskAreaBackstopRole.UNKNOWN)) {
                 return true;
             }
         }
@@ -418,10 +424,42 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 ? DISPLAY_AREA_FEATURE_UNKNOWN
                 : host.displayAreaFeatureId;
         int sessionBackstopCount = 0;
+        int workspaceBackstopCount = 0;
+        final Set<Integer> workspaceFeatureIds = new LinkedHashSet<>();
         final Map<Integer, Integer> slotAnchorCounts =
                 new LinkedHashMap<>();
         for (final TaskState task : snapshot.tasks) {
             if (!task.backstop || task.displayId != mDisplayId) {
+                continue;
+            }
+            if (task.backstopRole == TaskAreaBackstopRole.HOST) {
+                if (hostFeatureId == DISPLAY_AREA_FEATURE_UNKNOWN
+                        || task.displayAreaFeatureId != hostFeatureId) {
+                    addAnomaly("host-backstop-parent:" + mStage.name + ':'
+                                    + task.taskId,
+                            formatSample(reason, snapshot)
+                                    + " host anchor=" + task.taskId
+                                    + " is outside desktop host area="
+                                    + hostFeatureId);
+                }
+                sessionBackstopCount++;
+                continue;
+            }
+            if (task.backstopRole == TaskAreaBackstopRole.WORKSPACE) {
+                workspaceBackstopCount++;
+                if (task.displayAreaFeatureId
+                        == DISPLAY_AREA_FEATURE_UNKNOWN
+                        || task.displayAreaFeatureId == hostFeatureId) {
+                    addAnomaly("workspace-backstop-parent:" + mStage.name
+                                    + ':' + task.taskId,
+                            formatSample(reason, snapshot)
+                                    + " workspace anchor=" + task.taskId
+                                    + " has invalid area="
+                                    + task.displayAreaFeatureId);
+                } else {
+                    workspaceFeatureIds.add(Integer.valueOf(
+                            task.displayAreaFeatureId));
+                }
                 continue;
             }
             if (hostFeatureId != DISPLAY_AREA_FEATURE_UNKNOWN
@@ -450,6 +488,39 @@ final class SelfTestTaskStackInvariantAnalyzer {
                     formatSample(reason, snapshot)
                             + " expected at most one session backstop,"
                             + " found=" + sessionBackstopCount);
+        }
+        if (workspaceBackstopCount > 1) {
+            addAnomaly("workspace-backstop-count:" + mStage.name + ':'
+                            + workspaceBackstopCount,
+                    formatSample(reason, snapshot)
+                            + " expected at most one workspace anchor,"
+                            + " found=" + workspaceBackstopCount);
+        }
+        for (final Integer workspaceFeatureId : workspaceFeatureIds) {
+            for (final TaskState child : snapshot.tasks) {
+                if (!child.fixture
+                        || child.displayId != mDisplayId
+                        || child.displayAreaFeatureId
+                                != workspaceFeatureId.intValue()) {
+                    continue;
+                }
+                if (child.windowingMode != WINDOWING_MODE_FREEFORM) {
+                    // Cross-display callbacks can expose the final mode before
+                    // the matching parent/display update. The task transition
+                    // validator permits that callback only while it is hidden.
+                    if (child.visibilityKnown && !child.visible) {
+                        continue;
+                    }
+                    addAnomaly("workspace-windowing:" + mStage.name + ':'
+                                    + child.taskId,
+                            formatSample(reason, snapshot)
+                                    + " freeform workspace="
+                                    + workspaceFeatureId
+                                    + " contains non-freeform fixture="
+                                    + child.taskId + " mode="
+                                    + child.windowingMode);
+                }
+            }
         }
         for (final Map.Entry<Integer, Integer> entry
                 : slotAnchorCounts.entrySet()) {
@@ -837,6 +908,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         final boolean home;
         final int displayAreaFeatureId;
         final boolean backstop;
+        final TaskAreaBackstopRole backstopRole;
 
         TaskState(
                 final int taskId,
@@ -861,6 +933,23 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 final boolean home,
                 final int displayAreaFeatureId,
                 final boolean backstop) {
+            this(taskId, displayId, windowingMode, visible, visibilityKnown,
+                    fixture, home, displayAreaFeatureId, backstop,
+                    backstop ? TaskAreaBackstopRole.UNKNOWN
+                            : TaskAreaBackstopRole.NONE);
+        }
+
+        TaskState(
+                final int taskId,
+                final int displayId,
+                final int windowingMode,
+                final boolean visible,
+                final boolean visibilityKnown,
+                final boolean fixture,
+                final boolean home,
+                final int displayAreaFeatureId,
+                final boolean backstop,
+                final TaskAreaBackstopRole backstopRole) {
             this.taskId = taskId;
             this.displayId = displayId;
             this.windowingMode = windowingMode;
@@ -870,6 +959,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
             this.home = home;
             this.displayAreaFeatureId = displayAreaFeatureId;
             this.backstop = backstop;
+            this.backstopRole = backstopRole;
         }
 
         String stateKey() {
@@ -886,7 +976,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
                     && fixture == other.fixture
                     && home == other.home
                     && displayAreaFeatureId == other.displayAreaFeatureId
-                    && backstop == other.backstop;
+                    && backstop == other.backstop
+                    && backstopRole == other.backstopRole;
         }
     }
 

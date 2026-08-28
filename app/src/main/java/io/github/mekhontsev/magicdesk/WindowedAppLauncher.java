@@ -53,7 +53,7 @@ final class WindowedAppLauncher {
         final DesktopTaskAreaPolicy taskAreaPolicy =
                 DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
         final boolean nativeDesktop =
-                taskAreaPolicy != DesktopTaskAreaPolicy.SESSION
+                !taskAreaPolicy.usesManagedWorkspaceArea()
                         && NativeDesktopController.shouldUse();
         final boolean createNew = reusePolicy == TaskReusePolicy.CREATE_NEW;
         if (!createNew) {

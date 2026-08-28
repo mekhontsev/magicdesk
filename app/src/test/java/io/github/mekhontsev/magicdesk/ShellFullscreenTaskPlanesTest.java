@@ -222,6 +222,23 @@ public final class ShellFullscreenTaskPlanesTest {
                 new int[]{10, 11, 20},
                 ShellFullscreenTaskPlanes.mixedSurfaceOrder(
                         new int[]{10, 11, 20}, order));
+        assertEquals(true, order.selectsFreeformTask(20));
+        assertEquals(false, order.selectsFreeformTask(19));
+    }
+
+    @Test
+    public void fullscreenMixedOrderDoesNotSelectAFreeformParent() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        11,
+                        99,
+                        new int[]{20, 11},
+                        planeIds(10, 11),
+                        Arrays.asList(20),
+                        10,
+                        false);
+
+        assertEquals(false, order.selectsFreeformTask(20));
     }
 
     private static java.util.List<Integer> asList(final int[] values) {

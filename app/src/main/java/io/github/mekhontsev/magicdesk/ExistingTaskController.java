@@ -156,11 +156,11 @@ final class ExistingTaskController {
                     MODE_FULLSCREEN.equals(task.windowingMode);
             boolean movedAsFreeform = false;
             boolean movedDisplay = false;
-            final boolean sessionTaskArea =
+            final boolean managedWorkspaceArea =
                     DesktopDisplayDrivers.activeTaskAreaPolicy(
                             targetDisplayId)
-                            == DesktopTaskAreaPolicy.SESSION;
-            if (sessionTaskArea) {
+                            .usesManagedWorkspaceArea();
+            if (managedWorkspaceArea) {
                 final int sourceDisplayId = task.displayId;
                 if (targetFreeform) {
                     final Rect bounds = resolveTargetBounds(
