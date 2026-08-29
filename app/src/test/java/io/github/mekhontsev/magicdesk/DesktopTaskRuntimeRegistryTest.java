@@ -81,9 +81,10 @@ public final class DesktopTaskRuntimeRegistryTest {
         final DesktopTaskRuntimeState state =
                 new DesktopTaskRuntimeState(42);
         state.setStartupWindowed(true);
+        state.observeStartupWindowedInitialSample(false, 1_000L, 500L);
 
-        assertTrue(state.consumeStartupWindowed());
-        assertFalse(state.consumeStartupWindowed());
+        assertTrue(state.consumeStartupWindowed(1_500L));
+        assertFalse(state.consumeStartupWindowed(1_500L));
         assertNull(state.updateImmersiveObservation(false, false));
         assertEquals(Boolean.FALSE,
                 state.updateImmersiveObservation(true, true));
@@ -92,6 +93,26 @@ public final class DesktopTaskRuntimeRegistryTest {
 
         state.clearImmersiveRequested();
         assertFalse(state.isImmersiveRequestForeground());
+    }
+
+    @Test
+    public void immersiveStartupStateExpiresAfterInitialClientSettles() {
+        final DesktopTaskRuntimeState state =
+                new DesktopTaskRuntimeState(42);
+        state.setStartupWindowed(true);
+        state.observeStartupWindowedInitialSample(false, 1_000L, 500L);
+
+        assertFalse(state.consumeStartupWindowed(1_501L));
+    }
+
+    @Test
+    public void initialImmersiveSampleConsumesStartupProtection() {
+        final DesktopTaskRuntimeState state =
+                new DesktopTaskRuntimeState(42);
+        state.setStartupWindowed(true);
+        state.observeStartupWindowedInitialSample(true, 1_000L, 500L);
+
+        assertFalse(state.consumeStartupWindowed(1_000L));
     }
 
     private static void assertRect(

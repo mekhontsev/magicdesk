@@ -22,10 +22,9 @@ final class WindowedTaskLaunchLease implements AutoCloseable {
         if (taskId < 0 || mClosed || mStartupTaskId == taskId) {
             return;
         }
-        if (mStartupTaskId >= 0) {
-            MagicDeskRuntime.finishExplicitWindowedLaunch(mStartupTaskId);
-        }
         mStartupTaskId = taskId;
+        // Once a task id exists, the task runtime owns startup protection.
+        // Closing this operation lease must not race the app's first frame.
         MagicDeskRuntime.beginExplicitWindowedLaunch(taskId);
     }
 
@@ -41,9 +40,6 @@ final class WindowedTaskLaunchLease implements AutoCloseable {
             return;
         }
         mClosed = true;
-        if (mStartupTaskId >= 0) {
-            MagicDeskRuntime.finishExplicitWindowedLaunch(mStartupTaskId);
-        }
         if (mRestoreTouchpad) {
             MagicDeskRuntime.finishTouchpadPreservation();
             DesktopOperations.restoreTouchpadIfMissing();

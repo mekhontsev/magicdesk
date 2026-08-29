@@ -43,6 +43,7 @@ final class DesktopTaskRuntimeState {
             FullscreenTransition.NONE;
     private boolean mManualImmersiveOverride;
     private boolean mStartupWindowed;
+    private long mStartupWindowedDeadlineUptimeMillis = Long.MAX_VALUE;
 
     DesktopTaskRuntimeState(final int taskId) {
         mTaskId = taskId;
@@ -211,11 +212,32 @@ final class DesktopTaskRuntimeState {
 
     synchronized void setStartupWindowed(final boolean startupWindowed) {
         mStartupWindowed = startupWindowed;
+        mStartupWindowedDeadlineUptimeMillis = Long.MAX_VALUE;
     }
 
-    synchronized boolean consumeStartupWindowed() {
-        final boolean startupWindowed = mStartupWindowed;
+    synchronized void observeStartupWindowedInitialSample(
+            final boolean requestingImmersive,
+            final long observedUptimeMillis,
+            final long settleMillis) {
+        if (!mStartupWindowed) {
+            return;
+        }
+        if (requestingImmersive) {
+            mStartupWindowed = false;
+            mStartupWindowedDeadlineUptimeMillis = Long.MAX_VALUE;
+            return;
+        }
+        mStartupWindowedDeadlineUptimeMillis = observedUptimeMillis
+                + Math.max(0L, settleMillis);
+    }
+
+    synchronized boolean consumeStartupWindowed(
+            final long observedUptimeMillis) {
+        final boolean startupWindowed = mStartupWindowed
+                && observedUptimeMillis
+                        <= mStartupWindowedDeadlineUptimeMillis;
         mStartupWindowed = false;
+        mStartupWindowedDeadlineUptimeMillis = Long.MAX_VALUE;
         return startupWindowed;
     }
 

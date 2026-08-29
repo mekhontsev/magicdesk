@@ -663,13 +663,6 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static void finishExplicitWindowedLaunch(final int taskId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
-        if (tasks != null) {
-            tasks.finishExplicitWindowedLaunch(taskId);
-        }
-    }
-
     static boolean protectExplicitFullscreenTask(
             final int displayId,
             final int taskId) {

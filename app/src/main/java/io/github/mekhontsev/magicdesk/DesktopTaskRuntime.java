@@ -101,8 +101,6 @@ interface DesktopTaskRuntime {
 
     void beginExplicitWindowedLaunch(int taskId);
 
-    void finishExplicitWindowedLaunch(int taskId);
-
     boolean protectExplicitFullscreenTask(int displayId, int taskId);
 
     void expectTouchpadDisplacement();

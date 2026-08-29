@@ -1618,13 +1618,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public void finishExplicitWindowedLaunch(final int taskId) {
-        if (mRunning) {
-            mWindowTransitions.finishExplicitWindowedLaunch(taskId);
-        }
-    }
-
-    @Override
     public boolean protectExplicitFullscreenTask(
             final int displayId,
             final int taskId) {

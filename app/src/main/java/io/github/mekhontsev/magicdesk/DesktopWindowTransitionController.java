@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.content.pm.ActivityInfo;
 import android.graphics.Rect;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.IOException;
@@ -32,6 +33,7 @@ final class DesktopWindowTransitionController {
     static final int SHORTCUT_CLOSE = 5;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
+    private static final long STARTUP_IMMERSIVE_SETTLE_MILLIS = 1_000L;
 
     private static final String TAG = "MagicDeskTasks";
     private final Handler mHandler;
@@ -192,6 +194,13 @@ final class DesktopWindowTransitionController {
                 state.updateImmersiveObservation(
                         requestingImmersive, foreground);
         if (initialSample) {
+            // The shell launch returns once the task exists, before a cold
+            // client publishes its initial insets state. Start the bounded
+            // startup-request window from that first client sample instead.
+            state.observeStartupWindowedInitialSample(
+                    requestingImmersive,
+                    SystemClock.uptimeMillis(),
+                    STARTUP_IMMERSIVE_SETTLE_MILLIS);
             if (shouldReconcileInitialImmersiveSample(
                     previous,
                     requestingImmersive,
@@ -203,7 +212,8 @@ final class DesktopWindowTransitionController {
         final boolean newImmersiveRequest = isNewImmersiveRequest(
                 previous, requestingImmersive, initialSample);
         final boolean startupWindowedRequest = newImmersiveRequest
-                && state.consumeStartupWindowed();
+                && state.consumeStartupWindowed(
+                        SystemClock.uptimeMillis());
         if (shouldClearManualImmersiveOverride(
                 newImmersiveRequest, startupWindowedRequest)) {
             state.setManualImmersiveOverride(false);
@@ -243,15 +253,6 @@ final class DesktopWindowTransitionController {
         state.setManualImmersiveOverride(true);
         state.setStartupWindowed(true);
         Log.i(TAG, "protecting startup windowed task=" + taskId);
-    }
-
-    void finishExplicitWindowedLaunch(final int taskId) {
-        if (taskId >= 0) {
-            final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
-            if (state != null) {
-                state.setStartupWindowed(false);
-            }
-        }
     }
 
     static boolean isNewImmersiveRequest(
