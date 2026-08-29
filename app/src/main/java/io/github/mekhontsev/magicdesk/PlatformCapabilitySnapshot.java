@@ -92,7 +92,11 @@ public final class PlatformCapabilitySnapshot {
                 () -> platform.phoneUi().isAvailable(), () -> "");
         probeAudioCapture(entries, platform);
         add(entries, platform, PlatformCapabilityId.VENDOR_HARDWARE,
-                features.vendorHardware, "");
+                features.vendorHardware,
+                features.vendorHardware
+                        ? "platform system-controls provider; individual "
+                                + "hardware controls are probed separately"
+                        : "");
         return new PlatformCapabilitySnapshot(entries);
     }
 

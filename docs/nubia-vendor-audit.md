@@ -168,6 +168,14 @@ states:
 `Settings.System.liquid_cooling_off_on` report the resulting effective state.
 They are monitoring outputs, not MagicDesk control inputs.
 
+The standard capability report reads these settings through one bounded,
+read-only `/system/bin/settings` snapshot in the existing Shizuku service
+identity. It does not use a MagicDesk package-attributed `ContentResolver`
+from UID 2000. The report keeps the platform-level system-controls provider,
+the discovered fan/pump control namespace, and the readable effective state
+as separate observations. A selected Nubia provider therefore does not by
+itself claim that cooling control is present on a particular model.
+
 Restoration has a non-obvious transition requirement. Replacing an active
 manual fan request (`1`) directly with the previous automatic sentinel
 (`-100` or `100`) leaves the manual request active on the verified firmware.

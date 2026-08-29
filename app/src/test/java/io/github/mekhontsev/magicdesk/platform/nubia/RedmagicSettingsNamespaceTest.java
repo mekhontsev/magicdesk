@@ -12,48 +12,53 @@ public final class RedmagicSettingsNamespaceTest {
     @Test
     public void selectsSystemWhenItsSettingGroupIsMoreComplete() {
         final String output =
-                "setting.system.fan_state_of_manual=100\n"
-                + "setting.system.fan_state_of_mode=1\n"
-                + "setting.global.fan_state_of_manual=-4\n"
-                + "setting.global.fan_state_of_mode=null\n";
+                "setting.system.fan_state_of_manual=0|100\n"
+                + "setting.system.fan_state_of_mode=0|1\n"
+                + "setting.global.fan_state_of_manual=0|-4\n"
+                + "setting.global.fan_state_of_mode=0|null\n";
 
         assertEquals(
                 RedmagicSettingsNamespace.SYSTEM,
-                RedmagicSettingsNamespace.select(output, FIRST, SECOND));
+                select(output));
     }
 
     @Test
     public void selectsGlobalForFirmwareThatStoresTheGroupThere() {
         final String output =
-                "setting.system.fan_state_of_manual=null\n"
-                + "setting.system.fan_state_of_mode=null\n"
-                + "setting.global.fan_state_of_manual=1\n"
-                + "setting.global.fan_state_of_mode=0\n";
+                "setting.system.fan_state_of_manual=0|null\n"
+                + "setting.system.fan_state_of_mode=0|null\n"
+                + "setting.global.fan_state_of_manual=0|1\n"
+                + "setting.global.fan_state_of_mode=0|0\n";
 
         assertEquals(
                 RedmagicSettingsNamespace.GLOBAL,
-                RedmagicSettingsNamespace.select(output, FIRST, SECOND));
+                select(output));
     }
 
     @Test
     public void leavesAnUnknownGroupUnsupported() {
         final String output =
-                "setting.system.fan_state_of_manual=null\n"
-                + "setting.system.fan_state_of_mode=null\n"
-                + "setting.global.fan_state_of_manual=null\n"
-                + "setting.global.fan_state_of_mode=null\n";
+                "setting.system.fan_state_of_manual=0|null\n"
+                + "setting.system.fan_state_of_mode=0|null\n"
+                + "setting.global.fan_state_of_manual=0|null\n"
+                + "setting.global.fan_state_of_mode=0|null\n";
 
-        assertNull(RedmagicSettingsNamespace.select(output, FIRST, SECOND));
+        assertNull(select(output));
     }
 
     @Test
     public void doesNotGuessWhenBothNamespacesLookSupported() {
         final String output =
-                "setting.system.fan_state_of_manual=1\n"
-                + "setting.system.fan_state_of_mode=0\n"
-                + "setting.global.fan_state_of_manual=1\n"
-                + "setting.global.fan_state_of_mode=0\n";
+                "setting.system.fan_state_of_manual=0|1\n"
+                + "setting.system.fan_state_of_mode=0|0\n"
+                + "setting.global.fan_state_of_manual=0|1\n"
+                + "setting.global.fan_state_of_mode=0|0\n";
 
-        assertNull(RedmagicSettingsNamespace.select(output, FIRST, SECOND));
+        assertNull(select(output));
+    }
+
+    private static RedmagicSettingsNamespace select(final String output) {
+        return RedmagicHardwareSettings.parse(output)
+                .selectNamespace(FIRST, SECOND);
     }
 }

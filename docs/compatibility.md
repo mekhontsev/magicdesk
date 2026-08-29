@@ -148,6 +148,9 @@ The report includes:
 - a one-shot input-relay snapshot with aggregate native event flow, MagicDesk
   virtual-device presence, current routing associations, and observed pointer
   position;
+- a read-only vendor cooling-settings snapshot that distinguishes the selected
+  system-controls provider, discovered fan/pump control keys, and readable
+  effective state without changing cooling policy;
 - bounded structured MagicDesk error events;
 - recent logcat entries from MagicDesk tags only;
 - a schema-versioned JSON summary with platform composition, per-component

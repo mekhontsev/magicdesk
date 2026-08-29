@@ -1,11 +1,11 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
+import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
 import io.github.mekhontsev.magicdesk.PlatformTextInputDriver;
 import io.github.mekhontsev.magicdesk.ShizukuCapabilityProbe;
 
 import android.content.Context;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.system.OsConstants;
 
 import java.io.BufferedReader;
@@ -20,14 +20,8 @@ import java.util.Comparator;
 /** Shell capability probes for optional Nubia/REDMAGIC firmware interfaces. */
 final class NubiaCapabilityProbe {
     private static final int MAX_THERMAL_DETAIL_CHARS = 4_000;
-    private static final String[] HARDWARE_SETTINGS = {
-            "fan_state_of_manual",
-            "fan_state_of_mode",
-            "game_fan_off_on",
-            "liquid_cooling_main_switch",
-            "liquid_cooling_flow_speed_mode",
-            "liquid_cooling_off_on"
-    };
+    private static final long SETTINGS_READ_TIMEOUT_MILLIS = 2_000L;
+    private static final int SETTINGS_READ_MAX_OUTPUT_BYTES = 16 * 1024;
 
     private NubiaCapabilityProbe() {
     }
@@ -65,99 +59,54 @@ final class NubiaCapabilityProbe {
                 report, "vendor.color_light", "ColorfulLightService");
         ShizukuCapabilityProbe.appendService(
                 report, "vendor.power", "VendorPowerManagerService");
-        appendHardwareSettings(report, context);
+        appendHardwareSettings(report);
         appendHardwareNodes(report);
         appendThermalZones(report);
     }
 
-    private static void appendHardwareSettings(
-            final StringBuilder report,
-            final Context context) {
-        final StringBuilder values = new StringBuilder();
-        for (final String key : HARDWARE_SETTINGS) {
-            if (context == null) {
-                appendSetting(
-                        report, values, "system", key,
-                        null, "no service context");
-                appendSetting(
-                        report, values, "global", key,
-                        null, "no service context");
-                continue;
-            }
-            try {
-                appendSetting(
-                        report,
-                        values,
-                        "system",
-                        key,
-                        Settings.System.getString(
-                                context.getContentResolver(), key),
-                        null);
-            } catch (RuntimeException error) {
-                appendSetting(report, values, "system", key, null,
-                        ShizukuCapabilityProbe.usefulMessage(error));
-            }
-            try {
-                appendSetting(
-                        report,
-                        values,
-                        "global",
-                        key,
-                        Settings.Global.getString(
-                                context.getContentResolver(), key),
-                        null);
-            } catch (RuntimeException error) {
-                appendSetting(report, values, "global", key, null,
-                        ShizukuCapabilityProbe.usefulMessage(error));
-            }
+    private static void appendHardwareSettings(final StringBuilder report) {
+        final RedmagicHardwareSettings.Snapshot settings;
+        try {
+            settings = RedmagicHardwareSettings.readAll(
+                    NubiaCapabilityProbe::runCoolingSettingsRead);
+        } catch (IOException | RuntimeException error) {
+            RedmagicHardwareSettings.appendDiagnostics(
+                    report,
+                    null,
+                    ShizukuCapabilityProbe.usefulMessage(error));
+            return;
         }
-        appendHardwareNamespace(
-                report,
-                "fan",
-                RedmagicSettingsNamespace.select(
-                        values.toString(),
-                        HARDWARE_SETTINGS[0],
-                        HARDWARE_SETTINGS[1]));
-        appendHardwareNamespace(
-                report,
-                "pump",
-                RedmagicSettingsNamespace.select(
-                        values.toString(),
-                        HARDWARE_SETTINGS[3],
-                        HARDWARE_SETTINGS[4]));
+        RedmagicHardwareSettings.appendDiagnostics(report, settings, null);
     }
 
-    private static void appendSetting(
-            final StringBuilder report,
-            final StringBuilder values,
-            final String namespace,
-            final String key,
-            final String value,
-            final String error) {
-        ShizukuCapabilityProbe.append(
-                report,
-                "hardware.setting." + namespace + "." + key,
-                error == null
-                        ? (value == null ? "absent" : "present")
-                        : "error",
-                error == null ? value : error);
-        if (error == null) {
-            values.append("setting.")
-                    .append(namespace).append('.').append(key).append('=')
-                    .append(value == null ? "null" : value)
-                    .append('\n');
+    private static String runCoolingSettingsRead(final String command)
+            throws IOException {
+        Process process = null;
+        try {
+            process = new ProcessBuilder(
+                    "/system/bin/sh", "-c", command)
+                    .redirectErrorStream(true)
+                    .start();
+            final BoundedProcessRunner.Result result =
+                    BoundedProcessRunner.run(
+                            process,
+                            SETTINGS_READ_TIMEOUT_MILLIS,
+                            SETTINGS_READ_MAX_OUTPUT_BYTES);
+            if (result.exitCode != 0 || result.truncated) {
+                throw new IOException(
+                        "cooling settings read failed " + result.exitCode
+                                + (result.truncated ? " (truncated)" : "")
+                                + ": " + result.output.trim());
+            }
+            return result.output;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("cooling settings read interrupted", error);
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
         }
-    }
-
-    private static void appendHardwareNamespace(
-            final StringBuilder report,
-            final String group,
-            final RedmagicSettingsNamespace namespace) {
-        ShizukuCapabilityProbe.append(
-                report,
-                "hardware.settings." + group,
-                namespace == null ? "unresolved" : namespace.shellName,
-                "");
     }
 
     private static void appendMousePositionApi(

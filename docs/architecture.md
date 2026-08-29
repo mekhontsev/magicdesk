@@ -754,6 +754,10 @@ isolated behind these boundaries.
   relays; it does not imply absolute-pointer support.
   `PlatformTextInputDriver` owns optional projected-window IME forwarding; and
   `PlatformDiagnostics` contributes only the probes for the selected platform.
+  A selected `SYSTEM_CONTROLS` provider identifies the platform integration,
+  not every optional hardware control. Nubia cooling settings are read through
+  one typed, read-only snapshot shared with the production controller; fan and
+  pump control keys and effective state are reported independently.
 - `InternalDisplayDesktopConfig` reads Android's live
   `config_canInternalDisplayHostDesktops` resource for compatibility reports.
   It is deliberately diagnostic rather than a launch gate: this resource

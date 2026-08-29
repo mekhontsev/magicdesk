@@ -65,15 +65,18 @@ final class RedmagicHardwareController {
     private static final String ABSENT_SETTING = "__magicdesk_absent__";
     private static final long POLL_SECONDS = 4;
 
-    private static final String VENDOR_FAN_MANUAL = "fan_state_of_manual";
-    private static final String VENDOR_FAN_MODE = "fan_state_of_mode";
-    private static final String VENDOR_FAN_EFFECTIVE = "game_fan_off_on";
+    private static final String VENDOR_FAN_MANUAL =
+            RedmagicHardwareSettings.FAN_MANUAL;
+    private static final String VENDOR_FAN_MODE =
+            RedmagicHardwareSettings.FAN_MODE;
+    private static final String VENDOR_FAN_EFFECTIVE =
+            RedmagicHardwareSettings.FAN_EFFECTIVE;
     private static final String VENDOR_PUMP_MAIN =
-            "liquid_cooling_main_switch";
+            RedmagicHardwareSettings.PUMP_MAIN;
     private static final String VENDOR_PUMP_FLOW =
-            "liquid_cooling_flow_speed_mode";
+            RedmagicHardwareSettings.PUMP_FLOW;
     private static final String VENDOR_PUMP_EFFECTIVE =
-            "liquid_cooling_off_on";
+            RedmagicHardwareSettings.PUMP_EFFECTIVE;
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final Object CONTROL_LOCK = new Object();
@@ -459,10 +462,11 @@ final class RedmagicHardwareController {
         if (preferences.getBoolean(OWNER_VENDOR_FAN_ACTIVE, false)) {
             return true;
         }
-        final String output = readVendorSettings(
+        final RedmagicHardwareSettings.Snapshot output = readVendorSettings(
                 VENDOR_FAN_MANUAL, VENDOR_FAN_MODE);
-        final RedmagicSettingsNamespace namespace = selectNamespace(
-                output, VENDOR_FAN_MANUAL, VENDOR_FAN_MODE);
+        final RedmagicSettingsNamespace namespace = output == null
+                ? null : output.selectNamespace(
+                        VENDOR_FAN_MANUAL, VENDOR_FAN_MODE);
         if (namespace == null) {
             return false;
         }
@@ -488,10 +492,11 @@ final class RedmagicHardwareController {
         if (preferences.getBoolean(OWNER_VENDOR_PUMP_ACTIVE, false)) {
             return true;
         }
-        final String output = readVendorSettings(
+        final RedmagicHardwareSettings.Snapshot output = readVendorSettings(
                 VENDOR_PUMP_MAIN, VENDOR_PUMP_FLOW);
-        final RedmagicSettingsNamespace namespace = selectNamespace(
-                output, VENDOR_PUMP_MAIN, VENDOR_PUMP_FLOW);
+        final RedmagicSettingsNamespace namespace = output == null
+                ? null : output.selectNamespace(
+                        VENDOR_PUMP_MAIN, VENDOR_PUMP_FLOW);
         if (namespace == null) {
             return false;
         }
@@ -617,20 +622,15 @@ final class RedmagicHardwareController {
         return ShellAccess.isReady();
     }
 
-    private static String readVendorSettings(
+    private static RedmagicHardwareSettings.Snapshot readVendorSettings(
             final String first,
             final String second) {
         if (!isKnownVendorSetting(first) || !isKnownVendorSetting(second)) {
             return null;
         }
-        final StringBuilder command = new StringBuilder();
-        for (final RedmagicSettingsNamespace namespace
-                : RedmagicSettingsNamespace.values()) {
-            appendSettingRead(command, namespace, first);
-            appendSettingRead(command, namespace, second);
-        }
         try {
-            return ShellAccess.run(command.toString());
+            return RedmagicHardwareSettings.read(
+                    ShellAccess::run, first, second);
         } catch (IOException error) {
             Log.w(TAG, "vendor hardware settings read failed", error);
             CompatibilityDiagnostics.record(
@@ -643,41 +643,18 @@ final class RedmagicHardwareController {
     }
 
     private static String settingFromOutput(
-            final String output,
+            final RedmagicHardwareSettings.Snapshot output,
             final RedmagicSettingsNamespace namespace,
             final String key) {
         if (output == null || namespace == null
                 || !isKnownVendorSetting(key)) {
             return null;
         }
-        final String value = RedmagicSettingsNamespace.value(
-                output, namespace, key);
+        final String value = output.value(namespace, key);
         return value == null
                 ? null
                 : (value.isEmpty() || "null".equals(value)
                         ? ABSENT_SETTING : value);
-    }
-
-    private static void appendSettingRead(
-            final StringBuilder command,
-            final RedmagicSettingsNamespace namespace,
-            final String key) {
-        if (command.length() > 0) {
-            command.append("; ");
-        }
-        command.append("printf 'setting.")
-                .append(namespace.shellName)
-                .append('.').append(key)
-                .append("=%s\\n' \"$(/system/bin/settings get ")
-                .append(namespace.shellName).append(' ').append(key)
-                .append(")\"");
-    }
-
-    private static RedmagicSettingsNamespace selectNamespace(
-            final String output,
-            final String first,
-            final String second) {
-        return RedmagicSettingsNamespace.select(output, first, second);
     }
 
     private static RedmagicSettingsNamespace ownedNamespace(
@@ -758,10 +735,7 @@ final class RedmagicHardwareController {
     }
 
     private static boolean isKnownVendorSetting(final String key) {
-        return VENDOR_FAN_MANUAL.equals(key)
-                || VENDOR_FAN_MODE.equals(key)
-                || VENDOR_PUMP_MAIN.equals(key)
-                || VENDOR_PUMP_FLOW.equals(key);
+        return RedmagicHardwareSettings.isControlSetting(key);
     }
 
     private static void recordVendorRestoreFailure(final String component) {
