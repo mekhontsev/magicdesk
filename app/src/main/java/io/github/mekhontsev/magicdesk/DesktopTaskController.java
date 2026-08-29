@@ -184,6 +184,21 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public void demoteTask(final int taskId) {
+                        requestTaskDemotion(
+                                taskId,
+                                result -> {
+                                    if (!result.success) {
+                                        Log.w(TAG,
+                                                "task demotion failed task="
+                                                        + taskId
+                                                        + " message="
+                                                        + result.message);
+                                    }
+                                });
+                    }
+
+                    @Override
                     public void scheduleRefresh() {
                         DesktopTaskController.this.scheduleRefresh(0);
                     }
@@ -976,7 +991,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         });
                 return;
             }
-            demoteTaskbarTask(
+            demoteTask(
                     snapshot,
                     activeTask.taskId,
                     result -> {
@@ -1232,11 +1247,51 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 return;
             }
 
-            demoteTaskbarTask(snapshot, taskId, callback);
+            demoteTask(snapshot, taskId, callback);
         }));
     }
 
-    private void demoteTaskbarTask(
+    private void requestTaskDemotion(
+            final int taskId,
+            final TaskRepository.ActionCallback callback) {
+        final int displayId = mDisplayId;
+        final int generation = mGeneration;
+        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != displayId || !mTaskWatcherReady) {
+                completeActionCallback(
+                        callback, false, "desktop task runtime unavailable");
+                return;
+            }
+            if (!snapshot.available) {
+                completeActionCallback(callback, false, snapshot.error);
+                return;
+            }
+            final TaskRepository.TaskEntry task = findTask(
+                    snapshot.tasks, taskId);
+            if (task == null || !isFocusableTask(task)) {
+                completeActionCallback(callback, false, "task unavailable");
+                return;
+            }
+            final Set<Integer> concealedTaskIds;
+            synchronized (mTaskbarConcealedTaskIds) {
+                concealedTaskIds = new LinkedHashSet<>(
+                        mTaskbarConcealedTaskIds);
+            }
+            if (EffectiveTaskStack.shouldActivateTaskbarTarget(
+                    snapshot,
+                    task,
+                    concealedTaskIds,
+                    mActiveTaskId)) {
+                completeActionCallback(
+                        callback, false, "task is not foreground");
+                return;
+            }
+            demoteTask(snapshot, taskId, callback);
+        }));
+    }
+
+    private void demoteTask(
             final TaskRepository.Snapshot snapshot,
             final int taskId,
             final TaskRepository.ActionCallback callback) {
@@ -1256,7 +1311,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         concealedTaskIds,
                         DesktopDisplayDrivers.activeTaskAreaPolicy(
                                 mDisplayId)
-                                .usesIndependentFullscreenPlanes());
+                                .usesIndependentFullscreenPlanes(),
+                        mActiveTaskId);
         if (focusOrder.size() < 2) {
             if (!alreadyConcealed) {
                 restoreTaskbarTask(taskId);
@@ -1542,13 +1598,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             if (task == null) {
                 return;
             }
-            final TaskRepository.TaskEntry minimizeFocusTask =
-                    shortcut == SHORTCUT_RESTORE
-                            ? findFocusAfterMinimize(
-                                    snapshot.tasks, task.taskId)
-                            : null;
-            mWindowTransitions.applyShortcut(
-                    task, shortcut, minimizeFocusTask);
+            mWindowTransitions.applyShortcut(task, shortcut);
         }));
         return true;
     }
@@ -1732,8 +1782,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         activeTaskId,
                         !supportsFullscreenTask);
         if (latestActiveTask != null) {
-            applyNativeTaskShortcut(
-                    shortcut, latestActiveTask, latestTasks);
+            applyNativeTaskShortcut(shortcut, latestActiveTask);
             return;
         }
         TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
@@ -1753,44 +1802,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 }
                 return;
             }
-            applyNativeTaskShortcut(shortcut, task, snapshot.tasks);
+            applyNativeTaskShortcut(shortcut, task);
         }));
     }
 
     private void applyNativeTaskShortcut(
             final int shortcut,
-            final TaskRepository.TaskEntry task,
-            final List<TaskRepository.TaskEntry> tasks) {
-        final TaskRepository.TaskEntry minimizeFocusTask =
-                shortcut == SHORTCUT_RESTORE
-                        ? findFocusAfterMinimize(tasks, task.taskId)
-                        : null;
-        mWindowTransitions.applyShortcut(
-                task, shortcut, minimizeFocusTask);
-    }
-
-    private static TaskRepository.TaskEntry findFocusAfterMinimize(
-            final List<TaskRepository.TaskEntry> tasks,
-            final int minimizedTaskId) {
-        if (tasks == null) {
-            return null;
-        }
-        TaskRepository.TaskEntry desktopHost = null;
-        for (final TaskRepository.TaskEntry task : tasks) {
-            if (isDesktopHostTask(task)) {
-                desktopHost = task;
-                break;
-            }
-            if (task != null
-                    && task.taskId != minimizedTaskId
-                    && task.visible
-                    && task.isFreeform()
-                    && DesktopManagedTaskPolicy
-                            .isControllableApplicationTask(task)) {
-                return task;
-            }
-        }
-        return desktopHost;
+            final TaskRepository.TaskEntry task) {
+        mWindowTransitions.applyShortcut(task, shortcut);
     }
 
     private static TaskRepository.TaskEntry findTopVisibleAppTask(

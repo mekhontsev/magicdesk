@@ -15,7 +15,14 @@ final class DesktopWindowTransitionController {
         int displayId();
         boolean isRunning();
         void focusTask(int taskId);
+        void demoteTask(int taskId);
         void scheduleRefresh();
+    }
+
+    enum RestoreShortcutAction {
+        RESTORE_FULLSCREEN,
+        RESTORE_WINDOW_BOUNDS,
+        DEMOTE
     }
 
     static final int SHORTCUT_FULLSCREEN = 1;
@@ -113,22 +120,26 @@ final class DesktopWindowTransitionController {
                 || shortcut == SHORTCUT_SNAP_RIGHT;
     }
 
+    static RestoreShortcutAction classifyRestoreShortcut(
+            final boolean fullscreen,
+            final boolean hasWindowRestoreBounds) {
+        if (fullscreen) {
+            return RestoreShortcutAction.RESTORE_FULLSCREEN;
+        }
+        return hasWindowRestoreBounds
+                ? RestoreShortcutAction.RESTORE_WINDOW_BOUNDS
+                : RestoreShortcutAction.DEMOTE;
+    }
+
     void applyShortcut(
             final TaskRepository.TaskEntry task,
-            final int shortcut,
-            final TaskRepository.TaskEntry minimizeFocusTask) {
+            final int shortcut) {
         switch (shortcut) {
             case SHORTCUT_FULLSCREEN:
                 makeFullscreen(task, false);
                 break;
             case SHORTCUT_RESTORE:
-                if (task.isFullscreen()) {
-                    mTaskStates.state(task.taskId)
-                            .setManualImmersiveOverride(true);
-                    restoreFullscreenTask(task, true);
-                } else {
-                    restoreOrMinimize(task, minimizeFocusTask);
-                }
+                applyRestoreShortcut(task);
                 break;
             case SHORTCUT_SNAP_LEFT:
                 snap(task, true);
@@ -291,16 +302,6 @@ final class DesktopWindowTransitionController {
                 allTasks, visibleFreeformTasks, focusHandoffPending);
     }
 
-    private void minimize(final TaskRepository.TaskEntry task,
-            final TaskRepository.TaskEntry focusTask) {
-        TaskRepository.minimizeTask(task, focusTask, result -> {
-            if (!result.success) {
-                Log.w(TAG, "native minimize failed task=" + task.taskId
-                        + " message=" + result.message);
-            }
-        });
-    }
-
     private void close(final TaskRepository.TaskEntry task) {
         final DesktopWindowTransitionRequest request;
         if (task.isFullscreen()) {
@@ -425,18 +426,28 @@ final class DesktopWindowTransitionController {
         TaskRepository.setFreeform(task, targetBounds, callback);
     }
 
-    private void restoreOrMinimize(
-            final TaskRepository.TaskEntry task,
-            final TaskRepository.TaskEntry minimizeFocusTask) {
+    private void applyRestoreShortcut(
+            final TaskRepository.TaskEntry task) {
         final DesktopTaskRuntimeState state =
                 mTaskStates.find(task.taskId);
         final Rect savedBounds = state == null
                 ? null : state.windowRestoreBounds();
-        if (savedBounds == null) {
-            minimize(task, minimizeFocusTask);
-            return;
+        switch (classifyRestoreShortcut(
+                task.isFullscreen(), savedBounds != null)) {
+            case RESTORE_FULLSCREEN:
+                mTaskStates.state(task.taskId)
+                        .setManualImmersiveOverride(true);
+                restoreFullscreenTask(task, true);
+                break;
+            case RESTORE_WINDOW_BOUNDS:
+                resize(task, savedBounds, true);
+                break;
+            case DEMOTE:
+                mRuntimeState.demoteTask(task.taskId);
+                break;
+            default:
+                throw new IllegalStateException("unknown restore action");
         }
-        resize(task, savedBounds, true);
     }
 
     private void resize(

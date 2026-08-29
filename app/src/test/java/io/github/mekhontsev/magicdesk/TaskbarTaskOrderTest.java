@@ -123,6 +123,22 @@ public final class TaskbarTaskOrderTest {
     }
 
     @Test
+    public void acceptsConfirmedFocusBeforeActiveFlagCatchesUp() {
+        final TaskRepository.TaskEntry focused = task(
+                10, "com.example.focused", "freeform", true, false);
+
+        assertEquals(
+                Arrays.asList(10, 99),
+                TaskbarTaskOrder.concealActiveTask(
+                        snapshot(focused, host(99)),
+                        focused.taskId,
+                        Collections.emptyList(),
+                        ids(10),
+                        false,
+                        focused.taskId));
+    }
+
+    @Test
     public void revealsFullscreenPlaneFlattenedAfterDesktopHost() {
         final TaskRepository.TaskEntry activeWindow = task(
                 10, "com.example.window", "freeform", true, true);

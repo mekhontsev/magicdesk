@@ -16,6 +16,22 @@ final class TaskbarTaskOrder {
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
             final Set<Integer> concealedTaskIds,
             final boolean includeFlattenedFullscreenPlanes) {
+        return concealActiveTask(
+                snapshot,
+                activeTaskId,
+                savedWorkspaceTopFirst,
+                concealedTaskIds,
+                includeFlattenedFullscreenPlanes,
+                -1);
+    }
+
+    static List<Integer> concealActiveTask(
+            final TaskRepository.Snapshot snapshot,
+            final int activeTaskId,
+            final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
+            final Set<Integer> concealedTaskIds,
+            final boolean includeFlattenedFullscreenPlanes,
+            final int focusedTaskId) {
         final List<Integer> order = new ArrayList<>();
         if (snapshot == null || !snapshot.available || activeTaskId < 0) {
             return order;
@@ -24,7 +40,8 @@ final class TaskbarTaskOrder {
                 snapshot.tasks, activeTaskId);
         final TaskRepository.TaskEntry desktopHost = findDesktopHost(
                 snapshot.tasks);
-        if (activeTask == null || !activeTask.active
+        if (activeTask == null
+                || (!activeTask.active && activeTask.taskId != focusedTaskId)
                 || desktopHost == null
                 || activeTask.displayId != desktopHost.displayId
                 || !DesktopManagedTaskPolicy

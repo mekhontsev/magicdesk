@@ -65,4 +65,23 @@ public final class DesktopWindowTransitionControllerTest {
         assertTrue(DesktopWindowTransitionController.supportsFullscreenTask(
                 DesktopWindowTransitionController.SHORTCUT_RESTORE));
     }
+
+    @Test
+    public void restoreShortcutPreservesThreeDistinctStages() {
+        assertEquals(
+                DesktopWindowTransitionController.RestoreShortcutAction
+                        .RESTORE_FULLSCREEN,
+                DesktopWindowTransitionController.classifyRestoreShortcut(
+                        true, true));
+        assertEquals(
+                DesktopWindowTransitionController.RestoreShortcutAction
+                        .RESTORE_WINDOW_BOUNDS,
+                DesktopWindowTransitionController.classifyRestoreShortcut(
+                        false, true));
+        assertEquals(
+                DesktopWindowTransitionController.RestoreShortcutAction
+                        .DEMOTE,
+                DesktopWindowTransitionController.classifyRestoreShortcut(
+                        false, false));
+    }
 }

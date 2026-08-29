@@ -258,6 +258,10 @@ final class StartMenuController {
         return overlays != null && overlays.isVisible(mPanel);
     }
 
+    boolean ownsPanel(final View panel) {
+        return panel != null && panel == mPanel;
+    }
+
     void showCapture() {
         mMode = MENU_CAPTURE;
         mPage = 0;

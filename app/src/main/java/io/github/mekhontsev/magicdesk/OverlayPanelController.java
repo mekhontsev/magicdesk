@@ -29,11 +29,16 @@ final class OverlayPanelController {
         void onSecondaryClick(float x, float y);
     }
 
+    interface PanelVisibilityListener {
+        void onPanelVisibilityChanged(View panel, boolean visible);
+    }
+
     private final Context mApplicationContext;
     private final AppOpsManager mAppOpsManager;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final Context mWindowContext;
     private final WindowManager mWindowManager;
+    private final PanelVisibilityListener mPanelVisibilityListener;
     private final Rect mBounds = new Rect();
     private final Rect mChildBounds = new Rect();
     private final Rect mPersistentBounds = new Rect();
@@ -63,8 +68,12 @@ final class OverlayPanelController {
     private final Runnable mTransientTimeout = this::hideTransient;
     private final AppOpsManager.OnOpChangedListener mOverlayPermissionListener;
 
-    OverlayPanelController(final Context context, final int displayId) {
+    OverlayPanelController(
+            final Context context,
+            final int displayId,
+            final PanelVisibilityListener panelVisibilityListener) {
         mApplicationContext = context.getApplicationContext();
+        mPanelVisibilityListener = panelVisibilityListener;
         mAppOpsManager = mApplicationContext.getSystemService(AppOpsManager.class);
         mOverlayPermissionGranted = Settings.canDrawOverlays(mApplicationContext);
         mOverlayPermissionListener = (operation, packageName) -> {
@@ -120,7 +129,8 @@ final class OverlayPanelController {
                 || !Settings.canDrawOverlays(mApplicationContext)) {
             return false;
         }
-        hideAll();
+        final boolean replacingSamePanel = mAdded && mVisiblePanel == panel;
+        hideAll(replacingSamePanel);
 
         int flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
@@ -166,6 +176,9 @@ final class OverlayPanelController {
             mVisibleFocusable = focusable;
             mBounds.set(left, top, left + width, top + height);
             recordPanelState(true);
+            if (!replacingSamePanel) {
+                notifyPanelVisibilityChanged(panel, true);
+            }
             panel.postOnAnimation(() -> {
                 if (!mAdded || mVisiblePanel != panel) {
                     return;
@@ -190,6 +203,9 @@ final class OverlayPanelController {
             mAdded = false;
             mVisibleFocusable = false;
             mBounds.setEmpty();
+            if (replacingSamePanel) {
+                notifyPanelVisibilityChanged(panel, false);
+            }
             Log.w(TAG, "failed to show panel " + title, e);
             CompatibilityDiagnostics.record(
                     "OVERLAY-004",
@@ -545,6 +561,10 @@ final class OverlayPanelController {
     }
 
     void hideAll() {
+        hideAll(false);
+    }
+
+    private void hideAll(final boolean preservePanelVisibility) {
         hideChild(false);
         hideTransient();
         removeSurfaceTraversalFence();
@@ -563,12 +583,23 @@ final class OverlayPanelController {
         final boolean wasVisible = mAdded && mVisiblePanel != null;
         if (wasVisible) {
             recordPanelState(false);
+            if (!preservePanelVisibility) {
+                notifyPanelVisibilityChanged(panel, false);
+            }
         }
         mVisiblePanel = null;
         mVisibleTitle = "";
         mAdded = false;
         mVisibleFocusable = false;
         mBounds.setEmpty();
+    }
+
+    private void notifyPanelVisibilityChanged(
+            final View panel,
+            final boolean visible) {
+        if (mPanelVisibilityListener != null && panel != null) {
+            mPanelVisibilityListener.onPanelVisibilityChanged(panel, visible);
+        }
     }
 
     private void hideChild() {

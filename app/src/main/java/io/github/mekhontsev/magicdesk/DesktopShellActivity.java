@@ -113,6 +113,8 @@ public abstract class DesktopShellActivity extends Activity
     private int mInputFocusRefreshGeneration;
     private boolean mTaskbarVisible = true;
     private boolean mTaskbarAutoHide;
+    private boolean mTaskbarImeHold;
+    private boolean mTaskbarStartHold;
     private boolean mDesktopPlaneForeground = true;
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private int mDesktopProfileDisplayId = Display.INVALID_DISPLAY;
@@ -465,8 +467,25 @@ public abstract class DesktopShellActivity extends Activity
             mDesktopLayout.setTaskbarBottomInset(
                     visible ? bottomInset : 0);
         }
+        mTaskbarImeHold = visible;
+        updateTaskbarVisibilityHold();
+    }
+
+    private void onOverlayPanelVisibilityChanged(
+            final View panel,
+            final boolean visible) {
+        if (mStartMenuController == null
+                || !mStartMenuController.ownsPanel(panel)) {
+            return;
+        }
+        mTaskbarStartHold = visible;
+        updateTaskbarVisibilityHold();
+    }
+
+    private void updateTaskbarVisibilityHold() {
         if (mTaskbarRevealController != null) {
-            mTaskbarRevealController.setForcedVisible(visible);
+            mTaskbarRevealController.setForcedVisible(
+                    mTaskbarImeHold || mTaskbarStartHold);
         }
     }
 
@@ -757,7 +776,9 @@ public abstract class DesktopShellActivity extends Activity
         final FrameLayout root = new FrameLayout(this);
         mDesktopRoot = root;
         mOverlayPanelController = new OverlayPanelController(
-                this, getCurrentDisplayId());
+                this,
+                getCurrentDisplayId(),
+                this::onOverlayPanelVisibilityChanged);
         root.setBackgroundColor(COLOR_BACKGROUND);
         mDesktopLayout.attachDesktopRoot(root);
 

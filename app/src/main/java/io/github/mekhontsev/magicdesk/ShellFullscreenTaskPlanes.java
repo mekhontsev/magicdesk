@@ -1159,32 +1159,31 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         final FrameworkWindowingApi windowing =
                 FrameworkRuntime.current().windowing();
         final Class<?> transactionClass = windowing.transactionClass();
-        final Object focusTransaction = windowing.newTransaction();
+        final Object closeTransaction = windowing.newTransaction();
         for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
                 : mPlanes.entrySet()) {
             final boolean survivor = entry.getKey().intValue()
                     == survivorTaskId;
             final Object planeToken = entry.getValue().token();
-            windowing.reorder(focusTransaction, planeToken, survivor);
+            windowing.reorder(closeTransaction, planeToken, survivor);
         }
         if (!mPlanes.containsKey(Integer.valueOf(survivorTaskId))) {
             final Object survivorToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, survivorTaskId);
-            windowing.reorder(focusTransaction, survivorToken, true, true);
+            windowing.reorder(closeTransaction, survivorToken, true, true);
         }
-        ShellWindowTransitionExecutor.applyAtomic(
-                service, transactionClass, focusTransaction);
+        final Object closingToken = HiddenTaskApi.requireTaskToken(
+                service, displayId, closingTaskId);
+        // Removing a focused root makes WindowManager choose focus again.
+        // Commit the survivor order in that same transaction so the removal
+        // cannot overwrite an earlier focus handoff with the desktop host.
+        windowing.removeTask(closeTransaction, closingToken);
+        ShellWindowTransitionExecutor.applySynchronized(
+                service, transactionClass, closeTransaction);
         mPlaneOrder.remove(Integer.valueOf(survivorTaskId));
         mPlaneOrder.add(Integer.valueOf(survivorTaskId));
         applySurfaceOrder(toIntArray(mPlaneOrder), mPlanes);
         waitForInputFocus(displayId, survivorTaskId);
-
-        final Object closeTransaction = windowing.newTransaction();
-        final Object closingToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, closingTaskId);
-        windowing.removeTask(closeTransaction, closingToken);
-        ShellWindowTransitionExecutor.applySynchronized(
-                service, transactionClass, closeTransaction);
     }
 
     private static void waitForInputFocus(
