@@ -78,6 +78,21 @@ public final class DesktopTaskSnapshotControllerTest {
                         app(true))));
     }
 
+    @Test
+    public void fullscreenTaskRemainsVisibleWithoutActiveFlag() {
+        assertTrue(DesktopTaskSnapshotController.hasVisibleFullscreenTask(
+                Arrays.asList(app(false, true), desktopHost(true))));
+    }
+
+    @Test
+    public void freeformAboveFullscreenOwnsTaskbarVisibility() {
+        assertFalse(DesktopTaskSnapshotController.hasVisibleFullscreenTask(
+                Arrays.asList(
+                        freeform(true),
+                        app(false, true),
+                        desktopHost(true))));
+    }
+
     private static TaskRepository.TaskEntry desktopHost(
             final boolean visible) {
         return new TaskRepository.TaskEntry(
@@ -95,6 +110,12 @@ public final class DesktopTaskSnapshotControllerTest {
     }
 
     private static TaskRepository.TaskEntry app(final boolean visible) {
+        return app(true, visible);
+    }
+
+    private static TaskRepository.TaskEntry app(
+            final boolean active,
+            final boolean visible) {
         return new TaskRepository.TaskEntry(
                 20,
                 20,
@@ -106,7 +127,7 @@ public final class DesktopTaskSnapshotControllerTest {
                 new Rect(0, 0, 1920, 1080),
                 false,
                 visible,
-                true);
+                active);
     }
 
     private static TaskRepository.TaskEntry freeform(final boolean visible) {

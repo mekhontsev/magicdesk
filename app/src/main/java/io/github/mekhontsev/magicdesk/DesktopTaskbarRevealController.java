@@ -135,9 +135,6 @@ final class DesktopTaskbarRevealController {
         if (handleTouchEdgeInput(event)) {
             return;
         }
-        if (isPinnedVisible() || mForcedVisible) {
-            return;
-        }
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_HOVER_ENTER:
             case MotionEvent.ACTION_HOVER_MOVE:

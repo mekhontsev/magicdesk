@@ -17,9 +17,14 @@ final class PointerEdgeRevealState {
     private boolean mHidePending;
 
     void setArmed(final boolean armed) {
+        if (mArmed == armed) {
+            return;
+        }
         mArmed = armed;
-        mPointerInside = false;
-        mRevealed = false;
+        // Pointer presence is independent of the current visibility policy.
+        // If policy changes while the pointer is already over the taskbar,
+        // keep it exposed until a real exit instead of hiding under it.
+        mRevealed = armed && mPointerInside;
         mRevealPending = false;
         mHidePending = false;
     }

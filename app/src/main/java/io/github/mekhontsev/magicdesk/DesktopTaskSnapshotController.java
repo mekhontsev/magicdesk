@@ -53,10 +53,13 @@ final class DesktopTaskSnapshotController {
                 || (localSession && mActivity.isDesktopPlaneForeground());
         final boolean hasVisibleFreeformTask = hasVisibleFreeformTask(
                 snapshot.tasks);
+        final boolean hasVisibleFullscreenTask = hasVisibleFullscreenTask(
+                snapshot.tasks);
         final boolean taskbarVisible = DesktopTaskbarVisibilityPolicy.isVisible(
                 mActivity.getCurrentDisplayId() == android.view.Display.DEFAULT_DISPLAY,
                 activeTask != null,
                 hasVisibleFreeformTask,
+                hasVisibleFullscreenTask,
                 desktopPlaneActive,
                 mActivity.isTaskbarVisible());
         mSnapshot = snapshot;
@@ -104,6 +107,33 @@ final class DesktopTaskSnapshotController {
             }
             if (task.isFullscreen()) {
                 return false;
+            }
+        }
+        return false;
+    }
+
+    static boolean hasVisibleFullscreenTask(
+            final List<TaskRepository.TaskEntry> tasks) {
+        if (tasks == null) {
+            return false;
+        }
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (task == null || !task.visible
+                    || TaskAreaBackstopActivity.isBackstopTask(task)) {
+                continue;
+            }
+            if (DesktopTaskController.isDesktopHostTask(task)) {
+                return false;
+            }
+            if (!DesktopManagedTaskPolicy
+                    .isControllableApplicationTask(task)) {
+                continue;
+            }
+            if (task.isFreeform()) {
+                return false;
+            }
+            if (task.isFullscreen()) {
+                return true;
             }
         }
         return false;

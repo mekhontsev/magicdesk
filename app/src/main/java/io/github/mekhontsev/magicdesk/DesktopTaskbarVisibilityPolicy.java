@@ -8,6 +8,7 @@ final class DesktopTaskbarVisibilityPolicy {
             final boolean localDisplay,
             final boolean hasActiveTask,
             final boolean hasVisibleFreeformTask,
+            final boolean hasVisibleFullscreenTask,
             final boolean desktopActive,
             final boolean previouslyVisible) {
         // This is workspace policy visibility. The reveal controller still
@@ -15,7 +16,7 @@ final class DesktopTaskbarVisibilityPolicy {
         if (desktopActive || hasVisibleFreeformTask) {
             return true;
         }
-        if (hasActiveTask) {
+        if (hasActiveTask || hasVisibleFullscreenTask) {
             return false;
         }
         return localDisplay ? previouslyVisible : true;

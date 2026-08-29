@@ -64,6 +64,23 @@ public final class PointerEdgeRevealStateTest {
     }
 
     @Test
+    public void policyHideKeepsTaskbarUnderExistingPointer() {
+        final PointerEdgeRevealState state = new PointerEdgeRevealState();
+        assertEquals(
+                PointerEdgeRevealState.TimerAction.NONE,
+                state.onPointerEntered());
+
+        state.setArmed(true);
+
+        assertTrue(state.isRevealed());
+        assertEquals(
+                PointerEdgeRevealState.TimerAction.START_HIDE,
+                state.onPointerExited());
+        assertTrue(state.onHideTimeout());
+        assertFalse(state.isRevealed());
+    }
+
+    @Test
     public void bottomBoundaryExitIsCausedByTaskbarRelayout() {
         assertTrue(DesktopTaskbarRevealController.isBottomEdgeExit(
                 0, 1920, 1080, 400f, 1080f));
