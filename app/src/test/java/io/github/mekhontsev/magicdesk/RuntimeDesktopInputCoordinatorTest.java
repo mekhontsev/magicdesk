@@ -12,12 +12,18 @@ public final class RuntimeDesktopInputCoordinatorTest {
     @Test
     public void routesInputOnlyToExternalDesktopWithBridgeSupport() {
         assertEquals(7, RuntimeDesktopInputCoordinator.routingDisplayId(
-                7, true));
-        assertEquals(Display.INVALID_DISPLAY,
-                RuntimeDesktopInputCoordinator.routingDisplayId(7, false));
+                7, DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE));
         assertEquals(Display.INVALID_DISPLAY,
                 RuntimeDesktopInputCoordinator.routingDisplayId(
-                        Display.DEFAULT_DISPLAY, true));
+                        7, DesktopInputRelayPolicy.NONE));
+        assertEquals(Display.INVALID_DISPLAY,
+                RuntimeDesktopInputCoordinator.routingDisplayId(
+                        Display.DEFAULT_DISPLAY,
+                        DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE));
+        assertEquals(7, RuntimeDesktopInputCoordinator.routingDisplayId(
+                7, new DesktopInputRelayPolicy(true, false)));
+        assertEquals(7, RuntimeDesktopInputCoordinator.routingDisplayId(
+                7, new DesktopInputRelayPolicy(false, true)));
     }
 
     @Test

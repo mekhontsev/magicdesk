@@ -168,14 +168,6 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
-    public void preparePhysicalPointerHandoff(final int displayId) {
-        if (mDestroyed || mDesktopInput == null) {
-            return;
-        }
-        mDesktopInput.preparePhysicalPointerHandoff(displayId);
-    }
-
-    @Override
     public boolean prepareDesktopDisplayRemoval(
             final int displayId) {
         if (mDestroyed || mDesktopInput == null
@@ -395,6 +387,7 @@ public final class MagicDeskRuntimeService extends Service
                 this,
                 mHandler,
                 mPlatform.features(),
+                mPlatform.pointer(),
                 mPhoneUi,
                 this::updateNotification);
         mDesktopInput.start();

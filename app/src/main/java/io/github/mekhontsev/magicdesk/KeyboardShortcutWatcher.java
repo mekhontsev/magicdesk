@@ -40,7 +40,14 @@ final class KeyboardShortcutWatcher {
 
     static void start(
             final int routingDisplayId,
+            final DesktopInputRelayPolicy relayPolicy,
             final RoutingListener routingListener) {
+        final DesktopInputRelayPolicy policy = relayPolicy == null
+                ? DesktopInputRelayPolicy.NONE : relayPolicy;
+        if (routingDisplayId > 0 && !policy.isRequired()) {
+            throw new IllegalArgumentException(
+                    "external input routing requires a relay policy");
+        }
         final long generation;
         synchronized (LOCK) {
             if (sRunning) {
@@ -53,7 +60,7 @@ final class KeyboardShortcutWatcher {
             sThread = new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    runLoop(routingDisplayId, generation);
+                    runLoop(routingDisplayId, policy, generation);
                 }
             }, "MagicDeskKeyWatcher");
             sThread.setDaemon(true);
@@ -158,6 +165,7 @@ final class KeyboardShortcutWatcher {
 
     private static void runLoop(
             final int routingDisplayId,
+            final DesktopInputRelayPolicy relayPolicy,
             final long generation) {
         while (isRunning(generation)) {
             InputBridgeDiagnostics.noteAttempt(routingDisplayId);
@@ -166,7 +174,8 @@ final class KeyboardShortcutWatcher {
             try {
                 ShellAccess.cleanupInputRouting();
                 if (routingDisplayId > 0) {
-                    runDesktopSession(routingDisplayId, generation);
+                    runDesktopSession(
+                            routingDisplayId, relayPolicy, generation);
                     continue;
                 }
 
@@ -213,6 +222,7 @@ final class KeyboardShortcutWatcher {
 
     private static void runDesktopSession(
             final int routingDisplayId,
+            final DesktopInputRelayPolicy relayPolicy,
             final long generation)
             throws IOException {
         ShellStreamHandle keyboardStream = null;
@@ -220,17 +230,24 @@ final class KeyboardShortcutWatcher {
         BufferedReader keyboardReader = null;
         HardwareKeyboardLayoutController.LayoutSink layoutSink = null;
         try {
+            if (!relayPolicy.keyboard) {
+                runRoutingOnlySession(
+                        routingDisplayId, relayPolicy, generation);
+                return;
+            }
             final List<DesktopKeyboardDevice> keyboards =
                     DesktopInputDeviceDiscovery.findKeyboards(
                             FrameworkInputSnapshotSource.readRemote());
             if (keyboards.isEmpty()) {
-                runPointerOnlySession(routingDisplayId, generation);
+                runRoutingOnlySession(
+                        routingDisplayId, relayPolicy, generation);
                 return;
             }
             final int layoutCount =
                     HardwareKeyboardLayoutController.catalogLayoutCount();
             if (layoutCount == 0) {
-                runPointerOnlySession(routingDisplayId, generation);
+                runRoutingOnlySession(
+                        routingDisplayId, relayPolicy, generation);
                 return;
             }
 
@@ -247,7 +264,7 @@ final class KeyboardShortcutWatcher {
                     "keyboard bridge");
 
             inputRouting = ShellAccess.openInputRouting(
-                    routingDisplayId, layoutCount);
+                    routingDisplayId, layoutCount, relayPolicy);
             if (inputRouting.virtualKeyboardCount() != layoutCount) {
                 throw new IOException(
                         "virtual keyboard routing count mismatch");
@@ -302,12 +319,14 @@ final class KeyboardShortcutWatcher {
         }
     }
 
-    private static void runPointerOnlySession(
+    private static void runRoutingOnlySession(
             final int routingDisplayId,
+            final DesktopInputRelayPolicy relayPolicy,
             final long generation) throws IOException {
         ShellInputRoutingHandle inputRouting = null;
         try {
-            inputRouting = ShellAccess.openInputRouting(routingDisplayId, 0);
+            inputRouting = ShellAccess.openInputRouting(
+                    routingDisplayId, 0, relayPolicy);
             setInputRouting(inputRouting, generation);
             InputBridgeDiagnostics.noteReady(false);
             Log.i(TAG, "input watcher started shell="
@@ -315,7 +334,8 @@ final class KeyboardShortcutWatcher {
                     + " full=false routingDisplay=" + routingDisplayId
                     + " keyboards=0 associations="
                     + inputRouting.associationCount()
-                    + " layouts=0");
+                    + " layouts=0 relay="
+                    + relayPolicy.diagnosticDetail());
             waitUntilStopped(generation);
         } finally {
             clearInputRouting(inputRouting);

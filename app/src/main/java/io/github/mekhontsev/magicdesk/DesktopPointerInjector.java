@@ -446,7 +446,7 @@ public final class DesktopPointerInjector {
         // standard platform can inject a display-targeted synthetic mouse.
         if (displayId != Display.DEFAULT_DISPLAY
                 && PlatformDrivers.current().features()
-                        .externalInputBridge) {
+                        .inputRelay.mouse) {
             return magicDeskMouseDeviceId();
         }
         return inputDeviceId(InputDevice.SOURCE_MOUSE);

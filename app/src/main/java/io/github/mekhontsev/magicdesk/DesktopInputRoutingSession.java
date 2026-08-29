@@ -7,6 +7,7 @@ import android.os.SystemClock;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -29,6 +30,8 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
     private int mDisplayId = -1;
     private int mKeyboardAssociationCount;
     private int mVirtualKeyboardCount;
+    private boolean mRouteKeyboards;
+    private boolean mRouteMouse;
     private boolean mClosed;
 
     private DesktopInputRoutingSession(
@@ -40,6 +43,8 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             final Context context,
             final int displayId,
             final int expectedVirtualKeyboardCount,
+            final boolean routeKeyboards,
+            final boolean routeMouse,
             final PlatformPointerDriver pointer) throws Exception {
         if (context == null) {
             throw new IllegalArgumentException(
@@ -53,15 +58,34 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             throw new IllegalArgumentException(
                     "virtual keyboard count must not be negative");
         }
+        if (!routeKeyboards && expectedVirtualKeyboardCount != 0) {
+            throw new IllegalArgumentException(
+                    "virtual keyboards require keyboard routing");
+        }
+        if (!routeKeyboards && !routeMouse) {
+            throw new IllegalArgumentException(
+                    "input routing requires at least one relay");
+        }
         final List<DesktopKeyboardDevice> keyboards =
-                waitForVirtualKeyboards(expectedVirtualKeyboardCount);
+                routeKeyboards
+                        ? waitForVirtualKeyboards(
+                                expectedVirtualKeyboardCount)
+                        : Collections.emptyList();
         final List<DesktopMouseDevice> mice =
-                waitForVirtualMouse();
+                routeMouse
+                        ? waitForVirtualMouse()
+                        : Collections.emptyList();
         cleanupStaleAssociations();
         final DesktopInputRoutingSession session =
                 new DesktopInputRoutingSession(pointer);
         try {
-            session.start(context, displayId, keyboards, mice);
+            session.start(
+                    context,
+                    displayId,
+                    keyboards,
+                    mice,
+                    routeKeyboards,
+                    routeMouse);
             session.mVirtualKeyboardCount =
                     countVirtualKeyboards(keyboards);
             return session;
@@ -126,13 +150,17 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             final Context context,
             final int displayId,
             final List<DesktopKeyboardDevice> keyboards,
-            final List<DesktopMouseDevice> mice) throws Exception {
+            final List<DesktopMouseDevice> mice,
+            final boolean routeKeyboards,
+            final boolean routeMouse) throws Exception {
         mInputManager = getService(
                 "input", "android.hardware.input.IInputManager");
         final Class<?> inputManagerInterface =
                 Class.forName("android.hardware.input.IInputManager");
         final RoutingTarget target = findRoutingTarget(displayId);
         mDisplayId = displayId;
+        mRouteKeyboards = routeKeyboards;
+        mRouteMouse = routeMouse;
         mAssociationTarget = target.associationTarget;
         if (target.physicalPort) {
             mAddAssociation = inputManagerInterface.getMethod(
@@ -171,7 +199,9 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         // InputManager rebuilds pointer viewports when associations change.
         // Finalize that rebuild after Android associations are complete and
         // before the caller enables capture.
-        mPointer.refreshViewport();
+        if (mRouteMouse && mPointer.supportsDisplay(displayId)) {
+            mPointer.refreshViewport();
+        }
     }
 
     synchronized int refreshAssociations() throws Exception {
@@ -180,18 +210,21 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             return 0;
         }
         int added = 0;
-        for (final DesktopKeyboardDevice keyboard
-                : DesktopInputDeviceDiscovery.findRoutableKeyboards()) {
-            if (associatePort(
-                    keyboard.location)) {
-                mKeyboardAssociationCount++;
-                added++;
+        if (mRouteKeyboards) {
+            for (final DesktopKeyboardDevice keyboard
+                    : DesktopInputDeviceDiscovery.findRoutableKeyboards()) {
+                if (associatePort(keyboard.location)) {
+                    mKeyboardAssociationCount++;
+                    added++;
+                }
             }
         }
-        for (final DesktopMouseDevice mouse
-                : DesktopInputDeviceDiscovery.findRoutableMice()) {
-            if (associatePort(mouse.location)) {
-                added++;
+        if (mRouteMouse) {
+            for (final DesktopMouseDevice mouse
+                    : DesktopInputDeviceDiscovery.findRoutableMice()) {
+                if (associatePort(mouse.location)) {
+                    added++;
+                }
             }
         }
         if (added > 0) {
@@ -297,11 +330,15 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         // The routing target may have disappeared while vendor input still
         // uses its viewport. Rebuild it only after physical ports are back on
         // Android's default routing so the phone cannot retain desktop bounds.
-        mPointer.refreshViewport();
+        if (mRouteMouse && mPointer.supportsDisplay(mDisplayId)) {
+            mPointer.refreshViewport();
+        }
         mDisplayId = -1;
         mAssociationTarget = null;
         mKeyboardAssociationCount = 0;
         mVirtualKeyboardCount = 0;
+        mRouteKeyboards = false;
+        mRouteMouse = false;
     }
 
     private static List<DesktopKeyboardDevice> waitForVirtualKeyboards(

@@ -26,6 +26,12 @@ projection, absolute touchpad positioning, external-display input routing,
 WMShell desktop commands, and several task transitions can still depend on
 firmware behavior.
 
+Compatibility reports expose keyboard relay, mouse relay, and absolute-pointer
+support separately. A vendor can therefore require a complete keyboard stream
+without replacing mouse routing, or provide absolute touchpad positioning
+without enabling either native relay. Missing one input capability must not
+disable or start the others.
+
 Phone desktop availability is independent from external-display support.
 MagicDesk reports Android's live
 `config_canInternalDisplayHostDesktops` framework resource in Diagnostics, but

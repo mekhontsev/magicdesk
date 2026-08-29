@@ -56,7 +56,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private int mPointerX;
     private int mPointerY;
     private long mPointerDragDownTime;
-    private boolean mPhysicalPointerPrepared;
     private MirrorInputEditText mMirrorInput;
     private FrameLayout mContentContainer;
     private ImageButton mHelpButton;
@@ -196,11 +195,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         super.onWindowFocusChanged(hasFocus);
         if (!hasFocus) {
             return;
-        }
-        if (!mPhysicalPointerPrepared) {
-            mPhysicalPointerPrepared = true;
-            MagicDeskRuntime.preparePhysicalPointerHandoff(
-                    mTargetDisplayId);
         }
         if (hasTextInputProxy()) {
             showKeyboardIfReady();
@@ -555,17 +549,11 @@ public final class MagicDeskTouchpadActivity extends Activity {
 
         finishPointerDrag();
         mTargetDisplayId = targetDisplayId;
-        mPhysicalPointerPrepared = false;
 
         if (visible && targetDisplayId > Display.DEFAULT_DISPLAY) {
             recordAutomationVisibility(true, targetDisplayId);
             DesktopSelfTestPhoneUiObserver.noteTouchpadStarted(
                     targetDisplayId);
-            if (hasWindowFocus()) {
-                mPhysicalPointerPrepared = true;
-                MagicDeskRuntime.preparePhysicalPointerHandoff(
-                        targetDisplayId);
-            }
         }
         finishIfTargetUnavailable();
     }

@@ -81,7 +81,8 @@ public final class PlatformCapabilitySnapshot {
                 () -> platform.projection().supportsOutputConfiguration(),
                 () -> "");
         add(entries, platform, PlatformCapabilityId.EXTERNAL_INPUT_BRIDGE,
-                features.externalInputBridge, "");
+                features.inputRelay.isRequired(),
+                features.inputRelay.diagnosticDetail());
         probe(entries, platform, PlatformCapabilityId.ABSOLUTE_POINTER,
                 () -> platform.pointer().isAvailable(), () -> "");
         probe(entries, platform, PlatformCapabilityId.MIRROR_TEXT_INPUT,

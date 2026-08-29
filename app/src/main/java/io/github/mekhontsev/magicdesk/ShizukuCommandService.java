@@ -880,6 +880,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     public int[] startInputRouting(
             final int displayId,
             final int expectedVirtualKeyboardCount,
+            final boolean routeKeyboards,
+            final boolean routeMouse,
             final IBinder ownerToken) {
         if (ownerToken == null) {
             throw new IllegalArgumentException(
@@ -895,6 +897,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                         mContext,
                         displayId,
                         expectedVirtualKeyboardCount,
+                        routeKeyboards,
+                        routeMouse,
                         mPointerDriver);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);

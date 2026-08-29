@@ -30,7 +30,6 @@ struct bridge_state {
     bool pointer_restore_armed;
     bool pointer_reactivation_armed;
     bool pointer_moved;
-    bool source_pointer_initialized[MAX_SOURCES];
     bool capture_enabled;
     int pointer_activation_direction;
 };
@@ -192,10 +191,12 @@ static int reconcile_sources(
         return -1;
     }
     if (result > 0) {
-        for (int index = 0; index < state->source_count; ++index) {
-            if (!state->sources[index].grabbed) {
-                state->source_pointer_initialized[index] = false;
-            }
+        if (state->capture_enabled
+                && magicdesk_grab_sources(
+                        state->sources,
+                        state->source_count,
+                        "MOUSE") < 0) {
+            return -1;
         }
         char output[96];
         snprintf(output, sizeof(output),
@@ -217,54 +218,11 @@ static int remove_source(
                 state) < 0) {
         return -1;
     }
-    if (source_index + 1 <= state->source_count) {
-        memmove(
-                &state->source_pointer_initialized[source_index],
-                &state->source_pointer_initialized[source_index + 1],
-                (size_t)(state->source_count - source_index)
-                        * sizeof(state->source_pointer_initialized[0]));
-    }
-    state->source_pointer_initialized[state->source_count] = false;
     char output[96];
     snprintf(output, sizeof(output),
             "MAGICDESK_MOUSE_SOURCES count=%d",
             state->source_count);
     emit_line(output);
-    return 0;
-}
-
-static int prepare_source_handoff(
-        struct bridge_state *state,
-        const int source_index,
-        const struct input_event *events,
-        const size_t event_count) {
-    if (!state->capture_enabled) {
-        state->source_pointer_initialized[source_index] = false;
-        return 0;
-    }
-    for (size_t index = 0; index < event_count; ++index) {
-        const struct input_event *event = &events[index];
-        if (event->type == EV_REL
-                && (event->code == REL_X || event->code == REL_Y)
-                && event->value != 0) {
-            state->source_pointer_initialized[source_index] = true;
-            continue;
-        }
-        if (event->type == EV_SYN && event->code == SYN_DROPPED) {
-            state->source_pointer_initialized[source_index] = false;
-            continue;
-        }
-        if (event->type != EV_SYN || event->code != SYN_REPORT
-                || !state->source_pointer_initialized[source_index]) {
-            continue;
-        }
-
-        // Let Android consume one complete physical motion report before the
-        // source is captured. Some vendor pointer controllers otherwise keep
-        // their position pinned to the display origin even though the uinput
-        // mouse continues to emit valid relative events.
-        return magicdesk_try_grab_source(&state->sources[source_index]);
-    }
     return 0;
 }
 
@@ -358,9 +316,8 @@ static int handle_control_line(
         // The virtual device must be associated with the desktop before a
         // physical report is captured and forwarded through it.
         state->capture_enabled = true;
-        memset(state->source_pointer_initialized, 0,
-                sizeof(state->source_pointer_initialized));
-        return 0;
+        return magicdesk_grab_sources(
+                state->sources, state->source_count, "MOUSE");
     }
     if (strcmp(line, "stop") == 0) {
         state->capture_enabled = false;
@@ -369,8 +326,6 @@ static int handle_control_line(
         }
         magicdesk_ungrab_sources(
                 state->sources, state->source_count);
-        memset(state->source_pointer_initialized, 0,
-                sizeof(state->source_pointer_initialized));
         emit_line("MAGICDESK_MOUSE_CAPTURE_STOPPED");
         return 0;
     }
@@ -388,16 +343,6 @@ static int handle_control_line(
     if (strcmp(line, "reactivate-pointer-on-motion") == 0) {
         state->pointer_reactivation_armed = true;
         state->pointer_moved = false;
-        return 0;
-    }
-    if (strcmp(line, "prepare-physical-pointer") == 0) {
-        if (clear_button_state(state) < 0) {
-            return -1;
-        }
-        magicdesk_ungrab_sources(
-                state->sources, state->source_count);
-        memset(state->source_pointer_initialized, 0,
-                sizeof(state->source_pointer_initialized));
         return 0;
     }
     if (strcmp(line, "activate-pointer") == 0) {
@@ -521,9 +466,11 @@ static int forward_events(struct bridge_state *state) {
             const size_t event_count =
                     (size_t)bytes / sizeof(events[0]);
             if (!state->sources[index].grabbed) {
-                const int handoff = prepare_source_handoff(
-                        state, index, events, event_count);
-                if (handoff < 0
+                const int grabbed = state->capture_enabled
+                        ? magicdesk_try_grab_source(
+                                &state->sources[index])
+                        : 0;
+                if (grabbed < 0
                         && remove_source(state, index) < 0) {
                     result = -1;
                     stop_requested = 1;

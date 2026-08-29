@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 import io.github.mekhontsev.magicdesk.AppLaunchTarget;
 import io.github.mekhontsev.magicdesk.DesktopShellActivity;
 import io.github.mekhontsev.magicdesk.DesktopUiFactory;
+import io.github.mekhontsev.magicdesk.DesktopInputRelayPolicy;
 import io.github.mekhontsev.magicdesk.PlatformAudioCaptureDriver;
 import io.github.mekhontsev.magicdesk.PlatformComponent;
 import io.github.mekhontsev.magicdesk.PlatformDevice;
@@ -94,9 +95,10 @@ public final class NubiaPlatformDriver implements PlatformExtension {
         return new PlatformFeatures(
                 baseline.wiredDesktop,
                 baseline.wirelessDesktop,
-                baseline.externalInputBridge
-                        || components().contains(
-                                PlatformComponent.EXTERNAL_INPUT),
+                baseline.inputRelay.merge(
+                        components().contains(PlatformComponent.EXTERNAL_INPUT)
+                                ? DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE
+                                : DesktopInputRelayPolicy.NONE),
                 baseline.vendorHardware
                         || components().contains(
                                 PlatformComponent.SYSTEM_CONTROLS));

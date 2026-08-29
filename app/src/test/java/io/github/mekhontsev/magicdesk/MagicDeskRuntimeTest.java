@@ -59,7 +59,6 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.releaseDesktopTaskSession(
                 () -> mAttached.desktopReleaseCompleted = true);
         MagicDeskRuntime.reactivatePointerOnNextMotion();
-        MagicDeskRuntime.preparePhysicalPointerHandoff(7);
         assertTrue(MagicDeskRuntime.prepareDesktopDisplayRemoval(7));
         MagicDeskRuntime.cancelDesktopDisplayRemoval(7);
         MagicDeskRuntime.preserveDesktopTasks(7);
@@ -82,7 +81,6 @@ public final class MagicDeskRuntimeTest {
         assertTrue(mAttached.desktopSessionReleased);
         assertTrue(mAttached.desktopReleaseCompleted);
         assertTrue(mAttached.pointerReactivationRequested);
-        assertEquals(7, mAttached.pointerHandoffDisplayId);
         assertEquals(7, mAttached.pointerSuspensionDisplayId);
         assertEquals(7, mAttached.pointerSuspensionCancelledDisplayId);
         assertEquals(7, mAttached.preservedDesktopDisplayId);
@@ -127,7 +125,6 @@ public final class MagicDeskRuntimeTest {
         private boolean desktopSessionReleased;
         private boolean desktopReleaseCompleted;
         private boolean pointerReactivationRequested;
-        private int pointerHandoffDisplayId = -1;
         private int pointerSuspensionDisplayId = -1;
         private int pointerSuspensionCancelledDisplayId = -1;
         private int preservedDesktopDisplayId = -1;
@@ -246,11 +243,6 @@ public final class MagicDeskRuntimeTest {
         @Override
         public void reactivatePointerOnNextMotion() {
             pointerReactivationRequested = true;
-        }
-
-        @Override
-        public void preparePhysicalPointerHandoff(final int displayId) {
-            pointerHandoffDisplayId = displayId;
         }
 
         @Override

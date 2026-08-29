@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk.platform.android;
 import io.github.mekhontsev.magicdesk.AppLaunchTarget;
 import io.github.mekhontsev.magicdesk.DesktopShellActivity;
 import io.github.mekhontsev.magicdesk.DesktopUiFactory;
+import io.github.mekhontsev.magicdesk.DesktopInputRelayPolicy;
 import io.github.mekhontsev.magicdesk.PlatformAudioCaptureDriver;
 import io.github.mekhontsev.magicdesk.PlatformDevice;
 import io.github.mekhontsev.magicdesk.PlatformDiagnostics;
@@ -27,7 +28,7 @@ import java.util.function.Consumer;
 /** Standard Android baseline with optional vendor integrations disabled. */
 public final class GenericAndroidPlatformDriver implements PlatformDriver {
     private static final PlatformFeatures FEATURES = new PlatformFeatures(
-            true, true, false, false);
+            true, true, DesktopInputRelayPolicy.NONE, false);
     private static final PlatformWindowingDriver WINDOWING =
             new GenericAndroidWindowingDriver();
     private static final PlatformPointerDriver POINTER =

@@ -192,13 +192,6 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static void preparePhysicalPointerHandoff(final int displayId) {
-        final MagicDeskRuntimeBackend backend = backend();
-        if (backend != null) {
-            backend.preparePhysicalPointerHandoff(displayId);
-        }
-    }
-
     static boolean prepareDesktopDisplayRemoval(
             final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();

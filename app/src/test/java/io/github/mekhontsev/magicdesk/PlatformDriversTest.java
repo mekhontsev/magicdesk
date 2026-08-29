@@ -24,7 +24,8 @@ public final class PlatformDriversTest {
                 .provider(PlatformComponent.PROJECTION).id);
         assertTrue(driver.features().wiredDesktop);
         assertTrue(driver.features().wirelessDesktop);
-        assertTrue(driver.features().externalInputBridge);
+        assertTrue(driver.features().inputRelay.keyboard);
+        assertTrue(driver.features().inputRelay.mouse);
         assertFalse(driver.audioCapture().availability()
                 == PlatformAudioCaptureDriver.Availability.UNSUPPORTED);
         assertTrue(driver.textInput().isAvailable());
@@ -65,7 +66,7 @@ public final class PlatformDriversTest {
                 DesktopDisplayTarget.Kind.WIRED));
         assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRELESS));
-        assertFalse(driver.features().externalInputBridge);
+        assertFalse(driver.features().inputRelay.isRequired());
         assertFalse(driver.audioCapture().isAvailable());
         assertFalse(driver.textInput().isAvailable());
         assertFalse(driver.pointer().isAvailable());

@@ -368,7 +368,7 @@ public final class CompatibilityDiagnostics {
                         .snapshot().reportLine())
                 .append('\n');
         final boolean globalInput = ShellAccess.isReady()
-                && audit.platform.features().externalInputBridge
+                && audit.platform.features().inputRelay.keyboard
                 && DesktopRuntimeBridge.getActiveDesktopDisplayId() > 0;
         appendCheck(report, "SHORTCUTS-001",
                 !globalInput || KeyboardShortcutWatcher.isFullShortcutMode(),
@@ -376,10 +376,10 @@ public final class CompatibilityDiagnostics {
                 globalInput
                         ? (KeyboardShortcutWatcher.isFullShortcutMode()
                                 ? "running" : "not running")
-                        : audit.platform.features().externalInputBridge
+                        : audit.platform.features().inputRelay.keyboard
                                 ? "idle; an external desktop is required"
                                 : "not required by the selected platform");
-        report.append("Keyboard bridge runtime: ")
+        report.append("Input relay runtime: ")
                 .append(InputBridgeDiagnostics.snapshot().reportLine())
                 .append('\n');
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
@@ -433,7 +433,7 @@ public final class CompatibilityDiagnostics {
                 .append('\n');
         final boolean shellRightClick = ShellAccess.isReady();
         final boolean mouseBridgeExpected =
-                audit.platform.features().externalInputBridge
+                audit.platform.features().inputRelay.mouse
                         && shellRightClick
                         && DesktopRuntimeBridge
                                 .getActiveDesktopDisplayId() > 0;
@@ -444,7 +444,7 @@ public final class CompatibilityDiagnostics {
         if (!shellRightClick) {
             mouseBridgeDetail =
                     "Shizuku runtime unavailable";
-        } else if (!audit.platform.features().externalInputBridge) {
+        } else if (!audit.platform.features().inputRelay.mouse) {
             mouseBridgeDetail =
                     "not required by the selected platform";
         } else if (!mouseBridgeExpected) {
@@ -513,8 +513,9 @@ public final class CompatibilityDiagnostics {
         report.append("Platform features: wired=")
                 .append(features.wiredDesktop)
                 .append(", wireless=").append(features.wirelessDesktop)
-                .append(", externalInputBridge=")
-                .append(features.externalInputBridge)
+                .append(", inputRelay={")
+                .append(features.inputRelay.diagnosticDetail())
+                .append('}')
                 .append(", internalAudioCapture=")
                 .append(platform.audioCapture().isAvailable())
                 .append(", absolutePointer=")

@@ -88,12 +88,14 @@ Android secondary click, bypassing RedMagic's conversion to Back.
 
 The pointer helper starts passively. The runtime first waits until its virtual
 mouse is visible in EventHub, establishes the display associations, and only
-then enables physical capture. Pointer viewport finalization belongs to that
-same routing transaction: it runs after both Android associations and optional
-vendor routing exist. Nubia's oneway viewport command is issued synchronously
+then enables physical capture. Capture acquires every neutral source
+immediately; it does not expose a first physical motion report as an implicit
+vendor handshake. Hot-plugged sources enter the same neutral-state protocol.
+Optional absolute-pointer viewport finalization belongs to that same routing
+transaction, but runs only when both mouse relay and the selected pointer
+driver are available. Nubia's oneway viewport command is issued synchronously
 here so capture cannot overtake the service-side request; firmware may apply the
-accepted InputReader update while the desktop surface is becoming visible. An
-early phone-pointer handoff remains queued until the native helper is ready.
+accepted InputReader update while the desktop surface is becoming visible.
 Teardown reverses that order: the helper
 releases every `EVIOCGRAB` and acknowledges completion before the routing
 session removes its associations. A helper restart repeats the same protocol
@@ -116,6 +118,10 @@ split between the physical and virtual devices.
 `DesktopInputRoutingSession` associates those virtual devices with a physical
 display port for USB-C desktops or with the display unique ID for wireless and
 virtual desktops. There is no separate vendor input-panel owner.
+`DesktopInputRelayPolicy` declares keyboard and mouse relay independently.
+The routing session waits for and associates only the virtual device classes
+selected by that policy; `PlatformPointerDriver` remains a separate capability
+and is never inferred from relay availability.
 
 MagicDesk uses one phone-side `MagicDeskTouchpadActivity` for every external
 transport. Touch
@@ -742,8 +748,10 @@ isolated behind these boundaries.
   firmware this is implemented by `NubiaDesktopPointerDriver`, the MagicDesk
   pointer backend over the hidden vendor positioning API. Physical input
   routing itself stays in the shared Android implementation and uses standard
-  port or unique-id display associations. `PlatformTextInputDriver` owns
-  optional projected-window IME forwarding; and
+  port or unique-id display associations. `DesktopInputRelayPolicy`, carried
+  by `PlatformFeatures`, independently selects complete keyboard and mouse
+  relays; it does not imply absolute-pointer support.
+  `PlatformTextInputDriver` owns optional projected-window IME forwarding; and
   `PlatformDiagnostics` contributes only the probes for the selected platform.
 - `InternalDisplayDesktopConfig` reads Android's live
   `config_canInternalDisplayHostDesktops` resource for compatibility reports.

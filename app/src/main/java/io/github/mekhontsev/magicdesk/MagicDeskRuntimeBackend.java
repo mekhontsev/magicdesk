@@ -36,8 +36,6 @@ interface MagicDeskRuntimeBackend {
 
     void reactivatePointerOnNextMotion();
 
-    void preparePhysicalPointerHandoff(int displayId);
-
     boolean prepareDesktopDisplayRemoval(int displayId);
 
     void cancelDesktopDisplayRemoval(int displayId);

@@ -4,17 +4,18 @@ package io.github.mekhontsev.magicdesk;
 public final class PlatformFeatures {
     public final boolean wiredDesktop;
     public final boolean wirelessDesktop;
-    public final boolean externalInputBridge;
+    public final DesktopInputRelayPolicy inputRelay;
     public final boolean vendorHardware;
 
     public PlatformFeatures(
             final boolean wiredDesktop,
             final boolean wirelessDesktop,
-            final boolean externalInputBridge,
+            final DesktopInputRelayPolicy inputRelay,
             final boolean vendorHardware) {
         this.wiredDesktop = wiredDesktop;
         this.wirelessDesktop = wirelessDesktop;
-        this.externalInputBridge = externalInputBridge;
+        this.inputRelay = inputRelay == null
+                ? DesktopInputRelayPolicy.NONE : inputRelay;
         this.vendorHardware = vendorHardware;
     }
 

@@ -25,7 +25,6 @@ final class DesktopMouseBridge {
     private boolean mReady;
     private boolean mCaptureRequested;
     private boolean mCaptureStopPending;
-    private boolean mPhysicalPointerHandoffArmed;
     private boolean mPointerRestoreArmed;
     private boolean mPointerReactivationArmed;
     private int mGeneration;
@@ -71,7 +70,6 @@ final class DesktopMouseBridge {
             mReady = false;
             mCaptureRequested = false;
             mCaptureStopPending = false;
-            mPhysicalPointerHandoffArmed = false;
             mPointerRestoreArmed = false;
             mPointerReactivationArmed = false;
             mScrollRemainder = 0.0f;
@@ -208,23 +206,6 @@ final class DesktopMouseBridge {
         }
     }
 
-    void preparePhysicalPointerHandoff() {
-        final ShellStreamHandle stream;
-        synchronized (mLock) {
-            if (!mRequested) {
-                return;
-            }
-            // Phone UI focus may arrive before the helper reports READY.
-            // Keep the handoff request until that exact helper can consume it.
-            mPhysicalPointerHandoffArmed = true;
-            stream = mReady ? mStream : null;
-        }
-        if (stream != null
-                && writeControl(stream, "prepare-physical-pointer")) {
-            clearPhysicalPointerHandoff(stream);
-        }
-    }
-
     boolean scrollPointer(final float amount) {
         final ShellStreamHandle stream;
         final int steps;
@@ -352,7 +333,6 @@ final class DesktopMouseBridge {
             final ShellStreamHandle stream,
             final int generation) {
         if (line.startsWith("MAGICDESK_MOUSE_READY")) {
-            final boolean preparePhysicalPointer;
             final boolean restorePointer;
             final boolean reactivatePointer;
             final boolean capturePointer;
@@ -364,14 +344,9 @@ final class DesktopMouseBridge {
                 } else {
                     notifyStateChanged = false;
                 }
-                preparePhysicalPointer = mPhysicalPointerHandoffArmed;
                 restorePointer = mPointerRestoreArmed;
                 reactivatePointer = mPointerReactivationArmed;
                 capturePointer = mCaptureRequested;
-            }
-            if (preparePhysicalPointer
-                    && writeControl(stream, "prepare-physical-pointer")) {
-                clearPhysicalPointerHandoff(stream);
             }
             if (capturePointer) {
                 writeControl(stream, "start");
@@ -437,15 +412,6 @@ final class DesktopMouseBridge {
             Log.w(TAG, line);
         } else if (!line.isEmpty()) {
             Log.d(TAG, line);
-        }
-    }
-
-    private void clearPhysicalPointerHandoff(
-            final ShellStreamHandle stream) {
-        synchronized (mLock) {
-            if (mStream == stream) {
-                mPhysicalPointerHandoffArmed = false;
-            }
         }
     }
 
