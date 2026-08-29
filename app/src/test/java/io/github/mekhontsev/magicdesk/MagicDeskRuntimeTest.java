@@ -240,6 +240,12 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
+        public InputRelayRuntimeDiagnostics.Snapshot
+                captureInputRelayDiagnostics() {
+            return InputRelayRuntimeDiagnostics.Snapshot.unavailable();
+        }
+
+        @Override
         public boolean capturePointerPosition() {
             return true;
         }

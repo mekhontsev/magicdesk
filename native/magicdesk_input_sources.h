@@ -3,6 +3,8 @@
 
 #include <linux/input.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <sys/time.h>
 
 #define MAX_SOURCES 16
 #define SOURCE_PATH_SIZE 128
@@ -60,5 +62,11 @@ int magicdesk_remove_source(
         int source_index,
         magicdesk_clear_input_state_fn clear_input_state,
         void *context);
+
+int magicdesk_grabbed_source_count(
+        const struct source_device *sources,
+        int source_count);
+
+int64_t magicdesk_input_event_age_millis(struct timeval event_time);
 
 #endif

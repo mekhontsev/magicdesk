@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #define BITS_PER_LONG (sizeof(unsigned long) * 8U)
@@ -316,4 +318,48 @@ int magicdesk_remove_source(
     memset(&sources[*source_count], 0, sizeof(sources[0]));
     sources[*source_count].fd = -1;
     return 0;
+}
+
+int magicdesk_grabbed_source_count(
+        const struct source_device *sources,
+        const int source_count) {
+    int count = 0;
+    for (int index = 0; index < source_count; ++index) {
+        if (sources[index].grabbed) {
+            count++;
+        }
+    }
+    return count;
+}
+
+static int64_t timeval_micros(const struct timeval value) {
+    return (int64_t)value.tv_sec * 1000000LL
+            + (int64_t)value.tv_usec;
+}
+
+int64_t magicdesk_input_event_age_millis(
+        const struct timeval event_time) {
+    const int64_t event_micros = timeval_micros(event_time);
+    if (event_micros <= 0) {
+        return -1;
+    }
+    struct timeval realtime = {0};
+    struct timespec monotonic = {0};
+    gettimeofday(&realtime, NULL);
+    clock_gettime(CLOCK_MONOTONIC, &monotonic);
+    const int64_t realtime_age =
+            timeval_micros(realtime) - event_micros;
+    const int64_t monotonic_micros =
+            (int64_t)monotonic.tv_sec * 1000000LL
+                    + (int64_t)monotonic.tv_nsec / 1000LL;
+    const int64_t monotonic_age = monotonic_micros - event_micros;
+    int64_t selected = -1;
+    if (realtime_age >= 0) {
+        selected = realtime_age;
+    }
+    if (monotonic_age >= 0
+            && (selected < 0 || monotonic_age < selected)) {
+        selected = monotonic_age;
+    }
+    return selected < 0 ? -1 : selected / 1000LL;
 }

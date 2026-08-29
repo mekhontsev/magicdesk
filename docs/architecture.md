@@ -1904,9 +1904,17 @@ the installed-app catalog.
 
 Input bridge diagnostics are event-driven lifecycle counters: startup attempts,
 ready or pointer-only sessions, source-refresh failures, bridge anomalies, and
-the last routing display. They do not poll, record key events, or retain typed
-text. The report also states whether the optional desktop-session wake policy
-is enabled and currently held.
+the last routing display. The native relays also keep aggregate physical and
+forwarded event counts, write failures, and the timestamp of the last mouse
+motion or keyboard event. They do not emit per-event diagnostics, record key
+codes, or retain typed text. At the start of explicit compatibility-report
+generation, MagicDesk requests one native statistics frame and one bounded
+`FrameworkInputSnapshotSource` snapshot. The resulting report compares owned
+MagicDesk ports with current InputManager associations and records the observed
+vendor pointer position without refreshing the viewport or attempting pointer
+recovery. No diagnostic input polling runs during normal desktop use. The
+report also states whether the optional desktop-session wake policy is enabled
+and currently held.
 
 Compatibility probes are non-destructive: they inspect permissions and reject
 invalid/null mutations after framework permission checks rather than changing

@@ -9,7 +9,9 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -18,9 +20,9 @@ final class DesktopInputRoutingOwnership {
     private static final File OWNERSHIP_FILE = new File(
             "/data/local/tmp/magicdesk-input-routing-ports");
     private static final Pattern RUNTIME_ASSOCIATION = Pattern.compile(
-            "^\\s*port:\\s+(.+?)\\s+display:\\s+\\d+\\s*$");
+            "^\\s*port:\\s+(.+?)\\s+display:\\s+(\\d+)\\s*$");
     private static final Pattern UNIQUE_ID_ASSOCIATION = Pattern.compile(
-            "^\\s*port:\\s+(.+?)\\s+uniqueId:\\s+.+?\\s*$");
+            "^\\s*port:\\s+(.+?)\\s+uniqueId:\\s+(.+?)\\s*$");
     private static final int MAX_PORTS = 32;
     private static final int MAX_PORT_LENGTH = 256;
 
@@ -83,7 +85,13 @@ final class DesktopInputRoutingOwnership {
 
     static Set<String> findActiveAssociations(final String inputDump)
             throws IOException {
-        final Set<String> ports = new LinkedHashSet<>();
+        return new LinkedHashSet<>(
+                findActiveAssociationTargets(inputDump).keySet());
+    }
+
+    static Map<String, String> findActiveAssociationTargets(
+            final String inputDump) throws IOException {
+        final Map<String, String> associations = new LinkedHashMap<>();
         boolean inOwnedAssociations = false;
         try (BufferedReader reader = new BufferedReader(
                 new StringReader(inputDump))) {
@@ -106,17 +114,21 @@ final class DesktopInputRoutingOwnership {
                 final Matcher association =
                         RUNTIME_ASSOCIATION.matcher(line);
                 if (association.matches()) {
-                    ports.add(association.group(1));
+                    associations.put(
+                            association.group(1),
+                            "display:" + association.group(2));
                     continue;
                 }
                 final Matcher uniqueIdAssociation =
                         UNIQUE_ID_ASSOCIATION.matcher(line);
                 if (uniqueIdAssociation.matches()) {
-                    ports.add(uniqueIdAssociation.group(1));
+                    associations.put(
+                            uniqueIdAssociation.group(1),
+                            "uniqueId:" + uniqueIdAssociation.group(2));
                 }
             }
         }
-        return ports;
+        return associations;
     }
 
     private static boolean isValidPort(final String port) {

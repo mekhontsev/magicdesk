@@ -20,6 +20,8 @@ final class DesktopMouseBridge {
     private final Object mLock = new Object();
     private final Context mContext;
     private final Runnable mStateChanged;
+    private final NativeInputBridgeStatsClient mStatsClient =
+            new NativeInputBridgeStatsClient("MAGICDESK_MOUSE_STATS");
 
     private boolean mRequested;
     private boolean mReady;
@@ -228,6 +230,30 @@ final class DesktopMouseBridge {
                 && writePointerControl(stream, "activate-pointer");
     }
 
+    InputRelayRuntimeDiagnostics.BridgeSnapshot captureDiagnostics() {
+        final ShellStreamHandle stream;
+        final boolean running;
+        final boolean ready;
+        final int generation;
+        synchronized (mLock) {
+            running = mRequested;
+            ready = mReady && mStream != null;
+            generation = mGeneration;
+            stream = ready ? mStream : null;
+        }
+        final NativeInputBridgeStatsClient.Result stats =
+                mStatsClient.request(stream);
+        synchronized (mLock) {
+            return new InputRelayRuntimeDiagnostics.BridgeSnapshot(
+                    running,
+                    mRequested && mReady && mStream == stream,
+                    stream != null && mCaptureRequested,
+                    generation,
+                    stats.detail,
+                    running ? stats.error : "not running");
+        }
+    }
+
     private ShellStreamHandle readyStream() {
         synchronized (mLock) {
             return mRequested && mReady ? mStream : null;
@@ -379,6 +405,14 @@ final class DesktopMouseBridge {
                 if (mStream == stream) {
                     mCaptureStopPending = false;
                     mLock.notifyAll();
+                }
+            }
+            return;
+        }
+        if (line.startsWith("MAGICDESK_MOUSE_STATS")) {
+            synchronized (mLock) {
+                if (isActiveLocked(generation) && mStream == stream) {
+                    mStatsClient.accept(line);
                 }
             }
             return;

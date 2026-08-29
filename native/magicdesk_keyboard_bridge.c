@@ -52,6 +52,13 @@ struct bridge_state {
     struct queued_event queue[MAX_QUEUED_EVENTS];
     size_t queue_head;
     size_t queue_count;
+    uint64_t physical_events;
+    uint64_t physical_key_events;
+    uint64_t forwarded_events;
+    uint64_t forwarded_key_events;
+    uint64_t write_errors;
+    struct timeval last_physical_key;
+    struct timeval last_forwarded_key;
 };
 
 static volatile sig_atomic_t stop_requested;
@@ -110,13 +117,24 @@ static unsigned int modifier_mask(
 }
 
 static int write_event(
+        struct bridge_state *state,
         const int uinput_fd,
         const struct input_event *event) {
     const ssize_t bytes = write(uinput_fd, event, sizeof(*event));
-    return bytes == (ssize_t)sizeof(*event) ? 0 : -1;
+    if (bytes != (ssize_t)sizeof(*event)) {
+        state->write_errors++;
+        return -1;
+    }
+    state->forwarded_events++;
+    if (event->type == EV_KEY) {
+        state->forwarded_key_events++;
+        state->last_forwarded_key = event->time;
+    }
+    return 0;
 }
 
 static int emit_key(
+        struct bridge_state *state,
         const int uinput_fd,
         const unsigned short code,
         const int value) {
@@ -126,22 +144,55 @@ static int emit_key(
         .value = value,
     };
     gettimeofday(&event.time, NULL);
-    return write_event(uinput_fd, &event);
+    return write_event(state, uinput_fd, &event);
 }
 
-static int emit_sync(const int uinput_fd) {
+static int emit_sync(
+        struct bridge_state *state,
+        const int uinput_fd) {
     struct input_event event = {
         .type = EV_SYN,
         .code = SYN_REPORT,
         .value = 0,
     };
     gettimeofday(&event.time, NULL);
-    return write_event(uinput_fd, &event);
+    return write_event(state, uinput_fd, &event);
 }
 
 static void emit_line(const char *line) {
     printf("%s\n", line);
     fflush(stdout);
+}
+
+static void emit_stats(
+        const struct bridge_state *state,
+        const unsigned long long request_id) {
+    char output[512];
+    snprintf(output, sizeof(output),
+            "MAGICDESK_KEYBOARD_STATS request=%llu"
+            " physicalEvents=%llu physicalKeyEvents=%llu"
+            " forwardedEvents=%llu forwardedKeyEvents=%llu"
+            " writeErrors=%llu lastPhysicalKeyAgeMs=%lld"
+            " lastForwardedKeyAgeMs=%lld sources=%d grabbed=%d"
+            " started=%d paused=%d queued=%zu layout=%d",
+            request_id,
+            (unsigned long long)state->physical_events,
+            (unsigned long long)state->physical_key_events,
+            (unsigned long long)state->forwarded_events,
+            (unsigned long long)state->forwarded_key_events,
+            (unsigned long long)state->write_errors,
+            (long long)magicdesk_input_event_age_millis(
+                    state->last_physical_key),
+            (long long)magicdesk_input_event_age_millis(
+                    state->last_forwarded_key),
+            state->source_count,
+            magicdesk_grabbed_source_count(
+                    state->sources, state->source_count),
+            state->started ? 1 : 0,
+            state->paused ? 1 : 0,
+            state->queue_count,
+            state->active_layout);
+    emit_line(output);
 }
 
 static void consume_modifiers(struct bridge_state *state) {
@@ -173,6 +224,7 @@ static int flush_pending_modifiers(
             return 0;
         }
         if (write_event(
+                    state,
                     active_uinput_fd(state),
                     &state->modifier_down_event[selected]) < 0) {
             return -1;
@@ -243,7 +295,10 @@ static int process_modifier_event(
                 // Pointer gestures need Ctrl/Shift to reach Android before
                 // the mouse event. Alt/Meta remain deferred so their global
                 // shortcuts do not leak into the focused application.
-                if (write_event(active_uinput_fd(state), event) < 0) {
+                if (write_event(
+                            state,
+                            active_uinput_fd(state),
+                            event) < 0) {
                     return -1;
                 }
                 state->forwarded_down[code] = true;
@@ -280,14 +335,19 @@ static int process_modifier_event(
 
     int result = 0;
     if (state->forwarded_down[code]) {
-        result = write_event(active_uinput_fd(state), event);
+        result = write_event(
+                state, active_uinput_fd(state), event);
     } else if (state->modifier_pending[code]
             && !state->modifier_consumed[code]
             && !is_meta_modifier(code)) {
         if (write_event(
+                    state,
                     active_uinput_fd(state),
                     &state->modifier_down_event[code]) < 0
-                || write_event(active_uinput_fd(state), event) < 0) {
+                || write_event(
+                        state,
+                        active_uinput_fd(state),
+                        event) < 0) {
             result = -1;
         }
     }
@@ -357,7 +417,10 @@ static int process_key_event(
         }
         emit_line("MAGICDESK_KEYBOARD_ACTIVITY");
         if (flush_pending_modifiers(state) < 0
-                || write_event(active_uinput_fd(state), event) < 0) {
+                || write_event(
+                        state,
+                        active_uinput_fd(state),
+                        event) < 0) {
             return -1;
         }
         state->forwarded_down[code] = true;
@@ -377,9 +440,9 @@ static int process_key_event(
         struct input_event press = *event;
         press.value = 1;
         const int uinput_fd = active_uinput_fd(state);
-        return write_event(uinput_fd, &release) < 0
-                || emit_sync(uinput_fd) < 0
-                || write_event(uinput_fd, &press) < 0 ? -1 : 0;
+        return write_event(state, uinput_fd, &release) < 0
+                || emit_sync(state, uinput_fd) < 0
+                || write_event(state, uinput_fd, &press) < 0 ? -1 : 0;
     }
 
     if (event->value != 0) {
@@ -407,7 +470,7 @@ static int process_key_event(
         return 0;
     }
     state->forwarded_down[code] = false;
-    return write_event(active_uinput_fd(state), event);
+    return write_event(state, active_uinput_fd(state), event);
 }
 
 static int process_event(
@@ -419,7 +482,7 @@ static int process_event(
                 state, &state->sources[source_index], event);
     }
     if (event->type == EV_SYN) {
-        return write_event(active_uinput_fd(state), event);
+        return write_event(state, active_uinput_fd(state), event);
     }
     return 0;
 }
@@ -532,6 +595,7 @@ static int release_forwarded_keys(struct bridge_state *state) {
             continue;
         }
         if (emit_key(
+                    state,
                     active_uinput_fd(state),
                     (unsigned short)code,
                     0) < 0) {
@@ -540,7 +604,8 @@ static int release_forwarded_keys(struct bridge_state *state) {
         state->forwarded_down[code] = false;
         released = true;
     }
-    return !released || emit_sync(active_uinput_fd(state)) == 0 ? 0 : -1;
+    return !released
+            || emit_sync(state, active_uinput_fd(state)) == 0 ? 0 : -1;
 }
 
 static int clear_input_state(void *context) {
@@ -659,6 +724,11 @@ static int handle_control_line(
         state->paused = false;
         if (drain_queue(state) < 0) {
             return -1;
+        }
+    } else {
+        unsigned long long request_id = 0;
+        if (sscanf(line, "stats %llu", &request_id) == 1) {
+            emit_stats(state, request_id);
         }
     }
     return 0;
@@ -798,6 +868,11 @@ static int forward_events(struct bridge_state *state) {
                         events[event_index].type;
                 if (type != EV_SYN && type != EV_KEY) {
                     continue;
+                }
+                state->physical_events++;
+                if (type == EV_KEY) {
+                    state->physical_key_events++;
+                    state->last_physical_key = events[event_index].time;
                 }
                 const int event_result = state->paused
                         ? queue_event(

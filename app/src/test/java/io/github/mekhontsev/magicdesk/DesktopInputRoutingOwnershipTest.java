@@ -3,7 +3,9 @@ package io.github.mekhontsev.magicdesk;
 import static org.junit.Assert.assertEquals;
 
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 
 import org.junit.Test;
 
@@ -27,6 +29,15 @@ public final class DesktopInputRoutingOwnershipTest {
                         "keyboard-port", "mouse port", "wifi keyboard")),
                 DesktopInputRoutingOwnership
                         .findActiveAssociations(dump));
+
+        final Map<String, String> expected = new LinkedHashMap<>();
+        expected.put("keyboard-port", "display:21");
+        expected.put("mouse port", "display:21");
+        expected.put("wifi keyboard", "uniqueId:wifi:01:02");
+        assertEquals(
+                expected,
+                DesktopInputRoutingOwnership
+                        .findActiveAssociationTargets(dump));
     }
 
 }

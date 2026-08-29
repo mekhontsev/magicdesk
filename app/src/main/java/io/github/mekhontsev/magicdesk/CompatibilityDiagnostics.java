@@ -143,6 +143,8 @@ public final class CompatibilityDiagnostics {
 
     static String buildReport(final Context context) {
         final Context appContext = context.getApplicationContext();
+        final InputRelayReportSnapshot inputRelaySnapshot =
+                InputRelayReportSnapshot.capture();
         final DeviceSetupManager.Audit audit =
                 DeviceSetupManager.audit(appContext, SessionProfile.load(appContext));
         final CompatibilitySnapshot snapshot =
@@ -157,7 +159,8 @@ public final class CompatibilityDiagnostics {
                 .append('\n');
 
         appendDevice(report);
-        appendCompatibility(report, appContext, audit);
+        appendCompatibility(
+                report, appContext, audit, inputRelaySnapshot);
         snapshot.appendSelection(report);
         appendShizukuProbe(report, audit);
         CaptureDiagnostics.appendReport(report, appContext);
@@ -222,7 +225,9 @@ public final class CompatibilityDiagnostics {
     }
 
     private static void appendCompatibility(final StringBuilder report,
-            final Context context, final DeviceSetupManager.Audit audit) {
+            final Context context,
+            final DeviceSetupManager.Audit audit,
+            final InputRelayReportSnapshot inputRelaySnapshot) {
         final SessionProfile profile = audit.sessionProfile == null
                 ? SessionProfile.load(context) : audit.sessionProfile;
         final DesktopSessionSnapshot desktopSession =
@@ -377,9 +382,7 @@ public final class CompatibilityDiagnostics {
                         : audit.platform.features().inputRelay.keyboard
                                 ? "idle; an external desktop is required"
                                 : "not required by the selected platform");
-        report.append("Input relay runtime: ")
-                .append(InputBridgeDiagnostics.snapshot().reportLine())
-                .append('\n');
+        inputRelaySnapshot.appendReport(report);
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
         report.append("MagicDesk settings: taskbarAutoHide=")
                 .append(settings.taskbarAutoHide)

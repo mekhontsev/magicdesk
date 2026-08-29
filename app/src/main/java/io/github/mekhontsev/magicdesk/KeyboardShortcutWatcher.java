@@ -26,6 +26,9 @@ final class KeyboardShortcutWatcher {
     private static final Object LOCK = new Object();
     private static final KeyboardShortcutStateMachine SHORTCUTS =
             new KeyboardShortcutStateMachine();
+    private static final NativeInputBridgeStatsClient STATS_CLIENT =
+            new NativeInputBridgeStatsClient(
+                    "MAGICDESK_KEYBOARD_STATS");
     private static boolean sRunning;
     private static ShellStreamHandle sInputStream;
     private static ShellInputRoutingHandle sInputRouting;
@@ -124,6 +127,37 @@ final class KeyboardShortcutWatcher {
         synchronized (LOCK) {
             return sRunning && sRoutingDisplayId == displayId
                     && sInputRouting != null;
+        }
+    }
+
+    static InputRelayRuntimeDiagnostics.BridgeSnapshot captureDiagnostics() {
+        final ShellStreamHandle stream;
+        final boolean running;
+        final boolean ready;
+        final long generation;
+        synchronized (LOCK) {
+            running = sRunning;
+            stream = sInputStream;
+            ready = running && stream != null && sFullShortcutMode;
+            generation = sGeneration;
+        }
+        final NativeInputBridgeStatsClient.Result stats = ready
+                ? STATS_CLIENT.request(stream)
+                : new NativeInputBridgeStatsClient.Result(
+                        "",
+                        running
+                                ? "native keyboard relay not active"
+                                : "not running");
+        synchronized (LOCK) {
+            final boolean currentReady = sRunning
+                    && sInputStream == stream && sFullShortcutMode;
+            return new InputRelayRuntimeDiagnostics.BridgeSnapshot(
+                    running,
+                    currentReady,
+                    currentReady,
+                    generation,
+                    stats.detail,
+                    stats.error);
         }
     }
 
@@ -436,6 +470,15 @@ final class KeyboardShortcutWatcher {
             final String line,
             final ShellStreamHandle keyboardStream,
             final long generation) {
+        if (line.startsWith("MAGICDESK_KEYBOARD_STATS")) {
+            synchronized (LOCK) {
+                if (sRunning && sGeneration == generation
+                        && sInputStream == keyboardStream) {
+                    STATS_CLIENT.accept(line);
+                }
+            }
+            return;
+        }
         if ("MAGICDESK_KEYBOARD_ACTIVITY".equals(line)) {
             MagicDeskRuntime.reactivatePointerOnNextMotion();
             return;

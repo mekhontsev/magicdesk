@@ -32,6 +32,8 @@ interface MagicDeskRuntimeBackend {
 
     DesktopPointerState getDesktopPointerState(int displayId);
 
+    InputRelayRuntimeDiagnostics.Snapshot captureInputRelayDiagnostics();
+
     boolean capturePointerPosition();
 
     void restorePointerPositionOnNextMotion();

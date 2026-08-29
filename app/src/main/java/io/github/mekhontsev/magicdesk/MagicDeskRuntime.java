@@ -179,6 +179,14 @@ public final class MagicDeskRuntime {
                 ? null : backend.getDesktopPointerState(displayId);
     }
 
+    static InputRelayRuntimeDiagnostics.Snapshot
+            captureInputRelayDiagnostics() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend == null
+                ? InputRelayRuntimeDiagnostics.Snapshot.unavailable()
+                : backend.captureInputRelayDiagnostics();
+    }
+
     static boolean capturePointerPosition() {
         final MagicDeskRuntimeBackend backend = backend();
         return backend != null && backend.capturePointerPosition();

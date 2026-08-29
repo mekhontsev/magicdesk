@@ -191,6 +191,22 @@ final class RuntimeDesktopInputCoordinator {
                 position);
     }
 
+    InputRelayRuntimeDiagnostics.Snapshot captureDiagnostics(
+            final String pointerProvider) {
+        if (mDestroyed) {
+            return InputRelayRuntimeDiagnostics.Snapshot.unavailable();
+        }
+        final int displayId = mDesktopDisplayId;
+        // Observe the pointer before the report waits for native relay replies.
+        final DesktopPointerState pointer = pointerState(
+                displayId, pointerProvider);
+        return new InputRelayRuntimeDiagnostics.Snapshot(
+                displayId,
+                mMouseBridge.captureDiagnostics(),
+                KeyboardShortcutWatcher.captureDiagnostics(),
+                pointer);
+    }
+
     boolean capturePointerPosition() {
         return isMouseBridgeReady()
                 && supportsAbsolutePointer(mDesktopDisplayId)

@@ -32,9 +32,19 @@ struct bridge_state {
     bool pointer_moved;
     bool capture_enabled;
     int pointer_activation_direction;
+    uint64_t physical_reports;
+    uint64_t physical_motion_reports;
+    uint64_t forwarded_reports;
+    uint64_t forwarded_motion_reports;
+    uint64_t write_errors;
+    struct timeval last_physical_motion;
+    struct timeval last_forwarded_motion;
+    bool report_has_motion;
 };
 
 static volatile sig_atomic_t stop_requested;
+
+static void emit_line(const char *line);
 
 static void request_stop(int signal_number) {
     (void)signal_number;
@@ -42,13 +52,19 @@ static void request_stop(int signal_number) {
 }
 
 static int write_event(
+        struct bridge_state *state,
         const int uinput_fd,
         const struct input_event *event) {
     const ssize_t bytes = write(uinput_fd, event, sizeof(*event));
-    return bytes == (ssize_t)sizeof(*event) ? 0 : -1;
+    if (bytes == (ssize_t)sizeof(*event)) {
+        return 0;
+    }
+    state->write_errors++;
+    return -1;
 }
 
 static int emit_key(
+        struct bridge_state *state,
         const int uinput_fd,
         const unsigned short code,
         const int value) {
@@ -58,20 +74,23 @@ static int emit_key(
         .value = value,
     };
     gettimeofday(&event.time, NULL);
-    return write_event(uinput_fd, &event);
+    return write_event(state, uinput_fd, &event);
 }
 
-static int emit_sync(const int uinput_fd) {
+static int emit_sync(
+        struct bridge_state *state,
+        const int uinput_fd) {
     struct input_event event = {
         .type = EV_SYN,
         .code = SYN_REPORT,
         .value = 0,
     };
     gettimeofday(&event.time, NULL);
-    return write_event(uinput_fd, &event);
+    return write_event(state, uinput_fd, &event);
 }
 
 static int emit_relative(
+        struct bridge_state *state,
         const int uinput_fd,
         const unsigned short code,
         const int value) {
@@ -84,30 +103,63 @@ static int emit_relative(
         .value = value,
     };
     gettimeofday(&event.time, NULL);
-    return write_event(uinput_fd, &event);
+    return write_event(state, uinput_fd, &event);
 }
 
 static int emit_wheel_steps(
+        struct bridge_state *state,
         const int uinput_fd,
         const int steps) {
     if (steps == 0) {
         return 0;
     }
     return emit_relative(
+                    state,
                     uinput_fd,
                     REL_WHEEL_HI_RES,
                     steps * WHEEL_HI_RES_UNITS_PER_STEP) < 0
-            || emit_relative(uinput_fd, REL_WHEEL, steps) < 0
-            || emit_sync(uinput_fd) < 0 ? -1 : 0;
+            || emit_relative(state, uinput_fd, REL_WHEEL, steps) < 0
+            || emit_sync(state, uinput_fd) < 0 ? -1 : 0;
 }
 
 static int activate_pointer(
+        struct bridge_state *state,
         const int uinput_fd,
         const int direction) {
-    return emit_relative(uinput_fd, REL_X, direction) < 0
-            || emit_sync(uinput_fd) < 0
-            || emit_relative(uinput_fd, REL_X, -direction) < 0
-            || emit_sync(uinput_fd) < 0 ? -1 : 0;
+    return emit_relative(state, uinput_fd, REL_X, direction) < 0
+            || emit_sync(state, uinput_fd) < 0
+            || emit_relative(state, uinput_fd, REL_X, -direction) < 0
+            || emit_sync(state, uinput_fd) < 0 ? -1 : 0;
+}
+
+static void emit_stats(
+        const struct bridge_state *state,
+        const unsigned long long request_id) {
+    char output[512];
+    snprintf(output, sizeof(output),
+            "MAGICDESK_MOUSE_STATS request=%llu"
+            " physicalReports=%llu physicalMotionReports=%llu"
+            " forwardedReports=%llu forwardedMotionReports=%llu"
+            " writeErrors=%llu lastPhysicalMotionAgeMs=%lld"
+            " lastForwardedMotionAgeMs=%lld sources=%d grabbed=%d"
+            " capture=%d restoreArmed=%d reactivateArmed=%d",
+            request_id,
+            (unsigned long long)state->physical_reports,
+            (unsigned long long)state->physical_motion_reports,
+            (unsigned long long)state->forwarded_reports,
+            (unsigned long long)state->forwarded_motion_reports,
+            (unsigned long long)state->write_errors,
+            (long long)magicdesk_input_event_age_millis(
+                    state->last_physical_motion),
+            (long long)magicdesk_input_event_age_millis(
+                    state->last_forwarded_motion),
+            state->source_count,
+            magicdesk_grabbed_source_count(
+                    state->sources, state->source_count),
+            state->capture_enabled ? 1 : 0,
+            state->pointer_restore_armed ? 1 : 0,
+            state->pointer_reactivation_armed ? 1 : 0);
+    emit_line(output);
 }
 
 static void emit_line(const char *line) {
@@ -159,12 +211,16 @@ static int clear_button_state(void *context) {
         if (!state->forwarded_down[code]) {
             continue;
         }
-        if (emit_key(state->uinput_fd, (unsigned short)code, 0) < 0) {
+        if (emit_key(
+                    state,
+                    state->uinput_fd,
+                    (unsigned short)code,
+                    0) < 0) {
             return -1;
         }
         released = true;
     }
-    if (released && emit_sync(state->uinput_fd) < 0) {
+    if (released && emit_sync(state, state->uinput_fd) < 0) {
         return -1;
     }
     memset(state->key_down_count, 0, sizeof(state->key_down_count));
@@ -246,12 +302,12 @@ static int process_key_event(
             return 0;
         }
         state->forwarded_down[code] = true;
-        return write_event(state->uinput_fd, event);
+        return write_event(state, state->uinput_fd, event);
     }
     if (event->value == 2) {
         return source->key_down[code]
                 && state->forwarded_down[code]
-                ? write_event(state->uinput_fd, event) : 0;
+                ? write_event(state, state->uinput_fd, event) : 0;
     }
     if (event->value != 0 || !source->key_down[code]) {
         return 0;
@@ -268,7 +324,7 @@ static int process_key_event(
         return 0;
     }
     state->forwarded_down[code] = false;
-    return write_event(state->uinput_fd, event);
+    return write_event(state, state->uinput_fd, event);
 }
 
 static int process_event(
@@ -280,19 +336,39 @@ static int process_event(
                 state, &state->sources[source_index], event);
     }
     if (event->type == EV_REL) {
+        if ((event->code == REL_X || event->code == REL_Y)
+                && event->value != 0) {
+            state->report_has_motion = true;
+        }
         if ((state->pointer_restore_armed
                     || state->pointer_reactivation_armed)
                 && (event->code == REL_X || event->code == REL_Y)
                 && event->value != 0) {
             state->pointer_moved = true;
         }
-        return write_event(state->uinput_fd, event);
+        return write_event(state, state->uinput_fd, event);
     }
     if (event->type == EV_SYN) {
-        if (write_event(state->uinput_fd, event) < 0) {
+        const bool report_complete = event->code == SYN_REPORT;
+        if (report_complete) {
+            state->physical_reports++;
+            if (state->report_has_motion) {
+                state->physical_motion_reports++;
+                state->last_physical_motion = event->time;
+            }
+        }
+        if (write_event(state, state->uinput_fd, event) < 0) {
             return -1;
         }
-        if (state->pointer_moved && event->code == SYN_REPORT) {
+        if (report_complete) {
+            state->forwarded_reports++;
+            if (state->report_has_motion) {
+                state->forwarded_motion_reports++;
+                state->last_forwarded_motion = event->time;
+            }
+            state->report_has_motion = false;
+        }
+        if (state->pointer_moved && report_complete) {
             state->pointer_moved = false;
             if (state->pointer_restore_armed) {
                 state->pointer_restore_armed = false;
@@ -347,6 +423,7 @@ static int handle_control_line(
     }
     if (strcmp(line, "activate-pointer") == 0) {
         const int result = activate_pointer(
+                state,
                 state->uinput_fd,
                 state->pointer_activation_direction);
         if (result == 0) {
@@ -357,8 +434,13 @@ static int handle_control_line(
         }
         return result;
     }
+    unsigned long long request_id = 0;
+    if (sscanf(line, "stats %llu", &request_id) == 1) {
+        emit_stats(state, request_id);
+        return 0;
+    }
     if (sscanf(line, "scroll %d", &first) == 1) {
-        return emit_wheel_steps(state->uinput_fd, first);
+        return emit_wheel_steps(state, state->uinput_fd, first);
     }
     return 0;
 }

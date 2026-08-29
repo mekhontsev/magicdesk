@@ -157,6 +157,18 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public InputRelayRuntimeDiagnostics.Snapshot
+            captureInputRelayDiagnostics() {
+        if (mDestroyed || mDesktopInput == null) {
+            return InputRelayRuntimeDiagnostics.Snapshot.unavailable();
+        }
+        final PlatformSelection.Provider provider = mPlatform.selection()
+                .provider(PlatformComponent.POINTER);
+        return mDesktopInput.captureDiagnostics(
+                provider == null ? null : provider.id);
+    }
+
+    @Override
     public boolean capturePointerPosition() {
         return !mDestroyed
                 && mDesktopInput != null

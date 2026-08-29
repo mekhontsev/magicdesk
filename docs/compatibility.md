@@ -145,6 +145,9 @@ The report includes:
 - a read-only check for the current static system wallpaper image;
 - overlay, notification-listener, and WMShell desktopmode probes;
 - current displays and external input-device descriptors;
+- a one-shot input-relay snapshot with aggregate native event flow, MagicDesk
+  virtual-device presence, current routing associations, and observed pointer
+  position;
 - bounded structured MagicDesk error events;
 - recent logcat entries from MagicDesk tags only;
 - a schema-versioned JSON summary with platform composition, per-component
