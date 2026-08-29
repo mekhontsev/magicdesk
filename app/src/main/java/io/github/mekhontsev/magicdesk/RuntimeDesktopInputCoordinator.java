@@ -169,6 +169,28 @@ final class RuntimeDesktopInputCoordinator {
         return !mDestroyed && mMouseBridge.isReady();
     }
 
+    DesktopPointerState pointerState(
+            final int displayId,
+            final String provider) {
+        final boolean active = isActiveDesktopDisplay(displayId);
+        final boolean relayRequired = active && requiresMouseRelay();
+        final boolean relayReady = active
+                && (!relayRequired || mMouseBridge.isReady());
+        final boolean routingReady = active
+                && (!requiresInputRouting()
+                        || KeyboardShortcutWatcher.isInputRoutingReady(
+                                displayId));
+        final Point position = active && supportsAbsolutePointer(displayId)
+                ? ShellAccess.observeMousePosition(displayId) : null;
+        return new DesktopPointerState(
+                displayId,
+                provider,
+                relayRequired,
+                relayReady,
+                routingReady,
+                position);
+    }
+
     boolean capturePointerPosition() {
         return isMouseBridgeReady()
                 && supportsAbsolutePointer(mDesktopDisplayId)

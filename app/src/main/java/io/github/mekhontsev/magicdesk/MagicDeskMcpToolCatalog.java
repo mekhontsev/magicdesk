@@ -24,6 +24,13 @@ final class MagicDeskMcpToolCatalog {
                         "Read current MagicDesk runtime and desktop session state.",
                         emptySchema()))
                 .put(readTool(
+                        "get_pointer_state",
+                        "Get pointer state",
+                        "Read the active pointer relay, routing, and optional platform cursor position.",
+                        objectSchema(new JSONObject().put(
+                                "displayId", integerProperty(
+                                        "Optional active desktop display id.")))))
+                .put(readTool(
                         "list_displays",
                         "List displays",
                         "List connected displays, current modes and supported modes.",
@@ -681,6 +688,26 @@ final class MagicDeskMcpToolCatalog {
                         .put("ui", openObjectProperty("Desktop UI state."))
                         .put("runtime", openObjectProperty("Runtime state."));
                 break;
+            case "get_pointer_state":
+                properties.put("generatedAtMillis", integerProperty("Timestamp."))
+                        .put("displayId", integerProperty("Display id."))
+                        .put("active", booleanProperty(
+                                "Whether this is the active desktop display."))
+                        .put("provider", stringProperty(
+                                "Selected platform pointer provider."))
+                        .put("relayRequired", booleanProperty(
+                                "Whether this platform requires the mouse relay."))
+                        .put("relayReady", booleanProperty(
+                                "Whether the required mouse relay is ready."))
+                        .put("routingReady", booleanProperty(
+                                "Whether input routing is ready."))
+                        .put("positionAvailable", booleanProperty(
+                                "Whether the platform exposes cursor coordinates."))
+                        .put("x", nullableIntegerProperty(
+                                "Observed cursor x coordinate."))
+                        .put("y", nullableIntegerProperty(
+                                "Observed cursor y coordinate."));
+                break;
             case "list_displays":
                 properties.put("displays", arrayProperty(
                         "Connected displays.", openObjectProperty("Display.")));
@@ -930,6 +957,13 @@ final class MagicDeskMcpToolCatalog {
             final String description) throws JSONException {
         return new JSONObject()
                 .put("type", new JSONArray().put("string").put("null"))
+                .put("description", description);
+    }
+
+    private static JSONObject nullableIntegerProperty(
+            final String description) throws JSONException {
+        return new JSONObject()
+                .put("type", new JSONArray().put("integer").put("null"))
                 .put("description", description);
     }
 

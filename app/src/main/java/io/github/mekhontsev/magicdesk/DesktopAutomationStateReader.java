@@ -96,6 +96,38 @@ final class DesktopAutomationStateReader {
                                 mContext, tasks));
     }
 
+    JSONObject pointerState(final JSONObject arguments) throws JSONException {
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        final Integer requestedDisplayId = optionalInteger(
+                arguments == null ? new JSONObject() : arguments,
+                "displayId");
+        final int displayId = requestedDisplayId == null
+                ? session.activeDisplayId() : requestedDisplayId.intValue();
+        final PlatformSelection.Provider provider = PlatformDrivers.current()
+                .selection().provider(PlatformComponent.POINTER);
+        final DesktopPointerState state = displayId >= Display.DEFAULT_DISPLAY
+                ? MagicDeskRuntime.getDesktopPointerState(displayId) : null;
+        final Point position = state == null ? null : state.position;
+        return new JSONObject()
+                .put("generatedAtMillis", System.currentTimeMillis())
+                .put("displayId", displayId)
+                .put("active", session.hasHost()
+                        && displayId == session.activeDisplayId())
+                .put("provider", state != null
+                        ? state.provider
+                        : provider == null ? "android" : provider.id)
+                .put("relayRequired", state != null
+                        && state.relayRequired)
+                .put("relayReady", state != null
+                        && state.relayReady)
+                .put("routingReady", state != null
+                        && state.routingReady)
+                .put("positionAvailable", position != null)
+                .put("x", position == null ? JSONObject.NULL : position.x)
+                .put("y", position == null ? JSONObject.NULL : position.y);
+    }
+
     private static JSONObject uiJson(final DesktopUiSnapshot ui)
             throws JSONException {
         return new JSONObject()

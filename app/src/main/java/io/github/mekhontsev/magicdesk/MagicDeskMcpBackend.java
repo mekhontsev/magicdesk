@@ -62,6 +62,9 @@ final class MagicDeskMcpBackend implements McpBackend {
             case "get_state":
                 data = mAutomation.stateReader().state();
                 return successResult(data);
+            case "get_pointer_state":
+                data = mAutomation.stateReader().pointerState(args);
+                return successResult(data);
             case "list_displays":
                 data = mAutomation.stateReader().displays();
                 return successResult(data);

@@ -17,6 +17,11 @@ public interface PlatformPointerDriver extends AutoCloseable {
 
     int[] getPosition(int displayId);
 
+    /** Current system cursor position, or {@code null} when not observable. */
+    default Point observePosition(final int displayId) {
+        return null;
+    }
+
     boolean injectClick(int displayId, int button);
 
     boolean updatePosition(

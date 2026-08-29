@@ -232,6 +232,14 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
+        public DesktopPointerState getDesktopPointerState(
+                final int displayId) {
+            return new DesktopPointerState(
+                    displayId, "test", true, true, true,
+                    new Point(10, 20));
+        }
+
+        @Override
         public boolean capturePointerPosition() {
             return true;
         }

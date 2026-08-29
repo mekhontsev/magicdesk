@@ -389,4 +389,6 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int taskId) = 100;
 
+    int[] observeMousePosition(int displayId) = 101;
+
 }

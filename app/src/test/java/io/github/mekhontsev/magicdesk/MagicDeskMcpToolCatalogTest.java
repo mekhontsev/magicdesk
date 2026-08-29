@@ -20,6 +20,7 @@ public final class MagicDeskMcpToolCatalogTest {
                 MagicDeskMcpToolCatalog.create(true));
 
         assertTrue(publicNames.contains("get_state"));
+        assertTrue(publicNames.contains("get_pointer_state"));
         assertTrue(publicNames.contains("launch_app"));
         assertTrue(publicNames.contains("list_ui_elements"));
         assertTrue(publicNames.contains("invoke_ui_action"));
@@ -31,6 +32,25 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(developerNames.contains("run_self_test"));
         assertTrue(developerNames.containsAll(publicNames));
         assertTrue(developerNames.size() > publicNames.size());
+    }
+
+    @Test
+    public void pointerStateUsesOptionalDisplayAndPortableOutput()
+            throws Exception {
+        final JSONObject tool = tool(
+                MagicDeskMcpToolCatalog.create(false),
+                "get_pointer_state");
+        final JSONObject input = tool.getJSONObject("inputSchema");
+        final JSONObject output = tool.getJSONObject("outputSchema")
+                .getJSONObject("properties")
+                .getJSONObject("data")
+                .getJSONObject("properties");
+
+        assertTrue(input.getJSONObject("properties").has("displayId"));
+        assertTrue(output.has("routingReady"));
+        assertTrue(output.has("positionAvailable"));
+        assertTrue(output.has("x"));
+        assertTrue(output.has("y"));
     }
 
     @Test

@@ -120,6 +120,13 @@ final class KeyboardShortcutWatcher {
         }
     }
 
+    static boolean isInputRoutingReady(final int displayId) {
+        synchronized (LOCK) {
+            return sRunning && sRoutingDisplayId == displayId
+                    && sInputRouting != null;
+        }
+    }
+
     static void refreshDesktopInputSources(
             final List<DesktopKeyboardDevice> keyboards) {
         final ShellStreamHandle inputStream;

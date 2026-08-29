@@ -184,6 +184,13 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         }
         DesktopInputRoutingOwnership.record(requestedPorts);
 
+        // Vendor pointer services may rebuild their viewport asynchronously.
+        // Prepare them before AOSP associations so the final InputReader
+        // rebuild is always owned by the routing session.
+        if (mRouteMouse && mPointer.supportsDisplay(displayId)) {
+            mPointer.refreshViewport();
+        }
+
         int keyboardAssociations = 0;
         for (final DesktopKeyboardDevice keyboard : keyboards) {
             if (associatePort(
@@ -195,13 +202,6 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         for (final DesktopMouseDevice mouse : mice) {
             associatePort(mouse.location);
         }
-
-        // InputManager rebuilds pointer viewports when associations change.
-        // Finalize that rebuild after Android associations are complete and
-        // before the caller enables capture.
-        if (mRouteMouse && mPointer.supportsDisplay(displayId)) {
-            mPointer.refreshViewport();
-        }
     }
 
     synchronized int refreshAssociations() throws Exception {
@@ -209,28 +209,44 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                 || mAddAssociation == null || mAssociationTarget == null) {
             return 0;
         }
+        final List<DesktopKeyboardDevice> keyboards = mRouteKeyboards
+                ? DesktopInputDeviceDiscovery.findRoutableKeyboards()
+                : Collections.emptyList();
+        final List<DesktopMouseDevice> mice = mRouteMouse
+                ? DesktopInputDeviceDiscovery.findRoutableMice()
+                : Collections.emptyList();
+        if (hasUnassociatedMouse(mice)
+                && mPointer.supportsDisplay(mDisplayId)) {
+            mPointer.refreshViewport();
+        }
         int added = 0;
-        if (mRouteKeyboards) {
-            for (final DesktopKeyboardDevice keyboard
-                    : DesktopInputDeviceDiscovery.findRoutableKeyboards()) {
-                if (associatePort(keyboard.location)) {
-                    mKeyboardAssociationCount++;
-                    added++;
-                }
+        for (final DesktopKeyboardDevice keyboard : keyboards) {
+            if (associatePort(keyboard.location)) {
+                mKeyboardAssociationCount++;
+                added++;
             }
         }
-        if (mRouteMouse) {
-            for (final DesktopMouseDevice mouse
-                    : DesktopInputDeviceDiscovery.findRoutableMice()) {
-                if (associatePort(mouse.location)) {
-                    added++;
-                }
+        for (final DesktopMouseDevice mouse : mice) {
+            if (associatePort(mouse.location)) {
+                added++;
             }
         }
         if (added > 0) {
             DesktopInputRoutingOwnership.record(mAssociatedInputPorts);
         }
         return added;
+    }
+
+    private boolean hasUnassociatedMouse(
+            final List<DesktopMouseDevice> mice) {
+        for (final DesktopMouseDevice mouse : mice) {
+            if (mouse.location != null
+                    && !mouse.location.isEmpty()
+                    && !mAssociatedInputPorts.contains(mouse.location)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean associatePort(final String location)

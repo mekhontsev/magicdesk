@@ -30,6 +30,8 @@ interface MagicDeskRuntimeBackend {
 
     boolean isDesktopMouseBridgeReady();
 
+    DesktopPointerState getDesktopPointerState(int displayId);
+
     boolean capturePointerPosition();
 
     void restorePointerPositionOnNextMotion();

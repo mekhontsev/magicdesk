@@ -39,6 +39,19 @@ final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
     }
 
     @Override
+    public Point observePosition(final int displayId) {
+        if (!supportsDisplay(displayId)) {
+            return null;
+        }
+        try {
+            return NubiaDesktopPointerController.getPosition();
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.d(TAG, "system pointer position is unavailable", error);
+            return null;
+        }
+    }
+
+    @Override
     public boolean injectClick(final int displayId, final int button) {
         try {
             DesktopPointerInjector.injectClickAt(

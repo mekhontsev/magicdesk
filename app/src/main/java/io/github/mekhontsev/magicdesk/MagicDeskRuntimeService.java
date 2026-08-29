@@ -145,6 +145,18 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public DesktopPointerState getDesktopPointerState(
+            final int displayId) {
+        if (mDestroyed || mDesktopInput == null) {
+            return null;
+        }
+        final PlatformSelection.Provider provider = mPlatform.selection()
+                .provider(PlatformComponent.POINTER);
+        return mDesktopInput.pointerState(
+                displayId, provider == null ? null : provider.id);
+    }
+
+    @Override
     public boolean capturePointerPosition() {
         return !mDestroyed
                 && mDesktopInput != null

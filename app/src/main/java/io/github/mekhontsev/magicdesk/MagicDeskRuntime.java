@@ -173,6 +173,12 @@ public final class MagicDeskRuntime {
         return backend != null && backend.isDesktopMouseBridgeReady();
     }
 
+    static DesktopPointerState getDesktopPointerState(final int displayId) {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend == null
+                ? null : backend.getDesktopPointerState(displayId);
+    }
+
     static boolean capturePointerPosition() {
         final MagicDeskRuntimeBackend backend = backend();
         return backend != null && backend.capturePointerPosition();
