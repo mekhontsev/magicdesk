@@ -35,8 +35,8 @@
       "fingerprint": "nubia/PQ85A01-UN/PQ85A01:16/BQ2A.250705.001-BP2A.250605.031.A3/20251229.234747:user/release-keys",
       "support": "COMMUNITY_TESTED",
       "confirmedScope": [
-        "wired", "freeform", "focus", "keyboard", "phone-screen-off",
-        "launcher-recovery", "simulated-cleanup"
+        "wired", "external-sizing", "freeform", "focus", "keyboard",
+        "phone-screen-off", "launcher-recovery", "simulated-cleanup"
       ],
       "limitations": [
         "vendor HDMI timing node is unavailable to shell UID 2000"

@@ -26,8 +26,9 @@ firmware task, display, input, or capture behavior.
 - Android 16 / API 36, MyOS build `MyOS16.0.16_NX741J_NEEA`, firmware
   `20251229.234747`
 - Diagnostics and user validation cover wired desktop operation, multiple
-  freeform windows, focus transfer, keyboard input, phone-screen-off behavior,
-  launcher protection, and simulated self-test cleanup.
+  freeform windows, wide external sizing through the physical display, focus
+  transfer, keyboard input, phone-screen-off behavior, launcher protection,
+  and simulated self-test cleanup.
 - Shell UID 2000 cannot read `/sys/kernel/lcd_enhance/edid_modes`; root can.
   Android reports only standard FHD modes on this firmware. The optional
   Qualcomm display backend is the current unprivileged mode-discovery path and
