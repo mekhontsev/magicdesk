@@ -18,6 +18,7 @@ final class SystemNavigationGuard
         implements PlatformPhoneUiDriver.NavigationGuard {
     private static final String TAG = "MagicDeskSystemNavigation";
     private static final int DISABLE_HOME = 0x00200000;
+    private static final int DISABLE_BACK = 0x00400000;
     private static final int DISABLE_RECENT = 0x01000000;
     private static final String STATUS_BAR_SERVICE = "statusbar";
 
@@ -27,13 +28,16 @@ final class SystemNavigationGuard
     private int mAppliedFlags;
 
     @Override
-    public void acquire(final IBinder ownerToken) {
+    public void acquire(final IBinder ownerToken, final Scope scope) {
         if (ownerToken == null) {
             throw new IllegalArgumentException("missing navigation guard owner token");
         }
+        if (scope == null) {
+            throw new IllegalArgumentException("missing navigation guard scope");
+        }
         synchronized (mLock) {
             final OwnerRecord previous = mOwners.get(ownerToken);
-            if (previous != null) {
+            if (previous != null && previous.scope == scope) {
                 try {
                     applyFlagsLocked(computeFlagsLocked(), true);
                     return;
@@ -42,21 +46,30 @@ final class SystemNavigationGuard
                 }
             }
 
-            final IBinder.DeathRecipient ownerDeath =
-                    () -> releaseForOwner(ownerToken);
-            try {
-                ownerToken.linkToDeath(ownerDeath, 0);
-            } catch (RemoteException | RuntimeException error) {
-                throw failure("cannot track navigation guard owner", error);
+            final OwnerRecord replacement;
+            if (previous == null) {
+                final IBinder.DeathRecipient ownerDeath =
+                        () -> releaseForOwner(ownerToken);
+                try {
+                    ownerToken.linkToDeath(ownerDeath, 0);
+                } catch (RemoteException | RuntimeException error) {
+                    throw failure("cannot track navigation guard owner", error);
+                }
+                replacement = new OwnerRecord(scope, ownerDeath);
+            } else {
+                replacement = new OwnerRecord(scope, previous.ownerDeath);
             }
-            final OwnerRecord replacement = new OwnerRecord(ownerDeath);
 
             mOwners.put(ownerToken, replacement);
             try {
                 applyFlagsLocked(computeFlagsLocked(), false);
             } catch (ReflectiveOperationException | RuntimeException error) {
-                mOwners.remove(ownerToken);
-                ownerToken.unlinkToDeath(replacement.ownerDeath, 0);
+                if (previous == null) {
+                    mOwners.remove(ownerToken);
+                    ownerToken.unlinkToDeath(replacement.ownerDeath, 0);
+                } else {
+                    mOwners.put(ownerToken, previous);
+                }
                 throw failure("cannot disable system navigation", error);
             }
         }
@@ -121,7 +134,20 @@ final class SystemNavigationGuard
     }
 
     private int computeFlagsLocked() {
-        return mOwners.isEmpty() ? 0 : DISABLE_HOME | DISABLE_RECENT;
+        int flags = 0;
+        for (final OwnerRecord owner : mOwners.values()) {
+            flags |= flagsForScope(owner.scope);
+        }
+        return flags;
+    }
+
+    private static int flagsForScope(final Scope scope) {
+        if (scope == Scope.CRASHED_LAUNCHER) {
+            // Back can finish the protection task and resume an existing HOME
+            // task without passing through the activity start controller.
+            return DISABLE_BACK | DISABLE_HOME | DISABLE_RECENT;
+        }
+        return DISABLE_HOME | DISABLE_RECENT;
     }
 
     private void applyFlagsLocked(final int flags, final boolean force)
@@ -189,9 +215,11 @@ final class SystemNavigationGuard
     }
 
     private static final class OwnerRecord {
+        final Scope scope;
         final IBinder.DeathRecipient ownerDeath;
 
-        OwnerRecord(final IBinder.DeathRecipient ownerDeath) {
+        OwnerRecord(final Scope scope, final IBinder.DeathRecipient ownerDeath) {
+            this.scope = scope;
             this.ownerDeath = ownerDeath;
         }
     }

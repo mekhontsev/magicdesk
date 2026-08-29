@@ -63,7 +63,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mTaskObserverManager = new ShellTaskObserverManager(
                 context,
                 platform.windowing(),
-                phoneUi);
+                phoneUi,
+                mNavigationGuard);
         mDisplayRecording = new ShellDisplayRecordingSession(context);
         mDesktopDirectory = new ShellDesktopDirectory();
         mFileSystem = new ShellFileSystem();
@@ -978,7 +979,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public void startLocalDesktopNavigationGuard(final IBinder ownerToken) {
-        mNavigationGuard.acquire(ownerToken);
+        mNavigationGuard.acquire(
+                ownerToken,
+                PlatformPhoneUiDriver.NavigationGuard.Scope.LOCAL_DESKTOP);
         Log.i(TAG, "platform navigation guard acquired for local desktop");
     }
 

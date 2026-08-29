@@ -13,7 +13,9 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     public NavigationGuard createNavigationGuard() {
         return new NavigationGuard() {
             @Override
-            public void acquire(final IBinder ownerToken) {
+            public void acquire(
+                    final IBinder ownerToken,
+                    final Scope scope) {
             }
 
             @Override

@@ -39,6 +39,7 @@ final class ShellProcessFailureTracker implements
             new HashMap<>();
 
     private int mDisplayId = Display.INVALID_DISPLAY;
+    private int mLastReportedLauncherDeathPid = -1;
 
     ShellProcessFailureTracker(
             final Listener listener,
@@ -61,15 +62,21 @@ final class ShellProcessFailureTracker implements
         mDisplayId = displayId;
         mTasks.clear();
         mPendingAnrs.clear();
+        mLastReportedLauncherDeathPid = -1;
     }
 
     void onProcessDied(final int pid, final int uid) {
         final boolean reportDeath;
         synchronized (this) {
-            reportDeath = mPhoneLauncherGuardEnabled
+            reportDeath = pid > 0
+                    && pid != mLastReportedLauncherDeathPid
+                    && mPhoneLauncherGuardEnabled
                     && mDisplayId != Display.INVALID_DISPLAY
                     && mPhoneHomeUid >= 0
                     && uid == mPhoneHomeUid;
+            if (reportDeath) {
+                mLastReportedLauncherDeathPid = pid;
+            }
         }
         if (reportDeath) {
             reportPhoneLauncherEvent(

@@ -7,7 +7,12 @@ import android.os.IBinder;
 /** Firmware-specific phone UI behavior while a desktop session is active. */
 public interface PlatformPhoneUiDriver {
     interface NavigationGuard extends AutoCloseable {
-        void acquire(IBinder ownerToken);
+        enum Scope {
+            LOCAL_DESKTOP,
+            CRASHED_LAUNCHER
+        }
+
+        void acquire(IBinder ownerToken, Scope scope);
 
         void release(IBinder ownerToken);
 

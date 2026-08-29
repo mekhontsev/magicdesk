@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNull;
 
 import android.content.ComponentName;
 import android.graphics.Rect;
+import android.view.Display;
 
 import org.junit.Test;
 
@@ -132,6 +133,46 @@ public final class ShellProcessFailureTrackerTest {
         assertEquals(PhoneLauncherEvent.PROCESS_DIED, listener.launcherType);
         assertEquals(1, listener.launcherEvents);
         assertEquals(456, listener.launcherPid);
+    }
+
+    @Test
+    public void ignoresLauncherDeathWithoutPhysicalPid() {
+        final RecordingListener listener = new RecordingListener();
+        final ShellProcessFailureTracker tracker = launcherTracker(listener);
+        tracker.configure(DISPLAY_ID);
+
+        tracker.onProcessDied(0, LAUNCHER_UID);
+
+        assertEquals(0, listener.launcherEvents);
+    }
+
+    @Test
+    public void reportsOneDeathEventPerLauncherProcess() {
+        final RecordingListener listener = new RecordingListener();
+        final ShellProcessFailureTracker tracker = launcherTracker(listener);
+        tracker.configure(DISPLAY_ID);
+
+        tracker.onProcessDied(456, LAUNCHER_UID);
+        tracker.onProcessDied(0, LAUNCHER_UID);
+        tracker.onProcessDied(456, LAUNCHER_UID);
+        tracker.onProcessDied(789, LAUNCHER_UID);
+
+        assertEquals(2, listener.launcherEvents);
+        assertEquals(789, listener.launcherPid);
+    }
+
+    @Test
+    public void resetsLauncherDeathDeduplicationForNewSession() {
+        final RecordingListener listener = new RecordingListener();
+        final ShellProcessFailureTracker tracker = launcherTracker(listener);
+        tracker.configure(DISPLAY_ID);
+        tracker.onProcessDied(456, LAUNCHER_UID);
+
+        tracker.configure(Display.INVALID_DISPLAY);
+        tracker.configure(DISPLAY_ID);
+        tracker.onProcessDied(456, LAUNCHER_UID);
+
+        assertEquals(2, listener.launcherEvents);
     }
 
     @Test
