@@ -386,7 +386,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             }
             closeWithSurvivor(
                     service, displayId, taskId, survivorTaskId);
-            removeTask(service, taskId);
             return true;
         } catch (IOException | ReflectiveOperationException
                 | RuntimeException error) {
@@ -1160,26 +1159,37 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 FrameworkRuntime.current().windowing();
         final Class<?> transactionClass = windowing.transactionClass();
         final Object closeTransaction = windowing.newTransaction();
-        for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
-                : mPlanes.entrySet()) {
-            final boolean survivor = entry.getKey().intValue()
-                    == survivorTaskId;
-            final Object planeToken = entry.getValue().token();
-            windowing.reorder(closeTransaction, planeToken, survivor);
+        final TaskDisplayAreaHandle closingPlane = mPlanes.get(
+                Integer.valueOf(closingTaskId));
+        final TaskDisplayAreaHandle survivorPlane = mPlanes.get(
+                Integer.valueOf(survivorTaskId));
+        if (closingPlane == null) {
+            throw new IllegalStateException(
+                    "closing fullscreen plane is unavailable");
         }
-        if (!mPlanes.containsKey(Integer.valueOf(survivorTaskId))) {
+        requirePlaneAnchor(service, displayId, closingPlane);
+        windowing.setFocusable(
+                closeTransaction, closingPlane.token(), false);
+        windowing.reorder(closeTransaction, closingPlane.token(), false);
+        if (survivorPlane != null) {
+            windowing.setFocusable(
+                    closeTransaction, survivorPlane.token(), true);
+            windowing.reorder(
+                    closeTransaction, survivorPlane.token(), true);
+        } else {
             final Object survivorToken = HiddenTaskApi.requireTaskToken(
                     service, displayId, survivorTaskId);
             windowing.reorder(closeTransaction, survivorToken, true, true);
         }
         final Object closingToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, closingTaskId);
-        // Removing a focused root makes WindowManager choose focus again.
-        // Commit the survivor order in that same transaction so the removal
-        // cannot overwrite an earlier focus handoff with the desktop host.
+        // Removing a focused root makes WindowManager choose focus again. Park
+        // its retained plane and select the survivor in this same commit; a
+        // later parking transaction could otherwise move focus to the host.
         windowing.removeTask(closeTransaction, closingToken);
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, closeTransaction);
+        retirePlaneRecord(closingTaskId);
         mPlaneOrder.remove(Integer.valueOf(survivorTaskId));
         mPlaneOrder.add(Integer.valueOf(survivorTaskId));
         applySurfaceOrder(toIntArray(mPlaneOrder), mPlanes);
@@ -1351,14 +1361,9 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
     }
 
     private void releasePlane(final Object service, final int taskId) {
-        mPlaneOrder.remove(Integer.valueOf(taskId));
-        final TaskDisplayAreaHandle plane =
-                mPlanes.remove(Integer.valueOf(taskId));
+        final TaskDisplayAreaHandle plane = retirePlaneRecord(taskId);
         if (plane == null) {
             return;
-        }
-        if (!mAvailablePlanes.contains(plane)) {
-            mAvailablePlanes.add(plane);
         }
         if (service == null || mDisplayId < 0) {
             return;
@@ -1386,6 +1391,16 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             Log.w(TAG, "could not park fullscreen slot feature="
                     + plane.featureId(), error);
         }
+    }
+
+    private TaskDisplayAreaHandle retirePlaneRecord(final int taskId) {
+        mPlaneOrder.remove(Integer.valueOf(taskId));
+        final TaskDisplayAreaHandle plane =
+                mPlanes.remove(Integer.valueOf(taskId));
+        if (plane != null && !mAvailablePlanes.contains(plane)) {
+            mAvailablePlanes.add(plane);
+        }
+        return plane;
     }
 
     @Override
