@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.ActivityOptions;
 import android.app.KeyguardManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -813,7 +814,9 @@ final class DesktopAutomationController {
                     displayKind.name());
         }
         final long requestedAtMillis = System.currentTimeMillis();
-        mContext.startActivity(intent);
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
+        mContext.startActivity(intent, options.toBundle());
         return DesktopAutomationResult.success(
                 "self-test launch accepted",
                 new JSONObject()
