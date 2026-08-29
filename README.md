@@ -28,6 +28,7 @@ hardware helpers remain separate and are never desktop requirements.
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
 [Optional Display Fixes APK](https://github.com/mekhontsev/magicdesk/releases/download/development/DisplayFixes-development.apk) |
+[Community](https://t.me/magicdesk_android) |
 [Compatibility](docs/compatibility.md) |
 [Getting started](docs/getting-started.md)
 
@@ -306,6 +307,7 @@ variants, verification commands, and pull-request expectations.
 ## Project
 
 - Author: [Dmitry Mekhontsev](https://github.com/mekhontsev)
+- Community: [Telegram](https://t.me/magicdesk_android)
 - Package: `io.github.mekhontsev.magicdesk`
 - Minimum SDK: 35
 - Target SDK: 37
