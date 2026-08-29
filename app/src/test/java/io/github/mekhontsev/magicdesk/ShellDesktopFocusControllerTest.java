@@ -11,6 +11,22 @@ import java.util.Arrays;
 
 public final class ShellDesktopFocusControllerTest {
     @Test
+    public void homeTargetUsesImmediateFocusRepairPath() {
+        assertTrue(ShellDesktopFocusController.isDesktopHostTarget(
+                2,
+                BuildConfig.APPLICATION_ID,
+                BuildConfig.APPLICATION_ID + ".DesktopActivity"));
+        assertFalse(ShellDesktopFocusController.isDesktopHostTarget(
+                1,
+                BuildConfig.APPLICATION_ID,
+                BuildConfig.APPLICATION_ID + ".DesktopActivity"));
+        assertFalse(ShellDesktopFocusController.isDesktopHostTarget(
+                2,
+                "example.launcher",
+                "example.launcher.Home"));
+    }
+
+    @Test
     public void refreshesMissingOrStaleLiveInputFocus() {
         assertTrue(ShellDesktopFocusController.requiresInputFocusRefresh(
                 42, -1, false));

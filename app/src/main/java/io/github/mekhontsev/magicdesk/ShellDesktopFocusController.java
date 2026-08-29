@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.ComponentName;
 import android.util.Log;
 import android.view.Display;
 
@@ -18,6 +19,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
 
     private static final String TAG = "MagicDeskFocus";
     private static final int ACTIVITY_TYPE_STANDARD = 1;
+    private static final int ACTIVITY_TYPE_HOME = 2;
     private static final String BACKSTOP_COMPONENT_SHORT =
             BuildConfig.APPLICATION_ID + "/.TaskAreaBackstopActivity";
     private static final String BACKSTOP_COMPONENT_FULL =
@@ -406,11 +408,25 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 return false;
             }
             awaitTaskSample(barrier.taskSampleGeneration);
-            if (awaitCommittedInputFocus(
-                    displayId,
-                    taskId,
-                    barrier.inputWindowGeneration,
-                    barrier.inputWindowEventsAvailable)) {
+            final ComponentName topActivity =
+                    HiddenTaskApi.getTaskTopActivity(task);
+            final boolean desktopHostTarget = isDesktopHostTarget(
+                    HiddenTaskApi.getTaskActivityType(task),
+                    topActivity == null
+                            ? null : topActivity.getPackageName(),
+                    topActivity == null
+                            ? null : topActivity.getClassName());
+            // The host cannot acquire input while it is behind an application.
+            // Once its task commit is observed, stale focus requires the
+            // existing relayout repair rather than the normal convergence wait.
+            final boolean initiallyFocused = desktopHostTarget
+                    ? isInputFocused(displayId, taskId)
+                    : awaitCommittedInputFocus(
+                            displayId,
+                            taskId,
+                            barrier.inputWindowGeneration,
+                            barrier.inputWindowEventsAvailable);
+            if (initiallyFocused) {
                 synchronized (mPendingLock) {
                     mMissingWindowRepairTaskId = -1;
                 }
@@ -612,6 +628,16 @@ final class ShellDesktopFocusController implements AutoCloseable {
     static boolean requiresParentReorderForMissingWindow(
             final int windowingMode) {
         return windowingMode == FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM;
+    }
+
+    static boolean isDesktopHostTarget(
+            final int activityType,
+            final String packageName,
+            final String className) {
+        return activityType == ACTIVITY_TYPE_HOME
+                && BuildConfig.APPLICATION_ID.equals(packageName)
+                && (BuildConfig.APPLICATION_ID + ".DesktopActivity").equals(
+                        className);
     }
 
     static boolean requiresInputFocusRefresh(
