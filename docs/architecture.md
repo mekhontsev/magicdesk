@@ -87,15 +87,16 @@ helper consumes the physical sequence and requests one display-targeted
 Android secondary click, bypassing RedMagic's conversion to Back.
 
 The pointer helper starts passively. The runtime first waits until its virtual
-mouse is visible in EventHub, establishes the display associations, and only
-then enables physical capture. Capture acquires every neutral source
-immediately; it does not expose a first physical motion report as an implicit
-vendor handshake. Hot-plugged sources enter the same neutral-state protocol.
-Optional absolute-pointer viewport finalization belongs to that same routing
-transaction, but runs only when both mouse relay and the selected pointer
-driver are available. Nubia's oneway viewport command is issued synchronously
-here so capture cannot overtake the service-side request; firmware may apply the
-accepted InputReader update while the desktop surface is becoming visible.
+mouse is visible in EventHub. It then prepares any optional vendor pointer
+viewport, establishes Android's display associations as the final InputReader
+configuration change, and only then enables physical capture. Capture acquires
+every neutral source immediately; it does not expose a first physical motion
+report as an implicit vendor handshake. Hot-plugged sources enter the same
+neutral-state protocol. Absolute-pointer preparation belongs to that same
+routing transaction, but runs only when both mouse relay and the selected
+pointer driver are available. Nubia's oneway viewport command is issued
+synchronously so capture cannot overtake the service-side request; firmware
+may apply the accepted update while the desktop surface is becoming visible.
 Teardown reverses that order: the helper
 releases every `EVIOCGRAB` and acknowledges completion before the routing
 session removes its associations. A helper restart repeats the same protocol
@@ -165,12 +166,12 @@ interfaces on RedMagic firmware:
 
 These signatures are resolved reflectively inside the shell UserService and
 are never exposed as a generic command surface. Diagnostics and the self-test
-inspect the absolute-pointer, mirror-panel, and mirror-text signatures without
-invoking them. The report also retains the last mirror-text runtime result from
-an explicit keyboard session. No focused projected window is reported as not
-tested rather than as missing firmware support. A missing optional package or
-method disables the corresponding operation rather than changing unrelated
-device state. In contrast,
+inspect the absolute-pointer and mirror-text signatures without invoking them.
+The report also retains the last mirror-text runtime result from an explicit
+keyboard session. No focused projected window is reported as not tested rather
+than as missing firmware support. A missing optional package or method disables
+the corresponding operation rather than changing unrelated device state. In
+contrast,
 `libmagicdesk_keyboard_bridge.so` and `libmagicdesk_uinput_bridge.so` are
 MagicDesk-owned native helpers compiled from repository C sources by every
 local and CI build.
@@ -1541,8 +1542,8 @@ Changing the physical timing uses Nubia's own sequence: write the selected
 EDID mode, ask DisplayManager to refresh its physical displays, pulse HDMI HPD,
 then wait for three stable observations of the requested mode. The physical
 display id is resolved again afterward because the firmware can recreate it
-during this transition. The operation runs before the virtual desktop is
-requested, so no MagicDesk task is attached to a disappearing display.
+during this transition. The operation runs before the desktop session starts,
+so no MagicDesk task is attached to a disappearing display.
 
 Output timing and **Fill display** are stored in the same per-display profile
 as DPI. **Fill display** maps to Nubia's projection-fit setting. MagicDesk
@@ -1587,9 +1588,9 @@ layers are named `Caption of Task=<id>`, so captions can remain interactive but
 become visually black or absent. Nubia's exported projection provider reports
 the current wireless and wired privacy preferences independently. During an
 external session MagicDesk sets only the active transport's filter to visible,
-records lifecycle ownership, and restores that transport's latest preference on
-mirror, exit, transport change, or next-start recovery. Simulated displays do
-not acquire this vendor state.
+records lifecycle ownership, and restores that transport's latest preference
+on session exit, transport change, or next-start recovery. Simulated displays
+do not acquire this vendor state.
 
 ### Teardown
 

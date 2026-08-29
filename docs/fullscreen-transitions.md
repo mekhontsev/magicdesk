@@ -94,6 +94,12 @@ usable input focus have converged.
 - Using BLAST draw synchronization or a second `TRANSIT_TO_FRONT` for ordinary
   focus adds an unnecessary app-visible handoff; a stopped target can also
   leave the sync waiting for a surface that is not expected to draw.
+- Following an atomic reorder with `moveTaskToFront`, `setFocusedTask`, or
+  `setFocusedRootTask` creates a second selection path and still does not
+  reliably repair an input window left on a peer task.
+- Relaunching an existing task or toggling plane focusability is not a focus
+  primitive. Both approaches can leave InputDispatcher on the previous task;
+  omitted launch bounds can also replace the user's freeform geometry.
 
 ## Window transition ownership
 

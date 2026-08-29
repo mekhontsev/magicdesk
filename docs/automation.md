@@ -191,10 +191,9 @@ Shell-gated commands are:
   `magicdesk.terminal.write`, `magicdesk.terminal.send_key`, and
   `magicdesk.terminal.close`.
 
-The historical `console.*` tool name denotes a headless command session: each
-session is persistent, has its own current directory, returns bounded output
-and exit status, and is bounded by the server lifetime. At most eight such
-sessions may exist at once.
+`console.*` addresses headless command sessions. Each session is persistent,
+has its own current directory, returns bounded output and exit status, and is
+bounded by the server lifetime. At most eight such sessions may exist at once.
 
 `terminal.*` addresses actual user-facing Console windows by opaque
 `terminalId`. It can inspect task/display identity, shell PID, dimensions,

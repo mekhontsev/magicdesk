@@ -43,7 +43,6 @@ public final class CompatibilityDiagnostics {
     private static final Object LOCK = new Object();
     private static final String PREFS = "compatibility_diagnostics";
     private static final String PREF_EVENT_BUILD = "event_build";
-    private static final String LEGACY_PREF_EVENT_VERSION = "event_version";
     private static final String EVENT_FILE = "compatibility-events.log";
     private static final long MAX_EVENT_FILE_BYTES = 128 * 1024;
     private static final int MAX_EVENT_DETAIL_CHARS = 2_000;
@@ -201,7 +200,6 @@ public final class CompatibilityDiagnostics {
         clearEvents(context);
         if (!preferences.edit()
                 .putString(PREF_EVENT_BUILD, build)
-                .remove(LEGACY_PREF_EVENT_VERSION)
                 .commit()) {
             Log.w(TAG, "could not persist compatibility event build");
         }

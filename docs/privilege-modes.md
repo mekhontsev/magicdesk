@@ -9,8 +9,7 @@ selection is an independent session property.
 ## Runtime Contract
 
 MagicDesk uses `dev.rikka.shizuku` API 13 and a bound UserService. It does not
-use the deprecated `Shizuku.newProcess()` protocol, invoke `su`, or fall back to
-an ordinary application-UID mode.
+invoke `su` or fall back to an ordinary application-UID mode.
 
 The runtime contract is deliberately strict:
 
