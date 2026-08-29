@@ -545,11 +545,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public int launchFullscreenTaskInDesktopArea(
+    public int launchFullscreenTaskInManagedSession(
             final ITaskObserverCallback callback,
             final int displayId,
             final String intentUri) {
-        return mTaskObserverManager.launchFullscreenTaskInDesktopArea(
+        return mTaskObserverManager.launchFullscreenTaskInManagedSession(
                 callback, displayId, intentUri);
     }
 
@@ -573,7 +573,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public void placeTaskInDesktopArea(
+    public void placeWindowedTaskInManagedSession(
             final ITaskObserverCallback callback,
             final int taskId,
             final int sourceDisplayId,
@@ -582,7 +582,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int top,
             final int right,
             final int bottom) {
-        mTaskObserverManager.placeTaskInDesktopArea(
+        mTaskObserverManager.placeWindowedTaskInManagedSession(
                 callback,
                 taskId,
                 sourceDisplayId,
@@ -591,12 +591,12 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public void placeFullscreenTaskInDesktopArea(
+    public void placeFullscreenTaskInManagedSession(
             final ITaskObserverCallback callback,
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId) {
-        mTaskObserverManager.placeFullscreenTaskInDesktopArea(
+        mTaskObserverManager.placeFullscreenTaskInManagedSession(
                 callback,
                 taskId,
                 sourceDisplayId,

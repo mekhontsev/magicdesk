@@ -12,7 +12,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Owns the desktop session inside a display's default task container. */
+/** Owns the desktop host area and, on phone, its shared application session. */
 final class ShellDesktopTaskArea implements AutoCloseable {
     private static final String TAG = "MagicDeskDesktopArea";
     private static final String HOST_PACKAGE =
@@ -20,7 +20,6 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     private static final String HOST_CLASS = HOST_PACKAGE
             + ".DesktopActivity";
     private static final int FEATURE_DEFAULT_TASK_CONTAINER = 1;
-    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int ACTIVITY_TYPE_HOME = 2;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
@@ -33,15 +32,13 @@ final class ShellDesktopTaskArea implements AutoCloseable {
     private final Set<Integer> mTaskIds = new LinkedHashSet<>();
 
     private TaskDisplayAreaHandle mHostArea;
-    private TaskDisplayAreaHandle mWorkspaceArea;
     private int mHostBackstopTaskId = -1;
-    private int mWorkspaceBackstopTaskId = -1;
     private int mDisplayId = -1;
     private int mHostTaskId = -1;
     private boolean mEnabled;
     private Boolean mAreaAtTop;
     private DesktopTaskAreaPolicy mTaskAreaPolicy =
-            DesktopTaskAreaPolicy.DEFAULT;
+            DesktopTaskAreaPolicy.UNCONFIGURED;
 
     ShellDesktopTaskArea(
             final Object service,
@@ -60,7 +57,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             throw new IllegalArgumentException(
                     "desktop task-area policy is required");
         }
-        final boolean enabled = taskAreaPolicy.usesManagedWorkspaceArea();
+        final boolean enabled = taskAreaPolicy.usesManagedHostArea();
         if (enabled && (displayId < 0 || hostTaskId < 0)) {
             throw new IllegalArgumentException(
                     "managed task area requires a display and host task");
@@ -75,7 +72,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         if (!enabled) {
             mEnabled = false;
             mDisplayId = -1;
-            mTaskAreaPolicy = DesktopTaskAreaPolicy.DEFAULT;
+            mTaskAreaPolicy = DesktopTaskAreaPolicy.UNCONFIGURED;
             return;
         }
         mEnabled = true;
@@ -88,7 +85,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             releaseTasks();
             mEnabled = false;
             mDisplayId = -1;
-            mTaskAreaPolicy = DesktopTaskAreaPolicy.DEFAULT;
+            mTaskAreaPolicy = DesktopTaskAreaPolicy.UNCONFIGURED;
             throw new IllegalStateException(
                     "cannot prepare desktop task area", error);
         }
@@ -104,7 +101,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                     "desktop host requires a display");
         }
         if (taskAreaPolicy == null
-                || !taskAreaPolicy.usesManagedWorkspaceArea()) {
+                || !taskAreaPolicy.usesManagedHostArea()) {
             throw new IllegalArgumentException(
                     "desktop host requires a managed task-area policy");
         }
@@ -146,7 +143,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             releaseTasks();
             mEnabled = false;
             mDisplayId = -1;
-            mTaskAreaPolicy = DesktopTaskAreaPolicy.DEFAULT;
+            mTaskAreaPolicy = DesktopTaskAreaPolicy.UNCONFIGURED;
             throw error;
         }
     }
@@ -204,28 +201,32 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         }
     }
 
-    synchronized int launch(
+    synchronized int launchSessionWindowedTask(
             final int displayId,
             final String intentUri,
             final Rect bounds) throws ReflectiveOperationException {
-        requireConfigured(displayId, bounds);
-        ensureAreas();
-        final TaskDisplayAreaHandle applicationArea = applicationArea();
+        final TaskDisplayAreaHandle applicationArea =
+                requireApplicationArea(displayId, bounds);
         final int taskId = mTaskLauncher.launchWindowed(
-                displayId, intentUri, bounds, applicationArea.token());
+                displayId,
+                intentUri,
+                bounds,
+                applicationArea.token(),
+                true);
         mTaskIds.add(Integer.valueOf(taskId));
         waitForTaskArea(taskId, applicationArea.featureId(), true);
         return taskId;
     }
 
-    synchronized int launchFullscreen(
+    synchronized int launchSessionFullscreenTask(
             final int displayId,
             final String intentUri) throws ReflectiveOperationException {
-        requireConfigured(displayId);
-        ensureAreas();
-        final TaskDisplayAreaHandle applicationArea = applicationArea();
+        final TaskDisplayAreaHandle applicationArea =
+                requireApplicationArea(displayId);
         final int taskId = mTaskLauncher.launchFullscreen(
-                displayId, intentUri, applicationArea.token());
+                displayId,
+                intentUri,
+                applicationArea.token());
         mTaskIds.add(Integer.valueOf(taskId));
         waitForTaskArea(taskId, applicationArea.featureId(), true);
         TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
@@ -236,8 +237,13 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         return taskId;
     }
 
-    synchronized boolean manages(final int displayId) {
+    synchronized boolean ownsHostArea(final int displayId) {
         return mEnabled && mDisplayId == displayId;
+    }
+
+    synchronized boolean ownsApplicationArea(final int displayId) {
+        return ownsHostArea(displayId)
+                && mTaskAreaPolicy.usesManagedApplicationArea();
     }
 
     synchronized int managedDisplayId() {
@@ -249,62 +255,31 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             final DesktopTaskAreaPolicy taskAreaPolicy,
             final int hostTaskId) {
         final boolean enabled = taskAreaPolicy != null
-                && taskAreaPolicy.usesManagedWorkspaceArea();
+                && taskAreaPolicy.usesManagedHostArea();
         return mEnabled == enabled
                 && (!enabled || (mDisplayId == displayId
                         && mHostTaskId == hostTaskId
                         && mTaskAreaPolicy == taskAreaPolicy));
     }
 
-    synchronized int fullscreenAreaParentFeatureId() {
-        // Keep organizer-created areas as siblings. Nesting the fullscreen
-        // area under the phone session area leaves invalid parent links on
-        // affected WindowManager implementations when the child is deleted.
-        return FEATURE_DEFAULT_TASK_CONTAINER;
-    }
-
-    synchronized Object fullscreenTaskReleaseParentToken(
-            final int displayId) {
-        final TaskDisplayAreaHandle applicationArea = applicationAreaOrNull();
-        return manages(displayId) && applicationArea != null
-                ? applicationArea.token() : null;
-    }
-
-    synchronized Object fullscreenTaskHostParentToken(
-            final int displayId) {
-        return manages(displayId) && mHostArea != null
-                ? mHostArea.token() : null;
-    }
-
-    private TaskDisplayAreaHandle applicationArea() {
-        final TaskDisplayAreaHandle area = applicationAreaOrNull();
-        if (area == null) {
-            throw new IllegalStateException(
-                    "desktop application area is unavailable");
-        }
-        return area;
-    }
-
     private TaskDisplayAreaHandle applicationAreaOrNull() {
-        return mTaskAreaPolicy.usesIndependentFullscreenPlanes()
-                ? mWorkspaceArea : mHostArea;
+        return mTaskAreaPolicy.usesManagedApplicationArea()
+                ? mHostArea : null;
     }
 
     private boolean isManagedAreaFeature(final int featureId) {
-        return mHostArea != null && mHostArea.featureId() == featureId
-                || mWorkspaceArea != null
-                        && mWorkspaceArea.featureId() == featureId;
+        return mHostArea != null && mHostArea.featureId() == featureId;
     }
 
-    synchronized void placeTask(
+    synchronized void placeSessionWindowedTask(
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId,
             final Rect bounds) throws ReflectiveOperationException {
-        requireConfigured(targetDisplayId, bounds);
-        placeTaskInArea(
+        placeTaskInSession(
                 taskId,
                 sourceDisplayId,
+                targetDisplayId,
                 WINDOWING_MODE_FREEFORM,
                 bounds,
                 false);
@@ -312,14 +287,14 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 mService, targetDisplayId, taskId, bounds);
     }
 
-    synchronized void placeFullscreenTask(
+    synchronized void placeSessionFullscreenTask(
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId) throws ReflectiveOperationException {
-        requireConfigured(targetDisplayId);
-        placeTaskInArea(
+        placeTaskInSession(
                 taskId,
                 sourceDisplayId,
+                targetDisplayId,
                 WINDOWING_MODE_FULLSCREEN,
                 new Rect(),
                 true);
@@ -330,15 +305,16 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 WINDOWING_MODE_FULLSCREEN);
     }
 
-    private void placeTaskInArea(
+    private void placeTaskInSession(
             final int taskId,
             final int sourceDisplayId,
+            final int targetDisplayId,
             final int windowingMode,
             final Rect bounds,
             final boolean excludeCaptionInset)
             throws ReflectiveOperationException {
-        ensureAreas();
-        final TaskDisplayAreaHandle applicationArea = applicationArea();
+        final TaskDisplayAreaHandle applicationArea =
+                requireApplicationArea(targetDisplayId);
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 mService, sourceDisplayId, taskId);
         final FrameworkWindowingApi windowing =
@@ -350,9 +326,6 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         windowing.setForceTranslucent(transaction, taskToken, false);
         windowing.reparent(
                 transaction, taskToken, applicationArea.token(), true);
-        if (mTaskAreaPolicy.usesIndependentFullscreenPlanes()) {
-            windowing.reorder(transaction, applicationArea.token(), true);
-        }
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transaction,
                 taskToken,
@@ -365,18 +338,35 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 ShellWindowTransitionExecutor.SystemTransition.CHANGE,
                 transactionClass,
                 transaction,
-                "place-task-in-session-area");
+                "place-task-in-managed-area");
         mTaskIds.add(Integer.valueOf(taskId));
         waitForTaskArea(taskId, applicationArea.featureId(), true);
+    }
+
+    private TaskDisplayAreaHandle requireApplicationArea(
+            final int displayId) throws ReflectiveOperationException {
+        requireConfigured(displayId);
+        ensureAreas();
+        final TaskDisplayAreaHandle area = applicationAreaOrNull();
+        if (area == null) {
+            throw new IllegalStateException(
+                    "managed application session is unavailable on display "
+                            + displayId);
+        }
+        return area;
+    }
+
+    private TaskDisplayAreaHandle requireApplicationArea(
+            final int displayId,
+            final Rect bounds) throws ReflectiveOperationException {
+        requireConfigured(displayId, bounds);
+        return requireApplicationArea(displayId);
     }
 
     synchronized void onTaskRemoved(final int taskId) {
         mTaskIds.remove(Integer.valueOf(taskId));
         if (taskId == mHostBackstopTaskId) {
             mHostBackstopTaskId = -1;
-        }
-        if (taskId == mWorkspaceBackstopTaskId) {
-            mWorkspaceBackstopTaskId = -1;
         }
         if (taskId == mHostTaskId) {
             mHostTaskId = -1;
@@ -400,56 +390,24 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         if (taskId == mHostTaskId) {
             return Boolean.TRUE;
         }
-        if (!mTaskIds.contains(Integer.valueOf(taskId))
-                || mHostArea == null) {
+        if (mHostArea == null) {
             return Boolean.FALSE;
         }
         try {
             final Object task = HiddenTaskApi.findTask(
                     mService, displayId, taskId);
+            if (mTaskAreaPolicy.usesDirectRootWorkspace()) {
+                return Boolean.valueOf(
+                        task != null && mOwnership.isDesktopTask(task));
+            }
             return Boolean.valueOf(task != null
+                    && mTaskIds.contains(Integer.valueOf(taskId))
                     && isManagedAreaFeature(
                             HiddenTaskApi.getTaskDisplayAreaFeatureId(task)));
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not inspect desktop task parent task="
                     + taskId, error);
             return null;
-        }
-    }
-
-    synchronized void commitWorkspaceSurfaceForTask(
-            final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        if (!mEnabled || displayId != mDisplayId
-                || taskId < 0 || mWorkspaceArea == null) {
-            return;
-        }
-        final Object task = HiddenTaskApi.requireTask(
-                mService, displayId, taskId);
-        final boolean workspaceForeground = taskId != mHostTaskId
-                && HiddenTaskApi.getTaskDisplayAreaFeatureId(task)
-                        == mWorkspaceArea.featureId();
-        final Class<?> surfaceClass = Class.forName(
-                "android.view.SurfaceControl");
-        final Class<?> transactionClass = Class.forName(
-                "android.view.SurfaceControl$Transaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        try {
-            // WMS can commit task focus while retaining the organizer
-            // leash's previous Z-order. Reassert only the freeform overlay;
-            // fullscreen planes keep their independent ordering model.
-            transactionClass.getMethod(
-                    "setLayer", surfaceClass, Integer.TYPE)
-                    .invoke(
-                            transaction,
-                            mWorkspaceArea.surfaceLeash(),
-                            Integer.valueOf(workspaceForeground
-                                    ? Integer.MAX_VALUE
-                                    : Integer.MIN_VALUE));
-            transactionClass.getMethod("apply").invoke(transaction);
-        } finally {
-            transactionClass.getMethod("close").invoke(transaction);
         }
     }
 
@@ -464,6 +422,9 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             foreground = null;
         } else if (taskInfo.taskId == mHostTaskId) {
             foreground = Boolean.TRUE;
+        } else if (mTaskAreaPolicy.usesDirectRootWorkspace()) {
+            foreground = Boolean.valueOf(
+                    mOwnership.isDesktopTask(taskInfo));
         } else if (!mTaskIds.contains(Integer.valueOf(taskInfo.taskId))) {
             foreground = Boolean.FALSE;
         } else {
@@ -596,16 +557,16 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             }
 
             final List<Integer> removedTaskIds = new ArrayList<>();
-            for (final Integer taskId : mTaskIds) {
-                if (taskId == null || taskId.intValue() == focusTaskId) {
+            for (final int taskId : mOwnership.desktopTaskIds()) {
+                if (taskId == focusTaskId || taskId == mHostTaskId) {
                     continue;
                 }
                 final Object task = HiddenTaskApi.findTask(
-                        mService, displayId, taskId.intValue());
+                        mService, displayId, taskId);
                 if (task != null
                         && mOwnership.isDesktopTask(task)
                         && packageName.equals(HiddenTaskApi.getTaskPackage(task))) {
-                    removedTaskIds.add(taskId);
+                    removedTaskIds.add(Integer.valueOf(taskId));
                 }
             }
             if (removedTaskIds.isEmpty()) {
@@ -681,7 +642,7 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         releaseTasks();
         mEnabled = false;
         mDisplayId = -1;
-        mTaskAreaPolicy = DesktopTaskAreaPolicy.DEFAULT;
+        mTaskAreaPolicy = DesktopTaskAreaPolicy.UNCONFIGURED;
     }
 
     private void requireConfigured(
@@ -713,51 +674,8 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 "MagicDesk desktop host",
                 mTaskAreaPolicy.usesSessionParent() ? "session" : "host",
                 ACTIVITY_TYPE_HOME);
-        TaskDisplayAreaHandle workspaceArea = null;
-        int workspaceBackstopTaskId = -1;
-        try {
-            if (mTaskAreaPolicy.usesIndependentFullscreenPlanes()) {
-                workspaceArea = TaskDisplayAreaHandle.createSurfaceOrdered(
-                        mDisplayId,
-                        FEATURE_DEFAULT_TASK_CONTAINER,
-                        "MagicDesk freeform overlay");
-                workspaceArea.setIgnoreOrientationRequest(mService, true);
-                workspaceBackstopTaskId = launchAreaBackstop(
-                        workspaceArea,
-                        "overlay",
-                        ACTIVITY_TYPE_STANDARD);
-                final FrameworkWindowingApi windowing =
-                        FrameworkRuntime.current().windowing();
-                final Class<?> transactionClass =
-                        windowing.transactionClass();
-                final Object transaction = windowing.newTransaction();
-                windowing.reorder(transaction, hostArea.token(), true);
-                windowing.reorder(transaction, workspaceArea.token(), true);
-                ShellWindowTransitionExecutor.applyAtomic(
-                        mService, transactionClass, transaction);
-            }
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            if (workspaceArea != null) {
-                workspaceArea.closeIfOnlyOwnedChildren(
-                        mService,
-                        mDisplayId,
-                        workspaceBackstopTaskId < 0
-                                ? Collections.<Integer>emptySet()
-                                : Collections.singleton(Integer.valueOf(
-                                        workspaceBackstopTaskId)));
-            }
-            hostArea.closeIfOnlyOwnedChildren(
-                    mService,
-                    mDisplayId,
-                    Collections.singleton(
-                            Integer.valueOf(mHostBackstopTaskId)));
-            mHostBackstopTaskId = -1;
-            throw error;
-        }
         mHostArea = hostArea;
-        mWorkspaceArea = workspaceArea;
-        mWorkspaceBackstopTaskId = workspaceBackstopTaskId;
-        Log.i(TAG, "created desktop task areas display=" + mDisplayId
+        Log.i(TAG, "created desktop host area display=" + mDisplayId
                 + " policy=" + mTaskAreaPolicy);
     }
 
@@ -771,6 +689,10 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 name);
         int backstopTaskId = -1;
         try {
+            // Keep the session area in the display's default mode. Marking the
+            // parent freeform makes framework restore every fullscreen child
+            // to freeform when the area is activated. Windowed launch staging
+            // publishes freeform only after the child's task token exists.
             // A desktop is one stable viewport. Individual activities may
             // adapt their own content, but must not rotate sibling planes.
             area.setIgnoreOrientationRequest(mService, true);
@@ -834,16 +756,6 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 transaction,
                 HiddenTaskApi.getTaskToken(backstop),
                 false);
-        if (activityType == ACTIVITY_TYPE_STANDARD) {
-            // The workspace anchor keeps its organizer area alive, but a
-            // visible fullscreen task still owns an ActivityRecord input sink
-            // even when its window is not touchable. Hide the structural task
-            // so empty desktop space targets the real desktop host below it.
-            windowing.setHidden(
-                    transaction,
-                    HiddenTaskApi.getTaskToken(backstop),
-                    true);
-        }
         ShellWindowTransitionExecutor.applyAtomic(
                 mService, transactionClass, transaction);
         return taskId;
@@ -877,9 +789,6 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         // inside the default task container. SystemUI can then add transient
         // task-decoration surfaces above this child area.
         windowing.reorder(transaction, mHostArea.token(), true);
-        if (mWorkspaceArea != null) {
-            windowing.reorder(transaction, mWorkspaceArea.token(), true);
-        }
         ShellWindowTransitionExecutor.applyAtomic(
                 mService, transactionClass, transaction);
         mAreaAtTop = Boolean.TRUE;
@@ -890,29 +799,21 @@ final class ShellDesktopTaskArea implements AutoCloseable {
 
     private void releaseTasks() {
         final TaskDisplayAreaHandle hostArea = mHostArea;
-        final TaskDisplayAreaHandle workspaceArea = mWorkspaceArea;
         if (hostArea == null) {
             mAreaAtTop = null;
             mTaskIds.clear();
             mHostBackstopTaskId = -1;
-            mWorkspaceBackstopTaskId = -1;
             mHostTaskId = -1;
             return;
         }
         final int hostBackstopTaskId = mHostBackstopTaskId;
-        final int workspaceBackstopTaskId = mWorkspaceBackstopTaskId;
         final int hostTaskId = mHostTaskId;
         try {
             final Set<Integer> ownedTaskIds = new LinkedHashSet<>(mTaskIds);
             final Set<Integer> hostChildTaskIds = findOwnedChildTaskIds(
                     hostArea.featureId(), ownedTaskIds);
-            final Set<Integer> workspaceChildTaskIds = workspaceArea == null
-                    ? Collections.<Integer>emptySet()
-                    : findOwnedChildTaskIds(
-                            workspaceArea.featureId(), ownedTaskIds);
             final Set<Integer> childTaskIds = new LinkedHashSet<>(
                     hostChildTaskIds);
-            childTaskIds.addAll(workspaceChildTaskIds);
             normalizeChildTasks(childTaskIds);
             // Keep mode changes separate from hierarchy changes. Combining
             // them can make vendor WMS compare a task against an area whose
@@ -921,14 +822,6 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             // behind the UI that Android selects next. Raising every released
             // root is both unnecessary and unsafe on firmware whose priority
             // traversal still contains an organizer area being dismantled.
-            if (workspaceArea != null) {
-                workspaceArea.detachChildTasks(
-                        mService,
-                        mDisplayId,
-                        workspaceChildTaskIds,
-                        null,
-                        false);
-            }
             hostArea.detachChildTasks(
                     mService,
                     mDisplayId,
@@ -939,23 +832,10 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             Log.w(TAG, "could not release desktop task area", error);
         } finally {
             mHostArea = null;
-            mWorkspaceArea = null;
             mAreaAtTop = null;
             mTaskIds.clear();
             mHostBackstopTaskId = -1;
-            mWorkspaceBackstopTaskId = -1;
             mHostTaskId = -1;
-            if (workspaceArea != null
-                    && !workspaceArea.closeIfOnlyOwnedChildren(
-                            mService,
-                            mDisplayId,
-                            workspaceBackstopTaskId < 0
-                                    ? Collections.<Integer>emptySet()
-                                    : Collections.singleton(Integer.valueOf(
-                                            workspaceBackstopTaskId)))) {
-                Log.w(TAG, "freeform overlay retained after unsafe cleanup"
-                        + " feature=" + workspaceArea.featureId());
-            }
             if (!hostArea.closeIfOnlyOwnedChildren(
                     mService,
                     mDisplayId,

@@ -265,7 +265,7 @@ interface IShizukuCommandService {
         int right,
         int bottom) = 73;
 
-    void placeTaskInDesktopArea(
+    void placeWindowedTaskInManagedSession(
         ITaskObserverCallback callback,
         int taskId,
         int sourceDisplayId,
@@ -300,12 +300,12 @@ interface IShizukuCommandService {
         int displayId,
         int taskId) = 79;
 
-    int launchFullscreenTaskInDesktopArea(
+    int launchFullscreenTaskInManagedSession(
         ITaskObserverCallback callback,
         int displayId,
         String intentUri) = 80;
 
-    void placeFullscreenTaskInDesktopArea(
+    void placeFullscreenTaskInManagedSession(
         ITaskObserverCallback callback,
         int taskId,
         int sourceDisplayId,

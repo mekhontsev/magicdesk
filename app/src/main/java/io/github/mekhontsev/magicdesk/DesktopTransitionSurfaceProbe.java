@@ -129,12 +129,53 @@ public final class DesktopTransitionSurfaceProbe {
     }
 
     static boolean sameColor(final int first, final int second) {
-        return Math.abs(((first >>> 16) & 0xFF)
-                        - ((second >>> 16) & 0xFF)) <= COLOR_TOLERANCE
-                && Math.abs(((first >>> 8) & 0xFF)
-                        - ((second >>> 8) & 0xFF)) <= COLOR_TOLERANCE
-                && Math.abs((first & 0xFF) - (second & 0xFF))
-                        <= COLOR_TOLERANCE;
+        if (withinCaptureTolerance(first, second)) {
+            return true;
+        }
+        return preservesColorUnderSystemDim(first, second);
+    }
+
+    private static boolean withinCaptureTolerance(
+            final int first,
+            final int second) {
+        return Math.abs(red(first) - red(second)) <= COLOR_TOLERANCE
+                && Math.abs(green(first) - green(second)) <= COLOR_TOLERANCE
+                && Math.abs(blue(first) - blue(second)) <= COLOR_TOLERANCE;
+    }
+
+    private static boolean preservesColorUnderSystemDim(
+            final int first,
+            final int second) {
+        final int[] expected = {red(first), green(first), blue(first)};
+        final int[] actual = {red(second), green(second), blue(second)};
+        double minimumRatio = 1.0;
+        double maximumRatio = 0.0;
+        for (int index = 0; index < expected.length; index++) {
+            if (expected[index] < 32 || actual[index] > expected[index]) {
+                return false;
+            }
+            final double ratio = (double) actual[index] / expected[index];
+            if (ratio < 0.88 || ratio > 1.0) {
+                return false;
+            }
+            minimumRatio = Math.min(minimumRatio, ratio);
+            maximumRatio = Math.max(maximumRatio, ratio);
+        }
+        // Native freeform shadows can change physical-display composition.
+        // Accept that bounded dim while still rejecting a flat replacement.
+        return maximumRatio - minimumRatio <= 0.08;
+    }
+
+    private static int red(final int color) {
+        return (color >>> 16) & 0xFF;
+    }
+
+    private static int green(final int color) {
+        return (color >>> 8) & 0xFF;
+    }
+
+    private static int blue(final int color) {
+        return color & 0xFF;
     }
 
     static String formatColor(final int color) {

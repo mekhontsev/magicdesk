@@ -37,7 +37,6 @@ final class ShellDesktopWorkspaceCoordinator {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     private final Object mService;
-    private final ShellDesktopTaskOwnership mDesktopOwnership;
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
     private final ShellDesktopFocusController mFocusController;
     private final ForegroundReporter mForegroundReporter;
@@ -45,20 +44,17 @@ final class ShellDesktopWorkspaceCoordinator {
 
     ShellDesktopWorkspaceCoordinator(
             final Object service,
-            final ShellDesktopTaskOwnership desktopOwnership,
             final ShellFullscreenTaskArea fullscreenTaskArea,
             final ShellDesktopFocusController focusController,
             final ForegroundReporter foregroundReporter,
             final Runnable taskSampleRequester) {
-        if (service == null || desktopOwnership == null
-                || fullscreenTaskArea == null
+        if (service == null || fullscreenTaskArea == null
                 || focusController == null || foregroundReporter == null
                 || taskSampleRequester == null) {
             throw new IllegalArgumentException(
                     "workspace coordinator dependencies are required");
         }
         mService = service;
-        mDesktopOwnership = desktopOwnership;
         mFullscreenTaskArea = fullscreenTaskArea;
         mFocusController = focusController;
         mForegroundReporter = foregroundReporter;
@@ -108,10 +104,8 @@ final class ShellDesktopWorkspaceCoordinator {
                     mFocusController.captureCommitBarrier();
             applyPhysicalOrder(command, physicalOrder);
             mTaskSampleRequester.run();
-            final boolean desktopHostTarget = mDesktopOwnership
-                    .isDesktopHostTask(command.targetTaskId);
-            final boolean requiresInputFocus = !desktopHostTarget
-                    && command.requiresInputFocusCommit();
+            final boolean requiresInputFocus =
+                    command.requiresInputFocusCommit();
             final boolean converged = requiresInputFocus
                     ? mFocusController.convergeAfterCommit(
                             command.targetTaskId,
@@ -161,9 +155,9 @@ final class ShellDesktopWorkspaceCoordinator {
         if (command.presentsDesktop()
                 && !mFullscreenTaskArea.concealForShowDesktop(
                         command.displayId)) {
-            throw new IllegalStateException(
+                throw new IllegalStateException(
                     "fullscreen planes could not be concealed");
-        }
+            }
     }
 
     private static String usefulMessage(final Throwable error) {

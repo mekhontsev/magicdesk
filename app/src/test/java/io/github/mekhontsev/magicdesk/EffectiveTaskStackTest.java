@@ -68,6 +68,34 @@ public final class EffectiveTaskStackTest {
     }
 
     @Test
+    public void pendingFreeformFocusOverridesStaleFullscreenActiveFlag() {
+        final TaskRepository.TaskEntry fullscreen = task(
+                10, "fullscreen", true, true);
+        final TaskRepository.TaskEntry freeform = task(
+                11, "freeform", true, false);
+
+        assertTrue(EffectiveTaskStack.shouldActivateTaskbarTarget(
+                snapshot(fullscreen, host(), freeform),
+                fullscreen,
+                Collections.emptySet(),
+                freeform.taskId));
+    }
+
+    @Test
+    public void repeatedPendingFocusDemotesBeforeSnapshotCatchesUp() {
+        final TaskRepository.TaskEntry target = task(
+                10, "freeform", true, false);
+        final TaskRepository.TaskEntry staleActive = task(
+                11, "fullscreen", true, true);
+
+        assertFalse(EffectiveTaskStack.shouldActivateTaskbarTarget(
+                snapshot(staleActive, host(), target),
+                target,
+                Collections.emptySet(),
+                target.taskId));
+    }
+
+    @Test
     public void concealedAndInvisibleBlockersDoNotCoverForeground() {
         final TaskRepository.TaskEntry concealedBlocker = task(
                 12, "freeform", true, false);

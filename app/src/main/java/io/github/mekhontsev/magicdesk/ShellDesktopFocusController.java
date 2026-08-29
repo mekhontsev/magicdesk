@@ -423,6 +423,16 @@ final class ShellDesktopFocusController implements AutoCloseable {
                     displayId, taskId, task);
             if (refreshRequested) {
                 awaitInputFocusRefresh(taskId, refreshGeneration);
+                if (!isInputFocused(displayId, taskId)
+                        && HiddenTaskApi.getTaskWindowingMode(task)
+                                == FrameworkTaskSnapshot
+                                        .WINDOWING_MODE_FULLSCREEN) {
+                    // Release the stale workspace window first. Reordering
+                    // the plane child before the host relayout lets that
+                    // later relayout clear the newly selected input target.
+                    TaskWindowingCommand.focusTasksWithinCurrentParent(
+                            mTaskService, displayId, new int[]{taskId});
+                }
             }
             final long repairedSampleGeneration = taskSampleGeneration();
             sampleRequester.run();
@@ -525,7 +535,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
     private static boolean isInputFocused(
             final int displayId,
             final int taskId) throws IOException, InterruptedException {
-        return TaskInputWindowParser.isTaskFocusConsistent(
+        return TaskInputWindowParser.isTaskFocused(
                 FrameworkInputSnapshotSource.readLocal(),
                 displayId,
                 taskId);
@@ -579,18 +589,13 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 taskId, inputTaskId, inputTaskExists)) {
             return false;
         }
-        final int windowingMode = HiddenTaskApi.getTaskWindowingMode(task);
-        if (!requiresParentReorderForMissingWindow(windowingMode)) {
-            TaskWindowingCommand.focusTasksWithinCurrentParent(
-                    mTaskService, displayId, new int[]{taskId});
-        }
         synchronized (mPendingLock) {
             mMissingWindowRepairTaskId = taskId;
         }
         if (mListener != null) {
             mListener.onInputFocusRefreshRequired(taskId);
         }
-        Log.i(TAG, "repaired committed desktop input target display="
+        Log.i(TAG, "requested desktop input relayout display="
                 + displayId + " task=" + taskId
                 + " staleInputTask=" + inputTaskId);
         return mListener != null;

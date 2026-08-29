@@ -31,8 +31,7 @@ public final class TaskAreaBackstopActivity extends Activity {
                 .putExtra(
                         EXTRA_PASSIVE_INPUT,
                         instanceKey.startsWith("host:")
-                                || instanceKey.startsWith("session:")
-                                || instanceKey.startsWith("overlay:"))
+                                || instanceKey.startsWith("session:"))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                         | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
@@ -59,12 +58,6 @@ public final class TaskAreaBackstopActivity extends Activity {
         }
         if (instanceKey.startsWith("session:")) {
             return TaskAreaBackstopRole.SESSION;
-        }
-        if (instanceKey.startsWith("overlay:")) {
-            return TaskAreaBackstopRole.WORKSPACE;
-        }
-        if (instanceKey.startsWith("fullscreen:")) {
-            return TaskAreaBackstopRole.FULLSCREEN;
         }
         if (instanceKey.startsWith("fullscreen-slot:")) {
             return TaskAreaBackstopRole.FULLSCREEN;

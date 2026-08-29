@@ -13,9 +13,11 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private final ShellFullscreenTaskTopology mSessionTopology;
     private final ShellFullscreenTaskTopology mIndependentTopology;
     private ShellFullscreenTaskTopology mTopology;
+    private DesktopTaskAreaPolicy mTaskAreaPolicy =
+            DesktopTaskAreaPolicy.SESSION;
 
     ShellFullscreenTaskArea(final ShellDesktopTaskOwnership ownership) {
-        mSessionTopology = new LegacyFullscreenTaskTopology(ownership);
+        mSessionTopology = new SessionFullscreenTaskTopology(ownership);
         mIndependentTopology =
                 new IndependentFullscreenTaskTopology(ownership);
         mTopology = mSessionTopology;
@@ -30,6 +32,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
 
     synchronized boolean concealForShowDesktop(final int displayId) {
         return mTopology.concealForShowDesktop(displayId);
+    }
+
+    synchronized boolean usesDirectRootWorkspace() {
+        return mTaskAreaPolicy.usesDirectRootWorkspace();
     }
 
     synchronized boolean beginAppFullscreen(
@@ -96,10 +102,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
 
     synchronized void configure(
             final int displayId,
-            final DesktopTaskAreaPolicy taskAreaPolicy,
-            final int parentFeatureId,
-            final Object hostParentToken,
-            final Object releaseParentToken) {
+            final DesktopTaskAreaPolicy taskAreaPolicy) {
         if (taskAreaPolicy == null) {
             throw new IllegalArgumentException(
                     "fullscreen task area policy is required");
@@ -113,39 +116,8 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         }
         mTopology.configure(
                 displayId,
-                taskAreaPolicy,
-                parentFeatureId,
-                hostParentToken,
-                releaseParentToken);
-    }
-
-    static boolean shouldJoinPreparedArea(
-            final DesktopTaskAreaPolicy taskAreaPolicy,
-            final boolean areaExists,
-            final int managedTaskCount) {
-        return LegacyFullscreenTaskTopology.shouldJoinPreparedArea(
-                taskAreaPolicy, areaExists, managedTaskCount);
-    }
-
-    static boolean shouldUseSessionParent(
-            final DesktopTaskAreaPolicy taskAreaPolicy) {
-        return LegacyFullscreenTaskTopology.shouldUseSessionParent(
                 taskAreaPolicy);
-    }
-
-    static boolean shouldReleaseBackgroundAppFullscreen(
-            final DesktopTaskAreaPolicy taskAreaPolicy,
-            final boolean focused,
-            final int windowingMode,
-            final boolean appFullscreenTracked,
-            final boolean managedAreaMember) {
-        return LegacyFullscreenTaskTopology
-                .shouldReleaseBackgroundAppFullscreen(
-                        taskAreaPolicy,
-                        focused,
-                        windowingMode,
-                        appFullscreenTracked,
-                        managedAreaMember);
+        mTaskAreaPolicy = taskAreaPolicy;
     }
 
     @Override

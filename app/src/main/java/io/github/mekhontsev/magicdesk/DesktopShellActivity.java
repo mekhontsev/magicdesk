@@ -610,11 +610,8 @@ public abstract class DesktopShellActivity extends Activity
             return;
         }
         mDesktopWindowFocusable = focusable;
-        if (focusable) {
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
-        } else {
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
-        }
+        mInputFocusRefreshGeneration++;
+        setWindowFocusable(getWindow(), focusable);
     }
 
     void refreshDesktopInputFocus() {
@@ -622,35 +619,46 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void refreshDesktopInputFocus(final Runnable completion) {
-        if (mDesktopWindowFocusable || isActivityUnavailable()) {
+        if (isActivityUnavailable()) {
             runIfPresent(completion);
             return;
         }
         final Window window = getWindow();
         final View decor = window.getDecorView();
         final int generation = ++mInputFocusRefreshGeneration;
+        final boolean finalFocusable = mDesktopWindowFocusable;
 
         // A real window relayout makes Nubia WMS recompute the focused window;
         // task-level focus operations update only its activity-side state.
+        // Pulse away from the requested final state so the same repair works
+        // both when focus leaves the host and when it returns to the desktop.
         decor.getViewTreeObserver().registerFrameCommitCallback(() ->
                 decor.post(() -> {
                     if (generation != mInputFocusRefreshGeneration
                             || isActivityUnavailable()
-                            || mDesktopWindowFocusable) {
+                            || mDesktopWindowFocusable != finalFocusable) {
                         runIfPresent(completion);
                         return;
                     }
-                    window.addFlags(
-                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
-                    // Completion describes the final non-focusable host
-                    // relayout, not merely submission of its LayoutParams.
+                    setWindowFocusable(window, finalFocusable);
+                    // Completion describes the final requested host relayout,
+                    // not merely submission of its LayoutParams.
                     decor.getViewTreeObserver().registerFrameCommitCallback(
                             () -> decor.post(() ->
                                     runIfPresent(completion)));
                     decor.invalidate();
                 }));
-        window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        setWindowFocusable(window, !finalFocusable);
         decor.invalidate();
+    }
+
+    private static void setWindowFocusable(
+            final Window window, final boolean focusable) {
+        if (focusable) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        } else {
+            window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        }
     }
 
     private static void runIfPresent(final Runnable action) {

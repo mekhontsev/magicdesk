@@ -6,9 +6,7 @@ import android.util.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 final class ExistingTaskController {
     private static final String TAG = "MagicDeskTaskReuse";
@@ -45,12 +43,13 @@ final class ExistingTaskController {
                 + " mode=" + task.windowingMode
                 + " targetDisplay=" + targetDisplayId);
         if (task.displayId != targetDisplayId) {
-            final String command = TaskFullscreenMoveCommand.createMoveCommand(
+            DesktopTaskTransfer.move(
                     task.taskId,
                     task.rootTaskId,
                     task.displayId,
-                    targetDisplayId);
-            runCommand(command);
+                    targetDisplayId,
+                    DesktopTaskTransfer.Mode.FULLSCREEN,
+                    null);
             waitForTaskDisplay(task.taskId, targetDisplayId);
             final TaskInfo movedTask = findTask(task.taskId);
             if (movedTask == null) {
@@ -61,7 +60,6 @@ final class ExistingTaskController {
         } else {
             setFullscreen(task, targetDisplayId);
         }
-        bringTaskStackToFrontBestEffort(task, null);
         return ReuseResult.reused(task.taskId, task.packageName);
     }
 
@@ -156,68 +154,21 @@ final class ExistingTaskController {
                     MODE_FULLSCREEN.equals(task.windowingMode);
             boolean movedAsFreeform = false;
             boolean movedDisplay = false;
-            final boolean managedWorkspaceArea =
-                    DesktopDisplayDrivers.activeTaskAreaPolicy(
-                            targetDisplayId)
-                            .usesManagedWorkspaceArea();
-            if (managedWorkspaceArea) {
-                final int sourceDisplayId = task.displayId;
-                if (targetFreeform) {
-                    final Rect bounds = resolveTargetBounds(
-                            targetDisplayId, targetBounds);
-                    MagicDeskRuntime.placeTaskInDesktopArea(
-                            task.taskId,
-                            sourceDisplayId,
-                            targetDisplayId,
-                            bounds);
-                    movedAsFreeform = true;
-                } else {
-                    MagicDeskRuntime.placeFullscreenTaskInDesktopArea(
-                            task.taskId,
-                            sourceDisplayId,
-                            targetDisplayId);
-                }
-                movedDisplay = sourceDisplayId != targetDisplayId;
-                final TaskInfo movedTask = findTask(task.taskId);
-                if (movedTask == null) {
-                    throw new IOException(
-                            "placed task " + task.taskId
-                                    + " is unavailable");
-                }
-                task = movedTask;
-                taskIsFreeform = MODE_FREEFORM.equals(task.windowingMode);
-                taskIsFullscreen = MODE_FULLSCREEN.equals(task.windowingMode);
-            } else if (task.displayId != targetDisplayId) {
-                final String command;
-                final DesktopDisplayDriver targetDriver =
-                        DesktopDisplayDrivers.forActiveDisplay(
-                                targetDisplayId);
-                if (targetFreeform) {
-                    final Rect bounds = resolveTargetBounds(
-                            targetDisplayId, targetBounds);
-                    command = targetDriver.features().rootTaskTransfer
-                            ? TaskDisplayAreaLaunchCommand
-                                    .createRootTaskMoveCommand(
-                                            task.taskId,
-                                            task.rootTaskId,
-                                            task.displayId,
-                                            targetDisplayId,
-                                            bounds)
-                            : TaskDisplayAreaLaunchCommand.createMoveCommand(
-                                    task.taskId,
-                                    task.displayId,
-                                    targetDisplayId,
-                                    bounds);
-                    movedAsFreeform = true;
-                } else {
-                    command = TaskFullscreenMoveCommand.createMoveCommand(
-                            task.taskId,
-                            task.rootTaskId,
-                            task.displayId,
-                            targetDisplayId);
-                }
-                Log.i(TAG, "move display: " + command);
-                final String output = runCommand(command);
+            if (task.displayId != targetDisplayId) {
+                final Rect bounds = targetFreeform
+                        ? resolveTargetBounds(targetDisplayId, targetBounds)
+                        : null;
+                final DesktopTaskTransfer.Mode transferMode = targetFreeform
+                        ? DesktopTaskTransfer.Mode.FREEFORM
+                        : DesktopTaskTransfer.Mode.FULLSCREEN;
+                final String output = DesktopTaskTransfer.move(
+                        task.taskId,
+                        task.rootTaskId,
+                        task.displayId,
+                        targetDisplayId,
+                        transferMode,
+                        bounds);
+                movedAsFreeform = targetFreeform;
                 if (movedAsFreeform
                         && !output.contains(
                                 "task-freeform-move=" + task.taskId)) {
@@ -258,12 +209,8 @@ final class ExistingTaskController {
             } else if (!targetFreeform && taskIsFreeform) {
                 Log.i(TAG, "convert freeform to fullscreen task=" + task.taskId);
                 setFullscreen(task, targetDisplayId);
-            } else {
-                setCaptionInsetExcluded(task.taskId, targetDisplayId,
-                        !targetFreeform);
             }
 
-            bringTaskStackToFrontBestEffort(task, preservedTopFirstTaskIds);
             return ReuseResult.reused(task.taskId, task.packageName);
         } finally {
             if (outerLaunchLease == null) {
@@ -317,28 +264,6 @@ final class ExistingTaskController {
         throw new IOException("task " + taskId
                 + " did not enter " + windowingMode
                 + " mode on display " + displayId);
-    }
-
-    private static void bringTaskStackToFrontBestEffort(final TaskInfo task,
-            final int[] preservedTopFirstTaskIds) {
-        try {
-            final Set<Integer> orderedTaskIds = new LinkedHashSet<>();
-            if (preservedTopFirstTaskIds != null) {
-                for (int index = preservedTopFirstTaskIds.length - 1; index >= 0; index--) {
-                    final int taskId = preservedTopFirstTaskIds[index];
-                    if (taskId >= 0 && taskId != task.taskId) {
-                        orderedTaskIds.add(Integer.valueOf(taskId));
-                    }
-                }
-            }
-            orderedTaskIds.add(Integer.valueOf(task.taskId));
-            runCommand(TaskFocusCommands.createShellCommand(
-                    task.displayId, orderedTaskIds));
-        } catch (IOException ignored) {
-            Log.w(TAG, "bring task stack to front failed package=" + task.packageName
-                    + " task=" + task.taskId, ignored);
-            // Reuse already succeeded; do not fall back to a relaunch just because focus failed.
-        }
     }
 
     private static void setFreeform(

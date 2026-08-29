@@ -64,10 +64,10 @@ public final class DesktopDisplayDriversTest {
         assertEquals(DesktopTaskAreaPolicy.INDEPENDENT,
                 wireless.taskAreaPolicy);
 
-        assertFalse(phone.rootTaskTransfer);
-        assertTrue(simulated.rootTaskTransfer);
-        assertTrue(wired.rootTaskTransfer);
-        assertTrue(wireless.rootTaskTransfer);
+        assertFalse(phone.taskAreaPolicy.usesDirectRootWorkspace());
+        assertTrue(simulated.taskAreaPolicy.usesDirectRootWorkspace());
+        assertTrue(wired.taskAreaPolicy.usesDirectRootWorkspace());
+        assertTrue(wireless.taskAreaPolicy.usesDirectRootWorkspace());
 
         assertFalse(phone.phoneScreenControl);
         assertFalse(simulated.phoneScreenControl);

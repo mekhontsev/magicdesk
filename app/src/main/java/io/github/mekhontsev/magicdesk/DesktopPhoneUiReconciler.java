@@ -79,14 +79,10 @@ final class DesktopPhoneUiReconciler {
                     "phone touchpad displaced by desktop window transition");
         }
 
-        boolean externalTaskMinimized = false;
-        for (final Integer taskId : mLastVisibleAppTaskIds) {
-            if (!visibleAppTaskIds.contains(taskId)) {
-                externalTaskMinimized = true;
-                break;
-            }
-        }
-        if (!focusingExternalTask && externalTaskMinimized
+        final boolean externalWorkspaceBecameEmpty =
+                externalWorkspaceBecameEmpty(
+                        mLastVisibleAppTaskIds, visibleAppTaskIds);
+        if (!focusingExternalTask && externalWorkspaceBecameEmpty
                 && secondaryHomeVisible && !touchpadVisible
                 && mLastTouchpadVisible != null) {
             if (mLastTouchpadVisible.booleanValue()) {
@@ -102,6 +98,14 @@ final class DesktopPhoneUiReconciler {
         mLastVisibleAppTaskIds.clear();
         mLastVisibleAppTaskIds.addAll(visibleAppTaskIds);
         mLastTouchpadVisible = Boolean.valueOf(touchpadVisible);
+    }
+
+    static boolean externalWorkspaceBecameEmpty(
+            final Set<Integer> previousVisibleTaskIds,
+            final Set<Integer> visibleTaskIds) {
+        return previousVisibleTaskIds != null
+                && !previousVisibleTaskIds.isEmpty()
+                && (visibleTaskIds == null || visibleTaskIds.isEmpty());
     }
 
     private void attemptPendingTouchpadRestore(final int displayId) {

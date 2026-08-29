@@ -82,7 +82,7 @@ Alt+Tab, overview, and MCP focus must continue through the same
 they never hide, minimize, reparent, resize, or change an application's
 windowing mode.
 
-Respect the selected ownership policy. A `DEFAULT` fullscreen task retains one
+Respect the selected ownership policy. An `INDEPENDENT` fullscreen task retains one
 stable ordering plane for its complete fullscreen residency. `SESSION` keeps
 all phone desktop tasks in its one existing parent. Every shell transaction has
 one explicit owner, and steady-state focus only reorders the existing

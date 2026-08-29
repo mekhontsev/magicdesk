@@ -504,7 +504,7 @@ final class AppTaskController {
                 });
             } catch (IOException | RuntimeException error) {
                 runIfPresent(onFailure);
-                TaskRepository.bringStackToFront(
+                MagicDeskRuntime.focusStack(
                         visibleTasks, null, null);
                 mActivity.runOnUiThread(() -> {
                     if (!mActivity.isActivityUnavailable()) {
@@ -628,6 +628,8 @@ final class AppTaskController {
                     ExistingTaskController.reuseIfExists(
                             app.launchTarget, displayId, false);
             if (reuseResult.found) {
+                MagicDeskRuntime.focusDesktopTask(
+                        displayId, reuseResult.taskId, null);
                 Log.i(TAG, "reused fullscreen package=" + app.packageName);
                 return reuseResult.taskId;
             }
@@ -641,8 +643,8 @@ final class AppTaskController {
         }
         launchIntent.addFlags(getFullscreenLaunchFlags());
         if (DesktopDisplayDrivers.activeTaskAreaPolicy(displayId)
-                .usesManagedWorkspaceArea()) {
-            return MagicDeskRuntime.launchFullscreenTaskInDesktopArea(
+                .usesManagedApplicationArea()) {
+            return MagicDeskRuntime.launchFullscreenTaskInManagedSession(
                     displayId, launchIntent);
         }
         return MagicDeskRuntime.launchFullscreenTask(
@@ -652,7 +654,7 @@ final class AppTaskController {
     private void showMissingLauncher(final AppItem app) {
         final List<TaskRepository.TaskEntry> visibleTasks =
                 takeInteractionVisibleTasks();
-        TaskRepository.bringStackToFront(visibleTasks, null, null);
+        MagicDeskRuntime.focusStack(visibleTasks, null, null);
         mActivity.setErrorStatus(
                 "APP-LAUNCH-002",
                 mActivity.getString(
@@ -1049,7 +1051,7 @@ final class AppTaskController {
                     order.add(Integer.valueOf(task.taskId));
                 }
             }
-            MagicDeskRuntime.restoreSessionWorkspace(
+            MagicDeskRuntime.restoreDesktopWorkspace(
                     displayId,
                     new ArrayList<>(order),
                     result -> mActivity.runOnUiThread(() -> {

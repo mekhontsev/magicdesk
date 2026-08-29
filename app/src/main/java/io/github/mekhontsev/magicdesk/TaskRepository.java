@@ -318,52 +318,29 @@ public final class TaskRepository {
             return;
         }
         TaskCommandQueue.execute(() -> {
-            final CommandResult result;
             try {
-                final DesktopDisplayDriver targetDriver =
-                        DesktopDisplayDrivers.forActiveDisplay(
-                                targetDisplayId);
-                if (DesktopDisplayDrivers.activeTaskAreaPolicy(
-                                targetDisplayId)
-                        .usesManagedWorkspaceArea()) {
-                    final Rect bounds = FloatingWindowController
-                            .getWindowBounds(
-                                    targetDisplayId, preferredBounds);
-                    MagicDeskRuntime.placeTaskInDesktopArea(
-                            task.taskId,
-                            task.displayId,
-                            targetDisplayId,
-                            bounds);
-                    result = new CommandResult(
-                            true, "task-freeform-move=" + task.taskId);
-                } else {
-                    final String command;
-                    if (targetDisplayId != Display.DEFAULT_DISPLAY) {
-                        final Rect bounds = FloatingWindowController
-                                .getWindowBounds(
-                                        targetDisplayId, preferredBounds);
-                        command = targetDriver.features().rootTaskTransfer
-                                ? TaskDisplayAreaLaunchCommand
-                                        .createRootTaskMoveCommand(
-                                                task.taskId,
-                                                task.rootTaskId,
-                                                task.displayId,
-                                                targetDisplayId,
-                                                bounds)
-                                : TaskDisplayAreaLaunchCommand
-                                        .createMoveCommand(
-                                                task.taskId,
-                                                task.displayId,
-                                                targetDisplayId,
-                                                bounds);
-                    } else {
-                        command = TaskFullscreenMoveCommand.createMoveCommand(
-                                task.taskId,
-                                task.rootTaskId,
-                                task.displayId,
-                                targetDisplayId);
-                    }
-                    result = runCommand(command);
+                final boolean targetPhoneWithoutDesktop =
+                        targetDisplayId == Display.DEFAULT_DISPLAY
+                                && !DesktopDisplayDrivers
+                                        .activeTaskAreaPolicy(targetDisplayId)
+                                        .usesManagedApplicationArea();
+                final DesktopTaskTransfer.Mode mode =
+                        targetPhoneWithoutDesktop
+                                ? DesktopTaskTransfer.Mode.FULLSCREEN
+                                : DesktopTaskTransfer.Mode.FREEFORM;
+                final Rect bounds = mode == DesktopTaskTransfer.Mode.FREEFORM
+                        ? FloatingWindowController.getWindowBounds(
+                                targetDisplayId, preferredBounds)
+                        : null;
+                final String output = DesktopTaskTransfer.move(
+                        task.taskId,
+                        task.rootTaskId,
+                        task.displayId,
+                        targetDisplayId,
+                        mode,
+                        bounds);
+                if (callback != null) {
+                    callback.onComplete(new ActionResult(true, output.trim()));
                 }
             } catch (IOException | RuntimeException error) {
                 complete(
@@ -372,11 +349,6 @@ public final class TaskRepository {
                         error.getMessage() == null
                                 ? error.getClass().getSimpleName()
                                 : error.getMessage());
-                return;
-            }
-            if (callback != null) {
-                callback.onComplete(new ActionResult(
-                        result.success, result.output.trim()));
             }
         });
     }

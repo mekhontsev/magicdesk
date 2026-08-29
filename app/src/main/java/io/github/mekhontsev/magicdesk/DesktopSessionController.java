@@ -69,7 +69,7 @@ final class DesktopSessionController {
             final int desktopTaskId = findDesktopTask(preparedTarget.displayId);
             if (DesktopDisplayDrivers.forTarget(preparedTarget)
                     .features().taskAreaPolicy
-                    .usesManagedWorkspaceArea()) {
+                    .usesManagedHostArea()) {
                 return showInManagedWorkspace(
                         preparedTarget,
                         resolvedPolicy,
@@ -86,7 +86,7 @@ final class DesktopSessionController {
                 } else if (restoreWindows) {
                     MagicDeskRuntime.restoreLastVisibleWindows();
                 } else {
-                    MagicDeskRuntime.restoreSessionWorkspace(
+                    MagicDeskRuntime.restoreDesktopWorkspace(
                             preparedTarget.displayId,
                             java.util.Collections.singletonList(
                                     Integer.valueOf(desktopTaskId)),
@@ -212,7 +212,7 @@ final class DesktopSessionController {
                 if (restoreWindows) {
                     MagicDeskRuntime.restoreLastVisibleWindows();
                 } else {
-                    MagicDeskRuntime.restoreSessionWorkspace(
+                    MagicDeskRuntime.restoreDesktopWorkspace(
                             target.displayId,
                             java.util.Collections.singletonList(
                                     Integer.valueOf(hostTaskId)),

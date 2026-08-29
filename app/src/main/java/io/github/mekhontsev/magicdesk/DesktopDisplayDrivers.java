@@ -86,7 +86,7 @@ final class DesktopDisplayDrivers {
         final DesktopDisplayTarget target =
                 DesktopRuntimeBridge.getDesktopTarget(displayId);
         return target == null
-                ? DesktopTaskAreaPolicy.DEFAULT
+                ? DesktopTaskAreaPolicy.UNCONFIGURED
                 : forTarget(target).features().taskAreaPolicy;
     }
 

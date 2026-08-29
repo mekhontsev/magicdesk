@@ -11,7 +11,6 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
             new DesktopDisplayFeatures(
                     DesktopTaskAreaPolicy.INDEPENDENT,
                     true,
-                    true,
                     true);
     private final PlatformProjectionDriver mProjection;
 

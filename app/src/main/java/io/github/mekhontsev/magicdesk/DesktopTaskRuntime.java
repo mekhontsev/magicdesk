@@ -13,7 +13,7 @@ interface DesktopTaskRuntime {
     int launchWindowedTask(
             int displayId, Intent intent, Rect bounds) throws IOException;
 
-    int launchFullscreenTaskInDesktopArea(
+    int launchFullscreenTaskInManagedSession(
             int displayId, Intent intent) throws IOException;
 
     int launchFullscreenTask(
@@ -24,13 +24,13 @@ interface DesktopTaskRuntime {
     void launchTaskAction(
             int displayId, int taskId, Intent intent) throws IOException;
 
-    void placeTaskInDesktopArea(
+    void placeWindowedTaskInManagedSession(
             int taskId,
             int sourceDisplayId,
             int targetDisplayId,
             Rect bounds) throws IOException;
 
-    void placeFullscreenTaskInDesktopArea(
+    void placeFullscreenTaskInManagedSession(
             int taskId,
             int sourceDisplayId,
             int targetDisplayId) throws IOException;
@@ -83,7 +83,7 @@ interface DesktopTaskRuntime {
             int desktopHostTaskId,
             TaskRepository.ActionCallback callback);
 
-    void restoreSessionWorkspace(
+    void restoreDesktopWorkspace(
             int displayId,
             List<Integer> backToFrontTaskIds,
             TaskRepository.ActionCallback callback);

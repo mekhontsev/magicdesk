@@ -370,7 +370,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             final boolean foreground) {
                         if (mRunning
                                 && taskAreaPolicy()
-                                        .usesManagedWorkspaceArea()) {
+                                        .usesManagedHostArea()) {
                             DesktopRuntimeBridge
                                     .setDesktopPlaneForeground(
                                             mDisplayId, foreground);
@@ -810,8 +810,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final TaskRepository.TaskEntry topTask,
             final TaskRepository.ActionCallback callback) {
         if (!mRunning || !mTaskWatcherReady) {
-            TaskRepository.bringStackToFront(
-                    topFirstTasks, topTask, callback);
+            final int requestedDisplayId = requestedDisplayId(
+                    topFirstTasks, topTask);
+            if (isActiveDesktopDisplay(requestedDisplayId)) {
+                completeActionCallback(
+                        callback, false, "desktop task observer unavailable");
+            } else {
+                TaskRepository.bringStackToFront(
+                        topFirstTasks, topTask, callback);
+            }
             return;
         }
         final Set<Integer> orderedTaskIds = new LinkedHashSet<>();
@@ -852,7 +859,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             return;
         }
         if (!mRunning || !mTaskWatcherReady || mDisplayId != displayId) {
-            TaskRepository.runFocusAction(displayId, taskIds, callback);
+            if (isActiveDesktopDisplay(displayId)) {
+                completeActionCallback(
+                        callback, false, "desktop task observer unavailable");
+            } else {
+                TaskRepository.runFocusAction(displayId, taskIds, callback);
+            }
             return;
         }
         final int generation = mGeneration;
@@ -1139,7 +1151,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public void restoreSessionWorkspace(
+    public void restoreDesktopWorkspace(
             final int displayId,
             final List<Integer> backToFrontTaskIds,
             final TaskRepository.ActionCallback callback) {
@@ -1152,8 +1164,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
             if (!mRunning || generation != mGeneration
                     || mDisplayId != displayId || !mTaskWatcherReady) {
-                TaskRepository.runFocusAction(
-                        displayId, backToFrontTaskIds, callback);
+                completeActionCallback(
+                        callback, false, "desktop task observer unavailable");
                 return;
             }
             if (!snapshot.available) {
@@ -1209,7 +1221,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         mTaskbarConcealedTaskIds);
             }
             if (EffectiveTaskStack.shouldActivateTaskbarTarget(
-                    snapshot, task, effectiveConcealedTaskIds)) {
+                    snapshot,
+                    task,
+                    effectiveConcealedTaskIds,
+                    mActiveTaskId)) {
                 focusThroughGateway(
                         Collections.singletonList(Integer.valueOf(taskId)),
                         taskId,
@@ -1410,7 +1425,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final TaskRepository.ActionCallback callback) {
         mHandler.post(() -> {
             if (!mRunning || !mTaskWatcherReady || mDisplayId != displayId) {
-                TaskRepository.runFocusAction(displayId, taskIds, callback);
+                if (isActiveDesktopDisplay(displayId)) {
+                    completeActionCallback(
+                            callback,
+                            false,
+                            "desktop task observer unavailable");
+                } else {
+                    TaskRepository.runFocusAction(
+                            displayId, taskIds, callback);
+                }
                 return;
             }
             final int focusedTaskId = taskIds.get(
@@ -1437,6 +1460,28 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         callback, result.success, result.message);
             });
         });
+    }
+
+    private static boolean isActiveDesktopDisplay(final int displayId) {
+        return displayId >= 0
+                && DesktopRuntimeBridge.getSessionSnapshot()
+                        .activeDisplayId() == displayId;
+    }
+
+    private static int requestedDisplayId(
+            final List<TaskRepository.TaskEntry> tasks,
+            final TaskRepository.TaskEntry target) {
+        if (target != null && target.displayId >= 0) {
+            return target.displayId;
+        }
+        if (tasks != null) {
+            for (final TaskRepository.TaskEntry task : tasks) {
+                if (task != null && task.displayId >= 0) {
+                    return task.displayId;
+                }
+            }
+        }
+        return -1;
     }
 
     private static void recordWorkspaceCommandEvent(
@@ -1907,13 +1952,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 && (target.kind == DesktopDisplayTarget.Kind.WIRED
                         || target.kind == DesktopDisplayTarget.Kind.WIRELESS)
                 && DesktopDisplayDrivers.forTarget(target)
-                        .features().rootTaskTransfer
+                        .features().taskAreaPolicy
+                        .usesDirectRootWorkspace()
                 && mWindowing.protectsExternalSessionFromPhoneTaskMigration();
     }
 
     private DesktopTaskAreaPolicy taskAreaPolicy() {
         if (mDisplayId < 0) {
-            return DesktopTaskAreaPolicy.DEFAULT;
+            return DesktopTaskAreaPolicy.UNCONFIGURED;
         }
         return DesktopDisplayDrivers.activeTaskAreaPolicy(mDisplayId);
     }
@@ -1929,11 +1975,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public int launchFullscreenTaskInDesktopArea(
+    public int launchFullscreenTaskInManagedSession(
             final int displayId,
             final Intent intent) throws IOException {
         requireSessionTaskArea(displayId);
-        return mTaskWatcher.launchFullscreenTaskInDesktopArea(
+        return mTaskWatcher.launchFullscreenTaskInManagedSession(
                 displayId, intent);
     }
 
@@ -1977,30 +2023,30 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public void placeTaskInDesktopArea(
+    public void placeWindowedTaskInManagedSession(
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId,
             final Rect bounds) throws IOException {
         requireSessionTaskArea(targetDisplayId);
-        mTaskWatcher.placeTaskInDesktopArea(
+        mTaskWatcher.placeWindowedTaskInManagedSession(
                 taskId, sourceDisplayId, targetDisplayId, bounds);
     }
 
     @Override
-    public void placeFullscreenTaskInDesktopArea(
+    public void placeFullscreenTaskInManagedSession(
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId) throws IOException {
         requireSessionTaskArea(targetDisplayId);
-        mTaskWatcher.placeFullscreenTaskInDesktopArea(
+        mTaskWatcher.placeFullscreenTaskInManagedSession(
                 taskId, sourceDisplayId, targetDisplayId);
     }
 
     private void requireSessionTaskArea(final int displayId)
             throws IOException {
         requireTaskObserver(displayId);
-        if (!taskAreaPolicy().usesManagedWorkspaceArea()) {
+        if (!taskAreaPolicy().usesManagedApplicationArea()) {
             throw new IOException(
                     "session task area is unavailable for display "
                             + displayId);
@@ -2028,7 +2074,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     mDisplayId,
                     snapshot.tasks,
                     DesktopRuntimeBridge.getDesktopWorkAreaBounds(mDisplayId),
-                    taskAreaPolicy().usesManagedWorkspaceArea(),
+                    taskAreaPolicy().usesManagedApplicationArea(),
                     mSessionOwnershipReady,
                     mSessionOwnedTaskIds);
         }

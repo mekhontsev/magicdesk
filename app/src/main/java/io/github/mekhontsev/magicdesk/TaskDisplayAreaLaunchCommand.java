@@ -285,9 +285,9 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         final Set<Integer> existingTaskIds = taskIdsOnDisplay(
                 service, displayId);
-        // The target hierarchy is known before launch. Callers that stage the
-        // task behind the desktop apply its final mode, bounds and order in a
-        // separate complete WMShell transition after the task id is known.
+        // The task token does not exist yet. Staged callers keep the provisional
+        // root behind the desktop and publish its final geometry after the
+        // token is known; other callers can rely on these launch options alone.
         launchActivity(service, intent, options);
         return waitForTask(
                 service,
@@ -664,7 +664,7 @@ public final class TaskDisplayAreaLaunchCommand {
         if (observation != null) {
             observation.sample("before");
         }
-        moveExistingTask(
+        moveExistingTaskAsFreeform(
                 service,
                 taskId,
                 sourceDisplayId,
@@ -678,7 +678,7 @@ public final class TaskDisplayAreaLaunchCommand {
         return observation == null ? null : observation.finish();
     }
 
-    private static void moveExistingTask(
+    static void moveExistingTaskAsFreeform(
             final Object service,
             final int taskId,
             final int sourceDisplayId,
@@ -715,6 +715,40 @@ public final class TaskDisplayAreaLaunchCommand {
                 transactionClass,
                 transaction,
                 "move-running-task");
+    }
+
+    static void moveExistingTaskAsFullscreen(
+            final Object service,
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId) throws ReflectiveOperationException {
+        HiddenTaskApi.requireTask(service, sourceDisplayId, taskId);
+        final ActivityOptions options = existingTaskOptions(
+                targetDisplayId,
+                WINDOWING_MODE_FULLSCREEN,
+                null,
+                null);
+        final Object taskToken = HiddenTaskApi.requireTaskToken(
+                service, sourceDisplayId, taskId);
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        windowing.setWindowingMode(
+                transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
+        windowing.setBounds(transaction, taskToken, new Rect());
+        windowing.setForceTranslucent(transaction, taskToken, false);
+        TaskCaptionInsetsCommand.addCaptionInsetOperation(
+                transaction,
+                taskToken,
+                true);
+        windowing.startTask(transaction, taskId, options.toBundle());
+        ShellWindowTransitionExecutor.startForShellAdoption(
+                targetDisplayId,
+                ShellWindowTransitionExecutor.SystemTransition.OPEN,
+                transactionClass,
+                transaction,
+                "move-running-task-fullscreen");
     }
 
     /**
@@ -785,6 +819,31 @@ public final class TaskDisplayAreaLaunchCommand {
                         options.toBundle());
     }
 
+    static void focusExistingTask(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        final Object task = HiddenTaskApi.requireTask(
+                service, displayId, taskId);
+        final Object configuration = HiddenTaskApi.getWindowConfiguration(
+                task);
+        final Rect bounds = new Rect(
+                (Rect) configuration.getClass()
+                        .getMethod("getBounds")
+                        .invoke(configuration));
+        final int windowingMode = HiddenTaskApi.getTaskWindowingMode(task);
+        final ActivityOptions options = existingTaskOptions(
+                displayId,
+                windowingMode,
+                bounds,
+                null);
+        // Recents activation is observed by WMShell and releases any native
+        // minimize state attached to the root task's surface. A raw
+        // moveTaskToFront only changes ATMS hierarchy and can leave that
+        // surface hidden behind the desktop host.
+        restartExistingTask(service, displayId, taskId, options);
+    }
+
     private static ActivityOptions existingTaskOptions(
             final int displayId,
             final int windowingMode,
@@ -815,7 +874,7 @@ public final class TaskDisplayAreaLaunchCommand {
             final Object areaToken,
             final int currentWindowingMode,
             final Rect currentBounds) throws ReflectiveOperationException {
-        if (displayId < 0 || areaToken == null || currentBounds == null
+        if (displayId < 0 || currentBounds == null
                 || currentWindowingMode <= 0 || currentBounds.isEmpty()) {
             throw new IllegalArgumentException(
                     "invalid existing task focus target");
@@ -829,10 +888,12 @@ public final class TaskDisplayAreaLaunchCommand {
         ActivityOptions.class.getMethod(
                 "setFlexibleLaunchSize", Boolean.TYPE)
                 .invoke(options, Boolean.TRUE);
-        ActivityOptions.class.getMethod(
-                "setLaunchTaskDisplayArea",
-                FrameworkRuntime.current().windowing().tokenClass())
-                .invoke(options, areaToken);
+        if (areaToken != null) {
+            ActivityOptions.class.getMethod(
+                    "setLaunchTaskDisplayArea",
+                    FrameworkRuntime.current().windowing().tokenClass())
+                    .invoke(options, areaToken);
+        }
         return options.toBundle();
     }
 

@@ -685,12 +685,9 @@ final class DesktopWindowTransitionController {
             }
             if (hasFixedRequestedOrientation(
                     state.requestedOrientation())) {
-                // A fixed-orientation fullscreen entry briefly exposes system
-                // bars before and while the display rotates. The activity still
-                // owns that orientation request, so this is not yet proof of an
-                // application exit. Wait for a renewed immersive sample or for
-                // the activity to release its orientation request.
-                state.clearImmersiveRequested();
+                // Insets and orientation callbacks are independent. Keep the
+                // foreground exit pending until the activity releases its fixed
+                // orientation; a renewed immersive=true sample cancels it.
                 continue;
             }
             if (focusHandoffPending) {

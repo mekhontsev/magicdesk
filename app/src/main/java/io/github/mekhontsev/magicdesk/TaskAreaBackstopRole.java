@@ -5,7 +5,6 @@ enum TaskAreaBackstopRole {
     NONE,
     HOST,
     SESSION,
-    WORKSPACE,
     FULLSCREEN,
     UNKNOWN
 }

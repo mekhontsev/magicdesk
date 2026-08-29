@@ -177,7 +177,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             complete(callback, false);
             return;
         }
-        final boolean sessionTaskArea = usesSessionTaskArea(source);
+        final boolean sessionTaskArea = usesManagedApplicationSession(source);
         final boolean ownershipReady;
         final Set<Integer> ownedTaskIds;
         synchronized (mLock) {
@@ -266,7 +266,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 || target.displayId < Display.DEFAULT_DISPLAY
                 || !DesktopRuntimeBridge.isDesktopReadyOnDisplay(
                         target.displayId)
-                || (usesSessionTaskArea(target)
+                || (usesManagedApplicationSession(target)
                         && !MagicDeskRuntime.isTaskObserverReady())) {
             return;
         }
@@ -340,7 +340,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 }
             }
             if (isCurrentGeneration(generation)) {
-                if (!usesSessionTaskArea(target)) {
+                if (!usesManagedApplicationSession(target)) {
                     restoreFreeformLayout(
                             target, saved, restoredTaskIds);
                 }
@@ -382,44 +382,25 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             final TaskRepository.TaskEntry live,
             final ParkedTask parked,
             final DesktopDisplayTarget target) throws IOException {
-        final Rect bounds = FloatingWindowController.getWindowBounds(
-                target.displayId, parked.bounds);
-        final DesktopDisplayDriver driver =
-                DesktopDisplayDrivers.forTarget(target);
-        final String moveCommand = driver.features().rootTaskTransfer
-                ? TaskDisplayAreaLaunchCommand.createRootTaskMoveCommand(
-                        live.taskId,
-                        live.rootTaskId,
-                        Display.DEFAULT_DISPLAY,
-                        target.displayId,
-                        bounds)
-                : TaskDisplayAreaLaunchCommand.createMoveCommand(
-                        live.taskId,
-                        Display.DEFAULT_DISPLAY,
-                        target.displayId,
-                        bounds);
-        ShellAccess.run(moveCommand);
-        restoreMode(live, parked, target);
+        final Rect bounds = parked.fullscreen
+                ? null
+                : FloatingWindowController.getWindowBounds(
+                        target.displayId, parked.bounds);
+        DesktopTaskTransfer.move(
+                live.taskId,
+                live.rootTaskId,
+                live.displayId,
+                target.displayId,
+                parked.fullscreen
+                        ? DesktopTaskTransfer.Mode.FULLSCREEN
+                        : DesktopTaskTransfer.Mode.FREEFORM,
+                bounds);
     }
 
     private static void restoreTask(
             final TaskRepository.TaskEntry live,
             final ParkedTask parked,
             final DesktopDisplayTarget target) throws IOException {
-        if (usesSessionTaskArea(target)) {
-            if (parked.fullscreen) {
-                MagicDeskRuntime.placeFullscreenTaskInDesktopArea(
-                        live.taskId, live.displayId, target.displayId);
-            } else {
-                MagicDeskRuntime.placeTaskInDesktopArea(
-                        live.taskId,
-                        live.displayId,
-                        target.displayId,
-                        FloatingWindowController.getWindowBounds(
-                                target.displayId, parked.bounds));
-            }
-            return;
-        }
         if (live.displayId != target.displayId) {
             moveToDesktop(live, parked, target);
         } else {
@@ -427,10 +408,10 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         }
     }
 
-    private static boolean usesSessionTaskArea(
+    private static boolean usesManagedApplicationSession(
             final DesktopDisplayTarget target) {
         return DesktopDisplayDrivers.forTarget(target)
-                .features().taskAreaPolicy.usesManagedWorkspaceArea();
+                .features().taskAreaPolicy.usesManagedApplicationArea();
     }
 
     private static void restoreMode(
@@ -490,14 +471,20 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                                 + " " + focusTaskId));
             }
         }
-        if (!visibleBottomFirst.isEmpty()) {
-            ShellAccess.run(TaskFocusCommands.createShellCommand(
-                    displayId, visibleBottomFirst));
-        } else if (desktopHost != null) {
-            ShellAccess.run(TaskFocusCommands.createShellCommand(
-                    displayId,
-                    Collections.singletonList(
-                            Integer.valueOf(desktopHost.taskId))));
+        final List<Integer> restoreOrder = !visibleBottomFirst.isEmpty()
+                ? visibleBottomFirst
+                : desktopHost == null
+                        ? Collections.emptyList()
+                        : Collections.singletonList(
+                                Integer.valueOf(desktopHost.taskId));
+        if (!restoreOrder.isEmpty()) {
+            MagicDeskRuntime.restoreDesktopWorkspace(
+                    displayId, restoreOrder, result -> {
+                        if (!result.success) {
+                            Log.w(TAG, "Could not restore desktop stack: "
+                                    + result.message);
+                        }
+                    });
         }
     }
 

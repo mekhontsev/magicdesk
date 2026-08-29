@@ -9,31 +9,32 @@ import org.junit.Test;
 public final class DesktopTaskAreaPolicyTest {
     @Test
     public void fullscreenHierarchyFollowsTaskAreaOwnership() {
-        assertFalse(DesktopTaskAreaPolicy.DEFAULT
+        assertFalse(DesktopTaskAreaPolicy.UNCONFIGURED
                 .usesSessionFullscreenHierarchy());
         assertTrue(DesktopTaskAreaPolicy.SESSION
                 .usesSessionFullscreenHierarchy());
-        assertFalse(DesktopTaskAreaPolicy.DEFAULT.usesSessionParent());
+        assertFalse(DesktopTaskAreaPolicy.UNCONFIGURED.usesSessionParent());
         assertTrue(DesktopTaskAreaPolicy.SESSION.usesSessionParent());
         assertFalse(DesktopTaskAreaPolicy.INDEPENDENT.usesSessionParent());
-        assertFalse(DesktopTaskAreaPolicy.DEFAULT.usesManagedWorkspaceArea());
-        assertTrue(DesktopTaskAreaPolicy.SESSION.usesManagedWorkspaceArea());
+        assertFalse(DesktopTaskAreaPolicy.UNCONFIGURED.usesManagedHostArea());
+        assertTrue(DesktopTaskAreaPolicy.SESSION.usesManagedHostArea());
+        assertFalse(DesktopTaskAreaPolicy.INDEPENDENT.usesManagedHostArea());
+        assertFalse(DesktopTaskAreaPolicy.UNCONFIGURED
+                .usesManagedApplicationArea());
+        assertTrue(DesktopTaskAreaPolicy.SESSION
+                .usesManagedApplicationArea());
+        assertFalse(DesktopTaskAreaPolicy.INDEPENDENT
+                .usesManagedApplicationArea());
+        assertFalse(DesktopTaskAreaPolicy.UNCONFIGURED.usesDirectRootWorkspace());
+        assertFalse(DesktopTaskAreaPolicy.SESSION.usesDirectRootWorkspace());
         assertTrue(DesktopTaskAreaPolicy.INDEPENDENT
-                .usesManagedWorkspaceArea());
-        assertTrue(DesktopTaskAreaPolicy.DEFAULT
+                .usesDirectRootWorkspace());
+        assertFalse(DesktopTaskAreaPolicy.UNCONFIGURED
                 .usesIndependentFullscreenPlanes());
         assertFalse(DesktopTaskAreaPolicy.SESSION
                 .usesIndependentFullscreenPlanes());
         assertTrue(DesktopTaskAreaPolicy.INDEPENDENT
                 .usesIndependentFullscreenPlanes());
-        assertEquals(2, DesktopTaskAreaPolicy.DEFAULT
-                .minimumFullscreenTasksForSharedArea());
-        assertEquals(2, DesktopTaskAreaPolicy.SESSION
-                .minimumFullscreenTasksForSharedArea());
-        assertFalse(DesktopTaskAreaPolicy.DEFAULT
-                .requiresFullscreenBackstop());
-        assertTrue(DesktopTaskAreaPolicy.SESSION
-                .requiresFullscreenBackstop());
         assertEquals(DesktopTaskAreaPolicy.INDEPENDENT,
                 DesktopTaskAreaPolicy.fromWireValue(
                         DesktopTaskAreaPolicy.INDEPENDENT.wireValue()));

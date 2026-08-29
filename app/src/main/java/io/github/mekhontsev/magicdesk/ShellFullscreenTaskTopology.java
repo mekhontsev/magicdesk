@@ -34,10 +34,7 @@ interface ShellFullscreenTaskTopology extends AutoCloseable {
 
     void configure(
             int displayId,
-            DesktopTaskAreaPolicy taskAreaPolicy,
-            int parentFeatureId,
-            Object hostParentToken,
-            Object releaseParentToken);
+            DesktopTaskAreaPolicy taskAreaPolicy);
 
     @Override
     void close();

@@ -77,6 +77,16 @@ public final class DesktopTransitionSurfaceProbeTest {
     }
 
     @Test
+    public void acceptsBoundedSystemDimWithoutAcceptingReplacementSurface() {
+        assertTrue(DesktopTransitionSurfaceProbe.sameColor(
+                0xFF8A98A4, 0xFF7F8F9B));
+        assertFalse(DesktopTransitionSurfaceProbe.sameColor(
+                0xFF8A98A4, 0xFF7F7F7F));
+        assertFalse(DesktopTransitionSurfaceProbe.sameColor(
+                0xFF8A98A4, 0xFF303030));
+    }
+
+    @Test
     public void recordsExternallyCapturedTransitionSamples() {
         final DesktopTransitionSurfaceProbe.Observation observation =
                 DesktopTransitionSurfaceProbe.begin(

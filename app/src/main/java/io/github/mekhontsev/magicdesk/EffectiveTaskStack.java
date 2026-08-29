@@ -14,6 +14,25 @@ final class EffectiveTaskStack {
             final TaskRepository.Snapshot snapshot,
             final TaskRepository.TaskEntry target,
             final Set<Integer> demotedTaskIds) {
+        return shouldActivateTaskbarTarget(
+                snapshot, target, demotedTaskIds, -1);
+    }
+
+    static boolean shouldActivateTaskbarTarget(
+            final TaskRepository.Snapshot snapshot,
+            final TaskRepository.TaskEntry target,
+            final Set<Integer> demotedTaskIds,
+            final int focusedTaskId) {
+        if (target == null || !target.visible
+                || isDemoted(target.taskId, demotedTaskIds)) {
+            return true;
+        }
+        // Organizer-owned fullscreen planes can retain a synthetic active
+        // flag while a freeform task already owns framework focus. Pending
+        // focus is also newer than the asynchronously loaded task snapshot.
+        if (focusedTaskId >= 0) {
+            return target.taskId != focusedTaskId;
+        }
         return !isEffectiveForeground(
                 snapshot == null ? null : snapshot.tasks,
                 target,

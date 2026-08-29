@@ -189,6 +189,22 @@ public final class ShellFullscreenTaskPlanesTest {
     }
 
     @Test
+    public void movesOmittedVisibleFreeformBlockerBelowFullscreenPeer() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        11,
+                        99,
+                        new int[]{10, 99, 11},
+                        planeIds(10, 11),
+                        Arrays.asList(20),
+                        10,
+                        false);
+        assertNotNull(order);
+        assertArrayEquals(new int[]{20}, order.freeformTaskIds);
+        assertEquals(true, order.fullscreenForeground);
+    }
+
+    @Test
     public void layersFreeformWorkspaceBelowSelectedFullscreenPlane() {
         final ShellFullscreenTaskPlanes.MixedStackOrder order =
                 ShellFullscreenTaskPlanes.buildMixedStackOrder(

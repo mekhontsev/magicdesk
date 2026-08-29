@@ -228,9 +228,10 @@ and the client-preserving refresh described in
 ### Select fullscreen topology by workspace ownership
 
 `DesktopTaskAreaPolicy` selects both the ordinary workspace owner and the
-fullscreen hierarchy. `DEFAULT` targets use the display's ordinary task
-container for the host and freeform windows. Every fullscreen application is
-placed in its own organizer-created ordering plane under that workspace. The
+fullscreen hierarchy. `INDEPENDENT` targets keep application tasks in the
+display's ordinary root workspace while the desktop host has its own organizer
+area. Every fullscreen application is placed in its own organizer-created
+ordering plane beside that host area. The
 task retains the same plane for its complete fullscreen residency, so focus
 never reparents it or exposes Nubia's freeform-oriented external area to a
 fullscreen peer switch.
@@ -283,7 +284,7 @@ mode, bounds, parent, or hidden state.
 
 `ShellFullscreenTaskArea` is the stable facade over both topology strategies.
 `IndependentFullscreenTaskTopology` and `ShellFullscreenTaskPlanes` own
-`DEFAULT` plane creation, ordering, restore, and removal. `SESSION` reorders
+`INDEPENDENT` plane creation, ordering, restore, and removal. `SESSION` reorders
 children only within the existing phone session area. No delayed mode repair
 or fixed post-transition delay is involved. On affected external firmware,
 workspace command completion captures a task-sample generation and a
@@ -293,7 +294,7 @@ target gets one ownership-aware repair followed by one more event-driven
 commit confirmation.
 
 Application-driven restores are completed by the observer before their result
-crosses Binder. A `DEFAULT` task leaves its independent plane through
+crosses Binder. An `INDEPENDENT` task leaves its independent plane through
 ActivityTaskManager's existing-task freeform launch path. Every plane contains
 one retained standard anchor task, which keeps the source hierarchy valid while
 framework root selection moves the application task. The now-idle plane is
@@ -311,6 +312,9 @@ and order.
 | Component | Path or package | Responsibility |
 | --- | --- | --- |
 | Main application | `io.github.mekhontsev.magicdesk` | Phone control, desktop shell, taskbar, setup, diagnostics, and runtime service |
+| Task transfer boundary | `DesktopTaskTransfer` | Selects managed-session or direct-root placement once from application workspace ownership |
+| Desktop host/session owner | `ShellDesktopTaskArea` | Owns every desktop host area and the phone-only shared application session API |
+| Fullscreen topology | `ShellFullscreenTaskArea` | Delegates phone session ordering or non-phone per-task fullscreen planes |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
 | Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned external-to-virtual pointer forwarding |
 | Keyboard helper | `native/magicdesk_keyboard_bridge.c` | Binder-owned keyboard forwarding and shortcut interception |
@@ -592,7 +596,7 @@ runtime integration and are not distributed through the same release path.
   protection and phone-touchpad preservation cannot be entered twice by the
   launcher and reuse path.
 - `ShellFullscreenTaskArea` owns both fullscreen policies behind one API. On a
-  `DEFAULT` target, each fullscreen task receives one stable, independently
+  `INDEPENDENT` target, each fullscreen task receives one stable, independently
   ordered plane until it restores or closes. On a `SESSION` target, the same
   focus requests reorder tasks inside the existing phone session parent.
   Application-requested fullscreen follows the selected ownership policy
@@ -1026,7 +1030,7 @@ trace when that firmware trace is available.
 The application-fullscreen phase keeps one application-owned immersive task
 and two MagicDesk-managed fullscreen peers alive together. It activates each
 peer through the common single-task focus gateway, returns to the immersive
-task, and verifies distinct stable planes on `DEFAULT` ownership or one shared
+task, and verifies distinct stable planes on `INDEPENDENT` ownership or one shared
 session parent on `SESSION`, all three task modes, real input focus, the
 application's immersive marker, and the rendered fullscreen surface. This
 catches a repeated hierarchy rebuild and an implementation that works only for
@@ -1049,14 +1053,16 @@ references to tasks that the test already destroyed. The phone navigation
 guard is released even when task reconciliation reports a failure; the pending
 marker remains for a later recovery attempt.
 
-Task placement is selected by the display driver rather than by individual
-launch call sites. Wired, wireless, and simulated desktops use the target
-display's default task area. Drivers with root-task transfer move a running
-task between displays while it is hidden and fullscreen, then reveal it through
-a target-local freeform transition. This gives WMShell an authoritative mode
-boundary on the destination so caption surfaces and input windows acquire the
-correct display. The simulated driver deliberately uses this same path to
-model external-display window behavior without connected hardware. The phone
+Task placement is selected once by `DesktopTaskTransfer` from the target's
+application ownership, rather than by individual launch, reuse, parking, or
+self-test call sites. Wired, wireless, and simulated desktops use direct-root
+transfer: a running task is hidden and prepared as fullscreen, its root crosses
+the display boundary, and a target-local freeform transition reveals the final
+bounds. This gives WMShell an authoritative mode boundary on the destination
+so caption surfaces and input windows acquire the correct display. The
+simulated driver deliberately uses this same path to model external-display
+window behavior without connected hardware. Phone desktop uses the typed
+managed-session placement API instead. The phone
 desktop creates a shell-owned task area as the top child of Android's default
 task container before launching its host and starts `DesktopActivity` directly
 inside it. Keeping the session inside that container lets SystemUI place later
@@ -1066,7 +1072,7 @@ The fullscreen MagicDesk host is the bottom application task in the session
 area. Its freeform, manually fullscreen, and application-requested fullscreen
 tasks are siblings above it. Focus operations reorder only children of this
 one parent; display 0 does not create the independent fullscreen planes used by
-`DEFAULT` targets. The persistent session area's inert HOME task keeps it
+`INDEPENDENT` targets. The persistent session area's inert HOME task keeps it
 structurally valid while framework teardown returns application tasks and the
 host to Android's default area. Android 16 may still create its native desktop
 wallpaper in display 0's default area, but the session child remains above that
@@ -1079,18 +1085,15 @@ fullscreen or auto-hide policy: the taskbar disappears while an ordinary phone
 task is brought forward through Android UI and returns with the desktop plane.
 External-display taskbars are unaffected.
 
-Nubia's wired and Miracast desktop displays use their default task area
-directly. Every cold freeform launch is staged behind the desktop host in its
-known target area. Once Android assigns the task ID, one complete WMShell
-`OPEN` transition establishes freeform mode, bounds, and front order. No raw
-opening token crosses that boundary, so framework launch completion cannot
-race a later appended transaction. This also prevents a fullscreen starting
-surface from becoming visible on display 0. An existing task is moved by a single
-`WindowContainerTransaction` that combines `startTask`, the target display,
-freeform mode, bounds, caption state, and the visible WMShell transition. Its
-first visible state on the external display is therefore the requested window
-rather than a fullscreen intermediate state. Moving a task back to the phone
-retains the ordinary fullscreen `move-stack` behavior. These paths use explicit
+`INDEPENDENT` wired, wireless, and simulated desktops launch applications in
+the display's ordinary root workspace. A cold freeform launch is staged behind
+the desktop host until Android assigns the task ID, then one complete WMShell
+`OPEN` reveals its final mode, bounds, and front order. A running cross-display
+task uses the direct-root transfer sequence described above. A `SESSION`
+transfer instead reparents the task into the phone session area and changes its
+mode, bounds, caption state, and order in one shell-owned transaction. The
+managed-session methods reject `INDEPENDENT` targets, so host-area ownership can
+never accidentally select application placement. All paths use explicit
 display IDs and never depend on display names, package exceptions, or timing
 guesses.
 

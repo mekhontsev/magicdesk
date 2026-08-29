@@ -46,6 +46,20 @@ final class ShellTaskLauncher {
             final String intentUri,
             final Rect bounds,
             final Object taskAreaToken) throws ReflectiveOperationException {
+        return launchWindowed(
+                displayId,
+                intentUri,
+                bounds,
+                taskAreaToken,
+                taskAreaToken == null);
+    }
+
+    synchronized int launchWindowed(
+            final int displayId,
+            final String intentUri,
+            final Rect bounds,
+            final Object taskAreaToken,
+            final boolean stagedReveal) throws ReflectiveOperationException {
         if (displayId < 0 || bounds == null || bounds.isEmpty()) {
             throw new IllegalArgumentException(
                     "windowed launch requires a display and bounds");
@@ -70,7 +84,6 @@ final class ShellTaskLauncher {
                     intent.getComponent(), WINDOWING_MODE_FREEFORM);
         }
         try {
-            final boolean stagedReveal = taskAreaToken == null;
             final int taskId = TaskDisplayAreaLaunchCommand.launchTask(
                     mService,
                     displayId,
@@ -81,8 +94,9 @@ final class ShellTaskLauncher {
                     stagedReveal);
             pending.complete(taskId);
             if (stagedReveal) {
-                // Without a known parent, keep the task behind the desktop
-                // until its id is available and reveal its final state once.
+                // No launch has a stable task token before creation. Keep its
+                // provisional root behind the desktop, then publish mode,
+                // bounds and order in one complete transition.
                 ShellPreparedTaskTransition.revealFreeform(
                         mService, displayId, taskId, bounds);
             }

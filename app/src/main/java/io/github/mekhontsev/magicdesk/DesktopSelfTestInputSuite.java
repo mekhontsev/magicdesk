@@ -1357,7 +1357,7 @@ final class DesktopSelfTestInputSuite {
                             token,
                             false,
                             DesktopSelfTestFixtureAppearance.TRANSITION);
-            taskId = MagicDeskRuntime.launchFullscreenTaskInDesktopArea(
+            taskId = MagicDeskRuntime.launchFullscreenTaskInManagedSession(
                     displayId, intent);
             waitForTask(
                     displayId,

@@ -42,7 +42,7 @@ application's own insets request updates its client window; retrying or
 rebuilding the Activity can discard transient state such as the browser's HTML
 Fullscreen API session.
 
-Under `DEFAULT` ownership, each fullscreen task enters its own
+Under `INDEPENDENT` ownership, each fullscreen task enters its own
 organizer-created ordering plane and retains that task/plane relationship for
 its complete fullscreen residency. The plane's organizer leash retains a
 stable surface-order identity, so selection can change z-order without an
@@ -182,10 +182,11 @@ bounds before WMShell has recreated the task decoration. Orientation task
 callbacks wake the shell observer immediately and route the task through the
 same ownership-specific restore operation.
 
-A task in a `DEFAULT` fullscreen plane exits through ActivityTaskManager's
+A task in an `INDEPENDENT` fullscreen plane exits through ActivityTaskManager's
 existing-task launch path with its final freeform mode, display, and bounds.
 Each plane has one retained standard anchor task that keeps the source
-hierarchy valid while the framework selects the ordinary destination area.
+hierarchy non-empty until the reparent transition commits and lets the idle
+plane be reused without organizer deletion and recreation.
 After the application leaves, the plane becomes a non-focusable idle slot and
 is reused by a later fullscreen task. The anchor has a valid input channel for
 the brief task-removal boundary, accepts no pointer input, and cannot own focus

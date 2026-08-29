@@ -40,13 +40,13 @@ public final class DesktopWorkspaceCommandTest {
     public void inputFocusIsRequiredOnlyForInteractiveActivation() {
         assertTrue(command(DesktopWorkspaceCommand.ACTIVATE)
                 .requiresInputFocusCommit());
-        assertFalse(command(DesktopWorkspaceCommand.DEMOTE)
+        assertTrue(command(DesktopWorkspaceCommand.DEMOTE)
                 .requiresInputFocusCommit());
-        assertFalse(command(DesktopWorkspaceCommand.PRESENT_DESKTOP)
+        assertTrue(command(DesktopWorkspaceCommand.PRESENT_DESKTOP)
                 .requiresInputFocusCommit());
-        assertFalse(command(DesktopWorkspaceCommand.RESTORE_WORKSPACE)
+        assertTrue(command(DesktopWorkspaceCommand.RESTORE_WORKSPACE)
                 .requiresInputFocusCommit());
-        assertFalse(command(DesktopWorkspaceCommand.RESTORE_SESSION)
+        assertTrue(command(DesktopWorkspaceCommand.RESTORE_SESSION)
                 .requiresInputFocusCommit());
     }
 

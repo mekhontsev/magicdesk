@@ -1509,8 +1509,7 @@ final class DesktopSelfTestWindowSuite {
                 displayId,
                 Collections.singletonList(Integer.valueOf(desktopTaskId))));
         waitForWindowFocus(displayId, true);
-        if (DesktopDisplayDrivers.forActiveDisplay(displayId)
-                .features().rootTaskTransfer) {
+        if (DesktopTaskTransfer.usesDirectRoot(displayId)) {
             return reopenRootTask(
                     displayId, taskId, bounds, surfaceReference);
         }
@@ -1534,11 +1533,12 @@ final class DesktopSelfTestWindowSuite {
                      DesktopTaskLaunchProbe.open(
                              taskId, component, displayId)) {
             final String output = ShellAccess.run(
-                    TaskDisplayAreaLaunchCommand.createRootTaskMoveCommand(
+                    DesktopTaskTransfer.createDirectRootCommand(
                             taskId,
                             currentTask.rootTaskId,
                             currentTask.displayId,
                             displayId,
+                            DesktopTaskTransfer.Mode.FREEFORM,
                             bounds,
                             surfaceReference.reference));
             if (!output.contains("task-freeform-move=" + taskId)) {
@@ -1599,12 +1599,13 @@ final class DesktopSelfTestWindowSuite {
         }
         if (!freeform) {
             if (currentTask.displayId != displayId) {
-                final String output = ShellAccess.run(
-                        TaskFullscreenMoveCommand.createMoveCommand(
-                                taskId,
-                                currentTask.rootTaskId,
-                                currentTask.displayId,
-                                displayId));
+                final String output = DesktopTaskTransfer.move(
+                        taskId,
+                        currentTask.rootTaskId,
+                        currentTask.displayId,
+                        displayId,
+                        DesktopTaskTransfer.Mode.FULLSCREEN,
+                        null);
                 if (!output.contains("task-fullscreen-move=" + taskId)) {
                     throw new IOException(output.trim());
                 }
@@ -1639,33 +1640,13 @@ final class DesktopSelfTestWindowSuite {
         }
         try (DesktopTaskLaunchProbe probe =
                      DesktopTaskLaunchProbe.open(taskId, component)) {
-            final DesktopTaskAreaPolicy policy =
-                    DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
-            final String output;
-            if (policy.usesManagedWorkspaceArea()) {
-                MagicDeskRuntime.placeTaskInDesktopArea(
-                        taskId,
-                        currentTask.displayId,
-                        displayId,
-                        bounds);
-                output = "task-freeform-move=" + taskId;
-            } else {
-                output = ShellAccess.run(
-                        surfaceReference.reference != null
-                                ? TaskDisplayAreaLaunchCommand
-                                        .createObservedMoveCommand(
-                                                taskId,
-                                                currentTask.displayId,
-                                                displayId,
-                                                bounds,
-                                                surfaceReference.reference)
-                                : TaskDisplayAreaLaunchCommand
-                                        .createMoveCommand(
-                                                taskId,
-                                                currentTask.displayId,
-                                                displayId,
-                                                bounds));
-            }
+            final String output = DesktopTaskTransfer.move(
+                    taskId,
+                    currentTask.rootTaskId,
+                    currentTask.displayId,
+                    displayId,
+                    DesktopTaskTransfer.Mode.FREEFORM,
+                    bounds);
             final String expectedOutput =
                     "task-freeform-move=" + taskId;
             if (!output.contains(expectedOutput)) {

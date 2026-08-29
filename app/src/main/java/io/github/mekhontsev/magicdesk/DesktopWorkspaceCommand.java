@@ -7,7 +7,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
-/** Semantic workspace intent plus its already-resolved physical stack plan. */
+/** Semantic workspace intent plus the requested application stack order. */
 public final class DesktopWorkspaceCommand implements Parcelable {
     public static final int ACTIVATE = 1;
     public static final int DEMOTE = 2;
@@ -109,7 +109,9 @@ public final class DesktopWorkspaceCommand implements Parcelable {
     }
 
     boolean requiresInputFocusCommit() {
-        return operation == ACTIVATE;
+        // Every workspace command selects one concrete input owner. This also
+        // applies when demotion or desktop presentation selects the host.
+        return true;
     }
 
     private static boolean isKnownOperation(final int operation) {

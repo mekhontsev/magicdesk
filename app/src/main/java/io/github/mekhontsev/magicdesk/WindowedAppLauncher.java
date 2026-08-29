@@ -53,7 +53,7 @@ final class WindowedAppLauncher {
         final DesktopTaskAreaPolicy taskAreaPolicy =
                 DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
         final boolean nativeDesktop =
-                !taskAreaPolicy.usesManagedWorkspaceArea()
+                taskAreaPolicy == DesktopTaskAreaPolicy.UNCONFIGURED
                         && NativeDesktopController.shouldUse();
         final boolean createNew = reusePolicy == TaskReusePolicy.CREATE_NEW;
         if (!createNew) {
@@ -67,7 +67,7 @@ final class WindowedAppLauncher {
                     bounds,
                     null);
             if (existing.found) {
-                return completeLaunch(displayId, existing.taskId);
+                return completeReusedTask(displayId, existing.taskId);
             }
         } else if (createNew) {
             launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
@@ -88,9 +88,11 @@ final class WindowedAppLauncher {
             if (explicitWindowed) {
                 launchLease.protectStartupTask(taskId);
             }
+            if (!taskAreaPolicy.usesManagedApplicationArea()) {
+                return completeLaunch(displayId, taskId);
+            }
             if (createNew) {
-                ExistingTaskController.confirmLaunchedWindow(
-                        taskId, displayId);
+                ExistingTaskController.confirmLaunchedWindow(taskId, displayId);
             } else {
                 final ExistingTaskController.ReuseResult launched = reuse(
                         nativeDesktop,
@@ -104,7 +106,7 @@ final class WindowedAppLauncher {
                 if (!launched.found) {
                     throw new IOException("launched task not found");
                 }
-                return completeLaunch(displayId, launched.taskId);
+                return completeReusedTask(displayId, launched.taskId);
             }
             return completeLaunch(displayId, taskId);
         }
@@ -114,6 +116,12 @@ final class WindowedAppLauncher {
             final int displayId, final int taskId) {
         MagicDeskRuntime.noteTaskLaunchFocus(displayId, taskId);
         return taskId;
+    }
+
+    private static int completeReusedTask(
+            final int displayId, final int taskId) {
+        MagicDeskRuntime.focusDesktopTask(displayId, taskId, null);
+        return completeLaunch(displayId, taskId);
     }
 
     private static ExistingTaskController.ReuseResult reuse(

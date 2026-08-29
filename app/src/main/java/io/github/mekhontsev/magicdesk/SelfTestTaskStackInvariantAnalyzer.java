@@ -424,8 +424,6 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 ? DISPLAY_AREA_FEATURE_UNKNOWN
                 : host.displayAreaFeatureId;
         int sessionBackstopCount = 0;
-        int workspaceBackstopCount = 0;
-        final Set<Integer> workspaceFeatureIds = new LinkedHashSet<>();
         final Map<Integer, Integer> slotAnchorCounts =
                 new LinkedHashMap<>();
         for (final TaskState task : snapshot.tasks) {
@@ -443,23 +441,6 @@ final class SelfTestTaskStackInvariantAnalyzer {
                                     + hostFeatureId);
                 }
                 sessionBackstopCount++;
-                continue;
-            }
-            if (task.backstopRole == TaskAreaBackstopRole.WORKSPACE) {
-                workspaceBackstopCount++;
-                if (task.displayAreaFeatureId
-                        == DISPLAY_AREA_FEATURE_UNKNOWN
-                        || task.displayAreaFeatureId == hostFeatureId) {
-                    addAnomaly("workspace-backstop-parent:" + mStage.name
-                                    + ':' + task.taskId,
-                            formatSample(reason, snapshot)
-                                    + " workspace anchor=" + task.taskId
-                                    + " has invalid area="
-                                    + task.displayAreaFeatureId);
-                } else {
-                    workspaceFeatureIds.add(Integer.valueOf(
-                            task.displayAreaFeatureId));
-                }
                 continue;
             }
             if (hostFeatureId != DISPLAY_AREA_FEATURE_UNKNOWN
@@ -488,39 +469,6 @@ final class SelfTestTaskStackInvariantAnalyzer {
                     formatSample(reason, snapshot)
                             + " expected at most one session backstop,"
                             + " found=" + sessionBackstopCount);
-        }
-        if (workspaceBackstopCount > 1) {
-            addAnomaly("workspace-backstop-count:" + mStage.name + ':'
-                            + workspaceBackstopCount,
-                    formatSample(reason, snapshot)
-                            + " expected at most one workspace anchor,"
-                            + " found=" + workspaceBackstopCount);
-        }
-        for (final Integer workspaceFeatureId : workspaceFeatureIds) {
-            for (final TaskState child : snapshot.tasks) {
-                if (!child.fixture
-                        || child.displayId != mDisplayId
-                        || child.displayAreaFeatureId
-                                != workspaceFeatureId.intValue()) {
-                    continue;
-                }
-                if (child.windowingMode != WINDOWING_MODE_FREEFORM) {
-                    // Cross-display callbacks can expose the final mode before
-                    // the matching parent/display update. The task transition
-                    // validator permits that callback only while it is hidden.
-                    if (child.visibilityKnown && !child.visible) {
-                        continue;
-                    }
-                    addAnomaly("workspace-windowing:" + mStage.name + ':'
-                                    + child.taskId,
-                            formatSample(reason, snapshot)
-                                    + " freeform workspace="
-                                    + workspaceFeatureId
-                                    + " contains non-freeform fixture="
-                                    + child.taskId + " mode="
-                                    + child.windowingMode);
-                }
-            }
         }
         for (final Map.Entry<Integer, Integer> entry
                 : slotAnchorCounts.entrySet()) {

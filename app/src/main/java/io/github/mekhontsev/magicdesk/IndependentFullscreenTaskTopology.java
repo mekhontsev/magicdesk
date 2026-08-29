@@ -12,7 +12,6 @@ import java.util.Map;
 final class IndependentFullscreenTaskTopology
         implements ShellFullscreenTaskTopology {
     private static final String TAG = "MagicDeskFullscreenTopology";
-    private static final int FEATURE_ROOT = 0;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     private final ShellDesktopTaskOwnership mOwnership;
@@ -21,8 +20,6 @@ final class IndependentFullscreenTaskTopology
     private final Map<Integer, Rect> mAppRestoreBounds = new HashMap<>();
 
     private int mDisplayId = -1;
-    private Object mHostToken;
-    private Object mWorkspaceToken;
 
     IndependentFullscreenTaskTopology(
             final ShellDesktopTaskOwnership ownership) {
@@ -198,17 +195,13 @@ final class IndependentFullscreenTaskTopology
     @Override
     public synchronized void configure(
             final int displayId,
-            final DesktopTaskAreaPolicy taskAreaPolicy,
-            final int parentFeatureId,
-            final Object hostParentToken,
-            final Object releaseParentToken) {
+            final DesktopTaskAreaPolicy taskAreaPolicy) {
         if (displayId < 0) {
             close();
             return;
         }
         if (taskAreaPolicy == null
-                || !taskAreaPolicy.usesIndependentFullscreenPlanes()
-                || parentFeatureId < 0) {
+                || !taskAreaPolicy.usesIndependentFullscreenPlanes()) {
             throw new IllegalArgumentException(
                     "invalid independent fullscreen configuration");
         }
@@ -216,13 +209,7 @@ final class IndependentFullscreenTaskTopology
             close();
         }
         mDisplayId = displayId;
-        mHostToken = hostParentToken;
-        mWorkspaceToken = releaseParentToken;
-        mPlanes.configure(
-                displayId,
-                parentFeatureId,
-                hostParentToken,
-                releaseParentToken);
+        mPlanes.configure(displayId);
     }
 
     private int[] desktopFocusTasks(
@@ -242,15 +229,38 @@ final class IndependentFullscreenTaskTopology
         for (int index = 0; index < output.size(); index++) {
             result[index] = output.get(index).intValue();
         }
-        return result;
+        return withDesktopHostBoundary(
+                result, mOwnership.desktopHostTaskId());
+    }
+
+    static int[] withDesktopHostBoundary(
+            final int[] requestedTaskIds,
+            final int desktopHostTaskId) {
+        if (requestedTaskIds == null || requestedTaskIds.length == 0
+                || desktopHostTaskId < 0) {
+            throw new IllegalArgumentException(
+                    "desktop stack and host are required");
+        }
+        for (final int taskId : requestedTaskIds) {
+            if (taskId == desktopHostTaskId) {
+                return requestedTaskIds;
+            }
+        }
+        final int[] physicalOrder = new int[requestedTaskIds.length + 1];
+        physicalOrder[0] = desktopHostTaskId;
+        System.arraycopy(
+                requestedTaskIds,
+                0,
+                physicalOrder,
+                1,
+                requestedTaskIds.length);
+        return physicalOrder;
     }
 
     @Override
     public synchronized void close() {
-        mPlanes.configure(-1, FEATURE_ROOT, null, null);
+        mPlanes.configure(-1);
         mAppRestoreBounds.clear();
         mDisplayId = -1;
-        mHostToken = null;
-        mWorkspaceToken = null;
     }
 }

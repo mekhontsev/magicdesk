@@ -391,14 +391,14 @@ public final class MagicDeskRuntime {
         return tasks.launchWindowedTask(displayId, intent, bounds);
     }
 
-    static int launchFullscreenTaskInDesktopArea(
+    static int launchFullscreenTaskInManagedSession(
             final int displayId,
             final Intent intent) throws IOException {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
-        return tasks.launchFullscreenTaskInDesktopArea(displayId, intent);
+        return tasks.launchFullscreenTaskInManagedSession(displayId, intent);
     }
 
     static int launchFullscreenTask(
@@ -430,7 +430,7 @@ public final class MagicDeskRuntime {
         tasks.launchTaskAction(displayId, taskId, intent);
     }
 
-    static void placeTaskInDesktopArea(
+    static void placeWindowedTaskInManagedSession(
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId,
@@ -439,11 +439,11 @@ public final class MagicDeskRuntime {
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
-        tasks.placeTaskInDesktopArea(
+        tasks.placeWindowedTaskInManagedSession(
                 taskId, sourceDisplayId, targetDisplayId, bounds);
     }
 
-    static void placeFullscreenTaskInDesktopArea(
+    static void placeFullscreenTaskInManagedSession(
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId) throws IOException {
@@ -451,7 +451,7 @@ public final class MagicDeskRuntime {
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
-        tasks.placeFullscreenTaskInDesktopArea(
+        tasks.placeFullscreenTaskInManagedSession(
                 taskId, sourceDisplayId, targetDisplayId);
     }
 
@@ -521,8 +521,15 @@ public final class MagicDeskRuntime {
         if (tasks != null) {
             tasks.focusStack(topFirstTasks, topTask, callback);
         } else {
-            TaskRepository.bringStackToFront(
-                    topFirstTasks, topTask, callback);
+            final int displayId = focusDisplayId(topFirstTasks, topTask);
+            if (DesktopRuntimeBridge.getSessionSnapshot()
+                    .activeDisplayId() == displayId) {
+                completeTaskAction(
+                        callback, false, "desktop task runtime unavailable");
+            } else {
+                TaskRepository.bringStackToFront(
+                        topFirstTasks, topTask, callback);
+            }
         }
     }
 
@@ -547,6 +554,10 @@ public final class MagicDeskRuntime {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks != null) {
             tasks.focusDesktopTasks(displayId, taskIds, callback);
+        } else if (DesktopRuntimeBridge.getSessionSnapshot()
+                .activeDisplayId() == displayId) {
+            completeTaskAction(
+                    callback, false, "desktop task runtime unavailable");
         } else {
             TaskRepository.runFocusAction(displayId, taskIds, callback);
         }
@@ -593,18 +604,34 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static void restoreSessionWorkspace(
+    static void restoreDesktopWorkspace(
             final int displayId,
             final List<Integer> backToFrontTaskIds,
             final TaskRepository.ActionCallback callback) {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks != null) {
-            tasks.restoreSessionWorkspace(
+            tasks.restoreDesktopWorkspace(
                     displayId, backToFrontTaskIds, callback);
         } else {
-            TaskRepository.runFocusAction(
-                    displayId, backToFrontTaskIds, callback);
+            completeTaskAction(
+                    callback, false, "desktop task runtime unavailable");
         }
+    }
+
+    private static int focusDisplayId(
+            final List<TaskRepository.TaskEntry> tasks,
+            final TaskRepository.TaskEntry target) {
+        if (target != null && target.displayId >= 0) {
+            return target.displayId;
+        }
+        if (tasks != null) {
+            for (final TaskRepository.TaskEntry task : tasks) {
+                if (task != null && task.displayId >= 0) {
+                    return task.displayId;
+                }
+            }
+        }
+        return -1;
     }
 
     static void toggleTaskbarTask(

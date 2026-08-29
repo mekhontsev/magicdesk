@@ -9,7 +9,6 @@ final class PhoneDisplayDriver implements DesktopDisplayDriver {
             new DesktopDisplayFeatures(
                     DesktopTaskAreaPolicy.SESSION,
                     false,
-                    false,
                     false);
 
     @Override

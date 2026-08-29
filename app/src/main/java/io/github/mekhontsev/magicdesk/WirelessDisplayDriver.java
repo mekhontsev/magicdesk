@@ -8,7 +8,6 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
             new DesktopDisplayFeatures(
                     DesktopTaskAreaPolicy.INDEPENDENT,
                     true,
-                    true,
                     true);
 
     @Override

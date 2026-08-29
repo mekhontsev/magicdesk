@@ -180,7 +180,7 @@ public final class ShellAccess {
             throw new IOException("invalid desktop host launch");
         }
         if (taskAreaPolicy == null
-                || !taskAreaPolicy.usesManagedWorkspaceArea()) {
+                || !taskAreaPolicy.usesManagedHostArea()) {
             throw new IOException("invalid desktop task-area policy");
         }
         try {

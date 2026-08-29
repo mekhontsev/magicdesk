@@ -217,14 +217,14 @@ final class DesktopTaskWatcher {
                 bounds);
     }
 
-    int launchFullscreenTaskInDesktopArea(
+    int launchFullscreenTaskInManagedSession(
             final int displayId,
             final Intent intent) throws IOException {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null || intent == null) {
             throw new IOException("desktop task area is unavailable");
         }
-        return handle.launchFullscreenTaskInDesktopArea(
+        return handle.launchFullscreenTaskInManagedSession(
                 displayId,
                 intent.toUri(Intent.URI_INTENT_SCHEME));
     }
@@ -255,7 +255,7 @@ final class DesktopTaskWatcher {
                 intent.toUri(Intent.URI_INTENT_SCHEME));
     }
 
-    void placeTaskInDesktopArea(
+    void placeWindowedTaskInManagedSession(
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId,
@@ -264,11 +264,11 @@ final class DesktopTaskWatcher {
         if (handle == null) {
             throw new IOException("desktop task area is unavailable");
         }
-        handle.placeTaskInDesktopArea(
+        handle.placeWindowedTaskInManagedSession(
                 taskId, sourceDisplayId, targetDisplayId, bounds);
     }
 
-    void placeFullscreenTaskInDesktopArea(
+    void placeFullscreenTaskInManagedSession(
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId) throws IOException {
@@ -276,7 +276,7 @@ final class DesktopTaskWatcher {
         if (handle == null) {
             throw new IOException("desktop task area is unavailable");
         }
-        handle.placeFullscreenTaskInDesktopArea(
+        handle.placeFullscreenTaskInManagedSession(
                 taskId, sourceDisplayId, targetDisplayId);
     }
 
