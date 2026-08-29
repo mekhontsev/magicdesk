@@ -39,6 +39,7 @@ public final class DesktopStateStoreTest {
                         new RelativeWindowBounds(1000, 2000, 3000, 4000)));
         source.settings.taskbarAutoHide = true;
         source.settings.keepDesktopAwake = true;
+        source.settings.disableAdaptiveBrightnessOnExternalDesktop = true;
         source.settings.openTouchpadAutomatically = false;
         source.settings.openFilesWithSingleClick = true;
         source.settings.termuxX11StartupCommand =
@@ -72,6 +73,7 @@ public final class DesktopStateStoreTest {
                 decoded.appWindows.get("example.bounds"));
         assertTrue(decoded.settings.taskbarAutoHide);
         assertTrue(decoded.settings.keepDesktopAwake);
+        assertTrue(decoded.settings.disableAdaptiveBrightnessOnExternalDesktop);
         assertFalse(decoded.settings.openTouchpadAutomatically);
         assertTrue(decoded.settings.openFilesWithSingleClick);
         assertEquals(
@@ -103,6 +105,8 @@ public final class DesktopStateStoreTest {
         assertTrue(decoded.appWindows.isEmpty());
         assertFalse(decoded.displayProfiles.containsKey("wrong-key"));
         assertTrue(decoded.settings.openTouchpadAutomatically);
+        assertFalse(
+                decoded.settings.disableAdaptiveBrightnessOnExternalDesktop);
         assertFalse(decoded.settings.openFilesWithSingleClick);
         assertEquals(
                 TermuxX11StartupCommand.DEFAULT,

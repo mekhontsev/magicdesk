@@ -22,6 +22,13 @@ final class MagicDeskSettings {
                 state -> state.settings.keepDesktopAwake = enabled);
     }
 
+    static boolean setDisableAdaptiveBrightnessOnExternalDesktop(
+            final boolean enabled) {
+        return DesktopStateStore.update(state ->
+                state.settings.disableAdaptiveBrightnessOnExternalDesktop =
+                        enabled);
+    }
+
     static boolean setOpenTouchpadAutomatically(final boolean enabled) {
         return DesktopStateStore.update(
                 state -> state.settings.openTouchpadAutomatically = enabled);
@@ -46,6 +53,8 @@ final class MagicDeskSettings {
     static final class Values {
         private static final String TASKBAR_AUTO_HIDE = "taskbarAutoHide";
         private static final String KEEP_DESKTOP_AWAKE = "keepDesktopAwake";
+        private static final String DISABLE_ADAPTIVE_BRIGHTNESS =
+                "disableAdaptiveBrightnessOnExternalDesktop";
         private static final String OPEN_TOUCHPAD_AUTOMATICALLY =
                 "openTouchpadAutomatically";
         private static final String OPEN_FILES_WITH_SINGLE_CLICK =
@@ -55,6 +64,7 @@ final class MagicDeskSettings {
 
         boolean taskbarAutoHide;
         boolean keepDesktopAwake;
+        boolean disableAdaptiveBrightnessOnExternalDesktop;
         boolean openTouchpadAutomatically;
         boolean openFilesWithSingleClick;
         String termuxX11StartupCommand;
@@ -73,6 +83,8 @@ final class MagicDeskSettings {
                         TASKBAR_AUTO_HIDE, false);
                 values.keepDesktopAwake = json.optBoolean(
                         KEEP_DESKTOP_AWAKE, false);
+                values.disableAdaptiveBrightnessOnExternalDesktop =
+                        json.optBoolean(DISABLE_ADAPTIVE_BRIGHTNESS, false);
                 values.openTouchpadAutomatically = json.optBoolean(
                         OPEN_TOUCHPAD_AUTOMATICALLY, true);
                 values.openFilesWithSingleClick = json.optBoolean(
@@ -94,6 +106,8 @@ final class MagicDeskSettings {
             final Values copy = new Values();
             copy.taskbarAutoHide = taskbarAutoHide;
             copy.keepDesktopAwake = keepDesktopAwake;
+            copy.disableAdaptiveBrightnessOnExternalDesktop =
+                    disableAdaptiveBrightnessOnExternalDesktop;
             copy.openTouchpadAutomatically = openTouchpadAutomatically;
             copy.openFilesWithSingleClick = openFilesWithSingleClick;
             copy.termuxX11StartupCommand = termuxX11StartupCommand;
@@ -104,6 +118,9 @@ final class MagicDeskSettings {
             final JSONObject json = new JSONObject();
             json.put(TASKBAR_AUTO_HIDE, taskbarAutoHide);
             json.put(KEEP_DESKTOP_AWAKE, keepDesktopAwake);
+            json.put(
+                    DISABLE_ADAPTIVE_BRIGHTNESS,
+                    disableAdaptiveBrightnessOnExternalDesktop);
             json.put(
                     OPEN_TOUCHPAD_AUTOMATICALLY,
                     openTouchpadAutomatically);

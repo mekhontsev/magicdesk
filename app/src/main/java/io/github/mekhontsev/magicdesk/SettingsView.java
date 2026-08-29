@@ -19,6 +19,8 @@ final class SettingsView {
 
         void setKeepDesktopAwake(boolean enabled);
 
+        void setDisableAdaptiveBrightnessOnExternalDesktop(boolean enabled);
+
         void setOpenTouchpadAutomatically(boolean enabled);
 
         void setOpenFilesWithSingleClick(boolean enabled);
@@ -49,6 +51,7 @@ final class SettingsView {
     private final Actions mActions;
     private Switch mTaskbarAutoHide;
     private Switch mKeepDesktopAwake;
+    private Switch mDisableAdaptiveBrightness;
     private Switch mOpenTouchpadAutomatically;
     private Switch mOpenFilesWithSingleClick;
     private Switch mMcpEnabled;
@@ -113,6 +116,16 @@ final class SettingsView {
                 mActions.setKeepDesktopAwake(checked);
             }
         });
+        mDisableAdaptiveBrightness = addSwitch(
+                content,
+                R.string.settings_disable_adaptive_brightness);
+        mDisableAdaptiveBrightness.setOnCheckedChangeListener(
+                (button, checked) -> {
+                    if (!mRendering) {
+                        mActions.setDisableAdaptiveBrightnessOnExternalDesktop(
+                                checked);
+                    }
+                });
 
         addSection(content, R.string.settings_section_automation, 14);
         mMcpEnabled = addSwitch(content, R.string.settings_mcp_enabled);
@@ -205,6 +218,7 @@ final class SettingsView {
             final MagicDeskMcpRuntime.Snapshot runtime) {
         if (settings == null || mTaskbarAutoHide == null
                 || mKeepDesktopAwake == null
+                || mDisableAdaptiveBrightness == null
                 || mOpenTouchpadAutomatically == null
                 || mOpenFilesWithSingleClick == null
                 || mcp == null || runtime == null
@@ -220,6 +234,8 @@ final class SettingsView {
         mOpenTouchpadAutomatically.setChecked(
                 settings.openTouchpadAutomatically);
         mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);
+        mDisableAdaptiveBrightness.setChecked(
+                settings.disableAdaptiveBrightnessOnExternalDesktop);
         mMcpEnabled.setChecked(mcp.enabled);
         mMcpDeveloperTools.setChecked(mcp.developerTools);
         mMcpDeveloperTools.setEnabled(mcp.enabled);

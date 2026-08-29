@@ -41,12 +41,14 @@ public final class MagicDeskRuntimeService extends Service
     private RuntimeDesktopTaskCoordinator mDesktopTaskRuntime;
     private RuntimeDisplayCoordinator mDisplayCoordinator;
     private DesktopSessionWakeLock mSessionWakeLock;
+    private DesktopAdaptiveBrightnessController mAdaptiveBrightness;
     private MagicDeskMcpRuntime mMcpRuntime;
     private BroadcastReceiver mConfigurationReceiver;
     private volatile boolean mDestroyed;
     private boolean mInitialized;
     private String mOperationStatus;
     private boolean mKeepDesktopAwake;
+    private boolean mDisableAdaptiveBrightness;
 
     private final ShellAccess.StateListener mShellStateListener =
             snapshot -> {
@@ -415,7 +417,12 @@ public final class MagicDeskRuntimeService extends Service
                 mPhoneUi,
                 this::updateNotification);
         mDesktopInput.start();
-        mKeepDesktopAwake = MagicDeskSettings.load().keepDesktopAwake;
+        final MagicDeskSettings.Values settings = MagicDeskSettings.load();
+        mKeepDesktopAwake = settings.keepDesktopAwake;
+        mDisableAdaptiveBrightness =
+                settings.disableAdaptiveBrightnessOnExternalDesktop;
+        mAdaptiveBrightness =
+                new DesktopAdaptiveBrightnessController(this);
         mDisplayCoordinator = new RuntimeDisplayCoordinator(
                 this, mHandler, this::handleDisplayStateChanged);
         mDesktopSession = new RuntimeDesktopSessionCoordinator(
@@ -528,6 +535,9 @@ public final class MagicDeskRuntimeService extends Service
         if (mSessionWakeLock != null) {
             mSessionWakeLock.release();
         }
+        if (mAdaptiveBrightness != null) {
+            mAdaptiveBrightness.release();
+        }
         if (mMcpRuntime != null) {
             mMcpRuntime.close();
             mMcpRuntime = null;
@@ -604,6 +614,7 @@ public final class MagicDeskRuntimeService extends Service
     private void handleDesktopOwnershipRefreshed(
             final boolean changed) {
         mDesktopInput.setDesktopDisplay(desktopDisplayId(), changed);
+        updateAdaptiveBrightness();
         if (!changed) {
             updateSessionWakeLock();
             return;
@@ -626,14 +637,27 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void refreshRuntimeSettings() {
-        mKeepDesktopAwake = MagicDeskSettings.load().keepDesktopAwake;
+        final MagicDeskSettings.Values settings = MagicDeskSettings.load();
+        mKeepDesktopAwake = settings.keepDesktopAwake;
+        mDisableAdaptiveBrightness =
+                settings.disableAdaptiveBrightnessOnExternalDesktop;
         updateSessionWakeLock();
+        updateAdaptiveBrightness();
         if (mMcpRuntime != null) {
             mMcpRuntime.reconcile();
         }
         if (!mInitialized && !MagicDeskMcpPreferences.isEnabled(this)) {
             stopSelf();
         }
+    }
+
+    private void updateAdaptiveBrightness() {
+        if (mAdaptiveBrightness == null) {
+            return;
+        }
+        mAdaptiveBrightness.reconcile(
+                mDisableAdaptiveBrightness,
+                DesktopRuntimeBridge.getDesktopTarget(desktopDisplayId()));
     }
 
     private void updatePlatformCaptionTarget() {

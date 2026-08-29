@@ -62,6 +62,13 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void setDisableAdaptiveBrightnessOnExternalDesktop(
+            final boolean enabled) {
+        saveSetting(MagicDeskSettings
+                .setDisableAdaptiveBrightnessOnExternalDesktop(enabled));
+    }
+
+    @Override
     public void setOpenTouchpadAutomatically(final boolean enabled) {
         saveSetting(
                 MagicDeskSettings.setOpenTouchpadAutomatically(enabled));

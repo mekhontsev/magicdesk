@@ -390,6 +390,8 @@ public final class CompatibilityDiagnostics {
                 .append(settings.openTouchpadAutomatically)
                 .append(", keepDesktopAwake=")
                 .append(settings.keepDesktopAwake)
+                .append(", disableAdaptiveBrightnessOnExternalDesktop=")
+                .append(settings.disableAdaptiveBrightnessOnExternalDesktop)
                 .append(", openItemsWithSingleClick=")
                 .append(settings.openFilesWithSingleClick)
                 .append('\n');
