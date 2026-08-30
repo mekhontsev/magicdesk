@@ -70,6 +70,12 @@ tools. Ordinary Termux and the separate Termux:X11 integration remain
 available alongside them. See [Workstation tools](docs/workstation-tools.md)
 for the execution and security model.
 
+If `tmux` is installed inside Termux, the Termux Console toolbar can list its
+persistent sessions on demand, attach one in another native Console window, or
+create a named session that survives closing the window. MagicDesk does not
+attempt to import ordinary Termux application tabs, and tmux is not required
+for independent Termux Console windows.
+
 ![Two independent Termux-backed Console windows running nvim and Midnight Commander as native MagicDesk tasks](docs/images/magicdesk-termux-windows.png)
 
 ### Built-In Workstation Tools

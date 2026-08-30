@@ -16,10 +16,12 @@ final class MagicDeskMcpBackend implements McpBackend {
             new DesktopAutomationConsoleSessions();
     private final DesktopAutomationTerminalWindows mTerminals =
             new DesktopAutomationTerminalWindows();
+    private final DesktopAutomationTmuxSessions mTmux;
 
     MagicDeskMcpBackend(final Context context) {
         mContext = context.getApplicationContext();
         mAutomation = new DesktopAutomationController(mContext);
+        mTmux = new DesktopAutomationTmuxSessions(mContext, mTerminals);
     }
 
     @Override
@@ -98,11 +100,12 @@ final class MagicDeskMcpBackend implements McpBackend {
         }
         if (name.startsWith("files.")
                 || name.startsWith("console.")
-                || name.startsWith("terminal.")) {
+                || name.startsWith("terminal.")
+                || name.startsWith("tmux.")) {
             if (!MagicDeskMcpPreferences.load(mContext).shellTools) {
                 return actionResult(DesktopAutomationResult.failure(
                         DesktopAutomationErrorCode.TOOL_DISABLED,
-                        "Files, shell, and Terminal automation tools are disabled",
+                        "Files, shell, Terminal, and tmux automation tools are disabled",
                         false));
             }
             switch (name) {
@@ -136,6 +139,10 @@ final class MagicDeskMcpBackend implements McpBackend {
                     return actionResult(mTerminals.sendKey(args));
                 case "terminal.close":
                     return actionResult(mTerminals.close(args));
+                case "tmux.list":
+                    return actionResult(mTmux.list());
+                case "tmux.open":
+                    return actionResult(mTmux.open(args));
                 default:
                     return errorResult("unknown gated tool");
             }

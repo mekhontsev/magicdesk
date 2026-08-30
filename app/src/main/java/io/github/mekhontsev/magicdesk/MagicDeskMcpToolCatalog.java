@@ -537,7 +537,21 @@ final class MagicDeskMcpToolCatalog {
                         "terminal.close",
                         "Close terminal window",
                         "Close one visible interactive terminal and its PTY process group.",
-                        terminalSchema()));
+                        terminalSchema()))
+                .put(readTool(
+                        "tmux.list",
+                        "List tmux sessions",
+                        "List persistent tmux sessions inside Termux on demand; tmux may be unavailable.",
+                        emptySchema()))
+                .put(actionTool(
+                        "tmux.open",
+                        "Open tmux session",
+                        "Open an existing tmux session by id, or open/create one by name, in a visible Termux Console.",
+                        objectSchema(new JSONObject()
+                                .put("sessionId", stringProperty(
+                                        "Existing tmux session id from tmux.list."))
+                                .put("name", stringProperty(
+                                        "Persistent tmux session name to open or create.")))));
     }
 
     private static JSONObject pathSchema() throws JSONException {
@@ -837,6 +851,8 @@ final class MagicDeskMcpToolCatalog {
                                 "Whether the launch was accepted."))
                         .put("terminalId", stringProperty(
                                 "Reserved interactive terminal id."))
+                        .put("backend", stringProperty(
+                                "Selected terminal backend."))
                         .put("observed", booleanProperty(
                                 "Whether the terminal registered before the response."))
                         .put("workingDirectory", stringProperty(
@@ -879,6 +895,35 @@ final class MagicDeskMcpToolCatalog {
             case "terminal.close":
                 properties.put("terminalId", stringProperty(
                         "Interactive terminal id."));
+                break;
+            case "tmux.list":
+                properties.put("available", booleanProperty(
+                                "Whether tmux is installed inside Termux."))
+                        .put("detail", stringProperty(
+                                "Availability detail when tmux is absent."))
+                        .put("count", integerProperty(
+                                "Number of persistent tmux sessions."))
+                        .put("sessions", arrayProperty(
+                                "Persistent tmux sessions.",
+                                openObjectProperty("tmux session.")));
+                break;
+            case "tmux.open":
+                properties.put("accepted", booleanProperty(
+                                "Whether the terminal launch was accepted."))
+                        .put("terminalId", stringProperty(
+                                "Reserved interactive terminal id."))
+                        .put("backend", stringProperty(
+                                "Selected terminal backend."))
+                        .put("observed", booleanProperty(
+                                "Whether the terminal registered before the response."))
+                        .put("workingDirectory", stringProperty(
+                                "Requested initial directory."))
+                        .put("commandProvided", booleanProperty(
+                                "Whether an initial command was supplied."))
+                        .put("tmuxSessionId", stringProperty(
+                                "Known tmux session id, empty for a new name."))
+                        .put("tmuxSessionName", stringProperty(
+                                "Requested tmux session name."));
                 break;
             default:
                 properties.put("accepted", booleanProperty(

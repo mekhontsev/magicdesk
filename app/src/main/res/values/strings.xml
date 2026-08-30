@@ -673,6 +673,23 @@
     <string name="console_termux_unavailable">Termux is not installed</string>
     <string name="console_termux_permission_required">Run command permission required</string>
     <string name="console_termux_autolaunch_blocked">Termux was blocked by the firmware. Allow Auto-launch or background activity for Termux, then reopen this window.</string>
+    <string name="console_tmux_sessions">tmux sessions</string>
+    <string name="console_tmux_loading">Loading tmux sessions&#8230;</string>
+    <string name="console_tmux_unavailable">tmux is not installed in Termux</string>
+    <string name="console_tmux_no_sessions">No tmux sessions are running.</string>
+    <string name="console_tmux_new_session">New tmux session</string>
+    <string name="console_tmux_session_name">Session name</string>
+    <string name="console_tmux_invalid_name">Use 1-64 characters without controls, : or .</string>
+    <string name="console_tmux_open">Open</string>
+    <string name="console_tmux_attached">attached</string>
+    <string name="console_tmux_detached">detached</string>
+    <plurals name="console_tmux_windows">
+        <item quantity="one">%d window</item>
+        <item quantity="other">%d windows</item>
+    </plurals>
+    <string name="console_tmux_session_summary">%1$s\n%2$s | %3$s</string>
+    <string name="console_tmux_list_failed">Could not list tmux sessions: %1$s</string>
+    <string name="console_tmux_launch_failed">Could not open tmux session: %1$s</string>
     <string name="console_idle">Not run</string>
     <string name="console_running">Running&#8230;</string>
     <string name="console_stopping">Stopping&#8230;</string>

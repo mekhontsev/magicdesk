@@ -93,7 +93,35 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(shell.contains("terminal.write"));
         assertTrue(shell.contains("terminal.send_key"));
         assertTrue(shell.contains("terminal.close"));
+        assertTrue(shell.contains("tmux.list"));
+        assertTrue(shell.contains("tmux.open"));
         assertFalse(shell.contains("run_self_test"));
+    }
+
+    @Test
+    public void tmuxToolsExposeAvailabilityAndTypedLaunchFields()
+            throws Exception {
+        final JSONArray tools = MagicDeskMcpToolCatalog.create(false, true);
+        final JSONObject list = tool(tools, "tmux.list")
+                .getJSONObject("outputSchema")
+                .getJSONObject("properties")
+                .getJSONObject("data")
+                .getJSONObject("properties");
+        final JSONObject openInput = tool(tools, "tmux.open")
+                .getJSONObject("inputSchema")
+                .getJSONObject("properties");
+        final JSONObject openOutput = tool(tools, "tmux.open")
+                .getJSONObject("outputSchema")
+                .getJSONObject("properties")
+                .getJSONObject("data")
+                .getJSONObject("properties");
+
+        assertTrue(list.has("available"));
+        assertTrue(list.has("sessions"));
+        assertTrue(openInput.has("sessionId"));
+        assertTrue(openInput.has("name"));
+        assertTrue(openOutput.has("terminalId"));
+        assertTrue(openOutput.has("tmuxSessionName"));
     }
 
     @Test

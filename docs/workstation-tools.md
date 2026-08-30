@@ -141,6 +141,13 @@ current-directory tracking, task lifecycle, and MCP `terminal.*` operations as
 the Android-shell Console. Multiple windows own independent shells; closing a
 window closes only its PTY.
 
+When the optional `tmux` package is installed inside Termux, the tmux toolbar
+button performs one bounded session query. It can attach an existing session
+or create a named persistent session in a new Termux-backed Console. Closing
+that Console detaches its tmux client without ending the session. No tmux
+command or session query runs in the background. Ordinary Termux app sessions
+are not PTY streams exposed by the command API and are not shown in this list.
+
 For Termux-backed windows, Open tasks identifies the current PTY foreground
 program, such as `mc` or `nvim`, and uses a sanitized OSC terminal title as
 additional context. The same shell PID, foreground PID/process group,
@@ -149,7 +156,9 @@ executable, title, and derived task label are available to MCP terminal status.
 MagicDesk installs its small versioned PTY relay atomically inside Termux's
 private home through the documented `RUN_COMMAND` stdin channel. The relay
 connects back only over an authenticated loopback socket. MagicDesk neither
-copies Termux executables into the APK nor reads Termux's session registry.
+copies Termux executables into the APK nor reads the Termux application's PTY
+registry. The separate optional tmux picker reads tmux's own session list only
+when explicitly opened.
 Directories under Termux's private home cannot be opened in Files when the
 authorized Android shell identity cannot read them.
 

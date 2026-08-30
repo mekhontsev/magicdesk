@@ -934,6 +934,16 @@ firmware exception in compatibility diagnostics. It never substitutes the
 shell UserService because that would silently change the command environment
 and privilege boundary.
 
+`TmuxSessionProvider` is an optional layer above `TermuxPtyTransport`, not a
+third transport. An explicit toolbar or MCP request invokes one bounded
+`RUN_COMMAND` query under the Termux UID. The typed parser distinguishes an
+absent tmux executable from an empty tmux server, validates session ids and
+names, and constructs quoted attach or create commands. A selected session is
+then opened through the ordinary Termux Console path. There is no session
+poller, and closing the Console closes only that tmux client. The public Termux
+command boundary does not transfer the PTY stream of an ordinary Termux app
+session, so those sessions remain owned by the Termux UI.
+
 `ShellExecutionEnvironment` defines the common execution profile used by the
 PTY relay, marker-delimited MCP shells, background shell Desktop Entries, and
 one-shot shell commands. It removes inherited Termux process variables and
@@ -1461,7 +1471,9 @@ required by Files. Files can launch a new Termux-backed Console at its current
 shared directory. MagicDesk atomically installs a versioned native relay from
 the APK through `RUN_COMMAND_STDIN`; a random per-window token authenticates
 the relay's loopback connection before any terminal bytes are accepted.
-MagicDesk does not mirror or mutate Termux's own session registry.
+MagicDesk does not mirror or mutate the Termux application's own PTY registry.
+When tmux is installed, its independent session registry is queried only by an
+explicit tmux picker or automation request.
 Optional Termux:X11 integration uses the same permission boundary. MagicDesk
 intercepts the ordinary default launch of the exported Termux:X11 viewer, then
 prepares it through the same `AppTaskController` path as any other application.

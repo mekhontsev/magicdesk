@@ -185,11 +185,12 @@ Shell-gated commands are:
 - `magicdesk.files.list`, `magicdesk.files.stat`,
   `magicdesk.files.create`, and `magicdesk.files.rename`;
 - `magicdesk.console.open`, `magicdesk.console.execute`,
-  `magicdesk.console.status`, and `magicdesk.console.close`.
+  `magicdesk.console.status`, and `magicdesk.console.close`;
 - `magicdesk.terminal.open`, `magicdesk.terminal.list`,
   `magicdesk.terminal.status`, `magicdesk.terminal.read`,
   `magicdesk.terminal.write`, `magicdesk.terminal.send_key`, and
-  `magicdesk.terminal.close`.
+  `magicdesk.terminal.close`;
+- `magicdesk.tmux.list` and `magicdesk.tmux.open`.
 
 `console.*` addresses headless command sessions. Each session is persistent,
 has its own current directory, returns bounded output and exit status, and is
@@ -208,6 +209,15 @@ reported working directory and foreground process from the live PTY.
 default is `shell`. A Termux terminal requires the installed Termux app, its
 external-command setting, and the `RUN_COMMAND` permission; after launch all
 other `terminal.*` operations are backend-independent.
+
+`tmux.list` performs one bounded query under the Termux UID. Its successful
+result has `available=false` when tmux is not installed, so absence of the
+optional package is not reported as a transport failure. `tmux.open` accepts
+exactly one of an existing `sessionId` returned by `tmux.list` or a session
+`name` to open or create with tmux `-A`. It opens an ordinary visible Termux
+Console and returns its `terminalId`; the remaining `terminal.*` tools then
+operate on that window. Closing the terminal detaches the client while the tmux
+session continues. These tools do not expose ordinary Termux application tabs.
 
 `magicdesk.get_termux_x11_status` performs a bounded, non-destructive probe of
 the configured display. It reports the matching Termux process, reconnect
