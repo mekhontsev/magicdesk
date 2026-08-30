@@ -52,13 +52,26 @@ final class DesktopAutomationTaskEventTracker {
                 continue;
             }
             if (previous.displayId != next.displayId) {
+                DesktopTaskLaunchDiagnostics.noteIfAbsent(
+                        taskId,
+                        previous.displayId,
+                        next.displayId,
+                        "observed-display-transfer");
                 record("display_changed", taskId, next.toJson()
                         .put("previousDisplayId", previous.displayId),
                         previous.displayId + " -> " + next.displayId);
             }
             if (!previous.windowingMode.equals(next.windowingMode)) {
+                final DesktopWindowTransitionProvenance.Observation provenance =
+                        DesktopWindowTransitionProvenance.classify(
+                                taskId,
+                                previous.windowingMode,
+                                next.windowingMode);
                 record("window_mode_changed", taskId, next.toJson()
-                        .put("previousWindowingMode", previous.windowingMode),
+                        .put("previousWindowingMode", previous.windowingMode)
+                        .put("transitionSource", provenance.source.wireName)
+                        .put("transitionDetail", provenance.detail)
+                        .put("transitionAgeMs", provenance.ageMillis),
                         previous.windowingMode + " -> " + next.windowingMode);
             }
             if (!sameBounds(previous.bounds, next.bounds)) {

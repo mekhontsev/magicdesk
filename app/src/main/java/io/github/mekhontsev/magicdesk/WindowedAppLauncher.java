@@ -67,7 +67,11 @@ final class WindowedAppLauncher {
                     bounds,
                     null);
             if (existing.found) {
-                return completeReusedTask(displayId, existing.taskId);
+                return completeReusedTask(
+                        displayId,
+                        existing.taskId,
+                        existing.originalDisplayId,
+                        launchPath(launchTarget, createNew, true));
             }
         } else if (createNew) {
             launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
@@ -89,7 +93,11 @@ final class WindowedAppLauncher {
                 launchLease.protectStartupTask(taskId);
             }
             if (!taskAreaPolicy.usesManagedApplicationArea()) {
-                return completeLaunch(displayId, taskId);
+                return completeLaunch(
+                        displayId,
+                        taskId,
+                        displayId,
+                        launchPath(launchTarget, createNew, false));
             }
             if (createNew) {
                 ExistingTaskController.confirmLaunchedWindow(taskId, displayId);
@@ -106,22 +114,49 @@ final class WindowedAppLauncher {
                 if (!launched.found) {
                     throw new IOException("launched task not found");
                 }
-                return completeReusedTask(displayId, launched.taskId);
+                return completeReusedTask(
+                        displayId,
+                        launched.taskId,
+                        displayId,
+                        launchPath(launchTarget, createNew, false));
             }
-            return completeLaunch(displayId, taskId);
+            return completeLaunch(
+                    displayId,
+                    taskId,
+                    displayId,
+                    launchPath(launchTarget, createNew, false));
         }
     }
 
     private static int completeLaunch(
-            final int displayId, final int taskId) {
+            final int displayId,
+            final int taskId,
+            final int originalDisplayId,
+            final String launchPath) {
+        DesktopTaskLaunchDiagnostics.note(
+                taskId, originalDisplayId, displayId, launchPath);
         MagicDeskRuntime.noteTaskLaunchFocus(displayId, taskId);
         return taskId;
     }
 
     private static int completeReusedTask(
-            final int displayId, final int taskId) {
+            final int displayId,
+            final int taskId,
+            final int originalDisplayId,
+            final String launchPath) {
         MagicDeskRuntime.focusDesktopTask(displayId, taskId, null);
-        return completeLaunch(displayId, taskId);
+        return completeLaunch(
+                displayId, taskId, originalDisplayId, launchPath);
+    }
+
+    private static String launchPath(
+            final AppLaunchTarget target,
+            final boolean createNew,
+            final boolean reused) {
+        final String kind = BuiltInDesktopAppCatalog.find(target) == null
+                ? "desktop-window" : "built-in-window";
+        return kind + (createNew ? "-new-document"
+                : reused ? "-reuse" : "-new");
     }
 
     private static ExistingTaskController.ReuseResult reuse(

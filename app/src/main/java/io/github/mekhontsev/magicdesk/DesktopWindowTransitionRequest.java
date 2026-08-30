@@ -23,13 +23,15 @@ final class DesktopWindowTransitionRequest {
     final Operation operation;
     final int displayId;
     final int taskId;
+    final String origin;
     private final Rect mBounds;
 
     private DesktopWindowTransitionRequest(
             final Operation operation,
             final int displayId,
             final int taskId,
-            final Rect bounds) {
+            final Rect bounds,
+            final String origin) {
         if (operation == null || displayId < 0 || taskId < 0) {
             throw new IllegalArgumentException(
                     "valid transition operation, display, and task are required");
@@ -42,13 +44,25 @@ final class DesktopWindowTransitionRequest {
         this.displayId = displayId;
         this.taskId = taskId;
         mBounds = bounds == null ? null : new Rect(bounds);
+        this.origin = origin == null || origin.trim().isEmpty()
+                ? "unspecified" : origin.trim();
     }
 
     static DesktopWindowTransitionRequest enterFullscreen(
             final int displayId,
             final int taskId) {
         return new DesktopWindowTransitionRequest(
-                Operation.ENTER_FULLSCREEN, displayId, taskId, null);
+                Operation.ENTER_FULLSCREEN,
+                displayId, taskId, null, "unspecified");
+    }
+
+    static DesktopWindowTransitionRequest enterFullscreen(
+            final int displayId,
+            final int taskId,
+            final String origin) {
+        return new DesktopWindowTransitionRequest(
+                Operation.ENTER_FULLSCREEN,
+                displayId, taskId, null, origin);
     }
 
     static DesktopWindowTransitionRequest enterAppFullscreen(
@@ -57,7 +71,17 @@ final class DesktopWindowTransitionRequest {
             final Rect restoreBounds) {
         return new DesktopWindowTransitionRequest(
                 Operation.ENTER_APP_FULLSCREEN,
-                displayId, taskId, restoreBounds);
+                displayId, taskId, restoreBounds, "unspecified");
+    }
+
+    static DesktopWindowTransitionRequest enterAppFullscreen(
+            final int displayId,
+            final int taskId,
+            final Rect restoreBounds,
+            final String origin) {
+        return new DesktopWindowTransitionRequest(
+                Operation.ENTER_APP_FULLSCREEN,
+                displayId, taskId, restoreBounds, origin);
     }
 
     static DesktopWindowTransitionRequest restoreFreeform(
@@ -66,21 +90,51 @@ final class DesktopWindowTransitionRequest {
             final Rect targetBounds) {
         return new DesktopWindowTransitionRequest(
                 Operation.RESTORE_FREEFORM,
-                displayId, taskId, targetBounds);
+                displayId, taskId, targetBounds, "unspecified");
+    }
+
+    static DesktopWindowTransitionRequest restoreFreeform(
+            final int displayId,
+            final int taskId,
+            final Rect targetBounds,
+            final String origin) {
+        return new DesktopWindowTransitionRequest(
+                Operation.RESTORE_FREEFORM,
+                displayId, taskId, targetBounds, origin);
     }
 
     static DesktopWindowTransitionRequest closeFullscreen(
             final int displayId,
             final int taskId) {
         return new DesktopWindowTransitionRequest(
-                Operation.CLOSE_FULLSCREEN, displayId, taskId, null);
+                Operation.CLOSE_FULLSCREEN,
+                displayId, taskId, null, "unspecified");
+    }
+
+    static DesktopWindowTransitionRequest closeFullscreen(
+            final int displayId,
+            final int taskId,
+            final String origin) {
+        return new DesktopWindowTransitionRequest(
+                Operation.CLOSE_FULLSCREEN,
+                displayId, taskId, null, origin);
     }
 
     static DesktopWindowTransitionRequest closeFreeform(
             final int displayId,
             final int taskId) {
         return new DesktopWindowTransitionRequest(
-                Operation.CLOSE_FREEFORM, displayId, taskId, null);
+                Operation.CLOSE_FREEFORM,
+                displayId, taskId, null, "unspecified");
+    }
+
+    static DesktopWindowTransitionRequest closeFreeform(
+            final int displayId,
+            final int taskId,
+            final String origin) {
+        return new DesktopWindowTransitionRequest(
+                Operation.CLOSE_FREEFORM,
+                displayId, taskId, null, origin);
     }
 
     Rect bounds() {

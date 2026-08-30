@@ -35,6 +35,7 @@ final class ExistingTaskController {
             throw new IOException(
                     "launched task not found for " + target.packageName);
         }
+        final int originalDisplayId = task.displayId;
 
         Log.i(TAG, "normalize launched fullscreen package="
                 + target.packageName
@@ -60,7 +61,8 @@ final class ExistingTaskController {
         } else {
             setFullscreen(task, targetDisplayId);
         }
-        return ReuseResult.reused(task.taskId, task.packageName);
+        return ReuseResult.reused(
+                task.taskId, task.packageName, originalDisplayId);
     }
 
     static ReuseResult reuseNativeDesktopIfExists(
@@ -126,6 +128,7 @@ final class ExistingTaskController {
             Log.i(TAG, "no existing task package=" + target.packageName);
             return ReuseResult.notFound();
         }
+        final int originalDisplayId = task.displayId;
 
         final WindowedTaskLaunchLease launchLease =
                 outerLaunchLease == null
@@ -211,7 +214,8 @@ final class ExistingTaskController {
                 setFullscreen(task, targetDisplayId);
             }
 
-            return ReuseResult.reused(task.taskId, task.packageName);
+            return ReuseResult.reused(
+                    task.taskId, task.packageName, originalDisplayId);
         } finally {
             if (outerLaunchLease == null) {
                 launchLease.close();
@@ -393,24 +397,29 @@ final class ExistingTaskController {
         final boolean found;
         final int taskId;
         final String packageName;
+        final int originalDisplayId;
 
         private ReuseResult(
                 final boolean found,
                 final int taskId,
-                final String packageName) {
+                final String packageName,
+                final int originalDisplayId) {
             this.found = found;
             this.taskId = taskId;
             this.packageName = packageName;
+            this.originalDisplayId = originalDisplayId;
         }
 
         static ReuseResult reused(
                 final int taskId,
-                final String packageName) {
-            return new ReuseResult(true, taskId, packageName);
+                final String packageName,
+                final int originalDisplayId) {
+            return new ReuseResult(
+                    true, taskId, packageName, originalDisplayId);
         }
 
         static ReuseResult notFound() {
-            return new ReuseResult(false, -1, null);
+            return new ReuseResult(false, -1, null, -1);
         }
     }
 

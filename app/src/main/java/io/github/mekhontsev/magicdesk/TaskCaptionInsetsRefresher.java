@@ -98,14 +98,18 @@ final class TaskCaptionInsetsRefresher {
                 && sourceId != TaskLocalInsetsSourceParser.NO_SOURCE_ID;
     }
 
-    static void refreshTask(
+    static boolean refreshTask(
             final Object service,
             final int displayId,
             final int taskId,
             final int sourceId) throws ReflectiveOperationException {
-        final Object taskToken = HiddenTaskApi.requireTaskToken(
+        final Object task = HiddenTaskApi.findTask(
                 service, displayId, taskId);
-        refresh(service, taskToken, sourceId);
+        if (task == null) {
+            return false;
+        }
+        refresh(service, HiddenTaskApi.getTaskToken(task), sourceId);
+        return true;
     }
 
     static void refresh(

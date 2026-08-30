@@ -655,6 +655,24 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public FrameworkTaskSnapshot[] readDiagnosticTaskSnapshots(
+            final int displayId,
+            final int limit) {
+        try {
+            return FrameworkTaskSnapshotSource.readDiagnosticArray(
+                    HiddenTaskApi.getService(),
+                    displayId,
+                    Math.max(1, Math.min(limit, 200)),
+                    FrameworkRuntime.current().windowingCompat());
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot read diagnostic framework task snapshots: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    @Override
     public String getFrameworkRuntimeDiagnostics() {
         return FrameworkRuntime.current().diagnosticDetail()
                 + "; boundedWaits={" + BoundedStateAwaiter.diagnostics() + "}"

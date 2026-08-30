@@ -1002,6 +1002,8 @@ final class DesktopTaskWatcher {
         if (mListener.isActive(generation)) {
             TaskActivityModeDiagnostics.noteCorrection(
                     taskId, activityName, restoredMode);
+            DesktopWindowTransitionProvenance.noteActivityHandoff(
+                    taskId, restoredMode, activityName);
         }
     }
 

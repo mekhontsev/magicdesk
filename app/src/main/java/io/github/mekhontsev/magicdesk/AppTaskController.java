@@ -630,6 +630,11 @@ final class AppTaskController {
             if (reuseResult.found) {
                 MagicDeskRuntime.focusDesktopTask(
                         displayId, reuseResult.taskId, null);
+                DesktopTaskLaunchDiagnostics.note(
+                        reuseResult.taskId,
+                        reuseResult.originalDisplayId,
+                        displayId,
+                        "desktop-fullscreen-reuse");
                 Log.i(TAG, "reused fullscreen package=" + app.packageName);
                 return reuseResult.taskId;
             }
@@ -642,13 +647,21 @@ final class AppTaskController {
             throw new IOException("no launcher activity");
         }
         launchIntent.addFlags(getFullscreenLaunchFlags());
+        final int taskId;
         if (DesktopDisplayDrivers.activeTaskAreaPolicy(displayId)
                 .usesManagedApplicationArea()) {
-            return MagicDeskRuntime.launchFullscreenTaskInManagedSession(
+            taskId = MagicDeskRuntime.launchFullscreenTaskInManagedSession(
+                    displayId, launchIntent);
+        } else {
+            taskId = MagicDeskRuntime.launchFullscreenTask(
                     displayId, launchIntent);
         }
-        return MagicDeskRuntime.launchFullscreenTask(
-                displayId, launchIntent);
+        DesktopTaskLaunchDiagnostics.note(
+                taskId,
+                displayId,
+                displayId,
+                "desktop-fullscreen-new");
+        return taskId;
     }
 
     private void showMissingLauncher(final AppItem app) {

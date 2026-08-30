@@ -364,9 +364,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int taskId,
             final int sourceId) throws ReflectiveOperationException {
         // The mode is already fullscreen. Only force the application client
-        // to discard the caption source retained by Nubia.
-        TaskCaptionInsetsRefresher.refreshTask(
-                mService, displayId, taskId, sourceId);
+        // to discard the caption source retained by Nubia. A removed task
+        // already satisfies that end state, so the late callback is a no-op.
+        if (!TaskCaptionInsetsRefresher.refreshTask(
+                mService, displayId, taskId, sourceId)) {
+            Log.d(TAG, "skipped caption refresh for removed task=" + taskId);
+            return;
+        }
         Log.d(TAG, "refreshed native fullscreen caption task=" + taskId);
     }
 

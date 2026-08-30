@@ -36,6 +36,23 @@ final class FrameworkTaskSnapshotSource {
             final FrameworkWindowingCompat compat,
             final boolean includeClientState)
             throws ReflectiveOperationException {
+        return read(
+                service,
+                displayId,
+                limit,
+                compat,
+                includeClientState,
+                false);
+    }
+
+    private static Sample read(
+            final Object service,
+            final int displayId,
+            final int limit,
+            final FrameworkWindowingCompat compat,
+            final boolean includeClientState,
+            final boolean includeTaskConfiguration)
+            throws ReflectiveOperationException {
         if (service == null || limit <= 0 || compat == null) {
             throw new IllegalArgumentException("invalid task snapshot request");
         }
@@ -53,7 +70,8 @@ final class FrameworkTaskSnapshotSource {
                             Integer.valueOf(taskId), Integer.valueOf(taskId))
                             .intValue(),
                     compat,
-                    includeClientState));
+                    includeClientState,
+                    includeTaskConfiguration));
         }
         return new Sample(orderedTasks.tasks, snapshots);
     }
@@ -68,6 +86,24 @@ final class FrameworkTaskSnapshotSource {
                 ? Display.INVALID_DISPLAY : displayId;
         final List<FrameworkTaskSnapshot> snapshots = read(
                 service, targetDisplay, limit, compat, false).snapshots;
+        return snapshots.toArray(new FrameworkTaskSnapshot[0]);
+    }
+
+    static FrameworkTaskSnapshot[] readDiagnosticArray(
+            final Object service,
+            final int displayId,
+            final int limit,
+            final FrameworkWindowingCompat compat)
+            throws ReflectiveOperationException {
+        final int targetDisplay = displayId < 0
+                ? Display.INVALID_DISPLAY : displayId;
+        final List<FrameworkTaskSnapshot> snapshots = read(
+                service,
+                targetDisplay,
+                limit,
+                compat,
+                false,
+                true).snapshots;
         return snapshots.toArray(new FrameworkTaskSnapshot[0]);
     }
 
@@ -100,7 +136,8 @@ final class FrameworkTaskSnapshotSource {
             final Object task,
             final int rootTaskId,
             final FrameworkWindowingCompat compat,
-            final boolean includeClientState)
+            final boolean includeClientState,
+            final boolean includeTaskConfiguration)
             throws ReflectiveOperationException {
         final int taskId = HiddenTaskApi.getIntField(task, "taskId");
         final int displayId = HiddenTaskApi.getTaskDisplayId(task);
@@ -143,7 +180,22 @@ final class FrameworkTaskSnapshotSource {
                 visible,
                 focused,
                 visible && includeClientState
-                        ? compat.readRequestedVisibleTypes(task) : null);
+                        ? compat.readRequestedVisibleTypes(task) : null,
+                includeTaskConfiguration
+                        ? readTaskConfiguration(task) : null);
+    }
+
+    private static FrameworkTaskSnapshot.TaskConfiguration
+            readTaskConfiguration(final Object task) {
+        final Object configuration = readField(task, "configuration");
+        if (configuration == null) {
+            return null;
+        }
+        return new FrameworkTaskSnapshot.TaskConfiguration(
+                readInt(configuration, "densityDpi", -1),
+                readInt(configuration, "screenWidthDp", -1),
+                readInt(configuration, "screenHeightDp", -1),
+                readInt(configuration, "smallestScreenWidthDp", -1));
     }
 
     static OrderedTasks orderByRootTaskHierarchy(

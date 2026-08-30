@@ -76,9 +76,10 @@ final class DesktopSystemActionsController {
     void openDiagnostics() {
         mActivity.hideAllPanels();
         try {
-            mActivity.startActivity(
+            mActivity.launchInternalWindow(
                     DiagnosticsActivity.createIntent(mActivity),
-                    optionsForCurrentDisplay().toBundle());
+                    BuiltInDesktopAppCatalog.diagnosticsTarget(),
+                    mActivity.getString(R.string.diagnostics_title));
         } catch (RuntimeException error) {
             mActivity.setErrorStatus(
                     "DIAGNOSTICS-001",

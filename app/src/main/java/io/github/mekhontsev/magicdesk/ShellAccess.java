@@ -1041,6 +1041,29 @@ public final class ShellAccess {
         }
     }
 
+    static FrameworkTaskSnapshot[] readDiagnosticTaskSnapshots(
+            final int displayId,
+            final int limit) throws IOException {
+        try {
+            final FrameworkTaskSnapshot[] snapshots =
+                    requireService().readDiagnosticTaskSnapshots(
+                            displayId, limit);
+            return snapshots == null
+                    ? new FrameworkTaskSnapshot[0] : snapshots;
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw new IOException(
+                    "Shizuku diagnostic task snapshot read failed: "
+                            + usefulMessage(error),
+                    error);
+        } catch (RuntimeException error) {
+            throw new IOException(
+                    "Shizuku diagnostic task snapshot read failed: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     static String frameworkRuntimeDiagnostics() throws IOException {
         try {
             return requireService().getFrameworkRuntimeDiagnostics();

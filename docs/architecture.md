@@ -353,7 +353,8 @@ runtime integration and are not distributed through the same release path.
   activity is exported only behind `MANAGE_ACTIVITY_TASKS`, allowing the shell
   launch backend to create its desktop task without exposing it to regular
   applications. `BuiltInDesktopAppCatalog` is the single allowlist that
-  separates user-facing MagicDesk tasks such as Files and Settings from shell
+  separates user-facing MagicDesk tasks such as Files, Settings, and
+  Diagnostics from shell
   infrastructure. It also records whether an internal window can have multiple
   tasks, appear in the launcher or taskbar pins, and share package-level window
   state. Settings is a singleton reusable task with compact centered default
@@ -361,6 +362,10 @@ runtime integration and are not distributed through the same release path.
   visual language on phone and desktop. The phone opens it normally, while the
   desktop task controller launches the same Activity in a dedicated reusable
   freeform task.
+- Diagnostics follows that same built-in-window path on a desktop. It therefore
+  cannot replace `DesktopActivity` in the host task or hide every application
+  merely because a report was opened. Phone-side callers may still open the
+  same Activity normally in their current task.
 - `DesktopActivity` is the concrete desktop Activity.
   `DesktopShellActivity` composes controllers and forwards Android callbacks;
   it does not own every feature directly.
@@ -413,6 +418,10 @@ runtime integration and are not distributed through the same release path.
   already delivered by `DesktopTaskWatcher`; it does not register another task
   observer. Compatibility reports include at most the newest 64 events within
   a 24 KiB section, without adding persistent telemetry.
+- `DesktopWindowTransitionProvenance` correlates semantic MagicDesk requests,
+  application immersive callbacks, and activity-handoff corrections with those
+  existing mode-change events. Uncorrelated supported mode changes are labeled
+  `framework-external`; no stack trace, timer, or additional observer is used.
 - `DesktopAutomationUiRegistry` is populated by the controllers that own live
   desktop `View` objects. `DesktopUiGateway` is still the only bridge to the
   Activity and marshals snapshots and semantic actions onto the UI thread.
@@ -661,6 +670,12 @@ windowing-mode and bounds changes, immersive requests, caption-source
 lifecycle, activity handoff protection, ownership reconciliation, and process
 failure correlation. Consumers do not start their own polling loops or read
 version-specific `TaskInfo` members.
+
+Compatibility report generation may request one separate diagnostic snapshot
+through `readDiagnosticTaskSnapshots`. That one-shot call adds task density and
+dp configuration to the same typed model, then joins it with bounded launch
+provenance and saved window state. It is never called by the 150 ms observer or
+ordinary window operations.
 
 Every observed facet records its provenance as `event`, `sampled`,
 `event+sampled`, or `unavailable`. The periodic snapshot exists because even

@@ -181,10 +181,12 @@
         <activity
             android:name=".DiagnosticsActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize"
-            android:exported="false"
+            android:exported="true"
             android:label="@string/diagnostics_title"
             android:launchMode="singleTop"
-            android:resizeableActivity="true" />
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.diagnostics" />
 
         <activity
             android:name=".CompatibilityOnboardingActivity"

@@ -180,6 +180,10 @@ final class DesktopWindowTransitionController {
             final boolean requestingImmersive,
             final boolean initialSample,
             final boolean foreground) {
+        if (!initialSample && foreground) {
+            DesktopWindowTransitionProvenance.noteApplicationRequest(
+                    taskId, requestingImmersive);
+        }
         final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
         if (shouldIgnoreBackgroundImmersiveExit(
                 requestingImmersive, initialSample, foreground)) {
@@ -307,10 +311,14 @@ final class DesktopWindowTransitionController {
         final DesktopWindowTransitionRequest request;
         if (task.isFullscreen()) {
             request = DesktopWindowTransitionRequest.closeFullscreen(
-                    mRuntimeState.displayId(), task.taskId);
+                    mRuntimeState.displayId(),
+                    task.taskId,
+                    "native-window-shortcut");
         } else if (task.isFreeform()) {
             request = DesktopWindowTransitionRequest.closeFreeform(
-                            mRuntimeState.displayId(), task.taskId);
+                            mRuntimeState.displayId(),
+                            task.taskId,
+                            "native-window-shortcut");
         } else {
             request = null;
         }
@@ -411,7 +419,10 @@ final class DesktopWindowTransitionController {
                 });
         final DesktopWindowTransitionRequest request =
                 DesktopWindowTransitionRequest.restoreFreeform(
-                        mRuntimeState.displayId(), taskId, targetBounds);
+                        mRuntimeState.displayId(),
+                        taskId,
+                        targetBounds,
+                        "native-window-snap-shortcut");
         final TaskRepository.ActionCallback submissionCallback = result -> {
             if (result.success) {
                 callback.onComplete(result);
@@ -534,9 +545,14 @@ final class DesktopWindowTransitionController {
                 });
         final DesktopWindowTransitionRequest request = appRequested
                 ? DesktopWindowTransitionRequest.enterAppFullscreen(
-                        displayId, taskId, task.bounds)
+                        displayId,
+                        taskId,
+                        task.bounds,
+                        "application-immersive-reconciliation")
                 : DesktopWindowTransitionRequest.enterFullscreen(
-                        displayId, taskId);
+                        displayId,
+                        taskId,
+                        "native-window-fullscreen-shortcut");
         final TaskRepository.ActionCallback submissionCallback = result -> {
             if (result.success) {
                 callback.onComplete(result);
@@ -598,7 +614,12 @@ final class DesktopWindowTransitionController {
                         result.message));
         final DesktopWindowTransitionRequest request =
                 DesktopWindowTransitionRequest.restoreFreeform(
-                        mRuntimeState.displayId(), taskId, targetBounds);
+                        mRuntimeState.displayId(),
+                        taskId,
+                        targetBounds,
+                        userRequested
+                                ? "native-window-restore-shortcut"
+                                : "application-immersive-reconciliation");
         final TaskRepository.ActionCallback submissionCallback = result -> {
             if (result.success) {
                 callback.onComplete(result);
@@ -628,6 +649,7 @@ final class DesktopWindowTransitionController {
     private boolean submit(
             final DesktopWindowTransitionRequest request,
             final TaskRepository.ActionCallback callback) {
+        DesktopWindowTransitionProvenance.noteMagicDeskCommand(request);
         final boolean accepted = mGateway.submit(request, callback);
         DesktopWindowTransitionDiagnostics.recordSubmission(
                 request, accepted);

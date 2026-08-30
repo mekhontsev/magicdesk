@@ -36,6 +36,8 @@ public final class BuiltInDesktopAppCatalogTest {
                 BuiltInDesktopAppCatalog.consoleTarget()));
         assertTrue(BuiltInDesktopAppCatalog.remembersWindowState(
                 BuiltInDesktopAppCatalog.taskManagerTarget()));
+        assertTrue(BuiltInDesktopAppCatalog.remembersWindowState(
+                BuiltInDesktopAppCatalog.diagnosticsTarget()));
         assertTrue(BuiltInDesktopAppCatalog.isPinnable(
                 BuiltInDesktopAppCatalog.filesTarget()));
         assertFalse(BuiltInDesktopAppCatalog.isPinnable(
@@ -50,6 +52,8 @@ public final class BuiltInDesktopAppCatalogTest {
                 BuiltInDesktopAppCatalog.settingsTarget()));
         assertNotNull(BuiltInDesktopAppCatalog.defaultWindowBounds(
                 BuiltInDesktopAppCatalog.consoleTarget()));
+        assertNotNull(BuiltInDesktopAppCatalog.defaultWindowBounds(
+                BuiltInDesktopAppCatalog.diagnosticsTarget()));
         assertNull(BuiltInDesktopAppCatalog.defaultWindowBounds(
                 BuiltInDesktopAppCatalog.filesTarget()));
     }
@@ -85,8 +89,10 @@ public final class BuiltInDesktopAppCatalogTest {
                 BuiltInDesktopAppCatalog.consoleTarget()));
         keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
                 BuiltInDesktopAppCatalog.taskManagerTarget()));
+        keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
+                BuiltInDesktopAppCatalog.diagnosticsTarget()));
 
-        assertEquals(4, keys.size());
+        assertEquals(5, keys.size());
         for (final String key : keys) {
             assertTrue(BuiltInDesktopAppCatalog.isAppIdentityKey(key));
         }

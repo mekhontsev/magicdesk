@@ -83,6 +83,17 @@ final class BuiltInDesktopAppCatalog {
             false,
             true,
             new RelativeWindowBounds(5000, 5000, 6200, 7600));
+    private static final Entry DIAGNOSTICS = new Entry(
+            AppLaunchTarget.explicit(
+                    PACKAGE_NAME,
+                    DiagnosticsActivity.class.getName(),
+                    ""),
+            R.string.diagnostics_title,
+            false,
+            false,
+            false,
+            true,
+            new RelativeWindowBounds(5000, 5000, 6200, 8000));
     private static final Entry LOG_VIEWER = new Entry(
             AppLaunchTarget.explicit(
                     PACKAGE_NAME,
@@ -100,6 +111,7 @@ final class BuiltInDesktopAppCatalog {
                     SETTINGS,
                     CONSOLE,
                     TASK_MANAGER,
+                    DIAGNOSTICS,
                     LOG_VIEWER));
 
     private BuiltInDesktopAppCatalog() {
@@ -119,6 +131,10 @@ final class BuiltInDesktopAppCatalog {
 
     static AppLaunchTarget taskManagerTarget() {
         return TASK_MANAGER.launchTarget;
+    }
+
+    static AppLaunchTarget diagnosticsTarget() {
+        return DIAGNOSTICS.launchTarget;
     }
 
     static AppLaunchTarget logViewerTarget() {

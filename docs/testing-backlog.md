@@ -26,13 +26,13 @@ firmware task, display, input, or capture behavior.
 - Android 16 / API 36, MyOS build `MyOS16.0.16_NX741J_NEEA`, firmware
   `20251229.234747`
 - Diagnostics and user validation cover wired desktop operation, multiple
-  freeform windows, wide external sizing through the physical display, focus
-  transfer, keyboard input, phone-screen-off behavior, launcher protection,
-  and simulated self-test cleanup.
+  freeform windows, `2560x1080@75` output and wide external sizing through the
+  physical display, focus transfer, keyboard input, phone-screen-off behavior,
+  launcher protection, and simulated self-test cleanup.
 - Shell UID 2000 cannot read `/sys/kernel/lcd_enhance/edid_modes`; root can.
-  Android reports only standard FHD modes on this firmware. The optional
-  Qualcomm display backend is the current unprivileged mode-discovery path and
-  still needs validation on this model.
+  This no longer blocks the confirmed wide mode: Android reports the active
+  physical-display timing and MagicDesk retains it without the legacy mirror
+  display path.
 - Fan and pump nodes expected on RedMagic gaming phones are absent.
 
 ## Automated Coverage
@@ -73,10 +73,6 @@ firmware task, display, input, or capture behavior.
 
 ## Pending Hardware Validation
 
-- [ ] On Z80 Ultra with root granted only to Display Fixes, verify the helper
-  selects `2560x1080`, survives its HPD cycle, and MagicDesk retains that mode
-  with **Output mode** set to **System / native** while Shizuku remains UID
-  2000.
 - [ ] Verify proportional file, shortcut, and widget placement across two
   differently sized external desktops.
 - [ ] Test first-run onboarding on a compatible device that has never used
@@ -92,5 +88,3 @@ firmware task, display, input, or capture behavior.
 - [ ] Validate VITURE Beast's 1200-line 3D EDID transition with the independent
   Kernel Fixes APK.
 - [ ] Repeat phone-screen-off and freezer recovery after a RedMagic OTA.
-- [ ] Validate Qualcomm `IDisplayConfig` timing discovery and selection on the
-  nubia Z80 Ultra under shell UID 2000.

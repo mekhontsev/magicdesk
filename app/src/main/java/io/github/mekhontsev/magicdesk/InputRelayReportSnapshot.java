@@ -97,12 +97,11 @@ final class InputRelayReportSnapshot {
                 final Map<String, String> allAssociations =
                         DesktopInputRoutingOwnership
                                 .findActiveAssociationTargets(inputDump);
-                activeAssociations = magicDeskAssociations(allAssociations);
-                missingAssociations = new LinkedHashSet<>(ownedPorts);
-                missingAssociations.removeAll(activeAssociations.keySet());
-                unexpectedAssociations = new LinkedHashSet<>(
-                        activeAssociations.keySet());
-                unexpectedAssociations.removeAll(ownedPorts);
+                final AssociationState associationState =
+                        classifyAssociations(ownedPorts, allAssociations);
+                activeAssociations = associationState.active;
+                missingAssociations = associationState.missing;
+                unexpectedAssociations = associationState.unexpected;
             } catch (IOException | RuntimeException error) {
                 inputStateError = usefulMessage(error);
             }
@@ -193,18 +192,45 @@ final class InputRelayReportSnapshot {
         return count;
     }
 
-    private static Map<String, String> magicDeskAssociations(
+    static AssociationState classifyAssociations(
+            final Set<String> ownedPorts,
             final Map<String, String> associations) {
-        final Map<String, String> result = new LinkedHashMap<>();
-        for (final Map.Entry<String, String> entry
-                : associations.entrySet()) {
-            if (MAGICDESK_MOUSE_PORT.equals(entry.getKey())
-                    || entry.getKey().startsWith(
-                            MAGICDESK_KEYBOARD_PREFIX)) {
-                result.put(entry.getKey(), entry.getValue());
+        final Map<String, String> active = new LinkedHashMap<>();
+        for (final String port : ownedPorts) {
+            final String target = associations.get(port);
+            if (target != null) {
+                active.put(port, target);
             }
         }
-        return result;
+        final Set<String> missing = new LinkedHashSet<>(ownedPorts);
+        missing.removeAll(active.keySet());
+        final Set<String> unexpected = new LinkedHashSet<>();
+        for (final String port : associations.keySet()) {
+            if (isMagicDeskVirtualPort(port) && !ownedPorts.contains(port)) {
+                unexpected.add(port);
+            }
+        }
+        return new AssociationState(active, missing, unexpected);
+    }
+
+    private static boolean isMagicDeskVirtualPort(final String port) {
+        return MAGICDESK_MOUSE_PORT.equals(port)
+                || port.startsWith(MAGICDESK_KEYBOARD_PREFIX);
+    }
+
+    static final class AssociationState {
+        final Map<String, String> active;
+        final Set<String> missing;
+        final Set<String> unexpected;
+
+        AssociationState(
+                final Map<String, String> activeAssociations,
+                final Set<String> missingAssociations,
+                final Set<String> unexpectedAssociations) {
+            active = activeAssociations;
+            missing = missingAssociations;
+            unexpected = unexpectedAssociations;
+        }
     }
 
     private static String pointLabel(final Point point) {

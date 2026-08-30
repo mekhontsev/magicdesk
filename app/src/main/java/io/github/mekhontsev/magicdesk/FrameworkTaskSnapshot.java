@@ -46,6 +46,11 @@ public final class FrameworkTaskSnapshot implements Parcelable {
     public final boolean focused;
     public final boolean requestedVisibleTypesKnown;
     public final int requestedVisibleTypesValue;
+    public final boolean taskConfigurationKnown;
+    public final int densityDpi;
+    public final int screenWidthDp;
+    public final int screenHeightDp;
+    public final int smallestScreenWidthDp;
 
     FrameworkTaskSnapshot(
             final Object rawTask,
@@ -67,6 +72,50 @@ public final class FrameworkTaskSnapshot implements Parcelable {
             final boolean visible,
             final boolean focused,
             final Integer requestedVisibleTypes) {
+        this(
+                rawTask,
+                rootTaskId,
+                taskId,
+                displayId,
+                displayAreaFeatureId,
+                windowingMode,
+                activityType,
+                component,
+                topActivity,
+                componentName,
+                topActivityName,
+                packageName,
+                topPackage,
+                topUid,
+                topProcessName,
+                bounds,
+                visible,
+                focused,
+                requestedVisibleTypes,
+                null);
+    }
+
+    FrameworkTaskSnapshot(
+            final Object rawTask,
+            final int rootTaskId,
+            final int taskId,
+            final int displayId,
+            final int displayAreaFeatureId,
+            final int windowingMode,
+            final int activityType,
+            final ComponentName component,
+            final ComponentName topActivity,
+            final String componentName,
+            final String topActivityName,
+            final String packageName,
+            final String topPackage,
+            final int topUid,
+            final String topProcessName,
+            final Rect bounds,
+            final boolean visible,
+            final boolean focused,
+            final Integer requestedVisibleTypes,
+            final TaskConfiguration taskConfiguration) {
         task = rawTask;
         rootComponent = component;
         topComponent = topActivity;
@@ -89,6 +138,15 @@ public final class FrameworkTaskSnapshot implements Parcelable {
         requestedVisibleTypesValue = requestedVisibleTypes == null
                 ? 0 : requestedVisibleTypes.intValue();
         this.requestedVisibleTypes = requestedVisibleTypes;
+        taskConfigurationKnown = taskConfiguration != null;
+        densityDpi = taskConfiguration == null
+                ? -1 : taskConfiguration.densityDpi;
+        screenWidthDp = taskConfiguration == null
+                ? -1 : taskConfiguration.screenWidthDp;
+        screenHeightDp = taskConfiguration == null
+                ? -1 : taskConfiguration.screenHeightDp;
+        smallestScreenWidthDp = taskConfiguration == null
+                ? -1 : taskConfiguration.smallestScreenWidthDp;
     }
 
     private FrameworkTaskSnapshot(final Parcel source) {
@@ -114,6 +172,11 @@ public final class FrameworkTaskSnapshot implements Parcelable {
         requestedVisibleTypesValue = source.readInt();
         requestedVisibleTypes = requestedVisibleTypesKnown
                 ? Integer.valueOf(requestedVisibleTypesValue) : null;
+        taskConfigurationKnown = source.readBoolean();
+        densityDpi = source.readInt();
+        screenWidthDp = source.readInt();
+        screenHeightDp = source.readInt();
+        smallestScreenWidthDp = source.readInt();
     }
 
     Boolean requestingImmersive() {
@@ -162,6 +225,29 @@ public final class FrameworkTaskSnapshot implements Parcelable {
         destination.writeBoolean(focused);
         destination.writeBoolean(requestedVisibleTypesKnown);
         destination.writeInt(requestedVisibleTypesValue);
+        destination.writeBoolean(taskConfigurationKnown);
+        destination.writeInt(densityDpi);
+        destination.writeInt(screenWidthDp);
+        destination.writeInt(screenHeightDp);
+        destination.writeInt(smallestScreenWidthDp);
+    }
+
+    static final class TaskConfiguration {
+        final int densityDpi;
+        final int screenWidthDp;
+        final int screenHeightDp;
+        final int smallestScreenWidthDp;
+
+        TaskConfiguration(
+                final int density,
+                final int widthDp,
+                final int heightDp,
+                final int smallestWidthDp) {
+            densityDpi = density;
+            screenWidthDp = widthDp;
+            screenHeightDp = heightDp;
+            smallestScreenWidthDp = smallestWidthDp;
+        }
     }
 
     private static String nullToEmpty(final String value) {

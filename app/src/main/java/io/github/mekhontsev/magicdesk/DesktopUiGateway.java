@@ -632,6 +632,9 @@ final class DesktopUiGateway {
             case "settings":
                 action = activity::openSettings;
                 break;
+            case "diagnostics":
+                action = activity::openDiagnostics;
+                break;
             default:
                 return false;
         }

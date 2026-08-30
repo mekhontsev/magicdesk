@@ -391,4 +391,8 @@ interface IShizukuCommandService {
 
     int[] observeMousePosition(int displayId) = 101;
 
+    FrameworkTaskSnapshot[] readDiagnosticTaskSnapshots(
+        int displayId,
+        int limit) = 102;
+
 }

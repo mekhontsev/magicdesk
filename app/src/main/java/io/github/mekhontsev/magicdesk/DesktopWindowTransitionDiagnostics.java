@@ -48,7 +48,9 @@ final class DesktopWindowTransitionDiagnostics {
                 .append("Last: ").append(sLastOperation)
                 .append(" display=").append(sLastDisplayId)
                 .append(" task=").append(sLastTaskId)
-                .append("\n\n");
+                .append('\n');
+        DesktopWindowTransitionProvenance.appendReport(report);
+        report.append('\n');
     }
 
     static synchronized JSONObject toJson() throws JSONException {
@@ -59,6 +61,8 @@ final class DesktopWindowTransitionDiagnostics {
                 .put("repositoryFallbacks", sFallbacks)
                 .put("lastOperation", sLastOperation)
                 .put("lastDisplayId", sLastDisplayId)
-                .put("lastTaskId", sLastTaskId);
+                .put("lastTaskId", sLastTaskId)
+                .put("provenance",
+                        DesktopWindowTransitionProvenance.toJson());
     }
 }

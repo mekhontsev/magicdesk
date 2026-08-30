@@ -236,12 +236,13 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "open_builtin",
                         "Open built-in window",
-                        "Open a MagicDesk Files, Console, Task Manager, or Settings window.",
+                        "Open a MagicDesk Files, Console, Task Manager, Settings, or Diagnostics window.",
                         objectSchema(new JSONObject().put(
                                 "builtin", enumProperty(
                                         "Built-in window.",
                                         "files", "console",
-                                        "task_manager", "settings")),
+                                        "task_manager", "settings",
+                                        "diagnostics")),
                                 "builtin")))
                 .put(actionTool(
                         "arrange_task",
