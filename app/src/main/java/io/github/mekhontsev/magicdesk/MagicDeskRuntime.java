@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.os.UserHandle;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -416,6 +417,28 @@ public final class MagicDeskRuntime {
             throw new IOException("desktop task runtime unavailable");
         }
         return tasks.launchFullscreenTask(displayId, intent);
+    }
+
+    static int launchAppShortcut(
+            final int displayId,
+            final String packageName,
+            final String shortcutId,
+            final UserHandle user,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) throws IOException {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            throw new IOException("desktop task runtime unavailable");
+        }
+        return tasks.launchAppShortcut(
+                displayId,
+                packageName,
+                shortcutId,
+                user,
+                windowingMode,
+                bounds,
+                existingTaskId);
     }
 
     static void noteTaskLaunchFocus(

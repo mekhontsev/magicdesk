@@ -1,7 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
 import android.content.Intent;
 import android.graphics.Rect;
+import android.os.Bundle;
+import android.os.UserHandle;
 import android.os.Handler;
 import android.os.RemoteException;
 import android.util.Log;
@@ -213,7 +216,7 @@ final class DesktopTaskWatcher {
         }
         return handle.launchWindowedTask(
                 displayId,
-                intent.toUri(Intent.URI_INTENT_SCHEME),
+                intent,
                 bounds);
     }
 
@@ -225,8 +228,7 @@ final class DesktopTaskWatcher {
             throw new IOException("desktop task area is unavailable");
         }
         return handle.launchFullscreenTaskInManagedSession(
-                displayId,
-                intent.toUri(Intent.URI_INTENT_SCHEME));
+                displayId, intent);
     }
 
     int launchFullscreenTask(
@@ -237,8 +239,29 @@ final class DesktopTaskWatcher {
             throw new IOException("desktop task observer is unavailable");
         }
         return handle.launchFullscreenTask(
+                displayId, intent);
+    }
+
+    int launchAppShortcut(
+            final int displayId,
+            final String packageName,
+            final String shortcutId,
+            final UserHandle user,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) throws IOException {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            throw new IOException("desktop task observer is unavailable");
+        }
+        return handle.launchAppShortcut(
                 displayId,
-                intent.toUri(Intent.URI_INTENT_SCHEME));
+                packageName,
+                shortcutId,
+                user,
+                windowingMode,
+                bounds,
+                existingTaskId);
     }
 
     void launchTaskAction(
@@ -252,7 +275,7 @@ final class DesktopTaskWatcher {
         handle.launchTaskAction(
                 displayId,
                 taskId,
-                intent.toUri(Intent.URI_INTENT_SCHEME));
+                intent);
     }
 
     void placeWindowedTaskInManagedSession(
@@ -690,10 +713,13 @@ final class DesktopTaskWatcher {
             final long lifecycleGeneration) {
         final TaskObserverCallback callback =
                 new TaskObserverCallback(this, generation);
+        final ActivityLaunchCallback activityLauncher =
+                new ActivityLaunchCallback(this, generation);
         ShellTaskObserverHandle handle = null;
         try {
             handle = ShellAccess.openTaskObserver(
                     callback,
+                    activityLauncher,
                     () -> observerDisconnected(generation, callback));
             if (handle.isClosed()) {
                 throw new IOException("task observer disconnected during startup");
@@ -1321,6 +1347,49 @@ final class DesktopTaskWatcher {
                     pid,
                     reason,
                     protectionActivated);
+        }
+    }
+
+    private static final class ActivityLaunchCallback
+            extends IActivityLaunchCallback.Stub {
+        private final DesktopTaskWatcher mOwner;
+        private final int mGeneration;
+
+        ActivityLaunchCallback(
+                final DesktopTaskWatcher owner,
+                final int generation) {
+            mOwner = owner;
+            mGeneration = generation;
+        }
+
+        @Override
+        public void sendPendingIntent(
+                final PendingIntent pendingIntent,
+                final Bundle launchOptions) throws RemoteException {
+            if (pendingIntent == null
+                    || !mOwner.mListener.isActive(mGeneration)) {
+                throw new RemoteException(
+                        "desktop activity launcher is not active");
+            }
+            if (launchOptions == null) {
+                throw new RemoteException("missing activity launch options");
+            }
+            try {
+                pendingIntent.send(
+                        MagicDeskApplication.applicationContext(),
+                        0,
+                        null,
+                        null,
+                        null,
+                        null,
+                        launchOptions);
+            } catch (PendingIntent.CanceledException | RuntimeException error) {
+                final RemoteException remote = new RemoteException(
+                        "published shortcut launch failed: "
+                                + ShellAccess.usefulMessage(error));
+                remote.initCause(error);
+                throw remote;
+            }
         }
     }
 }

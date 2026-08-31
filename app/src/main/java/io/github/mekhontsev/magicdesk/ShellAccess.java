@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ShortcutInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Point;
@@ -235,6 +236,70 @@ public final class ShellAccess {
             handleServiceFailure(error);
             throw new IOException("Shizuku capability probe failed: "
                     + usefulMessage(error), error);
+        }
+    }
+
+    static String executeAppFunction(
+            final String packageName,
+            final String functionIdentifier,
+            final String parametersJson,
+            final long timeoutMillis) throws IOException {
+        try {
+            return requireService().executeAppFunction(
+                    packageName,
+                    functionIdentifier,
+                    parametersJson,
+                    timeoutMillis);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("App Function execution failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
+    static String searchAppFunctions(
+            final String searchJson,
+            final long timeoutMillis) throws IOException {
+        try {
+            return requireService().searchAppFunctions(
+                    searchJson, timeoutMillis);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("App Function discovery failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
+    static String queryIntentHandlers(final String requestJson)
+            throws IOException {
+        try {
+            return requireService().queryIntentHandlers(requestJson);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Android Intent discovery failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
+    static AndroidActivityResolution resolveActivity(final Intent intent)
+            throws IOException {
+        try {
+            return requireService().resolveActivity(intent);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Android Activity resolution failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
+    static ShortcutInfo[] queryAppShortcuts(final String packageName)
+            throws IOException {
+        try {
+            return requireService().queryAppShortcuts(packageName);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException(
+                    "shortcut query failed: " + usefulMessage(error), error);
         }
     }
 
@@ -1240,13 +1305,14 @@ public final class ShellAccess {
 
     static ShellTaskObserverHandle openTaskObserver(
             final ITaskObserverCallback callback,
+            final IActivityLaunchCallback activityLauncher,
             final Runnable disconnected) throws IOException {
-        if (callback == null) {
-            throw new IOException("missing task observer callback");
+        if (callback == null || activityLauncher == null) {
+            throw new IOException("missing task observer callbacks");
         }
         final IShizukuCommandService service = requireService();
         final ShellTaskObserverHandle handle = new ShellTaskObserverHandle(
-                service, callback, disconnected);
+                service, callback, activityLauncher, disconnected);
         try {
             handle.start();
             return handle;

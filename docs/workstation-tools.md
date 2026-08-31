@@ -73,7 +73,7 @@ MagicDesk's shell identity or unrestricted filesystem access.
 MagicDesk supports a bounded freedesktop-compatible `.desktop` subset for:
 
 - folders and web links;
-- Android applications and manifest shortcuts;
+- Android applications and published shortcuts;
 - Android shell commands;
 - Termux commands;
 - composite Android viewer and external-process launches.
@@ -191,7 +191,7 @@ items remain reachable through an icon-and-name overflow list when the taskbar
 is full.
 
 Start provides application, file, MagicDesk setting, and desktop-action
-search. Application context menus expose supported manifest shortcuts, launch
+search. Application context menus expose supported Android shortcuts, launch
 modes, new-window requests, Android application information, pinning, and
 `.desktop` shortcut creation.
 

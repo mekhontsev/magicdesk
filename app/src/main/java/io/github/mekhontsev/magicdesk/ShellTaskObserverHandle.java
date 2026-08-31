@@ -1,8 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Intent;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.os.UserHandle;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -12,6 +14,7 @@ final class ShellTaskObserverHandle implements Closeable {
     private final IShizukuCommandService mService;
     private final IBinder mServiceBinder;
     private final ITaskObserverCallback mCallback;
+    private final IActivityLaunchCallback mActivityLauncher;
     private final Runnable mDisconnected;
     private final IBinder.DeathRecipient mServiceDeathRecipient;
     private final AtomicBoolean mClosed = new AtomicBoolean();
@@ -22,10 +25,12 @@ final class ShellTaskObserverHandle implements Closeable {
     ShellTaskObserverHandle(
             final IShizukuCommandService service,
             final ITaskObserverCallback callback,
+            final IActivityLaunchCallback activityLauncher,
             final Runnable disconnected) {
         mService = service;
         mServiceBinder = service.asBinder();
         mCallback = callback;
+        mActivityLauncher = activityLauncher;
         mDisconnected = disconnected;
         mServiceDeathRecipient = this::serviceDisconnected;
     }
@@ -35,7 +40,7 @@ final class ShellTaskObserverHandle implements Closeable {
         synchronized (this) {
             mServiceLinked = true;
         }
-        mService.startTaskObserver(mCallback);
+        mService.startTaskObserver(mCallback, mActivityLauncher);
         synchronized (this) {
             if (!mClosed.get()) {
                 mRegistered = true;
@@ -181,7 +186,7 @@ final class ShellTaskObserverHandle implements Closeable {
 
     int launchWindowedTask(
             final int displayId,
-            final String intentUri,
+            final Intent intent,
             final Rect bounds) throws IOException {
         if (bounds == null || bounds.isEmpty()) {
             throw new IOException("invalid desktop task bounds");
@@ -189,7 +194,7 @@ final class ShellTaskObserverHandle implements Closeable {
         return callServiceForResult(() -> mService.launchWindowedTask(
                 mCallback,
                 displayId,
-                intentUri,
+                intent,
                 bounds.left,
                 bounds.top,
                 bounds.right,
@@ -198,25 +203,50 @@ final class ShellTaskObserverHandle implements Closeable {
 
     int launchFullscreenTaskInManagedSession(
             final int displayId,
-            final String intentUri) throws IOException {
+            final Intent intent) throws IOException {
         return callServiceForResult(() ->
                 mService.launchFullscreenTaskInManagedSession(
-                mCallback, displayId, intentUri));
+                mCallback, displayId, intent));
     }
 
     int launchFullscreenTask(
             final int displayId,
-            final String intentUri) throws IOException {
+            final Intent intent) throws IOException {
         return callServiceForResult(() -> mService.launchFullscreenTask(
-                mCallback, displayId, intentUri));
+                mCallback, displayId, intent));
+    }
+
+    int launchAppShortcut(
+            final int displayId,
+            final String packageName,
+            final String shortcutId,
+            final UserHandle user,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) throws IOException {
+        if (bounds == null) {
+            throw new IllegalArgumentException("shortcut bounds are required");
+        }
+        return callServiceForResult(() -> mService.launchAppShortcut(
+                mCallback,
+                displayId,
+                packageName,
+                shortcutId,
+                user,
+                windowingMode,
+                bounds.left,
+                bounds.top,
+                bounds.right,
+                bounds.bottom,
+                existingTaskId));
     }
 
     void launchTaskAction(
             final int displayId,
             final int taskId,
-            final String intentUri) throws IOException {
+            final Intent intent) throws IOException {
         callService(() -> mService.launchTaskAction(
-                mCallback, displayId, taskId, intentUri));
+                mCallback, displayId, taskId, intent));
     }
 
     void placeWindowedTaskInManagedSession(

@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Rect;
+import android.os.UserHandle;
 import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.util.Log;
@@ -61,12 +62,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private Context mWindowContext;
     private int mDisplayId = -1;
     private int mGeneration;
-    private int mTaskWatcherGeneration;
+    private volatile int mTaskWatcherGeneration;
     private volatile int mFocusingTaskId = -1;
     private volatile int mActiveTaskId = -1;
     private long mRefreshDueUptimeMillis = -1;
     private boolean mRunning;
-    private boolean mTaskWatcherRunning;
+    private volatile boolean mTaskWatcherRunning;
     private boolean mTaskWatcherReady;
     private boolean mSessionOwnershipReady;
     private volatile List<TaskRepository.TaskEntry> mLatestTasks =
@@ -2001,6 +2002,25 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final Intent intent) throws IOException {
         requireTaskObserver(displayId);
         return mTaskWatcher.launchFullscreenTask(displayId, intent);
+    }
+
+    @Override
+    public int launchAppShortcut(
+            final int displayId,
+            final String packageName,
+            final String shortcutId,
+            final UserHandle user,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) throws IOException {
+        return mTaskWatcher.launchAppShortcut(
+                displayId,
+                packageName,
+                shortcutId,
+                user,
+                windowingMode,
+                bounds,
+                existingTaskId);
     }
 
     @Override

@@ -82,7 +82,8 @@ final class DesktopLaunchCoordinator {
         final Runnable execute = prepared.exec == null
                 ? null : () -> mContext.activity().runOnUiThread(
                         () -> execute(prepared, sessionId));
-        if (prepared.androidLaunch != null) {
+        if (prepared.androidLaunch != null
+                || prepared.androidShortcut != null) {
             try {
                 if (!mContext.launchAndroid(prepared, execute)) {
                     DesktopExecSessionTracker.failed(sessionId);

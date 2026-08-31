@@ -124,8 +124,8 @@ independently running background Termux or X11 processes.
 
 ## Android applications
 
-MagicDesk-created Android application shortcuts contain a complete serialized
-Intent and an `am start` representation:
+MagicDesk-created generic Android application shortcuts contain a complete
+serialized Intent and an `am start` representation:
 
 ```ini
 [Desktop Entry]
@@ -146,6 +146,24 @@ only a portable fallback. MagicDesk never invokes both. The Intent path is
 preferred for Android applications because it preserves extras, categories,
 flags, and components while allowing MagicDesk to coordinate the destination
 display and window transition.
+
+An application action published through Android's shortcut service uses a
+typed reference instead:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Compose
+Icon=com.example.mail
+X-MagicDesk-Package=com.example.mail
+X-MagicDesk-AppShortcut=compose
+X-MagicDesk-WindowMode=auto
+```
+
+MagicDesk resolves `X-MagicDesk-AppShortcut` from the current published
+shortcut list each time it is opened. It stores neither the shortcut's private
+Intent nor a guessed `am start` fallback. If the publisher removes or disables
+that id, the entry remains on disk but launch fails cleanly.
 
 A hand-written shell command may use normal `am start` command-line options,
 including `-n` for a component, `-a` for an action, `-d` for a data URI, `-t`
@@ -219,8 +237,9 @@ multi-server session manager.
 For `Type=Application`, MagicDesk resolves one launch path in this order:
 
 1. The package's default Android launch when `X-MagicDesk-Default=true`.
-2. `X-MagicDesk-Intent`, when present and valid.
-3. `Exec` through `X-MagicDesk-ExecBackend`, defaulting to `shell`.
+2. The published action identified by `X-MagicDesk-AppShortcut`.
+3. `X-MagicDesk-Intent`, when present and valid.
+4. `Exec` through `X-MagicDesk-ExecBackend`, defaulting to `shell`.
 
-Keeping these paths mutually exclusive prevents an Android shortcut's
-portable `am start` fallback from launching a second copy of the task.
+MagicDesk-generated entries use one semantic path. Generic Intent entries may
+also carry a portable `am start` fallback, but MagicDesk never invokes both.

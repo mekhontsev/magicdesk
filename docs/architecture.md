@@ -440,8 +440,46 @@ runtime integration and are not distributed through the same release path.
   after setup authorization; desktop, task, input, and platform runtimes are
   not initialized by the automation-only start.
   `MagicDeskMcpBackend` only maps MCP tools and resources to the shared action
-  and state boundary. Developer input, self-test, and force-stop tools require
-  a separate setting and disappear when that setting is disabled.
+  and state boundary. Developer input, self-test, force-stop, broadcast, and
+  service tools require a separate setting and disappear when that setting is
+  disabled.
+- `AndroidIntegrationGateway` is the single MCP boundary for typed and raw
+  Android intents, semantic URI/file/share operations, published shortcuts,
+  notification `PendingIntent` actions, Activity results, and external App
+  Functions. `AndroidIntegrationRequest` owns Intent parsing and validation;
+  raw Intent URIs are an input form rather than a parallel executor. Direct
+  launches cross the Shizuku task-launch boundary as full Parcelable Intents,
+  preserving `ClipData`, grants, and typed extras. Discovery and App
+  Function framework calls have shell-side adapters, but desktop placement and
+  task reuse still enter the production launch coordinator.
+  `AndroidActivityResolution` distinguishes a real handler from Android's
+  synthetic resolver without relying on an internal class name. Concrete
+  handlers take the direct shell path unless chooser or result semantics need
+  the app-identity relay; unresolved choices stay implicit and use that relay.
+  Chooser and result requests retain nested targets in
+  `AndroidActivityRelayStore`; shell receives
+  only an opaque id and the app-identity relay satisfies Android 16 redirect
+  hardening without serializing away grants or typed extras. Relay ids use an
+  atomic `ready -> claimed` lifecycle: Android task handoff may instantiate the
+  relay Activity twice, but only the first instance can execute the payload.
+  Claimed tokens remain in the same bounded store without retaining their
+  Intent payload. The exported
+  relay Activity requires `MANAGE_ACTIVITY_TASKS`, so only the same privileged
+  task-launch boundary can consume those one-shot ids. Broadcast and service
+  starts are developer-only because they have no visible UI.
+- `AndroidLaunchSpec` keeps the task's semantic target separate from the
+  explicit Activity used to execute a launch. `AppTaskController` derives task
+  reuse identity from the concrete component for direct Intent launches.
+  Relayed concrete handlers use package-scoped task identity, so an existing
+  application task is normalized before the separate relay delivers its
+  action; the relay component never becomes the target task identity.
+  Published shortcuts follow the same separation:
+  Android may redirect their metadata Activity to another Activity in the same
+  app, so both fresh-task observation and task reuse are package-scoped while
+  execution remains bound to the shortcut id. The component observed on the
+  created task, rather than the optional published metadata component, becomes
+  the mode-guard identity. Direct fresh Intent tasks receive the concrete
+  Intent; an exact reused Intent task receives it as a task action.
 - Direct Files, shell, and Terminal automation has a second independent
   setting.
   `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
@@ -595,16 +633,16 @@ runtime integration and are not distributed through the same release path.
 - `AppTaskController` and `AltTabController` coordinate task actions,
   Show Desktop, restoration, and exact-task
   switching. `AppTaskController` has one UI lifecycle for built-in and regular
-  window launches. `AppShortcutRepository` reads the standard static shortcut
-  metadata published by each launch activity without taking Android's HOME
-  role. Only single-intent actions targeting the publisher's own package enter
-  the menu; their original action, data, extras, and task flags are preserved.
-  Dynamic shortcuts remain owned by the system launcher because Android does
-  not expose them to an ordinary non-HOME application. Before dispatching an
-  action, MagicDesk prepares the application's normal task in the selected
-  desktop mode, then starts the published intent with that task's ID. This
-  keeps trampoline activities inside the application task instead of treating
-  a short-lived redirect task as the launched desktop window.
+  window launches. `AppShortcutRepository` accepts only actions returned by
+  Android's published shortcut service; static manifest parsing only enriches
+  icons. Dynamic, pinned, cached, and manifest-published sources share one
+  immutable action model. `ShellShortcutGateway` resolves a system
+  `PendingIntent` under shell identity, while the visible app process sends it
+  through `IActivityLaunchCallback` with the prepared display, bounds, and task
+  options. The private shortcut Intent is never parsed or copied. Fresh launch
+  observation and task reuse are package-scoped because the optional metadata
+  Activity can redirect within its app; execution remains bound to the exact
+  shortcut id.
   `WindowedAppLauncher` owns fresh launch/reuse selection and
   delegates fresh launches to the active persistent shell task observer.
   `ExistingTaskController` performs only task discovery and normalization. A
@@ -1285,12 +1323,13 @@ keys for currently bound widgets, but those keys cannot bind or instantiate a
 widget. Application and folder shortcuts are not embedded in this JSON state.
 They are bounded freedesktop Desktop Entry files parsed by `DesktopEntryFile`
 in any directory shown by built-in Files. `Type=Link` holds a local folder URL.
-`Type=Application` stores standard `Name`, `Icon`, and `Exec` fields plus a
-full Android Intent URI and launch-mode metadata in `X-MagicDesk-*` keys. The
-Intent URI preserves extras, categories, flags, actions, and explicit
-components and always takes precedence over its executable `am start`
-fallback, preventing duplicate launches. An entry without an Intent or a
-default Android launch executes `Exec`.
+`Type=Application` stores standard `Name`, `Icon`, and `Exec` fields plus one
+typed Android descriptor and launch-mode metadata in `X-MagicDesk-*` keys. A
+generic Android launch uses a full Intent URI, preserving extras, categories,
+flags, actions, and explicit components. An application action instead stores
+only `X-MagicDesk-AppShortcut`; it is resolved against Android's current
+published shortcut service when opened. An entry without an Android descriptor
+executes `Exec`.
 
 Every launch surface converts the entry into one immutable
 `DesktopLaunchRequest`. `DesktopLaunchCoordinator` owns the shared sequence of

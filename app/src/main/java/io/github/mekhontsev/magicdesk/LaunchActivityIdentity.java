@@ -6,17 +6,32 @@ import android.content.pm.PackageManager;
 
 /** Matches an Android launch entry point and its activity-alias target. */
 final class LaunchActivityIdentity {
+    private final String mPackageName;
     private final ComponentName mRequestedComponent;
     private final ComponentName mResolvedComponent;
+    private final boolean mPackageScoped;
 
-    LaunchActivityIdentity(
+    private LaunchActivityIdentity(
+            final String packageName,
             final ComponentName requestedComponent,
-            final ComponentName resolvedComponent) {
-        if (requestedComponent == null || resolvedComponent == null) {
-            throw new IllegalArgumentException("missing launch component");
+            final ComponentName resolvedComponent,
+            final boolean packageScoped) {
+        if (packageName == null || packageName.isEmpty()
+                || (!packageScoped
+                        && (requestedComponent == null
+                                || resolvedComponent == null))
+                || (requestedComponent != null
+                        && !packageName.equals(
+                                requestedComponent.getPackageName()))
+                || (resolvedComponent != null
+                        && !packageName.equals(
+                                resolvedComponent.getPackageName()))) {
+            throw new IllegalArgumentException("invalid launch identity");
         }
+        mPackageName = packageName;
         mRequestedComponent = requestedComponent;
         mResolvedComponent = resolvedComponent;
+        mPackageScoped = packageScoped;
     }
 
     static LaunchActivityIdentity resolve(
@@ -37,7 +52,20 @@ final class LaunchActivityIdentity {
             // Exact component matching remains valid for unresolved entries.
         }
         return new LaunchActivityIdentity(
-                requestedComponent, resolvedComponent);
+                requestedComponent.getPackageName(),
+                requestedComponent,
+                resolvedComponent,
+                false);
+    }
+
+    static LaunchActivityIdentity packageScoped(
+            final String packageName,
+            final ComponentName publishedComponent) {
+        return new LaunchActivityIdentity(
+                packageName,
+                publishedComponent,
+                publishedComponent,
+                true);
     }
 
     ComponentName requestedComponent() {
@@ -45,12 +73,29 @@ final class LaunchActivityIdentity {
     }
 
     boolean matches(final ComponentName observedComponent) {
-        return observedComponent != null && matches(
-                mRequestedComponent.getPackageName(),
+        return observedComponent != null && (mPackageScoped
+                ? mPackageName.equals(observedComponent.getPackageName())
+                : matches(
+                mPackageName,
                 mRequestedComponent.getClassName(),
                 mResolvedComponent.getClassName(),
                 observedComponent.getPackageName(),
-                observedComponent.getClassName());
+                observedComponent.getClassName()));
+    }
+
+    boolean matchesPackage(final ComponentName observedComponent) {
+        return observedComponent != null
+                && matchesPackage(observedComponent.getPackageName());
+    }
+
+    boolean matchesPackage(final String observedPackageName) {
+        return matchesPackage(mPackageName, observedPackageName);
+    }
+
+    static boolean matchesPackage(
+            final String packageName,
+            final String observedPackageName) {
+        return packageName != null && packageName.equals(observedPackageName);
     }
 
     static boolean matches(

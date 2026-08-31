@@ -1,7 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Intent;
+import android.content.pm.ShortcutInfo;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
+import android.os.UserHandle;
+import io.github.mekhontsev.magicdesk.AndroidActivityResolution;
 import io.github.mekhontsev.magicdesk.DesktopFileInfo;
 import io.github.mekhontsev.magicdesk.DesktopWorkspaceCommand;
 import io.github.mekhontsev.magicdesk.FrameworkTaskSnapshot;
@@ -9,6 +13,7 @@ import io.github.mekhontsev.magicdesk.IDesktopFolderObserverCallback;
 import io.github.mekhontsev.magicdesk.IFileOperationCallback;
 import io.github.mekhontsev.magicdesk.IFileSearchCallback;
 import io.github.mekhontsev.magicdesk.IShellDirectoryObserverCallback;
+import io.github.mekhontsev.magicdesk.IActivityLaunchCallback;
 import io.github.mekhontsev.magicdesk.ITaskObserverCallback;
 import io.github.mekhontsev.magicdesk.SelfTestTaskStackReport;
 import io.github.mekhontsev.magicdesk.ShellFileInfo;
@@ -40,7 +45,9 @@ interface IShizukuCommandService {
     ParcelFileDescriptor openOwnedStream(
         String command, long requestId, IBinder ownerToken) = 10;
 
-    void startTaskObserver(ITaskObserverCallback callback) = 11;
+    void startTaskObserver(
+        ITaskObserverCallback callback,
+        IActivityLaunchCallback activityLauncher) = 11;
 
     void configureTaskObserver(
         ITaskObserverCallback callback,
@@ -261,7 +268,7 @@ interface IShizukuCommandService {
     int launchWindowedTask(
         ITaskObserverCallback callback,
         int displayId,
-        String intentUri,
+        in Intent intent,
         int left,
         int top,
         int right,
@@ -295,7 +302,7 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int displayId,
         int taskId,
-        String intentUri) = 78;
+        in Intent intent) = 78;
 
     boolean beginFullscreenTask(
         ITaskObserverCallback callback,
@@ -305,7 +312,7 @@ interface IShizukuCommandService {
     int launchFullscreenTaskInManagedSession(
         ITaskObserverCallback callback,
         int displayId,
-        String intentUri) = 80;
+        in Intent intent) = 80;
 
     void placeFullscreenTaskInManagedSession(
         ITaskObserverCallback callback,
@@ -344,7 +351,7 @@ interface IShizukuCommandService {
     int launchFullscreenTask(
         ITaskObserverCallback callback,
         int displayId,
-        String intentUri) = 88;
+        in Intent intent) = 88;
 
     TaskWindowSnapshot inspectTaskWindow(
         ITaskObserverCallback callback,
@@ -394,5 +401,34 @@ interface IShizukuCommandService {
     FrameworkTaskSnapshot[] readDiagnosticTaskSnapshots(
         int displayId,
         int limit) = 102;
+
+    String executeAppFunction(
+        String packageName,
+        String functionIdentifier,
+        String parametersJson,
+        long timeoutMillis) = 103;
+
+    String searchAppFunctions(
+        String searchJson,
+        long timeoutMillis) = 104;
+
+    String queryIntentHandlers(String requestJson) = 105;
+
+    AndroidActivityResolution resolveActivity(in Intent intent) = 106;
+
+    ShortcutInfo[] queryAppShortcuts(String packageName) = 107;
+
+    int launchAppShortcut(
+        ITaskObserverCallback callback,
+        int displayId,
+        String packageName,
+        String shortcutId,
+        in UserHandle user,
+        int windowingMode,
+        int left,
+        int top,
+        int right,
+        int bottom,
+        int existingTaskId) = 108;
 
 }

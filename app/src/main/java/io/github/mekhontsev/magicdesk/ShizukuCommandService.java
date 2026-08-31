@@ -1,12 +1,15 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ShortcutInfo;
 import android.graphics.Point;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.system.Os;
 import android.util.Log;
 
@@ -111,6 +114,50 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public String probeCapabilities() {
         return ShizukuCapabilityProbe.run(mContext);
+    }
+
+    @Override
+    public String executeAppFunction(
+            final String packageName,
+            final String functionIdentifier,
+            final String parametersJson,
+            final long timeoutMillis) {
+        return ShellAppFunctionGateway.execute(
+                mContext,
+                packageName,
+                functionIdentifier,
+                parametersJson,
+                timeoutMillis);
+    }
+
+    @Override
+    public String searchAppFunctions(
+            final String searchJson,
+            final long timeoutMillis) {
+        return ShellAppFunctionGateway.search(
+                mContext, searchJson, timeoutMillis);
+    }
+
+    @Override
+    public String queryIntentHandlers(final String requestJson) {
+        return ShellAndroidIntegrationGateway.queryHandlers(
+                mContext, requestJson);
+    }
+
+    @Override
+    public AndroidActivityResolution resolveActivity(final Intent intent) {
+        try {
+            return ShellAndroidIntegrationGateway.resolveActivity(
+                    mContext, intent);
+        } catch (android.content.pm.PackageManager.NameNotFoundException error) {
+            throw new IllegalStateException(
+                    "shell package context is unavailable", error);
+        }
+    }
+
+    @Override
+    public ShortcutInfo[] queryAppShortcuts(final String packageName) {
+        return ShellShortcutGateway.query(mContext, packageName);
     }
 
     @Override
@@ -367,8 +414,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public void startTaskObserver(final ITaskObserverCallback callback) {
-        mTaskObserverManager.start(callback);
+    public void startTaskObserver(
+            final ITaskObserverCallback callback,
+            final IActivityLaunchCallback activityLauncher) {
+        mTaskObserverManager.start(callback, activityLauncher);
     }
 
     @Override
@@ -533,7 +582,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     public int launchWindowedTask(
             final ITaskObserverCallback callback,
             final int displayId,
-            final String intentUri,
+            final Intent intent,
             final int left,
             final int top,
             final int right,
@@ -541,7 +590,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         return mTaskObserverManager.launchWindowedTask(
                 callback,
                 displayId,
-                intentUri,
+                intent,
                 new Rect(left, top, right, bottom));
     }
 
@@ -549,18 +598,42 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     public int launchFullscreenTaskInManagedSession(
             final ITaskObserverCallback callback,
             final int displayId,
-            final String intentUri) {
+            final Intent intent) {
         return mTaskObserverManager.launchFullscreenTaskInManagedSession(
-                callback, displayId, intentUri);
+                callback, displayId, intent);
     }
 
     @Override
     public int launchFullscreenTask(
             final ITaskObserverCallback callback,
             final int displayId,
-            final String intentUri) {
+            final Intent intent) {
         return mTaskObserverManager.launchFullscreenTask(
-                callback, displayId, intentUri);
+                callback, displayId, intent);
+    }
+
+    @Override
+    public int launchAppShortcut(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String packageName,
+            final String shortcutId,
+            final UserHandle user,
+            final int windowingMode,
+            final int left,
+            final int top,
+            final int right,
+            final int bottom,
+            final int existingTaskId) {
+        return mTaskObserverManager.launchAppShortcut(
+                callback,
+                displayId,
+                packageName,
+                shortcutId,
+                user,
+                windowingMode,
+                new Rect(left, top, right, bottom),
+                existingTaskId);
     }
 
     @Override
@@ -568,9 +641,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final ITaskObserverCallback callback,
             final int displayId,
             final int taskId,
-            final String intentUri) {
+            final Intent intent) {
         mTaskObserverManager.launchTaskAction(
-                callback, displayId, taskId, intentUri);
+                callback, displayId, taskId, intent);
     }
 
     @Override

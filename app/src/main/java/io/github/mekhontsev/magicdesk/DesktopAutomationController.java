@@ -33,6 +33,7 @@ final class DesktopAutomationController {
     private final DesktopAutomationStateReader mState;
     private final DesktopAutomationCapture mCapture;
     private final DesktopAutomationTraceManager mTraces;
+    private final AndroidIntegrationGateway mAndroid;
     private final Object mPointerLock = new Object();
 
     private int mPointerDisplayId = Display.INVALID_DISPLAY;
@@ -46,6 +47,7 @@ final class DesktopAutomationController {
         mState = new DesktopAutomationStateReader(mContext);
         mCapture = new DesktopAutomationCapture(mContext);
         mTraces = new DesktopAutomationTraceManager(mState);
+        mAndroid = new AndroidIntegrationGateway(mContext);
     }
 
     DesktopAutomationStateReader stateReader() {
@@ -83,14 +85,50 @@ final class DesktopAutomationController {
                 case LAUNCH_APP:
                     result = launchApp(args);
                     break;
+                case QUERY_INTENT_HANDLERS:
+                    result = mAndroid.queryIntentHandlers(args);
+                    break;
+                case LAUNCH_INTENT:
+                    result = mAndroid.launchIntent(args);
+                    break;
+                case OPEN_URI:
+                    result = mAndroid.openUri(args);
+                    break;
+                case OPEN_FILE:
+                    result = mAndroid.openFile(args);
+                    break;
+                case SHARE:
+                    result = mAndroid.share(args);
+                    break;
+                case SEND_BROADCAST:
+                    result = mAndroid.sendBroadcast(args);
+                    break;
+                case START_SERVICE:
+                    result = mAndroid.startService(args);
+                    break;
                 case LIST_APP_ACTIONS:
-                    result = listAppActions(args);
+                    result = mAndroid.listAppActions(args);
                     break;
                 case INVOKE_APP_ACTION:
-                    result = invokeAppAction(args);
+                    result = mAndroid.invokeAppAction(args);
                     break;
-                case LAUNCH_SPEC:
-                    result = launchSpec(args);
+                case LIST_NOTIFICATIONS:
+                    result = mAndroid.listNotifications(args);
+                    break;
+                case INVOKE_NOTIFICATION:
+                    result = mAndroid.invokeNotification(args);
+                    break;
+                case GET_INTENT_RESULT:
+                    result = mAndroid.getActivityResult(args);
+                    break;
+                case SEARCH_APP_FUNCTIONS:
+                    result = mAndroid.searchAppFunctions(args);
+                    break;
+                case EXECUTE_APP_FUNCTION:
+                    result = mAndroid.executeAppFunction(args);
+                    break;
+                case LAUNCH_DESKTOP_ENTRY:
+                    result = launchDesktopEntry(args);
                     break;
                 case FOCUS_TASK:
                     result = focusTask(requiredInt(args, "taskId"));
@@ -377,133 +415,43 @@ final class DesktopAutomationController {
                 data);
     }
 
-    private DesktopAutomationResult listAppActions(final JSONObject args)
-            throws JSONException {
-        final AppLaunchTarget target = appTarget(args);
-        final org.json.JSONArray actions = new org.json.JSONArray();
-        for (final AppShortcutAction action
-                : new AppShortcutRepository(mContext).load(target)) {
-            actions.put(new JSONObject()
-                    .put("id", action.id)
-                    .put("label", action.label));
-        }
-        return DesktopAutomationResult.success(
-                "application actions listed",
-                new JSONObject()
-                        .put("package", target.packageName)
-                        .put("actions", actions));
-    }
-
-    private DesktopAutomationResult invokeAppAction(final JSONObject args)
-            throws JSONException {
-        final AppLaunchTarget target = appTarget(args);
-        final String actionId = requiredString(args, "actionId");
-        if (!DesktopRuntimeBridge.invokeAppAction(target, actionId)) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.ACTION_FAILED,
-                    "application action was not found or could not launch",
-                    false,
-                    new JSONObject()
-                            .put("package", target.packageName)
-                            .put("actionId", actionId));
-        }
-        return DesktopAutomationResult.success(
-                "application action launch accepted",
-                new JSONObject()
-                        .put("package", target.packageName)
-                        .put("actionId", actionId));
-    }
-
-    private DesktopAutomationResult launchSpec(final JSONObject args)
+    private DesktopAutomationResult launchDesktopEntry(final JSONObject args)
             throws IOException, JSONException {
-        final String desktopPath = optionalString(args, "desktopPath", "");
-        final JSONObject android = args.optJSONObject("android");
-        if (desktopPath.isEmpty() == (android == null)) {
-            throw new IllegalArgumentException(
-                    "provide exactly one of desktopPath or android");
+        final String desktopPath = requiredString(args, "desktopPath");
+        if (!ShellAccess.isReady()) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.SHELL_UNAVAILABLE,
+                    "shell command service is unavailable", true);
         }
         final int displayId = optionalDisplayId(args);
         final boolean launched;
         final String kind;
-        if (!desktopPath.isEmpty()) {
-            if (!ShellAccess.isReady()) {
-                return DesktopAutomationResult.failure(
-                        DesktopAutomationErrorCode.SHELL_UNAVAILABLE,
-                        "shell command service is unavailable", true);
-            }
-            final ShellFileInfo file = ShellAccess.getShellFileInfo(
+        final ShellFileInfo file = ShellAccess.getShellFileInfo(desktopPath);
+        final DesktopEntry entry = DesktopEntryFile.read(file);
+        if (entry == null) {
+            throw new IllegalArgumentException(
+                    "unsupported or invalid .desktop file");
+        }
+        if (entry instanceof DesktopFolderShortcut) {
+            launched = DesktopRuntimeBridge.openFilesAt(
+                    ((DesktopFolderShortcut) entry).targetPath,
+                    displayId);
+            kind = "folder";
+        } else if (entry instanceof DesktopWebShortcut) {
+            launched = DesktopRuntimeBridge.launchDesktopWebShortcut(
+                    (DesktopWebShortcut) entry, displayId);
+            kind = "web";
+        } else if (entry instanceof DesktopApplicationShortcut) {
+            final DesktopLaunchRequest request = DesktopLaunchRequest.from(
+                    (DesktopApplicationShortcut) entry,
+                    launchArguments(args),
                     desktopPath);
-            final DesktopEntry entry = DesktopEntryFile.read(file);
-            if (entry == null) {
-                throw new IllegalArgumentException(
-                        "unsupported or invalid .desktop file");
-            }
-            if (entry instanceof DesktopFolderShortcut) {
-                launched = DesktopRuntimeBridge.openFilesAt(
-                        ((DesktopFolderShortcut) entry).targetPath,
-                        displayId);
-                kind = "folder";
-            } else if (entry instanceof DesktopWebShortcut) {
-                launched = DesktopRuntimeBridge.launchDesktopWebShortcut(
-                        (DesktopWebShortcut) entry, displayId);
-                kind = "web";
-            } else if (entry instanceof DesktopApplicationShortcut) {
-                final DesktopLaunchRequest request = DesktopLaunchRequest.from(
-                        (DesktopApplicationShortcut) entry,
-                        launchArguments(args),
-                        desktopPath);
-                launched = DesktopRuntimeBridge.launchAutomationRequest(
-                        request, displayId);
-                kind = "application";
-            } else {
-                throw new IllegalArgumentException(
-                        "unsupported .desktop entry type");
-            }
-        } else {
-            final String packageName = optionalString(
-                    android, "package", "");
-            final String componentValue = optionalString(
-                    android, "component", "");
-            final String action = optionalString(
-                    android, "action", Intent.ACTION_MAIN);
-            final String intentUri = optionalString(
-                    android, "intentUri", "");
-            AppLaunchTarget target = null;
-            if (!packageName.isEmpty()) {
-                if (componentValue.isEmpty()) {
-                    target = AppLaunchTarget.packageDefault(packageName);
-                } else {
-                    final ComponentName component =
-                            ComponentName.unflattenFromString(componentValue);
-                    if (component == null || !packageName.equals(
-                            component.getPackageName())) {
-                        throw new IllegalArgumentException(
-                                "component must belong to package");
-                    }
-                    target = AppLaunchTarget.explicit(
-                            packageName, component.getClassName(), action);
-                }
-            }
-            final AndroidLaunchSpec launch;
-            if (!intentUri.isEmpty()) {
-                launch = AndroidLaunchSpec.intent(target, intentUri);
-            } else if (target != null) {
-                launch = AndroidLaunchSpec.defaultLaunch(target);
-            } else {
-                throw new IllegalArgumentException(
-                        "android package or intentUri is required");
-            }
-            final DesktopLaunchRequest request = new DesktopLaunchRequest(
-                    optionalString(android, "name",
-                            packageName.isEmpty() ? "Android app" : packageName),
-                    "",
-                    launch,
-                    null,
-                    parseLaunchMode(optionalString(
-                            android, "mode", "auto")));
             launched = DesktopRuntimeBridge.launchAutomationRequest(
                     request, displayId);
-            kind = "android";
+            kind = "application";
+        } else {
+            throw new IllegalArgumentException(
+                    "unsupported .desktop entry type");
         }
         if (!launched) {
             return DesktopAutomationResult.failure(

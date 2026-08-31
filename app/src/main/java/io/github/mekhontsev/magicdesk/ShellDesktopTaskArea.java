@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityManager;
 import android.content.Intent;
+import android.os.UserHandle;
 import android.content.pm.ActivityInfo;
 import android.graphics.Rect;
 import android.util.Log;
@@ -203,13 +204,13 @@ final class ShellDesktopTaskArea implements AutoCloseable {
 
     synchronized int launchSessionWindowedTask(
             final int displayId,
-            final String intentUri,
+            final Intent intent,
             final Rect bounds) throws ReflectiveOperationException {
         final TaskDisplayAreaHandle applicationArea =
                 requireApplicationArea(displayId, bounds);
         final int taskId = mTaskLauncher.launchWindowed(
                 displayId,
-                intentUri,
+                intent,
                 bounds,
                 applicationArea.token(),
                 true);
@@ -220,12 +221,12 @@ final class ShellDesktopTaskArea implements AutoCloseable {
 
     synchronized int launchSessionFullscreenTask(
             final int displayId,
-            final String intentUri) throws ReflectiveOperationException {
+            final Intent intent) throws ReflectiveOperationException {
         final TaskDisplayAreaHandle applicationArea =
                 requireApplicationArea(displayId);
         final int taskId = mTaskLauncher.launchFullscreen(
                 displayId,
-                intentUri,
+                intent,
                 applicationArea.token());
         mTaskIds.add(Integer.valueOf(taskId));
         waitForTaskArea(taskId, applicationArea.featureId(), true);
@@ -234,6 +235,45 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                 displayId,
                 taskId,
                 WINDOWING_MODE_FULLSCREEN);
+        return taskId;
+    }
+
+    synchronized int launchSessionWindowedShortcut(
+            final int displayId,
+            final String packageName,
+            final String shortcutId,
+            final UserHandle user,
+            final Rect bounds) throws ReflectiveOperationException {
+        final TaskDisplayAreaHandle applicationArea =
+                requireApplicationArea(displayId, bounds);
+        final int taskId = mTaskLauncher.launchShortcutWindowed(
+                displayId,
+                packageName,
+                shortcutId,
+                user,
+                bounds,
+                applicationArea.token(),
+                true);
+        mTaskIds.add(Integer.valueOf(taskId));
+        waitForTaskArea(taskId, applicationArea.featureId(), true);
+        return taskId;
+    }
+
+    synchronized int launchSessionFullscreenShortcut(
+            final int displayId,
+            final String packageName,
+            final String shortcutId,
+            final UserHandle user) throws ReflectiveOperationException {
+        final TaskDisplayAreaHandle applicationArea =
+                requireApplicationArea(displayId);
+        final int taskId = mTaskLauncher.launchShortcutFullscreen(
+                displayId,
+                packageName,
+                shortcutId,
+                user,
+                applicationArea.token());
+        mTaskIds.add(Integer.valueOf(taskId));
+        waitForTaskArea(taskId, applicationArea.featureId(), true);
         return taskId;
     }
 

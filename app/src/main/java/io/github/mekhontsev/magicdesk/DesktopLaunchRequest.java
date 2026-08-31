@@ -5,6 +5,7 @@ final class DesktopLaunchRequest {
     final String name;
     final String icon;
     final AndroidLaunchSpec androidLaunch;
+    final AndroidShortcutSpec androidShortcut;
     final DesktopExecSpec exec;
     final DesktopLaunchMode launchMode;
     final DesktopLaunchArguments arguments;
@@ -20,6 +21,7 @@ final class DesktopLaunchRequest {
                 name,
                 icon,
                 androidLaunch,
+                null,
                 exec,
                 launchMode,
                 DesktopLaunchArguments.empty(),
@@ -34,15 +36,40 @@ final class DesktopLaunchRequest {
             final DesktopLaunchMode launchMode,
             final DesktopLaunchArguments arguments,
             final String desktopFilePath) {
+        this(
+                name,
+                icon,
+                androidLaunch,
+                null,
+                exec,
+                launchMode,
+                arguments,
+                desktopFilePath);
+    }
+
+    DesktopLaunchRequest(
+            final String name,
+            final String icon,
+            final AndroidLaunchSpec androidLaunch,
+            final AndroidShortcutSpec androidShortcut,
+            final DesktopExecSpec exec,
+            final DesktopLaunchMode launchMode,
+            final DesktopLaunchArguments arguments,
+            final String desktopFilePath) {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("missing launch request name");
         }
-        if (androidLaunch == null && exec == null) {
+        if (androidLaunch == null && androidShortcut == null && exec == null) {
             throw new IllegalArgumentException("empty desktop launch request");
+        }
+        if (androidLaunch != null && androidShortcut != null) {
+            throw new IllegalArgumentException(
+                    "ambiguous Android launch request");
         }
         this.name = name.trim();
         this.icon = icon == null ? "" : icon;
         this.androidLaunch = androidLaunch;
+        this.androidShortcut = androidShortcut;
         this.exec = exec;
         this.launchMode = launchMode == null
                 ? DesktopLaunchMode.AUTO : launchMode;
@@ -66,19 +93,28 @@ final class DesktopLaunchRequest {
             throw new IllegalArgumentException("missing desktop shortcut");
         }
         final AndroidLaunchSpec androidLaunch;
+        final AndroidShortcutSpec androidShortcut;
         final DesktopExecSpec exec;
         if (shortcut.defaultLaunch) {
             androidLaunch = AndroidLaunchSpec.defaultLaunch(
                     shortcut.launchTarget);
+            androidShortcut = null;
+            exec = null;
+        } else if (shortcut.hasAppShortcutLaunch()) {
+            androidLaunch = null;
+            androidShortcut = new AndroidShortcutSpec(
+                    shortcut.launchTarget, shortcut.appShortcutId);
             exec = null;
         } else if (shortcut.hasIntentLaunch()) {
             androidLaunch = AndroidLaunchSpec.intent(
                     shortcut.launchTarget, shortcut.intentUri);
+            androidShortcut = null;
             exec = null;
         } else {
             androidLaunch = shortcut.launchTarget == null
                     ? null : AndroidLaunchSpec.defaultLaunch(
                             shortcut.launchTarget);
+            androidShortcut = null;
             exec = new DesktopExecSpec(
                     shortcut.execBackend,
                     shortcut.exec,
@@ -89,6 +125,7 @@ final class DesktopLaunchRequest {
                 shortcut.name,
                 shortcut.icon,
                 androidLaunch,
+                androidShortcut,
                 exec,
                 shortcut.launchMode,
                 arguments,
@@ -100,6 +137,7 @@ final class DesktopLaunchRequest {
                 name,
                 icon,
                 androidLaunch,
+                androidShortcut,
                 value,
                 launchMode,
                 arguments,
@@ -112,6 +150,7 @@ final class DesktopLaunchRequest {
                 name,
                 icon,
                 value,
+                null,
                 exec,
                 launchMode,
                 arguments,

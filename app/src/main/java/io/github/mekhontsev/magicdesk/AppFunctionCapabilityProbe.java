@@ -21,7 +21,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Exercises the Android 16 App Functions framework from the shell identity. */
 final class AppFunctionCapabilityProbe {
-    private static final String SHELL_PACKAGE = "com.android.shell";
     private static final long TIMEOUT_SECONDS = 10L;
 
     private AppFunctionCapabilityProbe() {
@@ -66,9 +65,7 @@ final class AppFunctionCapabilityProbe {
             }
             final Context shellContext;
             try {
-                shellContext = context.createPackageContext(
-                        SHELL_PACKAGE,
-                        Context.CONTEXT_IGNORE_SECURITY);
+                shellContext = ShellIdentityContext.create(context);
             } catch (PackageManager.NameNotFoundException error) {
                 append(report, "unavailable", "Android shell package missing");
                 return;

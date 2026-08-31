@@ -53,6 +53,30 @@ public final class DesktopLaunchRequestTest {
     }
 
     @Test
+    public void appShortcutRemainsTypedInLaunchRequest() {
+        final DesktopLaunchRequest request = DesktopLaunchRequest.from(
+                new DesktopApplicationShortcut(
+                        "Compose",
+                        "example.application",
+                        "",
+                        TARGET,
+                        "",
+                        DesktopLaunchMode.WINDOWED,
+                        false,
+                        DesktopExecBackend.SHELL,
+                        false,
+                        "",
+                        DesktopMimeTypes.empty(),
+                        "compose"));
+
+        assertNull(request.androidLaunch);
+        assertNotNull(request.androidShortcut);
+        assertEquals("compose", request.androidShortcut.shortcutId);
+        assertEquals(TARGET, request.androidShortcut.publisher);
+        assertNull(request.exec);
+    }
+
+    @Test
     public void packageAndExecProduceOneCompositeRequest() {
         final DesktopLaunchRequest request = DesktopLaunchRequest.from(
                 new DesktopApplicationShortcut(

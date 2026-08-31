@@ -30,6 +30,14 @@ public final class LaunchActivityIdentityTest {
                 "com.example.other", "com.example.other.RealActivity"));
     }
 
+    @Test
+    public void packageScopedIdentityAcceptsRedirectWithinPublisher() {
+        assertTrue(LaunchActivityIdentity.matchesPackage(
+                PACKAGE_NAME, PACKAGE_NAME));
+        assertFalse(LaunchActivityIdentity.matchesPackage(
+                PACKAGE_NAME, "com.example.other"));
+    }
+
     private static boolean matches(
             final String observedPackageName,
             final String observedClassName) {

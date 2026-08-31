@@ -16,32 +16,45 @@ final class AndroidLaunchSpec {
 
     final Kind kind;
     final AppLaunchTarget target;
-    final String intentUri;
+    private final Intent mIntent;
+    private final String mIntentUri;
 
     private AndroidLaunchSpec(
             final Kind kind,
             final AppLaunchTarget target,
+            final Intent intent,
             final String intentUri) {
         if (kind == null || (kind == Kind.DEFAULT && target == null)) {
             throw new IllegalArgumentException("missing Android launch target");
         }
         if (kind == Kind.INTENT
+                && intent == null
                 && (intentUri == null || intentUri.isEmpty())) {
             throw new IllegalArgumentException("missing Android launch Intent");
         }
         this.kind = kind;
         this.target = target;
-        this.intentUri = intentUri == null ? "" : intentUri;
+        mIntent = intent == null ? null : new Intent(intent);
+        mIntentUri = intentUri == null ? "" : intentUri;
     }
 
     static AndroidLaunchSpec defaultLaunch(
             final AppLaunchTarget target) {
-        return new AndroidLaunchSpec(Kind.DEFAULT, target, "");
+        return new AndroidLaunchSpec(Kind.DEFAULT, target, null, "");
     }
 
     static AndroidLaunchSpec intent(
             final AppLaunchTarget target, final String intentUri) {
-        return new AndroidLaunchSpec(Kind.INTENT, target, intentUri);
+        if (intentUri == null || intentUri.isEmpty()) {
+            throw new IllegalArgumentException("missing Android launch Intent");
+        }
+        return new AndroidLaunchSpec(
+                Kind.INTENT, target, null, intentUri);
+    }
+
+    static AndroidLaunchSpec intent(
+            final AppLaunchTarget target, final Intent intent) {
+        return new AndroidLaunchSpec(Kind.INTENT, target, intent, "");
     }
 
     Intent resolve(final PackageManager packageManager) {
@@ -49,10 +62,15 @@ final class AndroidLaunchSpec {
             return target.resolve(packageManager);
         }
         final Intent intent;
-        try {
-            intent = Intent.parseUri(intentUri, Intent.URI_INTENT_SCHEME);
-        } catch (URISyntaxException | RuntimeException error) {
-            return null;
+        if (mIntent != null) {
+            intent = new Intent(mIntent);
+        } else {
+            try {
+                intent = Intent.parseUri(
+                        mIntentUri, Intent.URI_INTENT_SCHEME);
+            } catch (URISyntaxException | RuntimeException error) {
+                return null;
+            }
         }
         if (intent.getComponent() == null && target != null) {
             if (!target.activityClassName.isEmpty()) {

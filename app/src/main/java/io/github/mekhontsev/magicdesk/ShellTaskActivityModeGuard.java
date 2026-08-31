@@ -39,7 +39,7 @@ final class ShellTaskActivityModeGuard implements
     private final Map<Integer, TaskRecord> mTasks = new HashMap<>();
     private final ArrayDeque<PendingStart> mPendingStarts = new ArrayDeque<>();
 
-    private ComponentName mInitialLaunchComponent;
+    private LaunchActivityIdentity mInitialLaunchIdentity;
     private int mInitialLaunchWindowingMode;
     private int mDisplayId = Display.INVALID_DISPLAY;
 
@@ -57,7 +57,7 @@ final class ShellTaskActivityModeGuard implements
             return;
         }
         mDisplayId = displayId;
-        mInitialLaunchComponent = null;
+        mInitialLaunchIdentity = null;
         mInitialLaunchWindowingMode = 0;
         mTasks.clear();
         mPendingStarts.clear();
@@ -65,9 +65,9 @@ final class ShellTaskActivityModeGuard implements
 
     @Override
     public synchronized void onTaskLaunchStarting(
-            final ComponentName component,
+            final LaunchActivityIdentity identity,
             final int windowingMode) {
-        mInitialLaunchComponent = component;
+        mInitialLaunchIdentity = identity;
         mInitialLaunchWindowingMode = windowingMode;
     }
 
@@ -85,7 +85,7 @@ final class ShellTaskActivityModeGuard implements
                         && (bounds == null || bounds.isEmpty()))) {
             return;
         }
-        mInitialLaunchComponent = null;
+        mInitialLaunchIdentity = null;
         mInitialLaunchWindowingMode = 0;
         final TaskRecord record = new TaskRecord(
                 taskId,
@@ -129,12 +129,12 @@ final class ShellTaskActivityModeGuard implements
 
     @Override
     public synchronized void onTaskLaunchFinished(
-            final ComponentName component,
+            final LaunchActivityIdentity identity,
             final int windowingMode) {
-        if (component != null
-                && component.equals(mInitialLaunchComponent)
+        if (identity != null
+                && identity == mInitialLaunchIdentity
                 && windowingMode == mInitialLaunchWindowingMode) {
-            mInitialLaunchComponent = null;
+            mInitialLaunchIdentity = null;
             mInitialLaunchWindowingMode = 0;
         }
     }
@@ -159,7 +159,14 @@ final class ShellTaskActivityModeGuard implements
             return true;
         }
         final ComponentName component = intent.getComponent();
-        if (component != null && component.equals(mInitialLaunchComponent)) {
+        if (mInitialLaunchIdentity != null
+                && (mInitialLaunchIdentity.matches(component)
+                        || (component == null
+                                && mInitialLaunchIdentity.matchesPackage(
+                                        PackageNameValidator.isSafe(
+                                                intent.getPackage())
+                                                ? intent.getPackage()
+                                                : packageName)))) {
             return true;
         }
         if ((intent.getFlags() & NEW_TASK_FLAGS) != 0) {
@@ -330,10 +337,8 @@ final class ShellTaskActivityModeGuard implements
     private boolean isInitialFullscreenTask(
             final ComponentName component) {
         return mInitialLaunchWindowingMode == WINDOWING_MODE_FULLSCREEN
-                && mInitialLaunchComponent != null
-                && component != null
-                && mInitialLaunchComponent.getPackageName().equals(
-                        component.getPackageName());
+                && mInitialLaunchIdentity != null
+                && mInitialLaunchIdentity.matchesPackage(component);
     }
 
     private static boolean isSupportedMode(final int windowingMode) {

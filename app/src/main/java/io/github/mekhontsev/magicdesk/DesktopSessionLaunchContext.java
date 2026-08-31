@@ -26,6 +26,28 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
     public boolean launchAndroid(
             final DesktopLaunchRequest request,
             final Runnable onPrepared) {
+        if (request.androidShortcut != null) {
+            if (onPrepared != null) {
+                throw new IllegalArgumentException(
+                        "app shortcut and Exec cannot share one launch request");
+            }
+            final AppItem app = mActivity.findOrLoadApp(
+                    mActivity.getLauncherApps(),
+                    request.androidShortcut.publisher);
+            if (app == null) {
+                return false;
+            }
+            for (final AppShortcutAction shortcut
+                    : new AppShortcutRepository(mActivity)
+                            .loadAll(request.androidShortcut.publisher)) {
+                if (request.androidShortcut.shortcutId.equals(shortcut.id)) {
+                    mActivity.launchShortcut(
+                            app, shortcut, request.launchMode);
+                    return true;
+                }
+            }
+            return false;
+        }
         if (request.androidLaunch == null) {
             return false;
         }
@@ -49,27 +71,23 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
             return false;
         }
         final ComponentName component = intent.getComponent();
-        final AppLaunchTarget target = AppLaunchTarget.explicit(
-                component.getPackageName(),
-                component.getClassName(),
-                intent.getAction());
+        final AppLaunchTarget target = request.androidLaunch.target == null
+                ? AppLaunchTarget.explicit(
+                        component.getPackageName(),
+                        component.getClassName(),
+                        intent.getAction())
+                : request.androidLaunch.target;
         final AppItem app = mActivity.findOrLoadApp(
                 mActivity.getLauncherApps(), target);
         if (app == null) {
             return false;
         }
-        mActivity.launchResolvedDesktopShortcut(
+        mActivity.launchResolvedAndroidIntent(
                 app,
-                new DesktopApplicationShortcut(
-                        request.name,
-                        request.icon,
-                        "",
-                        target,
-                        request.androidLaunch.intentUri,
-                        request.launchMode,
-                        false,
-                        DesktopExecBackend.SHELL,
-                        false));
+                request.name,
+                intent,
+                target,
+                request.launchMode);
         return true;
     }
 

@@ -1895,6 +1895,21 @@ public abstract class DesktopShellActivity extends Activity
         mAppTasks.launchShortcut(app, shortcut);
     }
 
+    void launchShortcut(
+            final AppItem app,
+            final AppShortcutAction shortcut,
+            final DesktopLaunchMode launchMode) {
+        mAppTasks.launchShortcut(app, shortcut, launchMode);
+    }
+
+    void launchShortcut(
+            final AppItem app,
+            final AppShortcutAction shortcut,
+            final AppTaskController.LaunchCompletion completion) {
+        mAppTasks.launchShortcut(
+                app, shortcut, DesktopLaunchMode.AUTO, completion);
+    }
+
     boolean launchDesktopShortcut(
             final DesktopApplicationShortcut shortcut) {
         return mLaunchCoordinator.launchShortcut(shortcut);
@@ -1908,10 +1923,13 @@ public abstract class DesktopShellActivity extends Activity
                 shortcut, arguments, desktopFilePath);
     }
 
-    void launchResolvedDesktopShortcut(
+    void launchResolvedAndroidIntent(
             final AppItem app,
-            final DesktopApplicationShortcut shortcut) {
-        mAppTasks.launchDesktopShortcut(app, shortcut);
+            final String name,
+            final Intent intent,
+            final AppLaunchTarget taskTarget,
+            final DesktopLaunchMode mode) {
+        mAppTasks.launchIntent(app, name, intent, taskTarget, mode);
     }
 
     boolean launchDesktopWebShortcut(final DesktopWebShortcut shortcut) {

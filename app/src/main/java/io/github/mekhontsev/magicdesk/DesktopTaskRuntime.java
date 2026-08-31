@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Intent;
 import android.graphics.Rect;
+import android.os.UserHandle;
 
 import java.io.IOException;
 import java.util.List;
@@ -18,6 +19,15 @@ interface DesktopTaskRuntime {
 
     int launchFullscreenTask(
             int displayId, Intent intent) throws IOException;
+
+    int launchAppShortcut(
+            int displayId,
+            String packageName,
+            String shortcutId,
+            UserHandle user,
+            int windowingMode,
+            Rect bounds,
+            int existingTaskId) throws IOException;
 
     void noteTaskLaunchFocus(int displayId, int taskId);
 

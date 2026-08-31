@@ -257,20 +257,75 @@ final class MagicDeskMcpToolCatalog {
                                                 "maximize", "restore")),
                                 "taskId", "arrangement")))
                 .put(readTool(
+                        "query_intent_handlers",
+                        "Query Android handlers",
+                        "Resolve visible Android activities, broadcast receivers, or services for a typed or raw Intent without executing it.",
+                        intentSchema(true)))
+                .put(actionTool(
+                        "launch_intent",
+                        "Launch Android Intent",
+                        "Launch a typed or raw Android Activity Intent through the managed desktop window pipeline.",
+                        intentSchema(false)))
+                .put(actionTool(
+                        "open_uri",
+                        "Open URI",
+                        "Open a URI through the managed Android Activity and desktop window pipeline.",
+                        openUriSchema()))
+                .put(actionTool(
+                        "open_file",
+                        "Open file",
+                        "Grant and open one shell path or content URI through an Android Activity.",
+                        openFileSchema()))
+                .put(actionTool(
+                        "share",
+                        "Share content",
+                        "Share text and shell files through Android with bounded temporary URI grants.",
+                        shareSchema()))
+                .put(readTool(
                         "list_app_actions",
                         "List application actions",
-                        "List supported manifest shortcuts for an application.",
+                        "List dynamic, pinned, cached, and manifest application shortcuts visible to MagicDesk.",
                         appTargetSchema(false)))
                 .put(actionTool(
                         "invoke_app_action",
                         "Invoke application action",
-                        "Launch one manifest shortcut through the desktop window pipeline.",
+                        "Launch one published application shortcut through the desktop window pipeline.",
                         appTargetSchema(true)))
+                .put(readTool(
+                        "list_notifications",
+                        "List notifications",
+                        "List active notifications and their opaque PendingIntent actions from the connected Android notification listener.",
+                        objectSchema(new JSONObject().put(
+                                "package", stringProperty(
+                                        "Optional exact package filter.")))))
                 .put(actionTool(
-                        "launch_spec",
-                        "Launch desktop specification",
-                        "Launch a .desktop file or an Android launch specification through the shared coordinator.",
-                        launchSpecSchema()))
+                        "invoke_notification",
+                        "Invoke notification",
+                        "Open, invoke an action on, or dismiss an active Android notification by its opaque key.",
+                        notificationActionSchema()))
+                .put(readTool(
+                        "get_intent_result",
+                        "Get Activity result",
+                        "Read an event-driven Activity result requested by launch_intent or open_file.",
+                        objectSchema(new JSONObject().put(
+                                "requestId", stringProperty(
+                                        "Result request id returned by the launch tool.")),
+                                "requestId")))
+                .put(readTool(
+                        "search_app_functions",
+                        "Search App Functions",
+                        "Discover Android App Functions through the shell-authorized framework service. Discovery requires API 37.",
+                        appFunctionSearchSchema()))
+                .put(actionTool(
+                        "execute_app_function",
+                        "Execute App Function",
+                        "Execute an Android App Function through the shell-authorized framework service.",
+                        appFunctionExecuteSchema()))
+                .put(actionTool(
+                        "launch_desktop_entry",
+                        "Launch desktop entry",
+                        "Launch one .desktop file through the shared coordinator.",
+                        desktopEntrySchema()))
                 .put(readTool(
                         "get_recording_status",
                         "Get recording status",
@@ -295,6 +350,16 @@ final class MagicDeskMcpToolCatalog {
                                 "package", stringProperty(
                                         "Android package name.")),
                                 "package")))
+                .put(actionTool(
+                        "send_broadcast",
+                        "Send Android broadcast",
+                        "Send a typed or raw broadcast Intent. Developer automation only because it can trigger background state changes.",
+                        intentSchema(true)))
+                .put(actionTool(
+                        "start_service",
+                        "Start Android service",
+                        "Start a typed or raw Android service Intent. Developer automation only because it is an invisible background operation.",
+                        intentSchema(true)))
                 .put(actionTool(
                         "run_self_test",
                         "Run desktop self-test",
@@ -598,25 +663,166 @@ final class MagicDeskMcpToolCatalog {
         return objectSchema(properties, "package");
     }
 
-    private static JSONObject launchSpecSchema() throws JSONException {
-        final JSONObject android = objectSchema(new JSONObject()
-                .put("name", stringProperty("Display name."))
-                .put("package", stringProperty("Android package."))
+    private static JSONObject intentSchema(final boolean includeKind)
+            throws JSONException {
+        final JSONObject properties = new JSONObject()
+                .put("name", stringProperty("Display name for Activity launches."))
+                .put("intentUri", stringProperty(
+                        "Raw Android Intent URI used as the base request."))
+                .put("action", stringProperty("Android Intent action."))
+                .put("dataUri", stringProperty("Android Intent data URI."))
+                .put("mimeType", stringProperty("Android MIME type."))
+                .put("package", stringProperty("Optional target package."))
                 .put("component", stringProperty(
-                        "Flattened Android component."))
-                .put("action", stringProperty("Intent action."))
-                .put("intentUri", stringProperty("Android Intent URI."))
+                        "Optional flattened target component."))
+                .put("categories", arrayProperty(
+                        "Intent categories.", stringProperty("Category name.")))
+                .put("extras", openObjectProperty(
+                        "Scalar, array, or nested scalar Intent extras."))
+                .put("flags", integerProperty(
+                        "Complete numeric Intent flags value."))
+                .put("flagNames", arrayProperty(
+                        "Portable symbolic Intent flags.",
+                        stringProperty("Symbolic flag name.")))
                 .put("mode", enumProperty(
-                        "Launch mode.", "auto", "windowed", "fullscreen")));
+                        "Activity launch mode.",
+                        "auto", "windowed", "fullscreen"))
+                .put("displayId", integerProperty(
+                        "Optional active desktop display id."))
+                .put("chooser", booleanProperty(
+                        "Wrap an Activity request in the Android chooser."))
+                .put("chooserTitle", stringProperty(
+                        "Optional Android chooser title."))
+                .put("expectResult", booleanProperty(
+                        "Create an asynchronous Activity result request."))
+                .put("foreground", booleanProperty(
+                        "Use startForegroundService for service requests."))
+                .put("limit", integerProperty(
+                        "Maximum handlers returned by discovery."));
+        if (includeKind) {
+            properties.put("kind", enumProperty(
+                    "Android component kind.",
+                    "activity", "broadcast", "service"));
+        }
+        return objectSchema(properties);
+    }
+
+    private static JSONObject openUriSchema() throws JSONException {
+        return objectSchema(new JSONObject()
+                        .put("uri", stringProperty("URI to open."))
+                        .put("mimeType", stringProperty("Optional MIME type."))
+                        .put("package", stringProperty("Optional target package."))
+                        .put("component", stringProperty(
+                                "Optional flattened Activity component."))
+                        .put("mode", enumProperty(
+                                "Launch mode.", "auto", "windowed", "fullscreen"))
+                        .put("displayId", integerProperty(
+                                "Optional active desktop display id."))
+                        .put("chooser", booleanProperty("Show Android chooser."))
+                        .put("chooserTitle", stringProperty("Chooser title."))
+                        .put("expectResult", booleanProperty(
+                                "Create an asynchronous Activity result request.")),
+                "uri");
+    }
+
+    private static JSONObject openFileSchema() throws JSONException {
+        final JSONObject schema = objectSchema(new JSONObject()
+                .put("displayId", integerProperty(
+                        "Optional active desktop display id."))
+                .put("path", stringProperty("Absolute shell file path."))
+                .put("uri", stringProperty("Existing content URI."))
+                .put("mimeType", stringProperty("Optional MIME type."))
+                .put("operation", enumProperty(
+                        "File operation.", "view", "edit"))
+                .put("writable", booleanProperty(
+                        "Grant write access when available."))
+                .put("package", stringProperty("Optional target package."))
+                .put("component", stringProperty(
+                        "Optional flattened Activity component."))
+                .put("mode", enumProperty(
+                        "Launch mode.", "auto", "windowed", "fullscreen"))
+                .put("chooser", booleanProperty("Show Android chooser."))
+                .put("chooserTitle", stringProperty("Chooser title."))
+                .put("expectResult", booleanProperty(
+                        "Create an asynchronous Activity result request.")));
+        return schema.put("oneOf", new JSONArray()
+                .put(requiredOnly("path"))
+                .put(requiredOnly("uri")));
+    }
+
+    private static JSONObject shareSchema() throws JSONException {
+        final JSONObject schema = objectSchema(new JSONObject()
+                .put("text", stringProperty("Optional shared text."))
+                .put("subject", stringProperty("Optional shared subject."))
+                .put("files", arrayProperty(
+                        "Absolute shell paths or content URIs.",
+                        stringProperty("File path or content URI.")))
+                .put("mimeType", stringProperty("Optional shared MIME type."))
+                .put("package", stringProperty("Optional target package."))
+                .put("component", stringProperty(
+                        "Optional flattened Activity component."))
+                .put("mode", enumProperty(
+                        "Launch mode.", "auto", "windowed", "fullscreen"))
+                .put("displayId", integerProperty(
+                        "Optional active desktop display id."))
+                .put("chooser", booleanProperty("Show Android chooser."))
+                .put("chooserTitle", stringProperty("Chooser title.")));
+        return schema.put("anyOf", new JSONArray()
+                .put(requiredOnly("text"))
+                .put(requiredOnly("files")));
+    }
+
+    private static JSONObject notificationActionSchema() throws JSONException {
+        return objectSchema(new JSONObject()
+                        .put("key", stringProperty(
+                                "Opaque notification key from list_notifications."))
+                        .put("operation", enumProperty(
+                                "Notification operation.",
+                                "open", "action", "dismiss"))
+                        .put("actionIndex", integerProperty(
+                                "Action index from list_notifications."))
+                        .put("displayId", integerProperty(
+                                "Optional active desktop display id.")),
+                "key");
+    }
+
+    private static JSONObject desktopEntrySchema() throws JSONException {
         return objectSchema(new JSONObject()
                 .put("displayId", integerProperty(
                         "Optional active desktop display id."))
                 .put("desktopPath", stringProperty(
                         "Absolute .desktop file path."))
-                .put("android", android)
                 .put("files", arrayProperty(
                         "File arguments for Desktop Entry field codes.",
-                        stringProperty("Absolute file path."))));
+                        stringProperty("Absolute file path."))),
+                "desktopPath");
+    }
+
+    private static JSONObject appFunctionSearchSchema() throws JSONException {
+        return objectSchema(new JSONObject()
+                .put("package", stringProperty("Optional target package."))
+                .put("functionId", stringProperty(
+                        "Optional function id; package is also required."))
+                .put("schemaCategory", stringProperty(
+                        "Optional App Function schema category."))
+                .put("schemaName", stringProperty(
+                        "Optional App Function schema name."))
+                .put("minSchemaVersion", integerProperty(
+                        "Optional minimum schema version."))
+                .put("timeoutMillis", integerProperty(
+                        "Bounded operation timeout, up to 60000 ms.")));
+    }
+
+    private static JSONObject appFunctionExecuteSchema() throws JSONException {
+        return objectSchema(new JSONObject()
+                        .put("package", stringProperty("Target package."))
+                        .put("functionId", stringProperty(
+                                "Published App Function identifier."))
+                        .put("parameters", openObjectProperty(
+                                "GenericDocument properties, optionally with namespace, id, schemaType, and a properties object."))
+                        .put("timeoutMillis", integerProperty(
+                                "Bounded operation timeout, up to 60000 ms.")),
+                "package", "functionId");
     }
 
     private static JSONObject taskIdSchema() throws JSONException {
@@ -793,6 +999,95 @@ final class MagicDeskMcpToolCatalog {
                         .put("actions", arrayProperty(
                                 "Available actions.",
                                 openObjectProperty("Application action.")));
+                break;
+            case "query_intent_handlers":
+                properties.put("kind", stringProperty("Component kind."))
+                        .put("visibilityScope", stringProperty(
+                                "Package visibility identity used by discovery."))
+                        .put("count", integerProperty("Returned handler count."))
+                        .put("truncated", booleanProperty(
+                                "Whether more handlers were available."))
+                        .put("handlers", arrayProperty(
+                                "Resolved Android handlers.",
+                                openObjectProperty("Handler.")));
+                break;
+            case "launch_intent":
+            case "open_uri":
+            case "open_file":
+            case "share":
+                properties.put("displayId", integerProperty("Display id."))
+                        .put("mode", stringProperty("Requested launch mode."))
+                        .put("resolvedComponent", stringProperty(
+                                "Resolved target Activity."))
+                        .put("resolution", enumProperty(
+                                "Activity resolution state.",
+                                "concrete", "resolver", "none"))
+                        .put("handlerCount", integerProperty(
+                                "Number of matching Activity handlers."))
+                        .put("relay", booleanProperty(
+                                "Whether an app-identity relay owns the launch."))
+                        .put("resultExpected", booleanProperty(
+                                "Whether an Activity result is pending."))
+                        .put("requestId", stringProperty(
+                                "Optional Activity result request id."));
+                break;
+            case "invoke_app_action":
+                properties.put("package", stringProperty("Package."))
+                        .put("actionId", stringProperty("Application action id."));
+                break;
+            case "list_notifications":
+                properties.put("connected", booleanProperty(
+                                "Notification listener connection state."))
+                        .put("connectionIssue", stringProperty(
+                                "Connection diagnostic code."))
+                        .put("unreadCount", integerProperty(
+                                "Active unread notification count."))
+                        .put("notifications", arrayProperty(
+                                "Active notifications.",
+                                openObjectProperty("Notification.")));
+                break;
+            case "invoke_notification":
+                properties.put("key", stringProperty(
+                                "Opaque notification key."))
+                        .put("operation", stringProperty(
+                                "Accepted notification operation."));
+                break;
+            case "get_intent_result":
+                properties.put("requestId", stringProperty(
+                                "Activity result request id."))
+                        .put("state", stringProperty(
+                                "pending, completed, failed, or not_found."))
+                        .put("timestampMillis", integerProperty(
+                                "Last result-state timestamp."))
+                        .put("resultCode", integerProperty(
+                                "Android Activity result code when completed."))
+                        .put("data", openObjectProperty(
+                                "Sanitized result Intent data."));
+                break;
+            case "search_app_functions":
+                properties.put("count", integerProperty(
+                                "Returned App Function count."))
+                        .put("truncated", booleanProperty(
+                                "Whether more functions were available."))
+                        .put("functions", arrayProperty(
+                                "Discovered App Functions.",
+                                openObjectProperty("App Function.")));
+                break;
+            case "execute_app_function":
+                properties.put("package", stringProperty("Target package."))
+                        .put("functionId", stringProperty("Function id."))
+                        .put("result", openObjectProperty(
+                                "Returned GenericDocument."));
+                break;
+            case "send_broadcast":
+            case "start_service":
+                properties.put("kind", stringProperty("Component kind."))
+                        .put("action", stringProperty("Intent action."))
+                        .put("component", stringProperty("Target component."));
+                break;
+            case "launch_desktop_entry":
+                properties.put("kind", stringProperty("Desktop entry kind."))
+                        .put("displayId", integerProperty("Display id."));
                 break;
             case "begin_trace":
                 properties.put("traceId", stringProperty("Trace id."))
@@ -976,6 +1271,12 @@ final class MagicDeskMcpToolCatalog {
             schema.put("required", names);
         }
         return schema;
+    }
+
+    private static JSONObject requiredOnly(final String property)
+            throws JSONException {
+        return new JSONObject().put(
+                "required", new JSONArray().put(property));
     }
 
     private static JSONObject stringProperty(final String description)

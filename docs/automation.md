@@ -158,9 +158,14 @@ Normal commands include:
   transition path used by MagicDesk shortcuts;
 - show Start or the desktop and open Files, Console, Task Manager, or Settings;
 - inspect and invoke live desktop controls semantically;
-- list and invoke an application's manifest actions;
-- launch an Android specification or a supported `.desktop` file through the
-  shared launch coordinator;
+- discover Android Activity, receiver, and service handlers without executing
+  them;
+- launch typed or raw Android Activity intents, open URIs and files, share
+  content, and collect asynchronous Activity results;
+- list and invoke dynamic, pinned, cached, or manifest application shortcuts;
+- inspect and invoke notification `PendingIntent` actions;
+- discover and execute Android App Functions where the framework supports it;
+- launch a supported `.desktop` file through the shared launch coordinator;
 - start, stop, and inspect screen recording.
 
 Use `tools/list` as the authoritative command and argument catalog.
@@ -175,6 +180,8 @@ fullscreen planes are designed to isolate.
 Developer-only commands are:
 
 - `magicdesk.force_stop_app`
+- `magicdesk.send_broadcast`
+- `magicdesk.start_service`
 - `magicdesk.run_self_test`
 - `magicdesk.send_key`
 - `magicdesk.move_pointer`
@@ -229,6 +236,76 @@ cached and does not launch an external command during a state read.
 configured running display. It never starts or stops the X server. Both tools
 require Termux, Termux:X11, the Termux external-command setting, and the
 `RUN_COMMAND` permission.
+
+## Android Integration
+
+`query_intent_handlers`, `launch_intent`, `open_uri`, `open_file`, and `share`
+enter one typed Android integration gateway. `launch_intent` accepts either
+structured action, data, MIME type, target, categories, extras, and symbolic
+flags, or a raw `intentUri` as the base with structured fields applied on top.
+The raw form is a mode of the same gateway, not a separate launch path.
+
+Activity intents use the production desktop launch coordinator. Direct
+intents retain their full Parcelable form through the Shizuku boundary, which
+preserves `ClipData`, URI grants, and typed extras. Chooser and Activity-result
+requests keep their nested target in a bounded app-process store and send only
+an opaque relay id through shell; the app-identity relay avoids Android 16
+Intent redirect-hardening failures. Claiming an id is atomic and idempotent,
+because Android may create the short-lived relay Activity twice during task
+handoff. The first instance owns the payload and a duplicate exits without
+executing it again.
+
+Desktop placement treats the relay component and the resulting application
+task as separate identities. A concrete relayed handler uses the target
+package for task reuse and mode preparation, while the relay remains only the
+execution transport. An existing target task is normalized before the relay
+delivers the action; a fresh target keeps the prepared task lifecycle. Direct
+same-package intents continue to use exact-component task actions.
+`expectResult=true` returns a `requestId`;
+`get_intent_result` reads its bounded, process-local, event-driven state. Its
+diagnostic projection keeps only bounded scalar extras and `ClipData` URIs, so
+an external Activity cannot grow the registry or event journal without limit.
+Implicit targets are resolved by the shell-side package manager so MCP
+discovery and execution use the same package-visibility scope. Resolution is
+typed as one concrete handler, a required system resolver, or no handler. A
+concrete target uses the direct shell path unless chooser or result semantics
+require the relay. A required resolver keeps the Intent implicit and routes it
+through the same app-identity relay as choosers.
+When a direct shell launch carries content URIs, MagicDesk grants the resolved
+package from its app identity before handing the Parcelable Intent to shell.
+
+`open_file` accepts either one shell-visible absolute path or an existing
+content URI. Shell paths use MagicDesk's existing bounded file-grant provider.
+`share` supports text and one or more shell paths or content URIs. Grants are
+read-only unless `open_file` explicitly requests writable access and the
+source is writable. No file bytes are copied into an MCP cache.
+
+`list_app_actions` reads Android's published shortcut service under the
+authorized shell identity. Static manifest metadata may enrich an action's
+icon, but it is never an executable fallback. Each result identifies its
+published source. `invoke_app_action` resolves the current system
+`PendingIntent` for `package + shortcut id`; the visible MagicDesk process
+sends that token through the same desktop window pipeline as Start and
+application context menus. Shortcut task observation and reuse are
+package-scoped because the optional published metadata Activity may redirect
+to another Activity in that app.
+MagicDesk never reconstructs the shortcut's private Intent. Notification tools use
+only opaque keys and `PendingIntent` objects already held by the connected
+notification listener; they do not synthesize an equivalent Intent.
+
+`search_app_functions` uses the framework search service available from API
+37. `execute_app_function` is available from API 36 and accepts a typed
+`GenericDocument` JSON representation. Both calls are callback-driven with a
+bounded timeout and execute under the authorized shell service identity. They
+do not add a background observer or polling loop. Parameter documents also
+have bounded encoded size, nesting depth, property count, string length, and
+array length before they cross the shell Binder boundary.
+
+Visible Activity, chooser, shortcut, notification, and App Function tools are
+part of the normal authenticated catalog. `send_broadcast` and `start_service`
+can mutate application state invisibly, so they are present only while
+Developer automation tools are enabled. Turning that setting off removes them
+from `tools/list` and the shared action boundary rejects direct calls as well.
 
 ## Events and Waits
 
@@ -292,6 +369,11 @@ Read-only resources are available at `magicdesk://state`,
 - MCP permissions do not elevate the shell identity. With root-backed Shizuku,
   shell-gated operations consequently have root privileges by the user's
   explicit choice.
+- Android handler discovery reports the selected visibility scope, exported
+  state, required permission, and exact component. Actual execution remains
+  subject to Android's component and permission checks.
+- The bearer token authorizes visible application actions as well as desktop
+  actions. Keep the MCP server disabled when it is not in use.
 
 ## Android App Functions
 
@@ -303,7 +385,8 @@ The platform protects the service with
 `android.permission.BIND_APP_FUNCTION_SERVICE`. Ordinary applications cannot
 bind directly. Android 15 keeps the component disabled. App Functions omit
 force-stop, synthetic input, self-test, direct filesystem operations, and
-shell execution.
+shell execution. This published service is independent of the MCP tools that
+discover and invoke App Functions exported by other applications.
 
 ## Self-Tests
 

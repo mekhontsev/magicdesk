@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Process-local gateway to the live desktop host Activity. */
 final class DesktopUiGateway {
     private static final String TAG = "MagicDesk";
+    private static final long APP_ACTION_COMPLETION_TIMEOUT_SECONDS = 10L;
 
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final Object mHostLock = new Object();
@@ -389,20 +390,23 @@ final class DesktopUiGateway {
                 final AppItem app = activity.findOrLoadApp(
                         activity.getLauncherApps(), target);
                 for (final AppShortcutAction action
-                        : new AppShortcutRepository(activity).load(app)) {
+                        : new AppShortcutRepository(activity).loadAll(target)) {
                     if (actionId.equals(action.id)) {
-                        // Lookup is the acceptance boundary; native launch may
-                        // block this UI callback while its task is prepared.
-                        invoked[0] = true;
-                        ready.countDown();
-                        activity.launchShortcut(app, action);
+                        activity.launchShortcut(
+                                app,
+                                action,
+                                success -> {
+                                    invoked[0] = success;
+                                    ready.countDown();
+                                });
                         return;
                     }
                 }
             }
             ready.countDown();
         });
-        return await(ready) && invoked[0];
+        return await(ready, APP_ACTION_COMPLETION_TIMEOUT_SECONDS)
+                && invoked[0];
     }
 
     boolean dispatchOverlayTextInput(
@@ -928,8 +932,14 @@ final class DesktopUiGateway {
     }
 
     private static boolean await(final CountDownLatch ready) {
+        return await(ready, 2L);
+    }
+
+    private static boolean await(
+            final CountDownLatch ready,
+            final long timeoutSeconds) {
         try {
-            return ready.await(2L, TimeUnit.SECONDS);
+            return ready.await(timeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             return false;

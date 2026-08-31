@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
+import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.graphics.Rect;
@@ -22,6 +23,10 @@ import java.util.Set;
 public final class TaskDisplayAreaLaunchCommand {
     interface TaskIdSource {
         int awaitTaskId(long timeoutMillis);
+    }
+
+    interface ActivityStarter {
+        void start(ActivityOptions options) throws ReflectiveOperationException;
     }
 
     private static final String PACKAGE_NAME =
@@ -292,6 +297,54 @@ public final class TaskDisplayAreaLaunchCommand {
             final boolean launchBehind,
             final TaskIdSource taskIdSource)
             throws ReflectiveOperationException {
+        return launchTask(
+                service,
+                displayId,
+                expectedPackage,
+                bounds,
+                areaToken,
+                launchBehind,
+                taskIdSource,
+                options -> launchActivity(service, intent, options));
+    }
+
+    static int launchPendingIntentTask(
+            final Object service,
+            final int displayId,
+            final String expectedPackage,
+            final PendingIntent pendingIntent,
+            final Rect bounds,
+            final Object areaToken,
+            final boolean launchBehind,
+            final TaskIdSource taskIdSource,
+            final IActivityLaunchCallback activityLauncher)
+            throws ReflectiveOperationException {
+        if (pendingIntent == null || activityLauncher == null) {
+            throw new IllegalArgumentException(
+                    "pending intent and activity launcher are required");
+        }
+        return launchTask(
+                service,
+                displayId,
+                expectedPackage,
+                bounds,
+                areaToken,
+                launchBehind,
+                taskIdSource,
+                options -> sendPendingIntent(
+                        activityLauncher, pendingIntent, options));
+    }
+
+    private static int launchTask(
+            final Object service,
+            final int displayId,
+            final String expectedPackage,
+            final Rect bounds,
+            final Object areaToken,
+            final boolean launchBehind,
+            final TaskIdSource taskIdSource,
+            final ActivityStarter starter)
+            throws ReflectiveOperationException {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
         options.setLaunchBounds(bounds);
@@ -313,7 +366,7 @@ public final class TaskDisplayAreaLaunchCommand {
         // The task token does not exist yet. Staged callers keep the provisional
         // root behind the desktop and publish its final geometry after the
         // token is known; other callers can rely on these launch options alone.
-        launchActivity(service, intent, options);
+        starter.start(options);
         return waitForTask(
                 service,
                 displayId,
@@ -399,6 +452,52 @@ public final class TaskDisplayAreaLaunchCommand {
             throw new IllegalArgumentException(
                     "fullscreen launch requires an explicit target");
         }
+        return launchFullscreenTask(
+                service,
+                displayId,
+                expectedPackage,
+                areaToken,
+                activityType,
+                launchBehind,
+                null,
+                options -> launchActivity(service, intent, options));
+    }
+
+    static int launchFullscreenPendingIntentTask(
+            final Object service,
+            final int displayId,
+            final String expectedPackage,
+            final PendingIntent pendingIntent,
+            final Object areaToken,
+            final TaskIdSource taskIdSource,
+            final IActivityLaunchCallback activityLauncher)
+            throws ReflectiveOperationException {
+        if (pendingIntent == null || activityLauncher == null) {
+            throw new IllegalArgumentException(
+                    "pending intent and activity launcher are required");
+        }
+        return launchFullscreenTask(
+                service,
+                displayId,
+                expectedPackage,
+                areaToken,
+                ACTIVITY_TYPE_UNDEFINED,
+                false,
+                taskIdSource,
+                options -> sendPendingIntent(
+                        activityLauncher, pendingIntent, options));
+    }
+
+    private static int launchFullscreenTask(
+            final Object service,
+            final int displayId,
+            final String expectedPackage,
+            final Object areaToken,
+            final int activityType,
+            final boolean launchBehind,
+            final TaskIdSource taskIdSource,
+            final ActivityStarter starter)
+            throws ReflectiveOperationException {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
         if (areaToken != null) {
@@ -421,24 +520,59 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         final Set<Integer> existingTaskIds = taskIdsOnDisplay(
                 service, displayId);
-        launchActivity(service, intent, options);
+        starter.start(options);
         return waitForTask(
                 service,
                 displayId,
                 -1,
                 expectedPackage,
-                existingTaskIds);
+                existingTaskIds,
+                taskIdSource);
+    }
+
+    static void launchPendingIntentTaskAction(
+            final int displayId,
+            final int taskId,
+            final PendingIntent pendingIntent,
+            final IActivityLaunchCallback activityLauncher)
+            throws ReflectiveOperationException {
+        if (displayId < 0 || taskId < 0 || pendingIntent == null
+                || activityLauncher == null) {
+            throw new IllegalArgumentException(
+                    "invalid pending intent task target");
+        }
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(displayId);
+        ActivityOptions.class.getMethod(
+                "setLaunchTaskId", Integer.TYPE)
+                .invoke(options, Integer.valueOf(taskId));
+        sendPendingIntent(activityLauncher, pendingIntent, options);
+    }
+
+    private static void sendPendingIntent(
+            final IActivityLaunchCallback activityLauncher,
+            final PendingIntent pendingIntent,
+            final ActivityOptions options) throws ReflectiveOperationException {
+        options.setPendingIntentBackgroundActivityStartMode(
+                ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE);
+        try {
+            activityLauncher.sendPendingIntent(
+                    pendingIntent, options.toBundle());
+        } catch (android.os.RemoteException error) {
+            throw new ReflectiveOperationException(
+                    "visible activity launcher is unavailable", error);
+        }
     }
 
     static void launchTaskAction(
             final Object service,
             final int displayId,
             final int taskId,
-            final String intentUri) throws ReflectiveOperationException {
+            final Intent sourceIntent) throws ReflectiveOperationException {
         if (service == null || displayId < 0 || taskId < 0) {
             throw new IllegalArgumentException("invalid task action target");
         }
-        final Intent intent = createExactAppIntent(intentUri);
+        final Intent intent = createExactAppIntent(sourceIntent);
         final Object task = HiddenTaskApi.findTask(service, displayId, taskId);
         if (task == null) {
             throw new IllegalArgumentException("task is unavailable: " + taskId);
@@ -661,7 +795,11 @@ public final class TaskDisplayAreaLaunchCommand {
     }
 
     static Intent createAppIntent(final String intentUri) {
-        final Intent intent = createExactAppIntent(intentUri);
+        return createAppIntent(createExactAppIntent(intentUri));
+    }
+
+    static Intent createAppIntent(final Intent sourceIntent) {
+        final Intent intent = createExactAppIntent(sourceIntent);
         return intent.addFlags(additionalLaunchFlags(intent.getFlags()))
                 .putExtra("start_from_heartservice_app_lock", true);
     }
@@ -673,6 +811,14 @@ public final class TaskDisplayAreaLaunchCommand {
         } catch (java.net.URISyntaxException error) {
             throw new IllegalArgumentException("invalid app launch intent", error);
         }
+        return createExactAppIntent(intent);
+    }
+
+    static Intent createExactAppIntent(final Intent sourceIntent) {
+        if (sourceIntent == null) {
+            throw new IllegalArgumentException("missing app launch intent");
+        }
+        final Intent intent = new Intent(sourceIntent);
         final ComponentName component = intent.getComponent();
         final String packageName = component == null
                 ? null : component.getPackageName();

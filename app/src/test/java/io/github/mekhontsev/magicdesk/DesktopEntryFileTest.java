@@ -92,6 +92,36 @@ public final class DesktopEntryFileTest {
     }
 
     @Test
+    public void appShortcutRoundTripPreservesTypedReference() {
+        final AppLaunchTarget target = AppLaunchTarget.packageDefault(
+                "example.application");
+        final DesktopApplicationShortcut source =
+                new DesktopApplicationShortcut(
+                        "Compose",
+                        "example.application",
+                        "",
+                        target,
+                        "",
+                        DesktopLaunchMode.WINDOWED,
+                        false,
+                        DesktopExecBackend.SHELL,
+                        false,
+                        "",
+                        DesktopMimeTypes.empty(),
+                        "compose");
+
+        final DesktopApplicationShortcut parsed =
+                (DesktopApplicationShortcut) DesktopEntryFile.parse(
+                        DesktopEntryFile.encodeApplication(source));
+
+        assertEquals("compose", parsed.appShortcutId);
+        assertEquals(target, parsed.launchTarget);
+        assertTrue(parsed.hasAppShortcutLaunch());
+        assertFalse(parsed.hasIntentLaunch());
+        assertFalse(parsed.hasExecLaunch());
+    }
+
+    @Test
     public void execOnlyApplicationIsRetainedForFutureExecution() {
         final DesktopEntry parsed = DesktopEntryFile.parse(
                 "[Desktop Entry]\n"

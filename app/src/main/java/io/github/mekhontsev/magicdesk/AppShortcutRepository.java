@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.pm.ShortcutInfo;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
 import android.graphics.drawable.Drawable;
@@ -16,17 +17,20 @@ import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
-/** Reads stable launcher shortcuts directly from an application's manifest. */
+/** Reads launcher-published shortcuts and enriches them with manifest icons. */
 final class AppShortcutRepository {
     private static final String TAG = "MagicDeskShortcuts";
     private static final String ANDROID_NAMESPACE =
             "http://schemas.android.com/apk/res/android";
     private static final String SHORTCUTS_METADATA = "android.app.shortcuts";
     private static final int MAX_ACTIONS = 4;
+    private static final int MAX_DISCOVERED_ACTIONS = 64;
 
     private final PackageManager mPackageManager;
     private final int mDensityDpi;
@@ -41,18 +45,79 @@ final class AppShortcutRepository {
         if (app == null) {
             return java.util.Collections.emptyList();
         }
-        return load(app.packageName, app.launchTarget);
+        return load(app.launchTarget);
     }
 
     List<AppShortcutAction> load(final AppLaunchTarget target) {
         return target == null
                 ? java.util.Collections.emptyList()
-                : load(target.packageName, target);
+                : trim(loadAll(target), MAX_ACTIONS);
     }
 
-    private List<AppShortcutAction> load(
+    List<AppShortcutAction> loadAll(final AppLaunchTarget target) {
+        if (target == null) {
+            return java.util.Collections.emptyList();
+        }
+        final List<ManifestShortcut> manifest = loadManifest(
+                target.packageName, target, MAX_DISCOVERED_ACTIONS);
+        return loadPublished(target, manifest);
+    }
+
+    private List<AppShortcutAction> loadPublished(
+            final AppLaunchTarget target,
+            final List<ManifestShortcut> manifest) {
+        try {
+            final ShortcutInfo[] shortcuts = ShellAccess.queryAppShortcuts(
+                    target.packageName);
+            if (shortcuts == null || shortcuts.length == 0) {
+                return java.util.Collections.emptyList();
+            }
+            final Map<String, Drawable> manifestIcons = new HashMap<>();
+            for (final ManifestShortcut shortcut : manifest) {
+                manifestIcons.put(shortcut.id, shortcut.icon);
+            }
+            final List<AppShortcutAction> actions = new ArrayList<>();
+            final Set<String> ids = new HashSet<>();
+            for (final ShortcutInfo shortcut : shortcuts) {
+                if (actions.size() >= MAX_DISCOVERED_ACTIONS
+                        || shortcut == null
+                        || !shortcut.isEnabled()
+                        || !ids.add(shortcut.getId())) {
+                    continue;
+                }
+                final Intent[] intents = shortcut.getIntents();
+                final Intent intent = intents == null || intents.length == 0
+                        ? shortcut.getIntent()
+                        : intents[intents.length - 1];
+                final ComponentName component = intent == null
+                        ? shortcut.getActivity()
+                        : resolveShortcutComponent(
+                                target.packageName, intent);
+                final CharSequence label = shortcut.getShortLabel();
+                if (label == null || label.length() == 0) {
+                    continue;
+                }
+                actions.add(new AppShortcutAction(
+                        shortcut.getId(),
+                        label.toString(),
+                        manifestIcons.get(shortcut.getId()),
+                        shortcut.getPackage(),
+                        shortcut.getUserHandle(),
+                        component,
+                        intent == null ? "" : intent.getAction(),
+                        shortcutSource(shortcut)));
+            }
+            return actions;
+        } catch (IOException | SecurityException | IllegalStateException error) {
+            Log.i(TAG, "Published shortcuts are not available", error);
+            return java.util.Collections.emptyList();
+        }
+    }
+
+    private List<ManifestShortcut> loadManifest(
             final String packageName,
-            final AppLaunchTarget target) {
+            final AppLaunchTarget target,
+            final int limit) {
         final ComponentName launcher = resolveLauncher(target);
         if (launcher == null) {
             return java.util.Collections.emptyList();
@@ -67,7 +132,7 @@ final class AppShortcutRepository {
                     mPackageManager, SHORTCUTS_METADATA)) {
                 return parser == null
                         ? java.util.Collections.emptyList()
-                        : parse(packageName, resources, parser);
+                        : parse(resources, parser, limit);
             }
         } catch (PackageManager.NameNotFoundException
                 | IOException
@@ -96,18 +161,18 @@ final class AppShortcutRepository {
                         resolved.activityInfo.name);
     }
 
-    private List<AppShortcutAction> parse(
-            final String publisherPackage,
+    private List<ManifestShortcut> parse(
             final Resources resources,
-            final XmlResourceParser parser)
+            final XmlResourceParser parser,
+            final int limit)
             throws IOException, XmlPullParserException {
-        final List<AppShortcutAction> actions = new ArrayList<>();
+        final List<ManifestShortcut> shortcuts = new ArrayList<>();
         final Set<String> ids = new HashSet<>();
         ParsedShortcut current = null;
         int shortcutDepth = -1;
         int event;
         while ((event = parser.next()) != XmlPullParser.END_DOCUMENT
-                && actions.size() < MAX_ACTIONS) {
+                && shortcuts.size() < limit) {
             final String name = parser.getName();
             if (event == XmlPullParser.START_TAG
                     && "shortcut".equals(name)) {
@@ -116,35 +181,24 @@ final class AppShortcutRepository {
                 continue;
             }
             if (current != null
-                    && event == XmlPullParser.START_TAG
-                    && parser.getDepth() == shortcutDepth + 1
-                    && "intent".equals(name)) {
-                current.intents.add(Intent.parseIntent(
-                        resources, parser, parser));
-                continue;
-            }
-            if (current != null
                     && event == XmlPullParser.END_TAG
                     && parser.getDepth() == shortcutDepth
                     && "shortcut".equals(name)) {
-                final AppShortcutAction action = finish(
-                        publisherPackage, current);
-                if (action != null && ids.add(action.id)) {
-                    actions.add(action);
+                final ManifestShortcut shortcut = finish(current);
+                if (shortcut != null && ids.add(shortcut.id)) {
+                    shortcuts.add(shortcut);
                 }
                 current = null;
                 shortcutDepth = -1;
             }
         }
-        return actions;
+        return shortcuts;
     }
 
     private ParsedShortcut readShortcut(
             final Resources resources,
             final XmlResourceParser parser) {
         final String id = attributeText(resources, parser, "shortcutId");
-        final String label = attributeText(
-                resources, parser, "shortcutShortLabel");
         final boolean enabled = parser.getAttributeBooleanValue(
                 ANDROID_NAMESPACE, "enabled", true);
         Drawable icon = null;
@@ -158,30 +212,15 @@ final class AppShortcutRepository {
                 // A broken optional icon must not hide an otherwise valid action.
             }
         }
-        return new ParsedShortcut(id, label, icon, enabled);
+        return new ParsedShortcut(id, icon, enabled);
     }
 
-    private AppShortcutAction finish(
-            final String publisherPackage,
-            final ParsedShortcut shortcut) {
+    private static ManifestShortcut finish(final ParsedShortcut shortcut) {
         if (!shortcut.enabled
-                || shortcut.id.isEmpty()
-                || shortcut.label.isEmpty()
-                || shortcut.intents.size() != 1) {
+                || shortcut.id.isEmpty()) {
             return null;
         }
-        final Intent intent = shortcut.intents.get(0);
-        final ComponentName component = resolveShortcutComponent(
-                publisherPackage, intent);
-        if (component == null) {
-            return null;
-        }
-        intent.setComponent(component);
-        return new AppShortcutAction(
-                shortcut.id,
-                shortcut.label,
-                shortcut.icon,
-                intent);
+        return new ManifestShortcut(shortcut.id, shortcut.icon);
     }
 
     private ComponentName resolveShortcutComponent(
@@ -227,20 +266,50 @@ final class AppShortcutRepository {
 
     private static final class ParsedShortcut {
         final String id;
-        final String label;
         final Drawable icon;
         final boolean enabled;
-        final List<Intent> intents = new ArrayList<>();
 
         ParsedShortcut(
                 final String id,
-                final String label,
                 final Drawable icon,
                 final boolean enabled) {
             this.id = id;
-            this.label = label;
             this.icon = icon;
             this.enabled = enabled;
         }
+    }
+
+    private static final class ManifestShortcut {
+        final String id;
+        final Drawable icon;
+
+        ManifestShortcut(final String id, final Drawable icon) {
+            this.id = id;
+            this.icon = icon;
+        }
+    }
+
+    private static List<AppShortcutAction> trim(
+            final List<AppShortcutAction> actions,
+            final int limit) {
+        return actions.size() <= limit
+                ? actions
+                : new ArrayList<>(actions.subList(0, limit));
+    }
+
+    private static String shortcutSource(final ShortcutInfo shortcut) {
+        if (shortcut.isDynamic()) {
+            return "dynamic";
+        }
+        if (shortcut.isDeclaredInManifest()) {
+            return "manifest";
+        }
+        if (shortcut.isPinned()) {
+            return "pinned";
+        }
+        if (shortcut.isCached()) {
+            return "cached";
+        }
+        return "published";
     }
 }

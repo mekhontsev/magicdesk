@@ -141,6 +141,8 @@ final class DesktopEntryFile {
                     shortcut.launchTarget.action);
         }
         append(encoded, "X-MagicDesk-Intent", shortcut.intentUri);
+        append(encoded, "X-MagicDesk-AppShortcut",
+                shortcut.appShortcutId);
         append(encoded, "X-MagicDesk-WindowMode",
                 shortcut.launchMode.wireName);
         if (shortcut.execBackend != DesktopExecBackend.SHELL) {
@@ -272,8 +274,13 @@ final class DesktopEntryFile {
             final Map<String, String> values) {
         final String name = values.get("Name");
         final String intentUri = value(values, "X-MagicDesk-Intent");
+        final String appShortcutId = value(
+                values, "X-MagicDesk-AppShortcut");
         final String exec = value(values, "Exec");
-        if (!validName(name) || (intentUri.isEmpty() && exec.isEmpty())) {
+        if (!validName(name)
+                || (intentUri.isEmpty()
+                        && appShortcutId.isEmpty()
+                        && exec.isEmpty())) {
             return null;
         }
         AppLaunchTarget target = null;
@@ -302,7 +309,8 @@ final class DesktopEntryFile {
                     "true".equalsIgnoreCase(
                             value(values, "Terminal")),
                     value(values, "Path"),
-                    DesktopMimeTypes.parse(value(values, "MimeType")));
+                    DesktopMimeTypes.parse(value(values, "MimeType")),
+                    appShortcutId);
         } catch (IllegalArgumentException error) {
             return null;
         }

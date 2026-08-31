@@ -1,12 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.Intent;
-import android.content.pm.PackageManager;
-
 /** Type=Application entry with an Android or command launch descriptor. */
 final class DesktopApplicationShortcut extends DesktopEntry {
     final AppLaunchTarget launchTarget;
     final String intentUri;
+    final String appShortcutId;
     final DesktopLaunchMode launchMode;
     final boolean defaultLaunch;
     final DesktopExecBackend execBackend;
@@ -59,7 +57,8 @@ final class DesktopApplicationShortcut extends DesktopEntry {
                 execBackend,
                 terminal,
                 workingDirectory,
-                DesktopMimeTypes.empty());
+                DesktopMimeTypes.empty(),
+                "");
     }
 
     DesktopApplicationShortcut(
@@ -74,18 +73,55 @@ final class DesktopApplicationShortcut extends DesktopEntry {
             final boolean terminal,
             final String workingDirectory,
             final DesktopMimeTypes mimeTypes) {
+        this(
+                name,
+                icon,
+                exec,
+                launchTarget,
+                intentUri,
+                launchMode,
+                defaultLaunch,
+                execBackend,
+                terminal,
+                workingDirectory,
+                mimeTypes,
+                "");
+    }
+
+    DesktopApplicationShortcut(
+            final String name,
+            final String icon,
+            final String exec,
+            final AppLaunchTarget launchTarget,
+            final String intentUri,
+            final DesktopLaunchMode launchMode,
+            final boolean defaultLaunch,
+            final DesktopExecBackend execBackend,
+            final boolean terminal,
+            final String workingDirectory,
+            final DesktopMimeTypes mimeTypes,
+            final String appShortcutId) {
         super(name, icon, exec);
-        if ((intentUri == null || intentUri.isEmpty()) && this.exec.isEmpty()) {
+        final String normalizedShortcutId = appShortcutId == null
+                ? "" : appShortcutId.trim();
+        if ((intentUri == null || intentUri.isEmpty())
+                && normalizedShortcutId.isEmpty()
+                && this.exec.isEmpty()) {
             throw new IllegalArgumentException(
-                    "application entry has no Intent or Exec");
+                    "application entry has no launch descriptor");
         }
         this.launchTarget = launchTarget;
         this.intentUri = intentUri == null ? "" : intentUri;
+        this.appShortcutId = normalizedShortcutId;
         this.launchMode = launchMode == null
                 ? DesktopLaunchMode.AUTO : launchMode;
         if (defaultLaunch && launchTarget == null) {
             throw new IllegalArgumentException(
                     "default launch requires an application target");
+        }
+        if (!this.appShortcutId.isEmpty() && launchTarget == null) {
+            throw new IllegalArgumentException(
+                    "app shortcut requires a publisher target");
         }
         this.defaultLaunch = defaultLaunch;
         this.execBackend = execBackend == null
@@ -104,15 +140,15 @@ final class DesktopApplicationShortcut extends DesktopEntry {
         return !intentUri.isEmpty();
     }
 
-    boolean hasExecLaunch() {
-        return !exec.isEmpty() && !hasIntentLaunch() && !defaultLaunch;
+    boolean hasAppShortcutLaunch() {
+        return !appShortcutId.isEmpty();
     }
 
-    Intent resolveIntent(final PackageManager packageManager) {
-        if (intentUri.isEmpty()) {
-            return null;
-        }
-        return AndroidLaunchSpec.intent(
-                launchTarget, intentUri).resolve(packageManager);
+    boolean hasExecLaunch() {
+        return !exec.isEmpty()
+                && !hasIntentLaunch()
+                && !hasAppShortcutLaunch()
+                && !defaultLaunch;
     }
+
 }

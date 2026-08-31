@@ -35,6 +35,89 @@ public final class MagicDeskMcpToolCatalogTest {
     }
 
     @Test
+    public void androidIntegrationUsesOneTypedAndRawGateway()
+            throws Exception {
+        final JSONArray publicTools = MagicDeskMcpToolCatalog.create(false);
+        final Set<String> publicNames = names(publicTools);
+        final Set<String> developerNames = names(
+                MagicDeskMcpToolCatalog.create(true));
+
+        assertTrue(publicNames.contains("query_intent_handlers"));
+        assertTrue(publicNames.contains("launch_intent"));
+        assertTrue(publicNames.contains("open_uri"));
+        assertTrue(publicNames.contains("open_file"));
+        assertTrue(publicNames.contains("share"));
+        assertTrue(publicNames.contains("list_app_actions"));
+        assertTrue(publicNames.contains("invoke_app_action"));
+        assertTrue(publicNames.contains("list_notifications"));
+        assertTrue(publicNames.contains("invoke_notification"));
+        assertTrue(publicNames.contains("get_intent_result"));
+        assertTrue(publicNames.contains("search_app_functions"));
+        assertTrue(publicNames.contains("execute_app_function"));
+        assertTrue(publicNames.contains("launch_desktop_entry"));
+        assertFalse(publicNames.contains("launch_spec"));
+
+        assertFalse(publicNames.contains("send_broadcast"));
+        assertFalse(publicNames.contains("start_service"));
+        assertTrue(developerNames.contains("send_broadcast"));
+        assertTrue(developerNames.contains("start_service"));
+
+        final JSONObject intentProperties = tool(
+                publicTools, "launch_intent")
+                .getJSONObject("inputSchema")
+                .getJSONObject("properties");
+        assertTrue(intentProperties.has("intentUri"));
+        assertTrue(intentProperties.has("action"));
+        assertTrue(intentProperties.has("dataUri"));
+        assertTrue(intentProperties.has("mimeType"));
+        assertTrue(intentProperties.has("component"));
+        assertTrue(intentProperties.has("categories"));
+        assertTrue(intentProperties.has("extras"));
+        assertTrue(intentProperties.has("flagNames"));
+        assertTrue(intentProperties.has("chooser"));
+        assertTrue(intentProperties.has("expectResult"));
+
+        final JSONObject openFile = tool(publicTools, "open_file")
+                .getJSONObject("inputSchema");
+        assertEquals(2, openFile.getJSONArray("oneOf").length());
+        assertEquals("path", openFile.getJSONArray("oneOf")
+                .getJSONObject(0).getJSONArray("required").getString(0));
+        assertEquals("uri", openFile.getJSONArray("oneOf")
+                .getJSONObject(1).getJSONArray("required").getString(0));
+
+        final JSONObject share = tool(publicTools, "share")
+                .getJSONObject("inputSchema");
+        assertEquals(2, share.getJSONArray("anyOf").length());
+        assertFalse(share.has("oneOf"));
+
+        final JSONObject handlerOutput = dataProperties(
+                publicTools, "query_intent_handlers");
+        assertTrue(handlerOutput.has("visibilityScope"));
+        assertTrue(handlerOutput.has("handlers"));
+        assertTrue(handlerOutput.has("truncated"));
+
+        final JSONObject resultOutput = dataProperties(
+                publicTools, "get_intent_result");
+        assertTrue(resultOutput.has("requestId"));
+        assertTrue(resultOutput.has("state"));
+        assertTrue(resultOutput.has("resultCode"));
+
+        final JSONObject functionOutput = dataProperties(
+                publicTools, "search_app_functions");
+        assertTrue(functionOutput.has("functions"));
+        assertTrue(functionOutput.has("count"));
+        assertTrue(functionOutput.has("truncated"));
+    }
+
+    @Test
+    public void invisibleAndroidOperationsRemainDeveloperOnly() {
+        assertTrue(DesktopAutomationAction.SEND_BROADCAST.developerOnly);
+        assertTrue(DesktopAutomationAction.START_SERVICE.developerOnly);
+        assertFalse(DesktopAutomationAction.LAUNCH_INTENT.developerOnly);
+        assertFalse(DesktopAutomationAction.EXECUTE_APP_FUNCTION.developerOnly);
+    }
+
+    @Test
     public void pointerStateUsesOptionalDisplayAndPortableOutput()
             throws Exception {
         final JSONObject tool = tool(
@@ -234,6 +317,16 @@ public final class MagicDeskMcpToolCatalogTest {
             }
         }
         throw new AssertionError("tool not found: " + name);
+    }
+
+    private static JSONObject dataProperties(
+            final JSONArray tools,
+            final String name) throws Exception {
+        return tool(tools, name)
+                .getJSONObject("outputSchema")
+                .getJSONObject("properties")
+                .getJSONObject("data")
+                .getJSONObject("properties");
     }
 
     private static boolean contains(

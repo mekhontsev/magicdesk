@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.util.Log;
 import android.view.Display;
 
@@ -81,6 +82,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     ShellTaskObserver(
             final Context context,
             final ITaskObserverCallback callback,
+            final IActivityLaunchCallback activityLauncher,
             final Runnable callbackFailure,
             final IBinder ownerToken,
             final PlatformWindowingDriver windowing,
@@ -121,9 +123,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 windowing.requiresNativeFullscreenCaptionRefresh());
         mTaskLauncher = new ShellTaskLauncher(
                 mService,
+                context,
                 context.getPackageManager(),
                 mDesktopOwnership,
-                mTaskActivityModeGuard);
+                mTaskActivityModeGuard,
+                activityLauncher);
         mDesktopTaskArea = new ShellDesktopTaskArea(
                 mService, mDesktopOwnership, mTaskLauncher);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
@@ -730,7 +734,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     int launchWindowedTask(
             final int displayId,
-            final String intentUri,
+            final Intent intent,
             final Rect bounds) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
@@ -744,9 +748,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     mDesktopTaskArea.ownsApplicationArea(displayId);
             final int taskId = managedApplicationArea
                     ? mDesktopTaskArea.launchSessionWindowedTask(
-                            displayId, intentUri, bounds)
+                            displayId, intent, bounds)
                     : mTaskLauncher.launchWindowed(
-                            displayId, intentUri, bounds, null);
+                            displayId, intent, bounds, null);
             reportDesktopTaskOwnership();
             if (managedApplicationArea) {
                 reportDesktopTaskAreaForeground(true);
@@ -762,7 +766,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     int launchFullscreenTaskInManagedSession(
             final int displayId,
-            final String intentUri) {
+            final Intent intent) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
@@ -773,7 +777,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         try {
             final int taskId = mDesktopTaskArea.launchSessionFullscreenTask(
-                    displayId, intentUri);
+                    displayId, intent);
             reportDesktopTaskOwnership();
             reportDesktopTaskAreaForeground(true);
             return taskId;
@@ -787,7 +791,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     int launchFullscreenTask(
             final int displayId,
-            final String intentUri) {
+            final Intent intent) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
@@ -797,7 +801,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         try {
             final int taskId = mTaskLauncher.launchFullscreen(
-                    displayId, intentUri);
+                    displayId, intent);
             reportDesktopTaskOwnership();
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -808,10 +812,81 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
+    int launchAppShortcut(
+            final int displayId,
+            final String packageName,
+            final String shortcutId,
+            final UserHandle user,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        if (displayId != mConfiguredDisplayId) {
+            throw new IllegalArgumentException(
+                    "display is not configured: " + displayId);
+        }
+        try {
+            final int taskId;
+            if (existingTaskId >= 0) {
+                mTaskLauncher.launchShortcutInTask(
+                        displayId,
+                        existingTaskId,
+                        packageName,
+                        shortcutId,
+                        user);
+                taskId = existingTaskId;
+            } else if (windowingMode == FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM) {
+                if (bounds == null || bounds.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "windowed shortcut requires bounds");
+                }
+                taskId = mDesktopTaskArea.ownsApplicationArea(displayId)
+                        ? mDesktopTaskArea.launchSessionWindowedShortcut(
+                                displayId,
+                                packageName,
+                                shortcutId,
+                                user,
+                                bounds)
+                        : mTaskLauncher.launchShortcutWindowed(
+                                displayId,
+                                packageName,
+                                shortcutId,
+                                user,
+                                bounds,
+                                null,
+                                true);
+            } else if (windowingMode
+                    == FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN) {
+                taskId = mDesktopTaskArea.ownsApplicationArea(displayId)
+                        ? mDesktopTaskArea.launchSessionFullscreenShortcut(
+                                displayId, packageName, shortcutId, user)
+                        : mTaskLauncher.launchShortcutFullscreen(
+                                displayId,
+                                packageName,
+                                shortcutId,
+                                user,
+                                null);
+            } else {
+                throw new IllegalArgumentException(
+                        "unsupported shortcut windowing mode: " + windowingMode);
+            }
+            reportDesktopTaskOwnership();
+            if (mDesktopTaskArea.ownsApplicationArea(displayId)) {
+                reportDesktopTaskAreaForeground(true);
+            }
+            return taskId;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot launch app shortcut: " + usefulMessage(error), error);
+        }
+    }
+
     void launchTaskAction(
             final int displayId,
             final int taskId,
-            final String intentUri) {
+            final Intent intent) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
@@ -821,7 +896,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         try {
             TaskDisplayAreaLaunchCommand.launchTaskAction(
-                    mService, displayId, taskId, intentUri);
+                    mService, displayId, taskId, intent);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch task action: " + usefulMessage(error),
@@ -1049,6 +1124,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final ActivityManager.RunningTaskInfo taskInfo) {
         if (taskInfo != null) {
             final int displayId = HiddenTaskApi.getTaskDisplayId(taskInfo);
+            mTaskLauncher.onTaskMovedToFront(
+                    taskInfo.taskId,
+                    HiddenTaskApi.getTaskTopComponent(taskInfo));
             mFullscreenTaskArea.onTaskMovedToFront(
                     displayId, taskInfo.taskId);
             mDesktopOwnership.observeTask(taskInfo);

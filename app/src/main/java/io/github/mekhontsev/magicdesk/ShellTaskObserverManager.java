@@ -1,7 +1,9 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Rect;
+import android.os.UserHandle;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
@@ -30,9 +32,12 @@ final class ShellTaskObserverManager implements Closeable {
         mNavigationGuard = navigationGuard;
     }
 
-    void start(final ITaskObserverCallback callback) {
-        if (callback == null) {
-            throw new IllegalArgumentException("missing task observer callback");
+    void start(
+            final ITaskObserverCallback callback,
+            final IActivityLaunchCallback activityLauncher) {
+        if (callback == null || activityLauncher == null) {
+            throw new IllegalArgumentException(
+                    "missing task observer callbacks");
         }
         synchronized (mLock) {
             if (mSession != null) {
@@ -41,7 +46,7 @@ final class ShellTaskObserverManager implements Closeable {
             }
             Session session = null;
             try {
-                session = new Session(callback);
+                session = new Session(callback, activityLauncher);
                 mSession = session;
                 session.start();
                 Log.i(TAG, "task observer started");
@@ -202,36 +207,55 @@ final class ShellTaskObserverManager implements Closeable {
     int launchWindowedTask(
             final ITaskObserverCallback callback,
             final int displayId,
-            final String intentUri,
+            final Intent intent,
             final Rect bounds) {
         return requireSession(callback).observer.launchWindowedTask(
-                displayId, intentUri, bounds);
+                displayId, intent, bounds);
     }
 
     int launchFullscreenTaskInManagedSession(
             final ITaskObserverCallback callback,
             final int displayId,
-            final String intentUri) {
+            final Intent intent) {
         return requireSession(callback).observer
                 .launchFullscreenTaskInManagedSession(
-                displayId, intentUri);
+                displayId, intent);
     }
 
     int launchFullscreenTask(
             final ITaskObserverCallback callback,
             final int displayId,
-            final String intentUri) {
+            final Intent intent) {
         return requireSession(callback).observer.launchFullscreenTask(
-                displayId, intentUri);
+                displayId, intent);
+    }
+
+    int launchAppShortcut(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String packageName,
+            final String shortcutId,
+            final UserHandle user,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) {
+        return requireSession(callback).observer.launchAppShortcut(
+                displayId,
+                packageName,
+                shortcutId,
+                user,
+                windowingMode,
+                bounds,
+                existingTaskId);
     }
 
     void launchTaskAction(
             final ITaskObserverCallback callback,
             final int displayId,
             final int taskId,
-            final String intentUri) {
+            final Intent intent) {
         requireSession(callback).observer.launchTaskAction(
-                displayId, taskId, intentUri);
+                displayId, taskId, intent);
     }
 
     void placeWindowedTaskInManagedSession(
@@ -379,13 +403,16 @@ final class ShellTaskObserverManager implements Closeable {
         boolean ownerLinked;
         boolean stopped;
 
-        Session(final ITaskObserverCallback callback)
+        Session(
+                final ITaskObserverCallback callback,
+                final IActivityLaunchCallback activityLauncher)
                 throws ReflectiveOperationException {
             ownerToken = callback.asBinder();
             ownerDeathRecipient = this::ownerDisconnected;
             observer = new ShellTaskObserver(
                     mContext,
                     callback,
+                    activityLauncher,
                     this::ownerDisconnected,
                     ownerToken,
                     mWindowing,

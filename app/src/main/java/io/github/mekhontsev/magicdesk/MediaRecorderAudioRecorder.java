@@ -87,8 +87,7 @@ public final class MediaRecorderAudioRecorder
             return mContext;
         }
         try {
-            return mContext.createPackageContext(
-                    "com.android.shell", Context.CONTEXT_IGNORE_SECURITY);
+            return ShellIdentityContext.create(mContext);
         } catch (PackageManager.NameNotFoundException error) {
             throw new IOException("Android shell package is unavailable", error);
         }

@@ -89,8 +89,9 @@ also host independent Termux PTYs and run its installed command-line tools.
 ### Semantic Automation
 
 An optional local MCP server exposes typed desktop actions, state, events,
-operation traces, visual observations, and interactive terminals. Android 16+
-App Functions provide a smaller action set to authorized system agents.
+operation traces, Android intent and App Function integration, visual
+observations, and interactive terminals. Android 16+ App Functions provide a
+smaller action set to authorized system agents.
 Automation operates on MagicDesk concepts such as tasks, displays, windows,
 and desktop items rather than depending only on synthetic screen coordinates.
 

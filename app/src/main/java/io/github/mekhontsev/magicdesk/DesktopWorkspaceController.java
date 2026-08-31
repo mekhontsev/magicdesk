@@ -228,11 +228,19 @@ final class DesktopWorkspaceController {
         if (app == null || action == null) {
             return;
         }
-        createApplicationShortcut(
-                app,
+        storeApplicationShortcut(new DesktopApplicationShortcut(
                 action.label,
-                action.launchIntent(),
-                false);
+                app.packageName,
+                "",
+                app.launchTarget,
+                "",
+                DesktopLaunchMode.AUTO,
+                false,
+                DesktopExecBackend.SHELL,
+                false,
+                "",
+                DesktopMimeTypes.empty(),
+                action.id));
     }
 
     private DesktopFile findDefaultApplicationShortcut(final AppItem app) {
@@ -279,11 +287,15 @@ final class DesktopWorkspaceController {
                     DesktopExecBackend.SHELL,
                     false);
         }
-        final DesktopApplicationShortcut createdShortcut = shortcut;
+        storeApplicationShortcut(shortcut);
+    }
+
+    private void storeApplicationShortcut(
+            final DesktopApplicationShortcut shortcut) {
         mFolder.createApplicationShortcut(shortcut, created ->
                 mActivity.setStatus(mActivity.getString(
                         R.string.status_desktop_shortcut_added,
-                        createdShortcut.name)));
+                        shortcut.name)));
     }
 
     private void deleteApplicationShortcut(

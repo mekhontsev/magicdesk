@@ -123,6 +123,15 @@
         </activity>
 
         <activity
+            android:name=".AndroidActivityRelayActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.intent_result"
+            android:theme="@style/TransparentActivityTheme" />
+
+        <activity
             android:name=".DeviceSetupActivity"
             android:excludeFromRecents="true"
             android:exported="false"
