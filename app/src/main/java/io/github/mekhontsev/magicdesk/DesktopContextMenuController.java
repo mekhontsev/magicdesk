@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.appwidget.AppWidgetProviderInfo;
 import android.graphics.Rect;
-import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -47,10 +46,7 @@ final class DesktopContextMenuController {
         mPanel = menu;
         mMenuRoot = new ScrollView(mActivity);
         mMenuRoot.setFillViewport(false);
-        mMenuRoot.setBackground(mUi.rounded(
-                DesktopUiFactory.COLOR_PANEL,
-                dp(8),
-                DesktopUiFactory.COLOR_CYAN));
+        mMenuRoot.setBackground(mUi.menuSurface());
         mMenuRoot.addView(menu, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
@@ -282,17 +278,12 @@ final class DesktopContextMenuController {
         mPanel.removeAllViews();
         mMenuNavigator.prepare(null);
 
-        final TextView title = new TextView(mActivity);
-        title.setText(R.string.context_desktop);
-        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        title.setTextSize(16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        final LinearLayout.LayoutParams titleParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleParams.setMargins(0, 0, 0, dp(6));
-        mPanel.addView(title, titleParams);
+        final TextView title = mUi.menuHeader(
+                mActivity.getString(R.string.context_desktop),
+                TextUtils.TruncateAt.END);
+        mPanel.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
         addAction(
                 R.string.action_new_file,
@@ -580,13 +571,8 @@ final class DesktopContextMenuController {
         overlays.hide(mMenuRoot);
         mPanel.removeAllViews();
         mMenuNavigator.prepare(null);
-        final TextView title = new TextView(mActivity);
-        title.setText(text);
-        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        title.setTextSize(16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setSingleLine(true);
-        title.setEllipsize(TextUtils.TruncateAt.END);
+        final TextView title = mUi.menuHeader(
+                text, TextUtils.TruncateAt.END);
         mPanel.addView(title, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -807,13 +793,8 @@ final class DesktopContextMenuController {
         mPanel.removeAllViews();
         mMenuNavigator.prepare(null);
 
-        final TextView title = new TextView(mActivity);
-        title.setText(app.label);
-        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        title.setTextSize(16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setSingleLine(true);
-        title.setEllipsize(TextUtils.TruncateAt.END);
+        final TextView title = mUi.menuHeader(
+                app.label, TextUtils.TruncateAt.END);
         mPanel.addView(title, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -828,6 +809,7 @@ final class DesktopContextMenuController {
                             : R.string.badge_fullscreen)));
             taskInfo.setTextColor(DesktopUiFactory.COLOR_MUTED);
             taskInfo.setTextSize(12);
+            taskInfo.setPadding(dp(10), 0, dp(10), dp(4));
             final LinearLayout.LayoutParams taskInfoParams =
                     new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -848,10 +830,9 @@ final class DesktopContextMenuController {
         final LinearLayout header = new LinearLayout(mActivity);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        final ImageButton back = mUi.taskbarIconButton(
+        final ImageButton back = mUi.menuIconButton(
                 R.drawable.ic_file_back,
-                R.string.action_back,
-                true);
+                R.string.action_back);
         back.setOnClickListener(backListener);
         mActivity.registerAutomationUiElement(
                 back,
@@ -860,23 +841,17 @@ final class DesktopContextMenuController {
                 mActivity.getString(R.string.action_back));
         header.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
 
-        final TextView title = new TextView(mActivity);
-        title.setText(text);
-        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        title.setTextSize(16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setSingleLine(true);
-        title.setEllipsize(TextUtils.TruncateAt.END);
+        final TextView title = mUi.menuHeader(
+                text, TextUtils.TruncateAt.END);
         final LinearLayout.LayoutParams titleParams =
                 new LinearLayout.LayoutParams(
                         0,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                         1f);
-        titleParams.setMargins(dp(8), 0, 0, 0);
         header.addView(title, titleParams);
         mPanel.addView(header, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+                mUi.menuItemHeight()));
     }
 
     private Button addAction(
@@ -918,9 +893,8 @@ final class DesktopContextMenuController {
             final boolean dismissBeforeAction,
             final boolean submenu,
             final View.OnClickListener listener) {
-        final Button button = mUi.actionButton(text, color);
+        final Button button = mUi.menuItem(text, color);
         button.setEnabled(enabled);
-        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         if (icon != null) {
             final Drawable menuIcon = icon.mutate();
             final int size = dp(20);
@@ -947,8 +921,7 @@ final class DesktopContextMenuController {
         final LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, dp(4), 0, 0);
+                        mUi.menuItemHeight());
         mPanel.addView(button, params);
         return button;
     }
@@ -1044,7 +1017,7 @@ final class DesktopContextMenuController {
     }
 
     private int getWidth(final int availableWidth) {
-        return Math.min(dp(310), Math.max(1, availableWidth - dp(16)));
+        return mUi.menuWidth(availableWidth, dp(8));
     }
 
     private int dp(final int value) {

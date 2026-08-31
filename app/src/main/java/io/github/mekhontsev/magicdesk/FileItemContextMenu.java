@@ -1,10 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.text.TextUtils;
-import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -79,11 +77,8 @@ final class FileItemContextMenu {
             final Activity activity, final DesktopUiFactory ui) {
         final LinearLayout panel = new LinearLayout(activity);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10));
-        panel.setBackground(ui.rounded(
-                DesktopUiFactory.COLOR_PANEL,
-                ui.dp(8),
-                DesktopUiFactory.COLOR_CYAN));
+        panel.setPadding(ui.dp(6), ui.dp(8), ui.dp(6), ui.dp(8));
+        panel.setBackground(ui.menuSurface());
         panel.setClickable(true);
         panel.setFocusable(true);
         return panel;
@@ -96,12 +91,9 @@ final class FileItemContextMenu {
             final Actions actions) {
         final DesktopUiFactory ui = new DesktopUiFactory(activity);
         final LinearLayout panel = createPanel(activity, ui);
-        final int width = Math.min(
-                ui.dp(310),
-                Math.max(
-                        ui.dp(250),
-                        activity.getResources().getDisplayMetrics().widthPixels
-                                - ui.dp(24)));
+        final int width = ui.menuWidth(
+                activity.getResources().getDisplayMetrics().widthPixels,
+                ui.dp(12));
         final PopupWindow[] popupHolder = new PopupWindow[1];
         populate(activity, ui, panel, target, actions, () -> {
             if (popupHolder[0] != null) {
@@ -144,19 +136,11 @@ final class FileItemContextMenu {
             final Actions actions,
             final Runnable dismiss) {
         panel.removeAllViews();
-        final TextView title = new TextView(activity);
-        title.setText(target.name);
-        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        title.setTextSize(16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setSingleLine(true);
-        title.setEllipsize(TextUtils.TruncateAt.END);
-        final LinearLayout.LayoutParams titleParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleParams.setMargins(0, 0, 0, ui.dp(2));
-        panel.addView(title, titleParams);
+        final TextView title = ui.menuHeader(
+                target.name, TextUtils.TruncateAt.END);
+        panel.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
         addAction(panel, ui, R.string.action_open,
                 DesktopUiFactory.COLOR_CYAN, true, dismiss, actions::open);
@@ -216,9 +200,8 @@ final class FileItemContextMenu {
             final boolean enabled,
             final Runnable dismiss,
             final Runnable action) {
-        final Button button = ui.actionButton(textResId, color);
+        final Button button = ui.menuItem(textResId, color);
         button.setEnabled(enabled);
-        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         button.setOnClickListener(view -> {
             dismiss.run();
             action.run();
@@ -226,8 +209,7 @@ final class FileItemContextMenu {
         final LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, ui.dp(4), 0, 0);
+                        ui.menuItemHeight());
         panel.addView(button, params);
     }
 }

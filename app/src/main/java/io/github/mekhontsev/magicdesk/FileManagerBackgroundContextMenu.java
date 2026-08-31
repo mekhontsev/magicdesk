@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.graphics.Typeface;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
@@ -39,13 +38,8 @@ final class FileManagerBackgroundContextMenu {
             final Actions actions) {
         final DesktopUiFactory ui = new DesktopUiFactory(activity);
         final LinearLayout panel = FileItemContextMenu.createPanel(activity, ui);
-        final TextView title = new TextView(activity);
-        title.setText(path);
-        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        title.setTextSize(16);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setSingleLine(true);
-        title.setEllipsize(TextUtils.TruncateAt.START);
+        final TextView title = ui.menuHeader(
+                path, TextUtils.TruncateAt.START);
         panel.addView(title, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -86,8 +80,7 @@ final class FileManagerBackgroundContextMenu {
         final int screenHeight = activity.getResources()
                 .getDisplayMetrics().heightPixels;
         final int margin = ui.dp(12);
-        final int width = Math.min(
-                ui.dp(310), Math.max(ui.dp(250), screenWidth - margin * 2));
+        final int width = ui.menuWidth(screenWidth, margin);
         panel.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
