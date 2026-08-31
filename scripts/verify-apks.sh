@@ -1,15 +1,14 @@
 #!/usr/bin/env sh
 set -eu
 
-if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
-    printf 'Usage: %s CORE_APK [KERNEL_FIXES_APK] [DISPLAY_FIXES_APK]\n' \
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    printf 'Usage: %s CORE_APK [KERNEL_FIXES_APK]\n' \
         "$0" >&2
     exit 2
 fi
 
 core_apk=$1
 kernel_fixes_apk=${2-}
-display_fixes_apk=${3-}
 
 if [ ! -f "$core_apk" ]; then
     printf 'Missing APK: %s\n' "$core_apk" >&2
@@ -65,20 +64,6 @@ if [ -n "$kernel_fixes_apk" ]; then
     if printf '%s\n' "$kernel_fixes_contents" \
             | grep -Eq 'libmagicdesk_(uinput_bridge|keyboard_bridge)\.so$'; then
         printf 'Kernel fixes APK must not contain an input helper\n' >&2
-        exit 1
-    fi
-fi
-
-if [ -n "$display_fixes_apk" ]; then
-    if [ ! -f "$display_fixes_apk" ]; then
-        printf 'Missing APK: %s\n' "$display_fixes_apk" >&2
-        exit 1
-    fi
-
-    display_fixes_contents=$(unzip -Z1 "$display_fixes_apk")
-    if printf '%s\n' "$display_fixes_contents" \
-            | grep -Eq '(^|/)(lib/.*\.so|.*\.ko)$'; then
-        printf 'Display fixes APK must not contain native or kernel code\n' >&2
         exit 1
     fi
 fi

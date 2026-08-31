@@ -40,8 +40,8 @@ firmware task, display, input, or capture behavior.
 - JVM tests cover state models, parsers, lifecycle ownership, task and display
   policies, shell quoting, filesystem operations, and platform isolation.
 - Android lint and debug assembly cover the main application and independent
-  Display Fixes and Kernel Fixes APKs. Package-boundary checks reject input
-  helpers or kernel artifacts in the wrong APK.
+  Kernel Fixes APK. Package-boundary checks reject input helpers or kernel
+  artifacts in the wrong APK.
 - CI builds on Linux and Windows. Non-documentation pushes to `main` also build,
   sign, verify, and publish the rolling development APK.
 - The desktop self-test runs the production session and task paths on phone,

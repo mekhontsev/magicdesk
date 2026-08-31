@@ -26,7 +26,5 @@ dependencyResolutionManagement {
 
 rootProject.name = 'MagicDesk'
 include ':app'
-include ':display-mode-core'
-include ':display-fixes'
 include ':hidden-api-stubs'
 include ':kernel-fixes'

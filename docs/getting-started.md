@@ -54,16 +54,6 @@ Android until the user starts MagicDesk again.
 Notification access is optional. Grant it from Android settings only when the
 MagicDesk notification center and notification popups are wanted.
 
-## Optional Display Fixes Helper
-
-Most devices do not need a companion APK. On firmware where shell UID 2000
-cannot read the monitor's complete timing list, the independently signed
-[`DisplayFixes-development.apk`](https://github.com/mekhontsev/magicdesk/releases/download/development/DisplayFixes-development.apk)
-can apply the native wired-display mode through a direct, user-approved root
-request before MagicDesk starts the desktop. It does not use Shizuku and is not
-a MagicDesk runtime dependency. See [Native Display Mode Helper](native-display-mode-helper.md)
-for its capability checks and operating procedure.
-
 ## Start A Desktop
 
 MagicDesk uses the same desktop implementation for every target:
@@ -123,11 +113,6 @@ timing again.
 Available resolutions and refresh rates depend on what Android and the active
 platform or SoC backend can read under the connected shell identity. A missing
 vendor timing interface disables only that control.
-
-On verified Nubia firmware that exposes its complete EDID list only to root,
-the independent [Native Display Mode Helper](native-display-mode-helper.md)
-can apply the advertised native timing before MagicDesk starts. It is an
-optional direct-root tool, not a Shizuku or MagicDesk runtime requirement.
 
 ## Development Builds
 

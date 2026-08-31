@@ -27,7 +27,6 @@ hardware helpers remain separate and are never desktop requirements.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
-[Optional Display Fixes APK](https://github.com/mekhontsev/magicdesk/releases/download/development/DisplayFixes-development.apk) |
 [Community](https://t.me/magicdesk_android) |
 [Compatibility](docs/compatibility.md) |
 [Getting started](docs/getting-started.md)
@@ -211,11 +210,6 @@ Use **Close desktop** to retain still-running tasks for a later session. Use
 **Exit MagicDesk** to discard the workspace, close MagicDesk windows, restore
 owned runtime state, and stop its services.
 
-`DisplayFixes-development.apk` is an optional standalone root helper for the
-small set of firmware that hides native external-display timings from shell
-UID 2000. It is not required by MagicDesk and should be installed only for
-that specific problem. See [Native Display Mode Helper](docs/native-display-mode-helper.md).
-
 The full installation, session, update, and removal workflow is in
 [Getting started](docs/getting-started.md).
 
@@ -260,11 +254,6 @@ Read [Shell access and privilege modes](docs/privilege-modes.md),
 [Automation](docs/automation.md), and [third-party notices](THIRD_PARTY_NOTICES.md)
 before enabling privileged or automated workflows.
 
-Firmware that hides the monitor's complete timing list from shell UID 2000 can
-be tested with the independent, direct-root
-[Native Display Mode Helper](docs/native-display-mode-helper.md). It is not
-part of the main APK or required for normal MagicDesk operation.
-
 ## Diagnostics
 
 Open **Tools > Diagnostics** after reproducing a problem. Attach the complete
@@ -303,7 +292,6 @@ variants, verification commands, and pull-request expectations.
 - [AI-assisted device support](docs/ai-assisted-device-porting.md)
 - [Desktop Entry files](docs/desktop-entries.md)
 - [Shell access and privilege modes](docs/privilege-modes.md)
-- [Native Display Mode Helper](docs/native-display-mode-helper.md)
 - [Compatibility and issue reports](docs/compatibility.md)
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Validation matrix](docs/testing-backlog.md)

@@ -41,10 +41,10 @@ Build the debug APK:
 ./gradlew :app:assembleDebug
 ```
 
-Optional add-ons are separate applications:
+The optional kernel add-on is a separate application:
 
 ```sh
-./gradlew :display-fixes:assembleDebug :kernel-fixes:assembleDebug
+./gradlew :kernel-fixes:assembleDebug
 ```
 
 On Windows, use `gradlew.bat` instead of `./gradlew`.

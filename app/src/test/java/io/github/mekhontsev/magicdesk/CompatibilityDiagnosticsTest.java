@@ -54,15 +54,15 @@ public final class CompatibilityDiagnosticsTest {
     @Test
     public void keepsLatestHistoricalDuplicateIncludingStackLines() {
         final String events =
-                "2026-08-09T06:10:21Z | NUBIA-DISPLAY-005 | Denied\n"
+                "2026-08-09T06:10:21Z | TEST-DISPLAY-001 | Denied\n"
                         + " at MagicDesk.read(MagicDesk.java:1)\n"
                         + "2026-08-09T06:14:04Z | WALLPAPER-001 | Missing\n"
-                        + "2026-08-09T06:14:19Z | NUBIA-DISPLAY-005 | Denied\n"
+                        + "2026-08-09T06:14:19Z | TEST-DISPLAY-001 | Denied\n"
                         + " at MagicDesk.read(MagicDesk.java:1)\n";
 
         assertEquals(
                 "2026-08-09T06:14:04Z | WALLPAPER-001 | Missing\n"
-                        + "2026-08-09T06:14:19Z | NUBIA-DISPLAY-005 | Denied\n"
+                        + "2026-08-09T06:14:19Z | TEST-DISPLAY-001 | Denied\n"
                         + " at MagicDesk.read(MagicDesk.java:1)\n",
                 CompatibilityDiagnostics.filterRecordedEvents(events));
     }

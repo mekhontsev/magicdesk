@@ -122,28 +122,20 @@ jobs:
           version_suffix="dev.$GITHUB_RUN_NUMBER.$short_sha"
           ./gradlew --no-daemon \
             -PMAGICDESK_VERSION_SUFFIX="$version_suffix" \
-            :display-mode-core:test \
             :app:testDebugUnitTest \
-            :display-fixes:testDebugUnitTest \
             :app:lintRelease \
-            :display-fixes:lintRelease \
             :kernel-fixes:lintRelease \
             :app:assembleRelease \
-            :display-fixes:assembleRelease \
             :kernel-fixes:assembleRelease
 
       - name: Lint and build unsigned release APKs
         if: github.event_name != 'push'
         run: |
           ./gradlew --no-daemon \
-            :display-mode-core:test \
             :app:testDebugUnitTest \
-            :display-fixes:testDebugUnitTest \
             :app:lintRelease \
-            :display-fixes:lintRelease \
             :kernel-fixes:lintRelease \
             :app:assembleRelease \
-            :display-fixes:assembleRelease \
             :kernel-fixes:assembleRelease
 
       - name: Verify signed APK and package boundaries
@@ -152,21 +144,17 @@ jobs:
         run: |
           build_tools="$ANDROID_SDK_ROOT/build-tools/37.0.0"
           core_apk=app/build/outputs/apk/release/app-release.apk
-          display_fixes_apk=display-fixes/build/outputs/apk/release/display-fixes-release.apk
           "$build_tools/apksigner" verify --verbose "$core_apk"
-          "$build_tools/apksigner" verify --verbose "$display_fixes_apk"
           ./scripts/verify-apks.sh \
             "$core_apk" \
-            kernel-fixes/build/outputs/apk/release/kernel-fixes-release.apk \
-            "$display_fixes_apk"
+            kernel-fixes/build/outputs/apk/release/kernel-fixes-release.apk
 
       - name: Verify unsigned APK boundaries
         if: github.event_name != 'push'
         run: |
           ./scripts/verify-apks.sh \
             app/build/outputs/apk/release/app-release-unsigned.apk \
-            kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk \
-            display-fixes/build/outputs/apk/release/display-fixes-release-unsigned.apk
+            kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk
 
       - name: Prepare signed main artifact
         if: github.event_name == 'push'
@@ -174,17 +162,11 @@ jobs:
         run: |
           build_tools="$ANDROID_SDK_ROOT/build-tools/37.0.0"
           core_apk=app/build/outputs/apk/release/app-release.apk
-          display_fixes_apk=display-fixes/build/outputs/apk/release/display-fixes-release.apk
           version=$("$build_tools/aapt2" dump badging "$core_apk" \
             | awk -F "versionName='" 'NR == 1 {split($2, value, "'\''"); print value[1]}')
-          display_fixes_version=$("$build_tools/aapt2" dump badging "$display_fixes_apk" \
-            | awk -F "versionName='" 'NR == 1 {split($2, value, "'\''"); print value[1]}')
           test -n "$version"
-          test -n "$display_fixes_version"
           mkdir -p dist
           cp "$core_apk" "dist/MagicDesk-$version.apk"
-          cp "$display_fixes_apk" \
-            "dist/DisplayFixes-$display_fixes_version.apk"
           printf 'commit=%s\nrun=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" \
             > dist/BUILD.txt
           (
@@ -210,10 +192,8 @@ jobs:
           retention-days: 14
           path: |
             app/build/outputs/apk/release/app-release-unsigned.apk
-            display-fixes/build/outputs/apk/release/display-fixes-release-unsigned.apk
             kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk
             app/build/reports/lint-results-release.html
-            display-fixes/build/reports/lint-results-release.html
             kernel-fixes/build/reports/lint-results-release.html
 
   windows-smoke:
@@ -287,17 +267,8 @@ jobs:
           version=${version%.apk}
           test -n "$version"
 
-          mapfile -t display_fixes_apks < <(find download -type f \
-            -name 'DisplayFixes-*.apk' -print)
-          if (( ${#display_fixes_apks[@]} != 1 )); then
-            echo "::error::Expected one signed Display Fixes APK, found ${#display_fixes_apks[@]}"
-            exit 1
-          fi
-          display_fixes_apk=${display_fixes_apks[0]}
-
           mkdir -p dist
           cp "$source_apk" dist/MagicDesk-development.apk
-          cp "$display_fixes_apk" dist/DisplayFixes-development.apk
           printf 'version=%s\ncommit=%s\nrun=%s\n' \
             "$version" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
             > dist/BUILD.txt
@@ -318,11 +289,7 @@ jobs:
           with its own PTY, shell, lifecycle, saved geometry, and live foreground
           program label.
 
-          Both APKs use the same signing certificate as official MagicDesk releases.
-
-          \`DisplayFixes-development.apk\` is the optional standalone root helper
-          for firmware that hides native external-display timings from the Android
-          shell user. MagicDesk itself does not require this helper.
+          The APK uses the same signing certificate as official MagicDesk releases.
           EOF
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
@@ -346,6 +313,8 @@ jobs:
 
           if gh release view "$tag" \
               --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete-asset "$tag" DisplayFixes-development.apk \
+              --repo "$GITHUB_REPOSITORY" --yes >/dev/null 2>&1 || true
             gh release upload "$tag" dist/* \
               --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$tag" \

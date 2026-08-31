@@ -243,9 +243,7 @@ If the vendor HDMI-mode node is unavailable to shell UID 2000, MagicDesk tries
 the selected SoC display backend before falling back to Android's public mode
 list. When neither source exposes alternate timings, the current physical mode
 is read-only and timing selection remains with the system projection UI. This
-does not disable the desktop. A separately built
-[Native Display Mode Helper](native-display-mode-helper.md) can be used for a
-targeted root-assisted test without changing MagicDesk's normal shell runtime.
+does not disable the desktop.
 If Android does not expose a static wallpaper image, MagicDesk can use a custom
 desktop wallpaper, its cached system wallpaper, or the built-in background
 without failing the desktop session.
