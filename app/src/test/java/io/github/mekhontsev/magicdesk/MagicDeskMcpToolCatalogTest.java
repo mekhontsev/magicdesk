@@ -29,7 +29,13 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(publicNames.contains("get_termux_x11_status"));
         assertTrue(publicNames.contains("reconnect_termux_x11"));
         assertFalse(publicNames.contains("run_self_test"));
+        assertFalse(publicNames.contains("clipboard.read_text"));
+        assertFalse(publicNames.contains("clipboard.write_text"));
+        assertFalse(publicNames.contains("clipboard.clear"));
         assertTrue(developerNames.contains("run_self_test"));
+        assertTrue(developerNames.contains("clipboard.read_text"));
+        assertTrue(developerNames.contains("clipboard.write_text"));
+        assertTrue(developerNames.contains("clipboard.clear"));
         assertTrue(developerNames.containsAll(publicNames));
         assertTrue(developerNames.size() > publicNames.size());
     }
@@ -113,8 +119,27 @@ public final class MagicDeskMcpToolCatalogTest {
     public void invisibleAndroidOperationsRemainDeveloperOnly() {
         assertTrue(DesktopAutomationAction.SEND_BROADCAST.developerOnly);
         assertTrue(DesktopAutomationAction.START_SERVICE.developerOnly);
+        assertTrue(DesktopAutomationAction.READ_CLIPBOARD_TEXT.developerOnly);
+        assertTrue(DesktopAutomationAction.WRITE_CLIPBOARD_TEXT.developerOnly);
+        assertTrue(DesktopAutomationAction.CLEAR_CLIPBOARD.developerOnly);
         assertFalse(DesktopAutomationAction.LAUNCH_INTENT.developerOnly);
         assertFalse(DesktopAutomationAction.EXECUTE_APP_FUNCTION.developerOnly);
+    }
+
+    @Test
+    public void clipboardToolsAreTypedAndPrivacyGated() throws Exception {
+        final JSONArray tools = MagicDeskMcpToolCatalog.create(true);
+        final JSONObject write = tool(tools, "clipboard.write_text")
+                .getJSONObject("inputSchema");
+        final JSONObject readOutput = dataProperties(
+                tools, "clipboard.read_text");
+
+        assertEquals("text", write.getJSONArray("required").getString(0));
+        assertTrue(write.getJSONObject("properties").has("sensitive"));
+        assertTrue(readOutput.has("text"));
+        assertTrue(readOutput.has("truncated"));
+        assertTrue(readOutput.has("mimeTypes"));
+        assertTrue(readOutput.has("sensitive"));
     }
 
     @Test

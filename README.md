@@ -116,10 +116,11 @@ and desktop items rather than depending only on synthetic screen coordinates.
   positioned files, folders, shortcuts, and Android widgets.
 - Browse and modify the filesystem visible to the authorized shell identity in
   multiple Files windows, with list/grid views, search, selection, properties,
-  drag and drop, and shared desktop context menus.
+  drag and drop, shared desktop context menus, and Android content-URI
+  clipboard exchange for ordinary files.
 - Run independent interactive `/system/bin/sh` sessions in Console through a
   real PTY with ANSI color, alternate-screen applications, mouse reporting,
-  selection, clipboard, and live resizing.
+  selection, Android system clipboard integration, and live resizing.
 - Open multiple independent Termux-backed Console windows as native Android
   tasks, each with its own PTY, shell, working directory, process lifecycle,
   remembered bounds, and foreground-program label in Open tasks.

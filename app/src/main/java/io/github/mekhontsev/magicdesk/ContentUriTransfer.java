@@ -13,6 +13,7 @@ import java.util.function.BooleanSupplier;
 
 /** Shared provider-to-shell transfer used by Desktop and Files imports. */
 final class ContentUriTransfer {
+    static final String FALLBACK_FILE_NAME = "Imported file";
     private static final int COPY_BUFFER_SIZE = 64 * 1024;
 
     private ContentUriTransfer() {

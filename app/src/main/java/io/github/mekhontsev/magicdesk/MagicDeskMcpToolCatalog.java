@@ -360,6 +360,28 @@ final class MagicDeskMcpToolCatalog {
                         "Start Android service",
                         "Start a typed or raw Android service Intent. Developer automation only because it is an invisible background operation.",
                         intentSchema(true)))
+                .put(readTool(
+                        "clipboard.read_text",
+                        "Read clipboard text",
+                        "Read text from Android's system clipboard. Developer automation only because clipboard contents may contain secrets; Android may require a focused MagicDesk window.",
+                        emptySchema()))
+                .put(actionTool(
+                        "clipboard.write_text",
+                        "Write clipboard text",
+                        "Write bounded plain text to Android's system clipboard. Developer automation only.",
+                        objectSchema(new JSONObject()
+                                        .put("text", stringProperty(
+                                                "Text to place on the clipboard."))
+                                        .put("label", stringProperty(
+                                                "Optional clipboard label."))
+                                        .put("sensitive", booleanProperty(
+                                                "Mark clipboard previews as sensitive.")),
+                                "text")))
+                .put(destructiveTool(
+                        "clipboard.clear",
+                        "Clear clipboard",
+                        "Clear Android's system clipboard and a matching published MagicDesk file operation. Developer automation only.",
+                        emptySchema()))
                 .put(actionTool(
                         "run_self_test",
                         "Run desktop self-test",
@@ -1078,6 +1100,29 @@ final class MagicDeskMcpToolCatalog {
                         .put("functionId", stringProperty("Function id."))
                         .put("result", openObjectProperty(
                                 "Returned GenericDocument."));
+                break;
+            case "clipboard.read_text":
+            case "clipboard.write_text":
+            case "clipboard.clear":
+                properties.put("access", stringProperty(
+                                "Android clipboard access state."))
+                        .put("itemCount", integerProperty(
+                                "Clipboard item count, or -1 for metadata-only state."))
+                        .put("mimeTypes", arrayProperty(
+                                "Declared clipboard MIME types.",
+                                stringProperty("MIME type.")))
+                        .put("sensitive", booleanProperty(
+                                "Whether the clipboard is marked sensitive."))
+                        .put("magicDeskFileClip", booleanProperty(
+                                "Whether this is a MagicDesk file-operation clip."))
+                        .put("textLength", integerProperty(
+                                "Text length when text was read or written."));
+                if ("clipboard.read_text".equals(toolName)) {
+                    properties.put("text", stringProperty(
+                                    "Bounded clipboard text returned by the explicit read."))
+                            .put("truncated", booleanProperty(
+                                    "Whether clipboard text exceeded the returned limit."));
+                }
                 break;
             case "send_broadcast":
             case "start_service":

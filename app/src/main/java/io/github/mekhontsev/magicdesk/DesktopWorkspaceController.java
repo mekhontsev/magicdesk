@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.app.ActivityOptions;
 import android.appwidget.AppWidgetHostView;
 import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.SystemClock;
@@ -524,8 +523,13 @@ final class DesktopWorkspaceController {
     }
 
     void copyFile(final DesktopFile file, final boolean move) {
-        FileManagerClipboard.set(
-                List.of(desktopAbsolutePath(file)), move);
+        FileClipboardInterop.storeDesktopFile(
+                mActivity,
+                file,
+                desktopAbsolutePath(file),
+                move
+                        ? FileOperationClipboard.Mode.MOVE
+                        : FileOperationClipboard.Mode.COPY);
         mActivity.setStatus(mActivity.getString(
                 move
                         ? R.string.status_desktop_item_cut
@@ -533,15 +537,18 @@ final class DesktopWorkspaceController {
     }
 
     void pasteFiles() {
-        final FileManagerClipboard.Snapshot clipboard =
-                FileManagerClipboard.snapshot();
-        if (clipboard.isEmpty()) {
-            return;
+        final FileClipboardInterop.PasteSource source =
+                FileClipboardInterop.resolvePaste(mActivity);
+        if (source.kind == FileClipboardInterop.PasteKind.INTERNAL_PATHS) {
+            mFolder.transferPaths(
+                    source.files.paths,
+                    !source.files.isMove(),
+                    source.files.isMove()
+                            ? source.files.generation : -1L);
+        } else if (source.kind
+                == FileClipboardInterop.PasteKind.ANDROID_URIS) {
+            mFolder.importFiles(source.uris, null);
         }
-        mFolder.transferPaths(
-                clipboard.paths,
-                !clipboard.move,
-                clipboard.move ? clipboard.generation : -1L);
     }
 
     boolean handleKeyboardCommand(final FileKeyboardCommand command) {
@@ -560,7 +567,7 @@ final class DesktopWorkspaceController {
                 }
                 break;
             case PASTE:
-                if (!FileManagerClipboard.snapshot().isEmpty()) {
+                if (FileClipboardInterop.canPaste(mActivity)) {
                     pasteFiles();
                     return true;
                 }
@@ -599,11 +606,6 @@ final class DesktopWorkspaceController {
     }
 
     void copyFilePath(final DesktopFile file) {
-        final ClipboardManager clipboard = mActivity.getSystemService(
-                ClipboardManager.class);
-        if (clipboard == null) {
-            return;
-        }
         final DesktopFolderShortcut folderShortcut = file.folderShortcut();
         final DesktopWebShortcut webShortcut = file.webShortcut();
         final String target = folderShortcut != null
@@ -611,9 +613,12 @@ final class DesktopWorkspaceController {
                 : webShortcut != null
                         ? webShortcut.url
                         : desktopAbsolutePath(file);
-        clipboard.setPrimaryClip(ClipData.newPlainText(
-                file.displayName(), target));
-        mActivity.setStatus(R.string.file_manager_path_copied);
+        final AndroidClipboardGateway.OperationResult copied =
+                AndroidClipboardGateway.get(mActivity).writeText(
+                        file.displayName(), target, false);
+        if (copied.successful) {
+            mActivity.setStatus(R.string.file_manager_path_copied);
+        }
     }
 
     void showFileProperties(final DesktopFile file) {

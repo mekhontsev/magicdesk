@@ -50,10 +50,15 @@ identity. It supports:
 - external editors and an in-window **Open with** chooser;
 - user-confirmed APK installation or update.
 
-Desktop and Files share one process-local copy/cut buffer and the same item
-context-menu implementation. Hold `Ctrl` when starting an internal drag to
-copy instead of move. Conflicting copies receive a numeric suffix rather than
-silently replacing existing data.
+Desktop and Files share one process-local, generation-safe copy/cut operation
+buffer and the same item context-menu implementation. A bounded selection of
+ordinary readable files is also published to Android's system clipboard as
+temporary read-only content URIs, and Files or Desktop can import URI items
+copied by another Android application. Directories, symbolic links, and large
+selections remain internal because Android has no portable directory-clipboard
+contract. Hold `Ctrl` when starting an internal drag to copy instead of move.
+Conflicting copies receive a numeric suffix rather than silently replacing
+existing data.
 
 Long-running shell copy, move, and delete operations outlive their initiating
 Files window. Reopening Files reconnects to their progress and cancellation
@@ -114,6 +119,10 @@ shell and installed tools. Both provide:
 - `Tab`, `Ctrl+C`, and other normal terminal keys;
 - current-directory tracking and a direct action to open that directory in
   Files.
+
+Both shell-backed and Termux-backed Console windows use Android's system text
+clipboard. Clipboard contents are read only for an explicit Paste action; no
+background synchronization or clipboard history is maintained.
 
 The collapse button hides the Console toolbar for that window. A compact
 restore button remains at the terminal's top-right corner; a newly opened

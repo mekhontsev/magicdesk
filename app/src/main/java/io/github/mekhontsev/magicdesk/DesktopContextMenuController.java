@@ -312,7 +312,7 @@ final class DesktopContextMenuController {
         addAction(
                 R.string.file_manager_paste,
                 DesktopUiFactory.COLOR_PANEL_ALT,
-                !FileManagerClipboard.snapshot().isEmpty(),
+                FileClipboardInterop.canPaste(mActivity),
                 view -> mActivity.pasteDesktopFiles());
         addAction(
                 R.string.action_add_widget,

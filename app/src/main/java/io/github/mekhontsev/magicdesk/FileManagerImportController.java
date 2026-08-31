@@ -51,7 +51,7 @@ final class FileManagerImportController {
                                 ContentUriTransfer.displayName(
                                         mActivity.getContentResolver(),
                                         uri,
-                                        "Dropped file"));
+                                        ContentUriTransfer.FALLBACK_FILE_NAME));
                         final ShellFileInfo created =
                                 ShellAccess.createAvailableShellEntry(
                                         destination, name, false);
@@ -89,7 +89,7 @@ final class FileManagerImportController {
         try {
             return ShellFileNamePolicy.validate(requested);
         } catch (IllegalArgumentException error) {
-            return "Dropped file";
+            return ContentUriTransfer.FALLBACK_FILE_NAME;
         }
     }
 

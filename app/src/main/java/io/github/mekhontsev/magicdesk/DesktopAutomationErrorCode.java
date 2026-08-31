@@ -4,6 +4,7 @@ package io.github.mekhontsev.magicdesk;
 final class DesktopAutomationErrorCode {
     static final String ACTION_FAILED = "ACTION_FAILED";
     static final String CAPTURE_UNAVAILABLE = "CAPTURE_UNAVAILABLE";
+    static final String CLIPBOARD_ACCESS_FAILED = "CLIPBOARD_ACCESS_FAILED";
     static final String CONSOLE_ACCESS_FAILED = "CONSOLE_ACCESS_FAILED";
     static final String DESKTOP_NOT_ACTIVE = "DESKTOP_NOT_ACTIVE";
     static final String DISPLAY_NOT_AVAILABLE = "DISPLAY_NOT_AVAILABLE";

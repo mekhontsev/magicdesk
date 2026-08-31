@@ -23,10 +23,10 @@ public final class DesktopFileRepositoryTest {
     @Test
     public void invalidImportNameUsesAvailableFallback() {
         final Set<String> occupied = new LinkedHashSet<>();
-        occupied.add("Dropped file");
+        occupied.add("Imported file");
 
         assertEquals(
-                "Dropped file (2)",
+                "Imported file (2)",
                 DesktopFileRepository.uniqueImportName(
                         "../outside.txt", occupied));
     }

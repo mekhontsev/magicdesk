@@ -2,8 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.app.ActivityManager;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
@@ -349,13 +347,12 @@ public final class AppLogViewerActivity extends Activity
     }
 
     private void copyOutput() {
-        final ClipboardManager clipboard = getSystemService(
-                ClipboardManager.class);
-        if (clipboard == null) {
+        final AndroidClipboardGateway.OperationResult copied =
+                AndroidClipboardGateway.get(this).writeText(
+                        "MagicDesk app logs", mOutput.getText(), false);
+        if (!copied.successful) {
             return;
         }
-        clipboard.setPrimaryClip(ClipData.newPlainText(
-                "MagicDesk app logs", mOutput.getText()));
         Toast.makeText(this, R.string.console_copied,
                 Toast.LENGTH_SHORT).show();
     }

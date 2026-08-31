@@ -955,6 +955,15 @@ working-directory requests. The Binder transport exposes raw output from its
 owned descriptor; the loopback transport frames output and metadata so one
 authenticated socket remains the complete ownership boundary.
 
+`AndroidClipboardGateway` is the only direct `ClipboardManager` boundary.
+Console selection and terminal copy/paste callbacks, compatibility reports,
+logs, paths, settings, and automation all use its typed text operations.
+Termux-backed Console windows therefore share the same Android system
+clipboard as shell-backed Console and ordinary Android applications; MagicDesk
+does not maintain a terminal clipboard mirror. Sensitive MCP connection data
+is marked for protected Android clipboard previews. Clipboard access is
+request-driven and has no listener, history, or polling loop.
+
 `TerminalTransport` also has an optional foreground-process capability. The
 Termux relay resolves the PTY foreground process group with `tcgetpgrp()` and
 reports a bounded executable name from its own `/proc` security domain. Console
@@ -1456,11 +1465,18 @@ and desktop files/folders use double-click to open by default, with one shared
 optional single-click mode in Settings.
 
 Files windows are separate Android tasks with independent navigation and
-selection state. Their copy/cut buffer is shared only inside the MagicDesk
-process and is never persisted or published to Android's text clipboard. A
-completed move clears only the buffer generation from which it started, so a
-new selection copied in another window cannot be discarded by an older
-operation.
+selection state. `FileOperationClipboard` holds process-local shell paths and
+an explicit `COPY` or `MOVE` intent; it is not a text clipboard and is never
+persisted. `FileClipboardInterop` is the only bridge to Android. A selection
+containing readable ordinary files is additionally published as read-only
+`content://` items. Directories, symbolic links, and selections larger than
+the bounded Android publication limit remain internal because Android has no
+portable directory-clipboard contract and clipboard Binder payloads must stay
+bounded. Files and Desktop can also paste URI items copied by another Android
+application. External consumers always see copy semantics; only MagicDesk can
+complete the internal move. A completed move clears only its own generation
+and the matching Android URI clip, so an older operation cannot discard a
+newer selection or unrelated clipboard data.
 
 The current-folder name filter operates only on the already loaded page set;
 `Ctrl+F` changes only the local Files presentation. Recursive name search is a

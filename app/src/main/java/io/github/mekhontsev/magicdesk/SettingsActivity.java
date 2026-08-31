@@ -3,8 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.app.Activity;
 import android.app.ActivityOptions;
 import android.app.AlertDialog;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Typeface;
@@ -98,9 +96,7 @@ public final class SettingsActivity extends Activity
     public void copyMcpConnection() {
         final MagicDeskMcpPreferences.Values settings =
                 MagicDeskMcpPreferences.load(this);
-        final ClipboardManager clipboard =
-                getSystemService(ClipboardManager.class);
-        if (clipboard == null || settings.token.isEmpty()) {
+        if (settings.token.isEmpty()) {
             Toast.makeText(this, R.string.settings_mcp_copy_failed,
                     Toast.LENGTH_SHORT).show();
             return;
@@ -110,8 +106,16 @@ public final class SettingsActivity extends Activity
                 + "\nADB: adb forward tcp:"
                 + MagicDeskMcpPreferences.PORT + " tcp:"
                 + MagicDeskMcpPreferences.PORT;
-        clipboard.setPrimaryClip(ClipData.newPlainText(
-                getString(R.string.settings_mcp_connection), value));
+        final AndroidClipboardGateway.OperationResult copied =
+                AndroidClipboardGateway.get(this).writeText(
+                        getString(R.string.settings_mcp_connection),
+                        value,
+                        true);
+        if (!copied.successful) {
+            Toast.makeText(this, R.string.settings_mcp_copy_failed,
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
         Toast.makeText(this, R.string.settings_mcp_copied,
                 Toast.LENGTH_SHORT).show();
     }

@@ -347,7 +347,7 @@ final class FileOperationCenter implements ShellAccess.StateListener {
                     message);
         }
         if (clipboardGeneration >= 0L) {
-            FileManagerClipboard.clearIfGeneration(clipboardGeneration);
+            FileClipboardInterop.completeMove(clipboardGeneration);
         }
         notifyListeners();
     }

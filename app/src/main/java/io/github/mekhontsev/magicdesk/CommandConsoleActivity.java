@@ -2,8 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
@@ -386,18 +384,13 @@ public final class CommandConsoleActivity extends Activity
         if (mSession == null) {
             return;
         }
-        final ClipboardManager clipboard = getSystemService(
-                ClipboardManager.class);
-        final ClipData clip = clipboard == null
-                ? null : clipboard.getPrimaryClip();
-        if (clip == null || clip.getItemCount() == 0) {
+        final AndroidClipboardGateway.TextReadResult clipboard =
+                AndroidClipboardGateway.get(this).readText();
+        if (clipboard.text.isEmpty()) {
             return;
         }
-        final CharSequence text = clip.getItemAt(0).coerceToText(this);
-        if (text != null) {
-            mSession.paste(text.toString());
-            mTerminalView.scrollToBottom();
-        }
+        mSession.paste(clipboard.text);
+        mTerminalView.scrollToBottom();
     }
 
     private View createContentView() {
@@ -897,15 +890,14 @@ public final class CommandConsoleActivity extends Activity
         if (text == null || text.isEmpty()) {
             return;
         }
-        final ClipboardManager clipboard = getSystemService(
-                ClipboardManager.class);
-        if (clipboard == null) {
+        final AndroidClipboardGateway.OperationResult copied =
+                AndroidClipboardGateway.get(this).writeText(
+                        "MagicDesk console output", text, false);
+        if (!copied.successful) {
             Toast.makeText(this, R.string.console_copy_failed,
                     Toast.LENGTH_LONG).show();
             return;
         }
-        clipboard.setPrimaryClip(ClipData.newPlainText(
-                "MagicDesk console output", text));
         Toast.makeText(this, R.string.console_copied,
                 Toast.LENGTH_SHORT).show();
     }

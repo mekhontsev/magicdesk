@@ -307,8 +307,8 @@
     <string name="status_desktop_folder_failed">Desktop folder unavailable: %1$s</string>
     <string name="status_desktop_folder_open_failed">Cannot open the Desktop folder</string>
     <string name="status_desktop_file_operation_failed">Desktop file operation failed: %1$s</string>
-    <string name="status_desktop_item_copied">Item copied to the Files clipboard</string>
-    <string name="status_desktop_item_cut">Item cut to the Files clipboard</string>
+    <string name="status_desktop_item_copied">Item copied</string>
+    <string name="status_desktop_item_cut">Item cut</string>
     <plurals name="status_desktop_files_partially_copied">
         <item quantity="one">Copied %1$d of %2$d file to Desktop</item>
         <item quantity="other">Copied %1$d of %2$d files to Desktop</item>

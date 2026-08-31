@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.ActivityOptions;
 import android.app.AlertDialog;
 import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -632,7 +631,7 @@ public final class FileManagerActivity extends Activity
                 rawX,
                 rawY,
                 mCurrentPath,
-                !FileManagerClipboard.snapshot().isEmpty(),
+                FileClipboardInterop.canPaste(this),
                 new FileManagerBackgroundContextMenu.Actions() {
                     @Override
                     public void newFile() {
@@ -897,18 +896,21 @@ public final class FileManagerActivity extends Activity
 
     @Override
     public void onPaste() {
-        final FileManagerClipboard.Snapshot clipboard =
-                FileManagerClipboard.snapshot();
-        if (clipboard.isEmpty()) {
-            return;
+        final FileClipboardInterop.PasteSource source =
+                FileClipboardInterop.resolvePaste(this);
+        if (source.kind == FileClipboardInterop.PasteKind.INTERNAL_PATHS) {
+            startOperation(
+                    source.files.isMove()
+                            ? ShellFileSystem.OPERATION_MOVE
+                            : ShellFileSystem.OPERATION_COPY,
+                    source.files.paths,
+                    mCurrentPath,
+                    source.files.isMove()
+                            ? source.files.generation : -1L);
+        } else if (source.kind
+                == FileClipboardInterop.PasteKind.ANDROID_URIS) {
+            mImporter.importFiles(mCurrentPath, source.uris, null);
         }
-        startOperation(
-                clipboard.move
-                        ? ShellFileSystem.OPERATION_MOVE
-                        : ShellFileSystem.OPERATION_COPY,
-                clipboard.paths,
-                mCurrentPath,
-                clipboard.move ? clipboard.generation : -1L);
     }
 
     @Override
@@ -1640,15 +1642,19 @@ public final class FileManagerActivity extends Activity
         if (mSelected.isEmpty()) {
             return;
         }
-        FileManagerClipboard.set(
-                new ArrayList<>(mSelected.keySet()), move);
+        FileClipboardInterop.storeShellFiles(
+                this,
+                new ArrayList<>(mSelected.values()),
+                move
+                        ? FileOperationClipboard.Mode.MOVE
+                        : FileOperationClipboard.Mode.COPY);
         clearSelection();
     }
 
     private void updateActionState() {
         mView.updateSelection(
                 mSelected.size(),
-                !FileManagerClipboard.snapshot().isEmpty());
+                FileClipboardInterop.canPaste(this));
     }
 
     private void createEntry(final String name, final boolean directory) {
@@ -1823,14 +1829,12 @@ public final class FileManagerActivity extends Activity
     }
 
     private void copyPath(final ShellFileInfo file) {
-        final ClipboardManager clipboard = getSystemService(
-                ClipboardManager.class);
-        if (clipboard == null) {
+        final AndroidClipboardGateway.OperationResult copied =
+                AndroidClipboardGateway.get(this).writeText(
+                        file.name, file.absolutePath, false);
+        if (!copied.successful) {
             return;
         }
-        clipboard.setPrimaryClip(ClipData.newPlainText(
-                file.name,
-                file.absolutePath));
         mView.setStatus(getString(R.string.file_manager_path_copied));
     }
 

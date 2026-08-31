@@ -2,8 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
@@ -619,14 +617,14 @@ public final class DiagnosticsActivity extends Activity {
         if (mReport.isEmpty()) {
             return;
         }
-        final ClipboardManager clipboard = getSystemService(ClipboardManager.class);
-        if (clipboard == null) {
+        final AndroidClipboardGateway.OperationResult copied =
+                AndroidClipboardGateway.get(this).writeText(
+                        "MagicDesk compatibility report", mReport, false);
+        if (!copied.successful) {
             Toast.makeText(this, R.string.diagnostics_copy_failed,
                     Toast.LENGTH_LONG).show();
             return;
         }
-        clipboard.setPrimaryClip(
-                ClipData.newPlainText("MagicDesk compatibility report", mReport));
         Toast.makeText(this, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show();
     }
 

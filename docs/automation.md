@@ -182,10 +182,21 @@ Developer-only commands are:
 - `magicdesk.force_stop_app`
 - `magicdesk.send_broadcast`
 - `magicdesk.start_service`
+- `magicdesk.clipboard.read_text`
+- `magicdesk.clipboard.write_text`
+- `magicdesk.clipboard.clear`
 - `magicdesk.run_self_test`
 - `magicdesk.send_key`
 - `magicdesk.move_pointer`
 - `magicdesk.click_pointer`
+
+Clipboard automation uses Android's system clipboard through the same gateway
+as Console and built-in UI copy actions. Reading is explicit, returns bounded
+text plus MIME metadata, and may require a focused MagicDesk window under
+Android clipboard privacy rules. Writing supports Android's sensitive-content
+marker. These commands require Developer automation; clipboard contents are
+never exposed as an MCP resource, included in diagnostics, or declared as App
+Functions.
 
 Shell-gated commands are:
 

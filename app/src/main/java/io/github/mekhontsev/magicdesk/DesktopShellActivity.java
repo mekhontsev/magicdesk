@@ -1087,16 +1087,8 @@ public abstract class DesktopShellActivity extends Activity
                 .setNeutralButton(
                         R.string.file_manager_copy_path,
                         (ignored, which) -> {
-                            final android.content.ClipboardManager clipboard =
-                                    getSystemService(
-                                            android.content.ClipboardManager
-                                                    .class);
-                            if (clipboard != null) {
-                                clipboard.setPrimaryClip(
-                                        android.content.ClipData.newPlainText(
-                                                file.name,
-                                                file.absolutePath));
-                            }
+                            AndroidClipboardGateway.get(this).writeText(
+                                    file.name, file.absolutePath, false);
                         })
                 .setPositiveButton(android.R.string.ok, null)
                 .create();
@@ -1123,16 +1115,10 @@ public abstract class DesktopShellActivity extends Activity
                 .setNeutralButton(
                         R.string.file_manager_copy_path,
                         (ignored, which) -> {
-                            final android.content.ClipboardManager clipboard =
-                                    getSystemService(
-                                            android.content.ClipboardManager
-                                                    .class);
-                            if (clipboard != null) {
-                                clipboard.setPrimaryClip(
-                                        android.content.ClipData.newPlainText(
-                                                shortcut.name,
-                                                shortcut.targetPath));
-                            }
+                            AndroidClipboardGateway.get(this).writeText(
+                                    shortcut.name,
+                                    shortcut.targetPath,
+                                    false);
                         })
                 .setPositiveButton(android.R.string.ok, null)
                 .create();

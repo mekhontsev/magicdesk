@@ -526,7 +526,7 @@ final class DesktopFolderController {
                             destinationLabel));
         } else {
             final Throwable error = result.firstFailure == null
-                    ? new IOException("dropped file could not be copied")
+                    ? new IOException("imported file could not be copied")
                     : result.firstFailure;
             final String message = result.copied == 0
                     ? mActivity.getString(
@@ -563,7 +563,7 @@ final class DesktopFolderController {
             return;
         }
         if (!copy && clipboardGeneration >= 0L) {
-            FileManagerClipboard.clearIfGeneration(clipboardGeneration);
+            FileClipboardInterop.completeMove(clipboardGeneration);
         }
         if (destinationLabel == null) {
             mActivity.setStatus(mActivity.getResources().getQuantityString(

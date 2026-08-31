@@ -17,7 +17,6 @@ import java.util.Set;
 
 final class DesktopFileRepository {
     private static final int THUMBNAIL_SIZE = 192;
-    private static final String FALLBACK_IMPORT_NAME = "Dropped file";
 
     private final Context mContext;
 
@@ -92,7 +91,7 @@ final class DesktopFileRepository {
                         ContentUriTransfer.displayName(
                                 mContext.getContentResolver(),
                                 uri,
-                                FALLBACK_IMPORT_NAME),
+                                ContentUriTransfer.FALLBACK_FILE_NAME),
                         occupiedNames);
                 final ShellFileInfo created =
                         ShellAccess.createAvailableShellEntry(
@@ -124,7 +123,8 @@ final class DesktopFileRepository {
         try {
             name = DesktopPathPolicy.validateName(requestedName);
         } catch (IllegalArgumentException error) {
-            return uniqueImportName(FALLBACK_IMPORT_NAME, occupiedNames);
+            return uniqueImportName(
+                    ContentUriTransfer.FALLBACK_FILE_NAME, occupiedNames);
         }
         if (!containsIgnoreCase(occupiedNames, name)) {
             return name;

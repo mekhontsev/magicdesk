@@ -412,6 +412,9 @@ public final class CompatibilityDiagnostics {
                 .append(MagicDeskRuntime
                         .isSessionWakeLockHeld())
                 .append('\n');
+        report.append("Clipboard runtime: ")
+                .append(ClipboardDiagnostics.describe())
+                .append('\n');
         final MagicDeskMcpRuntime.Snapshot mcp =
                 MagicDeskMcpRuntime.snapshot();
         report.append("MCP automation: enabled=")

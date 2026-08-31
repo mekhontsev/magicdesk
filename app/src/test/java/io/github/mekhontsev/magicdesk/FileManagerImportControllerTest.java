@@ -13,7 +13,7 @@ public final class FileManagerImportControllerTest {
 
     @Test
     public void invalidProviderNameUsesSafeFallback() {
-        assertEquals("Dropped file",
+        assertEquals("Imported file",
                 FileManagerImportController.safeName("../private.txt"));
     }
 }
