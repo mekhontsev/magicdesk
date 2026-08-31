@@ -7,6 +7,7 @@ public final class EventDrivenWaits {
     public enum Reason {
         FRAMEWORK_OBSERVER_ACTIVATION,
         FRAMEWORK_OBSERVER_RESAMPLE,
+        TASK_CREATION,
         PTY_RESPONSE,
         AUTOMATION_EVENT,
         INPUT_WINDOW_COMMIT,

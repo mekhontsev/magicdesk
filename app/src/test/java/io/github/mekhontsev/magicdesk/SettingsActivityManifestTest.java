@@ -11,7 +11,7 @@ import java.nio.file.Path;
 
 public final class SettingsActivityManifestTest {
     @Test
-    public void settingsUsesProtectedDedicatedResizableTask() throws IOException {
+    public void settingsUsesProtectedResizableDesktopTask() throws IOException {
         final String manifest = Files.readString(
                 Path.of("src/main/AndroidManifest.xml"),
                 StandardCharsets.UTF_8);
@@ -26,7 +26,7 @@ public final class SettingsActivityManifestTest {
         assertTrue(declaration.contains(
                 "android:permission=\"android.permission.MANAGE_ACTIVITY_TASKS\""));
         assertTrue(declaration.contains(
-                "android:launchMode=\"singleTask\""));
+                "android:launchMode=\"singleTop\""));
         assertTrue(declaration.contains(
                 "android:resizeableActivity=\"true\""));
         assertTrue(declaration.contains(

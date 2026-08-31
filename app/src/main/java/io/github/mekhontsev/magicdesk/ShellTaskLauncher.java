@@ -91,7 +91,8 @@ final class ShellTaskLauncher {
                     intent.getComponent().getPackageName(),
                     bounds,
                     taskAreaToken,
-                    stagedReveal);
+                    stagedReveal,
+                    pending::awaitObservedTaskId);
             pending.complete(taskId);
             if (stagedReveal) {
                 // No launch has a stable task token before creation. Keep its
@@ -212,6 +213,7 @@ final class ShellTaskLauncher {
             final boolean matches = mActivityIdentity.matches(componentName);
             if (mObservedTaskId < 0 && matches) {
                 mObservedTaskId = taskId;
+                notifyAll();
                 identify(taskId);
             }
         }
@@ -219,12 +221,27 @@ final class ShellTaskLauncher {
         synchronized void complete(final int taskId) {
             if (mObservedTaskId < 0) {
                 mObservedTaskId = taskId;
+                notifyAll();
                 identify(taskId);
             } else if (mObservedTaskId != taskId) {
                 throw new IllegalStateException(
                         "created task does not match launched task: observed="
                                 + mObservedTaskId + ", launched=" + taskId);
             }
+        }
+
+        synchronized int awaitObservedTaskId(final long timeoutMillis) {
+            if (mObservedTaskId < 0) {
+                try {
+                    EventDrivenWaits.await(
+                            this,
+                            EventDrivenWaits.Reason.TASK_CREATION,
+                            timeoutMillis);
+                } catch (InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return mObservedTaskId;
         }
 
         private void identify(final int taskId) {

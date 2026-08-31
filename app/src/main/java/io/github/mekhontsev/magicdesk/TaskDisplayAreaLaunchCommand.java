@@ -20,6 +20,10 @@ import java.util.Set;
 /** Launches or moves a live task into its requested desktop hierarchy. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskDisplayAreaLaunchCommand {
+    interface TaskIdSource {
+        int awaitTaskId(long timeoutMillis);
+    }
+
     private static final String PACKAGE_NAME =
             "io.github.mekhontsev.magicdesk";
     private static final String ACTIVITY_CLASS =
@@ -267,6 +271,27 @@ public final class TaskDisplayAreaLaunchCommand {
             final Object areaToken,
             final boolean launchBehind)
             throws ReflectiveOperationException {
+        return launchTask(
+                service,
+                displayId,
+                intent,
+                expectedPackage,
+                bounds,
+                areaToken,
+                launchBehind,
+                null);
+    }
+
+    static int launchTask(
+            final Object service,
+            final int displayId,
+            final Intent intent,
+            final String expectedPackage,
+            final Rect bounds,
+            final Object areaToken,
+            final boolean launchBehind,
+            final TaskIdSource taskIdSource)
+            throws ReflectiveOperationException {
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(displayId);
         options.setLaunchBounds(bounds);
@@ -294,7 +319,8 @@ public final class TaskDisplayAreaLaunchCommand {
                 displayId,
                 -1,
                 expectedPackage,
-                existingTaskIds);
+                existingTaskIds,
+                taskIdSource);
     }
 
     static int launchFullscreenTask(
@@ -480,6 +506,29 @@ public final class TaskDisplayAreaLaunchCommand {
             final String expectedPackage,
             final Set<Integer> excludedTaskIds)
             throws ReflectiveOperationException {
+        return waitForTask(
+                service,
+                displayId,
+                expectedTaskId,
+                expectedPackage,
+                excludedTaskIds,
+                null);
+    }
+
+    private static int waitForTask(
+            final Object service,
+            final int displayId,
+            final int expectedTaskId,
+            final String expectedPackage,
+            final Set<Integer> excludedTaskIds,
+            final TaskIdSource taskIdSource)
+            throws ReflectiveOperationException {
+        if (taskIdSource != null) {
+            final int observedTaskId = taskIdSource.awaitTaskId(50L);
+            if (observedTaskId >= 0) {
+                return observedTaskId;
+            }
+        }
         final List<FrameworkTaskSnapshot> tasks =
                 BoundedStateAwaiter.awaitFramework(
                         BoundedStateAwaiter.Reason.TASK_APPEARANCE,
