@@ -1,8 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.ClipData;
 import android.content.Intent;
-import android.net.Uri;
 import android.util.Patterns;
 
 import java.net.IDN;
@@ -28,19 +26,15 @@ final class WebShortcutShareRequest {
         if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction())) {
             return null;
         }
-        final CharSequence sharedText = intent.getCharSequenceExtra(
-                Intent.EXTRA_TEXT);
-        String url = findHttpUrl(sharedText);
-        final ClipData clip = intent.getClipData();
-        if (url == null && clip != null) {
-            final int count = Math.min(clip.getItemCount(), MAX_CLIP_ITEMS);
+        final AndroidContentPayload content =
+                AndroidContentPayload.fromSendIntent(intent);
+        String url = findHttpUrl(content.text);
+        if (url == null) {
+            final int count = Math.min(
+                    content.uriItems.size(), MAX_CLIP_ITEMS);
             for (int index = 0; index < count; index++) {
-                final ClipData.Item item = clip.getItemAt(index);
-                final Uri uri = item.getUri();
-                url = normalizeCandidate(uri == null ? null : uri.toString());
-                if (url == null) {
-                    url = findHttpUrl(item.getText());
-                }
+                url = normalizeCandidate(
+                        content.uriItems.get(index).uri.toString());
                 if (url != null) {
                     break;
                 }
@@ -49,12 +43,8 @@ final class WebShortcutShareRequest {
         if (url == null) {
             return null;
         }
-        CharSequence title = intent.getCharSequenceExtra(Intent.EXTRA_TITLE);
-        if (title == null || title.toString().trim().isEmpty()) {
-            title = intent.getStringExtra(Intent.EXTRA_SUBJECT);
-        }
         return new WebShortcutShareRequest(
-                normalizeName(title, url), url);
+                normalizeName(content.subject, url), url);
     }
 
     static String findHttpUrl(final CharSequence text) {

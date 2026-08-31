@@ -309,11 +309,23 @@ final class DesktopContextMenuController {
                 DesktopUiFactory.COLOR_CYAN,
                 true,
                 view -> mActivity.createCommandApplication());
+        final boolean hasClipboardContent =
+                FileClipboardInterop.canPaste(mActivity);
         addAction(
                 R.string.file_manager_paste,
                 DesktopUiFactory.COLOR_PANEL_ALT,
-                FileClipboardInterop.canPaste(mActivity),
+                hasClipboardContent,
                 view -> mActivity.pasteDesktopFiles());
+        addAction(
+                R.string.action_open_clipboard_content,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                hasClipboardContent,
+                view -> mActivity.openClipboardContent());
+        addAction(
+                R.string.action_share_clipboard_content,
+                DesktopUiFactory.COLOR_PANEL_ALT,
+                hasClipboardContent,
+                view -> mActivity.shareClipboardContent());
         addAction(
                 R.string.action_add_widget,
                 DesktopUiFactory.COLOR_PANEL_ALT,

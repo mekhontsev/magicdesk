@@ -60,6 +60,17 @@ contract. Hold `Ctrl` when starting an internal drag to copy instead of move.
 Conflicting copies receive a numeric suffix rather than silently replacing
 existing data.
 
+Desktop **Paste** and Files **Paste** also accept Android clipboard content.
+Provider URI items are copied into the selected folder; plain text is saved as
+a UTF-8 text file. The Desktop context menu can explicitly open a clipboard
+file or web link and can share the current text/files through Android's chooser.
+These actions inspect the clipboard only when invoked and do not maintain a
+clipboard listener or history.
+
+Android's share sheet exposes **Save to MagicDesk Desktop**. The receiver asks
+for confirmation, then materializes shared provider content or text in the
+Desktop folder while incoming URI permissions remain valid.
+
 Long-running shell copy, move, and delete operations outlive their initiating
 Files window. Reopening Files reconnects to their progress and cancellation
 state.

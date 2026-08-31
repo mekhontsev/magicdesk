@@ -31,10 +31,14 @@ public final class MagicDeskMcpToolCatalogTest {
         assertFalse(publicNames.contains("run_self_test"));
         assertFalse(publicNames.contains("clipboard.read_text"));
         assertFalse(publicNames.contains("clipboard.write_text"));
+        assertFalse(publicNames.contains("clipboard.open"));
+        assertFalse(publicNames.contains("clipboard.share"));
         assertFalse(publicNames.contains("clipboard.clear"));
         assertTrue(developerNames.contains("run_self_test"));
         assertTrue(developerNames.contains("clipboard.read_text"));
         assertTrue(developerNames.contains("clipboard.write_text"));
+        assertTrue(developerNames.contains("clipboard.open"));
+        assertTrue(developerNames.contains("clipboard.share"));
         assertTrue(developerNames.contains("clipboard.clear"));
         assertTrue(developerNames.containsAll(publicNames));
         assertTrue(developerNames.size() > publicNames.size());
@@ -121,6 +125,8 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(DesktopAutomationAction.START_SERVICE.developerOnly);
         assertTrue(DesktopAutomationAction.READ_CLIPBOARD_TEXT.developerOnly);
         assertTrue(DesktopAutomationAction.WRITE_CLIPBOARD_TEXT.developerOnly);
+        assertTrue(DesktopAutomationAction.OPEN_CLIPBOARD_CONTENT.developerOnly);
+        assertTrue(DesktopAutomationAction.SHARE_CLIPBOARD_CONTENT.developerOnly);
         assertTrue(DesktopAutomationAction.CLEAR_CLIPBOARD.developerOnly);
         assertFalse(DesktopAutomationAction.LAUNCH_INTENT.developerOnly);
         assertFalse(DesktopAutomationAction.EXECUTE_APP_FUNCTION.developerOnly);
@@ -133,6 +139,10 @@ public final class MagicDeskMcpToolCatalogTest {
                 .getJSONObject("inputSchema");
         final JSONObject readOutput = dataProperties(
                 tools, "clipboard.read_text");
+        final JSONObject open = tool(tools, "clipboard.open")
+                .getJSONObject("inputSchema");
+        final JSONObject shareOutput = dataProperties(
+                tools, "clipboard.share");
 
         assertEquals("text", write.getJSONArray("required").getString(0));
         assertTrue(write.getJSONObject("properties").has("sensitive"));
@@ -140,6 +150,9 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(readOutput.has("truncated"));
         assertTrue(readOutput.has("mimeTypes"));
         assertTrue(readOutput.has("sensitive"));
+        assertTrue(open.getJSONObject("properties").has("displayId"));
+        assertTrue(shareOutput.has("resolvedComponent"));
+        assertTrue(shareOutput.has("relay"));
     }
 
     @Test

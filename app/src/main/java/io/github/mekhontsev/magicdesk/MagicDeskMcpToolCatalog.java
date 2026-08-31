@@ -377,6 +377,20 @@ final class MagicDeskMcpToolCatalog {
                                         .put("sensitive", booleanProperty(
                                                 "Mark clipboard previews as sensitive.")),
                                 "text")))
+                .put(actionTool(
+                        "clipboard.open",
+                        "Open clipboard link or file",
+                        "Open the current clipboard file or web link through the production desktop Intent launcher. Developer automation only.",
+                        objectSchema(new JSONObject().put(
+                                "displayId", integerProperty(
+                                        "Optional active desktop display id.")))))
+                .put(actionTool(
+                        "clipboard.share",
+                        "Share clipboard content",
+                        "Open Android's share chooser for the current clipboard content through the production desktop Intent launcher. Developer automation only.",
+                        objectSchema(new JSONObject().put(
+                                "displayId", integerProperty(
+                                        "Optional active desktop display id.")))))
                 .put(destructiveTool(
                         "clipboard.clear",
                         "Clear clipboard",
@@ -1123,6 +1137,21 @@ final class MagicDeskMcpToolCatalog {
                             .put("truncated", booleanProperty(
                                     "Whether clipboard text exceeded the returned limit."));
                 }
+                break;
+            case "clipboard.open":
+            case "clipboard.share":
+                properties.put("kind", stringProperty(
+                                "Android component kind."))
+                        .put("action", stringProperty(
+                                "Android Intent action."))
+                        .put("displayId", integerProperty(
+                                "Desktop display id."))
+                        .put("resolvedComponent", stringProperty(
+                                "Resolved Android Activity component."))
+                        .put("resolution", stringProperty(
+                                "Android handler resolution state."))
+                        .put("relay", booleanProperty(
+                                "Whether launch uses the app-identity relay."));
                 break;
             case "send_broadcast":
             case "start_service":

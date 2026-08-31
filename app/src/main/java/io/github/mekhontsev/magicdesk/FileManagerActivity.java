@@ -813,28 +813,21 @@ public final class FileManagerActivity extends Activity
             }
             return true;
         }
-        final ClipData data = event.getClipData();
-        if (data == null) {
-            return false;
-        }
-        final List<Uri> uris = new ArrayList<>();
-        for (int index = 0; index < data.getItemCount(); index++) {
-            final Uri uri = data.getItemAt(index).getUri();
-            if (uri != null) {
-                uris.add(uri);
-            }
-        }
-        if (uris.isEmpty()) {
+        final AndroidContentPayload content =
+                AndroidContentPayload.fromClipData(
+                        event.getClipData(),
+                        AndroidContentPayload.Origin.DRAG);
+        if (content.isEmpty()) {
             return false;
         }
         final DragAndDropPermissions permissions;
         try {
             permissions = requestDragAndDropPermissions(event);
         } catch (RuntimeException error) {
-            importDroppedFiles(destinationPath, uris, null);
+            mImporter.importContent(destinationPath, content, null);
             return true;
         }
-        importDroppedFiles(destinationPath, uris, permissions);
+        mImporter.importContent(destinationPath, content, permissions);
         return true;
     }
 
@@ -908,8 +901,9 @@ public final class FileManagerActivity extends Activity
                     source.files.isMove()
                             ? source.files.generation : -1L);
         } else if (source.kind
-                == FileClipboardInterop.PasteKind.ANDROID_URIS) {
-            mImporter.importFiles(mCurrentPath, source.uris, null);
+                == FileClipboardInterop.PasteKind.ANDROID_CONTENT) {
+            mImporter.importContent(
+                    mCurrentPath, source.content, null);
         }
     }
 
@@ -1712,14 +1706,15 @@ public final class FileManagerActivity extends Activity
         try {
             final Uri uri = ShellFileGrantStore.create(
                     this, file, file.writable);
-            final Intent view = new Intent(Intent.ACTION_VIEW)
-                    .setDataAndType(uri, file.mimeType)
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                            | (file.writable
-                                    ? Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                                    : 0));
-            view.setClipData(ClipData.newUri(
-                    getContentResolver(), file.name, uri));
+            final AndroidContentPayload content = AndroidContentPayload.uris(
+                    file.name,
+                    List.of(new AndroidContentPayload.UriItem(
+                            uri, file.mimeType)),
+                    List.of(),
+                    AndroidContentPayload.Origin.APPLICATION);
+            final Intent view = AndroidContentIntentAdapter.open(content)
+                    .addFlags(file.writable
+                            ? Intent.FLAG_GRANT_WRITE_URI_PERMISSION : 0);
             if (!mOpenWith.open(
                     view,
                     DesktopLaunchArguments.files(

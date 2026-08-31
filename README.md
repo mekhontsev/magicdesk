@@ -116,8 +116,9 @@ and desktop items rather than depending only on synthetic screen coordinates.
   positioned files, folders, shortcuts, and Android widgets.
 - Browse and modify the filesystem visible to the authorized shell identity in
   multiple Files windows, with list/grid views, search, selection, properties,
-  drag and drop, shared desktop context menus, and Android content-URI
-  clipboard exchange for ordinary files.
+  drag and drop, shared desktop context menus, Android content-URI clipboard
+  exchange, text-to-file paste, clipboard Open/Share actions, and a
+  **Save to MagicDesk Desktop** Android share target.
 - Run independent interactive `/system/bin/sh` sessions in Console through a
   real PTY with ANSI color, alternate-screen applications, mouse reporting,
   selection, Android system clipboard integration, and live resizing.

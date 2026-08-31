@@ -5,14 +5,11 @@ import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.net.Uri;
 import android.os.PersistableBundle;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 /** The single app-identity boundary for Android's system clipboard. */
@@ -25,7 +22,6 @@ final class AndroidClipboardGateway {
             "io.github.mekhontsev.magicdesk.FILE_CLIP_GENERATION";
     private static final String FILE_CLIP_OWNER = "magicdesk";
     private static final String PROCESS_SESSION = UUID.randomUUID().toString();
-    private static final int MAX_PUBLISHED_URI_ITEMS = 64;
     private static final Object INSTANCE_LOCK = new Object();
     private static final Object RUNTIME_LOCK = new Object();
 
@@ -84,17 +80,6 @@ final class AndroidClipboardGateway {
                     && generation == fileGeneration;
         }
 
-        boolean mayContainUris() {
-            for (final String mimeType : mimeTypes) {
-                if (ClipDescription.MIMETYPE_TEXT_URILIST.equals(mimeType)
-                        || (!ClipDescription.MIMETYPE_TEXT_PLAIN.equals(mimeType)
-                        && !ClipDescription.MIMETYPE_TEXT_HTML.equals(mimeType)
-                        && !ClipDescription.MIMETYPE_TEXT_INTENT.equals(mimeType))) {
-                    return true;
-                }
-            }
-            return false;
-        }
     }
 
     static final class OperationResult {
@@ -112,19 +97,6 @@ final class AndroidClipboardGateway {
         }
     }
 
-    static final class UriItem {
-        final Uri uri;
-        final String mimeType;
-
-        UriItem(final Uri uri, final String mimeType) {
-            if (uri == null) {
-                throw new IllegalArgumentException("clipboard URI is required");
-            }
-            this.uri = uri;
-            this.mimeType = safeMimeType(mimeType);
-        }
-    }
-
     static final class TextReadResult {
         final Metadata metadata;
         final String text;
@@ -135,13 +107,15 @@ final class AndroidClipboardGateway {
         }
     }
 
-    static final class UriReadResult {
+    static final class ContentReadResult {
         final Metadata metadata;
-        final List<Uri> uris;
+        final AndroidContentPayload content;
 
-        UriReadResult(final Metadata metadata, final List<Uri> uris) {
+        ContentReadResult(
+                final Metadata metadata,
+                final AndroidContentPayload content) {
             this.metadata = metadata;
-            this.uris = uris;
+            this.content = content;
         }
     }
 
@@ -171,7 +145,7 @@ final class AndroidClipboardGateway {
     }
 
     static boolean acceptsUriItemCount(final int count) {
-        return count > 0 && count <= MAX_PUBLISHED_URI_ITEMS;
+        return count > 0 && count <= AndroidContentPayload.MAX_URI_ITEMS;
     }
 
     OperationResult writeText(
@@ -181,18 +155,20 @@ final class AndroidClipboardGateway {
         if (text == null) {
             return failure("write_text", "text is required");
         }
-        final ClipData clip = ClipData.newPlainText(safeLabel(label), text);
-        if (sensitive) {
-            final PersistableBundle extras = new PersistableBundle();
-            extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
-            clip.getDescription().setExtras(extras);
-        }
-        return setPrimaryClip(clip, "write_text", false);
+        return writeContent(
+                AndroidContentPayload.text(
+                        safeLabel(label),
+                        text,
+                        sensitive,
+                        AndroidContentPayload.Origin.APPLICATION),
+                -1L,
+                "write_text",
+                false);
     }
 
     OperationResult writeUris(
             final CharSequence label,
-            final List<UriItem> items,
+            final List<AndroidContentPayload.UriItem> items,
             final long fileGeneration) {
         if (items == null || items.isEmpty()) {
             return failure("write_uris", "at least one URI is required");
@@ -200,73 +176,34 @@ final class AndroidClipboardGateway {
         if (!acceptsUriItemCount(items.size())) {
             return failure(
                     "write_uris",
-                    "URI item count exceeds " + MAX_PUBLISHED_URI_ITEMS);
+                    "URI item count exceeds "
+                            + AndroidContentPayload.MAX_URI_ITEMS);
         }
-        final Set<String> mimeTypes = new LinkedHashSet<>();
-        mimeTypes.add(ClipDescription.MIMETYPE_TEXT_URILIST);
-        for (final UriItem item : items) {
+        for (final AndroidContentPayload.UriItem item : items) {
             if (item == null) {
                 return failure("write_uris", "clipboard item is required");
             }
-            mimeTypes.add(item.mimeType);
         }
-        final ClipDescription description = new ClipDescription(
-                safeLabel(label), mimeTypes.toArray(new String[0]));
-        final ClipData clip = new ClipData(
-                description, new ClipData.Item(items.get(0).uri));
-        for (int index = 1; index < items.size(); index++) {
-            clip.addItem(new ClipData.Item(items.get(index).uri));
-        }
-        if (fileGeneration >= 0L) {
-            final PersistableBundle extras = new PersistableBundle();
-            extras.putString(EXTRA_FILE_CLIP_OWNER, FILE_CLIP_OWNER);
-            extras.putString(EXTRA_FILE_CLIP_SESSION, PROCESS_SESSION);
-            extras.putLong(EXTRA_FILE_CLIP_GENERATION, fileGeneration);
-            description.setExtras(extras);
-        }
-        return setPrimaryClip(clip, "write_uris", true);
+        return writeContent(
+                AndroidContentPayload.uris(
+                        safeLabel(label),
+                        items,
+                        Collections.emptyList(),
+                        AndroidContentPayload.Origin.APPLICATION),
+                fileGeneration,
+                "write_uris",
+                true);
     }
 
     TextReadResult readText() {
-        final ClipRead read = readPrimaryClip("read_text");
-        if (read.clip == null) {
-            return new TextReadResult(read.metadata, "");
-        }
-        try {
-            final CharSequence value = read.clip.getItemAt(0).getText();
-            return new TextReadResult(
-                    read.metadata, value == null ? "" : value.toString());
-        } catch (SecurityException error) {
-            return new TextReadResult(denied("read_text", error), "");
-        } catch (RuntimeException error) {
-            return new TextReadResult(failed("read_text", error), "");
-        }
+        final ContentReadResult read = readContent("read_text");
+        return new TextReadResult(
+                read.metadata,
+                read.content == null ? "" : read.content.text);
     }
 
-    UriReadResult readUris() {
-        final ClipRead read = readPrimaryClip("read_uris");
-        if (read.clip == null) {
-            return new UriReadResult(
-                    read.metadata, Collections.emptyList());
-        }
-        try {
-            final Set<Uri> uris = new LinkedHashSet<>();
-            for (int index = 0; index < read.clip.getItemCount(); index++) {
-                final Uri uri = read.clip.getItemAt(index).getUri();
-                if (uri != null) {
-                    uris.add(uri);
-                }
-            }
-            return new UriReadResult(
-                    read.metadata,
-                    Collections.unmodifiableList(new ArrayList<>(uris)));
-        } catch (SecurityException error) {
-            return new UriReadResult(
-                    denied("read_uris", error), Collections.emptyList());
-        } catch (RuntimeException error) {
-            return new UriReadResult(
-                    failed("read_uris", error), Collections.emptyList());
-        }
+    ContentReadResult readContent() {
+        return readContent("read_content");
     }
 
     Metadata metadata() {
@@ -339,6 +276,49 @@ final class AndroidClipboardGateway {
                     metadata(clip.getDescription(), clip.getItemCount()));
         } catch (RuntimeException error) {
             return failure(operation, error);
+        }
+    }
+
+    private OperationResult writeContent(
+            final AndroidContentPayload content,
+            final long fileGeneration,
+            final String operation,
+            final boolean uriWrite) {
+        final ClipData clip;
+        try {
+            clip = content.toClipData();
+            if (fileGeneration >= 0L) {
+                final ClipDescription description = clip.getDescription();
+                final PersistableBundle previous = description.getExtras();
+                final PersistableBundle extras = previous == null
+                        ? new PersistableBundle()
+                        : new PersistableBundle(previous);
+                extras.putString(EXTRA_FILE_CLIP_OWNER, FILE_CLIP_OWNER);
+                extras.putString(EXTRA_FILE_CLIP_SESSION, PROCESS_SESSION);
+                extras.putLong(EXTRA_FILE_CLIP_GENERATION, fileGeneration);
+                description.setExtras(extras);
+            }
+        } catch (RuntimeException error) {
+            return failure(operation, error);
+        }
+        return setPrimaryClip(clip, operation, uriWrite);
+    }
+
+    private ContentReadResult readContent(final String operation) {
+        final ClipRead read = readPrimaryClip(operation);
+        if (read.clip == null) {
+            return new ContentReadResult(read.metadata, null);
+        }
+        try {
+            return new ContentReadResult(
+                    read.metadata,
+                    AndroidContentPayload.fromClipData(
+                            read.clip,
+                            AndroidContentPayload.Origin.CLIPBOARD));
+        } catch (SecurityException error) {
+            return new ContentReadResult(denied(operation, error), null);
+        } catch (RuntimeException error) {
+            return new ContentReadResult(failed(operation, error), null);
         }
     }
 
@@ -527,16 +507,6 @@ final class AndroidClipboardGateway {
         ActivityManager.getMyMemoryState(process);
         return process.importance
                 == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND;
-    }
-
-    private static String safeMimeType(final String mimeType) {
-        if (mimeType == null) {
-            return "application/octet-stream";
-        }
-        final String cleaned = mimeType.trim();
-        final int separator = cleaned.indexOf('/');
-        return separator > 0 && separator < cleaned.length() - 1
-                ? cleaned : "application/octet-stream";
     }
 
     private static String clean(final String value) {

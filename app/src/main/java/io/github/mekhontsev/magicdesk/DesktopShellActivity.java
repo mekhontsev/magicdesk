@@ -1071,6 +1071,14 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopWorkspaceController.pasteFiles();
     }
 
+    void openClipboardContent() {
+        mDesktopWorkspaceController.openClipboardContent();
+    }
+
+    void shareClipboardContent() {
+        mDesktopWorkspaceController.shareClipboardContent();
+    }
+
     void copyDesktopFilePath(final DesktopFile file) {
         mDesktopWorkspaceController.copyFilePath(file);
     }

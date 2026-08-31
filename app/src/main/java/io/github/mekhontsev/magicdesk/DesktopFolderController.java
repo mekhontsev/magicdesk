@@ -254,6 +254,44 @@ final class DesktopFolderController {
                 null);
     }
 
+    void importContent(
+            final AndroidContentPayload content,
+            final DragAndDropPermissions permissions) {
+        importContent(
+                content,
+                permissions,
+                ShellDesktopDirectory.ABSOLUTE_PATH,
+                null);
+    }
+
+    void importContent(
+            final AndroidContentPayload content,
+            final DragAndDropPermissions permissions,
+            final String destination,
+            final String destinationLabel) {
+        if (mReleased || content == null || content.isEmpty()) {
+            releasePermissions(permissions);
+            return;
+        }
+        mExecutor.execute(() -> {
+            DesktopFileRepository.ImportResult result;
+            try {
+                result = mFilesRepository.importContent(
+                        content, destination);
+            } catch (IOException | RuntimeException error) {
+                result = new DesktopFileRepository.ImportResult(
+                        0, content.hasUris() ? content.uriItems.size() : 1, error);
+            } finally {
+                releasePermissions(permissions);
+            }
+            final DesktopFileRepository.ImportResult completed = result;
+            final int requested = content.hasUris()
+                    ? content.uriItems.size() : 1;
+            mHandler.post(() -> onImportCompleted(
+                    requested, completed, destinationLabel));
+        });
+    }
+
     void importFiles(
             final List<Uri> uris,
             final DragAndDropPermissions permissions,

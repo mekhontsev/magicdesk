@@ -443,10 +443,11 @@ runtime integration and are not distributed through the same release path.
   and state boundary. Developer input, self-test, force-stop, broadcast, and
   service tools require a separate setting and disappear when that setting is
   disabled.
-- `AndroidIntegrationGateway` is the single MCP boundary for typed and raw
+- `AndroidIntegrationGateway` is the single application boundary for typed and raw
   Android intents, semantic URI/file/share operations, published shortcuts,
   notification `PendingIntent` actions, Activity results, and external App
-  Functions. `AndroidIntegrationRequest` owns Intent parsing and validation;
+  Functions. Desktop UI and MCP adapters both enter this boundary.
+  `AndroidIntegrationRequest` owns Intent parsing and validation;
   raw Intent URIs are an input form rather than a parallel executor. Direct
   launches cross the Shizuku task-launch boundary as full Parcelable Intents,
   preserving `ClipData`, grants, and typed extras. Discovery and App
@@ -964,6 +965,25 @@ does not maintain a terminal clipboard mirror. Sensitive MCP connection data
 is marked for protected Android clipboard previews. Clipboard access is
 request-driven and has no listener, history, or polling loop.
 
+`AndroidContentPayload` is the immutable content contract shared by clipboard,
+Android share/view Intents, external drag-and-drop, Files, and Desktop. It
+preserves bounded URI items, declared MIME types, text/HTML, sensitivity, and
+origin without carrying executable clipboard Intents.
+`AndroidContentIntentAdapter` is the only payload-to-Intent/ClipData serializer.
+Read grants travel in both `ClipData` and Intent flags, so the selected
+application receives the same content that MagicDesk classified. Clipboard
+**Open** and **Share** are explicit desktop actions and launch through the
+production Android integration path; developer MCP exposes the same operations
+without adding another executor. Ordinary state and diagnostics contain only
+counters and metadata.
+
+`DesktopContentReceiverActivity` is the exported **Save to MagicDesk Desktop**
+share target. Because an exported Activity can be invoked explicitly, it asks
+for user confirmation before writing anything. Accepted URI content is copied
+while the incoming grant is alive; accepted plain text becomes a UTF-8 desktop
+file. It does not retain incoming payloads, watch the clipboard, or start an
+idle service.
+
 `TerminalTransport` also has an optional foreground-process capability. The
 Termux relay resolves the PTY foreground process group with `tcgetpgrp()` and
 reports a bounded executable name from its own `/proc` security domain. Console
@@ -1472,8 +1492,10 @@ containing readable ordinary files is additionally published as read-only
 `content://` items. Directories, symbolic links, and selections larger than
 the bounded Android publication limit remain internal because Android has no
 portable directory-clipboard contract and clipboard Binder payloads must stay
-bounded. Files and Desktop can also paste URI items copied by another Android
-application. External consumers always see copy semantics; only MagicDesk can
+bounded. Files and Desktop can also paste content copied by another Android
+application. URI items are imported as files; plain text becomes a UTF-8
+`.txt` file (or `.html` when HTML is the only representation). External
+consumers always see copy semantics; only MagicDesk can
 complete the internal move. A completed move clears only its own generation
 and the matching Android URI clip, so an older operation cannot discard a
 newer selection or unrelated clipboard data.

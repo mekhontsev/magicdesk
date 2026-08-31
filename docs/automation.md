@@ -184,6 +184,8 @@ Developer-only commands are:
 - `magicdesk.start_service`
 - `magicdesk.clipboard.read_text`
 - `magicdesk.clipboard.write_text`
+- `magicdesk.clipboard.open`
+- `magicdesk.clipboard.share`
 - `magicdesk.clipboard.clear`
 - `magicdesk.run_self_test`
 - `magicdesk.send_key`
@@ -197,6 +199,10 @@ Android clipboard privacy rules. Writing supports Android's sensitive-content
 marker. These commands require Developer automation; clipboard contents are
 never exposed as an MCP resource, included in diagnostics, or declared as App
 Functions.
+`clipboard.open` accepts one clipboard URI or an HTTP(S) link, while
+`clipboard.share` sends text and bounded URI items through Android's chooser.
+Both preserve `ClipData` URI grants and enter the normal desktop Intent launch
+coordinator.
 
 Shell-gated commands are:
 

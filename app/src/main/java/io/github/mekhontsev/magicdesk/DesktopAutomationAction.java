@@ -21,6 +21,8 @@ enum DesktopAutomationAction {
     EXECUTE_APP_FUNCTION("execute_app_function", false),
     READ_CLIPBOARD_TEXT("clipboard.read_text", true),
     WRITE_CLIPBOARD_TEXT("clipboard.write_text", true),
+    OPEN_CLIPBOARD_CONTENT("clipboard.open", true),
+    SHARE_CLIPBOARD_CONTENT("clipboard.share", true),
     CLEAR_CLIPBOARD("clipboard.clear", true),
     LAUNCH_DESKTOP_ENTRY("launch_desktop_entry", false),
     FOCUS_TASK("focus_task", false),

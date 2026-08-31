@@ -102,6 +102,22 @@
     <string name="file_manager_copy">Copy</string>
     <string name="file_manager_cut">Cut</string>
     <string name="file_manager_paste">Paste</string>
+    <string name="action_open_clipboard_content">Open clipboard link or file</string>
+    <string name="action_share_clipboard_content">Share clipboard content</string>
+    <string name="desktop_share_target">Save to MagicDesk Desktop</string>
+    <string name="desktop_share_save_title">Save to Desktop</string>
+    <string name="desktop_share_save_action">Save</string>
+    <string name="desktop_share_unsupported">This shared content cannot be saved.</string>
+    <string name="desktop_share_shizuku_required">Start MagicDesk and Shizuku, then share the content again.</string>
+    <string name="desktop_share_failed">Could not save shared content: %1$s</string>
+    <plurals name="desktop_share_save_message">
+        <item quantity="one">Save %1$d item to the MagicDesk Desktop?</item>
+        <item quantity="other">Save %1$d items to the MagicDesk Desktop?</item>
+    </plurals>
+    <plurals name="desktop_share_saved">
+        <item quantity="one">Saved %1$d item to Desktop.</item>
+        <item quantity="other">Saved %1$d items to Desktop.</item>
+    </plurals>
     <string name="file_manager_properties">Properties</string>
     <string name="file_manager_open_with">Open with</string>
     <string name="file_manager_just_once">Just once</string>

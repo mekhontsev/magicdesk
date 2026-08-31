@@ -1,7 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.ClipData;
-import android.net.Uri;
 import android.view.DragEvent;
 
 import java.util.ArrayList;
@@ -9,8 +7,6 @@ import java.util.List;
 
 /** Converts Android drag payloads at the UI boundary into launch arguments. */
 final class DesktopDragLaunchArguments {
-    private static final int MAX_ARGUMENTS = 128;
-
     private DesktopDragLaunchArguments() {
     }
 
@@ -19,18 +15,16 @@ final class DesktopDragLaunchArguments {
         if (payload != null) {
             return DesktopLaunchArguments.files(payload.absolutePaths);
         }
-        final ClipData data = event == null ? null : event.getClipData();
-        if (data == null) {
+        final AndroidContentPayload content =
+                AndroidContentPayload.fromClipData(
+                        event == null ? null : event.getClipData(),
+                        AndroidContentPayload.Origin.DRAG);
+        if (!content.hasUris()) {
             return DesktopLaunchArguments.empty();
         }
         final List<DesktopLaunchArgument> values = new ArrayList<>();
-        for (int index = 0;
-                index < data.getItemCount() && values.size() < MAX_ARGUMENTS;
-                index++) {
-            final Uri uri = data.getItemAt(index).getUri();
-            if (uri != null) {
-                values.add(DesktopLaunchArgument.uri(uri.toString()));
-            }
+        for (final AndroidContentPayload.UriItem item : content.uriItems) {
+            values.add(DesktopLaunchArgument.uri(item.uri.toString()));
         }
         return DesktopLaunchArguments.of(values);
     }

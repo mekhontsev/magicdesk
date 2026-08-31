@@ -35,6 +35,7 @@ final class DesktopAutomationController {
     private final DesktopAutomationTraceManager mTraces;
     private final AndroidIntegrationGateway mAndroid;
     private final ClipboardAutomationGateway mClipboard;
+    private final AndroidContentActionGateway mClipboardActions;
     private final Object mPointerLock = new Object();
 
     private int mPointerDisplayId = Display.INVALID_DISPLAY;
@@ -50,6 +51,8 @@ final class DesktopAutomationController {
         mTraces = new DesktopAutomationTraceManager(mState);
         mAndroid = new AndroidIntegrationGateway(mContext);
         mClipboard = new ClipboardAutomationGateway(mContext);
+        mClipboardActions = new AndroidContentActionGateway(
+                mContext, mAndroid);
     }
 
     DesktopAutomationStateReader stateReader() {
@@ -134,6 +137,14 @@ final class DesktopAutomationController {
                     break;
                 case WRITE_CLIPBOARD_TEXT:
                     result = mClipboard.writeText(args);
+                    break;
+                case OPEN_CLIPBOARD_CONTENT:
+                    result = mClipboardActions.openClipboard(
+                            optionalDisplayId(args));
+                    break;
+                case SHARE_CLIPBOARD_CONTENT:
+                    result = mClipboardActions.shareClipboard(
+                            optionalDisplayId(args));
                     break;
                 case CLEAR_CLIPBOARD:
                     result = mClipboard.clear();

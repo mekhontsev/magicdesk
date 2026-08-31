@@ -18,10 +18,11 @@ import android.widget.FrameLayout;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 final class DesktopWorkspaceController {
     private static final String TAG = "MagicDeskWorkspace";
@@ -34,6 +35,10 @@ final class DesktopWorkspaceController {
     private final DesktopWidgetController mWidgets;
     private final ItemActivationPolicy mItemActivation;
     private final FileOpenWithController mOpenWith;
+    private final AndroidContentActionGateway mContentActions;
+    private final ExecutorService mContentWorker =
+            Executors.newSingleThreadExecutor(runnable ->
+                    new Thread(runnable, "MagicDeskContentAction"));
 
     private DesktopGridLayout mGrid;
     private List<AppItem> mApps = new ArrayList<>();
@@ -54,6 +59,7 @@ final class DesktopWorkspaceController {
                 MagicDeskSettings.load().openFilesWithSingleClick,
                 ViewConfiguration.getDoubleTapTimeout());
         mOpenWith = new FileOpenWithController(activity);
+        mContentActions = new AndroidContentActionGateway(activity);
         mFolder = new DesktopFolderController(
                 activity,
                 new DesktopFileRepository(activity),
@@ -109,6 +115,7 @@ final class DesktopWorkspaceController {
 
     void release() {
         mOpenWith.close();
+        mContentWorker.shutdownNow();
         mFolder.release();
         mWidgets.release();
         mGrid = null;
@@ -461,15 +468,16 @@ final class DesktopWorkspaceController {
     private void openFile(
             final DesktopFile file, final boolean alwaysAsk) {
         mActivity.hideAllPanels();
-        final Intent intent = new Intent(Intent.ACTION_VIEW)
-                .setDataAndType(
+        final AndroidContentPayload content = AndroidContentPayload.uris(
+                file.name,
+                List.of(new AndroidContentPayload.UriItem(
                         file.uri,
-                        file.mimeType == null ? "*/*" : file.mimeType)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        file.mimeType == null ? "*/*" : file.mimeType)),
+                List.of(),
+                AndroidContentPayload.Origin.APPLICATION);
+        final Intent intent = AndroidContentIntentAdapter.open(content)
+                .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                         | Intent.FLAG_ACTIVITY_NEW_TASK);
-        intent.setClipData(ClipData.newUri(
-                mActivity.getContentResolver(), file.name, file.uri));
         final DesktopLaunchArguments arguments =
                 DesktopLaunchArguments.files(
                         List.of(desktopAbsolutePath(file)));
@@ -546,9 +554,36 @@ final class DesktopWorkspaceController {
                     source.files.isMove()
                             ? source.files.generation : -1L);
         } else if (source.kind
-                == FileClipboardInterop.PasteKind.ANDROID_URIS) {
-            mFolder.importFiles(source.uris, null);
+                == FileClipboardInterop.PasteKind.ANDROID_CONTENT) {
+            mFolder.importContent(source.content, null);
         }
+    }
+
+    void openClipboardContent() {
+        executeClipboardAction(true);
+    }
+
+    void shareClipboardContent() {
+        executeClipboardAction(false);
+    }
+
+    private void executeClipboardAction(final boolean open) {
+        mActivity.hideAllPanels();
+        final int displayId = mActivity.getCurrentDisplayId();
+        mContentWorker.execute(() -> {
+            final DesktopAutomationResult result = open
+                    ? mContentActions.openClipboard(displayId)
+                    : mContentActions.shareClipboard(displayId);
+            mActivity.runOnUiThread(() -> {
+                if (mActivity.isActivityUnavailable() || result.success) {
+                    return;
+                }
+                mActivity.setErrorStatus(
+                        result.errorCode.isEmpty()
+                                ? "CLIPBOARD-002" : result.errorCode,
+                        result.message);
+            });
+        });
     }
 
     boolean handleKeyboardCommand(final FileKeyboardCommand command) {
@@ -1047,17 +1082,17 @@ final class DesktopWorkspaceController {
             final DesktopFile file,
             final FileDragPayload payload) {
         if (file == null) {
-            return ClipData.newPlainText(
+            return AndroidContentPayload.text(
                     mActivity.getString(R.string.desktop_drag_label),
-                    itemId);
+                    itemId,
+                    false,
+                    AndroidContentPayload.Origin.DRAG).toClipData();
         }
         if (file.directory) {
             return payload.clipData(
                     mActivity.getString(R.string.desktop_drag_label),
                     List.of());
         }
-        final String mimeType = file.mimeType == null
-                ? "application/octet-stream" : file.mimeType;
         return payload.clipData(file.name, List.of(file.uri));
     }
 
@@ -1083,18 +1118,11 @@ final class DesktopWorkspaceController {
             }
             return true;
         }
-        final ClipData data = event.getClipData();
-        if (data == null) {
-            return false;
-        }
-        final Set<Uri> uniqueUris = new LinkedHashSet<>();
-        for (int index = 0; index < data.getItemCount(); index++) {
-            final Uri uri = data.getItemAt(index).getUri();
-            if (uri != null) {
-                uniqueUris.add(uri);
-            }
-        }
-        if (uniqueUris.isEmpty()) {
+        final AndroidContentPayload content =
+                AndroidContentPayload.fromClipData(
+                        event.getClipData(),
+                        AndroidContentPayload.Origin.DRAG);
+        if (content.isEmpty()) {
             return false;
         }
         DragAndDropPermissions permissions = null;
@@ -1103,8 +1131,8 @@ final class DesktopWorkspaceController {
         } catch (RuntimeException error) {
             Log.d(TAG, "Drag URI permission was not granted", error);
         }
-        mFolder.importFiles(
-                new ArrayList<>(uniqueUris),
+        mFolder.importContent(
+                content,
                 permissions,
                 destination,
                 destinationLabel);

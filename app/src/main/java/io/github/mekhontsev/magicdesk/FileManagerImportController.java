@@ -85,6 +85,44 @@ final class FileManagerImportController {
         });
     }
 
+    void importContent(
+            final String destination,
+            final AndroidContentPayload content,
+            final DragAndDropPermissions permissions) {
+        if (content == null || content.isEmpty()) {
+            release(permissions);
+            return;
+        }
+        if (content.hasUris()) {
+            importFiles(destination, content.uris(), permissions);
+            return;
+        }
+        if (!mOperations.beginImport(1)) {
+            release(permissions);
+            return;
+        }
+        mWorker.execute(() -> {
+            Throwable failure = null;
+            int imported = 0;
+            try {
+                ContentUriTransfer.importTextToShellDirectory(
+                        destination, content);
+                imported = 1;
+                mOperations.updateImportProgress(1, 1);
+            } catch (IOException | RuntimeException error) {
+                failure = error;
+            } finally {
+                release(permissions);
+            }
+            final int copied = imported;
+            final Throwable firstFailure = failure;
+            mActivity.runOnUiThread(() -> {
+                mOperations.finishImport();
+                mListener.onImportFinished(copied, firstFailure);
+            });
+        });
+    }
+
     static String safeName(final String requested) {
         try {
             return ShellFileNamePolicy.validate(requested);

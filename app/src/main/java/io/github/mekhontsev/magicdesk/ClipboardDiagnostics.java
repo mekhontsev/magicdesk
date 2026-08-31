@@ -7,6 +7,10 @@ final class ClipboardDiagnostics {
 
     static String describe() {
         return "android={" + AndroidClipboardGateway.runtimeDiagnostics()
+                + "}, actions={"
+                + AndroidContentActionGateway.runtimeDiagnostics()
+                + "}, ingress={"
+                + DesktopContentReceiverActivity.runtimeDiagnostics()
                 + "}, files={" + FileOperationClipboard.diagnostics() + "}";
     }
 }

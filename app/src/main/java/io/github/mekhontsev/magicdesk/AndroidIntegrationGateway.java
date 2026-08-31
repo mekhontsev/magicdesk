@@ -14,6 +14,7 @@ import org.json.JSONObject;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /** One typed gateway for Android intents, published actions, and system agents. */
@@ -114,9 +115,13 @@ final class AndroidIntegrationGateway {
         } else {
             throw new IllegalArgumentException("operation must be view or edit");
         }
-        final Intent intent = new Intent(action)
-                .setDataAndType(uri, mimeType)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        final AndroidContentPayload content = AndroidContentPayload.uris(
+                optionalString(args, "name", "Open file"),
+                List.of(new AndroidContentPayload.UriItem(uri, mimeType)),
+                Collections.emptyList(),
+                AndroidContentPayload.Origin.APPLICATION);
+        final Intent intent = AndroidContentIntentAdapter.open(content)
+                .setAction(action);
         if (writable) {
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         }
@@ -137,7 +142,8 @@ final class AndroidIntegrationGateway {
         final String text = optionalString(args, "text", "");
         final String subject = optionalString(args, "subject", "");
         final JSONArray files = args.optJSONArray("files");
-        final ArrayList<Uri> uris = new ArrayList<>();
+        final ArrayList<AndroidContentPayload.UriItem> uriItems =
+                new ArrayList<>();
         String inferredMime = "";
         if (files != null) {
             if (files.length() > MAX_SHARED_FILES) {
@@ -150,7 +156,8 @@ final class AndroidIntegrationGateway {
                     throw new IllegalArgumentException("files must not contain empty paths");
                 }
                 if (value.startsWith("content://")) {
-                    uris.add(Uri.parse(value));
+                    uriItems.add(new AndroidContentPayload.UriItem(
+                            Uri.parse(value), "*/*"));
                 } else {
                     if (!ShellAccess.isReady()) {
                         return DesktopAutomationResult.failure(
@@ -162,7 +169,9 @@ final class AndroidIntegrationGateway {
                         throw new IllegalArgumentException(
                                 "share files must not include directories");
                     }
-                    uris.add(ShellFileGrantStore.create(mContext, file, false));
+                    uriItems.add(new AndroidContentPayload.UriItem(
+                            ShellFileGrantStore.create(mContext, file, false),
+                            file.mimeType));
                     if (inferredMime.isEmpty()) {
                         inferredMime = file.mimeType;
                     } else if (!inferredMime.equals(file.mimeType)) {
@@ -171,34 +180,23 @@ final class AndroidIntegrationGateway {
                 }
             }
         }
-        if (text.isEmpty() && uris.isEmpty()) {
+        if (text.isEmpty() && uriItems.isEmpty()) {
             throw new IllegalArgumentException("share requires text or files");
         }
-        final Intent intent = new Intent(
-                uris.size() > 1 ? Intent.ACTION_SEND_MULTIPLE : Intent.ACTION_SEND);
-        if (!text.isEmpty()) {
-            intent.putExtra(Intent.EXTRA_TEXT, text);
-        }
-        if (!subject.isEmpty()) {
-            intent.putExtra(Intent.EXTRA_SUBJECT, subject);
-        }
-        if (uris.size() == 1) {
-            intent.putExtra(Intent.EXTRA_STREAM, uris.get(0));
-        } else if (uris.size() > 1) {
-            intent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
-        }
-        if (!uris.isEmpty()) {
-            final ClipData clip = ClipData.newRawUri("shared file", uris.get(0));
-            for (int index = 1; index < uris.size(); index++) {
-                clip.addItem(new ClipData.Item(uris.get(index)));
-            }
-            intent.setClipData(clip);
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        }
-        intent.setType(optionalString(
+        final String requestedMime = optionalString(
                 args,
                 "mimeType",
-                inferredMime.isEmpty() ? "text/plain" : inferredMime));
+                inferredMime.isEmpty() ? "text/plain" : inferredMime);
+        final AndroidContentPayload content = AndroidContentPayload.create(
+                AndroidContentPayload.Origin.APPLICATION,
+                optionalString(args, "name", "Share"),
+                subject,
+                text,
+                "",
+                uriItems,
+                List.of(requestedMime),
+                false);
+        final Intent intent = AndroidContentIntentAdapter.share(content);
         applyTarget(intent, args);
         return launchActivity(
                 AndroidIntegrationRequest.activity(
@@ -209,6 +207,45 @@ final class AndroidIntegrationGateway {
                         optionalString(args, "chooserTitle", "Share with"),
                         false),
                 optionalDisplayId(args));
+    }
+
+    DesktopAutomationResult openContent(
+            final AndroidContentPayload content,
+            final int displayId) throws IOException, JSONException {
+        final Intent intent = AndroidContentIntentAdapter.open(content);
+        if (intent == null) {
+            return DesktopAutomationResult.failure(
+                    "clipboard content cannot be opened");
+        }
+        return launchActivity(
+                AndroidIntegrationRequest.activity(
+                        intent,
+                        content.label.isEmpty()
+                                ? "Clipboard content" : content.label,
+                        DesktopLaunchMode.AUTO,
+                        false,
+                        "",
+                        false),
+                displayId);
+    }
+
+    DesktopAutomationResult shareContent(
+            final AndroidContentPayload content,
+            final int displayId) throws IOException, JSONException {
+        final Intent intent = AndroidContentIntentAdapter.share(content);
+        if (intent == null) {
+            return DesktopAutomationResult.failure(
+                    "clipboard content cannot be shared");
+        }
+        return launchActivity(
+                AndroidIntegrationRequest.activity(
+                        intent,
+                        "Share clipboard content",
+                        DesktopLaunchMode.AUTO,
+                        true,
+                        "Share with",
+                        false),
+                displayId);
     }
 
     DesktopAutomationResult sendBroadcast(final JSONObject args)

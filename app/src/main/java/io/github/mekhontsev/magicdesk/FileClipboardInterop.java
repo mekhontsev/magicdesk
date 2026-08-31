@@ -1,32 +1,29 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
-import android.net.Uri;
-
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
-/** Bridges explicit file copy/paste actions to Android URI ClipData. */
+/** Bridges generation-safe file operations to Android content paste semantics. */
 final class FileClipboardInterop {
     enum PasteKind {
         NONE,
         INTERNAL_PATHS,
-        ANDROID_URIS
+        ANDROID_CONTENT
     }
 
     static final class PasteSource {
         final PasteKind kind;
         final FileOperationClipboard.Snapshot files;
-        final List<Uri> uris;
+        final AndroidContentPayload content;
 
         PasteSource(
                 final PasteKind kind,
                 final FileOperationClipboard.Snapshot files,
-                final List<Uri> uris) {
+                final AndroidContentPayload content) {
             this.kind = kind;
             this.files = files;
-            this.uris = uris;
+            this.content = content;
         }
     }
 
@@ -53,10 +50,10 @@ final class FileClipboardInterop {
         boolean published = false;
         if (publishable) {
             try {
-                final List<AndroidClipboardGateway.UriItem> items =
+                final List<AndroidContentPayload.UriItem> items =
                         new ArrayList<>(files.size());
                 for (final ShellFileInfo file : files) {
-                    items.add(new AndroidClipboardGateway.UriItem(
+                    items.add(new AndroidContentPayload.UriItem(
                             ShellFileGrantStore.create(context, file, false),
                             file.mimeType));
                 }
@@ -85,7 +82,7 @@ final class FileClipboardInterop {
             try {
                 published = publish(
                         context,
-                        List.of(new AndroidClipboardGateway.UriItem(
+                        List.of(new AndroidContentPayload.UriItem(
                                 file.uri, file.mimeType)),
                         stored);
             } catch (RuntimeException ignored) {
@@ -103,7 +100,10 @@ final class FileClipboardInterop {
         if (!files.isEmpty()) {
             return true;
         }
-        return AndroidClipboardGateway.get(context).metadata().mayContainUris();
+        final AndroidClipboardGateway.Metadata metadata =
+                AndroidClipboardGateway.get(context).metadata();
+        return metadata.access == AndroidClipboardGateway.Access.AVAILABLE
+                && metadata.itemCount != 0;
     }
 
     static synchronized PasteSource resolvePaste(final Context context) {
@@ -114,20 +114,20 @@ final class FileClipboardInterop {
             return new PasteSource(
                     PasteKind.INTERNAL_PATHS,
                     files,
-                    Collections.emptyList());
+                    null);
         }
-        final AndroidClipboardGateway.UriReadResult android =
-                clipboard.readUris();
-        if (!android.uris.isEmpty()) {
+        final AndroidClipboardGateway.ContentReadResult android =
+                clipboard.readContent();
+        if (android.content != null && !android.content.isEmpty()) {
             return new PasteSource(
-                    PasteKind.ANDROID_URIS,
+                    PasteKind.ANDROID_CONTENT,
                     FileOperationClipboard.snapshot(),
-                    android.uris);
+                    android.content);
         }
         return new PasteSource(
                 PasteKind.NONE,
                 FileOperationClipboard.snapshot(),
-                Collections.emptyList());
+                null);
     }
 
     static synchronized void completeMove(final long generation) {
@@ -176,7 +176,7 @@ final class FileClipboardInterop {
 
     private static boolean publish(
             final Context context,
-            final List<AndroidClipboardGateway.UriItem> items,
+            final List<AndroidContentPayload.UriItem> items,
             final FileOperationClipboard.Snapshot files) {
         final AndroidClipboardGateway.OperationResult result =
                 AndroidClipboardGateway.get(context).writeUris(

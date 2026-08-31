@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.ClipData;
-import android.content.ClipDescription;
 import android.net.Uri;
 import android.view.DragEvent;
 
@@ -40,25 +39,11 @@ final class FileDragPayload {
     ClipData clipData(
             final CharSequence label,
             final List<Uri> shareableUris) {
-        final List<Uri> uris = shareableUris == null
-                ? Collections.emptyList() : shareableUris;
-        if (uris.isEmpty()) {
-            return new ClipData(
-                    label,
-                    new String[]{MIME_TYPE},
-                    new ClipData.Item(label));
-        }
-        final ClipData data = new ClipData(
+        return AndroidContentPayload.drag(
                 label,
-                new String[]{
-                        MIME_TYPE,
-                        ClipDescription.MIMETYPE_TEXT_URILIST
-                },
-                new ClipData.Item(uris.get(0)));
-        for (int index = 1; index < uris.size(); index++) {
-            data.addItem(new ClipData.Item(uris.get(index)));
-        }
-        return data;
+                shareableUris == null
+                        ? Collections.emptyList() : shareableUris,
+                MIME_TYPE).toClipData();
     }
 
     List<String> pathsForDestination(final String destination) {

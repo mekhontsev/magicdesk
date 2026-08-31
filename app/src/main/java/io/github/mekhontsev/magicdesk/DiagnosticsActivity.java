@@ -20,6 +20,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.List;
+
 public final class DiagnosticsActivity extends Activity {
     static final String EXTRA_SELF_TEST_TARGET =
             "io.github.mekhontsev.magicdesk.extra.SELF_TEST_TARGET";
@@ -632,10 +634,16 @@ public final class DiagnosticsActivity extends Activity {
         if (mReport.isEmpty()) {
             return;
         }
-        final Intent share = new Intent(Intent.ACTION_SEND)
-                .setType("text/plain")
-                .putExtra(Intent.EXTRA_SUBJECT, "MagicDesk compatibility report")
-                .putExtra(Intent.EXTRA_TEXT, mReport);
+        final AndroidContentPayload content = AndroidContentPayload.create(
+                AndroidContentPayload.Origin.APPLICATION,
+                "MagicDesk compatibility report",
+                "MagicDesk compatibility report",
+                mReport,
+                "",
+                List.of(),
+                List.of("text/plain"),
+                false);
+        final Intent share = AndroidContentIntentAdapter.share(content);
         startActivity(Intent.createChooser(share, getString(R.string.diagnostics_share)));
     }
 

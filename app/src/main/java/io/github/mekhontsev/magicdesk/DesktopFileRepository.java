@@ -67,6 +67,24 @@ final class DesktopFileRepository {
         return importFiles(uris, ShellDesktopDirectory.ABSOLUTE_PATH);
     }
 
+    ImportResult importContent(
+            final AndroidContentPayload content,
+            final String destinationPath) throws IOException {
+        if (content == null || content.isEmpty()) {
+            return new ImportResult(0, 0, null);
+        }
+        if (content.hasUris()) {
+            return importFiles(content.uris(), destinationPath);
+        }
+        try {
+            ContentUriTransfer.importTextToShellDirectory(
+                    destinationPath, content);
+            return new ImportResult(1, 0, null);
+        } catch (IOException | RuntimeException error) {
+            return new ImportResult(0, 1, error);
+        }
+    }
+
     ImportResult importFiles(
             final List<Uri> uris,
             final String destinationPath) throws IOException {
@@ -109,7 +127,8 @@ final class DesktopFileRepository {
                     firstFailure = error;
                 }
                 if (createdPath != null) {
-                    cleanupFailedImport(createdPath, error);
+                    ContentUriTransfer.cleanupFailedShellFile(
+                            createdPath, error);
                 }
             }
         }
@@ -141,36 +160,6 @@ final class DesktopFileRepository {
             if (!containsIgnoreCase(occupiedNames, candidate)) {
                 return candidate;
             }
-        }
-    }
-
-    private static void cleanupFailedImport(
-            final String path, final Throwable original) {
-        try {
-            ShellAccess.startShellFileOperation(
-                    ShellFileSystem.OPERATION_DELETE,
-                    new String[]{path},
-                    "",
-                    new IFileOperationCallback.Stub() {
-                        @Override
-                        public void onProgress(
-                                final long id,
-                                final int completed,
-                                final int total,
-                                final String current,
-                                final long bytes) {
-                        }
-
-                        @Override
-                        public void onFinished(
-                                final long id,
-                                final boolean successful,
-                                final String message) {
-                        }
-                    },
-                    new android.os.Binder());
-        } catch (IOException | RuntimeException cleanupError) {
-            original.addSuppressed(cleanupError);
         }
     }
 
