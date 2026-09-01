@@ -36,6 +36,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellExternalTaskMigrationGuard mMigrationGuard;
     private final ShellProcessFailureTracker mProcessFailureTracker;
     private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
+    private final ShellSecondaryHomeStartPolicy mSecondaryHomeStartPolicy =
+            new ShellSecondaryHomeStartPolicy();
     private final ShellActivityStartController mActivityStartController;
     private final FrameworkTaskObservationSource mTaskObservations;
     private final ShellDesktopTaskOwnership mDesktopOwnership =
@@ -160,6 +162,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 error -> callCallback(() -> mCallback.onObserverError(error)),
                 mProcessFailureTracker,
                 null,
+                mSecondaryHomeStartPolicy,
                 mMigrationGuard,
                 mTaskActivityModeGuard);
         // The platform policy decides whether stale phone-side freeform
@@ -331,6 +334,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             clearPendingPostRemovalFocus();
             mTaskAreaPolicy = DesktopTaskAreaPolicy.UNCONFIGURED;
             mFocusController.configure(-1);
+            mSecondaryHomeStartPolicy.configure(Display.INVALID_DISPLAY);
             mMigrationGuard.configure(-1, false);
             mFreeformCleanup.configure(-1);
             mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY);
@@ -394,6 +398,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mConfiguredDisplayId = displayId;
         clearPendingPostRemovalFocus();
         mFocusController.configure(displayId);
+        mSecondaryHomeStartPolicy.configure(displayId);
         mMigrationGuard.configure(displayId, false);
         // External tasks must remain outside phone-side Recents cleanup.
         mFreeformCleanup.configure(

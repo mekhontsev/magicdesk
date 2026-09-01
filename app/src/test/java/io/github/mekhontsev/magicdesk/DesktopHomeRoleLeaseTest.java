@@ -45,6 +45,7 @@ public final class DesktopHomeRoleLeaseTest {
         assertEquals(DesktopHomeRoleLease.Phase.ACTIVE, mStorage.state.phase);
         assertTrue(mBackend.stateWasPreparedBeforeSet);
         assertTrue(mBackend.primaryHomePresented);
+        assertEquals(0, mBackend.presentedUserId);
     }
 
     @Test
@@ -74,6 +75,7 @@ public final class DesktopHomeRoleLeaseTest {
                 DesktopSessionPolicy.ISOLATED_SELF_TEST,
                 mStorage.state.withPhase(
                         DesktopHomeRoleLease.Phase.RELEASING).policy);
+        assertFalse(mBackend.primaryHomePresented);
     }
 
     @Test
@@ -230,6 +232,7 @@ public final class DesktopHomeRoleLeaseTest {
         boolean failMagicDeskClaim;
         boolean stateWasPreparedBeforeSet;
         boolean primaryHomePresented;
+        int presentedUserId = -1;
 
         FakeBackend(final String homePackage) {
             this.homePackage = homePackage;
@@ -262,8 +265,9 @@ public final class DesktopHomeRoleLeaseTest {
         }
 
         @Override
-        public void presentMagicDeskHome() {
+        public void presentMagicDeskHome(final int userId) {
             primaryHomePresented = true;
+            presentedUserId = userId;
         }
     }
 

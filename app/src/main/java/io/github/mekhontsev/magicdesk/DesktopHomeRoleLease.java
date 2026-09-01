@@ -2,9 +2,9 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Process;
-import android.view.Display;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -15,6 +15,8 @@ final class DesktopHomeRoleLease {
     private static final String HOME_ROLE = "android.app.role.HOME";
     private static final String MAGICDESK_PACKAGE = BuildConfig.APPLICATION_ID;
     private static final int DONT_KILL_APP = 1;
+    private static final int HOME_ACTIVITY_FLAGS =
+            Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP;
     private static final int PER_USER_RANGE = 100_000;
     private static final Object LOCK = new Object();
     private static final Storage DEFAULT_STORAGE =
@@ -115,7 +117,7 @@ final class DesktopHomeRoleLease {
 
         void setHomePackage(int userId, String packageName) throws IOException;
 
-        void presentMagicDeskHome() throws IOException;
+        void presentMagicDeskHome(int userId) throws IOException;
     }
 
     static AcquireResult acquire(final DesktopDisplayTarget target)
@@ -322,7 +324,9 @@ final class DesktopHomeRoleLease {
         claim(prepared);
         final State active = prepared.withPhase(Phase.ACTIVE);
         sStorage.write(active);
-        sBackend.presentMagicDeskHome();
+        if (prepared.policy != DesktopSessionPolicy.ISOLATED_SELF_TEST) {
+            sBackend.presentMagicDeskHome(prepared.userId);
+        }
         return new AcquireResult(true, active);
     }
 
@@ -411,10 +415,15 @@ final class DesktopHomeRoleLease {
         }
 
         @Override
-        public void presentMagicDeskHome() throws IOException {
+        public void presentMagicDeskHome(final int userId) throws IOException {
             ShellAccess.run(
-                    "/system/bin/input -d " + Display.DEFAULT_DISPLAY
-                            + " keyevent KEYCODE_HOME");
+                    "/system/bin/am start --user " + userId
+                            + " -f 0x"
+                            + Integer.toHexString(HOME_ACTIVITY_FLAGS)
+                            + " -a android.intent.action.MAIN"
+                            + " -c android.intent.category.HOME"
+                            + " -n " + MAGICDESK_PACKAGE
+                            + "/.PhoneHomeActivity");
         }
     }
 
