@@ -30,6 +30,8 @@ interface MagicDeskRuntimeBackend {
 
     boolean isDesktopMouseBridgeReady();
 
+    boolean isFullKeyboardShortcutMode();
+
     DesktopPointerState getDesktopPointerState(int displayId);
 
     InputRelayRuntimeDiagnostics.Snapshot captureInputRelayDiagnostics();

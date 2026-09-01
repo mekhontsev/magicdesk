@@ -174,6 +174,11 @@ public final class MagicDeskRuntime {
         return backend != null && backend.isDesktopMouseBridgeReady();
     }
 
+    static boolean isFullKeyboardShortcutMode() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.isFullKeyboardShortcutMode();
+    }
+
     static DesktopPointerState getDesktopPointerState(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
         return backend == null

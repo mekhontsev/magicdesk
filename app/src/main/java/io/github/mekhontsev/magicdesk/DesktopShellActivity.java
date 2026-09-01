@@ -314,9 +314,6 @@ public abstract class DesktopShellActivity extends Activity
         if (ShellAccess.isReady()) {
             DesktopOperations.refreshHardwareKeyboardLayout();
         }
-        if (!ShellAccess.isReady()) {
-            KeyboardShortcutWatcher.stop();
-        }
         renderApps();
         updateDesktopControls();
         handleLaunchAction(getIntent());

@@ -676,7 +676,11 @@ final class DesktopWorkspaceController {
         final Intent intent = CommandConsoleActivity.createScriptIntent(
                 mActivity,
                 desktopAbsolutePath(file));
-        openFiles(intent, desktopAbsolutePath(file));
+        openBuiltInWindow(
+                intent,
+                CommandConsoleActivity.launchTarget(),
+                R.string.console_title,
+                desktopAbsolutePath(file));
     }
 
     void setWallpaper(final DesktopFile file) {
@@ -688,7 +692,11 @@ final class DesktopWorkspaceController {
         final String path = relativePath == null || relativePath.length() == 0
                 ? ShellDesktopDirectory.ABSOLUTE_PATH
                 : ShellDesktopDirectory.ABSOLUTE_PATH + "/" + relativePath;
-        openFiles(FileManagerActivity.createIntent(mActivity, path), path);
+        openBuiltInWindow(
+                FileManagerActivity.createIntent(mActivity, path),
+                BuiltInDesktopAppCatalog.filesTarget(),
+                R.string.file_manager_title,
+                path);
     }
 
     private void openFolderShortcut(
@@ -696,9 +704,11 @@ final class DesktopWorkspaceController {
         if (!shortcut.available) {
             mActivity.setStatus(R.string.desktop_shortcut_unavailable);
         }
-        openFiles(
+        openBuiltInWindow(
                 FileManagerActivity.createIntent(
                         mActivity, shortcut.targetPath),
+                BuiltInDesktopAppCatalog.filesTarget(),
+                R.string.file_manager_title,
                 shortcut.targetPath);
     }
 
@@ -718,15 +728,19 @@ final class DesktopWorkspaceController {
         }
     }
 
-    private void openFiles(final Intent intent, final String detail) {
+    private void openBuiltInWindow(
+            final Intent intent,
+            final AppLaunchTarget target,
+            final int titleResId,
+            final String detail) {
         mActivity.hideAllPanels();
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(mActivity.getCurrentDisplayId());
         try {
-            mActivity.startActivity(intent, options.toBundle());
+            mActivity.launchInternalWindow(
+                    intent,
+                    target,
+                    mActivity.getString(titleResId));
         } catch (RuntimeException error) {
-            Log.w(TAG, "Cannot open Files at " + detail, error);
+            Log.w(TAG, "Cannot open desktop window at " + detail, error);
             mActivity.setErrorStatus(
                     "FILES-003",
                     mActivity.getString(

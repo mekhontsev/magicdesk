@@ -79,8 +79,10 @@ application receives it. Shell UID 2000 cannot change the physical keymap, but
 it can open external cursor devices read-only, acquire `EVIOCGRAB`, and create
 a `BUS_VIRTUAL` pointer through `/dev/uinput`.
 
-`DesktopMouseBridge` creates one stable virtual pointer for the external
-desktop. When physical EventHub devices marked `CURSOR | EXTERNAL` are
+`DesktopInputRelaySession` is the single lifecycle owner for the mouse helper,
+keyboard helper, and Android display-routing lease. `DesktopMouseBridge`
+creates one stable virtual pointer for that session. When physical EventHub
+devices marked `CURSOR | EXTERNAL` are
 present, the native helper grabs them and forwards motion, wheel, and button
 state through that pointer. `BTN_RIGHT` is the deliberate exception: the
 helper consumes the physical sequence and requests one display-targeted
@@ -118,7 +120,10 @@ their keys and buttons return to a neutral state, so a wake press is never
 split between the physical and virtual devices.
 `DesktopInputRoutingSession` associates those virtual devices with a physical
 display port for USB-C desktops or with the display unique ID for wireless and
-virtual desktops. There is no separate vendor input-panel owner.
+virtual desktops. `DesktopInputRelaySession` orders virtual-device readiness,
+the routing lease, capture, source refresh, and reverse-order teardown;
+`KeyboardShortcutWatcher` only decodes shortcuts outside that transport
+lifecycle. There is no separate vendor input-panel owner.
 `DesktopInputRelayPolicy` declares keyboard and mouse relay independently.
 The routing session waits for and associates only the virtual device classes
 selected by that policy; `PlatformPointerDriver` remains a separate capability
@@ -892,8 +897,9 @@ isolated behind these boundaries.
   `DesktopRuntimeBridge` and publish state changes through the runtime rather
   than reaching a desktop Activity.
 - `ExternalDisplayController` discovers dynamic display IDs and fixes geometry.
-- `KeyboardShortcutWatcher`, `DesktopMouseBridge`, and
-  `HardwareKeyboardLayoutController` own physical input policy.
+- `DesktopInputRelaySession` owns external input transport and routing;
+  `KeyboardShortcutWatcher` decodes shortcuts, and
+  `HardwareKeyboardLayoutController` owns layout selection.
 - `PhoneTouchpadController` starts and repairs the phone touchpad when the
   selected platform provides absolute pointer positioning.
 - `RedmagicHardwareController` owns capability probing, stock fan/pump policy,

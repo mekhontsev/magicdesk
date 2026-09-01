@@ -25,7 +25,7 @@ final class RuntimeDesktopInputCoordinator {
     private final PlatformPhoneUiDriver mPhoneUi;
     private final Runnable mHardwareKeyboardChanged;
     private final RuntimeInputCoordinator mInputDevices;
-    private final DesktopMouseBridge mMouseBridge;
+    private final DesktopInputRelaySession mRelaySession;
     private final ExecutorService mInputSourceWorker =
             Executors.newSingleThreadExecutor(runnable -> {
                 final Thread thread = new Thread(
@@ -37,7 +37,6 @@ final class RuntimeDesktopInputCoordinator {
     private boolean mHasHardwareKeyboard;
     private boolean mHasExternalMouse;
     private boolean mKeyboardWatcherRunning;
-    private int mKeyboardRoutingDisplayId = Display.INVALID_DISPLAY;
     private int mDesktopDisplayId = Display.INVALID_DISPLAY;
     private int mMouseBridgeSuspendedDisplayId = Display.INVALID_DISPLAY;
     private int mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
@@ -63,9 +62,10 @@ final class RuntimeDesktopInputCoordinator {
         mHardwareKeyboardChanged = hardwareKeyboardChanged;
         mInputDevices = new RuntimeInputCoordinator(
                 context, handler, this::handleInputStateChanged);
-        mMouseBridge = new DesktopMouseBridge(
+        mRelaySession = new DesktopInputRelaySession(
                 context,
-                () -> mHandler.post(this::handleMouseBridgeStateChanged));
+                mInputRelay,
+                () -> mHandler.post(this::handleRelaySessionStateChanged));
     }
 
     void start() {
@@ -83,13 +83,11 @@ final class RuntimeDesktopInputCoordinator {
         mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
         ++mInputSourceRefreshGeneration;
         mInputDevices.stop();
-        mMouseBridge.setCaptureEnabled(false);
         KeyboardShortcutWatcher.stop();
-        mMouseBridge.stop();
+        mRelaySession.stop();
         mInputSourceWorker.shutdownNow();
         restoreShowImeOverride();
         mKeyboardWatcherRunning = false;
-        mKeyboardRoutingDisplayId = Display.INVALID_DISPLAY;
     }
 
     boolean hasHardwareKeyboard() {
@@ -166,7 +164,11 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     boolean isMouseBridgeReady() {
-        return !mDestroyed && mMouseBridge.isReady();
+        return !mDestroyed && mRelaySession.isMouseReady();
+    }
+
+    boolean isFullShortcutMode() {
+        return !mDestroyed && mRelaySession.isFullShortcutMode();
     }
 
     DesktopPointerState pointerState(
@@ -175,10 +177,10 @@ final class RuntimeDesktopInputCoordinator {
         final boolean active = isActiveDesktopDisplay(displayId);
         final boolean relayRequired = active && requiresMouseRelay();
         final boolean relayReady = active
-                && (!relayRequired || mMouseBridge.isReady());
+                && (!relayRequired || mRelaySession.isMouseReady());
         final boolean routingReady = active
                 && (!requiresInputRouting()
-                        || KeyboardShortcutWatcher.isInputRoutingReady(
+                        || mRelaySession.isRoutingReady(
                                 displayId));
         final Point position = active && supportsAbsolutePointer(displayId)
                 ? ShellAccess.observeMousePosition(displayId) : null;
@@ -202,8 +204,10 @@ final class RuntimeDesktopInputCoordinator {
                 displayId, pointerProvider);
         return new InputRelayRuntimeDiagnostics.Snapshot(
                 displayId,
-                mMouseBridge.captureDiagnostics(),
-                KeyboardShortcutWatcher.captureDiagnostics(),
+                mRelaySession.captureMouseDiagnostics(),
+                requiresInputRouting()
+                        ? mRelaySession.captureKeyboardDiagnostics()
+                        : KeyboardShortcutWatcher.captureDiagnostics(),
                 pointer);
     }
 
@@ -215,13 +219,13 @@ final class RuntimeDesktopInputCoordinator {
 
     void restorePointerPositionOnNextMotion() {
         if (!mDestroyed && supportsAbsolutePointer(mDesktopDisplayId)) {
-            mMouseBridge.restorePointerPositionIfDisplacedOnNextMotion();
+            mRelaySession.restorePointerPositionIfDisplacedOnNextMotion();
         }
     }
 
     void reactivatePointerOnNextMotion() {
         if (!mDestroyed && requiresMouseRelay()) {
-            mMouseBridge.reactivatePointerOnNextMotion();
+            mRelaySession.reactivatePointerOnNextMotion();
         }
     }
 
@@ -233,7 +237,7 @@ final class RuntimeDesktopInputCoordinator {
         // Release the physical source while its current display still exists.
         // Waiting for the display callback leaves vendor pointer controllers
         // processing virtual motion against an already removed display.
-        stopMouseBridge();
+        updateInputBridges();
         return true;
     }
 
@@ -245,7 +249,7 @@ final class RuntimeDesktopInputCoordinator {
         if (mPointerViewportRecoveryDisplayId == displayId) {
             mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
         }
-        updateMouseBridge();
+        updateInputBridges();
     }
 
     Point getPointerPosition(final int displayId) {
@@ -269,7 +273,7 @@ final class RuntimeDesktopInputCoordinator {
     boolean activatePointer(final int displayId) {
         return isActiveDesktopDisplay(displayId)
                 && requiresMouseRelay()
-                && mMouseBridge.activatePointer();
+                && mRelaySession.activatePointer();
     }
 
     boolean clickPointer(final int displayId, final int button) {
@@ -291,7 +295,7 @@ final class RuntimeDesktopInputCoordinator {
     boolean scrollPointer(final int displayId, final float amount) {
         return isActiveDesktopDisplay(displayId)
                 && requiresMouseRelay()
-                && mMouseBridge.scrollPointer(amount);
+                && mRelaySession.scrollPointer(amount);
     }
 
     boolean updateTextInput(
@@ -345,32 +349,21 @@ final class RuntimeDesktopInputCoordinator {
         if (keyboardChanged) {
             mHardwareKeyboardChanged.run();
         }
+        updateInputBridges();
         if (requiresInputRouting()) {
-            updateMouseBridge();
-            if (keyboardChanged
-                    && requiresKeyboardRelay()
-                    && (!mInputRelay.mouse || mMouseBridge.isReady())
-                    && mHasHardwareKeyboard
-                    && !KeyboardShortcutWatcher.isFullShortcutMode()) {
-                restartKeyboardWatcher();
-            } else {
-                updateKeyboardWatcher();
-            }
             refreshDesktopInputSources();
             return;
         }
-        if (keyboardChanged) {
-            updateKeyboardWatcher();
-        } else if ((mouseChanged || inputInventoryChanged)
+        if (!keyboardChanged
+                && (mouseChanged || inputInventoryChanged)
                 && mKeyboardWatcherRunning) {
             restartKeyboardWatcher();
         }
-        updateInputBridges();
     }
 
-    private void handleMouseBridgeStateChanged() {
+    private void handleRelaySessionStateChanged() {
         if (!mDestroyed) {
-            final boolean ready = mMouseBridge.isReady();
+            final boolean ready = mRelaySession.isMouseReady();
             if (ready != mLastReportedMouseBridgeReady) {
                 mLastReportedMouseBridgeReady = ready;
                 final boolean released = !ready && mPointerReleaseExpected;
@@ -400,100 +393,59 @@ final class RuntimeDesktopInputCoordinator {
         }
     }
 
-    private void handleInputRoutingChanged(
-            final int displayId,
-            final boolean ready) {
-        if (!ready) {
-            // Stop forwarding before the shell session removes its display
-            // associations; otherwise one physical report can escape through
-            // a route that is already being dismantled.
-            mMouseBridge.setCaptureEnabled(false);
-            return;
-        }
-        mHandler.post(() -> {
-            if (mDestroyed) {
-                return;
-            }
-            mMouseBridge.setCaptureEnabled(
-                    displayId == mDesktopDisplayId
-                            && requiresMouseRelay());
-        });
-    }
-
     private void updateKeyboardWatcher() {
-        final int routingDisplayId = routingDisplayId(
-                mDesktopDisplayId,
-                mInputRelay);
         final boolean shouldRun = shouldRunKeyboardWatcher(
                 ShellAccess.isReady(),
                 mHasHardwareKeyboard,
-                routingDisplayId,
-                routingDisplayId <= Display.DEFAULT_DISPLAY
-                        || !mInputRelay.mouse
-                        || mMouseBridge.isReady());
-        if (mKeyboardWatcherRunning
-                && mKeyboardRoutingDisplayId != routingDisplayId) {
-            KeyboardShortcutWatcher.stop();
-            mKeyboardWatcherRunning = false;
-            mKeyboardRoutingDisplayId = Display.INVALID_DISPLAY;
-        }
+                !requiresInputRouting());
         if (shouldRun == mKeyboardWatcherRunning) {
             return;
         }
 
         if (shouldRun) {
-            Log.i(TAG, "starting keyboard shortcut watcher display="
-                    + routingDisplayId);
-            KeyboardShortcutWatcher.start(
-                    routingDisplayId, mInputRelay,
-                    this::handleInputRoutingChanged);
-            mKeyboardRoutingDisplayId = routingDisplayId;
+            Log.i(TAG, "starting passive keyboard shortcut watcher");
+            KeyboardShortcutWatcher.start();
         } else {
-            Log.i(TAG, "stopping keyboard shortcut watcher");
-            mMouseBridge.setCaptureEnabled(false);
+            Log.i(TAG, "stopping passive keyboard shortcut watcher");
             KeyboardShortcutWatcher.stop();
-            mKeyboardRoutingDisplayId = Display.INVALID_DISPLAY;
         }
         mKeyboardWatcherRunning = shouldRun;
     }
 
     private void restartKeyboardWatcher() {
         if (mKeyboardWatcherRunning) {
-            mMouseBridge.setCaptureEnabled(false);
             KeyboardShortcutWatcher.stop();
             mKeyboardWatcherRunning = false;
-            mKeyboardRoutingDisplayId = Display.INVALID_DISPLAY;
         }
         updateKeyboardWatcher();
     }
 
-    private void updateMouseBridge() {
-        if (shouldRunMouseBridge(
-                ShellAccess.isReady(),
-                mDesktopDisplayId,
-                mInputRelay.mouse,
-                mMouseBridgeSuspendedDisplayId)) {
-            mMouseBridge.start();
-        } else {
-            stopMouseBridge();
-        }
-    }
-
-    private void stopMouseBridge() {
-        if (mMouseBridge.isReady()) {
+    private void updateInputBridges() {
+        final boolean mouseShouldRun =
+                DesktopInputRelaySession.shouldRunMouseBridge(
+                        ShellAccess.isReady(),
+                        mDesktopDisplayId,
+                        mInputRelay.mouse,
+                        mMouseBridgeSuspendedDisplayId);
+        if (mRelaySession.isMouseReady() && !mouseShouldRun) {
             mPointerReleaseExpected = true;
         }
-        mMouseBridge.stop();
-    }
-
-    private void updateInputBridges() {
-        if (requiresMouseRelay()) {
-            updateMouseBridge();
+        if (requiresInputRouting()) {
             updateKeyboardWatcher();
         } else {
+            mRelaySession.reconcile(
+                    ShellAccess.isReady(),
+                    mDesktopDisplayId,
+                    mHasHardwareKeyboard,
+                    mMouseBridgeSuspendedDisplayId);
             updateKeyboardWatcher();
-            updateMouseBridge();
+            return;
         }
+        mRelaySession.reconcile(
+                ShellAccess.isReady(),
+                mDesktopDisplayId,
+                mHasHardwareKeyboard,
+                mMouseBridgeSuspendedDisplayId);
     }
 
     private void clearCompletedMouseBridgeSuspension(
@@ -546,15 +498,7 @@ final class RuntimeDesktopInputCoordinator {
                             || generation != mInputSourceRefreshGeneration) {
                         return;
                     }
-                    if (mInputRelay.keyboard) {
-                        KeyboardShortcutWatcher.refreshDesktopInputSources(
-                                keyboards);
-                    } else {
-                        KeyboardShortcutWatcher.refreshDesktopInputRouting();
-                    }
-                    if (mInputRelay.mouse) {
-                        mMouseBridge.refreshSources(mice);
-                    }
+                    mRelaySession.refreshSources(keyboards, mice);
                 });
             } catch (IOException error) {
                 InputBridgeDiagnostics.noteSourceRefreshFailure(error);
@@ -571,10 +515,6 @@ final class RuntimeDesktopInputCoordinator {
     private boolean requiresInputRouting() {
         return ownsExternalDesktop()
                 && mInputRelay.isRequired();
-    }
-
-    private boolean requiresKeyboardRelay() {
-        return ownsExternalDesktop() && mInputRelay.keyboard;
     }
 
     private boolean requiresMouseRelay() {
@@ -679,35 +619,13 @@ final class RuntimeDesktopInputCoordinator {
         mInputDevices.logState(TAG);
     }
 
-    static int routingDisplayId(
-            final int desktopDisplayId,
-            final DesktopInputRelayPolicy relayPolicy) {
-        return relayPolicy != null && relayPolicy.isRequired()
-                && desktopDisplayId > Display.DEFAULT_DISPLAY
-                        ? desktopDisplayId : Display.INVALID_DISPLAY;
-    }
-
     static boolean shouldRunKeyboardWatcher(
             final boolean shellReady,
             final boolean hardwareKeyboard,
-            final int routingDisplayId,
-            final boolean pointerReady) {
+            final boolean routingOwnedByRelaySession) {
         return shellReady
-                && (hardwareKeyboard
-                        || routingDisplayId > Display.DEFAULT_DISPLAY)
-                && (routingDisplayId <= Display.DEFAULT_DISPLAY
-                        || pointerReady);
-    }
-
-    static boolean shouldRunMouseBridge(
-            final boolean shellReady,
-            final int desktopDisplayId,
-            final boolean mouseRelay,
-            final int suspendedDisplayId) {
-        return shellReady
-                && mouseRelay
-                && desktopDisplayId > Display.DEFAULT_DISPLAY
-                && desktopDisplayId != suspendedDisplayId;
+                && hardwareKeyboard
+                && !routingOwnedByRelaySession;
     }
 
     static boolean shouldRecoverPointerViewport(

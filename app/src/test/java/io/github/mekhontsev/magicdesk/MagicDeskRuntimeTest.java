@@ -31,6 +31,7 @@ public final class MagicDeskRuntimeTest {
 
         assertFalse(MagicDeskRuntime.isSessionWakeLockHeld());
         assertFalse(MagicDeskRuntime.isDesktopMouseBridgeReady());
+        assertFalse(MagicDeskRuntime.isFullKeyboardShortcutMode());
         assertFalse(MagicDeskRuntime.capturePointerPosition());
         assertNull(MagicDeskRuntime.getDesktopPointerPosition(7));
         assertFalse(MagicDeskRuntime.showStart());
@@ -64,6 +65,7 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.preserveDesktopTasks(7);
         MagicDeskRuntime.clearParkedDesktopTasks();
 
+        assertTrue(MagicDeskRuntime.isFullKeyboardShortcutMode());
         assertTrue(MagicDeskRuntime.showStart());
         assertTrue(MagicDeskRuntime.toggleDesktopWorkspace());
         assertTrue(MagicDeskRuntime.restoreLastVisibleWindows());
@@ -228,6 +230,11 @@ public final class MagicDeskRuntimeTest {
 
         @Override
         public boolean isDesktopMouseBridgeReady() {
+            return true;
+        }
+
+        @Override
+        public boolean isFullKeyboardShortcutMode() {
             return true;
         }
 

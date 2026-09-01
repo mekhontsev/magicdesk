@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -10,50 +9,49 @@ import org.junit.Test;
 
 public final class RuntimeDesktopInputCoordinatorTest {
     @Test
-    public void routesInputOnlyToExternalDesktopWithBridgeSupport() {
-        assertEquals(7, RuntimeDesktopInputCoordinator.routingDisplayId(
-                7, DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE));
-        assertEquals(Display.INVALID_DISPLAY,
-                RuntimeDesktopInputCoordinator.routingDisplayId(
-                        7, DesktopInputRelayPolicy.NONE));
-        assertEquals(Display.INVALID_DISPLAY,
-                RuntimeDesktopInputCoordinator.routingDisplayId(
-                        Display.DEFAULT_DISPLAY,
-                        DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE));
-        assertEquals(7, RuntimeDesktopInputCoordinator.routingDisplayId(
-                7, new DesktopInputRelayPolicy(true, false)));
-        assertEquals(7, RuntimeDesktopInputCoordinator.routingDisplayId(
-                7, new DesktopInputRelayPolicy(false, true)));
+    public void relayRoutingRequiresShellExternalDisplayAndPointer() {
+        assertTrue(DesktopInputRelaySession.shouldRunRouting(
+                true, 7, DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE, true));
+        assertFalse(DesktopInputRelaySession.shouldRunRouting(
+                false, 7, DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE, true));
+        assertFalse(DesktopInputRelaySession.shouldRunRouting(
+                true, Display.DEFAULT_DISPLAY,
+                DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE, true));
+        assertFalse(DesktopInputRelaySession.shouldRunRouting(
+                true, 7, DesktopInputRelayPolicy.NONE, true));
+        assertFalse(DesktopInputRelaySession.shouldRunRouting(
+                true, 7, DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE, false));
+        assertTrue(DesktopInputRelaySession.shouldRunRouting(
+                true, 7,
+                new DesktopInputRelayPolicy(true, false), true));
     }
 
     @Test
-    public void keyboardWatcherRequiresShellAndKeyboardOrRouting() {
+    public void passiveKeyboardWatcherDoesNotCompeteWithRelaySession() {
         assertFalse(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                false, true, Display.INVALID_DISPLAY, true));
+                false, true, false));
         assertFalse(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                true, false, Display.INVALID_DISPLAY, true));
+                true, false, false));
         assertTrue(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                true, true, Display.INVALID_DISPLAY, true));
-        assertTrue(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                true, false, 7, true));
+                true, true, false));
         assertFalse(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                true, true, 7, false));
+                true, true, true));
     }
 
     @Test
     public void mouseBridgeRequiresShellBridgeAndExternalDesktop() {
-        assertTrue(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
+        assertTrue(DesktopInputRelaySession.shouldRunMouseBridge(
                 true, 7, true, Display.INVALID_DISPLAY));
-        assertFalse(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
+        assertFalse(DesktopInputRelaySession.shouldRunMouseBridge(
                 false, 7, true, Display.INVALID_DISPLAY));
-        assertFalse(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
+        assertFalse(DesktopInputRelaySession.shouldRunMouseBridge(
                 true, 7, false, Display.INVALID_DISPLAY));
-        assertFalse(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
+        assertFalse(DesktopInputRelaySession.shouldRunMouseBridge(
                 true, Display.DEFAULT_DISPLAY, true,
                 Display.INVALID_DISPLAY));
-        assertFalse(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
+        assertFalse(DesktopInputRelaySession.shouldRunMouseBridge(
                 true, 7, true, 7));
-        assertTrue(RuntimeDesktopInputCoordinator.shouldRunMouseBridge(
+        assertTrue(DesktopInputRelaySession.shouldRunMouseBridge(
                 true, 8, true, 7));
     }
 

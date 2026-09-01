@@ -287,7 +287,7 @@ final class DesktopControlsController {
         }
         if (mToolsStatus != null) {
             final String shortcutsState = mActivity.getString(
-                    KeyboardShortcutWatcher.isFullShortcutMode()
+                    MagicDeskRuntime.isFullKeyboardShortcutMode()
                             ? R.string.state_ready
                             : R.string.state_unavailable);
             mToolsStatus.setText(externalDesktopSession
@@ -316,7 +316,7 @@ final class DesktopControlsController {
                             && ShellAccess.isReady());
         }
         mActivity.taskbar().updateSystemStatus(
-                KeyboardShortcutWatcher.isFullShortcutMode());
+                MagicDeskRuntime.isFullKeyboardShortcutMode());
     }
 
     void togglePhoneScreen() {

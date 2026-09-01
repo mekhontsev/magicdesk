@@ -147,6 +147,13 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public boolean isFullKeyboardShortcutMode() {
+        return !mDestroyed
+                && mDesktopInput != null
+                && mDesktopInput.isFullShortcutMode();
+    }
+
+    @Override
     public DesktopPointerState getDesktopPointerState(
             final int displayId) {
         if (mDestroyed || mDesktopInput == null) {

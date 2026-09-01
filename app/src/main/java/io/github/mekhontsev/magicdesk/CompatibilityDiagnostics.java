@@ -388,10 +388,11 @@ public final class CompatibilityDiagnostics {
                 && audit.platform.features().inputRelay.keyboard
                 && DesktopRuntimeBridge.getActiveDesktopDisplayId() > 0;
         appendCheck(report, "SHORTCUTS-001",
-                !globalInput || KeyboardShortcutWatcher.isFullShortcutMode(),
+                !globalInput
+                        || MagicDeskRuntime.isFullKeyboardShortcutMode(),
                 "Global keyboard/input bridge",
                 globalInput
-                        ? (KeyboardShortcutWatcher.isFullShortcutMode()
+                        ? (MagicDeskRuntime.isFullKeyboardShortcutMode()
                                 ? "running" : "not running")
                         : audit.platform.features().inputRelay.keyboard
                                 ? "idle; an external desktop is required"

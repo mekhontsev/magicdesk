@@ -181,10 +181,6 @@ final class MagicDeskSessionController {
     }
 
     private void finishExit() {
-        runExitFinalizer(
-                "EXIT-007",
-                "Could not stop the keyboard input bridge",
-                KeyboardShortcutWatcher::stop);
         try {
             MagicDeskRuntime.stop(mActivity, this::finishRuntimeExit);
         } catch (RuntimeException error) {
