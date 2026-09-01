@@ -29,13 +29,19 @@ public final class DesktopSelfTestResult {
     }
 
     private final long mStartedAtMillis;
+    private final long mRunId;
     private final List<Check> mChecks = new ArrayList<>();
     private long mFinishedAtMillis;
     private boolean mFailFastArmed;
     private boolean mCancelled;
 
     DesktopSelfTestResult(final long startedAtMillis) {
+        this(startedAtMillis, 0L);
+    }
+
+    DesktopSelfTestResult(final long startedAtMillis, final long runId) {
         mStartedAtMillis = startedAtMillis;
+        mRunId = runId;
     }
 
     long startedAtMillis() {
@@ -48,6 +54,7 @@ public final class DesktopSelfTestResult {
             throw new IllegalArgumentException("self-test check is incomplete");
         }
         mChecks.add(new Check(state, code, label, clean(detail)));
+        DesktopSelfTestRunState.checkCompleted(mRunId, code);
         if (state == State.FAIL && mFailFastArmed) {
             mFailFastArmed = false;
             throw new StopAfterFirstFailure(code);

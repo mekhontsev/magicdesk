@@ -20,19 +20,16 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.AbortSelfTest;
 
 /** Runs a manually requested black-box test on a selected desktop display. */
 final class DesktopSelfTestController {
-    private static final AtomicBoolean RUNNING = new AtomicBoolean();
-
     private DesktopSelfTestController() {
     }
 
     static boolean isRunning() {
-        return RUNNING.get();
+        return DesktopSelfTestRunState.isExecuting();
     }
 
     static DesktopSelfTestResult run(final Context context) {
@@ -61,30 +58,52 @@ final class DesktopSelfTestController {
             final DesktopSelfTestTarget requestedTarget,
             final int resultTaskId,
             final DesktopSelfTestExecutionPolicy executionPolicy) {
+        return run(context, requestedTarget, resultTaskId, executionPolicy, 0L);
+    }
+
+    static DesktopSelfTestResult run(
+            final Context context,
+            final DesktopSelfTestTarget requestedTarget,
+            final int resultTaskId,
+            final DesktopSelfTestExecutionPolicy executionPolicy,
+            final long requestedRunId) {
+        final long startedAtMillis = System.currentTimeMillis();
+        final DesktopSelfTestTarget target = requestedTarget == null
+                ? DesktopSelfTestTarget.SIMULATED : requestedTarget;
+        final DesktopSelfTestExecutionPolicy policy = executionPolicy == null
+                ? DesktopSelfTestExecutionPolicy.FULL : executionPolicy;
+        final long runId = DesktopSelfTestRunState.startRun(
+                requestedRunId,
+                target.name().toLowerCase(java.util.Locale.ROOT),
+                policy,
+                startedAtMillis);
         final DesktopSelfTestResult result =
-                new DesktopSelfTestResult(System.currentTimeMillis());
+                new DesktopSelfTestResult(startedAtMillis, runId);
         if (context == null) {
             result.add(DesktopSelfTestResult.State.FAIL,
                     "SELFTEST-001", "Self-test context", "unavailable");
-            return finish(result, null);
+            return finish(result, null, runId);
         }
         final Context appContext = context.getApplicationContext();
-        if (!RUNNING.compareAndSet(false, true)) {
+        if (runId <= 0L) {
             result.add(DesktopSelfTestResult.State.FAIL,
                     "SELFTEST-002", "Concurrent self-test",
                     "another desktop self-test is already running");
-            return finish(result, appContext);
+            return finish(result, appContext, 0L);
         }
-        DesktopSelfTestCancellation.beginRun();
+        try {
+            DesktopSelfTestRunState.checkpoint();
+        } catch (DesktopSelfTestRunState.Cancelled cancelled) {
+            result.cancel();
+            return finish(result, appContext, runId);
+        }
         final String phoneUiIssue = phoneUiUnavailableReason(appContext);
         if (phoneUiIssue != null) {
             result.add(DesktopSelfTestResult.State.FAIL,
                     "SELFTEST-PRECONDITION-000",
                     "Phone is unlocked and awake",
                     phoneUiIssue);
-            RUNNING.set(false);
-            DesktopSelfTestCancellation.finishRun();
-            return finish(result, appContext);
+            return finish(result, appContext, runId);
         }
         result.add(DesktopSelfTestResult.State.PASS,
                 "SELFTEST-PRECONDITION-000",
@@ -92,8 +111,6 @@ final class DesktopSelfTestController {
 
         DesktopSelfTestPhoneInputGuard.cancel();
         DesktopSelfTestTaskStackGuard.cancel();
-        final DesktopSelfTestTarget target = requestedTarget == null
-                ? DesktopSelfTestTarget.SIMULATED : requestedTarget;
         if (!DesktopSelfTestHostObserver.isActive()) {
             DesktopSelfTestHostObserver.begin();
         }
@@ -104,7 +121,7 @@ final class DesktopSelfTestController {
         boolean observationsRecorded = false;
         boolean displayRemovalRecorded = false;
         Map<String, Integer> staleTransitionBaseline = Collections.emptyMap();
-        result.arm(executionPolicy);
+        result.arm(policy);
         try {
             result.add(DesktopSelfTestResult.State.PASS,
                     "SELFTEST-TARGET-001",
@@ -186,7 +203,7 @@ final class DesktopSelfTestController {
                         "the selected display is not owned by the self-test");
             }
             displayRemovalRecorded = true;
-        } catch (DesktopSelfTestCancellation.Cancelled cancelled) {
+        } catch (DesktopSelfTestRunState.Cancelled cancelled) {
             result.cancel();
         } catch (DesktopSelfTestResult.StopAfterFirstFailure stopped) {
             result.add(DesktopSelfTestResult.State.NOT_TESTED,
@@ -203,46 +220,71 @@ final class DesktopSelfTestController {
                     usefulMessage(error));
         } finally {
             result.disarm();
+            DesktopSelfTestRunState.beginCleanup(runId);
             try {
-                try {
-                    DesktopSelfTestTaskStackGuard.finish(result);
-                    if (!observationsRecorded) {
-                        recordDesktopHostObservation(result, displayId);
-                        recordPhoneUiObservation(result, displayId);
-                    }
-                    if (!displayRemovalRecorded) {
-                        DesktopSelfTestDisplayRemovalSuite.addNotTested(
-                                result,
-                                "window workflow did not reach display removal");
-                    }
-                } finally {
-                    DesktopSelfTestCleanup.run(result,
-                            target,
-                            displayId,
-                            lease);
-                }
-            } finally {
-                try {
-                    if (workspaceLease != null) {
-                        workspaceLease.close();
-                    }
-                } finally {
-                    restorePhoneOrientation(result, orientationLease);
-                    try {
-                        recordWindowTransitionHealth(
-                                appContext,
-                                result,
-                                staleTransitionBaseline);
-                        recordWindowTransitionLogHealth(result, displayId);
-                        restoreResultTask(result, target, resultTaskId);
-                    } finally {
-                        RUNNING.set(false);
-                        DesktopSelfTestCancellation.finishRun();
-                    }
-                }
+                finishCleanup(
+                        appContext,
+                        result,
+                        target,
+                        displayId,
+                        resultTaskId,
+                        lease,
+                        workspaceLease,
+                        orientationLease,
+                        observationsRecorded,
+                        displayRemovalRecorded,
+                        staleTransitionBaseline);
+            } catch (RuntimeException error) {
+                result.add(DesktopSelfTestResult.State.FAIL,
+                        "SELFTEST-CLEANUP-000",
+                        "Unexpected self-test cleanup failure",
+                        usefulMessage(error));
             }
         }
-        return finish(result, appContext);
+        return finish(result, appContext, runId);
+    }
+
+    private static void finishCleanup(
+            final Context context,
+            final DesktopSelfTestResult result,
+            final DesktopSelfTestTarget target,
+            final int displayId,
+            final int resultTaskId,
+            final SimulatedDisplayLease displayLease,
+            final WorkspaceIsolationLease workspaceLease,
+            final PhoneOrientationLease orientationLease,
+            final boolean observationsRecorded,
+            final boolean displayRemovalRecorded,
+            final Map<String, Integer> staleTransitionBaseline) {
+        try {
+            try {
+                DesktopSelfTestTaskStackGuard.finish(result);
+                if (!observationsRecorded) {
+                    recordDesktopHostObservation(result, displayId);
+                    recordPhoneUiObservation(result, displayId);
+                }
+                if (!displayRemovalRecorded) {
+                    DesktopSelfTestDisplayRemovalSuite.addNotTested(
+                            result,
+                            "window workflow did not reach display removal");
+                }
+            } finally {
+                DesktopSelfTestCleanup.run(
+                        result, target, displayId, displayLease);
+            }
+        } finally {
+            try {
+                if (workspaceLease != null) {
+                    workspaceLease.close();
+                }
+            } finally {
+                restorePhoneOrientation(result, orientationLease);
+                recordWindowTransitionHealth(
+                        context, result, staleTransitionBaseline);
+                recordWindowTransitionLogHealth(result, displayId);
+                restoreResultTask(result, target, resultTaskId);
+            }
+        }
     }
 
     private static void restorePhoneOrientation(
@@ -773,37 +815,35 @@ final class DesktopSelfTestController {
     }
 
     private static DesktopSelfTestResult finish(
-            final DesktopSelfTestResult result, final Context context) {
-        result.finish(System.currentTimeMillis());
+            final DesktopSelfTestResult result,
+            final Context context,
+            final long runId) {
+        final long completedAtMillis = System.currentTimeMillis();
+        result.finish(completedAtMillis);
         if (result.isCancelled()) {
-            DesktopAutomationEventJournal.record(
-                    "self_test", "cancelled", true, "cancelled");
+            DesktopSelfTestRunState.complete(
+                    runId,
+                    true,
+                    true,
+                    completedAtMillis,
+                    "cancelled",
+                    DesktopSelfTestResult.lastModifiedMillis(context));
             return result;
         }
         result.save(context);
-        try {
-            DesktopAutomationEventJournal.record(
-                    "self_test",
-                    "finished",
-                    !result.hasFailures(),
-                    result.summary(),
-                    new org.json.JSONObject()
-                            .put("failed", result.hasFailures())
-                            .put("summary", result.summary())
-                            .put("resultModifiedAtMillis",
-                                    DesktopSelfTestResult.lastModifiedMillis(
-                                            context)));
-        } catch (org.json.JSONException ignored) {
-            DesktopAutomationEventJournal.record(
-                    "self_test", "finished", !result.hasFailures(),
-                    result.summary());
-        }
         if (result.hasFailures()) {
             CompatibilityDiagnostics.record(
                     "SELFTEST-004",
                     "The built-in desktop self-test reported a failure",
                     result.summary());
         }
+        DesktopSelfTestRunState.complete(
+                runId,
+                false,
+                !result.hasFailures(),
+                completedAtMillis,
+                result.summary(),
+                DesktopSelfTestResult.lastModifiedMillis(context));
         return result;
     }
 

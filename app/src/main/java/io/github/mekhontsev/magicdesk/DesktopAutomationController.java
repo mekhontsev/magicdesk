@@ -204,6 +204,9 @@ final class DesktopAutomationController {
                 case RUN_SELF_TEST:
                     result = runSelfTest(args);
                     break;
+                case CANCEL_SELF_TEST:
+                    result = cancelSelfTest(args);
+                    break;
                 case SEND_KEY:
                     result = sendKey(args);
                     break;
@@ -784,15 +787,74 @@ final class DesktopAutomationController {
                     displayKind.name());
         }
         final long requestedAtMillis = System.currentTimeMillis();
+        final long runId = DesktopSelfTestRunState.beginRequest(
+                rawTarget, executionPolicy, requestedAtMillis);
+        if (runId <= 0L) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    "another desktop self-test is already active",
+                    true,
+                    DesktopSelfTestRunState.snapshot().toJson());
+        }
+        intent.putExtra(DiagnosticsActivity.EXTRA_SELF_TEST_RUN_ID, runId);
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
-        mContext.startActivity(intent, options.toBundle());
+        try {
+            mContext.startActivity(intent, options.toBundle());
+        } catch (RuntimeException error) {
+            DesktopSelfTestRunState.complete(
+                    runId,
+                    false,
+                    false,
+                    System.currentTimeMillis(),
+                    "could not launch diagnostics: "
+                            + ShellAccess.usefulMessage(error),
+                    DesktopSelfTestResult.lastModifiedMillis(mContext));
+            throw error;
+        }
         return DesktopAutomationResult.success(
                 "self-test launch accepted",
-                new JSONObject()
-                        .put("target", rawTarget)
-                        .put("mode", executionPolicy.wireName())
-                        .put("requestedAtMillis", requestedAtMillis));
+                DesktopSelfTestRunState.snapshot().toJson());
+    }
+
+    private DesktopAutomationResult cancelSelfTest(final JSONObject args)
+            throws JSONException {
+        final long runId = requiredLong(args, "runId");
+        if (runId <= 0L) {
+            throw new IllegalArgumentException("runId must be positive");
+        }
+        final DesktopSelfTestRunState.CancellationStatus status =
+                DesktopSelfTestRunState.requestCancellation(runId);
+        final JSONObject state = DesktopSelfTestRunState.snapshot().toJson()
+                .put("cancellationStatus", status.name()
+                        .toLowerCase(Locale.ROOT));
+        switch (status) {
+            case ACCEPTED:
+                return DesktopAutomationResult.success(
+                        "self-test cancellation requested", state);
+            case ALREADY_REQUESTED:
+                return DesktopAutomationResult.success(
+                        "self-test cancellation was already requested", state);
+            case RUN_MISMATCH:
+                return DesktopAutomationResult.failure(
+                        DesktopAutomationErrorCode.INVALID_ARGUMENT,
+                        "runId does not identify the active self-test",
+                        false,
+                        state);
+            case CLEANUP_STARTED:
+                return DesktopAutomationResult.failure(
+                        DesktopAutomationErrorCode.ACTION_FAILED,
+                        "self-test cleanup has already started",
+                        false,
+                        state);
+            case NOT_ACTIVE:
+            default:
+                return DesktopAutomationResult.failure(
+                        DesktopAutomationErrorCode.ACTION_FAILED,
+                        "no self-test is active",
+                        false,
+                        state);
+        }
     }
 
     private DesktopAutomationResult sendKey(final JSONObject args)
@@ -1120,18 +1182,29 @@ final class DesktopAutomationController {
                                 .isDesktopWallpaperRendered(displayId))
                         .put("displayId", displayId);
             }
-            case "self_test_finished":
-                final long startedAfterMillis = Math.max(
-                        0L, args.optLong("startedAfterMillis", 0L));
+            case "self_test_finished": {
+                final long runId = requiredLong(args, "runId");
+                if (runId <= 0L) {
+                    throw new IllegalArgumentException(
+                            "runId must be positive");
+                }
+                final DesktopSelfTestRunState.Snapshot snapshot =
+                        DesktopSelfTestRunState.snapshot();
                 final long resultModifiedAtMillis =
                         DesktopSelfTestResult.lastModifiedMillis(mContext);
-                return observation
-                        .put("matched",
-                                !DesktopSelfTestController.isRunning()
-                                        && resultModifiedAtMillis
-                                                >= startedAfterMillis)
+                final JSONObject state = snapshot.toJson();
+                final java.util.Iterator<String> keys = state.keys();
+                while (keys.hasNext()) {
+                    final String key = keys.next();
+                    observation.put(key, state.get(key));
+                }
+                return observation.put("matched",
+                                snapshot.runId == runId
+                                        && snapshot.terminal())
+                        .put("expectedRunId", runId)
                         .put("resultModifiedAtMillis",
                                 resultModifiedAtMillis);
+            }
             default:
                 throw new IllegalArgumentException("unknown wait condition");
         }
@@ -1416,6 +1489,18 @@ final class DesktopAutomationController {
             throw new IllegalArgumentException(key + " is out of range");
         }
         return (int) number;
+    }
+
+    private static long requiredLong(
+            final JSONObject object, final String key) {
+        if (object == null || !object.has(key)) {
+            throw new IllegalArgumentException(key + " is required");
+        }
+        final Object value = object.opt(key);
+        if (!(value instanceof Number)) {
+            throw new IllegalArgumentException(key + " must be an integer");
+        }
+        return ((Number) value).longValue();
     }
 
     private static JSONObject requiredObject(

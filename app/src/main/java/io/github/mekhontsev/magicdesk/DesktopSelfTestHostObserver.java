@@ -55,6 +55,7 @@ final class DesktopSelfTestHostObserver {
     }
 
     static void stage(final String stage) {
+        DesktopSelfTestRunState.stage(stage);
         boolean changed = false;
         synchronized (DesktopSelfTestHostObserver.class) {
             if (sActive && stage != null && !stage.isEmpty()

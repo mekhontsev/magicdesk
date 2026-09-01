@@ -409,6 +409,14 @@ final class MagicDeskMcpToolCatalog {
                                         "Execution mode. fail_fast stops after the first FAIL but still runs cleanup.",
                                         "full", "fail_fast")))))
                 .put(actionTool(
+                        "cancel_self_test",
+                        "Cancel desktop self-test",
+                        "Cancel one exact active self-test run and allow its cleanup to finish.",
+                        objectSchema(new JSONObject().put(
+                                "runId", integerProperty(
+                                        "Exact run id returned by run_self_test.")),
+                                "runId")))
+                .put(actionTool(
                         "send_key",
                         "Send key",
                         "Inject one Android key event on a desktop display. Developer automation only.",
@@ -492,8 +500,8 @@ final class MagicDeskMcpToolCatalog {
                                 "Exact title required for a visible popup."))
                         .put("timeoutMillis", integerProperty(
                                 "Timeout from 1 to 60000 milliseconds."))
-                        .put("startedAfterMillis", integerProperty(
-                                "For self_test_finished, require a result written after this timestamp.")),
+                        .put("runId", integerProperty(
+                                "Exact run id required for self_test_finished.")),
                 "condition");
     }
 
@@ -1004,8 +1012,21 @@ final class MagicDeskMcpToolCatalog {
                         "Compatibility report."));
                 break;
             case "get_self_test":
-                properties.put("running", booleanProperty("Test is running."))
+                selfTestStateProperties(properties);
+                properties.put("running", booleanProperty("Test is active."))
+                        .put("resultModifiedAtMillis", integerProperty(
+                                "Timestamp of the latest saved result."))
                         .put("report", stringProperty("Latest test report."));
+                break;
+            case "run_self_test":
+                selfTestStateProperties(properties);
+                break;
+            case "cancel_self_test":
+                selfTestStateProperties(properties);
+                properties.put("cancellationStatus", enumProperty(
+                        "Cancellation request outcome.",
+                        "accepted", "already_requested", "not_active",
+                        "run_mismatch", "cleanup_started"));
                 break;
             case "get_termux_x11_status":
             case "reconnect_termux_x11":
@@ -1304,6 +1325,35 @@ final class MagicDeskMcpToolCatalog {
                 .put("title", toolName + " data")
                 .put("properties", properties)
                 .put("additionalProperties", true);
+    }
+
+    private static void selfTestStateProperties(
+            final JSONObject properties) throws JSONException {
+        properties.put("runId", nullableIntegerProperty(
+                        "Current or most recently completed run id."))
+                .put("state", enumProperty(
+                        "Self-test lifecycle state.",
+                        "idle", "starting", "running", "cleanup",
+                        "completed", "cancelled"))
+                .put("active", booleanProperty(
+                        "Whether the run is starting, running, or cleaning up."))
+                .put("target", nullableStringProperty(
+                        "Selected phone, simulated, wired, or wireless target."))
+                .put("mode", nullableStringProperty(
+                        "Selected full or fail_fast execution mode."))
+                .put("stage", nullableStringProperty(
+                        "Existing code of the currently executing stage."))
+                .put("lastCompletedStage", nullableStringProperty(
+                        "Existing code of the last result-recorded stage."))
+                .put("cancelRequested", booleanProperty(
+                        "Whether cancellation has been requested."))
+                .put("requestedAtMillis", nullableIntegerProperty(
+                        "Request timestamp."))
+                .put("startedAtMillis", nullableIntegerProperty(
+                        "Execution start timestamp."))
+                .put("completedAtMillis", nullableIntegerProperty(
+                        "Terminal-state timestamp."))
+                .put("detail", stringProperty("Lifecycle detail."));
     }
 
     private static void terminalResultProperties(

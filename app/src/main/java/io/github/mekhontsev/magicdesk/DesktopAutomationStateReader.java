@@ -327,8 +327,10 @@ final class DesktopAutomationStateReader {
     }
 
     JSONObject selfTest() throws JSONException {
-        return new JSONObject()
-                .put("running", DesktopSelfTestController.isRunning())
+        final DesktopSelfTestRunState.Snapshot snapshot =
+                DesktopSelfTestRunState.snapshot();
+        return snapshot.toJson()
+                .put("running", snapshot.active())
                 .put("resultModifiedAtMillis",
                         DesktopSelfTestResult.lastModifiedMillis(mContext))
                 .put("report", DesktopSelfTestResult.readLastResult(mContext));

@@ -29,12 +29,14 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(publicNames.contains("get_termux_x11_status"));
         assertTrue(publicNames.contains("reconnect_termux_x11"));
         assertFalse(publicNames.contains("run_self_test"));
+        assertFalse(publicNames.contains("cancel_self_test"));
         assertFalse(publicNames.contains("clipboard.read_text"));
         assertFalse(publicNames.contains("clipboard.write_text"));
         assertFalse(publicNames.contains("clipboard.open"));
         assertFalse(publicNames.contains("clipboard.share"));
         assertFalse(publicNames.contains("clipboard.clear"));
         assertTrue(developerNames.contains("run_self_test"));
+        assertTrue(developerNames.contains("cancel_self_test"));
         assertTrue(developerNames.contains("clipboard.read_text"));
         assertTrue(developerNames.contains("clipboard.write_text"));
         assertTrue(developerNames.contains("clipboard.open"));
@@ -305,8 +307,9 @@ public final class MagicDeskMcpToolCatalogTest {
 
     @Test
     public void selfTestSchemaExposesFullAndFailFastModes() throws Exception {
-        final JSONObject schema = tool(
-                MagicDeskMcpToolCatalog.create(true), "run_self_test")
+        final JSONArray tools = MagicDeskMcpToolCatalog.create(true);
+        final JSONObject runTool = tool(tools, "run_self_test");
+        final JSONObject schema = runTool
                 .getJSONObject("inputSchema");
         final JSONArray modes = schema.getJSONObject("properties")
                 .getJSONObject("mode")
@@ -314,6 +317,17 @@ public final class MagicDeskMcpToolCatalogTest {
 
         assertTrue(contains(modes, "full"));
         assertTrue(contains(modes, "fail_fast"));
+        assertTrue(runTool.getJSONObject("outputSchema")
+                .getJSONObject("properties")
+                .getJSONObject("data")
+                .getJSONObject("properties")
+                .has("lastCompletedStage"));
+
+        final JSONObject cancelSchema = tool(tools, "cancel_self_test")
+                .getJSONObject("inputSchema");
+        assertTrue(cancelSchema.getJSONObject("properties").has("runId"));
+        assertEquals("runId", cancelSchema.getJSONArray("required")
+                .getString(0));
     }
 
     @Test
@@ -330,6 +344,9 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(invoke.getJSONObject("properties").has("action"));
         assertTrue(wait.getJSONObject("properties").has("elementId"));
         assertTrue(wait.getJSONObject("properties").has("popupTitle"));
+        assertTrue(wait.getJSONObject("properties").has("runId"));
+        assertFalse(wait.getJSONObject("properties")
+                .has("startedAfterMillis"));
         final JSONArray conditions = wait.getJSONObject("properties")
                 .getJSONObject("condition").getJSONArray("enum");
         assertTrue(contains(conditions, "ui_element_state"));

@@ -264,8 +264,11 @@ final class DesktopSelfTestPhoneGuardWindow {
         }
 
         private void requestCancellation() {
-            if (!DesktopSelfTestCancellation.request()
-                    && !DesktopSelfTestCancellation.isRequested()) {
+            final DesktopSelfTestRunState.CancellationStatus status =
+                    DesktopSelfTestRunState.requestCancellation(0L);
+            if (status != DesktopSelfTestRunState.CancellationStatus.ACCEPTED
+                    && status != DesktopSelfTestRunState.CancellationStatus
+                            .ALREADY_REQUESTED) {
                 return;
             }
             mCancel.setEnabled(false);

@@ -42,6 +42,7 @@ enum DesktopAutomationAction {
     START_RECORDING("start_recording", false),
     STOP_RECORDING("stop_recording", false),
     RUN_SELF_TEST("run_self_test", true),
+    CANCEL_SELF_TEST("cancel_self_test", true),
     SEND_KEY("send_key", true),
     MOVE_POINTER("move_pointer", true),
     CLICK_POINTER("click_pointer", true),
