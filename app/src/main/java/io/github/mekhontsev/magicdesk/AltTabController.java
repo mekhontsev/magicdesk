@@ -69,7 +69,7 @@ final class AltTabController {
         mTaskbarActivation = taskbarActivation;
         mSelectedIndex = -1;
         mTasks = Collections.emptyList();
-        // Preserve app focus at key-down. A concurrent desktop-host refresh
+        // Preserve app focus at key-down. A concurrent framework focus event
         // can make the asynchronous snapshot contain no active app task.
         mStartingTaskId = findActiveTaskId(
                 mActivity.getTaskSnapshot());

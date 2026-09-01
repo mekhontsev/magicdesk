@@ -295,7 +295,6 @@ final class ShellTaskActivityModeGuard implements
                 TaskFullscreenTransitionCommand.applyFullscreen(
                         correction.record.displayId,
                         correction.record.taskId,
-                        false,
                         mRefreshFullscreenCaption);
             } else {
                 ShellPreparedTaskTransition.applyFreeform(

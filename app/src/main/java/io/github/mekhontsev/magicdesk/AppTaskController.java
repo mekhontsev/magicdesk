@@ -1172,41 +1172,31 @@ final class AppTaskController {
         final boolean keepTaskbarVisible =
                 DesktopTaskSnapshotController.hasVisibleFreeformTask(
                         takeInteractionVisibleTasks(), task.taskId);
-        rememberWindowBounds(task);
-        final int displayId =
-                beginFullscreenTransition(task.taskId);
         mActivity.setStatus(mActivity.getString(
                 R.string.status_launching_fullscreen, app.label));
-        TaskRepository.setFullscreen(
-                task,
-                result -> {
-                    MagicDeskRuntime.finishFullscreenTransition(
-                            displayId, result.success);
-                    mActivity.runOnUiThread(() -> {
-                        if (mActivity.isActivityUnavailable()) {
-                            return;
-                        }
-                        if (result.success) {
-                            if (remembersWindowState(app)) {
-                                AppWindowStateStore.rememberMode(
-                                        windowStateKey(app),
-                                        AppWindowState.Mode.FULLSCREEN);
-                            }
-                            mActivity.setTaskbarVisible(
-                                    keepTaskbarVisible);
-                        }
-                        mActivity.setStatus(mActivity.getString(
-                                result.success
-                                        ? R.string.status_switch_done
-                                        : R.string.status_switch_failed,
-                                result.success
-                                        ? app.label
-                                        : (result.message.length() == 0
-                                                ? app.label
-                                                : result.message)));
-                        mActivity.refreshTaskSnapshot();
-                    });
+        final TaskRepository.ActionCallback completion = result ->
+                mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()) {
+                        return;
+                    }
+                    if (result.success) {
+                        mActivity.setTaskbarVisible(keepTaskbarVisible);
+                    }
+                    mActivity.setStatus(mActivity.getString(
+                            result.success
+                                    ? R.string.status_switch_done
+                                    : R.string.status_switch_failed,
+                            result.success
+                                    ? app.label
+                                    : (result.message.length() == 0
+                                            ? app.label
+                                            : result.message)));
+                    mActivity.refreshTaskSnapshot();
                 });
+        if (!MagicDeskRuntime.makeTaskFullscreen(task, completion)) {
+            completion.onComplete(new TaskRepository.ActionResult(
+                    false, "desktop transition gateway unavailable"));
+        }
     }
 
     private void rememberWindowBounds(
@@ -1422,15 +1412,6 @@ final class AppTaskController {
                         mActivity.refreshTaskSnapshot();
                     }));
         });
-    }
-
-    private int beginFullscreenTransition(final int excludedTaskId) {
-        final List<TaskRepository.TaskEntry> visibleTasks =
-                takeInteractionVisibleTasks();
-        final int displayId = mActivity.getCurrentDisplayId();
-        MagicDeskRuntime.beginFullscreenTransition(
-                displayId, visibleTasks, excludedTaskId);
-        return displayId;
     }
 
     private static int findPackageTaskId(

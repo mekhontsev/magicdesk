@@ -125,20 +125,22 @@ final class IndependentFullscreenTaskTopology
     }
 
     @Override
-    public synchronized boolean closeTask(
+    public synchronized ShellFullscreenTaskArea.CloseResult closeTask(
             final Object service,
             final int displayId,
             final int taskId,
             final int focusTaskId) {
-        if (displayId != mDisplayId) {
-            return false;
+        if (displayId != mDisplayId || !mPlanes.ownsTask(taskId)) {
+            return ShellFullscreenTaskArea.CloseResult.NOT_HANDLED;
         }
         final boolean closed = mPlanes.closeTask(
                 service, displayId, taskId, focusTaskId, mOwnership);
         if (closed) {
             mAppRestoreBounds.remove(Integer.valueOf(taskId));
         }
-        return closed;
+        return closed
+                ? ShellFullscreenTaskArea.CloseResult.SUCCEEDED
+                : ShellFullscreenTaskArea.CloseResult.FAILED;
     }
 
     @Override

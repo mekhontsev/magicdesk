@@ -174,21 +174,57 @@ public final class DesktopTaskControllerTest {
     }
 
     @Test
-    public void showDesktopSelectsTheNextActiveUndemotedTask() {
-        final TaskRepository.TaskEntry first = task(
-                10, "com.example.first/.MainActivity", true, true);
-        final TaskRepository.TaskEntry second = task(
-                11, "com.example.second/.MainActivity", true, true);
+    public void showDesktopBuildsOneHomeTargetedWorkspaceCommand() {
+        final TaskRepository.TaskEntry top = task(
+                10, "com.example.top/.MainActivity", true, true);
+        final TaskRepository.TaskEntry bottom = task(
+                11, "com.example.bottom/.MainActivity", true, false);
+        final TaskRepository.TaskEntry host = task(
+                "io.github.mekhontsev.magicdesk/.DesktopActivity");
+        final TaskbarTaskOrder.DesktopPresentation presentation =
+                TaskbarTaskOrder.presentDesktop(
+                        new TaskRepository.Snapshot(
+                                Arrays.asList(top, bottom, host),
+                                true,
+                                ""),
+                        Collections.emptyList(),
+                        Collections.emptySet(),
+                        true);
+
+        assertEquals(Arrays.asList(11, 10, 1),
+                presentation.physicalOrder);
+        assertEquals(Arrays.asList(11, 10), presentation.restoreOrder);
+        assertEquals(2, presentation.newlyConcealedTaskIds.size());
+        assertTrue(presentation.newlyConcealedTaskIds.contains(
+                Integer.valueOf(10)));
+        assertTrue(presentation.newlyConcealedTaskIds.contains(
+                Integer.valueOf(11)));
+    }
+
+    @Test
+    public void showDesktopKeepsPreviouslyConcealedTasksOutOfRestorePlan() {
+        final TaskRepository.TaskEntry top = task(
+                10, "com.example.top/.MainActivity", true, true);
+        final TaskRepository.TaskEntry bottom = task(
+                11, "com.example.bottom/.MainActivity", true, false);
         final TaskRepository.TaskEntry host = task(
                 "io.github.mekhontsev.magicdesk/.DesktopActivity");
 
-        assertEquals(
-                11,
-                DesktopTaskController.selectShowDesktopDemotionTask(
-                        Arrays.asList(first, second, host),
-                        2,
-                        1,
-                        Collections.singleton(Integer.valueOf(10))).taskId);
+        final TaskbarTaskOrder.DesktopPresentation presentation =
+                TaskbarTaskOrder.presentDesktop(
+                        new TaskRepository.Snapshot(
+                                Arrays.asList(top, bottom, host),
+                                true,
+                                ""),
+                        Collections.emptyList(),
+                        Collections.singleton(Integer.valueOf(10)),
+                        true);
+
+        assertEquals(Arrays.asList(11, 1), presentation.physicalOrder);
+        assertEquals(Collections.singletonList(Integer.valueOf(11)),
+                presentation.restoreOrder);
+        assertEquals(Collections.singleton(Integer.valueOf(11)),
+                presentation.newlyConcealedTaskIds);
     }
 
     @Test

@@ -494,6 +494,13 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static boolean makeTaskFullscreen(
+            final TaskRepository.TaskEntry task,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        return tasks != null && tasks.makeTaskFullscreen(task, callback);
+    }
+
     static void forceStopPackage(
             final String packageName,
             final TaskRepository.ActionCallback callback) {

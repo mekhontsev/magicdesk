@@ -19,7 +19,7 @@ interface ShellFullscreenTaskTopology extends AutoCloseable {
     boolean restoreTask(
             Object service, int displayId, int taskId, Rect bounds);
 
-    boolean closeTask(
+    ShellFullscreenTaskArea.CloseResult closeTask(
             Object service, int displayId, int taskId, int focusTaskId);
 
     boolean onWindowingModeChanged(

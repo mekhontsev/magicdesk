@@ -23,6 +23,7 @@ import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
@@ -43,8 +44,7 @@ import java.util.Map;
 
 public abstract class DesktopShellActivity extends Activity
         implements MagicDeskSessionHost,
-        DisplayProfileController.Host,
-        DesktopHostWindowController.Host {
+        DisplayProfileController.Host {
     private static final String TAG = "MagicDesk";
     static final String HARDWARE_LAYOUT_STATE =
             "magicdesk_hardware_keyboard_layout";
@@ -103,12 +103,12 @@ public abstract class DesktopShellActivity extends Activity
     private MagicDeskSessionController mSessionController;
     private LauncherAppRepository mLauncherApps;
     private DesktopInputController mInputController;
-    private DesktopHostWindowController mHostWindowController;
     private DesktopSystemActionsController mSystemActions;
     private DesktopLaunchCoordinator mLaunchCoordinator;
     private final OnBackInvokedCallback mDesktopBackCallback =
             this::handleDesktopBack;
     private boolean mDesktopWindowFocusable = true;
+    private boolean mDesktopHostReady;
     private boolean mDesktopBackCallbackRegistered;
     private int mInputFocusRefreshGeneration;
     private boolean mTaskbarVisible = true;
@@ -297,7 +297,6 @@ public abstract class DesktopShellActivity extends Activity
         mSessionController = new MagicDeskSessionController(this);
         mLauncherApps = new LauncherAppRepository(this);
         mInputController = new DesktopInputController(this);
-        mHostWindowController = new DesktopHostWindowController(this);
         mSystemActions = new DesktopSystemActionsController(this);
         mLaunchCoordinator = new DesktopLaunchCoordinator(
                 new DesktopSessionLaunchContext(this));
@@ -305,9 +304,9 @@ public abstract class DesktopShellActivity extends Activity
         DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
+        observeDesktopHomeReady();
         DesktopSelfTestHostObserver.observeNextFrame(this, "first-frame");
         mTaskbarRevealController.start();
-        mDesktopRoot.post(mHostWindowController::ensureConfigured);
         mNotifications.start();
         mDesktopControls.start();
         mDisplayProfiles.start();
@@ -415,9 +414,7 @@ public abstract class DesktopShellActivity extends Activity
         if (mStartMenuController != null) {
             mStartMenuController.release();
         }
-        if (mHostWindowController != null) {
-            mHostWindowController.release();
-        }
+        mDesktopHostReady = false;
         releaseDesktopOverlays();
         DesktopRuntimeBridge.unregister(this);
         if (mDesktopControls != null) {
@@ -594,9 +591,6 @@ public abstract class DesktopShellActivity extends Activity
         updateDesktopControls();
         mNotifications.refresh();
         ensurePreferredDesktopDensity();
-        if (mHostWindowController != null) {
-            mHostWindowController.ensureConfigured();
-        }
     }
 
     @Override
@@ -630,9 +624,6 @@ public abstract class DesktopShellActivity extends Activity
             final boolean inMultiWindowMode,
             final Configuration newConfig) {
         super.onMultiWindowModeChanged(inMultiWindowMode, newConfig);
-        if (mHostWindowController != null) {
-            mHostWindowController.onMultiWindowModeChanged(inMultiWindowMode);
-        }
         DesktopSelfTestHostObserver.observeNextFrame(this, "mode-change");
     }
 
@@ -714,12 +705,34 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     boolean isDesktopHostReady() {
-        return mHostWindowController != null
-                && mHostWindowController.isReady();
+        return mDesktopHostReady;
     }
 
-    @Override
-    public void onDesktopHostReady() {
+    private void observeDesktopHomeReady() {
+        final View root = mDesktopRoot;
+        if (root == null) {
+            return;
+        }
+        root.getViewTreeObserver().addOnPreDrawListener(
+                new ViewTreeObserver.OnPreDrawListener() {
+                    @Override
+                    public boolean onPreDraw() {
+                        final ViewTreeObserver observer =
+                                root.getViewTreeObserver();
+                        if (observer.isAlive()) {
+                            observer.removeOnPreDrawListener(this);
+                        }
+                        if (!isActivityUnavailable()
+                                && getCurrentDisplayId() == mExpectedDisplayId) {
+                            mDesktopHostReady = true;
+                            onDesktopHostReady();
+                        }
+                        return true;
+                    }
+                });
+    }
+
+    private void onDesktopHostReady() {
         MagicDeskRuntime.onDesktopHostReadyForParkedTasks(
                 getCurrentDisplayId());
     }
@@ -1440,7 +1453,6 @@ public abstract class DesktopShellActivity extends Activity
         void run(String name);
     }
 
-    @Override
     public void refreshTaskSnapshot() {
         mTaskSnapshots.refresh();
     }
@@ -2150,7 +2162,6 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.openDiagnostics();
     }
 
-    @Override
     public int getCurrentDisplayId() {
         final Display display = getWindowManager().getDefaultDisplay();
         return display == null ? 0 : display.getDisplayId();
@@ -2164,11 +2175,6 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     public String getDesktopProfileKey() {
         return mDesktopProfileKey;
-    }
-
-    @Override
-    public Rect getMaximumWindowBounds() {
-        return getWindowManager().getMaximumWindowMetrics().getBounds();
     }
 
     static void setLaunchWindowingMode(

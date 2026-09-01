@@ -220,18 +220,6 @@ public final class TaskRepository {
         runAction(createTaskControlCommand("remove", task.taskId), callback);
     }
 
-    static void configureDesktopHost(final TaskEntry task,
-            final ActionCallback callback) {
-        if (!isUsableTask(task)) {
-            complete(callback, false, "invalid desktop host");
-            return;
-        }
-        runAction(createTaskWindowingCommand(
-                "desktop-host " + task.displayId + " " + task.taskId
-                        + " " + captionRefreshArgument()),
-                callback);
-    }
-
     static void setFullscreen(final TaskEntry task,
             final ActionCallback callback) {
         if (!isUsableTask(task)) {
@@ -243,16 +231,6 @@ public final class TaskRepository {
                 callback);
     }
 
-    static void setAppRequestedFullscreen(
-            final TaskEntry task, final ActionCallback callback) {
-        if (!isUsableTask(task)) {
-            complete(callback, false, "invalid task");
-            return;
-        }
-        runAction(createClientPreservingFullscreenTransitionCommand(
-                task.displayId, task.taskId), callback);
-    }
-
     static void setFreeform(final TaskEntry task, final Rect bounds,
             final ActionCallback callback) {
         if (!isUsableTask(task) || !hasExplicitBounds(bounds)) {
@@ -261,17 +239,6 @@ public final class TaskRepository {
         }
         runAction(createFreeformTransitionCommand(task.displayId, task.taskId, bounds),
                 callback);
-    }
-
-    static void rebuildFreeform(final TaskEntry task, final Rect bounds,
-            final ActionCallback callback) {
-        if (!isUsableTask(task) || !task.isFreeform()
-                || !hasExplicitBounds(bounds)) {
-            complete(callback, false, "invalid freeform rebuild");
-            return;
-        }
-        runAction(createRebuildFreeformCommand(
-                task.displayId, task.taskId, bounds), callback);
     }
 
     static void resizeTaskBounds(final TaskEntry task, final Rect bounds,
@@ -443,17 +410,6 @@ public final class TaskRepository {
     static String createFreeformTransitionCommand(final int displayId,
             final int taskId, final Rect bounds) {
         final String arguments = "freeform " + displayId + " " + taskId
-                + " " + bounds.left + " " + bounds.top
-                + " " + bounds.right + " " + bounds.bottom;
-        return AppProcessCommand.run(TASK_WINDOWING_COMMAND, arguments);
-    }
-
-    static String createRebuildFreeformCommand(final int displayId,
-            final int taskId, final Rect bounds) {
-        if (displayId < 0 || taskId < 0 || !hasExplicitBounds(bounds)) {
-            throw new IllegalArgumentException("invalid task bounds");
-        }
-        final String arguments = "rebuild-freeform " + displayId + " " + taskId
                 + " " + bounds.left + " " + bounds.top
                 + " " + bounds.right + " " + bounds.bottom;
         return AppProcessCommand.run(TASK_WINDOWING_COMMAND, arguments);

@@ -157,6 +157,12 @@ final class DesktopWindowTransitionController {
         }
     }
 
+    void makeTaskFullscreen(
+            final TaskRepository.TaskEntry task,
+            final TaskRepository.ActionCallback completion) {
+        makeFullscreen(task, false, completion);
+    }
+
     void restoreTopFullscreenTask() {
         final int displayId = mRuntimeState.displayId();
         TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
@@ -322,31 +328,17 @@ final class DesktopWindowTransitionController {
         } else {
             request = null;
         }
-        if (request != null) {
-            final TaskRepository.ActionCallback callback =
-                    result -> mHandler.post(() -> {
-                        if (result.success) {
-                            return;
-                        }
-                        recordFallback(request);
-                        closeThroughRepository(task);
-                    });
-            if (submit(request, callback)) {
-                return;
-            }
-            recordFallback(request);
+        if (request == null) {
+            Log.w(TAG, "native close ignored unsupported task="
+                    + task.taskId + " mode=" + task.windowingMode);
+            return;
         }
-        closeThroughRepository(task);
-    }
-
-    private static void closeThroughRepository(
-            final TaskRepository.TaskEntry task) {
-        TaskRepository.closeTask(task, result -> {
+        submitRequired(request, result -> mHandler.post(() -> {
             if (!result.success) {
                 Log.w(TAG, "native close failed task=" + task.taskId
                         + " message=" + result.message);
             }
-        });
+        }));
     }
 
     private void snap(
@@ -423,19 +415,7 @@ final class DesktopWindowTransitionController {
                         taskId,
                         targetBounds,
                         "native-window-snap-shortcut");
-        final TaskRepository.ActionCallback submissionCallback = result -> {
-            if (result.success) {
-                callback.onComplete(result);
-                return;
-            }
-            recordFallback(request);
-            TaskRepository.setFreeform(task, targetBounds, callback);
-        };
-        if (submit(request, submissionCallback)) {
-            return;
-        }
-        recordFallback(request);
-        TaskRepository.setFreeform(task, targetBounds, callback);
+        submitRequired(request, callback);
     }
 
     private void applyRestoreShortcut(
@@ -492,9 +472,20 @@ final class DesktopWindowTransitionController {
     private void makeFullscreen(
             final TaskRepository.TaskEntry task,
             final boolean appRequested) {
+        makeFullscreen(task, appRequested, null);
+    }
+
+    private void makeFullscreen(
+            final TaskRepository.TaskEntry task,
+            final boolean appRequested,
+            final TaskRepository.ActionCallback completion) {
         final int taskId = task.taskId;
         final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
         if (!state.beginFullscreenTransition()) {
+            complete(
+                    completion,
+                    false,
+                    "task transition already active");
             return;
         }
         final int displayId = mRuntimeState.displayId();
@@ -527,6 +518,7 @@ final class DesktopWindowTransitionController {
                                 "fullscreen shortcut failed task="
                                         + task.taskId
                                         + " message=" + result.message);
+                        complete(completion, false, result.message);
                         return;
                     }
                     if (appRequested) {
@@ -542,6 +534,7 @@ final class DesktopWindowTransitionController {
                                 BuiltInDesktopAppCatalog.appIdentityKey(task),
                                 AppWindowState.Mode.FULLSCREEN);
                     }
+                    complete(completion, true, result.message);
                 });
         final DesktopWindowTransitionRequest request = appRequested
                 ? DesktopWindowTransitionRequest.enterAppFullscreen(
@@ -553,29 +546,7 @@ final class DesktopWindowTransitionController {
                         displayId,
                         taskId,
                         "native-window-fullscreen-shortcut");
-        final TaskRepository.ActionCallback submissionCallback = result -> {
-            if (result.success) {
-                callback.onComplete(result);
-                return;
-            }
-            recordFallback(request);
-            if (appRequested) {
-                TaskRepository.setAppRequestedFullscreen(task, callback);
-            } else {
-                TaskRepository.setFullscreen(task, callback);
-            }
-        };
-        if (submit(request, submissionCallback)) {
-            return;
-        }
-        recordFallback(request);
-        if (appRequested) {
-            TaskRepository.setAppRequestedFullscreen(task, callback);
-        } else {
-            TaskRepository.setFullscreen(
-                    task,
-                    callback);
-        }
+        submitRequired(request, callback);
     }
 
     private void restoreFullscreenTask(
@@ -620,30 +591,7 @@ final class DesktopWindowTransitionController {
                         userRequested
                                 ? "native-window-restore-shortcut"
                                 : "application-immersive-reconciliation");
-        final TaskRepository.ActionCallback submissionCallback = result -> {
-            if (result.success) {
-                callback.onComplete(result);
-                return;
-            }
-            recordFallback(request);
-            restoreThroughRepository(task, targetBounds, callback);
-        };
-        if (submit(request, submissionCallback)) {
-            return;
-        }
-        recordFallback(request);
-        restoreThroughRepository(task, targetBounds, callback);
-    }
-
-    private static void restoreThroughRepository(
-            final TaskRepository.TaskEntry task,
-            final Rect targetBounds,
-            final TaskRepository.ActionCallback callback) {
-        if (task.isFreeform()) {
-            TaskRepository.rebuildFreeform(task, targetBounds, callback);
-        } else {
-            TaskRepository.setFreeform(task, targetBounds, callback);
-        }
+        submitRequired(request, callback);
     }
 
     private boolean submit(
@@ -656,9 +604,25 @@ final class DesktopWindowTransitionController {
         return accepted;
     }
 
-    private static void recordFallback(
-            final DesktopWindowTransitionRequest request) {
-        DesktopWindowTransitionDiagnostics.recordFallback(request);
+    private void submitRequired(
+            final DesktopWindowTransitionRequest request,
+            final TaskRepository.ActionCallback callback) {
+        if (submit(request, callback)) {
+            return;
+        }
+        callback.onComplete(new TaskRepository.ActionResult(
+                false,
+                "desktop transition gateway unavailable"));
+    }
+
+    private static void complete(
+            final TaskRepository.ActionCallback callback,
+            final boolean success,
+            final String message) {
+        if (callback != null) {
+            callback.onComplete(new TaskRepository.ActionResult(
+                    success, message == null ? "" : message));
+        }
     }
 
     private void finishFullscreenRestore(

@@ -49,6 +49,10 @@ interface DesktopTaskRuntime {
             TaskRepository.TaskEntry task,
             TaskRepository.ActionCallback callback);
 
+    boolean makeTaskFullscreen(
+            TaskRepository.TaskEntry task,
+            TaskRepository.ActionCallback callback);
+
     boolean forceStopPackage(
             String packageName,
             TaskRepository.ActionCallback callback);

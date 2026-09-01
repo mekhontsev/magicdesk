@@ -615,11 +615,14 @@ runtime integration and are not distributed through the same release path.
   emits immutable `DesktopWindowTransitionRequest` values through
   `DesktopWindowTransitionGateway`; `DesktopTaskController` is the sole adapter
   from those semantic operations to the existing task watcher. A declined
-  request uses the same `TaskRepository` fallback that existed before the
-  abstraction. `ShellPreparedTaskTransition` remains the lower-level owner of
-  hide, hierarchy change, reveal, and rollback, so platform extensions cannot
-  fork the proven transition mechanics. Bounded routing counters in
-  diagnostics distinguish gateway acceptance from repository fallback.
+  request completes with an explicit failure; active-session UI never bypasses
+  fullscreen-plane ownership through a raw repository command.
+  `ShellPreparedTaskTransition` remains the lower-level owner of hide,
+  hierarchy change, reveal, and rollback, so platform extensions cannot fork
+  the proven transition mechanics. Bounded routing counters in diagnostics
+  distinguish accepted and declined gateway requests. Explicit raw MCP
+  operations remain a separate developer surface and identify themselves as
+  raw transitions.
 - `DesktopTaskRuntimeRegistry` owns one transient state object per Android task
   ID. Bounds, maximize/restore, fullscreen, immersive, and startup-windowed
   transitions share that object instead of maintaining parallel controller
@@ -1740,22 +1743,21 @@ completed move or resize into one state write. This adds no polling loop.
 Bounds are resolved against the active desktop work area when a task is
 launched, restored, or moved to another display.
 
-The MagicDesk desktop itself is a visually opaque, display-sized standard
-Activity in fullscreen mode. Its task is marked force-translucent through the
-same `WindowContainerTransaction`, which changes WindowManager occlusion
-semantics without changing the rendered surface. Covered applications remain
-`RESUMED`. The fullscreen transition excludes the caption inset and refreshes
-the client so Nubia's stale caption surface does not occupy the top of the
-display. The host is not an Android HOME activity: HOME stops tasks placed
-behind it on this firmware. `DesktopHostWindowController` performs and verifies
-this normalization whenever a desktop task is created or moved.
+MagicDesk temporarily owns Android's HOME role for the desktop session.
+`PhoneHomeActivity` is the phone navigation surface, while `DesktopActivity`
+is launched and verified as the root HOME task on the selected desktop
+display. The desktop host is an opaque, display-sized fullscreen Activity; it
+does not need a force-translucent override or a post-launch window-mode repair.
+The Activity becomes available to parked-task restoration after its first
+rendered frame. HOME-role acquisition, root-task creation, and first-frame
+readiness are separate lifecycle facts, so callers never infer host readiness
+from an arbitrary delay or configuration retry.
 
 Task order around this host is the desktop visibility boundary. Freeform tasks
-above it are visible windows; tasks below it are minimized even though Android
-keeps them `RESUMED`. Minimizing reorders the active task below the host and
-then focuses the next visible task, or the host when no window remains. This
-preserves media and background work without a timer, lifecycle spoofing, or a
-custom window layer.
+above it are visible windows; tasks below it are minimized and follow Android's
+normal background lifecycle. Minimizing reorders the active task below the
+host and then focuses the next visible task, or the host when no window
+remains. This requires no timer, lifecycle spoofing, or custom window layer.
 
 Application-requested immersive mode is reported by the task watcher. MagicDesk
 hides its shell and lets the same Activity enter true fullscreen. Leaving

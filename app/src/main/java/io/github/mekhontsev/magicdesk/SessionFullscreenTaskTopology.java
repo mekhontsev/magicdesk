@@ -112,14 +112,22 @@ final class SessionFullscreenTaskTopology
     }
 
     @Override
-    public boolean beginFullscreen(
+    public synchronized boolean beginFullscreen(
             final Object service,
             final int displayId,
             final int taskId,
             final boolean refreshCaption) {
-        // The ordinary fullscreen transition already preserves the session
-        // parent; the phone desktop needs no second organizer hierarchy.
-        return false;
+        if (displayId != mDisplayId || taskId < 0) {
+            return false;
+        }
+        try {
+            TaskFullscreenTransitionCommand.applyFullscreen(
+                    displayId, taskId, refreshCaption);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "phone fullscreen failed task=" + taskId, error);
+            return false;
+        }
     }
 
     @Override
@@ -128,9 +136,12 @@ final class SessionFullscreenTaskTopology
             final int displayId,
             final int taskId,
             final Rect bounds) {
-        final Rect restoreBounds = mAppRestoreBounds.get(
-                Integer.valueOf(taskId));
-        if (displayId != mDisplayId || restoreBounds == null) {
+        final Integer taskKey = Integer.valueOf(taskId);
+        final Rect appRestoreBounds = mAppRestoreBounds.get(taskKey);
+        final Rect restoreBounds = appRestoreBounds == null
+                ? bounds : appRestoreBounds;
+        if (displayId != mDisplayId || restoreBounds == null
+                || restoreBounds.isEmpty()) {
             return false;
         }
         boolean hidden = false;
@@ -145,7 +156,7 @@ final class SessionFullscreenTaskTopology
             TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
                     service, displayId, taskId, restoreBounds);
             hidden = false;
-            mAppRestoreBounds.remove(Integer.valueOf(taskId));
+            mAppRestoreBounds.remove(taskKey);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "phone app fullscreen restore failed task="
@@ -158,7 +169,7 @@ final class SessionFullscreenTaskTopology
                             taskId,
                             WINDOWING_MODE_FREEFORM,
                             restoreBounds);
-                    mAppRestoreBounds.remove(Integer.valueOf(taskId));
+                    mAppRestoreBounds.remove(taskKey);
                     return true;
                 } catch (ReflectiveOperationException
                         | RuntimeException restoreError) {
@@ -170,14 +181,14 @@ final class SessionFullscreenTaskTopology
     }
 
     @Override
-    public synchronized boolean closeTask(
+    public synchronized ShellFullscreenTaskArea.CloseResult closeTask(
             final Object service,
             final int displayId,
             final int taskId,
             final int focusTaskId) {
         if (displayId != mDisplayId || taskId < 0
                 || focusTaskId < 0 || focusTaskId == taskId) {
-            return false;
+            return ShellFullscreenTaskArea.CloseResult.NOT_HANDLED;
         }
         try {
             final Object task = HiddenTaskApi.findTask(
@@ -185,21 +196,21 @@ final class SessionFullscreenTaskTopology
             if (!mOwnership.isDesktopTask(task)
                     || HiddenTaskApi.getTaskWindowingMode(task)
                             != WINDOWING_MODE_FULLSCREEN) {
-                return false;
+                return ShellFullscreenTaskArea.CloseResult.NOT_HANDLED;
             }
             int successorTaskId = focusTaskId;
             if (mOwnership.isDesktopHostTask(successorTaskId)) {
                 successorTaskId = findFullscreenSurvivor(
                         service, displayId, taskId);
             }
-            if (successorTaskId < 0
-                    || mOwnership.isDesktopHostTask(successorTaskId)) {
-                return false;
+            if (successorTaskId < 0) {
+                // The generic session close can hand focus to its HOME host.
+                return ShellFullscreenTaskArea.CloseResult.NOT_HANDLED;
             }
             final Object successor = HiddenTaskApi.findTask(
                     service, displayId, successorTaskId);
             if (!mOwnership.isDesktopTask(successor)) {
-                return false;
+                return ShellFullscreenTaskArea.CloseResult.FAILED;
             }
             TaskWindowingCommand.closeFullscreenAreaTask(
                     service, displayId, taskId, successorTaskId);
@@ -207,10 +218,10 @@ final class SessionFullscreenTaskTopology
             Log.i(TAG, "closed phone fullscreen task=" + taskId
                     + " successor=" + successorTaskId
                     + " display=" + displayId);
-            return true;
+            return ShellFullscreenTaskArea.CloseResult.SUCCEEDED;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "phone fullscreen close failed task=" + taskId, error);
-            return false;
+            return ShellFullscreenTaskArea.CloseResult.FAILED;
         }
     }
 

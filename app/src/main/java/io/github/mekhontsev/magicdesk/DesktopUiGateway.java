@@ -361,18 +361,21 @@ final class DesktopUiGateway {
                 || activity.getCurrentDisplayId() != displayId) {
             return false;
         }
-        activity.runOnUiThread(() -> {
-            if (activity.isActivityUnavailable()) {
-                return;
+        final boolean[] launched = new boolean[1];
+        final CountDownLatch ready = new CountDownLatch(1);
+        mMainHandler.post(() -> {
+            if (isUsable(activity) && !activity.isActivityUnavailable()) {
+                final AppItem app = activity.findOrLoadApp(
+                        activity.getLauncherApps(), target);
+                if (app != null) {
+                    activity.launchForMode(
+                            app, mode, preferredBounds, null);
+                    launched[0] = true;
+                }
             }
-            final AppItem app = activity.findOrLoadApp(
-                    activity.getLauncherApps(), target);
-            if (app != null) {
-                activity.launchForMode(
-                        app, mode, preferredBounds, null);
-            }
+            ready.countDown();
         });
-        return true;
+        return await(ready) && launched[0];
     }
 
     boolean invokeAppAction(

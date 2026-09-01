@@ -29,7 +29,7 @@ public final class TaskFullscreenTransitionCommand {
                     args[2], "refresh caption");
             final boolean captionRefreshed =
                     applyFullscreen(
-                            displayId, taskId, false, refreshCaption);
+                            displayId, taskId, refreshCaption);
             System.out.println("task-fullscreen=" + taskId + " display=" + displayId
                     + " caption=" + (!refreshCaption
                             ? "not-required"
@@ -46,7 +46,6 @@ public final class TaskFullscreenTransitionCommand {
     }
 
     static boolean applyFullscreen(final int displayId, final int taskId,
-            final boolean forceTranslucent,
             final boolean refreshCaption)
             throws ReflectiveOperationException {
         final int captionSourceId = refreshCaption
@@ -65,7 +64,7 @@ public final class TaskFullscreenTransitionCommand {
         windowing.setBounds(fullscreenTransaction, taskToken, new Rect());
         windowing.reorder(fullscreenTransaction, taskToken, true);
         windowing.setForceTranslucent(
-                fullscreenTransaction, taskToken, forceTranslucent);
+                fullscreenTransaction, taskToken, false);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 fullscreenTransaction, taskToken, true);
 

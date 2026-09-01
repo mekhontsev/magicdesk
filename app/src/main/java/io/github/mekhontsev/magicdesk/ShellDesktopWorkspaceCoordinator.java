@@ -35,9 +35,11 @@ final class ShellDesktopWorkspaceCoordinator {
 
     private static final String TAG = "MagicDeskWorkspace";
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
+    private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private final Object mService;
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
+    private final ShellDesktopTaskOwnership mOwnership;
     private final ShellDesktopFocusController mFocusController;
     private final ForegroundReporter mForegroundReporter;
     private final Runnable mTaskSampleRequester;
@@ -45,10 +47,11 @@ final class ShellDesktopWorkspaceCoordinator {
     ShellDesktopWorkspaceCoordinator(
             final Object service,
             final ShellFullscreenTaskArea fullscreenTaskArea,
+            final ShellDesktopTaskOwnership ownership,
             final ShellDesktopFocusController focusController,
             final ForegroundReporter foregroundReporter,
             final Runnable taskSampleRequester) {
-        if (service == null || fullscreenTaskArea == null
+        if (service == null || fullscreenTaskArea == null || ownership == null
                 || focusController == null || foregroundReporter == null
                 || taskSampleRequester == null) {
             throw new IllegalArgumentException(
@@ -56,9 +59,65 @@ final class ShellDesktopWorkspaceCoordinator {
         }
         mService = service;
         mFullscreenTaskArea = fullscreenTaskArea;
+        mOwnership = ownership;
         mFocusController = focusController;
         mForegroundReporter = foregroundReporter;
         mTaskSampleRequester = taskSampleRequester;
+    }
+
+    synchronized boolean closeTask(
+            final int displayId,
+            final int taskId,
+            final int focusTaskId) {
+        if (taskId < 0 || focusTaskId < 0 || taskId == focusTaskId) {
+            return false;
+        }
+        final ShellFullscreenTaskArea.CloseResult fullscreenResult =
+                mFullscreenTaskArea.closeTask(
+                        mService, displayId, taskId, focusTaskId);
+        if (fullscreenResult
+                == ShellFullscreenTaskArea.CloseResult.SUCCEEDED) {
+            return true;
+        }
+        if (fullscreenResult == ShellFullscreenTaskArea.CloseResult.FAILED) {
+            return false;
+        }
+        try {
+            final Object task = HiddenTaskApi.findTask(
+                    mService, displayId, taskId);
+            final Object focusTask = HiddenTaskApi.findTask(
+                    mService, displayId, focusTaskId);
+            if (task == null || focusTask == null
+                    || !mOwnership.isDesktopTask(task)
+                    || (focusTaskId != mOwnership.desktopHostTaskId()
+                            && !mOwnership.isDesktopTask(focusTask))) {
+                return false;
+            }
+            final int windowingMode =
+                    HiddenTaskApi.getTaskWindowingMode(task);
+            if (!supportsDirectClose(
+                    windowingMode,
+                    mFullscreenTaskArea.usesDirectRootWorkspace())) {
+                return false;
+            }
+            TaskWindowingCommand.closeDesktopTask(
+                    mService, displayId, taskId, focusTaskId);
+            Log.i(TAG, "closed workspace task=" + taskId
+                    + " survivor=" + focusTaskId
+                    + " display=" + displayId);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "workspace close failed task=" + taskId, error);
+            return false;
+        }
+    }
+
+    static boolean supportsDirectClose(
+            final int windowingMode,
+            final boolean directRootWorkspace) {
+        return windowingMode == WINDOWING_MODE_FREEFORM
+                || (!directRootWorkspace
+                        && windowingMode == WINDOWING_MODE_FULLSCREEN);
     }
 
     synchronized Result execute(final DesktopWorkspaceCommand command) {

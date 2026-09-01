@@ -174,14 +174,16 @@ same semantics and focus gateway.
 saved workspace as a user command; it does not define the behavior of clicking
 an active application icon.
 
-`PRESENT_DESKTOP` orders the desktop host and then conceals independent
-fullscreen plane surfaces as one semantic command. The direct surface
+`PRESENT_DESKTOP` captures the visible workspace once, orders that complete
+stack below the HOME host in one semantic command, and conceals independent
+fullscreen plane surfaces in the same operation. The direct surface
 concealment remains necessary because affected firmware can reassert a
 fullscreen plane after its hierarchy was demoted. `RESTORE_WORKSPACE` reveals
-those same retained planes through the normal topology owner. Session startup
-is two-phase: freeform geometry and parked-task residency are prepared first,
-then `RESTORE_SESSION` publishes one final workspace order instead of focusing
-the host through a separate raw shell route.
+the captured stack and those retained planes through the normal topology
+owner. Session startup is two-phase: freeform geometry and parked-task
+residency are prepared first, then `RESTORE_SESSION` publishes one final
+workspace order instead of focusing the host through a separate raw shell
+route.
 
 An orientation change can make Android report the saved freeform mode and
 bounds before WMShell has recreated the task decoration. Orientation task

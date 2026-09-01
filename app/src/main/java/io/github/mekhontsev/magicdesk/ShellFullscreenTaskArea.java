@@ -10,6 +10,12 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         FULLSCREEN_FOREGROUND
     }
 
+    enum CloseResult {
+        NOT_HANDLED,
+        SUCCEEDED,
+        FAILED
+    }
+
     private final ShellFullscreenTaskTopology mSessionTopology;
     private final ShellFullscreenTaskTopology mIndependentTopology;
     private ShellFullscreenTaskTopology mTopology;
@@ -64,7 +70,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         return mTopology.restoreTask(service, displayId, taskId, bounds);
     }
 
-    synchronized boolean closeTask(
+    synchronized CloseResult closeTask(
             final Object service,
             final int displayId,
             final int taskId,

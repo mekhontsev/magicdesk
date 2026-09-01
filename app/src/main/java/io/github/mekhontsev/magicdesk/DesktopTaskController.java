@@ -176,9 +176,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                                     Collections.singletonList(
                                             Integer.valueOf(taskId)),
                                     null);
-                        } else {
-                            TaskRepository.bringTaskToFront(
-                                    mDisplayId, taskId, null);
                         }
                     }
 
@@ -558,7 +555,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             if (!mRunning || generation != mGeneration
                     || mDisplayId != task.displayId
                     || !mTaskWatcherReady) {
-                TaskRepository.closeTask(task, callback);
+                completeActionCallback(
+                        callback,
+                        false,
+                        "desktop transition gateway unavailable");
                 return;
             }
             final boolean submitted = closeDesktopTaskInternal(
@@ -577,16 +577,40 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             completeActionCallback(callback, true, "");
                             return;
                         }
-                        TaskRepository.closeTask(task, callback);
+                        completeActionCallback(
+                                callback, false, result.message);
                     });
             if (submitted) {
                 return;
             }
-            // Returning true transfers the whole asynchronous close operation
-            // to this controller. If its hierarchy-preserving path becomes
-            // unavailable later, complete the operation through the normal
-            // task-removal backend instead of losing the caller's fallback.
-            TaskRepository.closeTask(task, callback);
+            completeActionCallback(
+                    callback,
+                    false,
+                    "desktop transition gateway unavailable");
+        });
+        return true;
+    }
+
+    @Override
+    public boolean makeTaskFullscreen(
+            final TaskRepository.TaskEntry task,
+            final TaskRepository.ActionCallback callback) {
+        if (task == null || task.taskId < 0 || !task.isFreeform()
+                || !isActiveOnDisplay(task.displayId)) {
+            return false;
+        }
+        final int generation = mGeneration;
+        mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != task.displayId
+                    || !mTaskWatcherReady) {
+                completeActionCallback(
+                        callback,
+                        false,
+                        "desktop transition gateway unavailable");
+                return;
+            }
+            mWindowTransitions.makeTaskFullscreen(task, callback);
         });
         return true;
     }
@@ -930,22 +954,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             mShowDesktopRestoreOrder = Collections.emptyList();
             mShowDesktopNewlyConcealedTaskIds = Collections.emptySet();
         }
-        demoteNextShowDesktopTask(
-                displayId,
-                desktopHostTaskId,
-                mGeneration,
-                new ArrayList<>(),
-                new LinkedHashSet<>(),
-                callback);
-    }
-
-    private void demoteNextShowDesktopTask(
-            final int displayId,
-            final int desktopHostTaskId,
-            final int generation,
-            final List<Integer> restoreOrder,
-            final Set<Integer> newlyConcealedTaskIds,
-            final TaskRepository.ActionCallback callback) {
+        final int generation = mGeneration;
         TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
             if (!mRunning || generation != mGeneration
                     || mDisplayId != displayId || !mTaskWatcherReady) {
@@ -957,75 +966,57 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, snapshot.error);
                 return;
             }
-            if (findTask(snapshot.tasks, desktopHostTaskId) == null) {
-                completeActionCallback(
-                        callback, false, "desktop host unavailable");
-                return;
-            }
             final Set<Integer> concealedTaskIds;
             synchronized (mTaskbarConcealedTaskIds) {
                 concealedTaskIds = new LinkedHashSet<>(
                         mTaskbarConcealedTaskIds);
             }
-            final TaskRepository.TaskEntry activeTask =
-                    selectShowDesktopDemotionTask(
-                            snapshot.tasks,
-                            displayId,
-                            desktopHostTaskId,
-                            concealedTaskIds);
-            if (activeTask == null) {
-                sendWorkspaceCommand(
-                        DesktopWorkspaceCommand.PRESENT_DESKTOP,
-                        displayId,
-                        Collections.singletonList(
-                                Integer.valueOf(desktopHostTaskId)),
-                        result -> {
-                            if (result.success) {
-                                synchronized (mTaskbarConcealedTaskIds) {
-                                    mShowDesktopRestoreOrder =
-                                            new ArrayList<>(restoreOrder);
-                                    mShowDesktopNewlyConcealedTaskIds =
-                                            new LinkedHashSet<>(
-                                                    newlyConcealedTaskIds);
-                                }
-                                scheduleRefresh(0);
-                            }
-                            completeActionCallback(
-                                    callback,
-                                    result.success,
-                                    result.success
-                                            ? "desktop shown"
-                                            : result.message);
-                        });
+            final TaskbarTaskOrder.DesktopPresentation presentation =
+                    TaskbarTaskOrder.presentDesktop(
+                            snapshot,
+                            mDisplayTaskState.lastVisibleTasks(),
+                            concealedTaskIds,
+                            taskAreaPolicy()
+                                    .usesIndependentFullscreenPlanes());
+            if (presentation == null
+                    || presentation.physicalOrder.isEmpty()
+                    || presentation.physicalOrder.get(
+                            presentation.physicalOrder.size() - 1)
+                            .intValue() != desktopHostTaskId) {
+                completeActionCallback(
+                        callback, false, "desktop host unavailable");
                 return;
             }
-            demoteTask(
-                    snapshot,
-                    activeTask.taskId,
+            synchronized (mTaskbarConcealedTaskIds) {
+                mTaskbarConcealedTaskIds.addAll(
+                        presentation.newlyConcealedTaskIds);
+            }
+            sendWorkspaceCommand(
+                    DesktopWorkspaceCommand.PRESENT_DESKTOP,
+                    displayId,
+                    presentation.physicalOrder,
                     result -> {
-                        if (!result.success) {
-                            completeActionCallback(
-                                    callback, false, result.message);
-                            return;
-                        }
-                        restoreOrder.add(
-                                0, Integer.valueOf(activeTask.taskId));
-                        newlyConcealedTaskIds.add(
-                                Integer.valueOf(activeTask.taskId));
                         synchronized (mTaskbarConcealedTaskIds) {
-                            mShowDesktopRestoreOrder =
-                                    new ArrayList<>(restoreOrder);
-                            mShowDesktopNewlyConcealedTaskIds =
-                                    new LinkedHashSet<>(
-                                            newlyConcealedTaskIds);
+                            if (result.success) {
+                                mShowDesktopRestoreOrder = new ArrayList<>(
+                                        presentation.restoreOrder);
+                                mShowDesktopNewlyConcealedTaskIds =
+                                        new LinkedHashSet<>(
+                                                presentation
+                                                        .newlyConcealedTaskIds);
+                            } else {
+                                mTaskbarConcealedTaskIds.removeAll(
+                                        presentation
+                                                .newlyConcealedTaskIds);
+                            }
                         }
-                        demoteNextShowDesktopTask(
-                                displayId,
-                                desktopHostTaskId,
-                                generation,
-                                restoreOrder,
-                                newlyConcealedTaskIds,
-                                callback);
+                        scheduleRefresh(0);
+                        completeActionCallback(
+                                callback,
+                                result.success,
+                                result.success
+                                        ? "desktop shown"
+                                        : result.message);
                     });
         }));
     }
@@ -1376,27 +1367,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             completeActionCallback(
                                     callback, result.success, result.message);
                         }));
-    }
-
-    static TaskRepository.TaskEntry selectShowDesktopDemotionTask(
-            final List<TaskRepository.TaskEntry> topFirstTasks,
-            final int displayId,
-            final int desktopHostTaskId,
-            final Set<Integer> concealedTaskIds) {
-        if (topFirstTasks == null) {
-            return null;
-        }
-        for (final TaskRepository.TaskEntry task : topFirstTasks) {
-            if (task != null && task.displayId == displayId
-                    && task.taskId != desktopHostTaskId
-                    && task.active && isFocusableTask(task)
-                    && (concealedTaskIds == null
-                            || !concealedTaskIds.contains(
-                                    Integer.valueOf(task.taskId)))) {
-                return task;
-            }
-        }
-        return null;
     }
 
     static List<Integer> liveTaskOrder(

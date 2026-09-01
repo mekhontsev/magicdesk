@@ -1,12 +1,29 @@
 package io.github.mekhontsev.magicdesk;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 /** Builds taskbar concealment z-orders without changing task window state. */
 final class TaskbarTaskOrder {
+    static final class DesktopPresentation {
+        final List<Integer> physicalOrder;
+        final List<Integer> restoreOrder;
+        final Set<Integer> newlyConcealedTaskIds;
+
+        DesktopPresentation(
+                final List<Integer> physicalOrder,
+                final List<Integer> restoreOrder,
+                final Set<Integer> newlyConcealedTaskIds) {
+            this.physicalOrder = physicalOrder;
+            this.restoreOrder = restoreOrder;
+            this.newlyConcealedTaskIds = newlyConcealedTaskIds;
+        }
+    }
+
     private TaskbarTaskOrder() {
     }
 
@@ -58,7 +75,8 @@ final class TaskbarTaskOrder {
                 resolveVisibleTasks(
                         snapshot.tasks,
                         savedWorkspaceTopFirst,
-                        activeTask,
+                        activeTask.displayId,
+                        activeTask.taskId,
                         concealed,
                         includeFlattenedFullscreenPlanes);
         final Set<Integer> includedTaskIds = new HashSet<>();
@@ -80,10 +98,54 @@ final class TaskbarTaskOrder {
         return order;
     }
 
+    static DesktopPresentation presentDesktop(
+            final TaskRepository.Snapshot snapshot,
+            final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
+            final Set<Integer> concealedTaskIds,
+            final boolean includeFlattenedFullscreenPlanes) {
+        if (snapshot == null || !snapshot.available) {
+            return null;
+        }
+        final TaskRepository.TaskEntry desktopHost = findDesktopHost(
+                snapshot.tasks);
+        if (desktopHost == null) {
+            return null;
+        }
+        final Set<Integer> concealed = new HashSet<>();
+        if (concealedTaskIds != null) {
+            concealed.addAll(concealedTaskIds);
+        }
+        final List<TaskRepository.TaskEntry> workspaceTopFirst =
+                resolveVisibleTasks(
+                        snapshot.tasks,
+                        savedWorkspaceTopFirst,
+                        desktopHost.displayId,
+                        -1,
+                        concealed,
+                        includeFlattenedFullscreenPlanes);
+        final List<Integer> restoreOrder = new ArrayList<>();
+        final Set<Integer> newlyConcealedTaskIds = new LinkedHashSet<>();
+        for (int index = workspaceTopFirst.size() - 1;
+                index >= 0;
+                index--) {
+            final Integer taskId = Integer.valueOf(
+                    workspaceTopFirst.get(index).taskId);
+            restoreOrder.add(taskId);
+            newlyConcealedTaskIds.add(taskId);
+        }
+        final List<Integer> physicalOrder = new ArrayList<>(restoreOrder);
+        physicalOrder.add(Integer.valueOf(desktopHost.taskId));
+        return new DesktopPresentation(
+                Collections.unmodifiableList(physicalOrder),
+                Collections.unmodifiableList(restoreOrder),
+                Collections.unmodifiableSet(newlyConcealedTaskIds));
+    }
+
     private static List<TaskRepository.TaskEntry> resolveVisibleTasks(
             final List<TaskRepository.TaskEntry> liveTasks,
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
-            final TaskRepository.TaskEntry activeTask,
+            final int displayId,
+            final int excludedTaskId,
             final Set<Integer> concealedTaskIds,
             final boolean includeFlattenedFullscreenPlanes) {
         final List<TaskRepository.TaskEntry> tasks = new ArrayList<>();
@@ -109,7 +171,8 @@ final class TaskbarTaskOrder {
                         tasks,
                         includedTaskIds,
                         liveTask,
-                        activeTask,
+                        displayId,
+                        excludedTaskId,
                         concealedTaskIds);
             }
         }
@@ -124,7 +187,8 @@ final class TaskbarTaskOrder {
                         tasks,
                         includedTaskIds,
                         liveTask,
-                        activeTask,
+                        displayId,
+                        excludedTaskId,
                         concealedTaskIds);
             }
         }
@@ -135,10 +199,11 @@ final class TaskbarTaskOrder {
             final List<TaskRepository.TaskEntry> tasks,
             final Set<Integer> includedTaskIds,
             final TaskRepository.TaskEntry task,
-            final TaskRepository.TaskEntry activeTask,
+            final int displayId,
+            final int excludedTaskId,
             final Set<Integer> concealedTaskIds) {
-        if (task == null || task.taskId == activeTask.taskId
-                || task.displayId != activeTask.displayId
+        if (task == null || task.taskId == excludedTaskId
+                || task.displayId != displayId
                 || concealedTaskIds.contains(Integer.valueOf(task.taskId))
                 || !DesktopManagedTaskPolicy
                         .isControllableApplicationTask(task)

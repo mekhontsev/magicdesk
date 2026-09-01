@@ -281,6 +281,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mWorkspaceCoordinator = new ShellDesktopWorkspaceCoordinator(
                 mService,
                 mFullscreenTaskArea,
+                mDesktopOwnership,
                 mFocusController,
                 new ShellDesktopWorkspaceCoordinator.ForegroundReporter() {
                     @Override
@@ -637,11 +638,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        if (mFullscreenTaskArea.closeTask(
-                mService, displayId, taskId, focusTaskId)) {
-            return true;
-        }
-        return mDesktopTaskArea.closeTask(
+        return mWorkspaceCoordinator.closeTask(
                 displayId, taskId, focusTaskId);
     }
 
