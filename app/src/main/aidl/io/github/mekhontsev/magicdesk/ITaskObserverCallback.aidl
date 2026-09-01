@@ -40,6 +40,9 @@ oneway interface ITaskObserverCallback {
     void onDesktopTaskOwnershipChanged(
         int displayId, in int[] taskIds) = 13;
 
+    void onSystemDialogVisibilityChanged(
+        int displayId, boolean visible) = 14;
+
     void onTaskRequestedOrientationChanged(
         int taskId, int requestedOrientation) = 15;
 

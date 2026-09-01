@@ -796,6 +796,28 @@ public abstract class DesktopShellActivity extends Activity
         mTaskSnapshots.sync(snapshot);
     }
 
+    void setSystemDialogVisible(final boolean visible) {
+        if (!mTaskSnapshots.setSystemDialogVisible(visible)) {
+            return;
+        }
+        try {
+            DesktopAutomationEventJournal.record(
+                    "ui",
+                    "system_dialog_focus_changed",
+                    true,
+                    "display=" + getCurrentDisplayId(),
+                    new org.json.JSONObject()
+                            .put("displayId", getCurrentDisplayId())
+                            .put("visible", visible));
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "ui",
+                    "system_dialog_focus_changed",
+                    true,
+                    "display=" + getCurrentDisplayId());
+        }
+    }
+
     // GestureDetector routes confirmed taps through performClick().
     @SuppressLint("ClickableViewAccessibility")
     private View createDesktopContentView() {

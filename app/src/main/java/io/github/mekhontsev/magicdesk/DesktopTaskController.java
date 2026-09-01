@@ -413,10 +413,23 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public void onSystemDialogVisibilityChanged(
+                            final int generation,
+                            final int displayId,
+                            final boolean visible) {
+                        if (mRunning && displayId == mDisplayId) {
+                            DesktopRuntimeBridge.setSystemDialogVisible(
+                                    displayId, visible);
+                        }
+                    }
+
+                    @Override
                     public void onDisconnected(final int generation) {
                         mTaskWatcherReady = false;
                         clearSessionOwnership();
                         if (mRunning) {
+                            DesktopRuntimeBridge.setSystemDialogVisible(
+                                    mDisplayId, false);
                             scheduleRefresh(0);
                         }
                         mHandler.postDelayed(() -> {

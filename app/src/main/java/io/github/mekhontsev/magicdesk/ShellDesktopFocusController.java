@@ -72,18 +72,12 @@ final class ShellDesktopFocusController implements AutoCloseable {
     ShellDesktopFocusController(
             final Object taskService,
             final boolean enabled,
+            final FrameworkInputWindowObservationSource inputWindows,
             final Listener listener) {
         mTaskService = taskService;
         mListener = listener;
         mAvailable = enabled;
-        mInputWindowObservations = enabled
-                ? new FrameworkInputWindowObservationSource() : null;
-    }
-
-    void start() {
-        if (mInputWindowObservations != null) {
-            mInputWindowObservations.start();
-        }
+        mInputWindowObservations = enabled ? inputWindows : null;
     }
 
     void configure(final int displayId) {
@@ -247,9 +241,6 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 return null;
             });
         } finally {
-            if (mInputWindowObservations != null) {
-                mInputWindowObservations.close();
-            }
             mExecutor.shutdownNow();
         }
     }

@@ -52,6 +52,8 @@ final class DesktopTaskWatcher {
                 int generation, boolean foreground);
         void onDesktopTaskOwnershipChanged(
                 int generation, int displayId, int[] taskIds);
+        void onSystemDialogVisibilityChanged(
+                int generation, int displayId, boolean visible);
         void onDisconnected(int generation);
     }
 
@@ -915,6 +917,15 @@ final class DesktopTaskWatcher {
                         generation, displayId, snapshot));
     }
 
+    private void onSystemDialogVisibilityChanged(
+            final int generation,
+            final int displayId,
+            final boolean visible) {
+        postIfActive(generation, () ->
+                mListener.onSystemDialogVisibilityChanged(
+                        generation, displayId, visible));
+    }
+
     private void onPhoneTaskNormalized(
             final int generation,
             final int taskId) {
@@ -1234,6 +1245,14 @@ final class DesktopTaskWatcher {
                 final int[] taskIds) throws RemoteException {
             mOwner.onDesktopTaskOwnershipChanged(
                     mGeneration, displayId, taskIds);
+        }
+
+        @Override
+        public void onSystemDialogVisibilityChanged(
+                final int displayId,
+                final boolean visible) throws RemoteException {
+            mOwner.onSystemDialogVisibilityChanged(
+                    mGeneration, displayId, visible);
         }
 
     }

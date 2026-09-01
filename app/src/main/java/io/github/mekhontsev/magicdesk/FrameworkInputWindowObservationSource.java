@@ -1,44 +1,58 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.util.Log;
+import android.util.Pair;
 import android.view.InputWindowHandle;
 import android.window.WindowInfosListener;
 
 import java.io.Closeable;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /** Event source for SurfaceFlinger's committed input-window topology. */
 final class FrameworkInputWindowObservationSource implements Closeable,
         InputFocusCommitAwaiter.EventSource {
+    interface Listener {
+        void onInputWindowsChanged(FrameworkInputWindowState.Snapshot snapshot);
+    }
+
     private static final String TAG = "MagicDeskInputWindows";
     private static final AtomicLong EVENTS = new AtomicLong();
     private static final AtomicLong WAITS = new AtomicLong();
     private static final AtomicLong TIMEOUTS = new AtomicLong();
+    private static final InputWindowHandleAdapter HANDLE_ADAPTER =
+            InputWindowHandleAdapter.create();
+    private static final AtomicBoolean READ_ERROR_REPORTED =
+            new AtomicBoolean();
 
     private static volatile String sState = "not-started";
     private static volatile String sLastError = "none";
 
     private final Object mLock = new Object();
-    private final WindowInfosListener mListener = new WindowInfosListener() {
+    private final Listener mObservationListener;
+    private final WindowInfosListener mWindowInfosListener =
+            new WindowInfosListener() {
         @Override
         public void onWindowInfosChanged(
                 final InputWindowHandle[] inputWindowHandles,
                 final WindowInfosListener.DisplayInfo[] displayInfos) {
-            synchronized (mLock) {
-                if (mClosed) {
-                    return;
-                }
-                mGeneration++;
-                EVENTS.incrementAndGet();
-                mLock.notifyAll();
-            }
+            publish(inputWindowHandles);
         }
     };
 
     private boolean mRegistered;
     private boolean mClosed;
     private long mGeneration;
+    private volatile FrameworkInputWindowState.Snapshot mLatestSnapshot =
+            FrameworkInputWindowState.Snapshot.unavailable();
+
+    FrameworkInputWindowObservationSource(final Listener listener) {
+        mObservationListener = listener;
+    }
 
     void start() {
         synchronized (mLock) {
@@ -47,16 +61,17 @@ final class FrameworkInputWindowObservationSource implements Closeable,
             }
         }
         try {
-            mListener.register();
+            final Pair<InputWindowHandle[], WindowInfosListener.DisplayInfo[]>
+                    initial = mWindowInfosListener.register();
             synchronized (mLock) {
                 if (mClosed) {
-                    mListener.unregister();
+                    mWindowInfosListener.unregister();
                     return;
                 }
                 mRegistered = true;
-                // Registration returns the initial topology synchronously.
-                mGeneration++;
-                mLock.notifyAll();
+            }
+            if (initial != null && initial.first != null) {
+                publish(initial.first);
             }
             sState = "registered";
             sLastError = "none";
@@ -127,12 +142,16 @@ final class FrameworkInputWindowObservationSource implements Closeable,
         }
         if (unregister) {
             try {
-                mListener.unregister();
+                mWindowInfosListener.unregister();
             } catch (RuntimeException | LinkageError error) {
                 Log.w(TAG, "could not unregister input-window events", error);
             }
         }
         sState = "closed";
+    }
+
+    FrameworkInputWindowState.Snapshot latestSnapshot() {
+        return mLatestSnapshot;
     }
 
     static String diagnostics() {
@@ -143,6 +162,27 @@ final class FrameworkInputWindowObservationSource implements Closeable,
                 + ", lastError=" + sLastError;
     }
 
+    private void publish(final InputWindowHandle[] handles) {
+        final FrameworkInputWindowState.Snapshot snapshot =
+                snapshotFromHandles(handles);
+        synchronized (mLock) {
+            if (mClosed) {
+                return;
+            }
+            mLatestSnapshot = snapshot;
+            mGeneration++;
+            EVENTS.incrementAndGet();
+            mLock.notifyAll();
+        }
+        if (mObservationListener != null) {
+            try {
+                mObservationListener.onInputWindowsChanged(snapshot);
+            } catch (RuntimeException error) {
+                Log.w(TAG, "input-window observer failed", error);
+            }
+        }
+    }
+
     private static String usefulMessage(final Throwable error) {
         if (error == null) {
             return "unknown";
@@ -150,5 +190,89 @@ final class FrameworkInputWindowObservationSource implements Closeable,
         final String message = error.getMessage();
         return message == null || message.isEmpty()
                 ? error.getClass().getSimpleName() : message;
+    }
+
+    private static FrameworkInputWindowState.Snapshot snapshotFromHandles(
+            final InputWindowHandle[] handles) {
+        if (!HANDLE_ADAPTER.available || handles == null) {
+            return FrameworkInputWindowState.Snapshot.unavailable();
+        }
+        final List<FrameworkInputWindowState.Window> windows =
+                new ArrayList<>(handles.length);
+        for (final InputWindowHandle handle : handles) {
+            if (handle == null) {
+                continue;
+            }
+            try {
+                windows.add(HANDLE_ADAPTER.read(handle));
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                if (READ_ERROR_REPORTED.compareAndSet(false, true)) {
+                    Log.w(TAG, "could not read input-window state", error);
+                }
+                return FrameworkInputWindowState.Snapshot.unavailable();
+            }
+        }
+        return FrameworkInputWindowState.fromWindows(windows);
+    }
+
+    private static final class InputWindowHandleAdapter {
+        final Field displayId;
+        final Field packageName;
+        final Field name;
+        final Field ownerUid;
+        final Field inputConfig;
+        final boolean available;
+
+        private InputWindowHandleAdapter(
+                final Field displayId,
+                final Field packageName,
+                final Field name,
+                final Field ownerUid,
+                final Field inputConfig) {
+            this.displayId = displayId;
+            this.packageName = packageName;
+            this.name = name;
+            this.ownerUid = ownerUid;
+            this.inputConfig = inputConfig;
+            available = true;
+        }
+
+        private InputWindowHandleAdapter() {
+            displayId = null;
+            packageName = null;
+            name = null;
+            ownerUid = null;
+            inputConfig = null;
+            available = false;
+        }
+
+        static InputWindowHandleAdapter create() {
+            try {
+                final Class<?> type = InputWindowHandle.class;
+                return new InputWindowHandleAdapter(
+                        type.getField("displayId"),
+                        type.getField("packageName"),
+                        type.getField("name"),
+                        type.getField("ownerUid"),
+                        type.getField("inputConfig"));
+            } catch (ReflectiveOperationException | RuntimeException error) {
+                Log.w(TAG, "typed input-window fields unavailable", error);
+                return new InputWindowHandleAdapter();
+            }
+        }
+
+        FrameworkInputWindowState.Window read(final InputWindowHandle handle)
+                throws ReflectiveOperationException {
+            return new FrameworkInputWindowState.Window(
+                    displayId.getInt(handle),
+                    stringValue(packageName.get(handle)),
+                    stringValue(name.get(handle)),
+                    ownerUid.getInt(handle),
+                    inputConfig.getInt(handle));
+        }
+
+        private static String stringValue(final Object value) {
+            return value instanceof String ? (String) value : "";
+        }
     }
 }

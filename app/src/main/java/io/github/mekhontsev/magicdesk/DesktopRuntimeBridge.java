@@ -186,6 +186,12 @@ public final class DesktopRuntimeBridge {
         UI.setDesktopPlaneForeground(displayId, foreground);
     }
 
+    static void setSystemDialogVisible(
+            final int displayId,
+            final boolean visible) {
+        UI.setSystemDialogVisible(displayId, visible);
+    }
+
     static boolean restoreLastVisibleWindows() {
         return UI.restoreLastVisibleWindows();
     }

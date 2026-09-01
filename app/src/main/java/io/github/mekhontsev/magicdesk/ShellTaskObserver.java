@@ -32,6 +32,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellFreeformTaskCleanup mFreeformCleanup;
     private final ShellDesktopFocusController mFocusController;
+    private final FrameworkInputWindowObservationSource
+            mInputWindowObservations;
+    private final ShellSystemDialogTracker mSystemDialogTracker;
     private final ShellDesktopWorkspaceCoordinator mWorkspaceCoordinator;
     private final ShellExternalTaskMigrationGuard mMigrationGuard;
     private final ShellProcessFailureTracker mProcessFailureTracker;
@@ -112,9 +115,18 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService, mDesktopOwnership, mTaskLauncher);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mWindowing = windowing;
+        mSystemDialogTracker = new ShellSystemDialogTracker(
+                ShellSystemDialogPolicy.create(context.getPackageManager()),
+                (displayId, visible) -> callCallback(() ->
+                        mCallback.onSystemDialogVisibilityChanged(
+                                displayId, visible)));
+        mInputWindowObservations =
+                new FrameworkInputWindowObservationSource(
+                        mSystemDialogTracker::onInputWindowsChanged);
         mFocusController = new ShellDesktopFocusController(
                 mService,
                 windowing.requiresDesktopInputFocusSynchronization(),
+                mInputWindowObservations,
                 taskId -> callCallback(() ->
                         mCallback.onInputFocusRefreshRequired(taskId)));
         mMigrationGuard = new ShellExternalTaskMigrationGuard(
@@ -299,7 +311,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try {
             HiddenTaskApi.registerTaskStackListener(mService, this);
             mRegistered = true;
-            mFocusController.start();
+            mInputWindowObservations.start();
             mTaskObservations.start();
         } catch (ReflectiveOperationException | RuntimeException error) {
             mActivityStartController.close();
@@ -334,6 +346,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             clearPendingPostRemovalFocus();
             mTaskAreaPolicy = DesktopTaskAreaPolicy.UNCONFIGURED;
             mFocusController.configure(-1);
+            mSystemDialogTracker.configure(
+                    Display.INVALID_DISPLAY,
+                    mInputWindowObservations.latestSnapshot());
             mSecondaryHomeStartPolicy.configure(Display.INVALID_DISPLAY);
             mMigrationGuard.configure(-1, false);
             mFreeformCleanup.configure(-1);
@@ -398,6 +413,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mConfiguredDisplayId = displayId;
         clearPendingPostRemovalFocus();
         mFocusController.configure(displayId);
+        mSystemDialogTracker.configure(
+                displayId, mInputWindowObservations.latestSnapshot());
         mSecondaryHomeStartPolicy.configure(displayId);
         mMigrationGuard.configure(displayId, false);
         // External tasks must remain outside phone-side Recents cleanup.
@@ -1150,6 +1167,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mPhoneTouchpadRequested = false;
         }
         closeSafely("focus controller", mFocusController::close);
+        closeSafely("input-window observations",
+                mInputWindowObservations::close);
         closeSafely("process failure tracker", () ->
                 mProcessFailureTracker.configure(Display.INVALID_DISPLAY));
         closeSafely("activity start controller",

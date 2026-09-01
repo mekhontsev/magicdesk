@@ -554,6 +554,22 @@ final class DesktopUiGateway {
         });
     }
 
+    void setSystemDialogVisible(
+            final int displayId,
+            final boolean visible) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (!isUsable(activity)
+                || activity.getCurrentDisplayId() != displayId) {
+            return;
+        }
+        mMainHandler.post(() -> {
+            if (isUsable(activity)
+                    && activity.getCurrentDisplayId() == displayId) {
+                activity.setSystemDialogVisible(visible);
+            }
+        });
+    }
+
     boolean advanceAltTab(final boolean reverse) {
         final DesktopShellActivity activity = usableDesktop(true);
         if (activity == null) {

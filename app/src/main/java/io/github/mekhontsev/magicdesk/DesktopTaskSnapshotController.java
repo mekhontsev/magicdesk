@@ -6,6 +6,8 @@ import java.util.List;
 /** Owns the current task snapshot and serialized asynchronous refreshes. */
 final class DesktopTaskSnapshotController {
     private final DesktopShellActivity mActivity;
+    private final DesktopTaskbarDialogHold mSystemDialogHold =
+            new DesktopTaskbarDialogHold();
 
     private TaskRepository.Snapshot mSnapshot = new TaskRepository.Snapshot(
             java.util.Collections.<TaskRepository.TaskEntry>emptyList(),
@@ -55,13 +57,15 @@ final class DesktopTaskSnapshotController {
                 snapshot.tasks);
         final boolean hasVisibleFullscreenTask = hasVisibleFullscreenTask(
                 snapshot.tasks);
-        final boolean taskbarVisible = DesktopTaskbarVisibilityPolicy.isVisible(
-                mActivity.getCurrentDisplayId() == android.view.Display.DEFAULT_DISPLAY,
-                activeTask != null,
-                hasVisibleFreeformTask,
-                hasVisibleFullscreenTask,
-                desktopPlaneActive,
-                mActivity.isTaskbarVisible());
+        final boolean taskbarVisible = mSystemDialogHold.applySnapshot(
+                DesktopTaskbarVisibilityPolicy.isVisible(
+                        mActivity.getCurrentDisplayId()
+                                == android.view.Display.DEFAULT_DISPLAY,
+                        activeTask != null,
+                        hasVisibleFreeformTask,
+                        hasVisibleFullscreenTask,
+                        desktopPlaneActive,
+                        mActivity.isTaskbarVisible()));
         mSnapshot = snapshot;
         if (activeTask != null
                 && isTaskbarTask(activeTask)) {
@@ -73,6 +77,19 @@ final class DesktopTaskSnapshotController {
         mActivity.setTaskbarVisible(taskbarVisible);
         mActivity.setDesktopWindowFocusable(
                 activeTask == null || desktopHostActive);
+    }
+
+    boolean setSystemDialogVisible(final boolean visible) {
+        if (!mSystemDialogHold.setDialogVisible(
+                visible, mActivity.isTaskbarVisible())) {
+            return false;
+        }
+        mActivity.setTaskbarVisible(mSystemDialogHold.currentVisibility(
+                mActivity.isTaskbarVisible()));
+        if (!visible) {
+            refresh();
+        }
+        return true;
     }
 
     static boolean hasVisibleFreeformTask(
