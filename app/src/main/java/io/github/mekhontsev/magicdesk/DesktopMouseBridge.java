@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Context;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.MotionEvent;
 
 import java.io.BufferedReader;
 import java.io.Closeable;
@@ -28,11 +29,13 @@ final class DesktopMouseBridge {
     private boolean mCaptureRequested;
     private boolean mCaptureStopPending;
     private boolean mPointerRestoreArmed;
-    private boolean mPointerReactivationArmed;
     private int mGeneration;
     private Thread mSupervisorThread;
     private ShellStreamHandle mStream;
+    private float mMoveRemainderX;
+    private float mMoveRemainderY;
     private float mScrollRemainder;
+    private boolean mPrimaryButtonPressed;
 
     DesktopMouseBridge(
             final Context context,
@@ -59,6 +62,7 @@ final class DesktopMouseBridge {
     }
 
     void stop() {
+        setPrimaryButtonPressed(false);
         setCaptureEnabled(false);
         final ShellStreamHandle stream;
         final Thread supervisor;
@@ -73,8 +77,10 @@ final class DesktopMouseBridge {
             mCaptureRequested = false;
             mCaptureStopPending = false;
             mPointerRestoreArmed = false;
-            mPointerReactivationArmed = false;
+            mMoveRemainderX = 0.0f;
+            mMoveRemainderY = 0.0f;
             mScrollRemainder = 0.0f;
+            mPrimaryButtonPressed = false;
             ++mGeneration;
             stream = mStream;
             supervisor = mSupervisorThread;
@@ -192,20 +198,58 @@ final class DesktopMouseBridge {
         }
     }
 
-    void reactivatePointerOnNextMotion() {
+    boolean movePointer(final float deltaX, final float deltaY) {
         final ShellStreamHandle stream;
+        final int moveX;
+        final int moveY;
         synchronized (mLock) {
-            if (!mRequested) {
-                return;
+            if (!mRequested || !mReady || mStream == null) {
+                return false;
             }
-            mPointerReactivationArmed = true;
+            mMoveRemainderX += deltaX;
+            mMoveRemainderY += deltaY;
+            moveX = (int) mMoveRemainderX;
+            moveY = (int) mMoveRemainderY;
+            mMoveRemainderX -= moveX;
+            mMoveRemainderY -= moveY;
             stream = mStream;
         }
-        if (stream != null) {
-            // This is an in-process pipe command. The native bridge coalesces
-            // repeated key activity until the next physical mouse motion.
-            writeControl(stream, "reactivate-pointer-on-motion");
+        return moveX == 0 && moveY == 0
+                || writePointerControl(
+                        stream, "move " + moveX + " " + moveY);
+    }
+
+    boolean clickPointer(final int button) {
+        if (button != MotionEvent.BUTTON_PRIMARY) {
+            return false;
         }
+        final ShellStreamHandle stream = readyStream();
+        return stream != null
+                && writePointerControl(stream, "click-primary");
+    }
+
+    boolean setPrimaryButtonPressed(final boolean pressed) {
+        final ShellStreamHandle stream;
+        synchronized (mLock) {
+            if (!mRequested || !mReady || mStream == null) {
+                return false;
+            }
+            if (mPrimaryButtonPressed == pressed) {
+                return true;
+            }
+            stream = mStream;
+        }
+        if (!writePointerControl(
+                stream, pressed ? "primary-down" : "primary-up")) {
+            return false;
+        }
+        synchronized (mLock) {
+            if (mRequested && mReady && mStream == stream) {
+                mPrimaryButtonPressed = pressed;
+                return true;
+            }
+        }
+        return false;
     }
 
     boolean scrollPointer(final float amount) {
@@ -222,12 +266,6 @@ final class DesktopMouseBridge {
         }
         return steps == 0
                 || writePointerControl(stream, "scroll " + steps);
-    }
-
-    boolean activatePointer() {
-        final ShellStreamHandle stream = readyStream();
-        return stream != null
-                && writePointerControl(stream, "activate-pointer");
     }
 
     InputRelayRuntimeDiagnostics.BridgeSnapshot captureDiagnostics() {
@@ -342,6 +380,7 @@ final class DesktopMouseBridge {
                     mReady = false;
                     mCaptureRequested = false;
                     mCaptureStopPending = false;
+                    mPrimaryButtonPressed = false;
                     mLock.notifyAll();
                 } else {
                     notifyStateChanged = false;
@@ -360,7 +399,6 @@ final class DesktopMouseBridge {
             final int generation) {
         if (line.startsWith("MAGICDESK_MOUSE_READY")) {
             final boolean restorePointer;
-            final boolean reactivatePointer;
             final boolean capturePointer;
             final boolean notifyStateChanged;
             synchronized (mLock) {
@@ -371,7 +409,6 @@ final class DesktopMouseBridge {
                     notifyStateChanged = false;
                 }
                 restorePointer = mPointerRestoreArmed;
-                reactivatePointer = mPointerReactivationArmed;
                 capturePointer = mCaptureRequested;
             }
             if (capturePointer) {
@@ -379,9 +416,6 @@ final class DesktopMouseBridge {
             }
             if (restorePointer) {
                 writeControl(stream, "restore-pointer-on-motion");
-            }
-            if (reactivatePointer) {
-                writeControl(stream, "reactivate-pointer-on-motion");
             }
             Log.i(TAG, line);
             if (notifyStateChanged) {
@@ -417,21 +451,6 @@ final class DesktopMouseBridge {
             }
             return;
         }
-        if (line.startsWith("MAGICDESK_MOUSE_POINTER_REACTIVATE")) {
-            synchronized (mLock) {
-                if (!isActiveLocked(generation) || mStream != stream) {
-                    return;
-                }
-                mPointerReactivationArmed = false;
-            }
-            final boolean reactivated =
-                    writePointerControl(stream, "activate-pointer");
-            if (reactivated) {
-                InputBridgeDiagnostics.notePointerReactivation();
-            }
-            recordPointerReactivationCommand(reactivated);
-            return;
-        }
         if (line.startsWith("MAGICDESK_MOUSE_SECONDARY_CLICK")) {
             final int displayId = DesktopRuntimeBridge
                     .getActiveDesktopDisplayId();
@@ -446,42 +465,6 @@ final class DesktopMouseBridge {
             Log.w(TAG, line);
         } else if (!line.isEmpty()) {
             Log.d(TAG, line);
-        }
-    }
-
-    private void recordPointerReactivationCommand(final boolean success) {
-        final int displayId = DesktopRuntimeBridge
-                .getActiveDesktopDisplayId();
-        final boolean captureRequested;
-        final boolean bridgeReady;
-        final int generation;
-        synchronized (mLock) {
-            captureRequested = mCaptureRequested;
-            bridgeReady = mReady;
-            generation = mGeneration;
-        }
-        try {
-            DesktopAutomationEventJournal.record(
-                    "input",
-                    success
-                            ? "pointer_reactivation_command_sent"
-                            : "pointer_reactivation_command_failed",
-                    success,
-                    "display=" + displayId,
-                    new org.json.JSONObject()
-                            .put("displayId", displayId)
-                            .put("captureRequested", captureRequested)
-                            .put("bridgeReady", bridgeReady)
-                            .put("bridgeGeneration", generation)
-                            .put("visualStateVerified", false));
-        } catch (org.json.JSONException ignored) {
-            DesktopAutomationEventJournal.record(
-                    "input",
-                    success
-                            ? "pointer_reactivation_command_sent"
-                            : "pointer_reactivation_command_failed",
-                    success,
-                    "display=" + displayId);
         }
     }
 

@@ -81,7 +81,7 @@ final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
                     position,
                     action,
                     downTime,
-                    MotionEvent.TOOL_TYPE_FINGER);
+                    MotionEvent.TOOL_TYPE_MOUSE);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.e(TAG, "absolute mouse movement failed", error);

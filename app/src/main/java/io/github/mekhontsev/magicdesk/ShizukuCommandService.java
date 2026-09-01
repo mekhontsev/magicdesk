@@ -62,7 +62,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mTextInputDriver = platform.textInput();
         mTaskObserverManager = new ShellTaskObserverManager(
                 context,
-                platform.windowing());
+                platform.windowing(),
+                platform.phoneUi());
         mDisplayRecording = new ShellDisplayRecordingSession(context);
         mDesktopDirectory = new ShellDesktopDirectory();
         mFileSystem = new ShellFileSystem();

@@ -8,6 +8,9 @@ public interface PlatformPhoneUiDriver {
 
     boolean requiresPhoneImeRouting();
 
+    /** Whether the active MagicDesk HOME must replace the firmware Overview. */
+    boolean requiresLauncherOwnedOverview();
+
     boolean isPhoneScreenOff(Context context);
 
     boolean isPhoneScreenControlActive();

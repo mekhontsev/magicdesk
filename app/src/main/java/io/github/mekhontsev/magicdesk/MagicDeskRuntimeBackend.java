@@ -40,8 +40,6 @@ interface MagicDeskRuntimeBackend {
 
     void restorePointerPositionOnNextMotion();
 
-    void reactivatePointerOnNextMotion();
-
     boolean prepareDesktopDisplayRemoval(int displayId);
 
     void cancelDesktopDisplayRemoval(int displayId);
@@ -51,7 +49,10 @@ interface MagicDeskRuntimeBackend {
     boolean updateDesktopPointerPosition(
             int displayId, int x, int y, int action, long downTime);
 
-    boolean activateDesktopPointer(int displayId);
+    boolean moveDesktopPointer(int displayId, float deltaX, float deltaY);
+
+    boolean setDesktopPointerButtonPressed(
+            int displayId, int button, boolean pressed);
 
     boolean clickDesktopPointer(int displayId, int button);
 

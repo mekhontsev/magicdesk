@@ -13,6 +13,11 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
+    public boolean requiresLauncherOwnedOverview() {
+        return false;
+    }
+
+    @Override
     public boolean isPhoneScreenOff(final Context context) {
         return false;
     }

@@ -223,12 +223,6 @@ final class RuntimeDesktopInputCoordinator {
         }
     }
 
-    void reactivatePointerOnNextMotion() {
-        if (!mDestroyed && requiresMouseRelay()) {
-            mRelaySession.reactivatePointerOnNextMotion();
-        }
-    }
-
     boolean suspendMouseBridgeForDisplayRemoval(final int displayId) {
         if (!isActiveDesktopDisplay(displayId)) {
             return false;
@@ -270,21 +264,35 @@ final class RuntimeDesktopInputCoordinator {
                         displayId, x, y, action, downTime);
     }
 
-    boolean activatePointer(final int displayId) {
+    boolean movePointer(
+            final int displayId,
+            final float deltaX,
+            final float deltaY) {
         return isActiveDesktopDisplay(displayId)
                 && requiresMouseRelay()
-                && mRelaySession.activatePointer();
+                && mRelaySession.movePointer(deltaX, deltaY);
+    }
+
+    boolean setPointerButtonPressed(
+            final int displayId,
+            final int button,
+            final boolean pressed) {
+        return isActiveDesktopDisplay(displayId)
+                && requiresMouseRelay()
+                && button == MotionEvent.BUTTON_PRIMARY
+                && mRelaySession.setPrimaryButtonPressed(pressed);
     }
 
     boolean clickPointer(final int displayId, final int button) {
         if (!isActiveDesktopDisplay(displayId)) {
             return false;
         }
-        if (!supportsAbsolutePointer(displayId)) {
-            return false;
-        }
-        final boolean injected = ShellAccess.injectPointerClick(
-                displayId, button);
+        final boolean injected = button == MotionEvent.BUTTON_PRIMARY
+                && requiresMouseRelay()
+                        ? mRelaySession.clickPointer(button)
+                        : supportsAbsolutePointer(displayId)
+                                && ShellAccess.injectPointerClick(
+                                        displayId, button);
         if (injected && button == MotionEvent.BUTTON_PRIMARY) {
             endTextInput(displayId);
             beginTextInput(displayId);

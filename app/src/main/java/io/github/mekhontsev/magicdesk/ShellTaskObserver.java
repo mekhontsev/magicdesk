@@ -39,6 +39,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellExternalTaskMigrationGuard mMigrationGuard;
     private final ShellProcessFailureTracker mProcessFailureTracker;
     private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
+    private final ShellPhoneOverviewRouter mPhoneOverviewRouter;
     private final ShellSecondaryHomeStartPolicy mSecondaryHomeStartPolicy =
             new ShellSecondaryHomeStartPolicy();
     private final ShellActivityStartController mActivityStartController;
@@ -72,13 +73,17 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final ITaskObserverCallback callback,
             final IActivityLaunchCallback activityLauncher,
             final Runnable callbackFailure,
-            final PlatformWindowingDriver windowing)
+            final PlatformWindowingDriver windowing,
+            final PlatformPhoneUiDriver phoneUi)
             throws ReflectiveOperationException {
         if (callback == null) {
             throw new IllegalArgumentException("missing task observer callback");
         }
         if (windowing == null) {
             throw new IllegalArgumentException("missing platform task policy");
+        }
+        if (phoneUi == null) {
+            throw new IllegalArgumentException("missing platform phone UI policy");
         }
         mService = HiddenTaskApi.getService();
         mCallback = callback;
@@ -169,11 +174,18 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                         reason));
                     }
                 });
+        mPhoneOverviewRouter = new ShellPhoneOverviewRouter(
+                context,
+                mService,
+                phoneUi.requiresLauncherOwnedOverview(),
+                activityLauncher,
+                error -> callCallback(() -> mCallback.onObserverError(error)));
         mActivityStartController = new ShellActivityStartController(
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)),
                 mProcessFailureTracker,
                 null,
+                mPhoneOverviewRouter,
                 mSecondaryHomeStartPolicy,
                 mMigrationGuard,
                 mTaskActivityModeGuard);
@@ -342,6 +354,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             // IActivityController can cancel starts system-wide. Keep task
             // observation alive between sessions, but never retain launch
             // interception after the desktop configuration is cleared.
+            mPhoneOverviewRouter.stop();
             mActivityStartController.close();
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
             clearPendingPostRemovalFocus();
@@ -373,7 +386,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mProcessFailureTracker.configure(displayId);
         try {
             mActivityStartController.start();
-        } catch (ReflectiveOperationException error) {
+            mPhoneOverviewRouter.start();
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            mPhoneOverviewRouter.stop();
+            mActivityStartController.close();
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             throw new IllegalStateException(
                     "cannot enable desktop activity-start observation: "
@@ -1168,8 +1184,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mInputWindowObservations::close);
         closeSafely("process failure tracker", () ->
                 mProcessFailureTracker.configure(Display.INVALID_DISPLAY));
+        mPhoneOverviewRouter.stop();
         closeSafely("activity start controller",
                 mActivityStartController::close);
+        closeSafely("phone Overview router", mPhoneOverviewRouter::close);
         closeSafely("migration guard", mMigrationGuard::close);
         closeSafely("freeform cleanup", mFreeformCleanup::close);
         closeSafely("framework task observations", mTaskObservations::close);

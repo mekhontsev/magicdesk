@@ -59,7 +59,6 @@ public final class MagicDeskRuntimeTest {
                 () -> mAttached.settingsRefreshCompleted = true);
         MagicDeskRuntime.releaseDesktopTaskSession(
                 () -> mAttached.desktopReleaseCompleted = true);
-        MagicDeskRuntime.reactivatePointerOnNextMotion();
         assertTrue(MagicDeskRuntime.prepareDesktopDisplayRemoval(7));
         MagicDeskRuntime.cancelDesktopDisplayRemoval(7);
         MagicDeskRuntime.preserveDesktopTasks(7);
@@ -82,7 +81,6 @@ public final class MagicDeskRuntimeTest {
         assertTrue(mAttached.settingsRefreshCompleted);
         assertTrue(mAttached.desktopSessionReleased);
         assertTrue(mAttached.desktopReleaseCompleted);
-        assertTrue(mAttached.pointerReactivationRequested);
         assertEquals(7, mAttached.pointerSuspensionDisplayId);
         assertEquals(7, mAttached.pointerSuspensionCancelledDisplayId);
         assertEquals(7, mAttached.preservedDesktopDisplayId);
@@ -126,7 +124,6 @@ public final class MagicDeskRuntimeTest {
         private boolean settingsRefreshCompleted;
         private boolean desktopSessionReleased;
         private boolean desktopReleaseCompleted;
-        private boolean pointerReactivationRequested;
         private int pointerSuspensionDisplayId = -1;
         private int pointerSuspensionCancelledDisplayId = -1;
         private int preservedDesktopDisplayId = -1;
@@ -262,11 +259,6 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public void reactivatePointerOnNextMotion() {
-            pointerReactivationRequested = true;
-        }
-
-        @Override
         public boolean prepareDesktopDisplayRemoval(
                 final int displayId) {
             pointerSuspensionDisplayId = displayId;
@@ -294,7 +286,18 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public boolean activateDesktopPointer(final int displayId) {
+        public boolean moveDesktopPointer(
+                final int displayId,
+                final float deltaX,
+                final float deltaY) {
+            return true;
+        }
+
+        @Override
+        public boolean setDesktopPointerButtonPressed(
+                final int displayId,
+                final int button,
+                final boolean pressed) {
             return true;
         }
 

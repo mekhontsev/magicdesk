@@ -923,7 +923,6 @@ final class DesktopAutomationController {
                             button),
                     "pointer clicked");
         }
-        MagicDeskRuntime.activateDesktopPointer(displayId);
         return simpleRuntimeAction(
                 MagicDeskRuntime.clickDesktopPointer(displayId, button),
                 "pointer clicked");

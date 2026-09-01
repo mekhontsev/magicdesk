@@ -205,13 +205,6 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static void reactivatePointerOnNextMotion() {
-        final MagicDeskRuntimeBackend backend = backend();
-        if (backend != null) {
-            backend.reactivatePointerOnNextMotion();
-        }
-    }
-
     static boolean prepareDesktopDisplayRemoval(
             final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
@@ -243,9 +236,22 @@ public final class MagicDeskRuntime {
                 displayId, x, y, action, downTime);
     }
 
-    static boolean activateDesktopPointer(final int displayId) {
+    static boolean moveDesktopPointer(
+            final int displayId,
+            final float deltaX,
+            final float deltaY) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.activateDesktopPointer(displayId);
+        return backend != null
+                && backend.moveDesktopPointer(displayId, deltaX, deltaY);
+    }
+
+    static boolean setDesktopPointerButtonPressed(
+            final int displayId,
+            final int button,
+            final boolean pressed) {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.setDesktopPointerButtonPressed(
+                displayId, button, pressed);
     }
 
     static boolean clickDesktopPointer(

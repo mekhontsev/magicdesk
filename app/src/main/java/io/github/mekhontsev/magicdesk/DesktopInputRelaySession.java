@@ -171,12 +171,16 @@ final class DesktopInputRelaySession {
         mMouseBridge.restorePointerPositionIfDisplacedOnNextMotion();
     }
 
-    void reactivatePointerOnNextMotion() {
-        mMouseBridge.reactivatePointerOnNextMotion();
+    boolean movePointer(final float deltaX, final float deltaY) {
+        return mMouseBridge.movePointer(deltaX, deltaY);
     }
 
-    boolean activatePointer() {
-        return mMouseBridge.activatePointer();
+    boolean clickPointer(final int button) {
+        return mMouseBridge.clickPointer(button);
+    }
+
+    boolean setPrimaryButtonPressed(final boolean pressed) {
+        return mMouseBridge.setPrimaryButtonPressed(pressed);
     }
 
     boolean scrollPointer(final float amount) {
@@ -416,10 +420,6 @@ final class DesktopInputRelaySession {
                     mKeyboardStats.accept(line);
                 }
             }
-            return;
-        }
-        if ("MAGICDESK_KEYBOARD_ACTIVITY".equals(line)) {
-            MagicDeskRuntime.reactivatePointerOnNextMotion();
             return;
         }
         if (line.startsWith("MAGICDESK_ALT_TAB_")

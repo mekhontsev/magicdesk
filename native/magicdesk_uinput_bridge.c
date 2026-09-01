@@ -27,11 +27,10 @@ struct bridge_state {
     int uinput_fd;
     uint16_t key_down_count[KEY_MAX + 1];
     bool forwarded_down[KEY_MAX + 1];
+    bool control_primary_down;
     bool pointer_restore_armed;
-    bool pointer_reactivation_armed;
     bool pointer_moved;
     bool capture_enabled;
-    int pointer_activation_direction;
     uint64_t physical_reports;
     uint64_t physical_motion_reports;
     uint64_t forwarded_reports;
@@ -106,6 +105,16 @@ static int emit_relative(
     return write_event(state, uinput_fd, &event);
 }
 
+static int emit_click(
+        struct bridge_state *state,
+        const int uinput_fd,
+        const unsigned short code) {
+    return emit_key(state, uinput_fd, code, 1) < 0
+            || emit_sync(state, uinput_fd) < 0
+            || emit_key(state, uinput_fd, code, 0) < 0
+            || emit_sync(state, uinput_fd) < 0 ? -1 : 0;
+}
+
 static int emit_wheel_steps(
         struct bridge_state *state,
         const int uinput_fd,
@@ -122,16 +131,6 @@ static int emit_wheel_steps(
             || emit_sync(state, uinput_fd) < 0 ? -1 : 0;
 }
 
-static int activate_pointer(
-        struct bridge_state *state,
-        const int uinput_fd,
-        const int direction) {
-    return emit_relative(state, uinput_fd, REL_X, direction) < 0
-            || emit_sync(state, uinput_fd) < 0
-            || emit_relative(state, uinput_fd, REL_X, -direction) < 0
-            || emit_sync(state, uinput_fd) < 0 ? -1 : 0;
-}
-
 static void emit_stats(
         const struct bridge_state *state,
         const unsigned long long request_id) {
@@ -142,7 +141,7 @@ static void emit_stats(
             " forwardedReports=%llu forwardedMotionReports=%llu"
             " writeErrors=%llu lastPhysicalMotionAgeMs=%lld"
             " lastForwardedMotionAgeMs=%lld sources=%d grabbed=%d"
-            " capture=%d restoreArmed=%d reactivateArmed=%d",
+            " capture=%d restoreArmed=%d",
             request_id,
             (unsigned long long)state->physical_reports,
             (unsigned long long)state->physical_motion_reports,
@@ -157,8 +156,7 @@ static void emit_stats(
             magicdesk_grabbed_source_count(
                     state->sources, state->source_count),
             state->capture_enabled ? 1 : 0,
-            state->pointer_restore_armed ? 1 : 0,
-            state->pointer_reactivation_armed ? 1 : 0);
+            state->pointer_restore_armed ? 1 : 0);
     emit_line(output);
 }
 
@@ -209,6 +207,9 @@ static int clear_button_state(void *context) {
     bool released = false;
     for (unsigned int code = 0; code <= KEY_MAX; ++code) {
         if (!state->forwarded_down[code]) {
+            continue;
+        }
+        if (code == BTN_LEFT && state->control_primary_down) {
             continue;
         }
         if (emit_key(
@@ -302,6 +303,9 @@ static int process_key_event(
             return 0;
         }
         state->forwarded_down[code] = true;
+        if (code == BTN_LEFT && state->control_primary_down) {
+            return 0;
+        }
         return write_event(state, state->uinput_fd, event);
     }
     if (event->value == 2) {
@@ -324,7 +328,28 @@ static int process_key_event(
         return 0;
     }
     state->forwarded_down[code] = false;
+    if (code == BTN_LEFT && state->control_primary_down) {
+        return 0;
+    }
     return write_event(state, state->uinput_fd, event);
+}
+
+static int set_control_primary(
+        struct bridge_state *state,
+        const bool pressed) {
+    if (state->control_primary_down == pressed) {
+        return 0;
+    }
+    state->control_primary_down = pressed;
+    if (state->forwarded_down[BTN_LEFT]) {
+        return 0;
+    }
+    return emit_key(
+                    state,
+                    state->uinput_fd,
+                    BTN_LEFT,
+                    pressed ? 1 : 0) < 0
+            || emit_sync(state, state->uinput_fd) < 0 ? -1 : 0;
 }
 
 static int process_event(
@@ -340,8 +365,7 @@ static int process_event(
                 && event->value != 0) {
             state->report_has_motion = true;
         }
-        if ((state->pointer_restore_armed
-                    || state->pointer_reactivation_armed)
+        if (state->pointer_restore_armed
                 && (event->code == REL_X || event->code == REL_Y)
                 && event->value != 0) {
             state->pointer_moved = true;
@@ -374,10 +398,6 @@ static int process_event(
                 state->pointer_restore_armed = false;
                 emit_line("MAGICDESK_MOUSE_POINTER_MOTION");
             }
-            if (state->pointer_reactivation_armed) {
-                state->pointer_reactivation_armed = false;
-                emit_line("MAGICDESK_MOUSE_POINTER_REACTIVATE");
-            }
         }
         return 0;
     }
@@ -388,6 +408,7 @@ static int handle_control_line(
         struct bridge_state *state,
         const char *line) {
     int first = 0;
+    int second = 0;
     if (strcmp(line, "start") == 0) {
         // The virtual device must be associated with the desktop before a
         // physical report is captured and forwarded through it.
@@ -397,7 +418,8 @@ static int handle_control_line(
     }
     if (strcmp(line, "stop") == 0) {
         state->capture_enabled = false;
-        if (clear_button_state(state) < 0) {
+        if (set_control_primary(state, false) < 0
+                || clear_button_state(state) < 0) {
             return -1;
         }
         magicdesk_ungrab_sources(
@@ -416,23 +438,26 @@ static int handle_control_line(
         state->pointer_moved = false;
         return 0;
     }
-    if (strcmp(line, "reactivate-pointer-on-motion") == 0) {
-        state->pointer_reactivation_armed = true;
-        state->pointer_moved = false;
-        return 0;
-    }
-    if (strcmp(line, "activate-pointer") == 0) {
-        const int result = activate_pointer(
-                state,
-                state->uinput_fd,
-                state->pointer_activation_direction);
-        if (result == 0) {
-            // Alternating the pulse prevents edge clamping from accumulating
-            // a one-way cursor offset during long touchpad sessions.
-            state->pointer_activation_direction =
-                    -state->pointer_activation_direction;
+    if (sscanf(line, "move %d %d", &first, &second) == 2) {
+        if (emit_relative(state, state->uinput_fd, REL_X, first) < 0
+                || emit_relative(state, state->uinput_fd, REL_Y, second) < 0) {
+            return -1;
         }
-        return result;
+        return first != 0 || second != 0
+                ? emit_sync(state, state->uinput_fd) : 0;
+    }
+    if (strcmp(line, "click-primary") == 0) {
+        if (state->control_primary_down
+                || state->forwarded_down[BTN_LEFT]) {
+            return 0;
+        }
+        return emit_click(state, state->uinput_fd, BTN_LEFT);
+    }
+    if (strcmp(line, "primary-down") == 0) {
+        return set_control_primary(state, true);
+    }
+    if (strcmp(line, "primary-up") == 0) {
+        return set_control_primary(state, false);
     }
     unsigned long long request_id = 0;
     if (sscanf(line, "stats %llu", &request_id) == 1) {
@@ -636,7 +661,6 @@ int main(int argc, char **argv) {
         .sources = sources,
         .source_count = source_count,
         .uinput_fd = uinput_fd,
-        .pointer_activation_direction = 1,
     };
     printf("MAGICDESK_MOUSE_READY sources=%d uid=%d\n",
             source_count,
@@ -644,6 +668,7 @@ int main(int argc, char **argv) {
     fflush(stdout);
 
     const int result = forward_events(&state);
+    set_control_primary(&state, false);
     clear_button_state(&state);
     ioctl(uinput_fd, UI_DEV_DESTROY);
     close(uinput_fd);

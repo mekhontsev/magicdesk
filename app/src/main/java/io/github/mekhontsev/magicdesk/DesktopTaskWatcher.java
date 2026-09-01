@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.ActivityOptions;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.graphics.Rect;
@@ -1293,6 +1294,32 @@ final class DesktopTaskWatcher {
             } catch (PendingIntent.CanceledException | RuntimeException error) {
                 final RemoteException remote = new RemoteException(
                         "published shortcut launch failed: "
+                                + ShellAccess.usefulMessage(error));
+                remote.initCause(error);
+                throw remote;
+            }
+        }
+
+        @Override
+        public void presentPhoneOverview() throws RemoteException {
+            final DesktopHomeRoleLease.State lease =
+                    DesktopHomeRoleLease.snapshot();
+            if (!mOwner.mListener.isActive(mGeneration)
+                    || lease == null
+                    || lease.phase != DesktopHomeRoleLease.Phase.ACTIVE) {
+                throw new RemoteException(
+                        "desktop HOME activity launcher is not active");
+            }
+            try {
+                final ActivityOptions options = ActivityOptions.makeBasic();
+                options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
+                MagicDeskApplication.applicationContext().startActivity(
+                        PhoneHomeActivity.createOverviewIntent(
+                                MagicDeskApplication.applicationContext()),
+                        options.toBundle());
+            } catch (RuntimeException error) {
+                final RemoteException remote = new RemoteException(
+                        "phone Overview launch failed: "
                                 + ShellAccess.usefulMessage(error));
                 remote.initCause(error);
                 throw remote;

@@ -8,10 +8,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Insets;
-import android.graphics.Point;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
@@ -21,7 +19,6 @@ import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.view.VelocityTracker;
 import android.view.WindowInsets;
 import android.view.WindowInsetsAnimation;
 import android.view.inputmethod.InputMethodManager;
@@ -53,9 +50,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private DisplayManager.DisplayListener mDisplayListener;
     private int mTargetDisplayId = Display.INVALID_DISPLAY;
     private boolean mPointerDragActive;
-    private int mPointerX;
-    private int mPointerY;
-    private long mPointerDragDownTime;
     private MirrorInputEditText mMirrorInput;
     private FrameLayout mContentContainer;
     private ImageButton mHelpButton;
@@ -516,13 +510,10 @@ public final class MagicDeskTouchpadActivity extends Activity {
             return;
         }
         mPointerDragActive = false;
-        MagicDeskRuntime.updateDesktopPointerPosition(
+        MagicDeskRuntime.setDesktopPointerButtonPressed(
                 mTargetDisplayId,
-                mPointerX,
-                mPointerY,
-                DesktopPointerInjector.TOUCHPAD_DRAG_END,
-                mPointerDragDownTime);
-        mPointerDragDownTime = 0L;
+                MotionEvent.BUTTON_PRIMARY,
+                false);
     }
 
     private void updateTargetDisplay(final Intent intent) {
@@ -623,7 +614,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         private final TouchpadPointerMotion mPointerMotion =
                 new TouchpadPointerMotion();
         private final float mTouchSlop;
-        private VelocityTracker mVelocityTracker;
         private float mLastX;
         private float mLastY;
         private float mTravel;
@@ -764,18 +754,14 @@ public final class MagicDeskTouchpadActivity extends Activity {
                         <= mTouchSlop) {
                     return;
                 }
-                if (!startPointerMotion(event, true)) {
+                if (!startPointerMotion(event)) {
                     return;
                 }
-                mPointerDragDownTime = SystemClock.uptimeMillis();
                 mPointerDragActive = MagicDeskRuntime
-                        .updateDesktopPointerPosition(
+                        .setDesktopPointerButtonPressed(
                                 mTargetDisplayId,
-                                mPointerX,
-                                mPointerY,
-                                DesktopPointerInjector.TOUCHPAD_DRAG_START,
-                                mPointerDragDownTime);
-                activatePointerAfterPositionUpdate(mPointerDragActive);
+                                MotionEvent.BUTTON_PRIMARY,
+                                true);
                 reportInputResult("drag", mPointerDragActive);
                 mPendingDragX = 0.0f;
                 mPendingDragY = 0.0f;
@@ -787,86 +773,30 @@ public final class MagicDeskTouchpadActivity extends Activity {
             }
             if (!mPointerMotion.isActive()) {
                 if (mTravel <= mTouchSlop
-                        || !startPointerMotion(event, false)) {
+                        || !startPointerMotion(event)) {
                     return;
                 }
                 return;
             }
-            mVelocityTracker.addMovement(event);
-            mVelocityTracker.computeCurrentVelocity(1_000);
-            final double velocity = Math.hypot(
-                    mVelocityTracker.getXVelocity(),
-                    mVelocityTracker.getYVelocity());
-            if (!mPointerMotion.move(currentX, currentY, velocity)) {
+            if (!mPointerMotion.move(currentX, currentY)) {
                 return;
             }
-            mPointerX = mPointerMotion.outputX();
-            mPointerY = mPointerMotion.outputY();
-            final boolean accepted = MagicDeskRuntime
-                    .updateDesktopPointerPosition(
+            final boolean accepted = MagicDeskRuntime.moveDesktopPointer(
                             mTargetDisplayId,
-                            mPointerX,
-                            mPointerY,
-                            mPointerDragActive
-                                    ? DesktopPointerInjector
-                                            .TOUCHPAD_DRAG_MOVE
-                                    : DesktopPointerInjector.TOUCHPAD_HOVER,
-                            mPointerDragDownTime);
-            activatePointerAfterPositionUpdate(accepted);
+                            mPointerMotion.deltaX(),
+                            mPointerMotion.deltaY());
             reportInputResult("move", accepted);
             if (!accepted) {
                 stopPointerMotion();
             }
         }
 
-        private boolean startPointerMotion(
-                final MotionEvent event,
-                final boolean dragging) {
-            final Point pointer = MagicDeskRuntime
-                    .getDesktopPointerPosition(mTargetDisplayId);
-            final Display display = mDisplayManager == null
-                    ? null : mDisplayManager.getDisplay(mTargetDisplayId);
-            if (pointer == null || display == null) {
-                reportInputResult("move", false);
-                return false;
-            }
-            final Point displaySize = realDisplaySize(display);
-            if (displaySize.x <= 0 || displaySize.y <= 0) {
-                reportInputResult("move", false);
-                return false;
-            }
-            recycleVelocityTracker();
-            mVelocityTracker = VelocityTracker.obtain();
-            mVelocityTracker.addMovement(event);
+        private boolean startPointerMotion(final MotionEvent event) {
             mPointerMotion.start(
                     event.getX(),
                     event.getY(),
-                    pointer.x,
-                    pointer.y,
-                    displaySize.x - 1,
-                    displaySize.y - 1,
                     pointerScale());
-            mPointerX = mPointerMotion.outputX();
-            mPointerY = mPointerMotion.outputY();
             return true;
-        }
-
-        private void activatePointerAfterPositionUpdate(
-                final boolean positionUpdated) {
-            if (!positionUpdated || mPointerDragActive) {
-                return;
-            }
-            // The vendor absolute-position API moves the cursor but does not
-            // refresh Android's pointer icon. A neutral relative pulse does.
-            MagicDeskRuntime.activateDesktopPointer(
-                    mTargetDisplayId);
-        }
-
-        @SuppressWarnings("deprecation")
-        private Point realDisplaySize(final Display display) {
-            final Point size = new Point();
-            display.getRealSize(size);
-            return size;
         }
 
         private void click(final int button) {
@@ -898,19 +828,10 @@ public final class MagicDeskTouchpadActivity extends Activity {
             mPendingScroll = 0.0f;
             mPendingDragX = 0.0f;
             mPendingDragY = 0.0f;
-            mPointerDragDownTime = 0L;
         }
 
         private void stopPointerMotion() {
             mPointerMotion.stop();
-            recycleVelocityTracker();
-        }
-
-        private void recycleVelocityTracker() {
-            if (mVelocityTracker != null) {
-                mVelocityTracker.recycle();
-                mVelocityTracker = null;
-            }
         }
 
         private float pointerScale() {

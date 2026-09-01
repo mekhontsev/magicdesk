@@ -16,14 +16,17 @@ final class ShellTaskObserverManager implements Closeable {
     private final Object mLock = new Object();
     private final Context mContext;
     private final PlatformWindowingDriver mWindowing;
+    private final PlatformPhoneUiDriver mPhoneUi;
 
     private Session mSession;
 
     ShellTaskObserverManager(
             final Context context,
-            final PlatformWindowingDriver windowing) {
+            final PlatformWindowingDriver windowing,
+            final PlatformPhoneUiDriver phoneUi) {
         mContext = context;
         mWindowing = windowing;
+        mPhoneUi = phoneUi;
     }
 
     void start(
@@ -400,7 +403,8 @@ final class ShellTaskObserverManager implements Closeable {
                     callback,
                     activityLauncher,
                     this::ownerDisconnected,
-                    mWindowing);
+                    mWindowing,
+                    mPhoneUi);
         }
 
         synchronized void start()

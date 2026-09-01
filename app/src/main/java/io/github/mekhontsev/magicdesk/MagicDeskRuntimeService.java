@@ -193,14 +193,6 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
-    public void reactivatePointerOnNextMotion() {
-        if (mDestroyed || mDesktopInput == null) {
-            return;
-        }
-        mDesktopInput.reactivatePointerOnNextMotion();
-    }
-
-    @Override
     public boolean prepareDesktopDisplayRemoval(
             final int displayId) {
         if (mDestroyed || mDesktopInput == null
@@ -248,10 +240,24 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
-    public boolean activateDesktopPointer(final int displayId) {
+    public boolean moveDesktopPointer(
+            final int displayId,
+            final float deltaX,
+            final float deltaY) {
         return !mDestroyed
                 && mDesktopInput != null
-                && mDesktopInput.activatePointer(displayId);
+                && mDesktopInput.movePointer(displayId, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean setDesktopPointerButtonPressed(
+            final int displayId,
+            final int button,
+            final boolean pressed) {
+        return !mDestroyed
+                && mDesktopInput != null
+                && mDesktopInput.setPointerButtonPressed(
+                        displayId, button, pressed);
     }
 
     @Override

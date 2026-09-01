@@ -15,6 +15,14 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
+    public boolean requiresLauncherOwnedOverview() {
+        // Nubia's fallback Quickstep crashes while binding desktop task groups
+        // under a third-party HOME. MagicDesk owns the phone Overview for the
+        // same lease instead of starting that incompatible fallback surface.
+        return true;
+    }
+
+    @Override
     public boolean isPhoneScreenOff(final Context context) {
         return NubiaPhoneScreenState.isOff();
     }

@@ -7,4 +7,6 @@ interface IActivityLaunchCallback {
     void sendPendingIntent(
         in PendingIntent pendingIntent,
         in Bundle options) = 1;
+
+    void presentPhoneOverview() = 2;
 }
