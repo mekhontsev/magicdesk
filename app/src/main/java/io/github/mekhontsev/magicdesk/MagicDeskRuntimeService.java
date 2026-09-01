@@ -440,7 +440,6 @@ public final class MagicDeskRuntimeService extends Service
                 this,
                 mHandler,
                 mWindowing,
-                mPhoneUi,
                 mDesktopSession::onTaskStackChanged);
         mDesktopSession.start();
         mDisplayCoordinator.start();
@@ -477,6 +476,10 @@ public final class MagicDeskRuntimeService extends Service
             updateNotification();
             return START_NOT_STICKY;
         }
+        if (!ShellAccess.isReady()
+                && DesktopHomeRoleLease.snapshot() != null) {
+            return START_NOT_STICKY;
+        }
         initialize();
         if (intent != null) {
             if (ACTION_OPEN_CONTROL_PANEL.equals(intent.getAction())) {
@@ -488,7 +491,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         mDesktopInput.reconcileRuntime(desktopDisplayId());
         updateDesktopTasks();
-        mDesktopSession.schedulePhoneHomeRecovery();
+        mDesktopSession.schedulePhoneTaskRecovery();
         return START_NOT_STICKY;
     }
 
@@ -592,7 +595,14 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private void handleShellStateChanged() {
-        if (mDestroyed || !mInitialized) {
+        if (mDestroyed) {
+            return;
+        }
+        if (!mInitialized) {
+            if (ShellAccess.isReady()
+                    && DesktopHomeRoleLease.snapshot() != null) {
+                initialize();
+            }
             return;
         }
         mDesktopSession.refreshOwnership();

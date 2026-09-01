@@ -11,7 +11,8 @@ firmware task, display, input, or capture behavior.
 - Firmware build `20260204.221845`
 - Authorized shell UserService running as `uid=2000`, `u:r:shell:s0`
 - Phone, simulated, HDMI, Miracast, physical keyboard/mouse/touchpad, phone
-  touchpad, recording, and launcher cleanup are available for direct testing
+  touchpad, recording, HOME-role lifecycle, and task cleanup are available for
+  direct testing
 
 ## Community Platforms
 
@@ -19,7 +20,7 @@ firmware task, display, input, or capture behavior.
 
 - Android 16 / API 36, firmware build `20260625.022314`
 - Diagnostics and user validation cover desktop startup, external sizing,
-  launcher recovery, Mora discovery, output modes, and display recording.
+  task recovery, Mora discovery, output modes, and display recording.
 
 ### nubia Z80 Ultra (`NX741J`, `PQ85A01-UN`)
 
@@ -28,7 +29,7 @@ firmware task, display, input, or capture behavior.
 - Diagnostics and user validation cover wired desktop operation, multiple
   freeform windows, `2560x1080@75` output and wide external sizing through the
   physical display, focus transfer, keyboard input, phone-screen-off behavior,
-  launcher protection, and simulated self-test cleanup.
+  task recovery, and simulated self-test cleanup.
 - Shell UID 2000 cannot read `/sys/kernel/lcd_enhance/edid_modes`; root can.
   This no longer blocks the confirmed wide mode: Android reports the active
   physical-display timing and MagicDesk retains it across desktop sessions.
@@ -77,7 +78,7 @@ firmware task, display, input, or capture behavior.
 - [ ] Test first-run onboarding on a compatible device that has never used
   root and retains stock desktop properties.
 - [ ] Run onboarding, Diagnostics, phone/simulated/HDMI/Miracast self-tests,
-  capture, input, and launcher cleanup on Android 15 hardware.
+  capture, input, HOME-role lifecycle, and task cleanup on Android 15 hardware.
 - [ ] Validate the Standard Android platform on non-ZTE hardware with native
   secondary-display freeform support.
 - [ ] Validate system audio routing across HDMI, USB, Bluetooth, and the phone

@@ -181,7 +181,7 @@ public final class ShellAccess {
             throw new IOException("invalid desktop host launch");
         }
         if (taskAreaPolicy == null
-                || !taskAreaPolicy.usesManagedHostArea()) {
+                || taskAreaPolicy == DesktopTaskAreaPolicy.UNCONFIGURED) {
             throw new IOException("invalid desktop task-area policy");
         }
         try {
@@ -1381,35 +1381,6 @@ public final class ShellAccess {
             handleServiceFailure(error);
             throw new IOException(
                     "Shizuku input routing cleanup failed: "
-                            + usefulMessage(error),
-                    error);
-        }
-    }
-
-    static void startLocalDesktopNavigationGuard(
-            final IBinder ownerToken) throws IOException {
-        try {
-            requireService().startLocalDesktopNavigationGuard(ownerToken);
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure(error);
-            throw new IOException(
-                    "Shizuku local desktop navigation guard failed: "
-                            + usefulMessage(error),
-                    error);
-        }
-    }
-
-    static void stopLocalDesktopNavigationGuard(
-            final IBinder ownerToken) throws IOException {
-        if (!isReady()) {
-            return;
-        }
-        try {
-            requireService().stopLocalDesktopNavigationGuard(ownerToken);
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure(error);
-            throw new IOException(
-                    "Shizuku local desktop navigation restore failed: "
                             + usefulMessage(error),
                     error);
         }

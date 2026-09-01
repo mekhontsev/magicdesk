@@ -5,7 +5,6 @@ import static org.junit.Assert.assertNull;
 
 import android.content.ComponentName;
 import android.graphics.Rect;
-import android.view.Display;
 
 import org.junit.Test;
 
@@ -16,12 +15,8 @@ public final class ShellProcessFailureTrackerTest {
     private static final int TASK_ID = 42;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final String APP_PACKAGE = "com.example.app";
-    private static final String LAUNCHER_PACKAGE = "example.launcher";
-    private static final String PRIMARY_HOME =
-            LAUNCHER_PACKAGE + "/.PrimaryHome";
     private static final String PERMISSION_PACKAGE =
             "com.android.permissioncontroller";
-    private static final int LAUNCHER_UID = 10123;
 
     @Test
     public void reportsCrashForDesktopProcessAndItsSubprocess() {
@@ -95,120 +90,6 @@ public final class ShellProcessFailureTrackerTest {
         assertNull(listener.processName);
     }
 
-    @Test
-    public void launcherCrashCallbackIsNotUsedForNubiaProtection() {
-        final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = launcherTracker(listener);
-        tracker.configure(DISPLAY_ID);
-
-        tracker.onProcessCrashed(
-                LAUNCHER_PACKAGE + ":quickstep", 456, "Launcher failed");
-
-        assertEquals(0, listener.launcherEvents);
-        assertNull(listener.processName);
-    }
-
-    @Test
-    public void retainsEarlyLauncherAnrReason() {
-        final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = launcherTracker(listener);
-        tracker.configure(DISPLAY_ID);
-
-        tracker.onProcessEarlyNotResponding(
-                LAUNCHER_PACKAGE, 789, "Input dispatch timed out");
-        tracker.onProcessNotResponding(LAUNCHER_PACKAGE, 789);
-
-        assertEquals(PhoneLauncherEvent.ANR, listener.launcherType);
-        assertEquals("Input dispatch timed out", listener.launcherReason);
-    }
-
-    @Test
-    public void reportsLauncherDeathByStablePackageUid() {
-        final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = launcherTracker(listener);
-        tracker.configure(DISPLAY_ID);
-
-        tracker.onProcessDied(456, LAUNCHER_UID);
-
-        assertEquals(PhoneLauncherEvent.PROCESS_DIED, listener.launcherType);
-        assertEquals(1, listener.launcherEvents);
-        assertEquals(456, listener.launcherPid);
-    }
-
-    @Test
-    public void ignoresLauncherDeathWithoutPhysicalPid() {
-        final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = launcherTracker(listener);
-        tracker.configure(DISPLAY_ID);
-
-        tracker.onProcessDied(0, LAUNCHER_UID);
-
-        assertEquals(0, listener.launcherEvents);
-    }
-
-    @Test
-    public void reportsOneDeathEventPerLauncherProcess() {
-        final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = launcherTracker(listener);
-        tracker.configure(DISPLAY_ID);
-
-        tracker.onProcessDied(456, LAUNCHER_UID);
-        tracker.onProcessDied(0, LAUNCHER_UID);
-        tracker.onProcessDied(456, LAUNCHER_UID);
-        tracker.onProcessDied(789, LAUNCHER_UID);
-
-        assertEquals(2, listener.launcherEvents);
-        assertEquals(789, listener.launcherPid);
-    }
-
-    @Test
-    public void resetsLauncherDeathDeduplicationForNewSession() {
-        final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = launcherTracker(listener);
-        tracker.configure(DISPLAY_ID);
-        tracker.onProcessDied(456, LAUNCHER_UID);
-
-        tracker.configure(Display.INVALID_DISPLAY);
-        tracker.configure(DISPLAY_ID);
-        tracker.onProcessDied(456, LAUNCHER_UID);
-
-        assertEquals(2, listener.launcherEvents);
-    }
-
-    @Test
-    public void ignoresLauncherUidOutsideDesktopSession() {
-        final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = launcherTracker(listener);
-
-        tracker.onProcessDied(456, LAUNCHER_UID);
-
-        assertEquals(0, listener.launcherEvents);
-    }
-
-    @Test
-    public void ignoresUnrelatedProcessUid() {
-        final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = launcherTracker(listener);
-        tracker.configure(DISPLAY_ID);
-
-        tracker.onProcessDied(456, LAUNCHER_UID + 1);
-
-        assertEquals(0, listener.launcherEvents);
-    }
-
-    @Test
-    public void reportsBlockedLauncherResume() {
-        final RecordingListener listener = new RecordingListener();
-        final ShellProcessFailureTracker tracker = launcherTracker(listener);
-        tracker.configure(DISPLAY_ID);
-
-        tracker.onActivityResuming(LAUNCHER_PACKAGE, false);
-
-        assertEquals(PhoneLauncherEvent.HOME_RESUME_BLOCKED,
-                listener.launcherType);
-        assertEquals(1, listener.launcherEvents);
-    }
-
     private static ShellProcessFailureTracker tracker(
             final RecordingListener listener) {
         final ShellProcessFailureTracker tracker = emptyTracker(listener);
@@ -223,20 +104,7 @@ public final class ShellProcessFailureTrackerTest {
 
     private static ShellProcessFailureTracker emptyTracker(
             final RecordingListener listener) {
-        return new ShellProcessFailureTracker(
-                listener,
-                PhoneHomeComponents.forTests(PRIMARY_HOME),
-                -1,
-                false);
-    }
-
-    private static ShellProcessFailureTracker launcherTracker(
-            final RecordingListener listener) {
-        return new ShellProcessFailureTracker(
-                listener,
-                PhoneHomeComponents.forTests(PRIMARY_HOME),
-                LAUNCHER_UID,
-                true);
+        return new ShellProcessFailureTracker(listener);
     }
 
     private static FrameworkTaskSnapshot task(
@@ -274,11 +142,6 @@ public final class ShellProcessFailureTrackerTest {
         int windowingMode;
         String topActivity;
         String reason;
-        int launcherType;
-        String launcherProcessName;
-        int launcherPid;
-        String launcherReason;
-        int launcherEvents;
 
         @Override
         public void onDesktopProcessFailure(
@@ -298,19 +161,6 @@ public final class ShellProcessFailureTrackerTest {
             windowingMode = failedWindowingMode;
             topActivity = failedTopActivity;
             reason = failureReason;
-        }
-
-        @Override
-        public void onPhoneLauncherEvent(
-                final int eventType,
-                final String eventProcessName,
-                final int eventPid,
-                final String eventReason) {
-            launcherType = eventType;
-            launcherProcessName = eventProcessName;
-            launcherPid = eventPid;
-            launcherReason = eventReason;
-            launcherEvents++;
         }
     }
 }

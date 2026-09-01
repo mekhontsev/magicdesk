@@ -90,10 +90,6 @@ interface IShizukuCommandService {
 
     int cleanupInputRouting() = 21;
 
-    void startLocalDesktopNavigationGuard(IBinder ownerToken) = 22;
-
-    void stopLocalDesktopNavigationGuard(IBinder ownerToken) = 23;
-
     String startDisplayRecording(
         String physicalDisplayId,
         String outputPath,

@@ -7,11 +7,12 @@ import android.view.Display;
 
 import java.util.function.IntPredicate;
 
-/** Owns desktop display identity and phone recovery for the runtime service. */
+/** Owns desktop display identity and retained phone-task recovery. */
 final class RuntimeDesktopSessionCoordinator {
     private static final String TAG = "MagicDeskSessionRuntime";
     private static final long LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS = 500;
     private static final long DISPLAY_REMOVAL_WATCHDOG_MILLIS = 2000;
+    private static final long HOME_LEASE_RECONCILIATION_DELAY_MILLIS = 2000;
 
     interface Listener {
         void onOwnershipRefreshed(boolean changed);
@@ -22,24 +23,26 @@ final class RuntimeDesktopSessionCoordinator {
     private final IntPredicate mDisplayExists;
     private final Listener mListener;
     private int mDesktopDisplayId = Display.INVALID_DISPLAY;
-    private boolean mPhoneHomeRecoveryInFlight;
-    private boolean mPhoneHomeRecoveryAgain;
+    private boolean mPhoneTaskRecoveryInFlight;
+    private boolean mPhoneTaskRecoveryAgain;
     private boolean mAllowUnsettledDisplayRecovery;
     private int mRemovedDesktopDisplayId = Display.INVALID_DISPLAY;
     private int mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
     private boolean mRestorePhonePanelAfterRecovery;
     private boolean mLocalDesktopCleanupInFlight;
-    private boolean mLocalDesktopExitRecoveryPending;
+    private boolean mHomeLeaseRecoveryInFlight;
     private boolean mDestroyed;
-    private final Runnable mPhoneHomeRecoveryRunnable =
-            this::restorePrimaryPhoneHomeIfNeeded;
+    private final Runnable mPhoneTaskRecoveryRunnable =
+            this::recoverTasksAfterDisplayRemoval;
     private final Runnable mDisplayRemovalWatchdogRunnable = () -> {
         if (mRemovedDesktopDisplayId > Display.DEFAULT_DISPLAY) {
-            schedulePhoneHomeRecovery(true);
+            schedulePhoneTaskRecovery(true);
         }
     };
     private final Runnable mLocalDesktopCleanupRunnable =
             this::cleanupClosedLocalDesktop;
+    private final Runnable mHomeLeaseReconciliationRunnable =
+            this::reconcileHomeLease;
 
     RuntimeDesktopSessionCoordinator(
             final Context context,
@@ -55,17 +58,18 @@ final class RuntimeDesktopSessionCoordinator {
     void start() {
         refreshOwnership();
         if (LocalDesktopSessionState.isCleanupPending(mContext)) {
-            maintainLocalDesktopNavigationGuard();
             scheduleLocalDesktopCleanup();
         }
+        scheduleHomeLeaseReconciliation();
     }
 
     void destroy() {
         mDestroyed = true;
         mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
-        mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
+        mHandler.removeCallbacks(mPhoneTaskRecoveryRunnable);
         mHandler.removeCallbacks(mDisplayRemovalWatchdogRunnable);
         mHandler.removeCallbacks(mLocalDesktopCleanupRunnable);
+        mHandler.removeCallbacks(mHomeLeaseReconciliationRunnable);
     }
 
     int desktopDisplayId() {
@@ -99,7 +103,7 @@ final class RuntimeDesktopSessionCoordinator {
         }
         mRemovedDesktopDisplayId = displayId;
         scheduleDisplayRemovalWatchdog();
-        schedulePhoneHomeRecovery();
+        schedulePhoneTaskRecovery();
     }
 
     void handleDisplayStateChanged(
@@ -135,13 +139,14 @@ final class RuntimeDesktopSessionCoordinator {
                 mRemovedDesktopDisplayId = displayId;
                 if (!expectedDesktopRemoval) {
                     mRestorePhonePanelAfterRecovery = true;
+                    releaseHomeLeaseAfterSessionLoss(displayId);
                 }
                 scheduleDisplayRemovalWatchdog();
             }
         }
         refreshOwnership();
         if (displayRemoved) {
-            schedulePhoneHomeRecovery();
+            schedulePhoneTaskRecovery();
         }
     }
 
@@ -160,22 +165,29 @@ final class RuntimeDesktopSessionCoordinator {
         final boolean changed = desktopDisplayId != mDesktopDisplayId;
         mDesktopDisplayId = desktopDisplayId;
         mListener.onOwnershipRefreshed(changed);
+        if (changed
+                && desktopDisplayId == Display.INVALID_DISPLAY
+                && DesktopHomeRoleLease.snapshot() != null) {
+            scheduleHomeLeaseReconciliation();
+        }
     }
 
     void onTaskStackChanged() {
-        if (mRemovedDesktopDisplayId > Display.DEFAULT_DISPLAY
-                || mLocalDesktopExitRecoveryPending) {
-            schedulePhoneHomeRecovery();
+        if (mRemovedDesktopDisplayId > Display.DEFAULT_DISPLAY) {
+            schedulePhoneTaskRecovery();
         }
     }
 
     void onShellReady() {
-        maintainLocalDesktopNavigationGuard();
-        schedulePhoneHomeRecovery();
+        schedulePhoneTaskRecovery();
+        if (LocalDesktopSessionState.isCleanupPending(mContext)) {
+            scheduleLocalDesktopCleanup();
+        }
+        scheduleHomeLeaseReconciliation();
     }
 
-    void schedulePhoneHomeRecovery() {
-        schedulePhoneHomeRecovery(false);
+    void schedulePhoneTaskRecovery() {
+        schedulePhoneTaskRecovery(false);
     }
 
     void scheduleLocalDesktopCleanup() {
@@ -188,15 +200,16 @@ final class RuntimeDesktopSessionCoordinator {
                 LOCAL_DESKTOP_CLEANUP_DELAY_MILLIS);
     }
 
-    private void schedulePhoneHomeRecovery(
+    private void schedulePhoneTaskRecovery(
             final boolean allowUnsettledDisplayRecovery) {
-        if (mDestroyed || !ShellAccess.isReady()) {
+        if (mDestroyed || !ShellAccess.isReady()
+                || mRemovedDesktopDisplayId <= Display.DEFAULT_DISPLAY) {
             return;
         }
         mAllowUnsettledDisplayRecovery |=
                 allowUnsettledDisplayRecovery;
-        mHandler.removeCallbacks(mPhoneHomeRecoveryRunnable);
-        mHandler.post(mPhoneHomeRecoveryRunnable);
+        mHandler.removeCallbacks(mPhoneTaskRecoveryRunnable);
+        mHandler.post(mPhoneTaskRecoveryRunnable);
     }
 
     private void scheduleDisplayRemovalWatchdog() {
@@ -209,36 +222,137 @@ final class RuntimeDesktopSessionCoordinator {
                 DISPLAY_REMOVAL_WATCHDOG_MILLIS);
     }
 
-    private void restorePrimaryPhoneHomeIfNeeded() {
+    private void scheduleHomeLeaseReconciliation() {
+        if (mDestroyed) {
+            return;
+        }
+        mHandler.removeCallbacks(mHomeLeaseReconciliationRunnable);
+        mHandler.postDelayed(
+                mHomeLeaseReconciliationRunnable,
+                HOME_LEASE_RECONCILIATION_DELAY_MILLIS);
+    }
+
+    private void reconcileHomeLease() {
         if (mDestroyed || !ShellAccess.isReady()) {
             return;
         }
-        if (mPhoneHomeRecoveryInFlight) {
-            mPhoneHomeRecoveryAgain = true;
+        final DesktopHomeRoleLease.State lease =
+                DesktopHomeRoleLease.snapshot();
+        if (lease == null) {
             return;
         }
-        mPhoneHomeRecoveryInFlight = true;
-        final boolean allowUnsettledDisplayRecovery =
-                mAllowUnsettledDisplayRecovery;
-        final boolean includeStrandedDesktop =
-                mLocalDesktopExitRecoveryPending;
-        final boolean localDesktopExitRecoveryPending =
-                mLocalDesktopExitRecoveryPending;
-        final int removedDisplayId = mRemovedDesktopDisplayId;
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
-        final boolean localDesktopActive =
-                session.isLocalActiveOrStarting();
-        PhoneHomeRecoveryController.restoreIfNeeded(
-                includeStrandedDesktop,
-                removedDisplayId,
-                localDesktopActive,
-                allowUnsettledDisplayRecovery,
-                settled -> mHandler.post(() -> {
-                    mPhoneHomeRecoveryInFlight = false;
+        final DesktopDisplayTarget target = session.target();
+        final boolean matchingTarget = target != null
+                && lease.matches(target);
+        final boolean sessionAlive = matchingTarget && session.hasHost();
+        if (lease.phase == DesktopHomeRoleLease.Phase.ACTIVE
+                && !sessionAlive) {
+            if (matchingTarget || mHomeLeaseRecoveryInFlight) {
+                return;
+            }
+            final DesktopDisplayTarget leasedTarget = lease.target();
+            if (leasedTarget.displayId == Display.DEFAULT_DISPLAY
+                    || mDisplayExists.test(leasedTarget.displayId)) {
+                mHomeLeaseRecoveryInFlight = true;
+                DesktopOperations.recoverDesktopSession(
+                        leasedTarget,
+                        lease.policy,
+                        success -> mHandler.post(() ->
+                                finishHomeLeaseRecovery(
+                                        leasedTarget, success)));
+                return;
+            }
+        }
+        try {
+            if (DesktopHomeRoleLease.reconcile(sessionAlive)) {
+                Log.i(TAG, "reconciled stale desktop HOME lease display="
+                        + lease.displayId + " phase=" + lease.phase);
+            }
+        } catch (java.io.IOException error) {
+            Log.w(TAG, "could not reconcile desktop HOME lease", error);
+            CompatibilityDiagnostics.record(
+                    "DESKTOP-HOME-004",
+                    "Could not reconcile the temporary Home role",
+                    error.getMessage(),
+                    error);
+        }
+    }
+
+    private void finishHomeLeaseRecovery(
+            final DesktopDisplayTarget target,
+            final boolean success) {
+        mHomeLeaseRecoveryInFlight = false;
+        if (mDestroyed) {
+            return;
+        }
+        if (success) {
+            refreshOwnership();
+            reconcileHomeLease();
+            return;
+        }
+        DesktopRuntimeBridge.clearDesktopTarget(target);
+        try {
+            DesktopHomeRoleLease.reconcile(false);
+        } catch (java.io.IOException error) {
+            Log.w(TAG, "could not release failed desktop HOME recovery", error);
+            CompatibilityDiagnostics.record(
+                    "DESKTOP-HOME-007",
+                    "Could not release the failed Home session",
+                    error.getMessage(),
+                    error);
+        }
+    }
+
+    private static void releaseHomeLeaseAfterSessionLoss(
+            final int displayId) {
+        try {
+            if (DesktopHomeRoleLease.releaseAfterSessionLoss(displayId)) {
+                Log.i(TAG, "released desktop HOME lease after display loss="
+                        + displayId);
+            }
+        } catch (java.io.IOException error) {
+            Log.w(TAG, "could not release HOME after display loss="
+                    + displayId, error);
+            CompatibilityDiagnostics.record(
+                    "DESKTOP-HOME-005",
+                    "Could not restore the Home app after display loss",
+                    error.getMessage(),
+                    error);
+        }
+    }
+
+    private void recoverTasksAfterDisplayRemoval() {
+        if (mDestroyed || !ShellAccess.isReady()) {
+            return;
+        }
+        if (mPhoneTaskRecoveryInFlight) {
+            mPhoneTaskRecoveryAgain = true;
+            return;
+        }
+        final int removedDisplayId = mRemovedDesktopDisplayId;
+        if (removedDisplayId <= Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        mPhoneTaskRecoveryInFlight = true;
+        final boolean allowUnsettledDisplayRecovery =
+                mAllowUnsettledDisplayRecovery;
+        final PhoneDesktopTaskRecovery.Callback callback = result ->
+                mHandler.post(() -> {
+                    mPhoneTaskRecoveryInFlight = false;
+                    if (!result.success && !result.pending) {
+                        Log.w(TAG, "removed-display task recovery failed: "
+                                + result.message);
+                        CompatibilityDiagnostics.record(
+                                "PHONE-TASK-003",
+                                "Could not recover tasks after desktop display loss",
+                                result.message);
+                    }
                     final boolean recoveryComplete =
                             isPhoneRecoveryComplete(
-                                    settled, mPhoneHomeRecoveryAgain);
+                                    result.success && !result.pending,
+                                    mPhoneTaskRecoveryAgain);
                     final boolean restorePhonePanel =
                             mRestorePhonePanelAfterRecovery
                                     && mRemovedDesktopDisplayId
@@ -256,21 +370,18 @@ final class RuntimeDesktopSessionCoordinator {
                         DesktopOperations
                                 .restorePhoneAfterExternalDesktop();
                     }
-                    if (!mDestroyed && recoveryComplete
-                            && localDesktopExitRecoveryPending
-                            && mLocalDesktopExitRecoveryPending) {
-                        if (!DesktopRuntimeBridge
-                                .isLocalDesktopActiveOrStarting()) {
-                            LocalDesktopSessionState.clearCleanupPending(
-                                    mContext);
-                        }
-                        mLocalDesktopExitRecoveryPending = false;
+                    if (!mDestroyed && mPhoneTaskRecoveryAgain) {
+                        mPhoneTaskRecoveryAgain = false;
+                        schedulePhoneTaskRecovery();
                     }
-                    if (!mDestroyed && mPhoneHomeRecoveryAgain) {
-                        mPhoneHomeRecoveryAgain = false;
-                        schedulePhoneHomeRecovery();
-                    }
-                }));
+                });
+        if (allowUnsettledDisplayRecovery) {
+            PhoneDesktopTaskRecovery.recoverRemovedDisplayAfterTimeout(
+                    removedDisplayId, callback);
+        } else {
+            PhoneDesktopTaskRecovery.recoverRemovedDisplay(
+                    removedDisplayId, callback);
+        }
     }
 
     private void cleanupClosedLocalDesktop() {
@@ -278,7 +389,6 @@ final class RuntimeDesktopSessionCoordinator {
                 DesktopRuntimeBridge.getSessionSnapshot();
         if (mDestroyed
                 || mLocalDesktopCleanupInFlight
-                || mLocalDesktopExitRecoveryPending
                 || !LocalDesktopSessionState.isCleanupPending(mContext)
                 || session.activeDisplayId() == Display.DEFAULT_DISPLAY) {
             return;
@@ -289,60 +399,35 @@ final class RuntimeDesktopSessionCoordinator {
             return;
         }
         mLocalDesktopCleanupInFlight = true;
-        final long generation =
-                LocalDesktopNavigationController.currentGeneration();
-        LocalDesktopNavigationController.cleanupClosedSession(
-                generation,
-                (completed, success, message) -> {
+        PhoneDesktopTaskRecovery.recover(
+                () -> !DesktopRuntimeBridge.isLocalDesktopActiveOrStarting(),
+                result -> mHandler.post(() -> {
                     mLocalDesktopCleanupInFlight = false;
                     if (mDestroyed) {
                         return;
                     }
-                    if (!success) {
+                    if (result.cancelled) {
+                        return;
+                    }
+                    if (!result.success) {
                         Log.w(TAG,
-                                "phone desktop recovery failed: " + message);
+                                "phone desktop recovery failed: "
+                                        + result.message);
                         CompatibilityDiagnostics.record(
-                                "PHONE-HOME-003",
+                                "PHONE-TASK-004",
                                 "Could not clean local desktop tasks before"
-                                        + " returning to the phone launcher",
-                                message);
+                                        + " leaving phone desktop mode",
+                                result.message);
                         return;
                     }
-                    if (!completed) {
-                        final DesktopSessionSnapshot currentSession =
-                                DesktopRuntimeBridge.getSessionSnapshot();
-                        if (currentSession.activeDisplayId()
-                                != Display.DEFAULT_DISPLAY) {
-                            scheduleLocalDesktopCleanup();
-                        }
+                    if (DesktopRuntimeBridge
+                            .isLocalDesktopActiveOrStarting()) {
                         return;
                     }
-                    mLocalDesktopExitRecoveryPending = true;
-                    schedulePhoneHomeRecovery();
+                    LocalDesktopSessionState.clearCleanupPending(mContext);
                     Log.i(TAG,
-                            "recovered phone desktop tasks; restoring Home"
-                                    + " after local desktop");
-                });
-    }
-
-    private void maintainLocalDesktopNavigationGuard() {
-        final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
-        if (!ShellAccess.isReady()
-                || !LocalDesktopSessionState.isCleanupPending(mContext)
-                || session.activeDisplayId() != Display.DEFAULT_DISPLAY) {
-            return;
-        }
-        LocalDesktopNavigationController.acquire(
-                (generation, success, message) -> {
-                    if (!success) {
-                        CompatibilityDiagnostics.record(
-                                "PHONE-HOME-005",
-                                "Could not maintain the local desktop"
-                                        + " navigation guard",
-                                message);
-                    }
-                });
+                            "recovered phone desktop tasks after local desktop");
+                }));
     }
 
     static boolean isExternalDesktopRemoval(

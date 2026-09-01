@@ -44,7 +44,6 @@ public final class ShizukuCapabilityProbe {
             "android.permission.RECORD_AUDIO",
             "android.permission.READ_FRAME_BUFFER",
             "android.permission.REBOOT",
-            "android.permission.CHANGE_COMPONENT_ENABLED_STATE",
             "android.permission.EXECUTE_APP_FUNCTIONS"
     };
 

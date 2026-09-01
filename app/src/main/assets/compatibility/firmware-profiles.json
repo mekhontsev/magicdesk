@@ -10,7 +10,7 @@
       "support": "MAINTAINER_VERIFIED",
       "confirmedScope": [
         "wired", "wireless", "windows", "input", "display-modes",
-        "recording", "hardware-controls", "launcher-recovery"
+        "recording", "hardware-controls", "task-recovery"
       ],
       "limitations": ["XR hot-plug kernel fix is device and kernel specific"]
     },
@@ -22,7 +22,7 @@
       "fingerprint": "REDMAGIC/NX809J-UN/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260625.022314:user/release-keys",
       "support": "COMMUNITY_TESTED",
       "confirmedScope": [
-        "desktop-start", "external-sizing", "launcher-recovery",
+        "desktop-start", "external-sizing", "task-recovery",
         "mora", "display-modes", "recording"
       ],
       "limitations": ["complete maintainer hardware matrix not run"]
@@ -36,7 +36,7 @@
       "support": "COMMUNITY_TESTED",
       "confirmedScope": [
         "wired", "external-sizing", "display-modes", "freeform", "focus", "keyboard",
-        "phone-screen-off", "launcher-recovery", "simulated-cleanup"
+        "phone-screen-off", "task-recovery", "simulated-cleanup"
       ],
       "limitations": [
         "vendor HDMI timing node is unavailable to shell UID 2000"

@@ -39,7 +39,6 @@ public final class PlatformDriversTest {
         assertTrue(driver.windowing().requiresPhoneTaskRecovery());
         assertTrue(driver.windowing()
                 .requiresStalePhoneFreeformTaskCleanup());
-        assertTrue(driver.phoneUi().requiresPhoneUiReconciliation());
         assertEquals(
                 "persist.wm.debug.desktop_mode_enforce_device_restrictions",
                 driver.windowing().restrictionsPropertyKey());
@@ -78,7 +77,6 @@ public final class PlatformDriversTest {
         assertTrue(driver.projection().setCaptionTransport(
                 PlatformProjectionDriver.Transport.WIRELESS));
         assertFalse(driver.phoneUi().isAvailable());
-        assertFalse(driver.phoneUi().requiresPhoneUiReconciliation());
         assertFalse(driver.windowing()
                 .requiresDesktopInputFocusSynchronization());
         assertFalse(driver.windowing()

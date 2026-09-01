@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.ComponentName;
-import android.content.Intent;
 import android.view.Display;
 
 import java.util.ArrayList;
@@ -9,10 +8,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Correlates process failures with desktop tasks and the phone HOME process. */
+/** Correlates process failures with tasks on the active desktop display. */
 final class ShellProcessFailureTracker implements
-        ShellActivityStartController.ProcessFailureListener,
-        ShellActivityStartController.Observer {
+        ShellActivityStartController.ProcessFailureListener {
     interface Listener {
         void onDesktopProcessFailure(
                 int type,
@@ -23,36 +21,19 @@ final class ShellProcessFailureTracker implements
                 int windowingMode,
                 String topActivity,
                 String reason);
-
-        void onPhoneLauncherEvent(
-                int type, String processName, int pid, String reason);
     }
 
     private static final int ACTIVITY_TYPE_STANDARD = 1;
 
     private final Listener mListener;
-    private final PhoneHomeComponents mPhoneHome;
-    private final int mPhoneHomeUid;
-    private final boolean mPhoneLauncherGuardEnabled;
     private final List<TaskContext> mTasks = new ArrayList<>();
     private final Map<ProcessIdentity, PendingAnr> mPendingAnrs =
             new HashMap<>();
 
     private int mDisplayId = Display.INVALID_DISPLAY;
-    private int mLastReportedLauncherDeathPid = -1;
 
-    ShellProcessFailureTracker(
-            final Listener listener,
-            final PhoneHomeComponents phoneHome,
-            final int phoneHomeUid,
-            final boolean phoneLauncherGuardEnabled) {
-        if (phoneHome == null) {
-            throw new IllegalArgumentException("missing phone HOME components");
-        }
+    ShellProcessFailureTracker(final Listener listener) {
         mListener = listener;
-        mPhoneHome = phoneHome;
-        mPhoneHomeUid = phoneHomeUid;
-        mPhoneLauncherGuardEnabled = phoneLauncherGuardEnabled;
     }
 
     synchronized void configure(final int displayId) {
@@ -62,72 +43,6 @@ final class ShellProcessFailureTracker implements
         mDisplayId = displayId;
         mTasks.clear();
         mPendingAnrs.clear();
-        mLastReportedLauncherDeathPid = -1;
-    }
-
-    void onProcessDied(final int pid, final int uid) {
-        final boolean reportDeath;
-        synchronized (this) {
-            reportDeath = pid > 0
-                    && pid != mLastReportedLauncherDeathPid
-                    && mPhoneLauncherGuardEnabled
-                    && mDisplayId != Display.INVALID_DISPLAY
-                    && mPhoneHomeUid >= 0
-                    && uid == mPhoneHomeUid;
-            if (reportDeath) {
-                mLastReportedLauncherDeathPid = pid;
-            }
-        }
-        if (reportDeath) {
-            reportPhoneLauncherEvent(
-                    PhoneLauncherEvent.PROCESS_DIED,
-                    mPhoneHome.primaryProcess(),
-                    pid,
-                    "phone launcher process died during desktop session");
-        }
-    }
-
-    @Override
-    public void onActivityStarting(
-            final Intent intent,
-            final String packageName,
-            final boolean allowed) {
-        final ComponentName component = intent == null
-                ? null : intent.getComponent();
-        synchronized (this) {
-            if (mDisplayId == Display.INVALID_DISPLAY
-                    || !mPhoneHome.isPrimaryHomeStart(
-                            intent, packageName)) {
-                return;
-            }
-        }
-        reportPhoneLauncherEvent(
-                allowed
-                        ? PhoneLauncherEvent.HOME_START_ALLOWED
-                        : PhoneLauncherEvent.HOME_START_BLOCKED,
-                component == null
-                        ? packageName : component.flattenToShortString(),
-                -1,
-                "");
-    }
-
-    @Override
-    public void onActivityResuming(
-            final String packageName,
-            final boolean allowed) {
-        synchronized (this) {
-            if (!mPhoneLauncherGuardEnabled
-                    || mDisplayId == Display.INVALID_DISPLAY
-                    || allowed
-                    || !mPhoneHome.isPrimaryPackage(packageName)) {
-                return;
-            }
-        }
-        reportPhoneLauncherEvent(
-                PhoneLauncherEvent.HOME_RESUME_BLOCKED,
-                packageName,
-                -1,
-                "");
     }
 
     synchronized void observeTasks(
@@ -176,15 +91,13 @@ final class ShellProcessFailureTracker implements
             final int pid,
             final String annotation) {
         final TaskContext task = findTask(processName);
-        final boolean phoneLauncher = mDisplayId != Display.INVALID_DISPLAY
-                && mPhoneHome.isPrimaryProcess(processName);
-        if (task == null && !phoneLauncher) {
+        if (task == null) {
             return;
         }
         final ProcessIdentity identity = new ProcessIdentity(processName, pid);
         mPendingAnrs.put(
                 identity,
-                new PendingAnr(task, phoneLauncher, annotation));
+                new PendingAnr(task, annotation));
     }
 
     @Override
@@ -192,30 +105,16 @@ final class ShellProcessFailureTracker implements
             final String processName,
             final int pid) {
         final Failure failure;
-        final boolean phoneLauncher;
-        final String launcherReason;
         synchronized (this) {
             final ProcessIdentity identity =
                     new ProcessIdentity(processName, pid);
             final PendingAnr pending = mPendingAnrs.remove(identity);
-            phoneLauncher = mDisplayId != Display.INVALID_DISPLAY
-                    && ((pending != null && pending.phoneLauncher)
-                            || mPhoneHome.isPrimaryProcess(processName));
-            launcherReason = pending == null || !pending.phoneLauncher
-                    ? "" : pending.annotation;
             failure = createFailure(
                     DesktopProcessFailure.ANR,
                     processName,
                     pid,
                     pending == null ? "" : pending.annotation,
                     pending == null ? null : pending.task);
-        }
-        if (phoneLauncher) {
-            reportPhoneLauncherEvent(
-                    PhoneLauncherEvent.ANR,
-                    processName,
-                    pid,
-                    launcherReason);
         }
         report(failure);
     }
@@ -296,21 +195,6 @@ final class ShellProcessFailureTracker implements
                 failure.reason);
     }
 
-    private void reportPhoneLauncherEvent(
-            final int type,
-            final String processName,
-            final int pid,
-            final String reason) {
-        if (mListener == null) {
-            return;
-        }
-        mListener.onPhoneLauncherEvent(
-                type,
-                processName == null ? "" : processName,
-                pid,
-                DesktopProcessFailure.compactReason(reason));
-    }
-
     private static String packageFromProcessName(final String processName) {
         if (processName == null) {
             return "";
@@ -344,15 +228,12 @@ final class ShellProcessFailureTracker implements
 
     private static final class PendingAnr {
         final TaskContext task;
-        final boolean phoneLauncher;
         final String annotation;
 
         PendingAnr(
                 final TaskContext capturedTask,
-                final boolean launcher,
                 final String detail) {
             task = capturedTask;
-            phoneLauncher = launcher;
             annotation = detail;
         }
     }

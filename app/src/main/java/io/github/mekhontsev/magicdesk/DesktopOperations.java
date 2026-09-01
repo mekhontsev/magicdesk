@@ -105,6 +105,36 @@ public final class DesktopOperations {
         TRANSITIONS.showDesktop(target, policy);
     }
 
+    static void recoverDesktopSession(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy,
+            final ResultCallback callback) {
+        OPERATIONS.execute(() -> {
+            boolean success = false;
+            try {
+                final DesktopHomeRoleLease.State lease =
+                        DesktopHomeRoleLease.snapshot();
+                if (lease != null
+                        && lease.phase == DesktopHomeRoleLease.Phase.ACTIVE
+                        && lease.matches(target)) {
+                    success = DesktopSessionController.show(
+                            target, policy).ready;
+                }
+            } catch (IOException | RuntimeException error) {
+                Log.w(TAG, "Desktop session recovery failed", error);
+                CompatibilityDiagnostics.record(
+                        "DESKTOP-HOME-006",
+                        "Could not recover the desktop Home session",
+                        "display=" + (target == null ? -1 : target.displayId)
+                                + " error=" + error.getMessage(),
+                        error);
+            }
+            if (callback != null) {
+                callback.onComplete(success);
+            }
+        });
+    }
+
     static void closeDesktop(
             final DesktopDisplayTarget target,
             final boolean restorePhonePanel,
@@ -174,11 +204,6 @@ public final class DesktopOperations {
                     false, android.view.Display.INVALID_DISPLAY);
             PhoneControlPanelLauncher.openOnPhoneWithShell();
         });
-    }
-
-    static void restorePrimaryPhoneHome() {
-        OPERATIONS.execute(() -> runShellCommand(
-                PhoneHomeRecoveryController.primaryHomeCommand()));
     }
 
     static void updateExternalTaskCaptionTarget(

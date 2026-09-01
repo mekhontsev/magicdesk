@@ -29,8 +29,8 @@ keeps app-accessible vendor APIs from becoming a generic privileged surface.
 
 The confirmed scope includes the required windowing configuration, shell UID
 2000, task APIs, WMShell passthrough, relevant Nubia packages and display
-signatures, desktop startup, external sizing, launcher recovery, Mora
-discovery, output-mode selection, and external-display recording. This is a
+signatures, desktop startup, external sizing, task recovery, Mora discovery,
+output-mode selection, and external-display recording. This is a
 community compatibility result, not the complete maintainer interface matrix.
 
 ## Confirmed Interfaces
@@ -116,14 +116,11 @@ freeform task in `DesktopUserRepositories`, and `RecentTasksController` groups
 those tasks into the `DesktopTaskView` that reaches this crash.
 
 Task bounds, affinity, `excludeFromRecents`, and repository cleanup after task
-removal do not prevent the live-task crash. For a local desktop, MagicDesk
-therefore disables system Home and Recents through `IStatusBarService` while
-freeform tasks are live. Nubia's gesture path was observed entering Quickstep
-despite `DISABLE_RECENT`; adding `DISABLE_HOME` makes Quickstep's own overview
-target treat Home as unavailable. The call is owned by Binder tokens, uses
-shell's existing `android.permission.STATUS_BAR`, requires no polling, and is
-released only after the display-0 task repository has been normalized.
-External-display sessions do not use this guard.
+removal do not prevent the live-task crash. MagicDesk avoids coupling desktop
+lifecycle to that launcher: it temporarily owns Android's HOME role for every
+desktop session and presents `PhoneHomeActivity` on display 0. Live or retained
+freeform tasks on display 0 are converted to fullscreen before the previous
+HOME holder is restored.
 
 ## Physical Output And Caption Control
 

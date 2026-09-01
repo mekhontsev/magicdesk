@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.NotificationManager;
+import android.app.role.RoleManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
@@ -356,16 +357,28 @@ public final class CompatibilityDiagnostics {
                         : taskControl
                                 ? "privileged transaction backend unavailable"
                                 : "Shizuku runtime unavailable");
-        final PhoneHomeComponents phoneHome =
-                PhoneHomeComponents.resolve(context);
-        appendCheck(report, "LAUNCHER-001",
-                phoneHome.hasPrimary(),
-                "Phone launcher HOME activity",
-                phoneHome.diagnosticDetail());
-        final PhoneTaskGuardDiagnostics.Snapshot phoneTaskGuard =
-                PhoneTaskGuardDiagnostics.snapshot();
-        report.append("Phone task guard: ")
-                .append(phoneTaskGuard.reportLine())
+        final RoleManager roleManager = context.getSystemService(
+                RoleManager.class);
+        final boolean homeRoleAvailable = roleManager != null
+                && roleManager.isRoleAvailable(RoleManager.ROLE_HOME);
+        final DesktopHomeRoleLease.State homeLease =
+                DesktopHomeRoleLease.snapshot();
+        appendCheck(report, "HOME-ROLE-001",
+                homeRoleAvailable,
+                "Android Home role",
+                !homeRoleAvailable
+                        ? "unavailable"
+                        : homeLease == null
+                                ? "available; lease=inactive"
+                                : "available; lease=" + homeLease.phase
+                                        + ", target=" + homeLease.targetKind
+                                        + ", display=" + homeLease.displayId
+                                        + ", previous="
+                                        + homeLease.previousPackage);
+        final PhoneTaskNormalizationDiagnostics.Snapshot phoneTasks =
+                PhoneTaskNormalizationDiagnostics.snapshot();
+        report.append("Phone task normalization: ")
+                .append(phoneTasks.reportLine())
                 .append('\n');
         report.append("Task activity mode guard: ")
                 .append(TaskActivityModeDiagnostics

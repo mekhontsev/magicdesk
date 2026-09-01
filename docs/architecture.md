@@ -377,8 +377,9 @@ runtime integration and are not distributed through the same release path.
   Android Service implementation. The service attaches a package-private
   backend for its lifetime; absent-runtime calls have explicit safe defaults,
   and a stale service cannot detach a newer backend instance.
-  `RuntimeDesktopSessionCoordinator` owns desktop-display identity, session
-  removal, and phone-Home recovery. It consumes one immutable
+  `RuntimeDesktopSessionCoordinator` owns desktop-display identity, unexpected
+  display removal, retained phone-task recovery, and one-shot HOME-lease
+  reconciliation. It consumes one immutable
   `DesktopSessionSnapshot` per decision, so the host display and the prepared
   display target cannot come from different lifecycle transitions.
   `RuntimeDesktopInputCoordinator` composes
@@ -564,14 +565,14 @@ runtime integration and are not distributed through the same release path.
   point and is not used by the application launch path.
 - `ShellActivityStartController` is MagicDesk's single owner of Android's global
   activity-controller slot and dispatches starts to the external-migration and
-  windowed-startup policies. `ShellWindowedTaskActivityGuard` follows only
+  windowed-startup policies. `ShellTaskActivityModeGuard` follows only
   activity handoffs inside a task observed as freeform. If such a handoff
   changes that task to fullscreen without a client immersive request, it uses
   the last observed freeform bounds to restore the same task. User fullscreen,
   independent new-task launches, and application immersive requests are not
   corrected. The policy is event-driven and has no package allowlist or
   guessed startup delay.
-- `ShellDesktopProcessFailureTracker` passively correlates framework crash and
+- `ShellProcessFailureTracker` passively correlates framework crash and
   ANR callbacks with the latest typed task snapshot for the active desktop
   display. It preserves Android's normal crash/ANR response and reports only a
   bounded process summary, task/display context, and top activity; third-party
@@ -584,9 +585,8 @@ runtime integration and are not distributed through the same release path.
 - `ShellFreeformTaskCleanup` remembers freeform application tasks observed
   during the active desktop session. If one disappears, it verifies that no
   live task remains and removes only a Recents entry with the same task ID,
-  package, and display. This prevents Nubia Quickstep from crashing while
-  binding a stale `DesktopTaskView` without persistent recovery state or
-  changes to unrelated Recents entries.
+  package, and display. This prevents stale `DesktopTaskView` entries without
+  persistent recovery state or changes to unrelated Recents entries.
 - `DesktopTaskController` orchestrates native task transitions as an instance
   owned exclusively by `RuntimeDesktopTaskCoordinator`. It contains no static
   active-controller reference; pure task classification helpers remain static.
@@ -609,8 +609,8 @@ runtime integration and are not distributed through the same release path.
   moves, including `Alt+Tab`, and scans display 0 when protection starts and
   after task-stack changes. Every observed freeform task is normalized while
   an external session is active. This invariant applies to
-  MagicDesk and third-party tasks alike, so Nubia Quickstep never receives
-  phone-side freeform state from those transitions.
+  MagicDesk and third-party tasks alike, so display 0 never retains transient
+  freeform state from those transitions.
 - `DesktopWindowTransitionController` owns shortcut and immersive policy. It
   emits immutable `DesktopWindowTransitionRequest` values through
   `DesktopWindowTransitionGateway`; `DesktopTaskController` is the sole adapter
@@ -630,7 +630,8 @@ runtime integration and are not distributed through the same release path.
   last visible Z-order, and fullscreen-transition freeze as one display-scoped
   value. It is cleared with that controller and is not process-global.
 - `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.
-- `DesktopPhoneUiReconciler` repairs Nubia launcher state after display changes.
+- `PhoneTouchpadReconciler` keeps the requested phone touchpad visible after
+  display changes without owning desktop-session policy.
 - `AppTaskController` and `AltTabController` coordinate task actions,
   Show Desktop, restoration, and exact-task
   switching. `AppTaskController` has one UI lifecycle for built-in and regular
@@ -1039,12 +1040,28 @@ exists only for compilation; it is not packaged in the APK.
 A `SessionProfile` stores only a display selection policy. Runtime display IDs
 are never persisted as constants.
 
-`DesktopDisplayTarget` describes a secondary display that is already ready for
-desktop content. `DesktopSessionController` then focuses or creates the same
-`DesktopActivity` task for wired, wireless, and simulated targets. The
-transport-specific code stops at that boundary. `DesktopOperations` also
-owns the common target-aware close operation. Local startup retains its
-launcher-navigation guard, then starts the same desktop host and controllers.
+`DesktopDisplayTarget` identifies a phone, wired, wireless, or simulated display
+that is ready for desktop content. Starting any desktop first acquires one
+persisted `DesktopHomeRoleLease`: MagicDesk temporarily becomes the package-wide
+Android HOME holder and remembers the previous holder plus the complete target.
+`PhoneHomeActivity` is the primary HOME surface on display 0. For an external
+target, `DesktopSessionController` launches `DesktopActivity` through the typed
+Shizuku task API with Android activity type HOME and the standard
+`SECONDARY_HOME` intent category. A phone desktop places the same
+`DesktopActivity` above `PhoneHomeActivity` on display 0.
+
+The lease is the only owner of HOME transitions. Normal close restores the
+previous holder before session teardown and rolls the role back if teardown
+fails. Unexpected display loss and one startup reconciliation release a stale
+lease; a user-selected third-party HOME is never overwritten. Android may
+recreate either HOME Activity after a process death. The persisted target lets
+the desktop host rebuild runtime identity and display-profile selection without
+OEM launcher-component heuristics. Once Shizuku reconnects, one event-driven
+reconciliation rebuilds a missing host when the leased target still exists; if
+the target disappeared, it restores the previous HOME instead. This recovery
+does not add a runtime polling loop. `DesktopOperations` owns the common
+target-aware close operation; transport-specific code stops at target
+preparation.
 
 - An already connected wired or wireless secondary display enters
   `DesktopSessionController` directly on every platform. Closing the desktop
@@ -1278,56 +1295,23 @@ panel across task transitions.
 On display 0, Nubia Quickstep can crash while binding Recents to a desktop
 group containing freeform tasks. Its `DesktopTaskView.bind()` creates task
 containers without a title view, but `TaskView.setThumbnailOrientation()`
-unconditionally asserts that the same title view is non-null. Current AOSP
-Launcher3 intentionally permits that field to be absent; this is a vendor
-integration defect rather than malformed task metadata.
+unconditionally assumes that view is present. Current AOSP Launcher3 permits
+the field to be absent; this is a vendor integration defect rather than
+malformed task metadata.
 
-Before the first local freeform task is created, the shell UserService uses
-`IStatusBarService.disable(DISABLE_HOME | DISABLE_RECENT, token, package)` to
-make the stock Home/Overview gesture unavailable for the lifetime of that
-local desktop. Disabling Recents alone is insufficient on this firmware: its
-gesture path can still enter Quickstep while `DISABLE_RECENT` is set, whereas
-the combined state makes Quickstep treat Home itself as disabled. The service
-token is automatically cleared by SystemUI if the UserService dies, and a
-separate owner token releases it if the MagicDesk process dies. MagicDesk's
-taskbar, Recent tab, and `Alt+Tab` remain the navigation UI. This guard is not
-used on an external display.
-
-The active shell observer removes orphaned entries as tasks disappear. Normal
-local-desktop shutdown first converts remaining live freeform tasks to
-fullscreen and removes verified orphaned Recents entries, then releases the
-navigation guard. The shared phone recovery removes SystemUI's stranded
-desktop wallpaper task and keeps the primary Home task underneath the
-foreground control or Diagnostics window. Explicit Exit attempts
-the same stateless reconciliation, including debris left by an older
-MagicDesk process or a phone reboot, but it always completes at the user's
-request. A failed reconciliation remains marked as pending and is retried by a
-later runtime or **Restore defaults** operation.
+While a desktop session is active, MagicDesk owns Android's HOME role and
+`PhoneHomeActivity` is the phone navigation surface. The task layer enforces a
+separate invariant: no application task may remain freeform on display 0 after
+migration or teardown. `ShellExternalTaskMigrationGuard` normalizes
+system-driven moves during an external session, and
+`PhoneDesktopTaskRecovery` reconciles live tasks with WMShell's retained desktop
+repository after phone-desktop close or external-display loss.
 
 Task snapshots and windowing commands issued through `TaskRepository` share a
-single `TaskCommandQueue` with phone-recovery transitions. Recovery also
-observes the local-session generation before every mutation. A request to open
-a newer local desktop therefore cancels stale cleanup before that desktop is
-launched, while ordinary taskbar operations cannot interleave with recovery
-commands.
-
-The firmware launcher is unusually destructive here: three crashes within
-roughly two seconds invoke its `DataCleaner`, which deletes the launcher's
-databases, preferences, and files. MagicDesk never edits launcher data. Nubia's
-custom uncaught-exception handler kills Quickstep without delivering the normal
-`IActivityController.appCrashed()` callback, and Overview can resume an existing
-launcher task without an ordinary activity start. The Nubia extension therefore
-resolves only the enabled default HOME activity and identifies its stable
-package UID. Disabled setup or restore HOME stubs must not become protection
-targets in the shell UserService. `IProcessObserver` reports the first death of
-that UID during an active desktop session. It trips a session-scoped circuit
-breaker, force-stops the package to cancel the pending service restart loop,
-and rejects later HOME starts and resumes until the session ends. A firmware
-service binding may start one clean launcher process afterward, but the stale
-Overview task is no longer replayed into another crash. Normal desktop cleanup
-releases the activity controller before intentionally returning to HOME.
-ANR and desktop-application crash reporting still use `IActivityController`,
-but those signals are not part of the Nubia launcher circuit breaker.
+single `TaskCommandQueue` with phone-task recovery. Recovery observes the
+local-session generation before every mutation. A request to open a newer phone
+desktop therefore cancels stale cleanup before that desktop is launched, while
+ordinary taskbar operations cannot interleave with recovery commands.
 
 Each desktop target has a profile keyed by its Android display identity, never
 by the transient logical display ID. Profiles store only DPI, wired output
@@ -1709,6 +1693,12 @@ a display disappears or a desktop host is replaced before an explicit close can
 query it. An explicit **Exit MagicDesk** clears this record and closes built-in
 MagicDesk windows instead.
 
+Before normal teardown, `DesktopHomeRoleLease` restores the exact HOME package
+that owned the role when the session started. The lease remains persisted in a
+`RELEASING` phase until session close succeeds; a failed close reclaims the role
+for MagicDesk. Unexpected display loss performs the same restoration without
+waiting for a UI callback.
+
 Physical display removal, **Close desktop**, and **Exit MagicDesk** share the
 common cleanup path:
 
@@ -1723,8 +1713,7 @@ common cleanup path:
   normalizing them, instead of leaving an unavailable desktop entry behind;
 - remove dead Recent entries retained by the current user's desktop repository
   and restore the phone control panel only after task cleanup completes;
-- recover Quickstep/Home when Nubia reparents its secondary launcher to
-  display 0;
+- release the persisted HOME lease without modifying launcher tasks or data;
 - stop the foreground runtime on explicit exit.
 
 A `DisplayManager.DisplayListener` validates actual display lifecycle instead

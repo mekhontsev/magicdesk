@@ -102,9 +102,9 @@ final class ShellDesktopTaskArea implements AutoCloseable {
                     "desktop host requires a display");
         }
         if (taskAreaPolicy == null
-                || !taskAreaPolicy.usesManagedHostArea()) {
+                || taskAreaPolicy == DesktopTaskAreaPolicy.UNCONFIGURED) {
             throw new IllegalArgumentException(
-                    "desktop host requires a managed task-area policy");
+                    "desktop host requires a task-area policy");
         }
         final Intent intent = TaskDisplayAreaLaunchCommand.createAppIntent(
                 intentUri);
@@ -117,6 +117,10 @@ final class ShellDesktopTaskArea implements AutoCloseable {
         }
         final List<Integer> existingHostTaskIds =
                 findDesktopHostTaskIds(displayId);
+        if (taskAreaPolicy.usesDirectRootWorkspace()) {
+            return launchRootHome(
+                    displayId, intent, existingHostTaskIds);
+        }
         if (hasManagedHost(
                 displayId, existingHostTaskIds, taskAreaPolicy)) {
             mOwnership.markDesktopHost(mHostTaskId);
@@ -147,6 +151,34 @@ final class ShellDesktopTaskArea implements AutoCloseable {
             mTaskAreaPolicy = DesktopTaskAreaPolicy.UNCONFIGURED;
             throw error;
         }
+    }
+
+    private int launchRootHome(
+            final int displayId,
+            final Intent intent,
+            final List<Integer> existingHostTaskIds)
+            throws ReflectiveOperationException {
+        releaseTasks();
+        mEnabled = false;
+        mDisplayId = -1;
+        mTaskAreaPolicy = DesktopTaskAreaPolicy.UNCONFIGURED;
+        removeStaleHostTasks(existingHostTaskIds);
+        final int taskId = TaskDisplayAreaLaunchCommand.launchFullscreenTask(
+                mService,
+                displayId,
+                intent,
+                intent.getComponent().getPackageName(),
+                null,
+                ACTIVITY_TYPE_HOME);
+        final Object task = HiddenTaskApi.requireTask(
+                mService, displayId, taskId);
+        if (HiddenTaskApi.getTaskActivityType(task) != ACTIVITY_TYPE_HOME) {
+            TaskControlCommand.removeTask(mService, taskId);
+            throw new IllegalStateException(
+                    "desktop host did not become a HOME task");
+        }
+        mOwnership.markDesktopHost(taskId);
+        return taskId;
     }
 
     private boolean hasManagedHost(

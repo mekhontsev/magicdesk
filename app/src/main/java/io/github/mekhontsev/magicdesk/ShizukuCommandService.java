@@ -40,7 +40,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final ShellTaskObserverManager mTaskObserverManager;
     private final PlatformPointerDriver mPointerDriver;
     private final PlatformTextInputDriver mTextInputDriver;
-    private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final ShellDisplayRecordingSession mDisplayRecording;
     private final ShellDesktopDirectory mDesktopDirectory;
     private final ShellFileSystem mFileSystem;
@@ -59,15 +58,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     public ShizukuCommandService(final Context context) {
         mContext = context;
         final PlatformDriver platform = PlatformDrivers.current();
-        final PlatformPhoneUiDriver phoneUi = platform.phoneUi();
         mPointerDriver = platform.pointer();
         mTextInputDriver = platform.textInput();
-        mNavigationGuard = phoneUi.createNavigationGuard();
         mTaskObserverManager = new ShellTaskObserverManager(
                 context,
-                platform.windowing(),
-                phoneUi,
-                mNavigationGuard);
+                platform.windowing());
         mDisplayRecording = new ShellDisplayRecordingSession(context);
         mDesktopDirectory = new ShellDesktopDirectory();
         mFileSystem = new ShellFileSystem();
@@ -1060,20 +1055,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public void startLocalDesktopNavigationGuard(final IBinder ownerToken) {
-        mNavigationGuard.acquire(
-                ownerToken,
-                PlatformPhoneUiDriver.NavigationGuard.Scope.LOCAL_DESKTOP);
-        Log.i(TAG, "platform navigation guard acquired for local desktop");
-    }
-
-    @Override
-    public void stopLocalDesktopNavigationGuard(final IBinder ownerToken) {
-        mNavigationGuard.release(ownerToken);
-        Log.i(TAG, "platform navigation guard released after local desktop");
-    }
-
-    @Override
     public String startDisplayRecording(
             final String physicalDisplayId,
             final String outputPath,
@@ -1469,11 +1450,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mFileSystem.close();
         synchronized (mInputRoutingLock) {
             stopInputRoutingLocked(null);
-        }
-        try {
-            mNavigationGuard.close();
-        } catch (RuntimeException error) {
-            Log.w(TAG, "system navigation guard cleanup failed", error);
         }
         mPointerDriver.close();
         mTaskObserverManager.close();

@@ -196,14 +196,7 @@ public final class DeviceSetupManager {
                     "Phone desktop task cleanup was incomplete",
                     taskRecovery.message);
         }
-        final boolean systemNavigationRestored =
-                LocalDesktopNavigationController.releaseBlocking();
-        if (!systemNavigationRestored) {
-            CompatibilityDiagnostics.record(
-                    "PLATFORM-DEFAULTS-002",
-                    "System navigation restoration was incomplete",
-                    "Local desktop navigation guard release failed");
-        }
+        DesktopHomeRoleLease.reconcile(false);
         ShellAccess.run(defaultsCommand());
         before.platform.windowing().restoreDefaults();
         final SharedPreferences preferences = preferences(context);
@@ -211,7 +204,7 @@ public final class DeviceSetupManager {
             throw new IOException("could not clear MagicDesk setup state");
         }
         savePendingReboot(preferences, before.bootId);
-        if (taskRecovery.success && systemNavigationRestored) {
+        if (taskRecovery.success) {
             LocalDesktopSessionState.clearCleanupPending(context);
         }
         return audit(context, sessionProfile);

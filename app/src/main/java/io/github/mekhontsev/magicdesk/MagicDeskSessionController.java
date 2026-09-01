@@ -270,15 +270,10 @@ final class MagicDeskSessionController {
                         "Phone desktop cleanup remains pending",
                         detail);
             }
-            LocalDesktopNavigationController.release((released, message) -> {
-                if (!released) {
-                    Log.w(TAG, "Could not restore system navigation: " + message);
-                }
-                if (result.success) {
-                    LocalDesktopSessionState.clearCleanupPending(mActivity);
-                }
-                continuation.onComplete(released);
-            });
+            if (result.success) {
+                LocalDesktopSessionState.clearCleanupPending(mActivity);
+            }
+            continuation.onComplete(result.success);
         });
     }
 

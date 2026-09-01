@@ -48,7 +48,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private final Runnable mTaskStackChanged;
     private final SnapshotListener mSnapshotListener;
     private final DesktopTaskWatcher mTaskWatcher;
-    private final DesktopPhoneUiReconciler mPhoneUiReconciler;
+    private final PhoneTouchpadReconciler mPhoneTouchpadReconciler;
     private final PlatformWindowingDriver mWindowing;
     private final DesktopDisplayTaskState mDisplayTaskState;
     private final DesktopTaskRuntimeRegistry mTaskRuntimeStates;
@@ -103,15 +103,13 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final Handler handler,
             final Runnable taskStackChanged,
             final SnapshotListener snapshotListener,
-            final PlatformWindowingDriver windowing,
-            final PlatformPhoneUiDriver phoneUi) {
+            final PlatformWindowingDriver windowing) {
         mApplicationContext = context.getApplicationContext();
         mHandler = handler;
         mTaskStackChanged = taskStackChanged;
         mSnapshotListener = snapshotListener;
         mWindowing = windowing;
-        mPhoneUiReconciler = new DesktopPhoneUiReconciler(
-                mApplicationContext, phoneUi);
+        mPhoneTouchpadReconciler = new PhoneTouchpadReconciler();
         mAppWindowStates = new AppWindowStateTracker(handler);
         mDisplayTaskState = new DesktopDisplayTaskState();
         mTaskRuntimeStates = new DesktopTaskRuntimeRegistry();
@@ -483,7 +481,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         clearSessionOwnership();
         mNativeWindowBounds.reset();
         mAppWindowStates.stop();
-        mPhoneUiReconciler.reset();
+        mPhoneTouchpadReconciler.reset();
         mDisplayTaskState.clear();
         mTaskRuntimeStates.clear();
         mAutomationEvents.reset();
@@ -1627,7 +1625,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     @Override
     public void expectTouchpadDisplacement() {
         if (mRunning) {
-            mPhoneUiReconciler.expectTouchpadDisplacement();
+            mPhoneTouchpadReconciler.expectDisplacement();
             mTaskWatcher.setPhoneTouchpadPreservation(true);
         }
     }
@@ -1636,7 +1634,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     public void finishTouchpadPreservation() {
         if (mRunning) {
             mTaskWatcher.setPhoneTouchpadPreservation(false);
-            mPhoneUiReconciler.finishTouchpadPreservation();
+            mPhoneTouchpadReconciler.finishPreservation();
         }
     }
 
@@ -2110,7 +2108,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mNativeWindowBounds.reconcile(snapshot.tasks);
         DesktopRuntimeBridge.syncTaskbarWithSnapshot(mDisplayId, snapshot);
         final List<TaskRepository.TaskEntry> visibleTasks = new ArrayList<>();
-        final Set<Integer> visibleAppTaskIds = new HashSet<>();
         boolean hasVisibleAppTask = false;
         boolean aboveDesktopHost = true;
         for (final TaskRepository.TaskEntry task : snapshot.tasks) {
@@ -2126,16 +2123,13 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     && DesktopManagedTaskPolicy
                             .isControllableApplicationTask(task)) {
                 hasVisibleAppTask = true;
-                visibleAppTaskIds.add(Integer.valueOf(task.taskId));
             }
         }
         final int focusingTaskId = mFocusingTaskId;
         if (mDisplayId != Display.DEFAULT_DISPLAY) {
-            mPhoneUiReconciler.reconcile(
+            mPhoneTouchpadReconciler.reconcile(
                     mDisplayId,
-                    snapshot.phoneTasks,
-                    visibleAppTaskIds,
-                    focusingTaskId >= 0);
+                    snapshot.phoneTasks);
         }
         if (focusingTaskId >= 0) {
             final TaskRepository.TaskEntry focusingTask =

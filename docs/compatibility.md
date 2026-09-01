@@ -88,9 +88,9 @@ and monitor waits are rejected by repository tests.
 
 | Device | Firmware build | Support | Confirmed scope | Known limitations |
 | --- | --- | --- | --- | --- |
-| RedMagic 11 Pro (`NX809J`, EEA) | `20260204.221845` | Maintainer-verified | Wired and Miracast desktops, windows, physical and phone-side input, display modes, recording, hardware controls, and launcher recovery | The optional XR hot-plug kernel fix remains device and kernel specific |
-| RedMagic 11 Pro (`NX809J-UN`) | `20260625.022314` | Community-tested | Desktop startup, external sizing, launcher recovery, Mora discovery, output modes, and external-display recording | Not run through the complete maintainer hardware matrix |
-| nubia Z80 Ultra (`NX741J`) | `20251229.234747` | Community-tested | Wired desktop, `2560x1080@75` output and wide external sizing on the physical display, multiple freeform windows, focus and keyboard input, phone-screen-off operation, launcher protection, and simulated self-test cleanup | The vendor HDMI timing node is unavailable to shell UID 2000; Android's reported physical-display mode is sufficient for the confirmed wide output |
+| RedMagic 11 Pro (`NX809J`, EEA) | `20260204.221845` | Maintainer-verified | Wired and Miracast desktops, windows, physical and phone-side input, display modes, recording, hardware controls, and task recovery | The optional XR hot-plug kernel fix remains device and kernel specific |
+| RedMagic 11 Pro (`NX809J-UN`) | `20260625.022314` | Community-tested | Desktop startup, external sizing, task recovery, Mora discovery, output modes, and external-display recording | Not run through the complete maintainer hardware matrix |
+| nubia Z80 Ultra (`NX741J`) | `20251229.234747` | Community-tested | Wired desktop, `2560x1080@75` output and wide external sizing on the physical display, multiple freeform windows, focus and keyboard input, phone-screen-off operation, task recovery, and simulated self-test cleanup | The vendor HDMI timing node is unavailable to shell UID 2000; Android's reported physical-display mode is sufficient for the confirmed wide output |
 
 Exact tested fingerprints:
 
@@ -190,7 +190,7 @@ the handoff format without requiring the agent to inherit prior chat history.
    target while the device is awake and unlocked.
 4. Open **Compatibility checklist** and record manual results for startup,
    window geometry, fullscreen restore, physical input, capture, task restore,
-   phone launcher health, and output configuration on each target.
+   HOME-role lifecycle, and output configuration on each target.
 5. Attach the complete refreshed report and concise reproduction steps to one
    issue. The JSON section lets a maintainer turn the report into a regression
    fixture without copying vendor behavior into shared code.

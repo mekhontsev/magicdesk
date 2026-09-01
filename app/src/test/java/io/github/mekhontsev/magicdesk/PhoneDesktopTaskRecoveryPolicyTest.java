@@ -46,7 +46,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     @Test
     public void homeTaskIsNotRecovered() {
         assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
-                "com.zte.mifavor.launcher", true));
+                "example.launcher", true));
     }
 
     @Test

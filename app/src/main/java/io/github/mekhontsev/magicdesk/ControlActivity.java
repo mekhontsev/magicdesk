@@ -311,7 +311,7 @@ public final class ControlActivity extends Activity
             refresh();
             return;
         }
-        DesktopDisplayDrivers.forTarget(target).showReady(this, target);
+        DesktopOperations.showDesktop(target);
     }
 
     @Override

@@ -132,10 +132,6 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                     capabilities) {
         DesktopSelfTestCapabilityAudit.optional(
                 result, capabilities,
-                "permission.set_activity_watcher", "granted",
-                "API-NUBIA-012", "Phone launcher task interception");
-        DesktopSelfTestCapabilityAudit.optional(
-                result, capabilities,
                 "vendor.display_command", "present",
                 "API-NUBIA-001", "RedMagic display command signature");
         // Shell-restricted EDID access is reported by compatibility

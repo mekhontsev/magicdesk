@@ -50,6 +50,9 @@ public final class DesktopSelfTestCapabilityAudit {
         runnable &= required(result, capabilities,
                 "tasks.listener", "granted",
                 "API-TASKS-003", "Observe task changes");
+        runnable &= required(result, capabilities,
+                "permission.set_activity_watcher", "granted",
+                "API-TASKS-004", "Observe activity starts and failures");
 
         optional(result, capabilities,
                 "input.inject", "granted",
@@ -84,9 +87,6 @@ public final class DesktopSelfTestCapabilityAudit {
         optional(result, capabilities,
                 "permission.read_frame_buffer", "granted",
                 "API-RECORDING-002", "Display framebuffer capture");
-        optional(result, capabilities,
-                "permission.change_component_enabled_state", "granted",
-                "API-LAUNCHER-001", "Launcher component recovery");
         PlatformDrivers.current().diagnostics().auditSelfTest(
                 context, result, capabilities);
         optional(result, capabilities,

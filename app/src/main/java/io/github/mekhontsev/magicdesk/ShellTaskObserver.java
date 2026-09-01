@@ -7,7 +7,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Rect;
-import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.Log;
@@ -22,35 +21,20 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private static final String TAG = "MagicDeskTasks";
     private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
-    private static final long PHONE_PROTECTION_FOCUS_TIMEOUT_MILLIS = 2_000L;
-    private static final long PHONE_PROTECTION_FOCUS_INTERVAL_MILLIS = 25L;
     private static final ComponentName PHONE_TOUCHPAD_ACTIVITY =
             new ComponentName(
                     "io.github.mekhontsev.magicdesk",
                     "io.github.mekhontsev.magicdesk.MagicDeskTouchpadActivity");
-    private static final ComponentName PHONE_CONTROL_ACTIVITY =
-            new ComponentName(
-                    "io.github.mekhontsev.magicdesk",
-                    "io.github.mekhontsev.magicdesk.ControlActivity");
-
     private final Object mService;
     private final ITaskObserverCallback mCallback;
     private final Runnable mCallbackFailure;
-    private final IBinder mOwnerToken;
     private final PlatformWindowingDriver mWindowing;
-    private final PlatformPhoneUiDriver mPhoneUi;
-    private final PlatformPhoneUiDriver.NavigationGuard mNavigationGuard;
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellFreeformTaskCleanup mFreeformCleanup;
     private final ShellDesktopFocusController mFocusController;
     private final ShellDesktopWorkspaceCoordinator mWorkspaceCoordinator;
     private final ShellExternalTaskMigrationGuard mMigrationGuard;
     private final ShellProcessFailureTracker mProcessFailureTracker;
-    private final ShellProcessObserverController mProcessObserverController;
-    private final PhoneHomeComponents mPhoneHome;
-    private final boolean mPhoneLauncherGuardEnabled;
-    private final ShellPhoneLauncherCircuitBreaker mPhoneLauncherCircuitBreaker;
-    private final ShellPackageStopController mPhoneLauncherStopController;
     private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
     private final ShellActivityStartController mActivityStartController;
     private final FrameworkTaskObservationSource mTaskObservations;
@@ -67,7 +51,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private boolean mPreservePhoneTouchpad;
     private boolean mPhoneTouchpadRequested;
     private boolean mRestoringPhoneTouchpad;
-    private boolean mPhoneLauncherNavigationGuardActive;
     private int mPhoneTouchpadTaskId = -1;
     private Boolean mDesktopTaskAreaForeground;
     private DesktopTaskAreaPolicy mTaskAreaPolicy =
@@ -84,22 +67,17 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final ITaskObserverCallback callback,
             final IActivityLaunchCallback activityLauncher,
             final Runnable callbackFailure,
-            final IBinder ownerToken,
-            final PlatformWindowingDriver windowing,
-            final PlatformPhoneUiDriver phoneUi,
-            final PlatformPhoneUiDriver.NavigationGuard navigationGuard)
+            final PlatformWindowingDriver windowing)
             throws ReflectiveOperationException {
         if (callback == null) {
             throw new IllegalArgumentException("missing task observer callback");
         }
-        if (ownerToken == null || windowing == null || phoneUi == null
-                || navigationGuard == null) {
+        if (windowing == null) {
             throw new IllegalArgumentException("missing platform task policy");
         }
         mService = HiddenTaskApi.getService();
         mCallback = callback;
         mCallbackFailure = callbackFailure;
-        mOwnerToken = ownerToken;
         mTaskActivityModeGuard = new ShellTaskActivityModeGuard(
                 mService,
                 new ShellTaskActivityModeGuard.Listener() {
@@ -132,26 +110,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService, mDesktopOwnership, mTaskLauncher);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mWindowing = windowing;
-        mPhoneUi = phoneUi;
-        mNavigationGuard = navigationGuard;
         mFocusController = new ShellDesktopFocusController(
                 mService,
                 windowing.requiresDesktopInputFocusSynchronization(),
                 taskId -> callCallback(() ->
                         mCallback.onInputFocusRefreshRequired(taskId)));
-        mPhoneHome = PhoneHomeComponents.resolve(context);
-        mPhoneLauncherGuardEnabled =
-                phoneUi.protectsPhoneLauncherAfterCrash();
-        final int phoneHomeUid = resolvePhoneHomeUid(context, mPhoneHome);
-        Log.i(TAG, "task observer phone HOME "
-                + mPhoneHome.diagnosticDetail()
-                + ", uid=" + phoneHomeUid
-                + ", guard=" + mPhoneLauncherGuardEnabled);
-        mPhoneLauncherCircuitBreaker =
-                new ShellPhoneLauncherCircuitBreaker(
-                        mPhoneLauncherGuardEnabled);
-        mPhoneLauncherStopController =
-                new ShellPackageStopController(mPhoneLauncherGuardEnabled);
         mMigrationGuard = new ShellExternalTaskMigrationGuard(
                 mService,
                 windowing.requiresNativeFullscreenCaptionRefresh(),
@@ -191,61 +154,12 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                         topActivity,
                                         reason));
                     }
-
-                    @Override
-                    public void onPhoneLauncherEvent(
-                            final int type,
-                            final String processName,
-                            final int pid,
-                            final String reason) {
-                        final boolean protectionActivated =
-                                mPhoneLauncherCircuitBreaker
-                                        .noteLauncherFailure(type);
-                        if (protectionActivated) {
-                            protectPhoneLauncherSession();
-                        }
-                        callCallback(() ->
-                                mCallback.onPhoneLauncherEvent(
-                                        type,
-                                        processName,
-                                        pid,
-                                        reason,
-                                        protectionActivated));
-                    }
-                },
-                mPhoneHome,
-                phoneHomeUid,
-                mPhoneLauncherGuardEnabled);
-        mProcessObserverController = new ShellProcessObserverController(
-                mPhoneLauncherGuardEnabled,
-                new ShellProcessObserverController.Listener() {
-                    @Override
-                    public void onProcessDied(
-                            final int pid, final int uid) {
-                        mProcessFailureTracker.onProcessDied(pid, uid);
-                    }
-                },
-                error -> callCallback(() ->
-                        mCallback.onObserverError(error)));
+                });
         mActivityStartController = new ShellActivityStartController(
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)),
                 mProcessFailureTracker,
-                mProcessFailureTracker,
-                new ShellActivityStartController.Listener() {
-                    @Override
-                    public boolean onActivityStarting(
-                            final Intent intent,
-                            final String packageName) {
-                        return allowPhoneUiStart(intent, packageName);
-                    }
-
-                    @Override
-                    public boolean onActivityResuming(
-                            final String packageName) {
-                        return allowPhoneUiResume(packageName);
-                    }
-                },
+                null,
                 mMigrationGuard,
                 mTaskActivityModeGuard);
         // The platform policy decides whether stale phone-side freeform
@@ -382,12 +296,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try {
             HiddenTaskApi.registerTaskStackListener(mService, this);
             mRegistered = true;
-            mProcessObserverController.start();
             mFocusController.start();
             mTaskObservations.start();
         } catch (ReflectiveOperationException | RuntimeException error) {
             mActivityStartController.close();
-            mProcessObserverController.close();
             if (mRegistered) {
                 mRegistered = false;
                 try {
@@ -415,8 +327,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             // observation alive between sessions, but never retain launch
             // interception after the desktop configuration is cleared.
             mActivityStartController.close();
-            mPhoneLauncherCircuitBreaker.configure(false);
-            updatePhoneLauncherNavigationGuard(false);
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
             clearPendingPostRemovalFocus();
             mTaskAreaPolicy = DesktopTaskAreaPolicy.UNCONFIGURED;
@@ -440,12 +350,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mDesktopTaskAreaForeground = null;
             return;
         }
-        mPhoneLauncherCircuitBreaker.configure(true);
         mProcessFailureTracker.configure(displayId);
         try {
             mActivityStartController.start();
         } catch (ReflectiveOperationException error) {
-            mPhoneLauncherCircuitBreaker.configure(false);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             throw new IllegalStateException(
                     "cannot enable desktop activity-start observation: "
@@ -1230,9 +1138,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             return;
         }
         mClosed = true;
-        mPhoneLauncherCircuitBreaker.configure(false);
-        closeSafely("phone launcher navigation guard", () ->
-                updatePhoneLauncherNavigationGuard(false));
         final boolean registered = mRegistered;
         mRegistered = false;
         synchronized (this) {
@@ -1242,7 +1147,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         closeSafely("focus controller", mFocusController::close);
         closeSafely("process failure tracker", () ->
                 mProcessFailureTracker.configure(Display.INVALID_DISPLAY));
-        closeSafely("process observer", mProcessObserverController::close);
         closeSafely("activity start controller",
                 mActivityStartController::close);
         closeSafely("migration guard", mMigrationGuard::close);
@@ -1269,158 +1173,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         } catch (RuntimeException error) {
             Log.w(TAG, "failed to close " + component, error);
         }
-    }
-
-    private static int resolvePhoneHomeUid(
-            final Context context,
-            final PhoneHomeComponents phoneHome) {
-        if (context == null || phoneHome == null
-                || phoneHome.primaryPackage().isEmpty()) {
-            return -1;
-        }
-        try {
-            return context.getPackageManager().getPackageUid(
-                    phoneHome.primaryPackage(), 0);
-        } catch (android.content.pm.PackageManager.NameNotFoundException error) {
-            return -1;
-        }
-    }
-
-    private void protectPhoneLauncherSession() {
-        updatePhoneLauncherNavigationGuard(true);
-        try {
-            mPhoneLauncherStopController.forceStopPackage(
-                    mPhoneHome.primaryPackage());
-            final int removedLauncherTasks = removePhoneLauncherTasks();
-            final int phoneTaskId = ensurePhoneProtectionTask();
-            Log.i(TAG, "protected phone after launcher process death; "
-                    + "phoneTask=" + phoneTaskId
-                    + ", removedLauncherTasks=" + removedLauncherTasks);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            final String message = usefulMessage(error);
-            Log.w(TAG, "could not protect phone after launcher failure: "
-                    + message, error);
-            callCallback(() -> mCallback.onObserverError(
-                    "phone launcher isolation unavailable: " + message));
-        }
-    }
-
-    private int removePhoneLauncherTasks()
-            throws ReflectiveOperationException {
-        int removed = 0;
-        for (final Object task : HiddenTaskApi.getTasks(
-                mService, Display.DEFAULT_DISPLAY)) {
-            final ComponentName topActivity =
-                    HiddenTaskApi.getTaskTopActivity(task);
-            final ComponentName baseActivity =
-                    HiddenTaskApi.getTaskBaseActivity(task);
-            if (!mPhoneHome.isPrimaryComponent(topActivity)
-                    && !mPhoneHome.isPrimaryComponent(baseActivity)) {
-                continue;
-            }
-            final int taskId = HiddenTaskApi.getTaskId(task);
-            if (TaskControlCommand.removeTask(mService, taskId)) {
-                removed++;
-            }
-        }
-        return removed;
-    }
-
-    private int ensurePhoneProtectionTask()
-            throws ReflectiveOperationException {
-        int phoneTaskId = findPhoneProtectionTaskId();
-        if (phoneTaskId < 0) {
-            final Intent intent = new Intent()
-                    .setComponent(PHONE_CONTROL_ACTIVITY)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                            | Intent.FLAG_ACTIVITY_CLEAR_TOP
-                            | Intent.FLAG_ACTIVITY_SINGLE_TOP
-                            | Intent.FLAG_ACTIVITY_NO_ANIMATION);
-            TaskDisplayAreaLaunchCommand.launchFullscreenTask(
-                    mService,
-                    Display.DEFAULT_DISPLAY,
-                    intent,
-                    BuildConfig.APPLICATION_ID);
-            phoneTaskId = findPhoneProtectionTaskId();
-            if (phoneTaskId < 0) {
-                throw new IllegalStateException(
-                        "phone protection task did not appear");
-            }
-        }
-        // A failed Recents animation can leave the task's SurfaceControl
-        // hidden even after ATMS reports it focused and visible. Reactivate
-        // it through the framework Recents path so WMShell owns and finishes
-        // the surface transition that reveals the phone protection task.
-        TaskDisplayAreaLaunchCommand.focusExistingTask(
-                mService, Display.DEFAULT_DISPLAY, phoneTaskId);
-        final int expectedTaskId = phoneTaskId;
-        final FrameworkTaskSnapshot focused =
-                BoundedStateAwaiter.awaitFramework(
-                        BoundedStateAwaiter.Reason.INPUT_FOCUS,
-                        PHONE_PROTECTION_FOCUS_TIMEOUT_MILLIS,
-                        PHONE_PROTECTION_FOCUS_INTERVAL_MILLIS,
-                        () -> FrameworkTaskSnapshotSource.findTask(
-                                mService,
-                                Display.DEFAULT_DISPLAY,
-                                expectedTaskId),
-                        task -> task != null
-                                && task.visible
-                                && task.focused);
-        if (focused == null || !focused.visible || !focused.focused) {
-            throw new IllegalStateException(
-                    "phone protection task did not become active");
-        }
-        return phoneTaskId;
-    }
-
-    private void updatePhoneLauncherNavigationGuard(final boolean enabled) {
-        if (enabled == mPhoneLauncherNavigationGuardActive) {
-            return;
-        }
-        try {
-            if (enabled) {
-                mNavigationGuard.acquire(
-                        mOwnerToken,
-                        PlatformPhoneUiDriver.NavigationGuard.Scope
-                                .CRASHED_LAUNCHER);
-                mPhoneLauncherNavigationGuardActive = true;
-                Log.i(TAG, "guarded phone Recents after launcher failure");
-            } else {
-                mNavigationGuard.release(mOwnerToken);
-                mPhoneLauncherNavigationGuardActive = false;
-                Log.i(TAG, "restored phone Recents after desktop session");
-            }
-        } catch (RuntimeException error) {
-            if (!enabled) {
-                mPhoneLauncherNavigationGuardActive = false;
-            }
-            final String message = usefulMessage(error);
-            Log.w(TAG, "could not update launcher navigation guard: "
-                    + message, error);
-            callCallback(() -> mCallback.onObserverError(
-                    "launcher navigation guard unavailable: " + message));
-        }
-    }
-
-    private int findPhoneProtectionTaskId()
-            throws ReflectiveOperationException {
-        int fallbackTaskId = -1;
-        for (final Object task : HiddenTaskApi.getTasks(
-                mService, Display.DEFAULT_DISPLAY)) {
-            final ComponentName topActivity =
-                    HiddenTaskApi.getTaskTopActivity(task);
-            final ComponentName baseActivity =
-                    HiddenTaskApi.getTaskBaseActivity(task);
-            if (PHONE_CONTROL_ACTIVITY.equals(topActivity)
-                    || PHONE_CONTROL_ACTIVITY.equals(baseActivity)) {
-                return HiddenTaskApi.getTaskId(task);
-            }
-            if (PHONE_TOUCHPAD_ACTIVITY.equals(topActivity)
-                    || PHONE_TOUCHPAD_ACTIVITY.equals(baseActivity)) {
-                fallbackTaskId = HiddenTaskApi.getTaskId(task);
-            }
-        }
-        return fallbackTaskId;
     }
 
     private void reportDesktopTaskAreaForeground(
@@ -1537,70 +1289,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mRestoringPhoneTouchpad = false;
             }
         }
-    }
-
-    private boolean allowPhoneUiStart(
-            final Intent intent,
-            final String packageName) {
-        // ActivityTaskManager invokes this callback synchronously while it can
-        // hold its global lock. Read only volatile/local state here: calling a
-        // synchronized task-area method can deadlock against a shell command
-        // that holds that monitor while waiting for ActivityTaskManager.
-        final boolean suppressLocalHome = !mClosed
-                && mConfiguredDisplayId == Display.DEFAULT_DISPLAY
-                && isHomeIntent(intent);
-        final boolean suppressCrashedPhoneLauncher =
-                !mPhoneLauncherCircuitBreaker.allowActivityStart(
-                        mPhoneHome.isPrimaryHomeStart(intent, packageName));
-        final boolean suppressExternalSecondaryHome;
-        synchronized (this) {
-            // Back on the last local desktop client can make Android launch its
-            // ordinary HOME task even though the session host remains alive in
-            // our task area. Reject that fallback before it can cover the host
-            // or a surviving client. Session shutdown releases the observer
-            // before intentionally returning to the phone launcher.
-            // Nubia starts its secondary launcher on the phone while removing
-            // an external task. Reject it before it can cover the requested
-            // touchpad; post-start task correction still produces a blink.
-            suppressExternalSecondaryHome = !mClosed
-                    && mPhoneTouchpadRequested
-                    && mConfiguredDisplayId > Display.DEFAULT_DISPLAY
-                    && mPhoneUi.isTransientSecondaryHomeIntent(intent);
-        }
-        if (suppressLocalHome) {
-            Log.i(TAG, "suppressed HOME fallback inside local desktop session");
-        } else if (suppressCrashedPhoneLauncher) {
-            Log.i(TAG, "suppressed HOME after phone launcher death");
-        } else if (suppressExternalSecondaryHome) {
-            Log.i(TAG, "suppressed transient secondary HOME while phone "
-                    + "touchpad is requested");
-        }
-        return !suppressLocalHome
-                && !suppressCrashedPhoneLauncher
-                && !suppressExternalSecondaryHome;
-    }
-
-    private boolean allowPhoneUiResume(final String packageName) {
-        if (!mPhoneLauncherGuardEnabled
-                || !mPhoneHome.isPrimaryPackage(packageName)) {
-            return true;
-        }
-        final boolean suppressLocalHome = !mClosed
-                && mConfiguredDisplayId == Display.DEFAULT_DISPLAY;
-        final boolean suppressCrashedPhoneLauncher =
-                !mPhoneLauncherCircuitBreaker.allowActivityResume(true);
-        if (suppressLocalHome) {
-            Log.i(TAG, "suppressed HOME resume inside local desktop session");
-        } else if (suppressCrashedPhoneLauncher) {
-            Log.i(TAG, "suppressed HOME resume after phone launcher death");
-        }
-        return !suppressLocalHome && !suppressCrashedPhoneLauncher;
-    }
-
-    private static boolean isHomeIntent(final Intent intent) {
-        return intent != null
-                && Intent.ACTION_MAIN.equals(intent.getAction())
-                && intent.hasCategory(Intent.CATEGORY_HOME);
     }
 
     private int findPhoneTouchpadTaskId() {

@@ -12,10 +12,6 @@ import java.util.regex.Pattern;
 /** Focuses or creates the desktop after its target display is ready. */
 final class DesktopSessionController {
     private static final String TAG = "MagicDeskDesktopSession";
-    private static final String AM = "/system/bin/am";
-    private static final String DESKTOP_COMPONENT =
-            "io.github.mekhontsev.magicdesk/.DesktopActivity";
-    private static final int ACTIVITY_TYPE_HOME = 2;
     private static final String TASK_CONTROL_COMMAND =
             "io.github.mekhontsev.magicdesk.TaskControlCommand";
     private static final Pattern DESKTOP_TASK_ID_PATTERN =
@@ -56,6 +52,8 @@ final class DesktopSessionController {
         }
         final DesktopSessionPolicy resolvedPolicy = policy == null
                 ? DesktopSessionPolicy.USER : policy;
+        final DesktopHomeRoleLease.AcquireResult homeAcquisition =
+                DesktopHomeRoleLease.acquire(preparedTarget, resolvedPolicy);
         DesktopRuntimeBridge.noteDesktopTarget(
                 preparedTarget, resolvedPolicy);
         try {
@@ -99,53 +97,24 @@ final class DesktopSessionController {
                 return new ShowResult(true, false);
             }
 
-            final String output = ShellAccess.run(
-                    AM + " start -W --display " + preparedTarget.displayId
-                            + " --windowingMode 1"
-                            + " --activityType " + ACTIVITY_TYPE_HOME
-                            + " -f 0x18000000"
-                            + " -a android.intent.action.MAIN"
-                            + " -c android.intent.category.HOME"
-                            + " --ei "
-                            + DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID
-                            + " " + preparedTarget.displayId
-                            + " --ei "
-                            + DesktopShellActivity.EXTRA_PROFILE_DISPLAY_ID
-                            + " " + preparedTarget.profileDisplayId
-                            + " --es "
-                            + DesktopShellActivity.EXTRA_PROFILE_KEY
-                            + " "
-                            + ShellCommandLine.quote(preparedTarget.profileKey)
-                            + " --es "
-                            + DesktopShellActivity.EXTRA_TARGET_KIND
-                            + " " + preparedTarget.kind.name()
-                            + " --es "
-                            + DesktopShellActivity.EXTRA_ACTIVATION_SOURCE
-                            + " " + preparedTarget.activationSource.name()
-                            + " --es "
-                            + DesktopShellActivity.EXTRA_SESSION_POLICY
-                            + " " + resolvedPolicy.name()
-                            + (restoreWindows
-                                    ? " --es " + DesktopShellActivity.EXTRA_ACTION
-                                            + " "
-                                            + DesktopShellActivity
-                                                    .ACTION_RESTORE_WINDOWS
-                                    : "")
-                            + " -n " + DESKTOP_COMPONENT)
-                    .trim();
-            if (output.startsWith("Error:")
-                    || output.contains(
-                            "Exception occurred while executing")) {
-                throw new IOException(output);
-            }
+            final Intent intent = createExternalHomeIntent(
+                    preparedTarget, resolvedPolicy, restoreWindows);
+            final int hostTaskId = ShellAccess.launchDesktopHost(
+                    preparedTarget.displayId,
+                    intent,
+                    DesktopDisplayDrivers.forTarget(preparedTarget)
+                            .features().taskAreaPolicy);
             Log.i(TAG, "launched desktop kind=" + preparedTarget.kind
                     + " display=" + preparedTarget.displayId
-                    + " output=" + output.replace('\n', ' '));
+                    + " task=" + hostTaskId
+                    + " as HOME");
             final boolean ready = waitForDesktopReady(preparedTarget.displayId);
             if (!ready) {
                 DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
                 MagicDeskRuntime.reconcileFailedDesktopLaunch(
                         preparedTarget.displayId);
+                DesktopHomeRoleLease.releaseAfterFailedStart(
+                        homeAcquisition);
             }
             if (ready && resolvedPolicy.restoreWorkspace) {
                 MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
@@ -156,6 +125,12 @@ final class DesktopSessionController {
             DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
             MagicDeskRuntime.reconcileFailedDesktopLaunch(
                     preparedTarget.displayId);
+            try {
+                DesktopHomeRoleLease.releaseAfterFailedStart(
+                        homeAcquisition);
+            } catch (IOException releaseError) {
+                error.addSuppressed(releaseError);
+            }
             throw error;
         }
     }
@@ -222,6 +197,38 @@ final class DesktopSessionController {
             MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(target);
         }
         return new ShowResult(true, created);
+    }
+
+    private static Intent createExternalHomeIntent(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy,
+            final boolean restoreWindows) {
+        final Intent intent = DesktopActivity.createSecondaryHomeIntent(
+                MagicDeskApplication.applicationContext())
+                .putExtra(
+                        DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID,
+                        target.displayId)
+                .putExtra(
+                        DesktopShellActivity.EXTRA_PROFILE_DISPLAY_ID,
+                        target.profileDisplayId)
+                .putExtra(
+                        DesktopShellActivity.EXTRA_PROFILE_KEY,
+                        target.profileKey)
+                .putExtra(
+                        DesktopShellActivity.EXTRA_TARGET_KIND,
+                        target.kind.name())
+                .putExtra(
+                        DesktopShellActivity.EXTRA_ACTIVATION_SOURCE,
+                        target.activationSource.name())
+                .putExtra(
+                        DesktopShellActivity.EXTRA_SESSION_POLICY,
+                        policy.name());
+        if (restoreWindows) {
+            intent.putExtra(
+                    DesktopShellActivity.EXTRA_ACTION,
+                    DesktopShellActivity.ACTION_RESTORE_WINDOWS);
+        }
+        return intent;
     }
 
     private static void prepareDisplayWindowing(

@@ -51,6 +51,15 @@ final class DesktopSelfTestCleanup {
             DesktopRuntimeBridge.closeDesktopSession(displayId);
             if (ShellAccess.isReady()) {
                 try {
+                    releaseDesktopHomeLease(displayId);
+                } catch (IOException error) {
+                    clean = false;
+                    detail.append("HOME lease release: ")
+                            .append(usefulMessage(error)).append("; ");
+                }
+            }
+            if (ShellAccess.isReady()) {
+                try {
                     waitForTaskAbsent(DesktopSelfTestComponents.DESKTOP_CLASS);
                     if (target == DesktopSelfTestTarget.PHONE) {
                         waitForLocalDesktopCleanup();
@@ -120,13 +129,6 @@ final class DesktopSelfTestCleanup {
                         .append(" remained; ");
             }
             if (ShellAccess.isReady()) {
-                try {
-                    waitForNoDedicatedSecondaryHomeTask();
-                } catch (IOException error) {
-                    clean = false;
-                    detail.append("phone launcher cleanup: ")
-                            .append(usefulMessage(error)).append("; ");
-                }
                 try {
                     waitForDesktopRepositoryEmpty(displayId);
                 } catch (IOException error) {
@@ -289,44 +291,21 @@ final class DesktopSelfTestCleanup {
         throw new IOException("task " + className + " remained after close");
     }
 
-    private static void waitForNoDedicatedSecondaryHomeTask()
+    private static void releaseDesktopHomeLease(final int displayId)
             throws IOException {
-        final PhoneHomeComponents home = PhoneHomeComponents.resolve(
-                MagicDeskApplication.applicationContext());
-        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
-        TaskStackParser.Entry remaining = null;
-        do {
-            remaining = findDedicatedSecondaryHomeTask(
-                    ShellAccess.run("/system/bin/cmd activity stack list"),
-                    home);
-            if (remaining == null) {
-                return;
-            }
-            BoundedStateAwaiter.pause(
-                    BoundedStateAwaiter.Reason.TASK_VISIBILITY,
-                    POLL_MILLIS);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new IOException("secondary Home task " + remaining.taskId
-                + " remained on display " + Display.DEFAULT_DISPLAY
-                + " after close");
-    }
-
-    static TaskStackParser.Entry findDedicatedSecondaryHomeTask(
-            final String stack,
-            final PhoneHomeComponents home) {
-        if (home == null) {
-            return null;
+        final DesktopHomeRoleLease.State lease =
+                DesktopHomeRoleLease.snapshot();
+        if (lease == null) {
+            return;
         }
-        for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
-            if (task.displayId == Display.DEFAULT_DISPLAY
-                    && home.isDedicatedSecondaryTask(
-                            task.isHome(),
-                            task.componentName,
-                            task.topActivityName)) {
-                return task;
-            }
+        if (lease.displayId != displayId) {
+            throw new IOException("HOME lease belongs to display "
+                    + lease.displayId + ", not cleanup display " + displayId);
         }
-        return null;
+        DesktopHomeRoleLease.releaseAfterSessionLoss(displayId);
+        if (DesktopHomeRoleLease.snapshot() != null) {
+            throw new IOException("HOME lease remained after self-test cleanup");
+        }
     }
 
     private static void waitForDesktopRepositoryEmpty(

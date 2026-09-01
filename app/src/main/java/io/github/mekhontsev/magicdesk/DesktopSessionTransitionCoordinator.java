@@ -59,9 +59,9 @@ final class DesktopSessionTransitionCoordinator {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         if (target == null
-                || target.displayId <= Display.DEFAULT_DISPLAY) {
+                || target.displayId < Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException(
-                    "a prepared external display target is required");
+                    "a prepared desktop display target is required");
         }
         if (!mFeatures.supportsDisplay(target.kind)) {
             throw new IllegalStateException(
@@ -134,6 +134,18 @@ final class DesktopSessionTransitionCoordinator {
     private boolean closeDesktopNow(
             final DesktopDisplayTarget target,
             final boolean restorePhonePanel) {
+        final boolean homeReleasePrepared;
+        try {
+            homeReleasePrepared = DesktopHomeRoleLease.prepareRelease(target);
+        } catch (java.io.IOException error) {
+            Log.w(TAG, "Could not restore HOME before desktop close", error);
+            CompatibilityDiagnostics.record(
+                    "DESKTOP-HOME-002",
+                    "Could not restore the previous Home app",
+                    error.getMessage(),
+                    error);
+            return false;
+        }
         final boolean success;
         if (target.kind == DesktopDisplayTarget.Kind.SIMULATED) {
             MagicDeskRuntime.prepareDesktopDisplayRemoval(
@@ -141,6 +153,23 @@ final class DesktopSessionTransitionCoordinator {
             success = removeSimulatedDesktop(target.displayId);
         } else {
             success = closeDesktopSessionAndWait(target.displayId);
+        }
+        if (homeReleasePrepared) {
+            try {
+                if (success) {
+                    DesktopHomeRoleLease.completeRelease();
+                } else {
+                    DesktopHomeRoleLease.rollbackRelease();
+                }
+            } catch (java.io.IOException error) {
+                Log.w(TAG, "Could not finalize desktop HOME transition", error);
+                CompatibilityDiagnostics.record(
+                        "DESKTOP-HOME-003",
+                        "Could not finalize the Home app transition",
+                        error.getMessage(),
+                        error);
+                return false;
+            }
         }
         if (shouldOpenPhonePanel(
                 restorePhonePanel,

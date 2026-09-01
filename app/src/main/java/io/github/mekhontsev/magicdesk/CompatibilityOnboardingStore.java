@@ -40,7 +40,7 @@ final class CompatibilityOnboardingStore {
         PHYSICAL_INPUT("physical-input", R.string.onboarding_check_physical_input),
         CAPTURE("capture", R.string.onboarding_check_capture),
         CLOSE_RESTORE("close-restore", R.string.onboarding_check_close_restore),
-        PHONE_LAUNCHER("phone-launcher", R.string.onboarding_check_phone_launcher),
+        HOME_ROLE("home-role", R.string.onboarding_check_home_role),
         OUTPUT_CONFIGURATION(
                 "output-configuration", R.string.onboarding_check_output_configuration);
 

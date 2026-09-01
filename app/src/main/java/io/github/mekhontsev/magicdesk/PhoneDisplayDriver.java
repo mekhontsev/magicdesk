@@ -34,14 +34,11 @@ final class PhoneDisplayDriver implements DesktopDisplayDriver {
             final Activity source,
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
-        if (source == null) {
-            throw new IllegalArgumentException("phone launch source is required");
-        }
         if (target == null
                 || target.kind != DesktopDisplayTarget.Kind.PHONE) {
             throw new IllegalArgumentException("phone target is required");
         }
-        DesktopActivity.launch(source, target, policy);
+        DesktopDisplayDriverSupport.showPrepared(target, policy);
     }
 
     @Override

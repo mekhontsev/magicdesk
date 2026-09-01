@@ -83,6 +83,12 @@ final class PhoneDesktopTaskRecovery {
         recover(-1, false, ALWAYS_CONTINUE, callback);
     }
 
+    static void recover(
+            final Continuation continuation,
+            final Callback callback) {
+        recover(-1, false, continuation, callback);
+    }
+
     static void recoverRemovedDisplay(
             final int removedDisplayId,
             final Callback callback) {

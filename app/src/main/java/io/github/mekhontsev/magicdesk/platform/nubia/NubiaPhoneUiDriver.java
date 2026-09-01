@@ -2,38 +2,12 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.PlatformPhoneUiDriver;
 import android.content.Context;
-import android.content.Intent;
 
 /** RedMagic phone UI integration used around external desktop sessions. */
 final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
-    private static final String SECONDARY_HOME_ACTIVITY =
-            "com.android.launcher3.secondarydisplay.SecondaryDisplayLauncher";
     private static final String[] OBSERVED_SETTINGS = {
             NubiaPhoneScreenState.SETTING
     };
-
-    @Override
-    public NavigationGuard createNavigationGuard() {
-        return new SystemNavigationGuard();
-    }
-
-    @Override
-    public boolean requiresPhoneUiReconciliation() {
-        return true;
-    }
-
-    @Override
-    public boolean protectsPhoneLauncherAfterCrash() {
-        return true;
-    }
-
-    @Override
-    public boolean isTransientSecondaryHomeIntent(final Intent intent) {
-        return intent != null && isTransientSecondaryHome(
-                intent.hasCategory(Intent.CATEGORY_SECONDARY_HOME),
-                intent.getComponent() == null
-                        ? null : intent.getComponent().getClassName());
-    }
 
     @Override
     public boolean requiresPhoneImeRouting() {
@@ -67,13 +41,6 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     @Override
     public String[] observedSettingKeys() {
         return OBSERVED_SETTINGS.clone();
-    }
-
-    static boolean isTransientSecondaryHome(
-            final boolean hasSecondaryHomeCategory,
-            final String activityName) {
-        return hasSecondaryHomeCategory
-                && SECONDARY_HOME_ACTIVITY.equals(activityName);
     }
 
     @Override

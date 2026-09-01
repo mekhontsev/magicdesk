@@ -166,6 +166,31 @@ public abstract class DesktopShellActivity extends Activity
                             ? EXTRA_SESSION_POLICY : STATE_SESSION_POLICY,
                     ""));
         }
+        if (mDesktopTargetKind == null) {
+            DesktopDisplayTarget runtimeTarget =
+                    DesktopRuntimeBridge.getDesktopTarget(displayId);
+            if (runtimeTarget != null) {
+                mSessionPolicy = DesktopRuntimeBridge
+                        .getSessionSnapshot().policy();
+            }
+            if (runtimeTarget == null) {
+                final DesktopHomeRoleLease.State homeLease =
+                        DesktopHomeRoleLease.snapshot();
+                if (homeLease != null
+                        && homeLease.phase
+                                == DesktopHomeRoleLease.Phase.ACTIVE
+                        && homeLease.displayId == displayId) {
+                    runtimeTarget = homeLease.target();
+                    mSessionPolicy = homeLease.policy;
+                }
+            }
+            if (runtimeTarget != null) {
+                mDesktopProfileDisplayId = runtimeTarget.profileDisplayId;
+                mDesktopProfileKey = runtimeTarget.profileKey;
+                mDesktopTargetKind = runtimeTarget.kind;
+                mActivationSource = runtimeTarget.activationSource;
+            }
+        }
         final DisplayManager displayManager =
                 getSystemService(DisplayManager.class);
         final boolean expectedDisplayExists = displayManager != null
@@ -181,7 +206,9 @@ public abstract class DesktopShellActivity extends Activity
             overridePendingTransition(0, 0);
             return;
         }
-        if (!DeviceSetupManager.isRuntimeAuthorized()) {
+        if (!DeviceSetupManager.isRuntimeAuthorized()
+                && !DesktopHomeRoleLease.isActiveForDisplay(
+                        mExpectedDisplayId)) {
             final Intent setupIntent = DeviceSetupActivity.createLaunchIntent(this);
             final String action = getIntent().getStringExtra(EXTRA_ACTION);
             if (action != null) {
@@ -728,9 +755,8 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     private void handleDesktopBack() {
-        // Back may be routed to the desktop host while no app owns focus.
-        // Finishing it would either expose vendor secondary Home on the phone
-        // or leave an external display blank.
+        // Back may be routed to the desktop Home while no app owns focus.
+        // Finishing Home would leave its display without a workspace surface.
         if (hasVisiblePanel()) {
             resetAltTabState();
             hideTopPanel();
