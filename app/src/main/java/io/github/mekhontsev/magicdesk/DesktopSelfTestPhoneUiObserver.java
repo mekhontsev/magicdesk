@@ -98,7 +98,10 @@ final class DesktopSelfTestPhoneUiObserver {
                         && task.taskId != sAllowedPhoneFixtureTaskId;
             }
             PHONE_TASK_MODES.completeBaseline();
-            observeTaskState(touchpadVisible, fixtureVisible);
+            observeTaskState(
+                    touchpadVisible,
+                    fixtureVisible
+                            && !DesktopSelfTestPhoneGuardWindow.isVisible());
         }
     }
 
@@ -127,7 +130,10 @@ final class DesktopSelfTestPhoneUiObserver {
             fixtureVisible |= fixture
                     && task.taskId != sAllowedPhoneFixtureTaskId;
         }
-        observeTaskState(touchpadVisible, fixtureVisible);
+        observeTaskState(
+                touchpadVisible,
+                fixtureVisible
+                        && !DesktopSelfTestPhoneGuardWindow.isVisible());
     }
 
     static synchronized void noteTouchpadStarted(final int displayId) {

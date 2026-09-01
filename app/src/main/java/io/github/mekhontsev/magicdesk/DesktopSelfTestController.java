@@ -75,6 +75,7 @@ final class DesktopSelfTestController {
                     "another desktop self-test is already running");
             return finish(result, appContext);
         }
+        DesktopSelfTestCancellation.beginRun();
         final String phoneUiIssue = phoneUiUnavailableReason(appContext);
         if (phoneUiIssue != null) {
             result.add(DesktopSelfTestResult.State.FAIL,
@@ -82,12 +83,14 @@ final class DesktopSelfTestController {
                     "Phone is unlocked and awake",
                     phoneUiIssue);
             RUNNING.set(false);
+            DesktopSelfTestCancellation.finishRun();
             return finish(result, appContext);
         }
         result.add(DesktopSelfTestResult.State.PASS,
                 "SELFTEST-PRECONDITION-000",
                 "Phone is unlocked and awake", "ready");
 
+        DesktopSelfTestPhoneInputGuard.cancel();
         DesktopSelfTestTaskStackGuard.cancel();
         final DesktopSelfTestTarget target = requestedTarget == null
                 ? DesktopSelfTestTarget.SIMULATED : requestedTarget;
@@ -183,6 +186,8 @@ final class DesktopSelfTestController {
                         "the selected display is not owned by the self-test");
             }
             displayRemovalRecorded = true;
+        } catch (DesktopSelfTestCancellation.Cancelled cancelled) {
+            result.cancel();
         } catch (DesktopSelfTestResult.StopAfterFirstFailure stopped) {
             result.add(DesktopSelfTestResult.State.NOT_TESTED,
                     "SELFTEST-FAIL-FAST-001",
@@ -232,6 +237,7 @@ final class DesktopSelfTestController {
                         restoreResultTask(result, target, resultTaskId);
                     } finally {
                         RUNNING.set(false);
+                        DesktopSelfTestCancellation.finishRun();
                     }
                 }
             }
@@ -692,6 +698,26 @@ final class DesktopSelfTestController {
     private static void recordPhoneUiObservation(
             final DesktopSelfTestResult result,
             final int displayId) {
+        final DesktopSelfTestPhoneInputGuard.Observation inputGuard =
+                DesktopSelfTestPhoneInputGuard.finish();
+        if (displayId <= Display.DEFAULT_DISPLAY) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "PHONEUI-004",
+                    "Keep self-test input off the phone display",
+                    "the selected desktop uses display 0");
+        } else if (!inputGuard.observed) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    "PHONEUI-004",
+                    "Keep self-test input off the phone display",
+                    "the phone input guard was not started");
+        } else {
+            result.add(inputGuard.isolated()
+                            ? DesktopSelfTestResult.State.PASS
+                            : DesktopSelfTestResult.State.FAIL,
+                    "PHONEUI-004",
+                    "Keep self-test input off the phone display",
+                    inputGuard.detail);
+        }
         try {
             DesktopSelfTestPhoneUiObserver.sampleCurrentTasks();
         } catch (IOException ignored) {
@@ -749,6 +775,11 @@ final class DesktopSelfTestController {
     private static DesktopSelfTestResult finish(
             final DesktopSelfTestResult result, final Context context) {
         result.finish(System.currentTimeMillis());
+        if (result.isCancelled()) {
+            DesktopAutomationEventJournal.record(
+                    "self_test", "cancelled", true, "cancelled");
+            return result;
+        }
         result.save(context);
         try {
             DesktopAutomationEventJournal.record(

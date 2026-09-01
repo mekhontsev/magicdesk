@@ -2049,7 +2049,7 @@ final class DesktopSelfTestInputSuite {
                         MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX);
         final int y = bounds.top + geometry.scaleFrom160Dpi(
                 CAPTION_BUTTON_CENTER_Y_PX);
-        requireTouchLongPress(displayId, x, y);
+        requireSyntheticTouchLongPress(displayId, x, y);
     }
 
     private static float defaultDisplayDensity() throws IOException {
@@ -2525,14 +2525,13 @@ final class DesktopSelfTestInputSuite {
         }
     }
 
-    private static void requireTouchLongPress(
+    private static void requireSyntheticTouchLongPress(
             final int displayId,
             final int x,
             final int y) throws IOException {
         final long duration = ViewConfiguration.getLongPressTimeout() + 200L;
-        // A long press is deliberately injected as an external gesture: the
-        // production API has no command whose semantics are "open WMShell's
-        // native maximize menu".
+        // WMShell exposes this menu through touch long-press semantics. The
+        // injector uses Android's virtual device id, not the phone panel id.
         ShellAccess.run(testPointerGestureCommand(
                 "long-press " + displayId + " " + x + " " + y
                         + " " + duration));

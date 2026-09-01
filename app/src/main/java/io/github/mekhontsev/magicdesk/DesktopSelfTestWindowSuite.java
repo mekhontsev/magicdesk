@@ -81,6 +81,12 @@ final class DesktopSelfTestWindowSuite {
                             entry -> "fullscreen".equals(entry.windowingMode));
                     return task;
                 }, "fullscreen host ready");
+        if (target != DesktopSelfTestTarget.PHONE) {
+            require(result,
+                    "PHONEUI-000",
+                    "Protect the phone during the self-test",
+                    () -> DesktopSelfTestPhoneInputGuard.begin(appContext));
+        }
         final DisplayCaptureSource captureSource =
                 DesktopDisplayDrivers.captureSource(
                 targetDisplayId);

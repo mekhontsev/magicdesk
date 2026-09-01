@@ -50,6 +50,10 @@ final class DesktopSelfTestHostObserver {
         return sActive;
     }
 
+    static synchronized String currentStage() {
+        return sStage;
+    }
+
     static void stage(final String stage) {
         boolean changed = false;
         synchronized (DesktopSelfTestHostObserver.class) {

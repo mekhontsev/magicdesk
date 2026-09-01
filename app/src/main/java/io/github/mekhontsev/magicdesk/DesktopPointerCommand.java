@@ -10,7 +10,7 @@ public final class DesktopPointerCommand {
     public static void main(final String[] args) {
         try {
             if (args.length == 5 && "long-press".equals(args[0])) {
-                DesktopPointerInjector.injectTouchLongPress(
+                DesktopPointerInjector.injectSyntheticTouchLongPress(
                         nonNegativeInt(args[1], "display id"),
                         point(args[2], args[3]),
                         nonNegativeLong(args[4], "duration"));

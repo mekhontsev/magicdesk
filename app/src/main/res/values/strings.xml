@@ -641,6 +641,7 @@
     <string name="diagnostics_self_test_prepare_failed">The selected desktop could not be prepared.</string>
     <string name="diagnostics_self_test_running">Running desktop and API self-test&#8230;</string>
     <string name="diagnostics_self_test_complete">Self-test complete: %1$s</string>
+    <string name="diagnostics_self_test_cancelled">Self-test cancelled. Previous results were preserved.</string>
     <string name="diagnostics_self_test_close_desktop">Close Desktop before running the self-test. The display may remain connected.</string>
     <string name="diagnostics_self_test_unlock_phone">Wake and unlock the phone before running the self-test.</string>
     <string name="diagnostics_onboarding">Compatibility checklist</string>
@@ -750,4 +751,8 @@
     <string name="app_logs_streaming">%1$s | UID %2$d | live</string>
     <string name="app_logs_stopped">Log stream stopped</string>
     <string name="app_logs_unavailable">Logs unavailable: %1$s</string>
+    <string name="self_test_phone_guard_message">Do not touch\nSelf-test in progress</string>
+    <string name="self_test_phone_guard_cancel">Stop self-test</string>
+    <string name="self_test_phone_guard_stopping">Stopping&#8230;</string>
+    <string name="self_test_phone_guard_stopping_message">Cleaning up the test environment</string>
 </resources>

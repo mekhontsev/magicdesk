@@ -125,7 +125,7 @@ public final class DesktopPointerInjector {
     }
 
     @SuppressLint("BlockedPrivateApi")
-    static void injectTouchLongPress(
+    static void injectSyntheticTouchLongPress(
             final int displayId,
             final Point position,
             final long durationMillis) throws ReflectiveOperationException {
@@ -137,14 +137,14 @@ public final class DesktopPointerInjector {
         final long downTime = SystemClock.uptimeMillis();
         boolean pressed = false;
         try {
-            context.injectTouch(displayId, position, downTime,
+            context.injectSyntheticTouch(displayId, position, downTime,
                     MotionEvent.ACTION_DOWN, 1.0f);
             pressed = true;
             RuntimeDelays.pause(
                     RuntimeDelays.Reason.INPUT_GESTURE, durationMillis);
         } finally {
             if (pressed) {
-                context.injectTouch(displayId, position, downTime,
+                context.injectSyntheticTouch(displayId, position, downTime,
                         MotionEvent.ACTION_UP, 0.0f);
             }
         }
@@ -308,6 +308,25 @@ public final class DesktopPointerInjector {
                     toolType == MotionEvent.TOOL_TYPE_MOUSE ? 1.0f : 0.0f);
         }
 
+        void injectSyntheticTouch(
+                final int displayId,
+                final Point position,
+                final long downTime,
+                final int action,
+                final float pressure) throws ReflectiveOperationException {
+            // Match Android's display-targeted input command. A physical
+            // touchscreen id remains associated with display 0 on Nubia.
+            inject(displayId, position, downTime, action,
+                    MotionEvent.TOOL_TYPE_FINGER,
+                    InputDevice.SOURCE_TOUCHSCREEN,
+                    0,
+                    0,
+                    pressure,
+                    INJECTION_MODE_WAIT_FOR_RESULT,
+                    KeyCharacterMap.VIRTUAL_KEYBOARD,
+                    1.0f);
+        }
+
         void injectMouseHover(
                 final int displayId,
                 final Point position) throws ReflectiveOperationException {
@@ -321,23 +340,6 @@ public final class DesktopPointerInjector {
                     0.0f,
                     INJECTION_MODE_WAIT_FOR_RESULT,
                     pointerDeviceId(displayId),
-                    1.0f);
-        }
-
-        void injectTouch(
-                final int displayId,
-                final Point position,
-                final long downTime,
-                final int action,
-                final float pressure) throws ReflectiveOperationException {
-            inject(displayId, position, downTime, action,
-                    MotionEvent.TOOL_TYPE_FINGER,
-                    InputDevice.SOURCE_TOUCHSCREEN,
-                    0,
-                    0,
-                    pressure,
-                    INJECTION_MODE_WAIT_FOR_RESULT,
-                    inputDeviceId(InputDevice.SOURCE_TOUCHSCREEN),
                     1.0f);
         }
 

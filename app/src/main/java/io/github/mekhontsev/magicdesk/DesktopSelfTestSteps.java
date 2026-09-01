@@ -19,14 +19,18 @@ final class DesktopSelfTestSteps {
             final String label,
             final CheckedSupplier<T> operation,
             final String successDetail) throws AbortSelfTest {
+        DesktopSelfTestCancellation.checkpoint();
         DesktopSelfTestHostObserver.stage(code);
         try {
             final T value = operation.run();
+            DesktopSelfTestCancellation.checkpoint();
             result.add(DesktopSelfTestResult.State.PASS,
                     code, label,
                     successDetail == null
                             ? String.valueOf(value) : successDetail);
             return value;
+        } catch (DesktopSelfTestCancellation.Cancelled cancelled) {
+            throw cancelled;
         } catch (Exception error) {
             failAndAbort(result, code, label, usefulMessage(error));
             throw new AssertionError("unreachable");
@@ -38,10 +42,15 @@ final class DesktopSelfTestSteps {
             final String code,
             final String label,
             final CheckedSupplier<T> operation) {
+        DesktopSelfTestCancellation.checkpoint();
         DesktopSelfTestHostObserver.stage(code);
         try {
+            final T value = operation.run();
+            DesktopSelfTestCancellation.checkpoint();
             result.add(DesktopSelfTestResult.State.PASS,
-                    code, label, String.valueOf(operation.run()));
+                    code, label, String.valueOf(value));
+        } catch (DesktopSelfTestCancellation.Cancelled cancelled) {
+            throw cancelled;
         } catch (Exception error) {
             result.add(DesktopSelfTestResult.State.FAIL,
                     code, label, usefulMessage(error));

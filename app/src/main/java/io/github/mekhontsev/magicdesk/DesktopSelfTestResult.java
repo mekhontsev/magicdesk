@@ -32,6 +32,7 @@ public final class DesktopSelfTestResult {
     private final List<Check> mChecks = new ArrayList<>();
     private long mFinishedAtMillis;
     private boolean mFailFastArmed;
+    private boolean mCancelled;
 
     DesktopSelfTestResult(final long startedAtMillis) {
         mStartedAtMillis = startedAtMillis;
@@ -61,6 +62,15 @@ public final class DesktopSelfTestResult {
         mFailFastArmed = false;
     }
 
+    void cancel() {
+        mFailFastArmed = false;
+        mCancelled = true;
+    }
+
+    boolean isCancelled() {
+        return mCancelled;
+    }
+
     void finish(final long finishedAtMillis) {
         mFinishedAtMillis = Math.max(mStartedAtMillis, finishedAtMillis);
     }
@@ -80,6 +90,9 @@ public final class DesktopSelfTestResult {
     }
 
     String summary() {
+        if (mCancelled) {
+            return "cancelled";
+        }
         return count(State.PASS) + " passed, "
                 + count(State.WARN) + " warnings, "
                 + count(State.FAIL) + " failed, "
@@ -96,7 +109,8 @@ public final class DesktopSelfTestResult {
                 .append(Math.max(0L, finishedAt - mStartedAtMillis))
                 .append(" ms\n")
                 .append("Outcome: ")
-                .append(hasFailures() ? "FAIL"
+                .append(mCancelled ? "CANCELLED"
+                        : hasFailures() ? "FAIL"
                         : count(State.WARN) > 0 ? "WARN" : "PASS")
                 .append('\n')
                 .append("Summary: ").append(summary()).append('\n');
@@ -114,7 +128,7 @@ public final class DesktopSelfTestResult {
     }
 
     void save(final Context context) {
-        if (context == null) {
+        if (context == null || mCancelled) {
             return;
         }
         try (OutputStreamWriter writer = new OutputStreamWriter(

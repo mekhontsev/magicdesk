@@ -61,4 +61,18 @@ public final class DesktopSelfTestResultTest {
                 "CLEANUP-001", "Cleanup failure", "also recorded");
         assertEquals(2, result.count(DesktopSelfTestResult.State.FAIL));
     }
+
+    @Test
+    public void cancelledRunHasNoTestOutcome() {
+        final DesktopSelfTestResult result = new DesktopSelfTestResult(4_000L);
+        result.add(DesktopSelfTestResult.State.PASS,
+                "PASS-001", "Completed before cancellation", "ready");
+        result.cancel();
+        result.finish(4_250L);
+
+        assertTrue(result.isCancelled());
+        assertFalse(result.hasFailures());
+        assertEquals("cancelled", result.summary());
+        assertTrue(result.format().contains("Outcome: CANCELLED"));
+    }
 }

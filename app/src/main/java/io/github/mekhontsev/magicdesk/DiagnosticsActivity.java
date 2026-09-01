@@ -607,9 +607,13 @@ public final class DiagnosticsActivity extends Activity {
                 }
                 mReport = report;
                 mReportView.setText(report);
-                mStatus.setText(getString(
-                        R.string.diagnostics_self_test_complete,
-                        result.summary()));
+                if (result.isCancelled()) {
+                    mStatus.setText(R.string.diagnostics_self_test_cancelled);
+                } else {
+                    mStatus.setText(getString(
+                            R.string.diagnostics_self_test_complete,
+                            result.summary()));
+                }
                 finishSelfTestPreparation();
             });
         }, "MagicDeskDesktopSelfTest").start();
