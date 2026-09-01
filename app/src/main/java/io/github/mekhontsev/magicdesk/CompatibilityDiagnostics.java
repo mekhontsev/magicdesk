@@ -452,22 +452,17 @@ public final class CompatibilityDiagnostics {
                 .append(", declared=")
                 .append(MagicDeskAppFunctionCatalog.all().length)
                 .append('\n');
-        final boolean shellRightClick = ShellAccess.isReady();
-        final boolean mouseBridgeExpected =
-                audit.platform.features().inputRelay.mouse
-                        && shellRightClick
-                        && DesktopRuntimeBridge
-                                .getActiveDesktopDisplayId() > 0;
+        final boolean shellPointer = ShellAccess.isReady();
+        final boolean mouseBridgeExpected = shellPointer
+                && DesktopRuntimeBridge
+                        .getActiveDesktopDisplayId() > 0;
         final boolean mouseBridgeReady =
                 MagicDeskRuntime
                         .isDesktopMouseBridgeReady();
         final String mouseBridgeDetail;
-        if (!shellRightClick) {
+        if (!shellPointer) {
             mouseBridgeDetail =
                     "Shizuku runtime unavailable";
-        } else if (!audit.platform.features().inputRelay.mouse) {
-            mouseBridgeDetail =
-                    "not required by the selected platform";
         } else if (!mouseBridgeExpected) {
             mouseBridgeDetail =
                     "idle; an external desktop is required";
@@ -478,7 +473,7 @@ public final class CompatibilityDiagnostics {
         appendCheck(report, "INPUT-MOUSE-001",
                 !mouseBridgeExpected
                         || mouseBridgeReady,
-                "Global right-click bridge",
+                "Desktop virtual pointer transport",
                 mouseBridgeDetail);
         report.append("Shell command access: ")
                 .append(ShellAccess.isReady()).append('\n');

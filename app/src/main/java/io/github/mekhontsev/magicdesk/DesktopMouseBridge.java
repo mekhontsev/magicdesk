@@ -10,6 +10,7 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.Collections;
 import java.util.List;
 
 final class DesktopMouseBridge {
@@ -20,6 +21,7 @@ final class DesktopMouseBridge {
     private static final long CAPTURE_STOP_TIMEOUT_MILLIS = 1_000L;
     private final Object mLock = new Object();
     private final Context mContext;
+    private final boolean mRelayPhysicalMice;
     private final Runnable mStateChanged;
     private final NativeInputBridgeStatsClient mStatsClient =
             new NativeInputBridgeStatsClient("MAGICDESK_MOUSE_STATS");
@@ -39,8 +41,10 @@ final class DesktopMouseBridge {
 
     DesktopMouseBridge(
             final Context context,
+            final boolean relayPhysicalMice,
             final Runnable stateChanged) {
         mContext = context.getApplicationContext();
+        mRelayPhysicalMice = relayPhysicalMice;
         mStateChanged = stateChanged;
     }
 
@@ -220,12 +224,17 @@ final class DesktopMouseBridge {
     }
 
     boolean clickPointer(final int button) {
-        if (button != MotionEvent.BUTTON_PRIMARY) {
+        final String command;
+        if (button == MotionEvent.BUTTON_PRIMARY) {
+            command = "click-primary";
+        } else if (button == MotionEvent.BUTTON_SECONDARY) {
+            command = "click-secondary";
+        } else {
             return false;
         }
         final ShellStreamHandle stream = readyStream();
         return stream != null
-                && writePointerControl(stream, "click-primary");
+                && writePointerControl(stream, command);
     }
 
     boolean setPrimaryButtonPressed(final boolean pressed) {
@@ -307,7 +316,7 @@ final class DesktopMouseBridge {
                     Log.w(TAG, "Mouse bridge failed", error);
                     CompatibilityDiagnostics.record(
                             "INPUT-MOUSE-001",
-                            "The global right-click bridge stopped",
+                            "The desktop virtual pointer stopped",
                             "shell=" + ShellAccess.statusLabel(),
                             error);
                 }
@@ -332,9 +341,14 @@ final class DesktopMouseBridge {
     }
 
     private void runOnce(final int generation) throws IOException {
-        final String inputDump = FrameworkInputSnapshotSource.readRemote();
-        final List<DesktopMouseDevice> mice =
-                DesktopInputDeviceDiscovery.findMice(inputDump);
+        final List<DesktopMouseDevice> mice;
+        if (mRelayPhysicalMice) {
+            final String inputDump =
+                    FrameworkInputSnapshotSource.readRemote();
+            mice = DesktopInputDeviceDiscovery.findMice(inputDump);
+        } else {
+            mice = Collections.emptyList();
+        }
         final File helper = new File(
                 mContext.getApplicationInfo().nativeLibraryDir,
                 HELPER_NAME);

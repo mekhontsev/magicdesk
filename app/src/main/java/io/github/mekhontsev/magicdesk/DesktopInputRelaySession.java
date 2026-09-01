@@ -45,7 +45,7 @@ final class DesktopInputRelaySession {
         mPolicy = policy == null ? DesktopInputRelayPolicy.NONE : policy;
         mStateChanged = stateChanged;
         mMouseBridge = new DesktopMouseBridge(
-                mContext, stateChanged);
+                mContext, mPolicy.mouse, stateChanged);
     }
 
     void reconcile(
@@ -53,10 +53,9 @@ final class DesktopInputRelaySession {
             final int displayId,
             final boolean hardwareKeyboard,
             final int suspendedDisplayId) {
-        final boolean runMouse = shouldRunMouseBridge(
+        final boolean runMouse = shouldRunPointerBridge(
                 shellReady,
                 displayId,
-                mPolicy.mouse,
                 suspendedDisplayId);
         if (runMouse) {
             mMouseBridge.start();
@@ -65,8 +64,7 @@ final class DesktopInputRelaySession {
         final boolean runRouting = shouldRunRouting(
                 shellReady,
                 displayId,
-                mPolicy,
-                !mPolicy.mouse || mMouseBridge.isReady());
+                mMouseBridge.isReady());
         reconcileRouting(runRouting, displayId, hardwareKeyboard);
 
         if (!runMouse) {
@@ -81,6 +79,11 @@ final class DesktopInputRelaySession {
 
     boolean isMouseReady() {
         return mMouseBridge.isReady();
+    }
+
+    boolean isPointerReady(final int displayId) {
+        return mMouseBridge.isReady()
+                && isRoutingReady(displayId);
     }
 
     boolean isRoutingReady(final int displayId) {
@@ -616,22 +619,17 @@ final class DesktopInputRelaySession {
     static boolean shouldRunRouting(
             final boolean shellReady,
             final int displayId,
-            final DesktopInputRelayPolicy policy,
             final boolean pointerReady) {
         return shellReady
-                && policy != null
-                && policy.isRequired()
                 && displayId > Display.DEFAULT_DISPLAY
                 && pointerReady;
     }
 
-    static boolean shouldRunMouseBridge(
+    static boolean shouldRunPointerBridge(
             final boolean shellReady,
             final int displayId,
-            final boolean mouseRelay,
             final int suspendedDisplayId) {
         return shellReady
-                && mouseRelay
                 && displayId > Display.DEFAULT_DISPLAY
                 && displayId != suspendedDisplayId;
     }

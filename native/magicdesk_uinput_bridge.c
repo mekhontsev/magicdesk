@@ -453,6 +453,9 @@ static int handle_control_line(
         }
         return emit_click(state, state->uinput_fd, BTN_LEFT);
     }
+    if (strcmp(line, "click-secondary") == 0) {
+        return emit_click(state, state->uinput_fd, BTN_RIGHT);
+    }
     if (strcmp(line, "primary-down") == 0) {
         return set_control_primary(state, true);
     }

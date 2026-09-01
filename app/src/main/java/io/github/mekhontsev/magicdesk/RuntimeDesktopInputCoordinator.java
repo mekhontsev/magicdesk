@@ -42,7 +42,7 @@ final class RuntimeDesktopInputCoordinator {
     private int mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
     private int mInputSourceRefreshGeneration;
     private boolean mShowImeOverrideActive;
-    private boolean mLastReportedMouseBridgeReady;
+    private boolean mLastReportedPointerReady;
     private boolean mPointerReleaseExpected;
     private String mPreviousShowImeWithHardKeyboard;
     private int mPhoneImePolicyDisplayId = Display.INVALID_DISPLAY;
@@ -164,7 +164,8 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     boolean isMouseBridgeReady() {
-        return !mDestroyed && mRelaySession.isMouseReady();
+        return !mDestroyed
+                && mRelaySession.isPointerReady(mDesktopDisplayId);
     }
 
     boolean isFullShortcutMode() {
@@ -177,7 +178,7 @@ final class RuntimeDesktopInputCoordinator {
         final boolean active = isActiveDesktopDisplay(displayId);
         final boolean relayRequired = active && requiresMouseRelay();
         final boolean relayReady = active
-                && (!relayRequired || mRelaySession.isMouseReady());
+                && mRelaySession.isPointerReady(displayId);
         final boolean routingReady = active
                 && (!requiresInputRouting()
                         || mRelaySession.isRoutingReady(
@@ -269,7 +270,7 @@ final class RuntimeDesktopInputCoordinator {
             final float deltaX,
             final float deltaY) {
         return isActiveDesktopDisplay(displayId)
-                && requiresMouseRelay()
+                && mRelaySession.isPointerReady(displayId)
                 && mRelaySession.movePointer(deltaX, deltaY);
     }
 
@@ -278,8 +279,8 @@ final class RuntimeDesktopInputCoordinator {
             final int button,
             final boolean pressed) {
         return isActiveDesktopDisplay(displayId)
-                && requiresMouseRelay()
                 && button == MotionEvent.BUTTON_PRIMARY
+                && mRelaySession.isPointerReady(displayId)
                 && mRelaySession.setPrimaryButtonPressed(pressed);
     }
 
@@ -287,12 +288,13 @@ final class RuntimeDesktopInputCoordinator {
         if (!isActiveDesktopDisplay(displayId)) {
             return false;
         }
-        final boolean injected = button == MotionEvent.BUTTON_PRIMARY
-                && requiresMouseRelay()
-                        ? mRelaySession.clickPointer(button)
-                        : supportsAbsolutePointer(displayId)
-                                && ShellAccess.injectPointerClick(
-                                        displayId, button);
+        if (!mRelaySession.isPointerReady(displayId)) {
+            return false;
+        }
+        final boolean injected = button == MotionEvent.BUTTON_SECONDARY
+                && supportsAbsolutePointer(displayId)
+                        ? ShellAccess.injectPointerClick(displayId, button)
+                        : mRelaySession.clickPointer(button);
         if (injected && button == MotionEvent.BUTTON_PRIMARY) {
             endTextInput(displayId);
             beginTextInput(displayId);
@@ -302,7 +304,7 @@ final class RuntimeDesktopInputCoordinator {
 
     boolean scrollPointer(final int displayId, final float amount) {
         return isActiveDesktopDisplay(displayId)
-                && requiresMouseRelay()
+                && mRelaySession.isPointerReady(displayId)
                 && mRelaySession.scrollPointer(amount);
     }
 
@@ -371,9 +373,10 @@ final class RuntimeDesktopInputCoordinator {
 
     private void handleRelaySessionStateChanged() {
         if (!mDestroyed) {
-            final boolean ready = mRelaySession.isMouseReady();
-            if (ready != mLastReportedMouseBridgeReady) {
-                mLastReportedMouseBridgeReady = ready;
+            final boolean ready = mRelaySession.isPointerReady(
+                    mDesktopDisplayId);
+            if (ready != mLastReportedPointerReady) {
+                mLastReportedPointerReady = ready;
                 final boolean released = !ready && mPointerReleaseExpected;
                 mPointerReleaseExpected = false;
                 final String operation = ready
@@ -430,10 +433,9 @@ final class RuntimeDesktopInputCoordinator {
 
     private void updateInputBridges() {
         final boolean mouseShouldRun =
-                DesktopInputRelaySession.shouldRunMouseBridge(
+                DesktopInputRelaySession.shouldRunPointerBridge(
                         ShellAccess.isReady(),
                         mDesktopDisplayId,
-                        mInputRelay.mouse,
                         mMouseBridgeSuspendedDisplayId);
         if (mRelaySession.isMouseReady() && !mouseShouldRun) {
             mPointerReleaseExpected = true;

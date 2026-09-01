@@ -1344,10 +1344,9 @@ public final class ShellAccess {
             throw new IOException(
                     "virtual keyboard count must not be negative");
         }
-        if (relayPolicy == null || !relayPolicy.isRequired()) {
-            throw new IOException("input routing requires a relay policy");
-        }
-        if (!relayPolicy.keyboard && expectedVirtualKeyboardCount != 0) {
+        final DesktopInputRelayPolicy policy = relayPolicy == null
+                ? DesktopInputRelayPolicy.NONE : relayPolicy;
+        if (!policy.keyboard && expectedVirtualKeyboardCount != 0) {
             throw new IOException(
                     "virtual keyboards require keyboard relay");
         }
@@ -1357,8 +1356,9 @@ public final class ShellAccess {
             final int[] state = service.startInputRouting(
                     displayId,
                     expectedVirtualKeyboardCount,
-                    relayPolicy.keyboard,
-                    relayPolicy.mouse,
+                    policy.keyboard,
+                    policy.mouse,
+                    true,
                     ownerToken);
             if (state == null || state.length != 4) {
                 service.stopInputRouting(ownerToken);

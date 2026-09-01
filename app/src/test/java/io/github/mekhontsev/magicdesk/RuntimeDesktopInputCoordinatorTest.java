@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -7,23 +8,20 @@ import android.view.Display;
 
 import org.junit.Test;
 
+import java.util.Arrays;
+import java.util.List;
+
 public final class RuntimeDesktopInputCoordinatorTest {
     @Test
-    public void relayRoutingRequiresShellExternalDisplayAndPointer() {
+    public void pointerRoutingRequiresShellExternalDisplayAndPointer() {
         assertTrue(DesktopInputRelaySession.shouldRunRouting(
-                true, 7, DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE, true));
+                true, 7, true));
         assertFalse(DesktopInputRelaySession.shouldRunRouting(
-                false, 7, DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE, true));
+                false, 7, true));
         assertFalse(DesktopInputRelaySession.shouldRunRouting(
-                true, Display.DEFAULT_DISPLAY,
-                DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE, true));
+                true, Display.DEFAULT_DISPLAY, true));
         assertFalse(DesktopInputRelaySession.shouldRunRouting(
-                true, 7, DesktopInputRelayPolicy.NONE, true));
-        assertFalse(DesktopInputRelaySession.shouldRunRouting(
-                true, 7, DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE, false));
-        assertTrue(DesktopInputRelaySession.shouldRunRouting(
-                true, 7,
-                new DesktopInputRelayPolicy(true, false), true));
+                true, 7, false));
     }
 
     @Test
@@ -39,20 +37,33 @@ public final class RuntimeDesktopInputCoordinatorTest {
     }
 
     @Test
-    public void mouseBridgeRequiresShellBridgeAndExternalDesktop() {
-        assertTrue(DesktopInputRelaySession.shouldRunMouseBridge(
-                true, 7, true, Display.INVALID_DISPLAY));
-        assertFalse(DesktopInputRelaySession.shouldRunMouseBridge(
-                false, 7, true, Display.INVALID_DISPLAY));
-        assertFalse(DesktopInputRelaySession.shouldRunMouseBridge(
-                true, 7, false, Display.INVALID_DISPLAY));
-        assertFalse(DesktopInputRelaySession.shouldRunMouseBridge(
-                true, Display.DEFAULT_DISPLAY, true,
+    public void pointerBridgeRequiresShellAndExternalDesktop() {
+        assertTrue(DesktopInputRelaySession.shouldRunPointerBridge(
+                true, 7, Display.INVALID_DISPLAY));
+        assertFalse(DesktopInputRelaySession.shouldRunPointerBridge(
+                false, 7, Display.INVALID_DISPLAY));
+        assertFalse(DesktopInputRelaySession.shouldRunPointerBridge(
+                true, Display.DEFAULT_DISPLAY,
                 Display.INVALID_DISPLAY));
-        assertFalse(DesktopInputRelaySession.shouldRunMouseBridge(
-                true, 7, true, 7));
-        assertTrue(DesktopInputRelaySession.shouldRunMouseBridge(
-                true, 8, true, 7));
+        assertFalse(DesktopInputRelaySession.shouldRunPointerBridge(
+                true, 7, 7));
+        assertTrue(DesktopInputRelaySession.shouldRunPointerBridge(
+                true, 8, 7));
+    }
+
+    @Test
+    public void virtualPointerCanRouteWithoutPhysicalMice() {
+        final DesktopMouseDevice physical = new DesktopMouseDevice(
+                "/dev/input/event1", "usb-mouse", 1, 2);
+        final DesktopMouseDevice virtual = new DesktopMouseDevice(
+                "/dev/input/event2", "magicdesk-mouse", 0x4d44, 1);
+
+        final List<DesktopMouseDevice> selected =
+                DesktopInputRoutingSession.selectRoutedMice(
+                        Arrays.asList(physical, virtual), false, true);
+
+        assertEquals(1, selected.size());
+        assertEquals("magicdesk-mouse", selected.get(0).location);
     }
 
     @Test

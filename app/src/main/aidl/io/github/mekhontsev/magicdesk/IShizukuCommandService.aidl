@@ -81,7 +81,8 @@ interface IShizukuCommandService {
         int displayId,
         int expectedVirtualKeyboardCount,
         boolean routeKeyboards,
-        boolean routeMouse,
+        boolean routePhysicalMice,
+        boolean routeVirtualMouse,
         IBinder ownerToken) = 18;
 
     int refreshInputRouting() = 19;

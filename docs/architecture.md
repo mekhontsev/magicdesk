@@ -81,12 +81,15 @@ a `BUS_VIRTUAL` pointer through `/dev/uinput`.
 
 `DesktopInputRelaySession` is the single lifecycle owner for the mouse helper,
 keyboard helper, and Android display-routing lease. `DesktopMouseBridge`
-creates one stable virtual pointer for that session. When physical EventHub
-devices marked `CURSOR | EXTERNAL` are
-present, the native helper grabs them and forwards motion, wheel, and button
-state through that pointer. `BTN_RIGHT` is the deliberate exception: the
-helper consumes the physical sequence and requests one display-targeted
-Android secondary click, bypassing RedMagic's conversion to Back.
+creates one stable virtual pointer for every external desktop session and
+routes it independently from physical input. The phone touchpad and automation
+therefore use the same relative pointer transport on every supported Android
+platform. A platform input-relay policy may additionally select physical
+EventHub devices marked `CURSOR | EXTERNAL`; only then does the native helper
+grab and forward their motion, wheel, and button state through that pointer.
+On RedMagic, `BTN_RIGHT` is the deliberate exception: the helper consumes the
+physical sequence and requests one display-targeted Android secondary click,
+bypassing the firmware conversion to Back.
 
 The pointer helper starts passively. The runtime first waits until its virtual
 mouse is visible in EventHub. It then prepares any optional vendor pointer
@@ -95,8 +98,8 @@ configuration change, and only then enables physical capture. Capture acquires
 every neutral source immediately; it does not expose a first physical motion
 report as an implicit vendor handshake. Hot-plugged sources enter the same
 neutral-state protocol. Absolute-pointer preparation belongs to that same
-routing transaction, but runs only when both mouse relay and the selected
-pointer driver are available. Nubia's oneway viewport command is issued
+routing transaction, but runs only when the selected pointer driver exposes
+that capability. Nubia's oneway viewport command is issued
 synchronously so capture cannot overtake the service-side request; firmware
 may apply the accepted update while the desktop surface is becoming visible.
 Teardown reverses that order: the helper
