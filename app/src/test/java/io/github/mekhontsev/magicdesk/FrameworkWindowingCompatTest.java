@@ -53,18 +53,18 @@ public final class FrameworkWindowingCompatTest {
         assertFalse(compat.capabilities().captionExclusionEnabled);
         assertEquals("source-polyfill",
                 compat.capabilities().captionStrategy());
-        assertEquals("legacy-emulated",
+        assertEquals("without-flags-emulated",
                 compat.capabilities().insetsSourceApi);
     }
 
     @Test
-    public void android15ShapeUsesLegacyInsetsSourceSignature()
+    public void android15ShapeUsesWithoutFlagsInsetsSourceSignature()
             throws Exception {
         final FrameworkWindowingCompat compat = inspect(
-                LegacyTaskInfo.class, LegacyTransaction.class, "");
-        final LegacyTransaction transaction = new LegacyTransaction();
+                Android15TaskInfo.class, Android15Transaction.class, "");
+        final Android15Transaction transaction = new Android15Transaction();
 
-        assertNull(compat.readRequestedVisibleTypes(new LegacyTaskInfo()));
+        assertNull(compat.readRequestedVisibleTypes(new Android15TaskInfo()));
         assertFalse(compat.addCaptionExclusion(
                 transaction, new Token(), true, CAPTION_TYPE));
         compat.addEmptyCaptionSource(
@@ -75,12 +75,12 @@ public final class FrameworkWindowingCompatTest {
                 null,
                 SOURCE_ID);
 
-        assertEquals("legacy", compat.capabilities().insetsSourceApi);
+        assertEquals("without-flags", compat.capabilities().insetsSourceApi);
         assertEquals("source-polyfill",
                 compat.capabilities().captionStrategy());
         assertEquals(SOURCE_ID,
                 transaction.operations.get(0).getInsetsFrameProvider().mId);
-        assertEquals(1, transaction.legacyAddCalls);
+        assertEquals(1, transaction.withoutFlagsAddCalls);
     }
 
     @Test
@@ -129,7 +129,7 @@ public final class FrameworkWindowingCompatTest {
         public int requestedVisibleTypes;
     }
 
-    public static final class LegacyTaskInfo {
+    public static final class Android15TaskInfo {
     }
 
     public static final class Token {
@@ -197,17 +197,17 @@ public final class FrameworkWindowingCompatTest {
         }
     }
 
-    public static final class LegacyTransaction extends BaseTransaction {
-        int legacyAddCalls;
+    public static final class Android15Transaction extends BaseTransaction {
+        int withoutFlagsAddCalls;
 
-        public LegacyTransaction addInsetsSource(
+        public Android15Transaction addInsetsSource(
                 final Token token,
                 final IBinder owner,
                 final int index,
                 final int type,
                 final Rect frame,
                 final Rect[] boundingRects) {
-            legacyAddCalls++;
+            withoutFlagsAddCalls++;
             operations.add(new HierarchyOp(0, new InsetsProvider()));
             return this;
         }

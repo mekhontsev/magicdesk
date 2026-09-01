@@ -531,8 +531,6 @@
     <string name="settings_section_integrations">Integrations</string>
     <string name="settings_section_support">Support</string>
     <string name="settings_termux_x11_command">Termux:X11 startup command</string>
-    <string name="status_termux_x11_unavailable">Termux:X11 is unavailable</string>
-    <string name="status_termux_x11_failed">Could not open Termux:X11</string>
     <string name="action_termux_x11_reconnect">Reconnect Termux:X11</string>
     <string name="status_desktop_exec_started">Started %1$s</string>
     <string name="status_desktop_exec_complete">Finished %1$s</string>
@@ -674,10 +672,6 @@
     <string name="onboarding_check_output_configuration">Resolution and refresh-rate controls work</string>
     <string name="self_test_window_target">MagicDesk self-test window</string>
     <string name="console_title">Console</string>
-    <string name="console_command_hint">Enter a command</string>
-    <string name="console_prompt">$</string>
-    <string name="console_run">Run</string>
-    <string name="console_stop">Stop command</string>
     <string name="console_clear">Clear</string>
     <string name="console_copy_output">Copy transcript</string>
     <string name="console_paste">Paste</string>
@@ -707,11 +701,6 @@
     <string name="console_tmux_session_summary">%1$s\n%2$s | %3$s</string>
     <string name="console_tmux_list_failed">Could not list tmux sessions: %1$s</string>
     <string name="console_tmux_launch_failed">Could not open tmux session: %1$s</string>
-    <string name="console_idle">Not run</string>
-    <string name="console_running">Running&#8230;</string>
-    <string name="console_stopping">Stopping&#8230;</string>
-    <string name="console_stopped">Stopped | %1$s</string>
-    <string name="console_result">Exit %1$d | %2$s</string>
     <string name="console_failed">Execution failed | %1$s</string>
     <string name="console_shell_adb">Android shell (UID %1$d)</string>
     <string name="console_shell_root">Root shell (UID %1$d)</string>
@@ -719,9 +708,6 @@
     <string name="console_copied">Console transcript copied</string>
     <string name="console_copy_failed">Clipboard unavailable</string>
     <string name="console_open_working_directory">Open current folder in Files</string>
-    <string name="console_reveal_selected_path">Reveal path in Files</string>
-    <string name="console_completion_failed">Completion failed: %1$s</string>
-    <string name="console_path_invalid">Select one file or folder path</string>
     <string name="console_path_unavailable">Path unavailable: %1$s</string>
     <string name="console_files_failed">Files could not open this path: %1$s</string>
     <string name="task_manager_title">Task Manager</string>

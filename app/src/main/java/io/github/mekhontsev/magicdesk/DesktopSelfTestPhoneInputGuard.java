@@ -26,7 +26,8 @@ final class DesktopSelfTestPhoneInputGuard {
     private DesktopSelfTestPhoneInputGuard() {
     }
 
-    static String begin(final Context context) throws IOException {
+    static String begin(final Context context, final long runId)
+            throws IOException {
         synchronized (DesktopSelfTestPhoneInputGuard.class) {
             reset();
             sActive = true;
@@ -36,7 +37,7 @@ final class DesktopSelfTestPhoneInputGuard {
         final boolean started;
         try {
             started = DesktopSelfTestPhoneGuardWindow.showAndWait(
-                    context, LIFECYCLE_TIMEOUT_MILLIS);
+                    context, runId, LIFECYCLE_TIMEOUT_MILLIS);
         } catch (RuntimeException error) {
             cancel();
             throw new IOException("could not open phone input guard", error);

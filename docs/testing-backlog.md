@@ -31,8 +31,7 @@ firmware task, display, input, or capture behavior.
   launcher protection, and simulated self-test cleanup.
 - Shell UID 2000 cannot read `/sys/kernel/lcd_enhance/edid_modes`; root can.
   This no longer blocks the confirmed wide mode: Android reports the active
-  physical-display timing and MagicDesk retains it without the legacy mirror
-  display path.
+  physical-display timing and MagicDesk retains it across desktop sessions.
 - Fan and pump nodes expected on RedMagic gaming phones are absent.
 
 ## Automated Coverage

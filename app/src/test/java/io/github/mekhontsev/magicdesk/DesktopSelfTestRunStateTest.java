@@ -59,6 +59,8 @@ public final class DesktopSelfTestRunStateTest {
                 "wired", DesktopSelfTestExecutionPolicy.FAIL_FAST, 100L);
 
         assertEquals(DesktopSelfTestRunState.CancellationStatus.RUN_MISMATCH,
+                DesktopSelfTestRunState.requestCancellation(0L));
+        assertEquals(DesktopSelfTestRunState.CancellationStatus.RUN_MISMATCH,
                 DesktopSelfTestRunState.requestCancellation(runId + 1L));
         assertEquals(DesktopSelfTestRunState.CancellationStatus.ACCEPTED,
                 DesktopSelfTestRunState.requestCancellation(runId));

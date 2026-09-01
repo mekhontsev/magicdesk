@@ -48,7 +48,7 @@ public final class DiagnosticsActivity extends Activity {
     private Button mVendorProbe;
     private String mReport = "";
     private boolean mLoading;
-    private boolean mSelfTestRunning;
+    private boolean mSelfTestOperationActive;
     private DesktopSelfTestTarget mPendingSelfTestTarget;
     private DesktopDisplayTarget.Kind mPendingSelfTestDisplayKind;
     private DesktopSelfTestExecutionPolicy mPendingSelfTestExecutionPolicy;
@@ -90,7 +90,7 @@ public final class DiagnosticsActivity extends Activity {
         final DesktopSelfTestExecutionPolicy executionPolicy =
                 requestedSelfTestExecutionPolicy(intent);
         final long runId = intent.getLongExtra(EXTRA_SELF_TEST_RUN_ID, 0L);
-        // The debug launcher is a one-shot trigger. Consuming its extras keeps
+        // An automation request is a one-shot trigger. Consuming its extras keeps
         // activity recreation during a display test from starting another run.
         intent.removeExtra(EXTRA_SELF_TEST_TARGET);
         intent.removeExtra(EXTRA_SELF_TEST_DISPLAY_KIND);
@@ -99,7 +99,8 @@ public final class DiagnosticsActivity extends Activity {
         if (runId > 0L && !DesktopSelfTestRunState.isStarting(runId)) {
             return true;
         }
-        if (mSelfTestRunning || DesktopSelfTestController.isRunning()) {
+        if (mSelfTestOperationActive
+                || DesktopSelfTestController.isRunning()) {
             return true;
         }
         if (mLoading) {
@@ -224,7 +225,7 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void refreshReport() {
-        if (mLoading || mSelfTestRunning) {
+        if (mLoading || mSelfTestOperationActive) {
             return;
         }
         mLoading = true;
@@ -249,7 +250,7 @@ public final class DiagnosticsActivity extends Activity {
 
     private void runPendingAutomatedSelfTest() {
         final DesktopSelfTestTarget target = mPendingSelfTestTarget;
-        if (target == null || mSelfTestRunning
+        if (target == null || mSelfTestOperationActive
                 || DesktopSelfTestController.isRunning()) {
             return;
         }
@@ -271,7 +272,7 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void chooseDesktopSelfTestTarget() {
-        if (mLoading || mSelfTestRunning
+        if (mLoading || mSelfTestOperationActive
                 || DesktopSelfTestController.isRunning()) {
             return;
         }
@@ -302,9 +303,10 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void prepareSimulatedSelfTest(final long requestedRunId) {
-        if (beginSelfTestPreparation(
-                DesktopSelfTestTarget.SIMULATED, null, requestedRunId)) {
-            runDesktopSelfTest(DesktopSelfTestTarget.SIMULATED);
+        final long runId = beginSelfTestPreparation(
+                DesktopSelfTestTarget.SIMULATED, null, requestedRunId);
+        if (runId > 0L) {
+            runDesktopSelfTest(DesktopSelfTestTarget.SIMULATED, runId);
         }
     }
 
@@ -375,8 +377,9 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void preparePhoneSelfTest(final long requestedRunId) {
-        if (!beginSelfTestPreparation(
-                DesktopSelfTestTarget.PHONE, null, requestedRunId)) {
+        final long runId = beginSelfTestPreparation(
+                DesktopSelfTestTarget.PHONE, null, requestedRunId);
+        if (runId <= 0L) {
             return;
         }
         DesktopDisplayDrivers
@@ -385,7 +388,7 @@ public final class DiagnosticsActivity extends Activity {
                         this,
                         DesktopDisplayTarget.phone(),
                         DesktopSessionPolicy.ISOLATED_SELF_TEST);
-        waitForPreparedDesktop(DesktopSelfTestTarget.PHONE);
+        waitForPreparedDesktop(DesktopSelfTestTarget.PHONE, runId);
     }
 
     private void prepareExternalSelfTest() {
@@ -400,10 +403,11 @@ public final class DiagnosticsActivity extends Activity {
     private void prepareExternalSelfTest(
             final DesktopDisplayTarget.Kind requestedKind,
             final long requestedRunId) {
-        if (!beginSelfTestPreparation(
+        final long runId = beginSelfTestPreparation(
                 DesktopSelfTestTarget.EXTERNAL,
                 requestedKind,
-                requestedRunId)) {
+                requestedRunId);
+        if (runId <= 0L) {
             return;
         }
         new Thread(() -> {
@@ -411,7 +415,7 @@ public final class DiagnosticsActivity extends Activity {
                     ExternalDisplayController.findExternalDisplayId();
             final int wirelessDisplayId =
                     ExternalDisplayController.findWirelessDisplayId();
-            if (!DesktopSelfTestRunState.isStarting(mSelfTestRunId)) {
+            if (!DesktopSelfTestRunState.isStarting(runId)) {
                 return;
             }
             if (requestedKind != DesktopDisplayTarget.Kind.WIRELESS
@@ -422,7 +426,8 @@ public final class DiagnosticsActivity extends Activity {
                     if (!isFinishing() && !isDestroyed()) {
                         waitForPreparedDesktop(
                                 DesktopSelfTestTarget.EXTERNAL,
-                                DesktopDisplayTarget.Kind.WIRED);
+                                DesktopDisplayTarget.Kind.WIRED,
+                                runId);
                     }
                 });
                 return;
@@ -430,6 +435,7 @@ public final class DiagnosticsActivity extends Activity {
             if (requestedKind == DesktopDisplayTarget.Kind.WIRED) {
                 runOnUiThread(() -> {
                     failSelfTestPreparation(
+                            runId,
                             "connected wired display is unavailable",
                             R.string.status_external_display_unavailable);
                 });
@@ -440,7 +446,7 @@ public final class DiagnosticsActivity extends Activity {
                     return;
                 }
                 if (wirelessDisplayId <= Display.DEFAULT_DISPLAY) {
-                    awaitWirelessDisplay();
+                    awaitWirelessDisplay(runId);
                     if (mWirelessDisplayListener != null
                             && PlatformDrivers.current().projection()
                                     .openWirelessConnectionUi(this)) {
@@ -448,6 +454,7 @@ public final class DiagnosticsActivity extends Activity {
                                 R.string.diagnostics_self_test_connect_wireless);
                     } else {
                         failSelfTestPreparation(
+                                runId,
                                 "external display is unavailable",
                                 R.string.status_external_display_unavailable);
                     }
@@ -459,12 +466,13 @@ public final class DiagnosticsActivity extends Activity {
                         DesktopSessionPolicy.ISOLATED_SELF_TEST);
                 waitForPreparedDesktop(
                         DesktopSelfTestTarget.EXTERNAL,
-                        DesktopDisplayTarget.Kind.WIRELESS);
+                        DesktopDisplayTarget.Kind.WIRELESS,
+                        runId);
             });
         }, "MagicDeskSelfTestDisplayProbe").start();
     }
 
-    private void awaitWirelessDisplay() {
+    private void awaitWirelessDisplay(final long runId) {
         stopAwaitingWirelessDisplay();
         mDisplayManager = getSystemService(DisplayManager.class);
         if (mDisplayManager == null) {
@@ -473,7 +481,7 @@ public final class DiagnosticsActivity extends Activity {
         mWirelessDisplayListener = new DisplayManager.DisplayListener() {
             @Override
             public void onDisplayAdded(final int displayId) {
-                probeWirelessDisplay();
+                probeWirelessDisplay(runId);
             }
 
             @Override
@@ -482,24 +490,26 @@ public final class DiagnosticsActivity extends Activity {
 
             @Override
             public void onDisplayChanged(final int displayId) {
-                probeWirelessDisplay();
+                probeWirelessDisplay(runId);
             }
         };
         mDisplayManager.registerDisplayListener(
                 mWirelessDisplayListener, null);
     }
 
-    private void probeWirelessDisplay() {
+    private void probeWirelessDisplay(final long runId) {
         new Thread(() -> {
             final int displayId =
                     ExternalDisplayController.findWirelessDisplayId();
-            runOnUiThread(() -> continueExternalSelfTest(displayId));
+            runOnUiThread(() -> continueExternalSelfTest(displayId, runId));
         }, "MagicDeskSelfTestWirelessProbe").start();
     }
 
-    private void continueExternalSelfTest(final int displayId) {
+    private void continueExternalSelfTest(
+            final int displayId, final long runId) {
         if (isFinishing() || isDestroyed()
-                || !DesktopSelfTestRunState.isStarting(mSelfTestRunId)
+                || runId != mSelfTestRunId
+                || !DesktopSelfTestRunState.isStarting(runId)
                 || mWirelessDisplayListener == null
                 || mDisplayManager == null) {
             return;
@@ -513,7 +523,8 @@ public final class DiagnosticsActivity extends Activity {
                 DesktopSessionPolicy.ISOLATED_SELF_TEST);
         waitForPreparedDesktop(
                 DesktopSelfTestTarget.EXTERNAL,
-                DesktopDisplayTarget.Kind.WIRELESS);
+                DesktopDisplayTarget.Kind.WIRELESS,
+                runId);
     }
 
     private void stopAwaitingWirelessDisplay() {
@@ -525,7 +536,7 @@ public final class DiagnosticsActivity extends Activity {
         mDisplayManager = null;
     }
 
-    private boolean beginSelfTestPreparation(
+    private long beginSelfTestPreparation(
             final DesktopSelfTestTarget target,
             final DesktopDisplayTarget.Kind displayKind,
             final long requestedRunId) {
@@ -533,14 +544,14 @@ public final class DiagnosticsActivity extends Activity {
             failReservedSelfTest(
                     requestedRunId, "phone is locked or not interactive");
             mStatus.setText(R.string.diagnostics_self_test_unlock_phone);
-            return false;
+            return 0L;
         }
         if (DesktopRuntimeBridge.getActiveDesktopDisplayId()
                 != Display.INVALID_DISPLAY) {
             failReservedSelfTest(
                     requestedRunId, "close the active desktop first");
             mStatus.setText(R.string.diagnostics_self_test_close_desktop);
-            return false;
+            return 0L;
         }
         final String targetName = displayKind == null
                 ? target.name().toLowerCase(java.util.Locale.ROOT)
@@ -553,22 +564,22 @@ public final class DiagnosticsActivity extends Activity {
                         System.currentTimeMillis());
         if (!DesktopSelfTestRunState.isStarting(runId)) {
             mStatus.setText(R.string.diagnostics_self_test_prepare_failed);
-            return false;
+            return 0L;
         }
         mSelfTestRunId = runId;
         mPreparingSelfTestTarget = target;
-        mSelfTestRunning = true;
+        mSelfTestOperationActive = true;
         setActionsEnabled(false);
         mStatus.setText(R.string.diagnostics_self_test_preparing);
-        DesktopSelfTestHostObserver.begin();
+        DesktopSelfTestHostObserver.begin(runId);
         DesktopSelfTestRunState.registerPreparationCancellationHandler(
                 runId,
                 () -> runOnUiThread(
                         () -> cancelSelfTestPreparation(runId)));
         if (DesktopSelfTestRunState.snapshot().cancellationRequested) {
-            return false;
+            return 0L;
         }
-        return true;
+        return runId;
     }
 
     private void failReservedSelfTest(
@@ -588,9 +599,11 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void failSelfTestPreparation(
-            final String detail, final int statusResource) {
-        final long runId = mSelfTestRunId;
-        if (!DesktopSelfTestRunState.isStarting(runId)) {
+            final long runId,
+            final String detail,
+            final int statusResource) {
+        if (runId != mSelfTestRunId
+                || !DesktopSelfTestRunState.isStarting(runId)) {
             return;
         }
         DesktopSelfTestRunState.complete(
@@ -600,7 +613,7 @@ public final class DiagnosticsActivity extends Activity {
                 System.currentTimeMillis(),
                 detail,
                 DesktopSelfTestResult.lastModifiedMillis(this));
-        finishSelfTestPreparation();
+        finishSelfTestPreparation(runId);
         mStatus.setText(statusResource);
     }
 
@@ -617,7 +630,7 @@ public final class DiagnosticsActivity extends Activity {
                 System.currentTimeMillis(),
                 "cancelled during preparation",
                 DesktopSelfTestResult.lastModifiedMillis(this));
-        finishSelfTestPreparation();
+        finishSelfTestPreparation(runId);
         mStatus.setText(R.string.diagnostics_self_test_cancelled);
     }
 
@@ -635,11 +648,13 @@ public final class DiagnosticsActivity extends Activity {
         DesktopRuntimeBridge.closeDesktopSession(displayId);
     }
 
-    private void finishSelfTestPreparation() {
-        DesktopSelfTestRunState.clearPreparationCancellationHandler(
-                mSelfTestRunId);
+    private void finishSelfTestPreparation(final long runId) {
+        if (runId != mSelfTestRunId) {
+            return;
+        }
+        DesktopSelfTestRunState.clearPreparationCancellationHandler(runId);
         stopAwaitingWirelessDisplay();
-        mSelfTestRunning = false;
+        mSelfTestOperationActive = false;
         setActionsEnabled(true);
         getWindow().clearFlags(
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -655,7 +670,7 @@ public final class DiagnosticsActivity extends Activity {
                 && DesktopSelfTestRunState.isStarting(mSelfTestRunId)) {
             DesktopSelfTestRunState.requestCancellation(mSelfTestRunId);
             cancelSelfTestPreparation(mSelfTestRunId);
-        } else if (mSelfTestRunning
+        } else if (mSelfTestOperationActive
                 && !DesktopSelfTestController.isRunning()) {
             // Preparation owns the observer until the test takes over. Do not
             // leave it recording unrelated desktop frames if this UI closes.
@@ -677,14 +692,15 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void waitForPreparedDesktop(
-            final DesktopSelfTestTarget target) {
-        waitForPreparedDesktop(target, null);
+            final DesktopSelfTestTarget target,
+            final long runId) {
+        waitForPreparedDesktop(target, null, runId);
     }
 
     private void waitForPreparedDesktop(
             final DesktopSelfTestTarget target,
-            final DesktopDisplayTarget.Kind expectedKind) {
-        final long runId = mSelfTestRunId;
+            final DesktopDisplayTarget.Kind expectedKind,
+            final long runId) {
         new Thread(() -> {
             final long deadline = SystemClock.uptimeMillis()
                     + ExternalDisplayController.START_TIMEOUT_MS * 2L;
@@ -715,21 +731,26 @@ public final class DiagnosticsActivity extends Activity {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                if (!DesktopSelfTestRunState.isStarting(runId)) {
+                if (runId != mSelfTestRunId
+                        || !DesktopSelfTestRunState.isStarting(runId)) {
                     return;
                 }
                 if (prepared) {
-                    runDesktopSelfTest(target);
+                    runDesktopSelfTest(target, runId);
                 } else {
-                    abortSelfTestPreparation(target);
+                    abortSelfTestPreparation(target, runId);
                 }
             });
         }, "MagicDeskSelfTestDesktopWait").start();
     }
 
     private void abortSelfTestPreparation(
-            final DesktopSelfTestTarget target) {
-        final long runId = mSelfTestRunId;
+            final DesktopSelfTestTarget target,
+            final long runId) {
+        if (runId != mSelfTestRunId
+                || !DesktopSelfTestRunState.isStarting(runId)) {
+            return;
+        }
         closePreparedDesktop(target);
         DesktopSelfTestRunState.complete(
                 runId,
@@ -738,19 +759,23 @@ public final class DiagnosticsActivity extends Activity {
                 System.currentTimeMillis(),
                 "desktop preparation timed out",
                 DesktopSelfTestResult.lastModifiedMillis(this));
-        finishSelfTestPreparation();
+        finishSelfTestPreparation(runId);
         mStatus.setText(R.string.diagnostics_self_test_prepare_failed);
     }
 
     private void runDesktopSelfTest(
-            final DesktopSelfTestTarget target) {
-        if (!mSelfTestRunning) {
-            mSelfTestRunning = true;
+            final DesktopSelfTestTarget target,
+            final long runId) {
+        if (runId != mSelfTestRunId
+                || !DesktopSelfTestRunState.isStarting(runId)) {
+            return;
+        }
+        if (!mSelfTestOperationActive) {
+            mSelfTestOperationActive = true;
             setActionsEnabled(false);
         }
         mStatus.setText(R.string.diagnostics_self_test_running);
         new Thread(() -> {
-            final long runId = mSelfTestRunId;
             final DesktopSelfTestResult result =
                     DesktopSelfTestController.run(
                             getApplicationContext(),
@@ -761,7 +786,8 @@ public final class DiagnosticsActivity extends Activity {
             final String report =
                     CompatibilityDiagnostics.buildReport(getApplicationContext());
             runOnUiThread(() -> {
-                if (isFinishing() || isDestroyed()) {
+                if (isFinishing() || isDestroyed()
+                        || runId != mSelfTestRunId) {
                     return;
                 }
                 mReport = report;
@@ -773,7 +799,7 @@ public final class DiagnosticsActivity extends Activity {
                             R.string.diagnostics_self_test_complete,
                             result.summary()));
                 }
-                finishSelfTestPreparation();
+                finishSelfTestPreparation(runId);
             });
         }, "MagicDeskDesktopSelfTest").start();
     }
@@ -811,7 +837,7 @@ public final class DiagnosticsActivity extends Activity {
     }
 
     private void confirmVendorProbe() {
-        if (mLoading || mSelfTestRunning || !ShellAccess.isReady()) {
+        if (mLoading || mSelfTestOperationActive || !ShellAccess.isReady()) {
             return;
         }
         new AlertDialog.Builder(this)

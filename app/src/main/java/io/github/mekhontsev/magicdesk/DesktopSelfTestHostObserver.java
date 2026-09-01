@@ -12,6 +12,7 @@ final class DesktopSelfTestHostObserver {
     private static final int MAX_EVENTS = 24;
 
     private static boolean sActive;
+    private static long sRunId;
     private static long sStartedAt;
     private static String sStage = "PREPARE";
     private static boolean sHostSeen;
@@ -29,9 +30,13 @@ final class DesktopSelfTestHostObserver {
     private DesktopSelfTestHostObserver() {
     }
 
-    static synchronized void begin() {
+    static synchronized void begin(final long runId) {
+        if (runId <= 0L) {
+            throw new IllegalArgumentException("self-test run is required");
+        }
         sGeneration++;
         sActive = true;
+        sRunId = runId;
         sStartedAt = SystemClock.uptimeMillis();
         sStage = "PREPARE";
         sHostSeen = false;
@@ -46,7 +51,11 @@ final class DesktopSelfTestHostObserver {
         EVENTS.clear();
     }
 
-    static synchronized boolean isActive() {
+    static synchronized boolean isActive(final long runId) {
+        return sActive && runId > 0L && sRunId == runId;
+    }
+
+    private static synchronized boolean isActive() {
         return sActive;
     }
 
@@ -55,16 +64,18 @@ final class DesktopSelfTestHostObserver {
     }
 
     static void stage(final String stage) {
-        DesktopSelfTestRunState.stage(stage);
         boolean changed = false;
+        long runId = 0L;
         synchronized (DesktopSelfTestHostObserver.class) {
             if (sActive && stage != null && !stage.isEmpty()
                     && !stage.equals(sStage)) {
                 sStage = stage;
+                runId = sRunId;
                 changed = true;
             }
         }
         if (changed) {
+            DesktopSelfTestRunState.stage(runId, stage);
             DesktopSelfTestTaskStackGuard.stage(stage);
         }
     }
@@ -160,6 +171,7 @@ final class DesktopSelfTestHostObserver {
     static synchronized void cancel() {
         sGeneration++;
         sActive = false;
+        sRunId = 0L;
         sStartedAt = 0L;
         sStage = "PREPARE";
         sHostSeen = false;

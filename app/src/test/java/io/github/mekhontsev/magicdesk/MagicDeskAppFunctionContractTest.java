@@ -22,12 +22,12 @@ public final class MagicDeskAppFunctionContractTest {
             throws Exception {
         final Set<String> expected = Set.of(
                 MagicDeskAppFunctionCatalog.all());
-        final Document legacy = parse(
+        final Document v1 = parse(
                 "src/main/assets/magicdesk_app_functions_v1.xml");
         final Document current = parse(
                 "src/main/assets/magicdesk_app_functions.xml");
 
-        assertEquals(expected, values(legacy, "function_id"));
+        assertEquals(expected, values(v1, "function_id"));
         assertEquals(expected, values(current, "id"));
         assertEquals(expected, values(current, "functionId"));
         assertEquals(expected.size(),

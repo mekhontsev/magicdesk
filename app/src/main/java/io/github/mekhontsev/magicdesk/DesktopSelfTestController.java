@@ -79,18 +79,19 @@ final class DesktopSelfTestController {
                 startedAtMillis);
         final DesktopSelfTestResult result =
                 new DesktopSelfTestResult(startedAtMillis, runId);
+        if (runId <= 0L) {
+            result.add(DesktopSelfTestResult.State.FAIL,
+                    "SELFTEST-002", "Concurrent self-test",
+                    "another desktop self-test is already running");
+            result.finish(System.currentTimeMillis());
+            return result;
+        }
         if (context == null) {
             result.add(DesktopSelfTestResult.State.FAIL,
                     "SELFTEST-001", "Self-test context", "unavailable");
             return finish(result, null, runId);
         }
         final Context appContext = context.getApplicationContext();
-        if (runId <= 0L) {
-            result.add(DesktopSelfTestResult.State.FAIL,
-                    "SELFTEST-002", "Concurrent self-test",
-                    "another desktop self-test is already running");
-            return finish(result, appContext, 0L);
-        }
         try {
             DesktopSelfTestRunState.checkpoint();
         } catch (DesktopSelfTestRunState.Cancelled cancelled) {
@@ -111,8 +112,8 @@ final class DesktopSelfTestController {
 
         DesktopSelfTestPhoneInputGuard.cancel();
         DesktopSelfTestTaskStackGuard.cancel();
-        if (!DesktopSelfTestHostObserver.isActive()) {
-            DesktopSelfTestHostObserver.begin();
+        if (!DesktopSelfTestHostObserver.isActive(runId)) {
+            DesktopSelfTestHostObserver.begin(runId);
         }
         int displayId = Display.INVALID_DISPLAY;
         SimulatedDisplayLease lease = null;

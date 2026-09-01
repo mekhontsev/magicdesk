@@ -48,6 +48,10 @@ public final class DesktopSelfTestResult {
         return mStartedAtMillis;
     }
 
+    long runId() {
+        return mRunId;
+    }
+
     public void add(final State state, final String code,
             final String label, final String detail) {
         if (state == null || code == null || label == null) {

@@ -25,6 +25,8 @@ final class DesktopSelfTestPhoneGuardWindow {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private static WindowManager sWindowManager;
+    // Process-level overlay ownership; hideOnMain clears this reference.
+    @SuppressLint("StaticFieldLeak")
     private static GuardView sView;
     private static String sLastError = "";
 
@@ -33,17 +35,19 @@ final class DesktopSelfTestPhoneGuardWindow {
 
     static boolean showAndWait(
             final Context context,
+            final long runId,
             final long timeoutMillis) {
-        if (context == null) {
+        if (context == null || runId <= 0L) {
             return false;
         }
         synchronized (STATE_LOCK) {
             if (isVisibleLocked()) {
-                return true;
+                return sView.runId() == runId;
             }
         }
         final Operation operation = new Operation();
-        runOnMain(() -> showOnMain(context.getApplicationContext(), operation));
+        runOnMain(() -> showOnMain(
+                context.getApplicationContext(), runId, operation));
         if (!operation.await(timeoutMillis)) {
             synchronized (STATE_LOCK) {
                 sLastError = "window attachment timed out";
@@ -74,6 +78,7 @@ final class DesktopSelfTestPhoneGuardWindow {
     @SuppressLint("ClickableViewAccessibility")
     private static void showOnMain(
             final Context applicationContext,
+            final long runId,
             final Operation operation) {
         synchronized (STATE_LOCK) {
             sLastError = "";
@@ -104,7 +109,8 @@ final class DesktopSelfTestPhoneGuardWindow {
                 operation.complete(false);
                 return;
             }
-            final GuardView view = new GuardView(windowContext, operation);
+            final GuardView view = new GuardView(
+                    windowContext, runId, operation);
             final WindowManager.LayoutParams params =
                     new WindowManager.LayoutParams(
                             WindowManager.LayoutParams.MATCH_PARENT,
@@ -182,12 +188,17 @@ final class DesktopSelfTestPhoneGuardWindow {
 
     private static final class GuardView extends LinearLayout {
         private final Operation mAttached;
+        private final long mRunId;
         private final TextView mMessage;
         private final Button mCancel;
 
-        GuardView(final Context context, final Operation attached) {
+        GuardView(
+                final Context context,
+                final long runId,
+                final Operation attached) {
             super(context);
             mAttached = attached;
+            mRunId = runId;
             setOrientation(VERTICAL);
             setGravity(Gravity.CENTER);
             final DesktopUiFactory ui = new DesktopUiFactory(context);
@@ -263,9 +274,13 @@ final class DesktopSelfTestPhoneGuardWindow {
                     && event.getY() < mCancel.getBottom();
         }
 
+        private long runId() {
+            return mRunId;
+        }
+
         private void requestCancellation() {
             final DesktopSelfTestRunState.CancellationStatus status =
-                    DesktopSelfTestRunState.requestCancellation(0L);
+                    DesktopSelfTestRunState.requestCancellation(mRunId);
             if (status != DesktopSelfTestRunState.CancellationStatus.ACCEPTED
                     && status != DesktopSelfTestRunState.CancellationStatus
                             .ALREADY_REQUESTED) {

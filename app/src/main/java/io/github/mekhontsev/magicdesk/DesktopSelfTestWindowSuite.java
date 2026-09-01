@@ -85,7 +85,8 @@ final class DesktopSelfTestWindowSuite {
             require(result,
                     "PHONEUI-000",
                     "Protect the phone during the self-test",
-                    () -> DesktopSelfTestPhoneInputGuard.begin(appContext));
+                    () -> DesktopSelfTestPhoneInputGuard.begin(
+                            appContext, result.runId()));
         }
         final DisplayCaptureSource captureSource =
                 DesktopDisplayDrivers.captureSource(

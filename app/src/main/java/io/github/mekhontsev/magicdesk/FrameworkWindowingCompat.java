@@ -152,7 +152,7 @@ final class FrameworkWindowingCompat {
                 Rect.class,
                 Rect[].class,
                 Integer.TYPE);
-        final Method addInsetsSourceLegacy = findPublicMethod(
+        final Method addInsetsSourceWithoutFlags = findPublicMethod(
                 transactionClass,
                 "addInsetsSource",
                 tokenClass,
@@ -180,19 +180,19 @@ final class FrameworkWindowingCompat {
                 || providerId == null) {
             insetsSources = UnavailableInsetsSourceWriter.INSTANCE;
             insetsSourceApi = "unavailable";
-        } else if (emulateAndroid15 && addInsetsSourceLegacy != null) {
+        } else if (emulateAndroid15
+                && addInsetsSourceWithoutFlags != null) {
             insetsSources = new ReflectiveInsetsSourceWriter(
-                    addInsetsSourceLegacy,
+                    addInsetsSourceWithoutFlags,
                     false,
                     removeInsetsSource,
                     hierarchyOps,
                     getInsetsFrameProvider,
                     providerId);
-            insetsSourceApi = "legacy";
+            insetsSourceApi = "without-flags";
         } else if (emulateAndroid15 && addInsetsSourceWithFlags != null) {
-            // Android 16 may no longer expose the old overload. Supplying zero
-            // flags preserves Android 15 behavior while still exercising the
-            // legacy strategy selected by the debug profile.
+            // Android 16 may omit the without-flags overload. Supplying zero
+            // flags preserves Android 15 behavior for the debug profile.
             insetsSources = new ReflectiveInsetsSourceWriter(
                     addInsetsSourceWithFlags,
                     true,
@@ -200,7 +200,7 @@ final class FrameworkWindowingCompat {
                     hierarchyOps,
                     getInsetsFrameProvider,
                     providerId);
-            insetsSourceApi = "legacy-emulated";
+            insetsSourceApi = "without-flags-emulated";
         } else if (addInsetsSourceWithFlags != null) {
             insetsSources = new ReflectiveInsetsSourceWriter(
                     addInsetsSourceWithFlags,
@@ -210,15 +210,15 @@ final class FrameworkWindowingCompat {
                     getInsetsFrameProvider,
                     providerId);
             insetsSourceApi = "flags";
-        } else if (addInsetsSourceLegacy != null) {
+        } else if (addInsetsSourceWithoutFlags != null) {
             insetsSources = new ReflectiveInsetsSourceWriter(
-                    addInsetsSourceLegacy,
+                    addInsetsSourceWithoutFlags,
                     false,
                     removeInsetsSource,
                     hierarchyOps,
                     getInsetsFrameProvider,
                     providerId);
-            insetsSourceApi = "legacy";
+            insetsSourceApi = "without-flags";
         } else {
             insetsSources = UnavailableInsetsSourceWriter.INSTANCE;
             insetsSourceApi = "unavailable";

@@ -1,9 +1,13 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.app.ProgressDialog;
+import android.app.AlertDialog;
 import android.os.Binder;
 import android.os.IBinder;
+import android.view.ViewGroup;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 
 import java.util.List;
 
@@ -27,7 +31,9 @@ final class FileManagerOperationController implements AutoCloseable {
     private long mLastCompletionSequence;
     private volatile boolean mImportCancelled;
     private volatile boolean mClosed;
-    private ProgressDialog mProgress;
+    private AlertDialog mProgress;
+    private ProgressBar mProgressBar;
+    private TextView mProgressMessage;
 
     FileManagerOperationController(
             final Activity activity,
@@ -87,9 +93,7 @@ final class FileManagerOperationController implements AutoCloseable {
                     || mProgress == null) {
                 return;
             }
-            mProgress.setMax(Math.max(1, total));
-            mProgress.setProgress(Math.min(completed, total));
-            mProgress.setMessage(mActivity.getString(
+            updateProgress(completed, total, mActivity.getString(
                     R.string.file_manager_operation_progress,
                     completed,
                     total));
@@ -122,14 +126,15 @@ final class FileManagerOperationController implements AutoCloseable {
         }
         if (snapshot.isBusy()) {
             showProgressIfMissing(snapshot.totalItems);
-            mProgress.setMax(Math.max(1, snapshot.totalItems));
-            mProgress.setProgress(Math.min(
-                    snapshot.completedItems, snapshot.totalItems));
-            mProgress.setMessage(mActivity.getString(
-                    R.string.file_manager_operation_progress,
+            updateProgress(
                     snapshot.completedItems,
-                    snapshot.totalItems) + (snapshot.currentPath.isEmpty()
-                            ? "" : "\n" + snapshot.currentPath));
+                    snapshot.totalItems,
+                    mActivity.getString(
+                            R.string.file_manager_operation_progress,
+                            snapshot.completedItems,
+                            snapshot.totalItems)
+                            + (snapshot.currentPath.isEmpty()
+                                    ? "" : "\n" + snapshot.currentPath));
             return;
         }
         dismissProgress();
@@ -159,17 +164,51 @@ final class FileManagerOperationController implements AutoCloseable {
 
     private void showProgress(final int total) {
         dismissProgress();
-        mProgress = new ProgressDialog(mActivity);
-        mProgress.setTitle(R.string.file_manager_operation_running);
-        mProgress.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
-        mProgress.setIndeterminate(false);
-        mProgress.setMax(Math.max(1, total));
-        mProgress.setCancelable(false);
-        mProgress.setButton(
-                ProgressDialog.BUTTON_NEGATIVE,
-                mActivity.getString(R.string.file_manager_cancel),
-                (dialog, which) -> cancel());
-        mProgress.show();
+        final int padding = Math.round(24 * mActivity.getResources()
+                .getDisplayMetrics().density);
+        final LinearLayout content = new LinearLayout(mActivity);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(padding, padding / 2, padding, 0);
+
+        mProgressBar = new ProgressBar(
+                mActivity, null, android.R.attr.progressBarStyleHorizontal);
+        mProgressBar.setIndeterminate(false);
+        mProgressBar.setMax(Math.max(1, total));
+        content.addView(mProgressBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        mProgressMessage = new TextView(mActivity);
+        mProgressMessage.setPadding(0, padding / 2, 0, 0);
+        content.addView(mProgressMessage, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        final AlertDialog progress = new AlertDialog.Builder(mActivity)
+                .setTitle(R.string.file_manager_operation_running)
+                .setView(content)
+                .setNegativeButton(R.string.file_manager_cancel, null)
+                .setCancelable(false)
+                .create();
+        progress.setOnShowListener(dialog -> progress.getButton(
+                AlertDialog.BUTTON_NEGATIVE).setOnClickListener(
+                        ignored -> cancel()));
+        mProgress = progress;
+        progress.show();
+        updateProgress(0, total, mActivity.getString(
+                R.string.file_manager_operation_progress, 0, total));
+    }
+
+    private void updateProgress(
+            final int completed,
+            final int total,
+            final String message) {
+        if (mProgressBar == null || mProgressMessage == null) {
+            return;
+        }
+        mProgressBar.setMax(Math.max(1, total));
+        mProgressBar.setProgress(Math.min(completed, total));
+        mProgressMessage.setText(message);
     }
 
     private void dismissProgress() {
@@ -177,5 +216,7 @@ final class FileManagerOperationController implements AutoCloseable {
             mProgress.dismiss();
             mProgress = null;
         }
+        mProgressBar = null;
+        mProgressMessage = null;
     }
 }

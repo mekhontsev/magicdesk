@@ -141,15 +141,6 @@ final class DesktopSelfTestRunState {
         }
     }
 
-    static void stage(final String stage) {
-        synchronized (LOCK) {
-            if (sSnapshot.state != State.RUNNING) {
-                return;
-            }
-            sSnapshot = sSnapshot.withStage(clean(stage));
-        }
-    }
-
     static void checkCompleted(final long runId, final String stage) {
         synchronized (LOCK) {
             if (runId <= 0L || sSnapshot.runId != runId
@@ -235,7 +226,7 @@ final class DesktopSelfTestRunState {
             if (!current.state.active()) {
                 return CancellationStatus.NOT_ACTIVE;
             }
-            if (requestedRunId > 0L && current.runId != requestedRunId) {
+            if (requestedRunId <= 0L || current.runId != requestedRunId) {
                 return CancellationStatus.RUN_MISMATCH;
             }
             if (current.state == State.CLEANUP) {
