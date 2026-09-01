@@ -12,6 +12,10 @@ public abstract class TaskStackListener {
     public void onTaskRemoved(final int taskId) {
     }
 
+    public void onTaskRemovalStarted(
+            final ActivityManager.RunningTaskInfo taskInfo) {
+    }
+
     public void onTaskMovedToFront(final ActivityManager.RunningTaskInfo taskInfo) {
     }
 

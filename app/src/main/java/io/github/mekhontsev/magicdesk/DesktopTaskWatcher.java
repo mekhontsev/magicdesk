@@ -460,17 +460,6 @@ final class DesktopTaskWatcher {
         }
     }
 
-    boolean closeFullscreenTask(
-            final int displayId,
-            final int taskId,
-            final TaskRepository.ActionCallback callback) {
-        return submitTaskMutation(
-                "close fullscreen task",
-                taskId,
-                handle -> handle.closeFullscreenTask(displayId, taskId),
-                callback);
-    }
-
     boolean closeDesktopTask(
             final int displayId,
             final int taskId,

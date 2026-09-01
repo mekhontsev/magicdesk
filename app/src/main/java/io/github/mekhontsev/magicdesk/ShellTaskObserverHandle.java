@@ -160,13 +160,6 @@ final class ShellTaskObserverHandle implements Closeable {
                         mCallback, displayId, taskId));
     }
 
-    boolean closeFullscreenTask(
-            final int displayId,
-            final int taskId) throws IOException {
-        return callServiceForResult(() -> mService.closeFullscreenTask(
-                mCallback, displayId, taskId));
-    }
-
     boolean closeDesktopTask(
             final int displayId,
             final int taskId,

@@ -67,8 +67,10 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     synchronized boolean closeTask(
             final Object service,
             final int displayId,
-            final int taskId) {
-        return mTopology.closeTask(service, displayId, taskId);
+            final int taskId,
+            final int focusTaskId) {
+        return mTopology.closeTask(
+                service, displayId, taskId, focusTaskId);
     }
 
     synchronized boolean onWindowingModeChanged(
@@ -78,6 +80,18 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final boolean focused) {
         return mTopology.onWindowingModeChanged(
                 displayId, taskId, windowingMode, focused);
+    }
+
+    synchronized void onTaskRemovalStarted(
+            final Object service,
+            final int taskId) {
+        mTopology.onTaskRemovalStarted(service, taskId);
+    }
+
+    synchronized boolean recoverAnchorFocus(
+            final Object service,
+            final int taskId) {
+        return mTopology.recoverAnchorFocus(service, taskId);
     }
 
     synchronized void onTaskRemoved(final int taskId) {

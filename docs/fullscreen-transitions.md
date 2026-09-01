@@ -195,13 +195,21 @@ hierarchy non-empty until the reparent transition commits and lets the idle
 plane be reused without organizer deletion and recreation.
 After the application leaves, the plane becomes a non-focusable idle slot and
 is reused by a later fullscreen task. The anchor has a valid input channel for
-the brief task-removal boundary, accepts no pointer input, and cannot own focus
-while its plane is idle. A newly created anchor launches behind the current
-foreground task, so its structural `OPEN` cannot race the application's
-fullscreen entry or steal focus. Session teardown removes all owned planes and
-anchors; if display removal has already migrated an anchor to display 0,
-ownership is verified by both saved task ID and component before that task is
-removed. A phone task already belongs to the persistent session parent, so its
+the brief task-removal boundary and accepts no pointer input. An explicit close
+makes the source plane non-focusable, selects the successor, and confirms input
+focus before removing the now-background application task. Application-initiated
+removal submits the same handoff from `onTaskRemovalStarted` without waiting
+inside the framework callback; if the framework nevertheless reports anchor
+focus, that focus callback immediately restores the invariant. Neither path
+adds background polling. Explicit close retains the existing bounded
+input-focus verification around its WCT handoff; application removal remains
+callback-only. A newly created anchor launches behind the current foreground
+task, so its structural `OPEN` cannot race the application's fullscreen entry
+or steal focus. Session teardown removes all owned planes and anchors; if
+display removal has already migrated an anchor to display 0, ownership is
+verified by both saved task ID and component before that task is removed. A
+phone task already belongs to the persistent session parent. Its close hands
+focus to a surviving fullscreen sibling before removing the old task; its
 restore changes only mode, bounds, and order. Both paths preserve the Activity
 instance and avoid a display-0 trampoline.
 

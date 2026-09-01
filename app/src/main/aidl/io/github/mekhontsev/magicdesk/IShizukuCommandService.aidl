@@ -229,11 +229,6 @@ interface IShizukuCommandService {
     SelfTestTaskStackReport stopSelfTestTaskStackGuard(
         ITaskObserverCallback callback) = 64;
 
-    boolean closeFullscreenTask(
-        ITaskObserverCallback callback,
-        int displayId,
-        int taskId) = 65;
-
     void startShellDirectoryObserver(
         String absolutePath,
         IShellDirectoryObserverCallback callback) = 66;

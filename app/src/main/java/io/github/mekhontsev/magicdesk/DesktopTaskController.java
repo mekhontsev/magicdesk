@@ -539,7 +539,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final TaskRepository.ActionCallback callback) {
         if (task == null || task.taskId < 0
                 || !isActiveOnDisplay(task.displayId)
-                || !task.isFreeform()) {
+                || (!task.isFreeform() && !task.isFullscreen())) {
             return false;
         }
         final int generation = mGeneration;
@@ -706,12 +706,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         request.taskId,
                         request.bounds(),
                         scopedCallback);
-            case CLOSE_FULLSCREEN:
-                return mTaskWatcher.closeFullscreenTask(
-                        request.displayId,
-                        request.taskId,
-                        scopedCallback);
             case CLOSE_FREEFORM:
+            case CLOSE_FULLSCREEN:
                 return closeDesktopTaskInternal(
                         request.taskId, scopedCallback);
             default:

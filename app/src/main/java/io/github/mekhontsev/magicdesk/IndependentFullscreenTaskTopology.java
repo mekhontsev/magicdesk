@@ -128,12 +128,13 @@ final class IndependentFullscreenTaskTopology
     public synchronized boolean closeTask(
             final Object service,
             final int displayId,
-            final int taskId) {
+            final int taskId,
+            final int focusTaskId) {
         if (displayId != mDisplayId) {
             return false;
         }
         final boolean closed = mPlanes.closeTask(
-                service, displayId, taskId, mOwnership);
+                service, displayId, taskId, focusTaskId, mOwnership);
         if (closed) {
             mAppRestoreBounds.remove(Integer.valueOf(taskId));
         }
@@ -161,6 +162,20 @@ final class IndependentFullscreenTaskTopology
                     + " display=" + displayId);
         }
         return released;
+    }
+
+    @Override
+    public synchronized void onTaskRemovalStarted(
+            final Object service,
+            final int taskId) {
+        mPlanes.onTaskRemovalStarted(service, taskId, mOwnership);
+    }
+
+    @Override
+    public synchronized boolean recoverAnchorFocus(
+            final Object service,
+            final int taskId) {
+        return mPlanes.recoverAnchorFocus(service, taskId, mOwnership);
     }
 
     @Override

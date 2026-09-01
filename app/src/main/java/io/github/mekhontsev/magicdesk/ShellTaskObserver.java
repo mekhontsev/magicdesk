@@ -700,22 +700,16 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
-    boolean closeFullscreenTask(
-            final int displayId,
-            final int taskId) {
-        if (mClosed) {
-            throw new IllegalStateException("task observer is closed");
-        }
-        return mFullscreenTaskArea.closeTask(
-                mService, displayId, taskId);
-    }
-
     boolean closeDesktopTask(
             final int displayId,
             final int taskId,
             final int focusTaskId) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
+        }
+        if (mFullscreenTaskArea.closeTask(
+                mService, displayId, taskId, focusTaskId)) {
+            return true;
         }
         return mDesktopTaskArea.closeTask(
                 displayId, taskId, focusTaskId);
@@ -1008,6 +1002,18 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     }
 
     @Override
+    public void onTaskRemovalStarted(
+            final ActivityManager.RunningTaskInfo taskInfo) {
+        if (mClosed || taskInfo == null) {
+            return;
+        }
+        mFullscreenTaskArea.onTaskRemovalStarted(
+                mService, taskInfo.taskId);
+        mSelfTestTaskStackGuard.sample("task-removal-started");
+        signalChange("task-removal-started");
+    }
+
+    @Override
     public void onTaskRemoved(final int taskId) {
         if (!mClosed) {
             rememberDesktopTaskRemoval(taskId);
@@ -1165,6 +1171,12 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskFocusChanged(
             final int taskId,
             final boolean focused) {
+        if (focused && mFullscreenTaskArea.recoverAnchorFocus(
+                mService, taskId)) {
+            mSelfTestTaskStackGuard.sample("anchor-focus-recovered");
+            signalChange("anchor-focus-recovered");
+            return;
+        }
         mFocusController.onTaskFocusChanged(taskId, focused);
         if (focused) {
             reportTaskFocus(taskId);
