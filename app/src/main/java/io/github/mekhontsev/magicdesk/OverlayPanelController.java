@@ -41,22 +41,19 @@ final class OverlayPanelController {
     private final PanelVisibilityListener mPanelVisibilityListener;
     private final Rect mBounds = new Rect();
     private final Rect mChildBounds = new Rect();
-    private final Rect mPersistentBounds = new Rect();
+    private final Rect mInteractionOwnerBounds = new Rect();
 
     private View mVisiblePanel;
     private String mVisibleTitle = "";
     private View mChildPanel;
     private FrameLayout mChildHost;
     private String mChildTitle = "";
-    private View mPersistentView;
-    private WindowManager.LayoutParams mPersistentParams;
     private View mTransientView;
     private View mSurfaceTraversalFence;
     private boolean mAdded;
     private boolean mChildAdded;
     private boolean mVisibleFocusable;
     private boolean mChildFocusable;
-    private boolean mPersistentAdded;
     private boolean mTransientAdded;
     private boolean mSurfaceTraversalFenceAdded;
     private boolean mOverlayPermissionGranted;
@@ -162,7 +159,7 @@ final class OverlayPanelController {
                     && !mChildBounds.contains(
                             Math.round(event.getRawX()),
                             Math.round(event.getRawY()))
-                    && !mPersistentBounds.contains(
+                    && !mInteractionOwnerBounds.contains(
                             Math.round(event.getRawX()), Math.round(event.getRawY()))) {
                 hideAll();
             }
@@ -279,7 +276,7 @@ final class OverlayPanelController {
             }
             final int x = Math.round(event.getRawX());
             final int y = Math.round(event.getRawY());
-            if (mPersistentBounds.contains(x, y)) {
+            if (mInteractionOwnerBounds.contains(x, y)) {
                 hideChild();
             } else {
                 hideAll();
@@ -328,58 +325,6 @@ final class OverlayPanelController {
                     "OVERLAY-010",
                     "A desktop child panel could not be shown",
                     "panel=" + title,
-                    e);
-            return false;
-        }
-    }
-
-    boolean attachPersistent(final View view, final int left, final int top,
-            final int width, final int height,
-            final boolean watchOutsideTouches,
-            final String title) {
-        if (mReleased || view == null || mWindowManager == null
-                || !Settings.canDrawOverlays(mApplicationContext)) {
-            return false;
-        }
-        detachPersistent();
-
-        int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
-        if (watchOutsideTouches) {
-            flags |= WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH;
-        }
-        final WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                width,
-                height,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                flags,
-                PixelFormat.TRANSLUCENT);
-        params.gravity = Gravity.TOP | Gravity.START;
-        params.x = left;
-        params.y = top;
-        params.setTitle(title);
-
-        view.setVisibility(View.VISIBLE);
-        try {
-            mWindowManager.addView(view, params);
-            mPersistentView = view;
-            mPersistentParams = params;
-            mPersistentAdded = true;
-            mPersistentBounds.set(left, top, left + width, top + height);
-            return true;
-        } catch (RuntimeException e) {
-            view.setVisibility(View.GONE);
-            mPersistentView = null;
-            mPersistentParams = null;
-            mPersistentAdded = false;
-            mPersistentBounds.setEmpty();
-            Log.w(TAG, "failed to attach persistent overlay " + title, e);
-            CompatibilityDiagnostics.record(
-                    "OVERLAY-005",
-                    "The MagicDesk taskbar could not be attached",
-                    "overlay=" + title,
                     e);
             return false;
         }
@@ -506,44 +451,6 @@ final class OverlayPanelController {
         mSurfaceTraversalFenceAdded = false;
     }
 
-    void setPersistentVisible(final boolean visible) {
-        if (mPersistentAdded && mPersistentView != null) {
-            mPersistentView.setVisibility(visible ? View.VISIBLE : View.GONE);
-        }
-    }
-
-    void updatePersistentBounds(
-            final int left,
-            final int top,
-            final int width,
-            final int height) {
-        if (!mPersistentAdded || mPersistentView == null
-                || mWindowManager == null) {
-            return;
-        }
-        final WindowManager.LayoutParams params = mPersistentParams;
-        if (params == null) {
-            return;
-        }
-        params.x = left;
-        params.y = top;
-        params.width = width;
-        params.height = height;
-        try {
-            mWindowManager.updateViewLayout(mPersistentView, params);
-            mPersistentBounds.set(
-                    left, top, left + width, top + height);
-        } catch (RuntimeException e) {
-            Log.w(TAG, "failed to update persistent overlay bounds", e);
-            CompatibilityDiagnostics.record(
-                    "OVERLAY-007",
-                    "The MagicDesk taskbar could not be repositioned",
-                    "bounds=" + left + "," + top + " "
-                            + width + "x" + height,
-                    e);
-        }
-    }
-
     void hide(final View panel) {
         if (panel != null && panel == mChildPanel) {
             hideChild();
@@ -656,7 +563,15 @@ final class OverlayPanelController {
             mPermissionWatcherStarted = false;
         }
         hideAll();
-        detachPersistent();
+        mInteractionOwnerBounds.setEmpty();
+    }
+
+    void setInteractionOwnerBounds(final Rect bounds) {
+        if (bounds == null) {
+            mInteractionOwnerBounds.setEmpty();
+        } else {
+            mInteractionOwnerBounds.set(bounds);
+        }
     }
 
     private void reconcileOverlayPermission() {
@@ -670,62 +585,8 @@ final class OverlayPanelController {
         mOverlayPermissionGranted = granted;
         if (!granted) {
             hideAll();
-            suspendPersistent();
             Log.i(TAG, "desktop overlays suspended after permission revocation");
-            return;
         }
-        resumePersistent();
-    }
-
-    private void suspendPersistent() {
-        final View view = mPersistentView;
-        if (!mPersistentAdded || view == null || mWindowManager == null) {
-            return;
-        }
-        try {
-            mWindowManager.removeViewImmediate(view);
-        } catch (RuntimeException e) {
-            Log.w(TAG, "failed to suspend persistent overlay", e);
-        }
-        mPersistentAdded = false;
-    }
-
-    private void resumePersistent() {
-        final View view = mPersistentView;
-        if (mPersistentAdded || view == null || mPersistentParams == null
-                || mWindowManager == null) {
-            return;
-        }
-        try {
-            mWindowManager.addView(view, mPersistentParams);
-            mPersistentAdded = true;
-            Log.i(TAG, "desktop overlays resumed after permission grant");
-        } catch (RuntimeException e) {
-            Log.w(TAG, "failed to resume persistent overlay", e);
-            CompatibilityDiagnostics.record(
-                    "OVERLAY-008",
-                    "The MagicDesk taskbar could not be restored",
-                    "overlay permission was granted again",
-                    e);
-        }
-    }
-
-    private void detachPersistent() {
-        final View view = mPersistentView;
-        if (mPersistentAdded && view != null && mWindowManager != null) {
-            try {
-                mWindowManager.removeViewImmediate(view);
-            } catch (RuntimeException e) {
-                Log.w(TAG, "failed to remove persistent overlay", e);
-            }
-        }
-        if (view != null) {
-            view.setVisibility(View.GONE);
-        }
-        mPersistentView = null;
-        mPersistentParams = null;
-        mPersistentAdded = false;
-        mPersistentBounds.setEmpty();
     }
 
     boolean hasVisiblePanel() {

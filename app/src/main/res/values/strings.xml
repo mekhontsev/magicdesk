@@ -423,6 +423,7 @@
     <string name="status_restoring_windows">Restoring windows&#8230;</string>
     <string name="status_windows_restored">Windows restored</string>
     <string name="status_overlay_panel_unavailable">Overlay panel unavailable</string>
+    <string name="status_taskbar_unavailable">Taskbar host unavailable</string>
     <string name="status_exiting">Stopping services and exiting&#8230;</string>
     <string name="status_exit_failed">Exit failed: %1$s</string>
     <string name="notification_channel">MagicDesk</string>

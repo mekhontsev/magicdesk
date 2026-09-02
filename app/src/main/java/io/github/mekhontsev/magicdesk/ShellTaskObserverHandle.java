@@ -56,9 +56,11 @@ final class ShellTaskObserverHandle implements Closeable {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
+            final Rect taskbarBounds,
             final int taskAreaPolicy,
             final int desktopHostTaskId) throws IOException {
-        if (displayBounds == null || workAreaBounds == null) {
+        if (displayBounds == null || workAreaBounds == null
+                || taskbarBounds == null) {
             throw new IOException("missing task observer bounds");
         }
         callService(() -> mService.configureTaskObserver(
@@ -72,8 +74,37 @@ final class ShellTaskObserverHandle implements Closeable {
                 workAreaBounds.top,
                 workAreaBounds.right,
                 workAreaBounds.bottom,
+                taskbarBounds.left,
+                taskbarBounds.top,
+                taskbarBounds.right,
+                taskbarBounds.bottom,
                 taskAreaPolicy,
                 desktopHostTaskId));
+    }
+
+    void updateDesktopTaskbarBounds(
+            final int displayId,
+            final Rect bounds) throws IOException {
+        if (bounds == null || bounds.isEmpty()) {
+            throw new IOException("missing desktop taskbar bounds");
+        }
+        callService(() -> mService.updateDesktopTaskbarBounds(
+                mCallback,
+                displayId,
+                bounds.left,
+                bounds.top,
+                bounds.right,
+                bounds.bottom));
+    }
+
+    void configureDesktopTaskbarInput(
+            final int displayId,
+            final IBinder activityToken) throws IOException {
+        if (activityToken == null) {
+            throw new IOException("missing desktop taskbar activity token");
+        }
+        callService(() -> mService.configureDesktopTaskbarInput(
+                mCallback, displayId, activityToken));
     }
 
     boolean clearConfiguration(final int expectedDisplayId)

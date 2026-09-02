@@ -7,6 +7,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Rect;
+import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.Log;
@@ -50,6 +51,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellFullscreenTaskArea mFullscreenTaskArea =
             new ShellFullscreenTaskArea(mDesktopOwnership);
     private final ShellDesktopTaskArea mDesktopTaskArea;
+    private final ShellDesktopTaskbarPlane mDesktopTaskbarPlane;
     private final ShellSelfTestTaskStackGuard mSelfTestTaskStackGuard;
 
     private volatile boolean mClosed;
@@ -118,6 +120,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 activityLauncher);
         mDesktopTaskArea = new ShellDesktopTaskArea(
                 mService, mDesktopOwnership, mTaskLauncher);
+        mDesktopTaskbarPlane = new ShellDesktopTaskbarPlane(mService);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mWindowing = windowing;
         mSystemDialogTracker = new ShellSystemDialogTracker(
@@ -345,6 +348,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
+            final Rect taskbarBounds,
             final int taskAreaPolicyValue,
             final int desktopHostTaskId) {
         if (mClosed) {
@@ -369,6 +373,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mTaskObservations.clearConfiguration();
+            mDesktopTaskbarPlane.close();
             // Release reusable fullscreen slots before the workspace task
             // area is torn down.
             mFullscreenTaskArea.configure(
@@ -424,6 +429,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mFullscreenTaskArea.configure(
                 displayId,
                 mTaskAreaPolicy);
+        mDesktopTaskbarPlane.configure(displayId, taskbarBounds);
         if (!taskAreaPolicy.usesManagedHostArea()) {
             mDesktopTaskAreaForeground = null;
         }
@@ -462,6 +468,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         configure(
                 Display.INVALID_DISPLAY,
+                new Rect(),
                 new Rect(),
                 new Rect(),
                 DesktopTaskAreaPolicy.UNCONFIGURED.wireValue(),
@@ -522,7 +529,34 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     0, "stale workspace display " + command.displayId
                             + "; configured=" + mConfiguredDisplayId);
         }
-        return mWorkspaceCoordinator.execute(command);
+        final ShellDesktopWorkspaceCoordinator.Result result =
+                mWorkspaceCoordinator.execute(command);
+        if (result.success) {
+            mDesktopTaskbarPlane.raise();
+        }
+        return result;
+    }
+
+    void updateDesktopTaskbarBounds(
+            final int displayId,
+            final Rect bounds) {
+        if (displayId != mConfiguredDisplayId) {
+            throw new IllegalStateException(
+                    "stale taskbar display " + displayId
+                            + "; configured=" + mConfiguredDisplayId);
+        }
+        mDesktopTaskbarPlane.updateBounds(displayId, bounds);
+    }
+
+    void configureDesktopTaskbarInput(
+            final int displayId,
+            final IBinder activityToken) {
+        if (displayId != mConfiguredDisplayId) {
+            throw new IllegalStateException(
+                    "stale taskbar input display " + displayId
+                            + "; configured=" + mConfiguredDisplayId);
+        }
+        mDesktopTaskbarPlane.configureActivityInput(activityToken);
     }
 
     TaskWindowSnapshot inspectTaskWindow(
@@ -1052,6 +1086,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 || !task.visible
                 || task.activityType != ACTIVITY_TYPE_STANDARD
                 || task.taskId == mDesktopOwnership.desktopHostTaskId()
+                || DesktopTaskbarActivity.isTaskbarComponent(
+                        task.rootComponent)
+                || DesktopTaskbarActivity.isTaskbarComponent(
+                        task.topComponent)
                 || TaskAreaBackstopActivity.isBackstopComponent(
                         task.rootComponent)
                 || TaskAreaBackstopActivity.isBackstopComponent(
@@ -1191,6 +1229,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         closeSafely("migration guard", mMigrationGuard::close);
         closeSafely("freeform cleanup", mFreeformCleanup::close);
         closeSafely("framework task observations", mTaskObservations::close);
+        closeSafely("desktop taskbar plane", mDesktopTaskbarPlane::close);
         closeSafely("fullscreen task area", mFullscreenTaskArea::close);
         closeSafely("desktop task area", mDesktopTaskArea::close);
         closeSafely("self-test task stack guard",

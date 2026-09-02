@@ -87,6 +87,10 @@ public final class DesktopRuntimeBridge {
         return UI.getDesktopWorkAreaBounds(displayId);
     }
 
+    static Rect getDesktopTaskbarBounds(final int displayId) {
+        return UI.getDesktopTaskbarBounds(displayId);
+    }
+
     static boolean showStart() {
         return UI.showStart();
     }

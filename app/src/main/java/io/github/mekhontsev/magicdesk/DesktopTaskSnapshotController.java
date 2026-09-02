@@ -43,7 +43,7 @@ final class DesktopTaskSnapshotController {
         // Input focus can temporarily fall through a non-focusable phone
         // desktop host to a task in the default task area. Keep input-window
         // focusability tied to the visible host, while task-area Z-order owns
-        // the independent taskbar overlay lifetime.
+        // the independent taskbar plane lifetime.
         final boolean localSession = mActivity.getCurrentDisplayId()
                 == android.view.Display.DEFAULT_DISPLAY
                 && DesktopDisplayDrivers.activeTaskAreaPolicy(
@@ -109,6 +109,7 @@ final class DesktopTaskSnapshotController {
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task == null || task.taskId == excludedTaskId
                     || !task.visible
+                    || DesktopTaskbarActivity.isTaskbarTask(task)
                     || TaskAreaBackstopActivity.isBackstopTask(task)) {
                 continue;
             }
@@ -136,6 +137,7 @@ final class DesktopTaskSnapshotController {
         }
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task == null || !task.visible
+                    || DesktopTaskbarActivity.isTaskbarTask(task)
                     || TaskAreaBackstopActivity.isBackstopTask(task)) {
                 continue;
             }
@@ -163,6 +165,7 @@ final class DesktopTaskSnapshotController {
         }
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task != null && task.visible
+                    && !DesktopTaskbarActivity.isTaskbarTask(task)
                     && !TaskAreaBackstopActivity.isBackstopTask(task)) {
                 return DesktopTaskController.isDesktopHostTask(task);
             }

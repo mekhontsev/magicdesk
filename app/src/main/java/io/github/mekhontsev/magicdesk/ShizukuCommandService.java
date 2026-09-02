@@ -428,6 +428,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int workTop,
             final int workRight,
             final int workBottom,
+            final int taskbarLeft,
+            final int taskbarTop,
+            final int taskbarRight,
+            final int taskbarBottom,
             final int taskAreaPolicy,
             final int desktopHostTaskId) {
         mTaskObserverManager.configure(
@@ -435,8 +439,36 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 displayId,
                 new Rect(displayLeft, displayTop, displayRight, displayBottom),
                 new Rect(workLeft, workTop, workRight, workBottom),
+                new Rect(
+                        taskbarLeft,
+                        taskbarTop,
+                        taskbarRight,
+                        taskbarBottom),
                 taskAreaPolicy,
                 desktopHostTaskId);
+    }
+
+    @Override
+    public void updateDesktopTaskbarBounds(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int left,
+            final int top,
+            final int right,
+            final int bottom) {
+        mTaskObserverManager.updateDesktopTaskbarBounds(
+                callback,
+                displayId,
+                new Rect(left, top, right, bottom));
+    }
+
+    @Override
+    public void configureDesktopTaskbarInput(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final IBinder activityToken) {
+        mTaskObserverManager.configureDesktopTaskbarInput(
+                callback, displayId, activityToken);
     }
 
     @Override

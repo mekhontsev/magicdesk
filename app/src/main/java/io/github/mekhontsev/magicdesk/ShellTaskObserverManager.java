@@ -68,14 +68,32 @@ final class ShellTaskObserverManager implements Closeable {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
+            final Rect taskbarBounds,
             final int taskAreaPolicy,
             final int desktopHostTaskId) {
         requireSession(callback).observer.configure(
                 displayId,
                 displayBounds,
                 workAreaBounds,
+                taskbarBounds,
                 taskAreaPolicy,
                 desktopHostTaskId);
+    }
+
+    void updateDesktopTaskbarBounds(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final Rect bounds) {
+        requireSession(callback).observer.updateDesktopTaskbarBounds(
+                displayId, bounds);
+    }
+
+    void configureDesktopTaskbarInput(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final IBinder activityToken) {
+        requireSession(callback).observer.configureDesktopTaskbarInput(
+                displayId, activityToken);
     }
 
     boolean clearConfiguration(

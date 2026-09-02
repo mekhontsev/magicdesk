@@ -269,19 +269,23 @@ final class DesktopSelfTestTasks {
             if (task.displayId == displayId
                     && task.visible
                     && !task.isHome()
-                    && !isStructuralBackstop(task)) {
+                    && !isInfrastructureTask(task)) {
                 return task;
             }
         }
         return null;
     }
 
-    private static boolean isStructuralBackstop(
+    private static boolean isInfrastructureTask(
             final TaskStackParser.Entry task) {
-        final String className = BuildConfig.APPLICATION_ID
+        final String backstopClassName = BuildConfig.APPLICATION_ID
                 + ".TaskAreaBackstopActivity";
-        return hasClass(task.componentName, className)
-                || hasClass(task.topActivityName, className);
+        return hasClass(task.componentName, backstopClassName)
+                || hasClass(task.topActivityName, backstopClassName)
+                || DesktopTaskbarActivity.isTaskbarComponentName(
+                        task.componentName)
+                || DesktopTaskbarActivity.isTaskbarComponentName(
+                        task.topActivityName);
     }
 
     static TaskStackParser.Entry findTask(

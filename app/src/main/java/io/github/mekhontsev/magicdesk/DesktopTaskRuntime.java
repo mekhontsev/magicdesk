@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.content.Intent;
 import android.graphics.Rect;
+import android.os.IBinder;
 import android.os.UserHandle;
 
 import java.io.IOException;
@@ -122,6 +123,10 @@ interface DesktopTaskRuntime {
     void finishTouchpadPreservation();
 
     void setPhoneTouchpadRequested(boolean requested);
+
+    void updateDesktopTaskbarBounds(int displayId, Rect bounds);
+
+    void configureDesktopTaskbarInput(int displayId, IBinder activityToken);
 
     void disableExternalTaskMigrationProtection();
 

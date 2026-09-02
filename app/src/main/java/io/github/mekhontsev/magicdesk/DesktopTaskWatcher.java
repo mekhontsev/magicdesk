@@ -7,6 +7,7 @@ import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.UserHandle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.Display;
@@ -140,6 +141,7 @@ final class DesktopTaskWatcher {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
+            final Rect taskbarBounds,
             final int taskAreaPolicy,
             final int desktopHostTaskId) {
         final ShellTaskObserverHandle handle;
@@ -160,6 +162,7 @@ final class DesktopTaskWatcher {
                             displayId,
                             displayBounds,
                             workAreaBounds,
+                            taskbarBounds,
                             taskAreaPolicy,
                             desktopHostTaskId));
         } catch (IOException error) {
@@ -171,6 +174,41 @@ final class DesktopTaskWatcher {
                     error);
             return false;
         }
+    }
+
+    void updateDesktopTaskbarBounds(
+            final int displayId,
+            final Rect bounds) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null || bounds == null || bounds.isEmpty()) {
+            return;
+        }
+        final Rect requestedBounds = new Rect(bounds);
+        TaskCommandQueue.execute(() -> {
+            try {
+                handle.updateDesktopTaskbarBounds(
+                        displayId, requestedBounds);
+            } catch (IOException error) {
+                Log.w(TAG, "failed to update desktop taskbar bounds", error);
+            }
+        });
+    }
+
+    void configureDesktopTaskbarInput(
+            final int displayId,
+            final IBinder activityToken) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null || activityToken == null) {
+            return;
+        }
+        TaskCommandQueue.execute(() -> {
+            try {
+                handle.configureDesktopTaskbarInput(
+                        displayId, activityToken);
+            } catch (IOException error) {
+                Log.w(TAG, "failed to configure desktop taskbar input", error);
+            }
+        });
     }
 
     void clearConfiguration(final int expectedDisplayId) {

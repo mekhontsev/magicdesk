@@ -9,8 +9,8 @@ import android.view.WindowInsets;
 import android.view.WindowMetrics;
 
 /**
- * Owns desktop viewport policy and keeps the persistent taskbar aligned with
- * the current display geometry.
+ * Owns desktop viewport policy and keeps the taskbar plane aligned with the
+ * current display geometry.
  */
 final class DesktopLayoutController {
     private static final String TAG = "MagicDeskLayout";
@@ -28,7 +28,7 @@ final class DesktopLayoutController {
     private DesktopViewport mViewport;
     private View mDesktopRoot;
     private View mTaskbar;
-    private OverlayPanelController mOverlays;
+    private DesktopTaskbarHost mTaskbarHost;
     private int mTaskbarBottomInset;
 
     DesktopLayoutController(
@@ -64,22 +64,14 @@ final class DesktopLayoutController {
 
     boolean attachTaskbar(
             final View taskbar,
-            final OverlayPanelController overlays,
-            final String title) {
+            final DesktopTaskbarHost taskbarHost) {
         mTaskbar = taskbar;
-        mOverlays = overlays;
-        if (taskbar == null || overlays == null) {
+        mTaskbarHost = taskbarHost;
+        if (taskbar == null || taskbarHost == null) {
             return false;
         }
         final Rect bounds = taskbarBounds();
-        return overlays.attachPersistent(
-                taskbar,
-                bounds.left,
-                bounds.top,
-                bounds.width(),
-                bounds.height(),
-                mRuntimeState.displayId() == Display.DEFAULT_DISPLAY,
-                title);
+        return taskbarHost.attachTaskbar(taskbar, bounds);
     }
 
     DesktopViewport viewport() {
@@ -123,7 +115,7 @@ final class DesktopLayoutController {
         }
         mDesktopRoot = null;
         mTaskbar = null;
-        mOverlays = null;
+        mTaskbarHost = null;
     }
 
     private DesktopViewport readViewport() {
@@ -166,14 +158,10 @@ final class DesktopLayoutController {
     }
 
     private void updateTaskbarBounds() {
-        if (mTaskbar == null || mOverlays == null || mViewport == null) {
+        if (mTaskbar == null || mTaskbarHost == null || mViewport == null) {
             return;
         }
         final Rect bounds = taskbarBounds();
-        mOverlays.updatePersistentBounds(
-                bounds.left,
-                bounds.top,
-                bounds.width(),
-                bounds.height());
+        mTaskbarHost.updateBounds(bounds);
     }
 }

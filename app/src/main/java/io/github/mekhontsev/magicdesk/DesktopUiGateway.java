@@ -290,6 +290,16 @@ final class DesktopUiGateway {
                 : viewport.workAreaBounds(activity.getTaskbarHeight());
     }
 
+    Rect getDesktopTaskbarBounds(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null || activity.getCurrentDisplayId() != displayId) {
+            return null;
+        }
+        final DesktopTaskbarHost taskbarHost = activity.taskbarHost();
+        return taskbarHost == null
+                ? activity.getTaskbarBounds() : taskbarHost.appliedBounds();
+    }
+
     boolean showStart() {
         final DesktopShellActivity activity = usableDesktop(true);
         if (activity == null) {

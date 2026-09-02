@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.os.IBinder;
 import android.os.UserHandle;
 
 import java.io.IOException;
@@ -128,6 +129,28 @@ public final class MagicDeskRuntime {
         if (backend != null) {
             backend.refreshDesktopTasks();
         }
+    }
+
+    static void updateDesktopTaskbarBounds(
+            final int displayId,
+            final Rect bounds) {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend == null || bounds == null || bounds.isEmpty()) {
+            return;
+        }
+        backend.desktopTasks().updateDesktopTaskbarBounds(
+                displayId, new Rect(bounds));
+    }
+
+    static void configureDesktopTaskbarInput(
+            final int displayId,
+            final IBinder activityToken) {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend == null || activityToken == null) {
+            return;
+        }
+        backend.desktopTasks().configureDesktopTaskbarInput(
+                displayId, activityToken);
     }
 
     public static void refreshPlatformState() {

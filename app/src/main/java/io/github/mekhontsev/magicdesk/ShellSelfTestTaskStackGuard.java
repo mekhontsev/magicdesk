@@ -100,6 +100,8 @@ final class ShellSelfTestTaskStackGuard {
                             component.flattenToString());
             final boolean backstop =
                     TaskAreaBackstopActivity.isBackstopComponent(component);
+            final boolean infrastructure =
+                    DesktopTaskbarActivity.isTaskbarComponent(component);
             final TaskAreaBackstopRole backstopRole = backstop
                     ? TaskAreaBackstopActivity.getBackstopRole(
                             HiddenTaskApi.getTaskBaseIntent(task))
@@ -122,7 +124,8 @@ final class ShellSelfTestTaskStackGuard {
                     activityType == ACTIVITY_TYPE_HOME,
                     displayAreaFeatureId,
                     backstop,
-                    backstopRole));
+                    backstopRole,
+                    infrastructure));
         }
         return new SelfTestTaskStackInvariantAnalyzer.Snapshot(
                 SystemClock.uptimeMillis(), states, visibilityKnown);

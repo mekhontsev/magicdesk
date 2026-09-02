@@ -207,39 +207,31 @@ final class DesktopTaskbarRevealController {
 
     private void applyPresentation() {
         final TaskbarController taskbar = mActivity.taskbar();
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (taskbar == null || overlays == null) {
+        final DesktopTaskbarHost taskbarHost = mActivity.taskbarHost();
+        if (taskbar == null || taskbarHost == null) {
             return;
         }
         if (!mDesktopPlaneForeground) {
-            overlays.setPersistentVisible(false);
+            taskbarHost.setPresented(false);
             return;
         }
         final boolean visible = mForcedVisible
                 || isPinnedVisible()
                 || mPointerState.isRevealed()
                 || mTouchState.isRevealed();
-        final Rect normalBounds = mActivity.getTaskbarBounds();
+        taskbarHost.setPresented(true);
         if (visible) {
-            overlays.updatePersistentBounds(
-                    normalBounds.left,
-                    normalBounds.top,
-                    normalBounds.width(),
-                    normalBounds.height());
             taskbar.setEdgeHidden(false);
+            taskbarHost.setEdgeHidden(false, 1);
         } else {
             taskbar.setEdgeHidden(true);
+            final Rect normalBounds = mActivity.getTaskbarBounds();
             final int hiddenEdgeHeight = mTouchEdgeEnabled
                     ? Math.max(1, Math.min(
                             normalBounds.height(), mTouchEdgeHeight))
                     : EDGE_STRIP_HEIGHT_PX;
-            overlays.updatePersistentBounds(
-                    normalBounds.left,
-                    normalBounds.bottom - hiddenEdgeHeight,
-                    normalBounds.width(),
-                    normalBounds.height());
+            taskbarHost.setEdgeHidden(true, hiddenEdgeHeight);
         }
-        overlays.setPersistentVisible(true);
     }
 
     private void cancelTimers() {

@@ -35,6 +35,18 @@ public final class DesktopTaskSnapshotControllerTest {
     }
 
     @Test
+    public void taskbarPlaneDoesNotHideForegroundDesktopHost() {
+        assertTrue(DesktopTaskSnapshotController.isDesktopHostForeground(
+                Arrays.asList(taskbar(true), desktopHost(true))));
+    }
+
+    @Test
+    public void taskbarPlaneDoesNotHideForegroundApplication() {
+        assertFalse(DesktopTaskSnapshotController.isDesktopHostForeground(
+                Arrays.asList(taskbar(true), app(true), desktopHost(true))));
+    }
+
+    @Test
     public void ordinaryHomeTaskIsNotDesktopHost() {
         assertFalse(DesktopTaskSnapshotController.isDesktopHostForeground(
                 Arrays.asList(new TaskRepository.TaskEntry(
@@ -157,6 +169,21 @@ public final class DesktopTaskSnapshotControllerTest {
                 "fullscreen",
                 new Rect(0, 0, 1920, 1080),
                 true,
+                visible,
+                false);
+    }
+
+    private static TaskRepository.TaskEntry taskbar(final boolean visible) {
+        return new TaskRepository.TaskEntry(
+                31,
+                31,
+                2,
+                BuildConfig.APPLICATION_ID,
+                BuildConfig.APPLICATION_ID + "/.DesktopTaskbarActivity",
+                BuildConfig.APPLICATION_ID + "/.DesktopTaskbarActivity",
+                "fullscreen",
+                new Rect(0, 1000, 1920, 1080),
+                false,
                 visible,
                 false);
     }

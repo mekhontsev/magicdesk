@@ -428,6 +428,22 @@ public final class TaskDisplayAreaLaunchCommand {
             final int displayId,
             final Intent intent,
             final String expectedPackage,
+            final Object areaToken) throws ReflectiveOperationException {
+        return launchFullscreenTask(
+                service,
+                displayId,
+                intent,
+                expectedPackage,
+                areaToken,
+                ACTIVITY_TYPE_UNDEFINED,
+                true);
+    }
+
+    static int launchFullscreenTaskBehind(
+            final Object service,
+            final int displayId,
+            final Intent intent,
+            final String expectedPackage,
             final Object areaToken,
             final int activityType) throws ReflectiveOperationException {
         return launchFullscreenTask(

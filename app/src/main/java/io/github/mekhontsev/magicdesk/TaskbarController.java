@@ -368,9 +368,9 @@ final class TaskbarController {
     }
 
     void setVisible(final boolean visible) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays != null && mTaskbar != null) {
-            overlays.setPersistentVisible(visible);
+        final DesktopTaskbarHost taskbarHost = mActivity.taskbarHost();
+        if (taskbarHost != null && mTaskbar != null) {
+            taskbarHost.setPresented(visible);
         }
     }
 

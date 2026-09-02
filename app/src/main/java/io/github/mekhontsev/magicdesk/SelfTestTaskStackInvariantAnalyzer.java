@@ -149,6 +149,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
                                 + " in mode " + task.windowingMode);
             }
             if (task.taskId != mHostTaskId && !task.backstop
+                    && !task.infrastructure
                     && task.home && task.displayId == mDisplayId
                     && task.visibilityKnown && task.visible) {
                 if (!isHomeAboveDesktopContent(snapshot, task.taskId)) {
@@ -202,6 +203,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         for (final TaskState task : snapshot.tasks) {
             if (task.displayId == mDisplayId
                     && !task.backstop
+                    && !task.infrastructure
                     && task.visibilityKnown
                     && task.visible) {
                 return true;
@@ -224,6 +226,9 @@ final class SelfTestTaskStackInvariantAnalyzer {
             }
             if (task.taskId == homeTaskId) {
                 return true;
+            }
+            if (task.infrastructure) {
+                continue;
             }
             if (task.taskId == mHostTaskId || task.fixture || task.backstop) {
                 return false;
@@ -823,7 +828,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
             final StringBuilder output = new StringBuilder();
             for (final TaskState task : tasks) {
                 if (task.taskId != hostTaskId && !task.fixture && !task.home
-                        && !task.backstop) {
+                        && !task.backstop && !task.infrastructure) {
                     continue;
                 }
                 if (output.length() > 0) {
@@ -833,6 +838,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
                     output.append("host");
                 } else if (task.backstop) {
                     output.append("backstop");
+                } else if (task.infrastructure) {
+                    output.append("infrastructure");
                 } else {
                     output.append(task.taskId);
                 }
@@ -857,6 +864,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
         final int displayAreaFeatureId;
         final boolean backstop;
         final TaskAreaBackstopRole backstopRole;
+        final boolean infrastructure;
 
         TaskState(
                 final int taskId,
@@ -898,6 +906,23 @@ final class SelfTestTaskStackInvariantAnalyzer {
                 final int displayAreaFeatureId,
                 final boolean backstop,
                 final TaskAreaBackstopRole backstopRole) {
+            this(taskId, displayId, windowingMode, visible, visibilityKnown,
+                    fixture, home, displayAreaFeatureId, backstop,
+                    backstopRole, false);
+        }
+
+        TaskState(
+                final int taskId,
+                final int displayId,
+                final int windowingMode,
+                final boolean visible,
+                final boolean visibilityKnown,
+                final boolean fixture,
+                final boolean home,
+                final int displayAreaFeatureId,
+                final boolean backstop,
+                final TaskAreaBackstopRole backstopRole,
+                final boolean infrastructure) {
             this.taskId = taskId;
             this.displayId = displayId;
             this.windowingMode = windowingMode;
@@ -908,6 +933,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
             this.displayAreaFeatureId = displayAreaFeatureId;
             this.backstop = backstop;
             this.backstopRole = backstopRole;
+            this.infrastructure = infrastructure;
         }
 
         String stateKey() {
@@ -925,7 +951,8 @@ final class SelfTestTaskStackInvariantAnalyzer {
                     && home == other.home
                     && displayAreaFeatureId == other.displayAreaFeatureId
                     && backstop == other.backstop
-                    && backstopRole == other.backstopRole;
+                    && backstopRole == other.backstopRole
+                    && infrastructure == other.infrastructure;
         }
     }
 

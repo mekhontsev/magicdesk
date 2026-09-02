@@ -6,6 +6,7 @@ import android.graphics.Rect;
 import android.os.UserHandle;
 import android.hardware.display.DisplayManager;
 import android.os.Handler;
+import android.os.IBinder;
 import android.util.Log;
 import android.view.Display;
 
@@ -532,6 +533,37 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     @Override
     public boolean isTaskObserverReady() {
         return mTaskWatcherRunning && mTaskWatcherReady;
+    }
+
+    @Override
+    public void updateDesktopTaskbarBounds(
+            final int displayId,
+            final Rect bounds) {
+        if (bounds == null || bounds.isEmpty()) {
+            return;
+        }
+        final Rect requestedBounds = new Rect(bounds);
+        mHandler.post(() -> {
+            if (mRunning && mDisplayId == displayId && mTaskWatcherReady) {
+                mTaskWatcher.updateDesktopTaskbarBounds(
+                        displayId, requestedBounds);
+            }
+        });
+    }
+
+    @Override
+    public void configureDesktopTaskbarInput(
+            final int displayId,
+            final IBinder activityToken) {
+        if (activityToken == null) {
+            return;
+        }
+        mHandler.post(() -> {
+            if (mRunning && mDisplayId == displayId) {
+                mTaskWatcher.configureDesktopTaskbarInput(
+                        displayId, activityToken);
+            }
+        });
     }
 
     @Override
@@ -1920,6 +1952,20 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         final Rect displayBounds = mNativeWindowBounds.getFullscreenBounds();
         final Rect workAreaBounds =
                 mNativeWindowBounds.getTaskbarMaximizedBounds();
+        Rect taskbarBounds = DesktopRuntimeBridge
+                .getDesktopTaskbarBounds(mDisplayId);
+        if (taskbarBounds == null || taskbarBounds.isEmpty()) {
+            final int fallbackHeight = Math.max(
+                    1,
+                    Math.round(64f * mWindowContext.getResources()
+                            .getDisplayMetrics().density));
+            taskbarBounds = new Rect(
+                    displayBounds.left,
+                    Math.max(displayBounds.top,
+                            displayBounds.bottom - fallbackHeight),
+                    displayBounds.right,
+                    displayBounds.bottom);
+        }
         final DesktopTaskAreaPolicy taskAreaPolicy = taskAreaPolicy();
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
@@ -1929,6 +1975,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 mDisplayId,
                 displayBounds,
                 workAreaBounds,
+                taskbarBounds,
                 taskAreaPolicy.wireValue(),
                 desktopHostTaskId);
         mTaskWatcher.setExternalTaskMigrationProtection(

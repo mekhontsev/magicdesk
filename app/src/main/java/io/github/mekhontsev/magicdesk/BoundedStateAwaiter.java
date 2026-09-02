@@ -17,6 +17,7 @@ public final class BoundedStateAwaiter {
         TASK_BOUNDS,
         TASK_VISIBILITY,
         TASK_HIERARCHY,
+        TASK_REMOVAL,
         INPUT_FOCUS,
         DISPLAY_STATE,
         INPUT_DEVICE,

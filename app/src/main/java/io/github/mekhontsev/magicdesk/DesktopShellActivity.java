@@ -93,6 +93,7 @@ public abstract class DesktopShellActivity extends Activity
     private TaskOverviewController mTaskOverviewController;
     private DesktopContextMenuController mContextMenuController;
     private TaskbarController mTaskbarController;
+    private DesktopTaskbarHost mTaskbarHost;
     private DesktopTaskbarRevealController mTaskbarRevealController;
     private AltTabController mAltTabController;
     private DesktopWorkspaceController mDesktopWorkspaceController;
@@ -231,6 +232,14 @@ public abstract class DesktopShellActivity extends Activity
         }
         mUi = new DesktopUiFactory(this);
         mAutomationUi = new DesktopAutomationUiRegistry();
+        mTaskbarHost = new DesktopTaskbarHost(
+                getCurrentDisplayId(),
+                bounds -> {
+                    if (mOverlayPanelController != null) {
+                        mOverlayPanelController
+                                .setInteractionOwnerBounds(bounds);
+                    }
+                });
         mDesktopLayout = new DesktopLayoutController(
                 this,
                 new DesktopLayoutController.RuntimeState() {
@@ -376,6 +385,10 @@ public abstract class DesktopShellActivity extends Activity
         if (mDesktopLayout != null) {
             mDesktopLayout.release();
         }
+        if (mTaskbarHost != null) {
+            mTaskbarHost.release();
+            mTaskbarHost = null;
+        }
         if (mOverlayPanelController != null) {
             mOverlayPanelController.release();
             mOverlayPanelController = null;
@@ -479,6 +492,10 @@ public abstract class DesktopShellActivity extends Activity
 
     OverlayPanelController overlayPanels() {
         return mOverlayPanelController;
+    }
+
+    DesktopTaskbarHost taskbarHost() {
+        return mTaskbarHost;
     }
 
     private void onDesktopImeInsetsChanged(
@@ -905,10 +922,9 @@ public abstract class DesktopShellActivity extends Activity
 
         mStartMenuController.create();
         final LinearLayout taskbar = mTaskbarController.create();
-        if (!mDesktopLayout.attachTaskbar(
-                taskbar, mOverlayPanelController, "MagicDesk taskbar")) {
-            setErrorStatus("OVERLAY-001",
-                    getString(R.string.status_overlay_panel_unavailable));
+        if (!mDesktopLayout.attachTaskbar(taskbar, mTaskbarHost)) {
+            setErrorStatus("TASKBAR-001",
+                    getString(R.string.status_taskbar_unavailable));
         }
 
         mContextMenuController.create();

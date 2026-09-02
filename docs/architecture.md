@@ -190,9 +190,9 @@ An application overlay cannot share a task's SurfaceControl leash or transition
 atomically with WMShell. A separately drawn caption trails live movement,
 maintains a different Z-order, and can leave controls above the wrong window.
 
-MagicDesk instead keeps native WMShell captions visible by controlling Nubia's
-external-layer privacy filter. MagicDesk overlays are reserved for shell-owned
-UI such as the taskbar, Start menu, and notification center.
+MagicDesk instead keeps native WMShell captions visible. Application overlays
+are reserved for transient shell-owned UI such as Start, context menus, and the
+notification center. The persistent taskbar uses its bounded Activity plane.
 
 The [Chrome custom-caption input investigation](chrome-custom-caption-investigation.md)
 documents why a shell-side gesture-transfer or synthetic-click layer cannot
@@ -1214,7 +1214,7 @@ task instead of replacing the host.
 Production launches, existing-task moves, and self-test fixtures resolve the
 same display policy.
 The shell observer also reports whether the focused phone task belongs to the
-session area. This gates the overlay taskbar without changing its normal
+session area. This gates the taskbar plane without changing its normal
 fullscreen or auto-hide policy: the taskbar disappears while an ordinary phone
 task is brought forward through Android UI and returns with the desktop plane.
 External-display taskbars are unaffected.
@@ -1275,13 +1275,22 @@ display. On display 0 it stays below Android system bars. A dedicated external
 display normally reports zero system-bar insets and fills the panel. There is
 no separate phone implementation of the desktop.
 
-The taskbar is a display-scoped application overlay. It remains above freeform
-tasks, hides for an unrelated true-fullscreen task, and returns for the desktop.
-Its shared controller measures the actual task viewport on every display and
-reserves one slot for an overflow menu when task or pin icons no longer fit.
-Overflow entries retain the same exact-task actions and context targets as
-their ordinary taskbar icons; screen drivers do not implement separate sizing
-or task-switching behavior.
+The taskbar is a regular fullscreen Activity inside a narrow organizer-owned
+task-display area. The area is bounded to the taskbar geometry, is not
+focusable, and remains above ordinary application task areas. This gives the
+taskbar normal application-window treatment, so a foreground application that
+suppresses non-system overlays cannot suppress it. The Activity is fullscreen
+relative to its bounded parent and therefore never receives a freeform caption.
+The shell disables that Activity's Android 15+ ActivityRecord input sink, so
+only the taskbar window's bounded touch region receives input and pointer events
+outside the panel continue to the desktop and application windows.
+Auto-hide resizes the parent to the reveal strip only when presentation state
+changes; it adds no polling. The taskbar hides for an unrelated true-fullscreen
+task and returns for the desktop. Its shared controller measures the actual
+task viewport on every display and reserves one slot for an overflow menu when
+task or pin icons no longer fit. Overflow entries retain the same exact-task
+actions and context targets as their ordinary taskbar icons; screen drivers do
+not implement separate sizing or task-switching behavior.
 The phone desktop also exposes the hidden taskbar through a touch edge gesture.
 It uses Android's configured edge and touch slop, is scoped to display 0, and
 feeds an explicit reveal state into the shared controller. The taskbar is

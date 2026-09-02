@@ -60,6 +60,10 @@ interface IShizukuCommandService {
         int workTop,
         int workRight,
         int workBottom,
+        int taskbarLeft,
+        int taskbarTop,
+        int taskbarRight,
+        int taskbarBottom,
         int taskAreaPolicy,
         int desktopHostTaskId) = 12;
 
@@ -422,5 +426,18 @@ interface IShizukuCommandService {
         int right,
         int bottom,
         int existingTaskId) = 108;
+
+    void updateDesktopTaskbarBounds(
+        ITaskObserverCallback callback,
+        int displayId,
+        int left,
+        int top,
+        int right,
+        int bottom) = 109;
+
+    void configureDesktopTaskbarInput(
+        ITaskObserverCallback callback,
+        int displayId,
+        IBinder activityToken) = 110;
 
 }
