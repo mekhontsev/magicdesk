@@ -60,6 +60,11 @@ public final class PhoneHomeActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (DesktopHomeStartupGuard.shouldDiscardStaleHomeLaunch(
+                getIntent())) {
+            finishAndRemoveTask();
+            return;
+        }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER);
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,

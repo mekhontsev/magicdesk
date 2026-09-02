@@ -10,6 +10,7 @@ public final class MagicDeskApplication extends Application {
     public void onCreate() {
         super.onCreate();
         sApplicationContext = getApplicationContext();
+        DesktopHomeStartupGuard.relinquishStaleHome(this);
         ShellAccess.initialize();
         CompatibilityDiagnostics.initialize(this);
         DesktopAutomationEventJournal.record(

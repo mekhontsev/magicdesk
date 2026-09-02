@@ -115,6 +115,8 @@ final class DesktopHomeRoleLease {
 
         String getHomePackage(int userId) throws IOException;
 
+        void enableMagicDeskHome();
+
         void setHomePackage(int userId, String packageName) throws IOException;
 
         void presentMagicDeskHome(int userId) throws IOException;
@@ -142,6 +144,7 @@ final class DesktopHomeRoleLease {
                 }
                 final String holder = sBackend.getHomePackage(existing.userId);
                 if (MAGICDESK_PACKAGE.equals(holder)) {
+                    sBackend.enableMagicDeskHome();
                     final State active = existing.withPhase(Phase.ACTIVE);
                     sStorage.write(active);
                     return new AcquireResult(false, active);
@@ -241,6 +244,7 @@ final class DesktopHomeRoleLease {
             }
             final String holder = sBackend.getHomePackage(state.userId);
             if (state.previousPackage.equals(holder)) {
+                sBackend.enableMagicDeskHome();
                 sBackend.setHomePackage(state.userId, MAGICDESK_PACKAGE);
                 requireHolder(state.userId, MAGICDESK_PACKAGE);
             } else if (!MAGICDESK_PACKAGE.equals(holder)) {
@@ -296,6 +300,18 @@ final class DesktopHomeRoleLease {
         }
     }
 
+    static State prepareEmergencyRelease() throws IOException {
+        synchronized (LOCK) {
+            final State state = sStorage.read();
+            if (state == null || state.phase == Phase.RELEASING) {
+                return state;
+            }
+            final State releasing = state.withPhase(Phase.RELEASING);
+            sStorage.write(releasing);
+            return releasing;
+        }
+    }
+
     static boolean isActiveForDisplay(final int displayId) {
         synchronized (LOCK) {
             final State state = sStorage.read();
@@ -315,6 +331,7 @@ final class DesktopHomeRoleLease {
     }
 
     private static void claim(final State state) throws IOException {
+        sBackend.enableMagicDeskHome();
         sBackend.setHomePackage(state.userId, MAGICDESK_PACKAGE);
         requireHolder(state.userId, MAGICDESK_PACKAGE);
     }
@@ -398,6 +415,12 @@ final class DesktopHomeRoleLease {
                                 + packages.size());
             }
             return packages.get(0);
+        }
+
+        @Override
+        public void enableMagicDeskHome() {
+            DesktopHomeStartupGuard.enableHomeEligibility(
+                    MagicDeskApplication.applicationContext());
         }
 
         @Override

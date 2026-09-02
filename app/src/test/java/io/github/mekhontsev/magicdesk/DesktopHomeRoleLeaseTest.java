@@ -226,6 +226,30 @@ public final class DesktopHomeRoleLeaseTest {
         assertNull(mStorage.state);
     }
 
+    @Test
+    public void emergencyReleasePreventsSessionRecoveryWhenShellReturns()
+            throws Exception {
+        DesktopHomeRoleLease.acquire(DesktopDisplayTarget.phone());
+
+        final DesktopHomeRoleLease.State state =
+                DesktopHomeRoleLease.prepareEmergencyRelease();
+
+        assertEquals(DesktopHomeRoleLease.Phase.RELEASING, state.phase);
+        assertEquals(
+                DesktopHomeRoleLease.Phase.RELEASING,
+                mStorage.state.phase);
+        assertTrue(DesktopHomeRoleLease.reconcile(false));
+        assertEquals(LAUNCHER, mBackend.homePackage);
+        assertNull(mStorage.state);
+    }
+
+    @Test
+    public void emergencyReleaseDoesNotRequireStoredLease()
+            throws Exception {
+        assertNull(DesktopHomeRoleLease.prepareEmergencyRelease());
+        assertNull(mStorage.state);
+    }
+
     private final class FakeBackend implements DesktopHomeRoleLease.Backend {
         String homePackage;
         int setCalls;
@@ -246,6 +270,10 @@ public final class DesktopHomeRoleLeaseTest {
         @Override
         public String getHomePackage(final int userId) {
             return homePackage;
+        }
+
+        @Override
+        public void enableMagicDeskHome() {
         }
 
         @Override
