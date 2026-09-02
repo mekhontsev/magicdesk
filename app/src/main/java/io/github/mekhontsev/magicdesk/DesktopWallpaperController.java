@@ -138,6 +138,7 @@ final class DesktopWallpaperController {
         if (!mStarted) {
             return;
         }
+        mRendered = false;
         final int generation = mLoadGeneration.incrementAndGet();
         final DisplayMetrics metrics = mWallpaperView.getResources().getDisplayMetrics();
         final int targetWidth = Math.max(1, metrics.widthPixels);
@@ -158,25 +159,7 @@ final class DesktopWallpaperController {
                             mUsingCustomWallpaper = result.custom;
                             mUsingFallbackWallpaper = result.fallback;
                             mWallpaperView.setImageBitmap(result.bitmap);
-                            mRendered = true;
-                            try {
-                                DesktopAutomationEventJournal.record(
-                                        "ui",
-                                        "wallpaper_rendered",
-                                        true,
-                                        "display=" + mActivity
-                                                .getCurrentDisplayId(),
-                                        new org.json.JSONObject()
-                                                .put("displayId", mActivity
-                                                        .getCurrentDisplayId())
-                                                .put("custom", result.custom)
-                                                .put("fallback", result.fallback));
-                            } catch (org.json.JSONException ignored) {
-                                DesktopAutomationEventJournal.record(
-                                        "ui", "wallpaper_rendered", true,
-                                        "display=" + mActivity
-                                                .getCurrentDisplayId());
-                            }
+                            publishRenderedFrame(generation, result);
                         }
                     });
                 } catch (RuntimeException error) {
@@ -189,6 +172,40 @@ final class DesktopWallpaperController {
                 }
             }
         });
+    }
+
+    private void publishRenderedFrame(
+            final int generation,
+            final WallpaperResult result) {
+        mWallpaperView.getViewTreeObserver().registerFrameCommitCallback(() ->
+                mWallpaperView.post(() -> {
+                    if (!mStarted
+                            || generation != mLoadGeneration.get()
+                            || mActivity.isActivityUnavailable()) {
+                        return;
+                    }
+                    mRendered = true;
+                    recordRenderedEvent(result);
+                }));
+        mWallpaperView.invalidate();
+    }
+
+    private void recordRenderedEvent(final WallpaperResult result) {
+        try {
+            DesktopAutomationEventJournal.record(
+                    "ui",
+                    "wallpaper_rendered",
+                    true,
+                    "display=" + mActivity.getCurrentDisplayId(),
+                    new org.json.JSONObject()
+                            .put("displayId", mActivity.getCurrentDisplayId())
+                            .put("custom", result.custom)
+                            .put("fallback", result.fallback));
+        } catch (org.json.JSONException ignored) {
+            DesktopAutomationEventJournal.record(
+                    "ui", "wallpaper_rendered", true,
+                    "display=" + mActivity.getCurrentDisplayId());
+        }
     }
 
     private WallpaperResult loadWallpaper(

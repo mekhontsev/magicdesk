@@ -118,9 +118,10 @@ those tasks into the `DesktopTaskView` that reaches this crash.
 Task bounds, affinity, `excludeFromRecents`, and repository cleanup after task
 removal do not prevent the live-task crash. MagicDesk avoids coupling desktop
 lifecycle to that launcher: it temporarily owns Android's HOME role for every
-desktop session and presents `PhoneHomeActivity` on display 0. Live or retained
-freeform tasks on display 0 are converted to fullscreen before the previous
-HOME holder is restored.
+desktop session. External sessions present `PhoneHomeActivity` on display 0;
+phone sessions make `DesktopActivity` the primary HOME surface. Live or
+retained freeform tasks on display 0 are converted to fullscreen before the
+previous HOME holder is restored.
 
 ## Physical Output And Caption Control
 

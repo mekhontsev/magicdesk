@@ -2,7 +2,7 @@
 
 At the application-process boundary, window policy emits a typed
 `DesktopWindowTransitionRequest` through `DesktopWindowTransitionGateway`.
-The gateway maps semantic enter, restore, and close operations to the existing
+The gateway maps semantic enter and restore operations to the existing
 shell task observer. If that backend declines a request, the caller retains its
 established `TaskRepository` fallback. This layer adds observability and a
 stable extension boundary; it does not add another transition implementation.
@@ -49,11 +49,11 @@ stable surface-order identity, so selection can change z-order without an
 application-visible lifecycle, mode, bounds, or parent change.
 
 Phone desktop uses `DesktopTaskAreaPolicy.SESSION`. This is an ownership
-decision rather than a vendor check: its persistent session area isolates the
-desktop from Android HOME and the MagicDesk control panel and remains the sole
-parent of the host, freeform tasks, managed fullscreen tasks, and
-application-requested fullscreen tasks. It never creates independent
-fullscreen planes or a second organizer hierarchy.
+decision rather than a vendor check: `DesktopActivity` remains primary HOME in
+Android's default task area, while one persistent organizer area contains only
+the phone desktop's freeform, managed fullscreen, and application-requested
+fullscreen tasks. It never creates independent fullscreen planes or reparents
+the HOME host into the organizer hierarchy.
 
 Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. The app
 process emits a typed `DesktopWorkspaceCommand`: `ACTIVATE`, `DEMOTE`,
@@ -66,8 +66,9 @@ workspace order from shell-owned topology, and applies the existing WCT path.
 Once a task has entered fullscreen, activation raises that task and its
 existing ordering plane in one atomic WCT and does not change any task's mode,
 bounds, parent, or hidden state. Phone desktop provides the same activation
-semantics by reordering only children of its session parent; it does not create
-a second organizer area. The focus WCT does not request BLAST draw
+semantics by ordering the selected child and its application parent relative to
+the root HOME host in the same WCT; it does not create a second organizer area.
+The focus WCT does not request BLAST draw
 synchronization and is not repeated through `TRANSIT_TO_FRONT`.
 
 The coordinator captures typed task and SurfaceFlinger input-window event
@@ -89,8 +90,8 @@ usable input focus have converged.
   make a particular two-task order fast, but the accidental asymmetry does not
   provide stable ordering identities for an arbitrary number of tasks.
 - Creating independent fullscreen planes inside a `SESSION` desktop adds a
-  second hierarchy and breaks the session area's responsibility for isolating
-  phone desktop tasks from HOME and the control panel.
+  second hierarchy and breaks the application area's responsibility for
+  ordering the phone desktop workspace as one unit relative to HOME.
 - Using BLAST draw synchronization or a second `TRANSIT_TO_FRONT` for ordinary
   focus adds an unnecessary app-visible handoff; a stopped target can also
   leave the sync waiting for a surface that is not expected to draw.
@@ -210,16 +211,18 @@ task, so its structural `OPEN` cannot race the application's fullscreen entry
 or steal focus. Session teardown removes all owned planes and anchors; if
 display removal has already migrated an anchor to display 0, ownership is
 verified by both saved task ID and component before that task is removed. A
-phone task already belongs to the persistent session parent. Its close hands
-focus to a surviving fullscreen sibling before removing the old task; its
-restore changes only mode, bounds, and order. Both paths preserve the Activity
+phone task already belongs to the persistent application parent. An explicit
+fullscreen close hands focus to a surviving fullscreen sibling before removing
+the old task; an ordinary freeform close follows Android's task lifecycle. Its
+restore changes only mode, bounds, and order. These paths preserve the Activity
 instance and avoid a display-0 trampoline.
 
 `ShellPreparedTaskTransition` separately owns hidden preparation and reveal
 for running-task display moves and freeform decoration repair outside the
-per-plane exit path. At phone-session teardown, `ShellDesktopTaskArea` returns
-its application tasks and host while the session's structural HOME child keeps
-that area non-empty until framework deletion.
+per-plane exit path. At phone-session teardown, `ShellDesktopTaskArea`
+normalizes and detaches its application tasks while a non-focusable structural
+backstop keeps the area non-empty until framework deletion. The primary HOME
+host is outside the area and is never part of organizer cleanup.
 
 The reverse transition includes the caption inset after returning the task to
 freeform. Native WMShell desktop tasks also have the inset explicitly included

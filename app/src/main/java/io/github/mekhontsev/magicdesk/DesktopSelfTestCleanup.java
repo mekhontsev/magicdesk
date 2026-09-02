@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.usefulMessage;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
+import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findDesktopTaskOnAnyDisplay;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskOnAnyDisplay;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
 
@@ -48,7 +49,6 @@ final class DesktopSelfTestCleanup {
                             .features().phoneTouchpad) {
                 PhoneTouchpadController.release(displayId);
             }
-            DesktopRuntimeBridge.closeDesktopSession(displayId);
             if (ShellAccess.isReady()) {
                 try {
                     releaseDesktopHomeLease(displayId);
@@ -58,9 +58,10 @@ final class DesktopSelfTestCleanup {
                             .append(usefulMessage(error)).append("; ");
                 }
             }
+            DesktopRuntimeBridge.closeDesktopSession(displayId);
             if (ShellAccess.isReady()) {
                 try {
-                    waitForTaskAbsent(DesktopSelfTestComponents.DESKTOP_CLASS);
+                    waitForDesktopTaskAbsent();
                     if (target == DesktopSelfTestTarget.PHONE) {
                         waitForLocalDesktopCleanup();
                     }
@@ -289,6 +290,21 @@ final class DesktopSelfTestCleanup {
                     POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("task " + className + " remained after close");
+    }
+
+    private static void waitForDesktopTaskAbsent() throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        do {
+            final TaskStackParser.Entry task = findDesktopTaskOnAnyDisplay(
+                    ShellAccess.run("/system/bin/cmd activity stack list"));
+            if (task == null) {
+                return;
+            }
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_VISIBILITY,
+                    POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("desktop task remained after close");
     }
 
     private static void releaseDesktopHomeLease(final int displayId)

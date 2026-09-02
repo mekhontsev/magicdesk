@@ -128,6 +128,10 @@ final class RuntimeDesktopSessionCoordinator {
             mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
         }
         if (displayRemoved) {
+            if (externalDesktopRemoved && !expectedDesktopRemoval) {
+                mRestorePhonePanelAfterRecovery = true;
+                releaseHomeLeaseAfterSessionLoss(displayId);
+            }
             PhoneTouchpadController.release(displayId);
             DesktopRuntimeBridge.closeDesktopSession(displayId);
             if (desktopTarget != null
@@ -137,10 +141,6 @@ final class RuntimeDesktopSessionCoordinator {
             }
             if (externalDesktopRemoved) {
                 mRemovedDesktopDisplayId = displayId;
-                if (!expectedDesktopRemoval) {
-                    mRestorePhonePanelAfterRecovery = true;
-                    releaseHomeLeaseAfterSessionLoss(displayId);
-                }
                 scheduleDisplayRemovalWatchdog();
             }
         }

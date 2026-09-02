@@ -10,6 +10,8 @@ final class DesktopSelfTestComponents {
             PACKAGE_NAME + ".DesktopSelfTestBrowserActivity";
     static final String DESKTOP_CLASS =
             PACKAGE_NAME + ".DesktopActivity";
+    static final String PHONE_DESKTOP_HOME_ALIAS_CLASS =
+            PACKAGE_NAME + ".PhoneDesktopHome";
 
     private DesktopSelfTestComponents() {
     }
@@ -24,6 +26,18 @@ final class DesktopSelfTestComponents {
         return task != null
                 && (isFixtureComponent(task.componentName)
                     || isFixtureComponent(task.topActivityName));
+    }
+
+    static boolean isDesktopTask(final TaskStackParser.Entry task) {
+        return task != null
+                && (isDesktopComponent(task.componentName)
+                        || isDesktopComponent(task.topActivityName));
+    }
+
+    private static boolean isDesktopComponent(final String componentName) {
+        return DesktopSelfTestTasks.hasClass(componentName, DESKTOP_CLASS)
+                || DesktopSelfTestTasks.hasClass(
+                        componentName, PHONE_DESKTOP_HOME_ALIAS_CLASS);
     }
 
     static boolean isFixtureComponent(final String componentName) {

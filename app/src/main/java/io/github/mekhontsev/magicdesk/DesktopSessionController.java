@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.Context;
 import android.content.Intent;
 import android.os.SystemClock;
 import android.util.Log;
@@ -65,13 +64,12 @@ final class DesktopSessionController {
                     && visibleTaskSnapshot != null
                     && !visibleTaskSnapshot.booleanValue();
             final int desktopTaskId = findDesktopTask(preparedTarget.displayId);
-            if (DesktopDisplayDrivers.forTarget(preparedTarget)
-                    .features().taskAreaPolicy
-                    .usesManagedHostArea()) {
-                return showInManagedWorkspace(
+            if (preparedTarget.kind == DesktopDisplayTarget.Kind.PHONE) {
+                return showPrimaryHome(
                         preparedTarget,
                         resolvedPolicy,
                         restoreWindows,
+                        homeAcquisition,
                         desktopTaskId);
             }
             if (desktopTaskId >= 0) {
@@ -110,11 +108,11 @@ final class DesktopSessionController {
                     + " as HOME");
             final boolean ready = waitForDesktopReady(preparedTarget.displayId);
             if (!ready) {
+                DesktopHomeRoleLease.releaseAfterFailedStart(
+                        homeAcquisition);
                 DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
                 MagicDeskRuntime.reconcileFailedDesktopLaunch(
                         preparedTarget.displayId);
-                DesktopHomeRoleLease.releaseAfterFailedStart(
-                        homeAcquisition);
             }
             if (ready && resolvedPolicy.restoreWorkspace) {
                 MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
@@ -122,81 +120,56 @@ final class DesktopSessionController {
             }
             return new ShowResult(ready, true);
         } catch (IOException | RuntimeException error) {
-            DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
-            MagicDeskRuntime.reconcileFailedDesktopLaunch(
-                    preparedTarget.displayId);
             try {
                 DesktopHomeRoleLease.releaseAfterFailedStart(
                         homeAcquisition);
             } catch (IOException releaseError) {
                 error.addSuppressed(releaseError);
             }
+            DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
+            MagicDeskRuntime.reconcileFailedDesktopLaunch(
+                    preparedTarget.displayId);
             throw error;
         }
     }
 
-    private static ShowResult showInManagedWorkspace(
+    private static ShowResult showPrimaryHome(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy,
             final boolean restoreWindows,
-            final int previousHostTaskId) throws IOException {
-        final Context context = MagicDeskApplication.applicationContext();
-        final Intent intent = DesktopActivity.createLaunchIntent(context)
-                .addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-                .putExtra(
-                        DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID,
-                        target.displayId)
-                .putExtra(
-                        DesktopShellActivity.EXTRA_PROFILE_DISPLAY_ID,
-                        target.profileDisplayId)
-                .putExtra(
-                        DesktopShellActivity.EXTRA_PROFILE_KEY,
-                        target.profileKey)
-                .putExtra(
-                        DesktopShellActivity.EXTRA_TARGET_KIND,
-                        target.kind.name())
-                .putExtra(
-                        DesktopShellActivity.EXTRA_ACTIVATION_SOURCE,
-                        target.activationSource.name())
-                .putExtra(
-                        DesktopShellActivity.EXTRA_SESSION_POLICY,
-                        policy.name());
-        if (restoreWindows) {
-            intent.putExtra(
-                    DesktopShellActivity.EXTRA_ACTION,
-                    DesktopShellActivity.ACTION_RESTORE_WINDOWS);
+            final DesktopHomeRoleLease.AcquireResult homeAcquisition,
+            final int desktopTaskId) throws IOException {
+        // Claiming HOME already starts DesktopActivity in Android's default
+        // task area. Launching it again through the organizer would either
+        // move that HOME task into the application area or replace it there.
+        if (desktopTaskId < 0) {
+            throw new IOException(
+                    "primary HOME did not create the phone desktop task");
         }
-        final int hostTaskId = ShellAccess.launchDesktopHost(
-                target.displayId,
-                intent,
-                DesktopDisplayDrivers.forTarget(target)
-                        .features().taskAreaPolicy);
-        final boolean created = hostTaskId != previousHostTaskId;
-        Log.i(TAG, (created ? "launched" : "restoring")
-                + " managed desktop kind=" + target.kind
+        Log.i(TAG, (homeAcquisition.created ? "launched" : "restoring")
+                + " primary Home desktop kind=" + target.kind
                 + " display=" + target.displayId
-                + " task=" + hostTaskId);
+                + " task=" + desktopTaskId);
         final boolean ready = waitForDesktopReady(target.displayId);
         if (!ready) {
+            DesktopHomeRoleLease.releaseAfterFailedStart(homeAcquisition);
             DesktopRuntimeBridge.clearDesktopTarget(target);
             MagicDeskRuntime.reconcileFailedDesktopLaunch(target.displayId);
-            return new ShowResult(false, created);
+            return new ShowResult(false, homeAcquisition.created);
         }
         if (policy.restoreWorkspace) {
-            if (!created) {
-                if (restoreWindows) {
-                    MagicDeskRuntime.restoreLastVisibleWindows();
-                } else {
-                    MagicDeskRuntime.restoreDesktopWorkspace(
-                            target.displayId,
-                            java.util.Collections.singletonList(
-                                    Integer.valueOf(hostTaskId)),
-                            null);
-                }
+            if (restoreWindows) {
+                MagicDeskRuntime.restoreLastVisibleWindows();
+            } else if (!homeAcquisition.created) {
+                MagicDeskRuntime.restoreDesktopWorkspace(
+                        target.displayId,
+                        java.util.Collections.singletonList(
+                                Integer.valueOf(desktopTaskId)),
+                        null);
             }
             MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(target);
         }
-        return new ShowResult(true, created);
+        return new ShowResult(true, homeAcquisition.created);
     }
 
     private static Intent createExternalHomeIntent(

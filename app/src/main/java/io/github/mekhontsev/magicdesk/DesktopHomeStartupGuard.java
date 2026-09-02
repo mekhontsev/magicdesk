@@ -2,10 +2,8 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Application;
 import android.app.role.RoleManager;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.util.Log;
 
 import java.io.IOException;
@@ -40,18 +38,18 @@ final class DesktopHomeStartupGuard {
         final DesktopHomeRoleLease.State lease =
                 DesktopHomeRoleLease.snapshot();
         try {
-            DesktopHomeRoleLease.prepareEmergencyRelease();
+            DesktopHomeSurfaceRouter.disableHomeSurfaces();
         } catch (IOException error) {
-            Log.w(TAG, "could not mark HOME lease for emergency release", error);
-        }
-
-        try {
-            setHomeEligibility(
-                    context,
-                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
-        } catch (RuntimeException error) {
-            Log.e(TAG, "could not disable MagicDesk HOME", error);
+            Log.e(TAG, "could not disable MagicDesk HOME surfaces", error);
             return false;
+        }
+        // Startup while holding HOME means the owning desktop process was
+        // lost. Disabled surfaces already make MagicDesk ineligible as HOME,
+        // so there is no shell-backed release transaction left to recover.
+        try {
+            DesktopHomeRoleLease.discardForStartupRelinquish();
+        } catch (IOException error) {
+            Log.w(TAG, "could not discard stale HOME lease", error);
         }
         sRelinquishedOnProcessStart = true;
 
@@ -68,12 +66,6 @@ final class DesktopHomeStartupGuard {
         }
     }
 
-    static void enableHomeEligibility(final Context context) {
-        setHomeEligibility(
-                context,
-                PackageManager.COMPONENT_ENABLED_STATE_ENABLED);
-    }
-
     static boolean shouldDiscardStaleHomeLaunch(final Intent intent) {
         return sRelinquishedOnProcessStart
                 && intent != null
@@ -86,17 +78,5 @@ final class DesktopHomeStartupGuard {
             final String applicationProcessName) {
         return processName != null
                 && processName.equals(applicationProcessName);
-    }
-
-    private static void setHomeEligibility(
-            final Context context,
-            final int state) {
-        final ComponentName component = new ComponentName(
-                context,
-                PhoneHomeActivity.class);
-        context.getPackageManager().setComponentEnabledSetting(
-                component,
-                state,
-                PackageManager.DONT_KILL_APP);
     }
 }

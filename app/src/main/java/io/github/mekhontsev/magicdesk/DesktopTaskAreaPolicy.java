@@ -3,7 +3,11 @@ package io.github.mekhontsev.magicdesk;
 /** Chooses which task display area owns windows on one desktop target. */
 enum DesktopTaskAreaPolicy {
     UNCONFIGURED(0),
+    // HOME stays in Android's default area; application tasks share one
+    // organizer area so their internal ordering is isolated from Recents.
     SESSION(1),
+    // HOME and freeform tasks use the display root; fullscreen tasks receive
+    // independent organizer planes.
     INDEPENDENT(2);
 
     private final int mWireValue;
@@ -26,12 +30,7 @@ enum DesktopTaskAreaPolicy {
                 "unknown desktop task-area policy " + wireValue);
     }
 
-    /** Whether MagicDesk owns the desktop host's organizer area. */
-    boolean usesManagedHostArea() {
-        return this == SESSION;
-    }
-
-    /** Whether application tasks share the organizer-owned session area. */
+    /** Whether application tasks share one organizer-owned application area. */
     boolean usesManagedApplicationArea() {
         return this == SESSION;
     }
@@ -41,13 +40,8 @@ enum DesktopTaskAreaPolicy {
         return this == INDEPENDENT;
     }
 
-    /** Whether application immersive tasks must retain the session parent. */
+    /** Whether application immersive tasks retain that application parent. */
     boolean usesSessionFullscreenHierarchy() {
-        return this == SESSION;
-    }
-
-    /** Whether tasks already live in one session-owned task display area. */
-    boolean usesSessionParent() {
         return this == SESSION;
     }
 

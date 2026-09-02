@@ -73,6 +73,10 @@ public final class DesktopTaskbarActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // The taskbar plane owns the physical bottom edge. System navigation
+        // may appear transiently over it, but must not resize or shade it.
+        getWindow().setDecorFitsSystemWindows(false);
+        getWindow().setNavigationBarContrastEnforced(false);
         getWindow().addFlags(
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
@@ -235,6 +239,12 @@ public final class DesktopTaskbarActivity extends Activity {
                         PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.LEFT | Gravity.BOTTOM;
         params.token = mRoot.getWindowToken();
+        // The organizer plane already provides the complete taskbar geometry.
+        // Applying bars or IME insets again would shrink this attached window
+        // whenever another focused task changes system-bar visibility.
+        params.setFitInsetsTypes(0);
+        params.softInputMode =
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
         params.setTitle("MagicDesk taskbar panel");
         return params;
     }

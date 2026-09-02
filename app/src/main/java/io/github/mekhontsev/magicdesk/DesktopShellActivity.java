@@ -128,6 +128,15 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (DesktopHomeStartupGuard.shouldDiscardStaleHomeLaunch(
+                getIntent())) {
+            finishAndRemoveTask();
+            return;
+        }
+        // A newly selected HOME must not inherit an IME left visible by the
+        // previous phone task. Applications can still show it normally later.
+        getWindow().setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         final int displayId = getCurrentDisplayId();
         final Integer retainedDisplayId =
                 EXPECTED_DISPLAY_BY_TASK.get(Integer.valueOf(getTaskId()));
@@ -254,11 +263,10 @@ public abstract class DesktopShellActivity extends Activity
                     }
 
                     @Override
-                    public void onImeInsetsChanged(
-                            final boolean visible,
-                            final int bottomInset) {
-                        DesktopShellActivity.this.onDesktopImeInsetsChanged(
-                                visible, bottomInset);
+                    public void onImeVisibilityChanged(
+                            final boolean visible) {
+                        DesktopShellActivity.this
+                                .onDesktopImeVisibilityChanged(visible);
                     }
 
                     @Override
@@ -313,6 +321,7 @@ public abstract class DesktopShellActivity extends Activity
         DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
+        mDesktopLayout.onWindowAttached();
         observeDesktopHomeReady();
         DesktopSelfTestHostObserver.observeNextFrame(this, "first-frame");
         mTaskbarRevealController.start();
@@ -498,13 +507,7 @@ public abstract class DesktopShellActivity extends Activity
         return mTaskbarHost;
     }
 
-    private void onDesktopImeInsetsChanged(
-            final boolean visible,
-            final int bottomInset) {
-        if (mDesktopLayout != null) {
-            mDesktopLayout.setTaskbarBottomInset(
-                    visible ? bottomInset : 0);
-        }
+    private void onDesktopImeVisibilityChanged(final boolean visible) {
         mTaskbarImeHold = visible;
         updateTaskbarVisibilityHold();
     }
@@ -652,6 +655,9 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
+        if (mDesktopLayout != null) {
+            mDesktopLayout.onWindowAttached();
+        }
         refreshDisplayProfile();
         setDesktopWindowFocusable(true);
     }
@@ -754,6 +760,9 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     public void onWindowFocusChanged(final boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (mDesktopLayout != null) {
+            mDesktopLayout.onWindowFocusChanged(hasFocus);
+        }
         if (hasFocus) {
             refreshDisplayProfile();
         }
@@ -853,7 +862,9 @@ public abstract class DesktopShellActivity extends Activity
                 getCurrentDisplayId(),
                 this::onOverlayPanelVisibilityChanged);
         root.setBackgroundColor(COLOR_BACKGROUND);
-        mDesktopLayout.attachDesktopRoot(root);
+
+        final FrameLayout desktopViewport = new FrameLayout(this);
+        mDesktopLayout.attachDesktopViews(root, desktopViewport);
 
         final ImageView wallpaper = new ImageView(this);
         wallpaper.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -914,7 +925,10 @@ public abstract class DesktopShellActivity extends Activity
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
         desktop.addView(desktopIcons, iconsParams);
 
-        root.addView(desktop, new FrameLayout.LayoutParams(
+        desktopViewport.addView(desktop, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        root.addView(desktopViewport, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 

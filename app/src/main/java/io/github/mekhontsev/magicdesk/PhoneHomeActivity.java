@@ -26,7 +26,7 @@ import android.window.OnBackInvokedDispatcher;
 
 import java.util.List;
 
-/** Primary HOME and Overview surface used while MagicDesk owns HOME. */
+/** Phone-side HOME and Overview surface used while MagicDesk owns HOME. */
 public final class PhoneHomeActivity extends Activity {
     static final String ACTION_PHONE_OVERVIEW =
             BuildConfig.APPLICATION_ID + ".action.PHONE_OVERVIEW";
@@ -77,7 +77,7 @@ public final class PhoneHomeActivity extends Activity {
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT));
         presentIntent(getIntent());
-        if (activeLease() != null) {
+        if (!isFinishing() && activeLease() != null) {
             MagicDeskRuntime.start(this);
         }
     }
@@ -113,6 +113,12 @@ public final class PhoneHomeActivity extends Activity {
 
     private void handleBack() {
         if (mShowingOverview) {
+            final DesktopHomeRoleLease.State lease = activeLease();
+            if (lease != null
+                    && lease.targetKind == DesktopDisplayTarget.Kind.PHONE) {
+                finishAndRemoveTask();
+                return;
+            }
             setIntent(new Intent(Intent.ACTION_MAIN)
                     .setClass(this, PhoneHomeActivity.class));
             showHome();
@@ -121,10 +127,14 @@ public final class PhoneHomeActivity extends Activity {
     }
 
     private void presentIntent(final Intent intent) {
-        if (intent != null
-                && ACTION_PHONE_OVERVIEW.equals(intent.getAction())
-                && activeLease() != null) {
+        final DesktopHomeRoleLease.State lease = activeLease();
+        final boolean overviewRequested = intent != null
+                && ACTION_PHONE_OVERVIEW.equals(intent.getAction());
+        if (overviewRequested && lease != null) {
             showOverview();
+        } else if (lease != null
+                && lease.targetKind == DesktopDisplayTarget.Kind.PHONE) {
+            finishAndRemoveTask();
         } else {
             showHome();
         }
@@ -174,7 +184,6 @@ public final class PhoneHomeActivity extends Activity {
             return;
         }
         mShowingOverview = true;
-        mCloseDesktop = null;
         final int generation = ++mOverviewGeneration;
         mRoot.removeAllViews();
         mRoot.setBackgroundColor(DesktopUiFactory.COLOR_BACKGROUND);
@@ -207,6 +216,15 @@ public final class PhoneHomeActivity extends Activity {
                         1f);
         titleParams.leftMargin = dp(12);
         header.addView(title, titleParams);
+
+        mCloseDesktop = ui.actionButton(
+                R.string.action_close_desktop,
+                DesktopUiFactory.COLOR_RED);
+        mCloseDesktop.setOnClickListener(view -> closeDesktop());
+        header.addView(mCloseDesktop, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        refreshCloseAction();
         page.addView(header, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(OVERVIEW_HEADER_HEIGHT_DP)));

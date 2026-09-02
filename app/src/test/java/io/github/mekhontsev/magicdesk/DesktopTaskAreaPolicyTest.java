@@ -13,12 +13,6 @@ public final class DesktopTaskAreaPolicyTest {
                 .usesSessionFullscreenHierarchy());
         assertTrue(DesktopTaskAreaPolicy.SESSION
                 .usesSessionFullscreenHierarchy());
-        assertFalse(DesktopTaskAreaPolicy.UNCONFIGURED.usesSessionParent());
-        assertTrue(DesktopTaskAreaPolicy.SESSION.usesSessionParent());
-        assertFalse(DesktopTaskAreaPolicy.INDEPENDENT.usesSessionParent());
-        assertFalse(DesktopTaskAreaPolicy.UNCONFIGURED.usesManagedHostArea());
-        assertTrue(DesktopTaskAreaPolicy.SESSION.usesManagedHostArea());
-        assertFalse(DesktopTaskAreaPolicy.INDEPENDENT.usesManagedHostArea());
         assertFalse(DesktopTaskAreaPolicy.UNCONFIGURED
                 .usesManagedApplicationArea());
         assertTrue(DesktopTaskAreaPolicy.SESSION

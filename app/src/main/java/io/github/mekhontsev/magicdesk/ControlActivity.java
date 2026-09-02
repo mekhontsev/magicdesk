@@ -445,8 +445,15 @@ public final class ControlActivity extends Activity
         }
         DesktopDisplayTarget target =
                 DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (target == null
-                || target.displayId <= Display.DEFAULT_DISPLAY) {
+        if (target == null) {
+            final DesktopHomeRoleLease.State lease =
+                    DesktopHomeRoleLease.snapshot();
+            if (lease != null
+                    && lease.phase == DesktopHomeRoleLease.Phase.ACTIVE) {
+                target = lease.target();
+            }
+        }
+        if (target == null) {
             mStatus = getString(R.string.status_external_display_unavailable);
             refresh();
             return;
@@ -536,18 +543,23 @@ public final class ControlActivity extends Activity
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
         final DesktopDisplayTarget activeTarget =
                 DesktopRuntimeBridge.getDesktopTarget(activeDesktopDisplayId);
+        final DesktopHomeRoleLease.State homeLease =
+                DesktopHomeRoleLease.snapshot();
+        final boolean desktopSessionActive = homeLease != null
+                && homeLease.phase == DesktopHomeRoleLease.Phase.ACTIVE;
         final boolean externalRuntimeDesktop = activeTarget != null
                 && activeTarget.kind != DesktopDisplayTarget.Kind.PHONE;
         final boolean externalDesktopActive =
                 externalRuntimeDesktop;
         final int externalDesktopDisplayId = activeDesktopDisplayId;
         mPanel.render(new PhoneControlPanelController.State(
+                desktopSessionActive,
                 externalDesktopActive,
                 activeDesktopDisplayId > Display.DEFAULT_DISPLAY
                         && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
                                 activeDesktopDisplayId),
-                ShellAccess.isReady()
-                        && DesktopDisplayDrivers.isExternalDesktopSupported(),
+                ShellAccess.isReady(),
+                DesktopDisplayDrivers.isExternalDesktopSupported(),
                 mPhoneUi.isPhoneScreenOff(this),
                 ShellAccess.isReady() && mPhoneUi.isAvailable(),
                 PlatformDrivers.current().pointer().isAvailable(),

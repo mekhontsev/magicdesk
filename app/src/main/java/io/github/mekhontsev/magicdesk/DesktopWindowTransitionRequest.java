@@ -7,9 +7,7 @@ final class DesktopWindowTransitionRequest {
     enum Operation {
         ENTER_FULLSCREEN("enter-fullscreen", false),
         ENTER_APP_FULLSCREEN("enter-app-fullscreen", true),
-        RESTORE_FREEFORM("restore-freeform", true),
-        CLOSE_FULLSCREEN("close-fullscreen", false),
-        CLOSE_FREEFORM("close-freeform", false);
+        RESTORE_FREEFORM("restore-freeform", true);
 
         final String wireName;
         final boolean requiresBounds;
@@ -101,40 +99,6 @@ final class DesktopWindowTransitionRequest {
         return new DesktopWindowTransitionRequest(
                 Operation.RESTORE_FREEFORM,
                 displayId, taskId, targetBounds, origin);
-    }
-
-    static DesktopWindowTransitionRequest closeFullscreen(
-            final int displayId,
-            final int taskId) {
-        return new DesktopWindowTransitionRequest(
-                Operation.CLOSE_FULLSCREEN,
-                displayId, taskId, null, "unspecified");
-    }
-
-    static DesktopWindowTransitionRequest closeFullscreen(
-            final int displayId,
-            final int taskId,
-            final String origin) {
-        return new DesktopWindowTransitionRequest(
-                Operation.CLOSE_FULLSCREEN,
-                displayId, taskId, null, origin);
-    }
-
-    static DesktopWindowTransitionRequest closeFreeform(
-            final int displayId,
-            final int taskId) {
-        return new DesktopWindowTransitionRequest(
-                Operation.CLOSE_FREEFORM,
-                displayId, taskId, null, "unspecified");
-    }
-
-    static DesktopWindowTransitionRequest closeFreeform(
-            final int displayId,
-            final int taskId,
-            final String origin) {
-        return new DesktopWindowTransitionRequest(
-                Operation.CLOSE_FREEFORM,
-                displayId, taskId, null, origin);
     }
 
     Rect bounds() {

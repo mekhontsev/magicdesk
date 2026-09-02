@@ -5,7 +5,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.require;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.usefulMessage;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
-import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskOnAnyDisplay;
+import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findDesktopTaskOnAnyDisplay;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForFrontTask;
 
 import android.app.KeyguardManager;
@@ -545,9 +545,8 @@ final class DesktopSelfTestController {
                     "close the desktop on display " + activeDisplay + " first");
         }
         try {
-            final TaskStackParser.Entry desktop = findTaskOnAnyDisplay(
-                    ShellAccess.run("/system/bin/cmd activity stack list"),
-                    DesktopSelfTestComponents.DESKTOP_CLASS);
+            final TaskStackParser.Entry desktop = findDesktopTaskOnAnyDisplay(
+                    ShellAccess.run("/system/bin/cmd activity stack list"));
             if (desktop != null) {
                 failAndAbort(result, "SELFTEST-PRECONDITION-001",
                         "No active desktop session",

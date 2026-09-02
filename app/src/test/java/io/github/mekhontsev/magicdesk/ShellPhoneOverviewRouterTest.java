@@ -26,6 +26,8 @@ public final class ShellPhoneOverviewRouterTest {
         assertFalse(ShellPhoneOverviewRouter.shouldRoute(
                 false, SYSTEM_RECENTS, SYSTEM_RECENTS));
         assertFalse(ShellPhoneOverviewRouter.shouldRoute(
+                true, false, SYSTEM_RECENTS, SYSTEM_RECENTS));
+        assertFalse(ShellPhoneOverviewRouter.shouldRoute(
                 true, null, SYSTEM_RECENTS));
         assertFalse(ShellPhoneOverviewRouter.shouldRoute(
                 true, SYSTEM_RECENTS, null));

@@ -40,19 +40,12 @@ final class DesktopTaskSnapshotController {
                 break;
             }
         }
-        // Input focus can temporarily fall through a non-focusable phone
-        // desktop host to a task in the default task area. Keep input-window
-        // focusability tied to the visible host, while task-area Z-order owns
-        // the independent taskbar plane lifetime.
-        final boolean localSession = mActivity.getCurrentDisplayId()
-                == android.view.Display.DEFAULT_DISPLAY
-                && DesktopDisplayDrivers.activeTaskAreaPolicy(
-                        mActivity.getCurrentDisplayId())
-                        == DesktopTaskAreaPolicy.SESSION;
+        // The taskbar plane remains available for edge reveal throughout an
+        // active session. Policy visibility instead follows the physical
+        // workspace: treating session foreground as HOME foreground would
+        // keep the taskbar pinned over a selected fullscreen task.
         final boolean desktopHostActive =
                 isDesktopHostForeground(snapshot.tasks);
-        final boolean desktopPlaneActive = desktopHostActive
-                || (localSession && mActivity.isDesktopPlaneForeground());
         final boolean hasVisibleFreeformTask = hasVisibleFreeformTask(
                 snapshot.tasks);
         final boolean hasVisibleFullscreenTask = hasVisibleFullscreenTask(
@@ -64,7 +57,7 @@ final class DesktopTaskSnapshotController {
                         activeTask != null,
                         hasVisibleFreeformTask,
                         hasVisibleFullscreenTask,
-                        desktopPlaneActive,
+                        desktopHostActive,
                         mActivity.isTaskbarVisible()));
         mSnapshot = snapshot;
         if (activeTask != null

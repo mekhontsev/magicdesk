@@ -8,7 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Keeps phone-desktop fullscreen tasks inside the shared session parent. */
+/** Keeps phone-desktop fullscreen tasks inside the shared application area. */
 final class SessionFullscreenTaskTopology
         implements ShellFullscreenTaskTopology {
     private static final String TAG = "MagicDeskSessionFullscreen";
@@ -16,17 +16,20 @@ final class SessionFullscreenTaskTopology
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private final ShellDesktopTaskOwnership mOwnership;
+    private final ShellDesktopTaskArea mDesktopTaskArea;
     private final Map<Integer, Rect> mAppRestoreBounds = new HashMap<>();
 
     private int mDisplayId = -1;
 
     SessionFullscreenTaskTopology(
-            final ShellDesktopTaskOwnership ownership) {
-        if (ownership == null) {
+            final ShellDesktopTaskOwnership ownership,
+            final ShellDesktopTaskArea desktopTaskArea) {
+        if (ownership == null || desktopTaskArea == null) {
             throw new IllegalArgumentException(
-                    "desktop task ownership is required");
+                    "desktop session ownership is required");
         }
         mOwnership = ownership;
+        mDesktopTaskArea = desktopTaskArea;
     }
 
     @Override
@@ -40,12 +43,10 @@ final class SessionFullscreenTaskTopology
         }
         try {
             final int targetTaskId = taskIds[taskIds.length - 1];
-            if (mOwnership.isDesktopHostTask(targetTaskId)) {
-                return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
-            }
             final Object targetTask = HiddenTaskApi.requireTask(
                     service, displayId, targetTaskId);
-            if (!mOwnership.isDesktopTask(targetTask)) {
+            if (!mOwnership.isDesktopHostTask(targetTaskId)
+                    && !mOwnership.isDesktopTask(targetTask)) {
                 return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
             }
             final int[] sessionTaskIds = desktopSessionTasks(
@@ -53,8 +54,10 @@ final class SessionFullscreenTaskTopology
             if (sessionTaskIds.length == 0) {
                 return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
             }
-            TaskWindowingCommand.focusTasksWithinCurrentParent(
-                    service, displayId, sessionTaskIds);
+            if (!mDesktopTaskArea.focusSessionWorkspace(
+                    displayId, sessionTaskIds)) {
+                return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
+            }
             return ShellFullscreenTaskArea.FocusResult.SESSION_FOREGROUND;
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "phone session focus failed", error);

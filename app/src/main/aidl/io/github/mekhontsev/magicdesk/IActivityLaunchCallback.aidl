@@ -9,4 +9,6 @@ interface IActivityLaunchCallback {
         in Bundle options) = 1;
 
     void presentPhoneOverview() = 2;
+
+    boolean isPhoneOverviewRoutingActive() = 3;
 }

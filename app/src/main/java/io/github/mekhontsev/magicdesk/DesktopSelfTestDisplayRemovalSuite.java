@@ -4,7 +4,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestSteps.usefulMessage;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskById;
-import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findTaskOnAnyDisplay;
+import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findDesktopTaskOnAnyDisplay;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForTask;
 
 import android.content.Intent;
@@ -189,8 +189,7 @@ final class DesktopSelfTestDisplayRemovalSuite {
                     "/system/bin/cmd activity stack list");
             activeDisplay = DesktopRuntimeBridge.getActiveDesktopDisplayId();
             target = DesktopRuntimeBridge.getDesktopTarget(displayId);
-            desktop = findTaskOnAnyDisplay(
-                    stack, DesktopSelfTestComponents.DESKTOP_CLASS);
+            desktop = findDesktopTaskOnAnyDisplay(stack);
             fullscreenAreaPresent = hasFullscreenTaskArea();
             if (activeDisplay != displayId
                     && target == null

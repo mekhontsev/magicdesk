@@ -8,10 +8,12 @@ import android.view.WindowMetrics;
 import java.util.Objects;
 
 /**
- * Display-relative desktop geometry after system bars have been reserved.
+ * Display-relative desktop geometry after persistent desktop obstructions
+ * have been reserved.
  *
- * <p>Phone and tablet desktops reserve status and navigation bars. A dedicated
- * external desktop owns the full display and provides its own taskbar.</p>
+ * <p>The phone desktop reserves the status bar but owns the bottom edge where
+ * its taskbar replaces persistent system navigation. A dedicated external
+ * desktop owns the full display.</p>
  */
 final class DesktopViewport {
     private final int mDisplayLeft;
@@ -23,30 +25,33 @@ final class DesktopViewport {
     private final int mContentRight;
     private final int mContentBottom;
 
-    static DesktopViewport fromWindowMetrics(final WindowMetrics metrics) {
+    static DesktopViewport fromPhoneDesktopWindowMetrics(
+            final WindowMetrics metrics) {
         if (metrics == null) {
             return new DesktopViewport(new Rect(0, 0, 1, 1), 0, 0, 0, 0);
         }
-        return fromWindowMetrics(metrics, metrics.getWindowInsets());
+        return fromPhoneDesktopWindowMetrics(
+                metrics, metrics.getWindowInsets());
     }
 
     static DesktopViewport fromDisplayBounds(final Rect bounds) {
         return new DesktopViewport(bounds, 0, 0, 0, 0);
     }
 
-    static DesktopViewport fromWindowMetrics(
+    static DesktopViewport fromPhoneDesktopWindowMetrics(
             final WindowMetrics metrics,
             final WindowInsets windowInsets) {
         if (metrics == null) {
             return new DesktopViewport(new Rect(0, 0, 1, 1), 0, 0, 0, 0);
         }
-        // Desktop geometry reserves system bars even while they are transiently
-        // hidden. Focus moving to an overlay must not resize the workspace.
+        // Keep the status-bar reservation stable while allowing the explicit
+        // phone desktop session to own the complete bottom edge. A transient
+        // navigation bar overlays that stable desktop instead of changing its
+        // layout.
         final Insets insets = windowInsets == null
                 ? Insets.NONE
                 : windowInsets.getInsetsIgnoringVisibility(
-                        WindowInsets.Type.statusBars()
-                                | WindowInsets.Type.navigationBars());
+                        WindowInsets.Type.statusBars());
         return new DesktopViewport(
                 metrics.getBounds(),
                 insets.left,
@@ -112,20 +117,13 @@ final class DesktopViewport {
     }
 
     Rect taskbarBounds(final int requestedHeight) {
-        return taskbarBounds(requestedHeight, 0);
-    }
-
-    Rect taskbarBounds(
-            final int requestedHeight,
-            final int bottomInset) {
         final int height = Math.max(
                 1, Math.min(requestedHeight, contentHeight()));
-        final int bottom = taskbarBottom(requestedHeight, bottomInset);
         return new Rect(
                 mContentLeft,
-                bottom - height,
+                mContentBottom - height,
                 mContentRight,
-                bottom);
+                mContentBottom);
     }
 
     Rect workAreaBounds(final int taskbarHeight) {
@@ -162,25 +160,9 @@ final class DesktopViewport {
     }
 
     int taskbarTop(final int requestedHeight) {
-        return taskbarTop(requestedHeight, 0);
-    }
-
-    int taskbarTop(
-            final int requestedHeight,
-            final int bottomInset) {
         final int height = Math.max(
                 1, Math.min(requestedHeight, contentHeight()));
-        return taskbarBottom(requestedHeight, bottomInset) - height;
-    }
-
-    int taskbarBottom(
-            final int requestedHeight,
-            final int bottomInset) {
-        final int height = Math.max(
-                1, Math.min(requestedHeight, contentHeight()));
-        final int availableOffset = Math.max(0, contentHeight() - height);
-        return mContentBottom - Math.max(
-                0, Math.min(bottomInset, availableOffset));
+        return mContentBottom - height;
     }
 
     int insetLeft() {

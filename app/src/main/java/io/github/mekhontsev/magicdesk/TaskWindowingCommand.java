@@ -200,78 +200,6 @@ public final class TaskWindowingCommand {
         applyFocusTransaction(service, transactionClass, transaction);
     }
 
-    static void focusTasksInManagedArea(
-            final Object service,
-            final int displayId,
-            final int[] taskIds,
-            final Object areaToken) throws ReflectiveOperationException {
-        if (taskIds == null || taskIds.length == 0 || areaToken == null) {
-            throw new IllegalArgumentException(
-                    "missing managed workspace focus target");
-        }
-        final FrameworkWindowingApi windowing =
-                FrameworkRuntime.current().windowing();
-        final Class<?> transactionClass = windowing.transactionClass();
-        final Object transaction = windowing.newTransaction();
-        addFocusTasksInManagedArea(
-                service,
-                displayId,
-                taskIds,
-                areaToken,
-                transactionClass,
-                transaction);
-        applyFocusTransaction(service, transactionClass, transaction);
-    }
-
-    static void addFocusTasksInManagedArea(
-            final Object service,
-            final int displayId,
-            final int[] taskIds,
-            final Object areaToken,
-            final Class<?> transactionClass,
-            final Object transaction) throws ReflectiveOperationException {
-        if (taskIds == null || taskIds.length == 0 || areaToken == null) {
-            throw new IllegalArgumentException(
-                    "missing managed workspace focus target");
-        }
-        final FrameworkWindowingApi windowing =
-                FrameworkRuntime.current().windowing();
-        addFocusOperations(
-                service,
-                displayId,
-                taskIds,
-                transactionClass,
-                transaction,
-                false);
-        final int targetTaskId = taskIds[taskIds.length - 1];
-        final Object targetTask = HiddenTaskApi.requireTask(
-                service, displayId, targetTaskId);
-        final Object targetToken = HiddenTaskApi.getTaskToken(targetTask);
-        final Object targetConfiguration =
-                HiddenTaskApi.getWindowConfiguration(targetTask);
-        final int targetWindowingMode =
-                HiddenTaskApi.getTaskWindowingMode(targetTask);
-        final Rect targetBounds = new Rect(
-                (Rect) targetConfiguration.getClass()
-                        .getMethod("getBounds")
-                        .invoke(targetConfiguration));
-        // A task already at the top of an organizer TDA can make ATMS
-        // optimize startTask into a no-op while DisplayContent.mFocusedApp
-        // still belongs to a sibling area. Move it away and let framework
-        // select it again in this same WCT; no intermediate hierarchy reaches
-        // SurfaceFlinger.
-        windowing.reorder(transaction, targetToken, false, false);
-        windowing.reorder(transaction, areaToken, true);
-        windowing.startTask(
-                transaction,
-                targetTaskId,
-                TaskDisplayAreaLaunchCommand.existingTaskFocusOptions(
-                        displayId,
-                        areaToken,
-                        targetWindowingMode,
-                        targetBounds));
-    }
-
     static void addReorderTasksInManagedArea(
             final Object service,
             final int displayId,
@@ -338,19 +266,6 @@ public final class TaskWindowingCommand {
             windowing.reorder(
                     transaction, taskToken, true, includeParents);
         }
-    }
-
-    static void closeDesktopTask(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final int focusTaskId) throws ReflectiveOperationException {
-        closeDesktopTasks(
-                service,
-                displayId,
-                new int[] {taskId},
-                focusTaskId,
-                true);
     }
 
     static void closeFullscreenAreaTask(

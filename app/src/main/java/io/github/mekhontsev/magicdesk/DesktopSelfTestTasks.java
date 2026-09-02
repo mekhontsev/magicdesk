@@ -40,6 +40,30 @@ final class DesktopSelfTestTasks {
                 + "; last=" + describe(lastObserved));
     }
 
+    static TaskStackParser.Entry waitForTask(
+            final int displayId,
+            final int taskId,
+            final TaskPredicate predicate) throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        TaskStackParser.Entry lastObserved = null;
+        do {
+            final String stack = ShellAccess.run(
+                    "/system/bin/cmd activity stack list");
+            lastObserved = findTaskById(stack, taskId);
+            if (lastObserved != null
+                    && lastObserved.displayId == displayId
+                    && (predicate == null || predicate.test(lastObserved))) {
+                return lastObserved;
+            }
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.TASK_APPEARANCE,
+                    POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("task " + taskId
+                + " did not reach the expected state on display " + displayId
+                + "; last=" + describe(lastObserved));
+    }
+
     static DesktopSelfTestTaskHierarchy.Snapshot waitForStableFullscreenTask(
             final int displayId,
             final int taskId,
@@ -128,8 +152,8 @@ final class DesktopSelfTestTasks {
     static String waitForReadyDesktopHost(
             final int displayId,
             final int taskId) throws IOException {
-        // External drivers host DesktopActivity as Home, while the phone
-        // session keeps it as a regular fullscreen task.
+        // Every desktop host is a HOME task; phone uses primary HOME while
+        // external drivers use a display-local secondary HOME.
         waitForDesktopHostFront(displayId, taskId);
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
@@ -317,6 +341,16 @@ final class DesktopSelfTestTasks {
         for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
             if (hasClass(task.componentName, className)
                     || hasClass(task.topActivityName, className)) {
+                return task;
+            }
+        }
+        return null;
+    }
+
+    static TaskStackParser.Entry findDesktopTaskOnAnyDisplay(
+            final String stack) {
+        for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
+            if (DesktopSelfTestComponents.isDesktopTask(task)) {
                 return task;
             }
         }

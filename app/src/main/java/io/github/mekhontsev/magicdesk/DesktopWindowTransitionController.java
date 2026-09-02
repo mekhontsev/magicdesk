@@ -314,26 +314,15 @@ final class DesktopWindowTransitionController {
     }
 
     private void close(final TaskRepository.TaskEntry task) {
-        final DesktopWindowTransitionRequest request;
-        if (task.isFullscreen()) {
-            request = DesktopWindowTransitionRequest.closeFullscreen(
-                    mRuntimeState.displayId(),
-                    task.taskId,
-                    "native-window-shortcut");
-        } else if (task.isFreeform()) {
-            request = DesktopWindowTransitionRequest.closeFreeform(
-                            mRuntimeState.displayId(),
-                            task.taskId,
-                            "native-window-shortcut");
-        } else {
-            request = null;
-        }
-        if (request == null) {
+        if (!task.isFullscreen() && !task.isFreeform()) {
             Log.w(TAG, "native close ignored unsupported task="
                     + task.taskId + " mode=" + task.windowingMode);
             return;
         }
-        submitRequired(request, result -> mHandler.post(() -> {
+        // Closing a task is an Android task-lifecycle operation. The runtime
+        // only intercepts it when a managed fullscreen parent needs an
+        // explicit focus handoff; ordinary freeform tasks use ATMS directly.
+        MagicDeskRuntime.closeTask(task, result -> mHandler.post(() -> {
             if (!result.success) {
                 Log.w(TAG, "native close failed task=" + task.taskId
                         + " message=" + result.message);

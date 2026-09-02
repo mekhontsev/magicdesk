@@ -89,6 +89,27 @@ final class ShellPhoneOverviewRouter implements
             if (!shouldRoute(mEnabled, mSystemRecents, component)) {
                 return true;
             }
+        }
+        // The observer can outlive the HOME lease while desktop teardown is
+        // still running. Consult the lease owner before cancelling Recents so
+        // every release path immediately restores the system gesture.
+        final boolean homeSessionActive;
+        try {
+            homeSessionActive =
+                    mActivityLauncher.isPhoneOverviewRoutingActive();
+        } catch (RemoteException | RuntimeException error) {
+            report("could not verify phone Overview routing: "
+                    + usefulMessage(error));
+            return true;
+        }
+        synchronized (this) {
+            if (!shouldRoute(
+                    mEnabled,
+                    homeSessionActive,
+                    flatten(mSystemRecents),
+                    flatten(component))) {
+                return true;
+            }
             if (mLaunchScheduled) {
                 return false;
             }
@@ -150,7 +171,16 @@ final class ShellPhoneOverviewRouter implements
             final boolean enabled,
             final String systemRecents,
             final String requested) {
+        return shouldRoute(enabled, true, systemRecents, requested);
+    }
+
+    static boolean shouldRoute(
+            final boolean enabled,
+            final boolean homeSessionActive,
+            final String systemRecents,
+            final String requested) {
         return enabled
+                && homeSessionActive
                 && systemRecents != null
                 && systemRecents.equals(requested);
     }

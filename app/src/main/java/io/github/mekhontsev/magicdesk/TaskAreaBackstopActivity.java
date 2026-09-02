@@ -30,8 +30,7 @@ public final class TaskAreaBackstopActivity extends Activity {
                         + Uri.encode(instanceKey)))
                 .putExtra(
                         EXTRA_PASSIVE_INPUT,
-                        instanceKey.startsWith("host:")
-                                || instanceKey.startsWith("session:"))
+                        instanceKey.startsWith("session:"))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                         | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
@@ -53,9 +52,6 @@ public final class TaskAreaBackstopActivity extends Activity {
         }
         final String instanceKey = Uri.decode(
                 data.getEncodedSchemeSpecificPart());
-        if (instanceKey.startsWith("host:")) {
-            return TaskAreaBackstopRole.HOST;
-        }
         if (instanceKey.startsWith("session:")) {
             return TaskAreaBackstopRole.SESSION;
         }
@@ -87,11 +83,11 @@ public final class TaskAreaBackstopActivity extends Activity {
         super.onCreate(savedInstanceState);
         int windowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
         if (getIntent().getBooleanExtra(EXTRA_PASSIVE_INPUT, false)) {
-            // Host and overlay anchors always have a real desktop owner below
-            // or above them, so they must never retain keyboard focus. A
-            // fullscreen-slot anchor stays focusable at the brief child-removal
-            // boundary to avoid leaving its still-focusable plane without an
-            // input target before ShellFullscreenTaskPlanes parks the plane.
+            // The session backstop has a real desktop owner below or above it,
+            // so it must never retain keyboard focus. A fullscreen-slot anchor
+            // stays focusable at the brief child-removal boundary to avoid
+            // leaving its still-focusable plane without an input target before
+            // ShellFullscreenTaskPlanes parks the plane.
             windowFlags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         }
         getWindow().addFlags(windowFlags);

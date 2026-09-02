@@ -6,6 +6,7 @@ import android.util.Log;
 import android.view.Display;
 import android.view.View;
 import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.WindowMetrics;
 
 /**
@@ -18,7 +19,7 @@ final class DesktopLayoutController {
     interface RuntimeState {
         int displayId();
         int taskbarHeight();
-        void onImeInsetsChanged(boolean visible, int bottomInset);
+        void onImeVisibilityChanged(boolean visible);
         void onViewportChanged();
     }
 
@@ -26,10 +27,10 @@ final class DesktopLayoutController {
     private final RuntimeState mRuntimeState;
 
     private DesktopViewport mViewport;
-    private View mDesktopRoot;
+    private View mWindowRoot;
+    private View mDesktopContent;
     private View mTaskbar;
     private DesktopTaskbarHost mTaskbarHost;
-    private int mTaskbarBottomInset;
 
     DesktopLayoutController(
             final Activity activity,
@@ -39,24 +40,24 @@ final class DesktopLayoutController {
         mViewport = readViewport();
     }
 
-    void attachDesktopRoot(final View root) {
-        mDesktopRoot = root;
+    void attachDesktopViews(
+            final View windowRoot,
+            final View desktopContent) {
+        mWindowRoot = windowRoot;
+        mDesktopContent = desktopContent;
         applyViewportPadding();
-        if (root == null) {
+        if (windowRoot == null) {
             return;
         }
-        root.setOnApplyWindowInsetsListener((view, windowInsets) -> {
+        windowRoot.setOnApplyWindowInsetsListener((view, windowInsets) -> {
             final WindowMetrics metrics =
                     mActivity.getWindowManager().getCurrentWindowMetrics();
             final boolean imeVisible = windowInsets.isVisible(
                     WindowInsets.Type.ime());
-            final int imeBottomInset = imeVisible
-                    ? windowInsets.getInsets(WindowInsets.Type.ime()).bottom
-                    : 0;
-            mRuntimeState.onImeInsetsChanged(
-                    imeVisible, imeBottomInset);
+            mRuntimeState.onImeVisibilityChanged(imeVisible);
             applyViewport(mRuntimeState.displayId() == Display.DEFAULT_DISPLAY
-                    ? DesktopViewport.fromWindowMetrics(metrics, windowInsets)
+                    ? DesktopViewport.fromPhoneDesktopWindowMetrics(
+                            metrics, windowInsets)
                     : DesktopViewport.fromDisplayBounds(metrics.getBounds()));
             return windowInsets;
         });
@@ -79,18 +80,7 @@ final class DesktopLayoutController {
     }
 
     Rect taskbarBounds() {
-        return mViewport.taskbarBounds(
-                mRuntimeState.taskbarHeight(),
-                mTaskbarBottomInset);
-    }
-
-    void setTaskbarBottomInset(final int bottomInset) {
-        final int normalized = Math.max(0, bottomInset);
-        if (mTaskbarBottomInset == normalized) {
-            return;
-        }
-        mTaskbarBottomInset = normalized;
-        updateTaskbarBounds();
+        return mViewport.taskbarBounds(mRuntimeState.taskbarHeight());
     }
 
     int desktopAreaWidth() {
@@ -109,11 +99,22 @@ final class DesktopLayoutController {
         return mViewport.contentTop();
     }
 
-    void release() {
-        if (mDesktopRoot != null) {
-            mDesktopRoot.setOnApplyWindowInsetsListener(null);
+    void onWindowFocusChanged(final boolean hasFocus) {
+        if (hasFocus) {
+            applyPhoneSystemBarPolicy();
         }
-        mDesktopRoot = null;
+    }
+
+    void onWindowAttached() {
+        applyPhoneSystemBarPolicy();
+    }
+
+    void release() {
+        if (mWindowRoot != null) {
+            mWindowRoot.setOnApplyWindowInsetsListener(null);
+        }
+        mWindowRoot = null;
+        mDesktopContent = null;
         mTaskbar = null;
         mTaskbarHost = null;
     }
@@ -123,7 +124,7 @@ final class DesktopLayoutController {
             final WindowMetrics metrics =
                     mActivity.getWindowManager().getCurrentWindowMetrics();
             return mRuntimeState.displayId() == Display.DEFAULT_DISPLAY
-                    ? DesktopViewport.fromWindowMetrics(metrics)
+                    ? DesktopViewport.fromPhoneDesktopWindowMetrics(metrics)
                     : DesktopViewport.fromDisplayBounds(metrics.getBounds());
         } catch (RuntimeException e) {
             Log.w(TAG, "failed to read desktop viewport", e);
@@ -147,10 +148,10 @@ final class DesktopLayoutController {
     }
 
     private void applyViewportPadding() {
-        if (mDesktopRoot == null || mViewport == null) {
+        if (mDesktopContent == null || mViewport == null) {
             return;
         }
-        mDesktopRoot.setPadding(
+        mDesktopContent.setPadding(
                 mViewport.insetLeft(),
                 mViewport.insetTop(),
                 mViewport.insetRight(),
@@ -163,5 +164,21 @@ final class DesktopLayoutController {
         }
         final Rect bounds = taskbarBounds();
         mTaskbarHost.updateBounds(bounds);
+    }
+
+    private void applyPhoneSystemBarPolicy() {
+        if (mRuntimeState.displayId() != Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        mActivity.getWindow().setDecorFitsSystemWindows(false);
+        final WindowInsetsController controller =
+                mActivity.getWindow().getInsetsController();
+        if (controller == null) {
+            return;
+        }
+        controller.hide(WindowInsets.Type.navigationBars());
+        controller.setSystemBarsBehavior(
+                WindowInsetsController
+                        .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
     }
 }

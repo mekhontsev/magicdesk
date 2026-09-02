@@ -156,7 +156,7 @@ final class DesktopTaskWatcher {
         try {
             // clearConfiguration() is intentionally asynchronous. Serialize it
             // with replacement configurations so cleanup from the previous
-            // display can never dismantle the newly registered session area.
+            // display can never dismantle the newly registered application area.
             return mConfigurationOperations.executeIfCurrent(ticket, () ->
                     handle.configure(
                             displayId,
@@ -1376,6 +1376,13 @@ final class DesktopTaskWatcher {
                 remote.initCause(error);
                 throw remote;
             }
+        }
+
+        @Override
+        public boolean isPhoneOverviewRoutingActive() {
+            return mOwner.mListener.isActive(mGeneration)
+                    && DesktopHomeRoleLease
+                            .isPhoneOverviewRoutingActive();
         }
     }
 }

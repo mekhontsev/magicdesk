@@ -180,8 +180,6 @@ final class DesktopWindowTransitionProvenance {
                 return "fullscreen";
             case RESTORE_FREEFORM:
                 return "freeform";
-            case CLOSE_FULLSCREEN:
-            case CLOSE_FREEFORM:
             default:
                 return null;
         }

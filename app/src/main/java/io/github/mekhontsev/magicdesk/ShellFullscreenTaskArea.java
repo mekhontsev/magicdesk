@@ -22,8 +22,11 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private DesktopTaskAreaPolicy mTaskAreaPolicy =
             DesktopTaskAreaPolicy.SESSION;
 
-    ShellFullscreenTaskArea(final ShellDesktopTaskOwnership ownership) {
-        mSessionTopology = new SessionFullscreenTaskTopology(ownership);
+    ShellFullscreenTaskArea(
+            final ShellDesktopTaskOwnership ownership,
+            final ShellDesktopTaskArea desktopTaskArea) {
+        mSessionTopology = new SessionFullscreenTaskTopology(
+                ownership, desktopTaskArea);
         mIndependentTopology =
                 new IndependentFullscreenTaskTopology(ownership);
         mTopology = mSessionTopology;

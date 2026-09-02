@@ -568,31 +568,30 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
-    public void doesNotTreatExplicitHostAnchorAsPhoneSessionArea() {
-        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
-        final SelfTestTaskStackInvariantAnalyzer.Snapshot independent =
-                snapshot(
+    public void rejectsPhoneSessionSharingThePrimaryHomeArea() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer =
+                new SelfTestTaskStackInvariantAnalyzer(
+                        0, HOST_TASK_ID, 0);
+        final SelfTestTaskStackInvariantAnalyzer.Snapshot invalid = snapshot(
+                0,
+                taskInArea(HOST_TASK_ID, 0, 1,
+                        false, false, false, HOST_FEATURE_ID),
+                new SelfTestTaskStackInvariantAnalyzer.TaskState(
+                        BACKSTOP_TASK_ID,
                         0,
-                        taskInArea(HOST_TASK_ID, DISPLAY_ID, 1,
-                                false, false, false, HOST_FEATURE_ID),
-                        backstop(THIRD_BACKSTOP_TASK_ID,
-                                HOST_FEATURE_ID, false,
-                                TaskAreaBackstopRole.HOST),
-                        backstop(BACKSTOP_TASK_ID,
-                                FULLSCREEN_FEATURE_ID, false,
-                                TaskAreaBackstopRole.FULLSCREEN),
-                        taskInArea(FIXTURE_TASK_ID, DISPLAY_ID, 1,
-                                true, true, false,
-                                FULLSCREEN_FEATURE_ID),
-                        backstop(SECOND_BACKSTOP_TASK_ID,
-                                SECOND_FULLSCREEN_FEATURE_ID, false,
-                                TaskAreaBackstopRole.FULLSCREEN),
-                        taskInArea(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 1,
-                                false, true, false,
-                                SECOND_FULLSCREEN_FEATURE_ID));
-        analyzer.begin("WINDOW-020-PREPARE", independent);
+                        1,
+                        false,
+                        true,
+                        false,
+                        false,
+                        HOST_FEATURE_ID,
+                        true,
+                        TaskAreaBackstopRole.SESSION));
+        analyzer.begin("WINDOW-020-PREPARE", invalid);
 
-        assertEquals(0, analyzer.finish(independent).anomalies.length);
+        assertContains(analyzer.finish(invalid),
+                "primary HOME and application session share area="
+                        + HOST_FEATURE_ID);
     }
 
     @Test
@@ -611,14 +610,14 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                         false,
                         true,
                         false,
-                        true,
-                        HOST_FEATURE_ID,
+                        false,
+                        FULLSCREEN_FEATURE_ID,
                         true,
                         TaskAreaBackstopRole.SESSION),
                 taskInArea(FIXTURE_TASK_ID, 0, 1,
-                        true, true, false, HOST_FEATURE_ID),
+                        true, true, false, FULLSCREEN_FEATURE_ID),
                 taskInArea(SECOND_FIXTURE_TASK_ID, 0, 1,
-                        false, true, false, HOST_FEATURE_ID));
+                        false, true, false, FULLSCREEN_FEATURE_ID));
         analyzer.begin("WINDOW-020", phone);
 
         assertEquals(0, analyzer.finish(phone).anomalies.length);
@@ -633,6 +632,17 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                 0,
                 taskInArea(HOST_TASK_ID, 0, 1,
                         false, false, false, HOST_FEATURE_ID),
+                new SelfTestTaskStackInvariantAnalyzer.TaskState(
+                        BACKSTOP_TASK_ID,
+                        0,
+                        1,
+                        false,
+                        true,
+                        false,
+                        false,
+                        FULLSCREEN_FEATURE_ID,
+                        true,
+                        TaskAreaBackstopRole.SESSION),
                 taskInArea(FIXTURE_TASK_ID, 0, 1,
                         true, true, false, HOST_FEATURE_ID),
                 taskInArea(SECOND_FIXTURE_TASK_ID, 0, 1,
@@ -640,7 +650,8 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
         analyzer.begin("WINDOW-020", phone);
 
         assertContains(analyzer.finish(phone),
-                "fullscreen tasks share plane=" + HOST_FEATURE_ID);
+                "left application area=" + FULLSCREEN_FEATURE_ID
+                        + " for area=" + HOST_FEATURE_ID);
     }
 
     @Test
@@ -853,7 +864,8 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
                 false,
                 false,
                 displayAreaFeatureId,
-                true);
+                true,
+                TaskAreaBackstopRole.FULLSCREEN);
     }
 
     private static SelfTestTaskStackInvariantAnalyzer.TaskState backstop(

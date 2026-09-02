@@ -382,7 +382,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             final boolean foreground) {
                         if (mRunning
                                 && taskAreaPolicy()
-                                        .usesManagedHostArea()) {
+                                        .usesManagedApplicationArea()) {
                             DesktopRuntimeBridge
                                     .setDesktopPlaneForeground(
                                             mDisplayId, foreground);
@@ -593,13 +593,18 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         final int generation = mGeneration;
         mHandler.post(() -> {
+            if (task.isFreeform()) {
+                if (mRunning && generation == mGeneration
+                        && mDisplayId == task.displayId) {
+                    prepareCloseFocus(task.taskId);
+                }
+                closeTaskThroughAndroid(task, callback);
+                return;
+            }
             if (!mRunning || generation != mGeneration
                     || mDisplayId != task.displayId
                     || !mTaskWatcherReady) {
-                completeActionCallback(
-                        callback,
-                        false,
-                        "desktop transition gateway unavailable");
+                TaskRepository.closeTask(task, callback);
                 return;
             }
             final boolean submitted = closeDesktopTaskInternal(
@@ -618,18 +623,27 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             completeActionCallback(callback, true, "");
                             return;
                         }
-                        completeActionCallback(
-                                callback, false, result.message);
+                        closeTaskThroughAndroid(task, callback);
                     });
             if (submitted) {
                 return;
             }
-            completeActionCallback(
-                    callback,
-                    false,
-                    "desktop transition gateway unavailable");
+            closeTaskThroughAndroid(task, callback);
         });
         return true;
+    }
+
+    private void closeTaskThroughAndroid(
+            final TaskRepository.TaskEntry task,
+            final TaskRepository.ActionCallback callback) {
+        TaskRepository.closeTask(task, result -> {
+            if (result.success && mRunning
+                    && mDisplayId == task.displayId) {
+                scheduleRefresh(0);
+            }
+            completeActionCallback(
+                    callback, result.success, result.message);
+        });
     }
 
     @Override
@@ -730,21 +744,28 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         if (!mRunning || !mTaskWatcherReady || taskId < 0) {
             return false;
         }
+        final int focusTaskId = prepareCloseFocus(taskId);
+        if (focusTaskId < 0) {
+            return false;
+        }
+        return mTaskWatcher.closeDesktopTask(
+                mDisplayId, taskId, focusTaskId, callback);
+    }
+
+    private int prepareCloseFocus(final int taskId) {
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
         final int hostTaskId = session.activeDisplayId() == mDisplayId
                 ? session.hostTaskId() : -1;
         final int focusTaskId = selectCloseSurvivorTaskId(
                 mDisplayTaskState.visibleTasks(), taskId, hostTaskId);
-        if (focusTaskId < 0) {
-            return false;
+        if (focusTaskId >= 0) {
+            // The real HOME host is Android's last-task fallback. Make its
+            // window focusable before ATMS selects it; task ordering remains
+            // entirely owned by the platform for ordinary freeform closes.
+            DesktopRuntimeBridge.prepareTaskFocus(mDisplayId, focusTaskId);
         }
-        // Relayout the host before the shell-side focus transaction. A
-        // non-focusable host makes SystemUI start HOME when the last
-        // freeform task disappears on the phone display.
-        DesktopRuntimeBridge.prepareTaskFocus(mDisplayId, focusTaskId);
-        return mTaskWatcher.closeDesktopTask(
-                mDisplayId, taskId, focusTaskId, callback);
+        return focusTaskId;
     }
 
     private boolean submitWindowTransition(
@@ -782,10 +803,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         request.taskId,
                         request.bounds(),
                         scopedCallback);
-            case CLOSE_FREEFORM:
-            case CLOSE_FULLSCREEN:
-                return closeDesktopTaskInternal(
-                        request.taskId, scopedCallback);
             default:
                 return false;
         }

@@ -56,7 +56,7 @@ public final class DesktopWindowTransitionControllerTest {
                         3, 42, null));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> DesktopWindowTransitionRequest.closeFreeform(
+                () -> DesktopWindowTransitionRequest.enterFullscreen(
                         -1, 42));
     }
 

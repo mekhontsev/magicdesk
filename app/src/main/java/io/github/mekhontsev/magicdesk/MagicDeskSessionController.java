@@ -35,8 +35,11 @@ final class MagicDeskSessionController {
     }
 
     private void startExit() {
-        final DesktopDisplayTarget desktopTarget =
-                resolveExternalDesktopTarget();
+        final DesktopDisplayTarget desktopTarget = resolveDesktopTarget();
+        // Only external targets can own Console tasks that must move home;
+        // the shared Close Desktop step still receives phone targets.
+        final DesktopDisplayTarget externalDesktopTarget =
+                externalTarget(desktopTarget);
         new MagicDeskExitCoordinator(
                 new MagicDeskExitCoordinator.Operations() {
                     @Override
@@ -66,7 +69,7 @@ final class MagicDeskSessionController {
                     public void returnDesktopTasks(
                             final MagicDeskExitCoordinator.Callback callback) {
                         DesktopOperations.returnDesktopTasksToPhone(
-                                desktopTarget, callback::onComplete);
+                                externalDesktopTarget, callback::onComplete);
                     }
 
                     @Override
@@ -145,15 +148,34 @@ final class MagicDeskSessionController {
                 callback::onComplete);
     }
 
-    private DesktopDisplayTarget resolveExternalDesktopTarget() {
+    private DesktopDisplayTarget resolveDesktopTarget() {
+        final DesktopDisplayTarget activeTarget =
+                DesktopRuntimeBridge.getActiveDesktopTarget();
+        if (activeTarget != null) {
+            return activeTarget;
+        }
+        final DesktopHomeRoleLease.State lease =
+                DesktopHomeRoleLease.snapshot();
+        if (lease != null) {
+            return lease.target();
+        }
         final Display display = mActivity.getDisplay();
-        if (display != null
-                && display.getDisplayId() > Display.DEFAULT_DISPLAY) {
+        if (display == null) {
+            return null;
+        }
+        if (display.getDisplayId() == Display.DEFAULT_DISPLAY
+                && mActivity instanceof DesktopShellActivity) {
+            return DesktopDisplayTarget.phone();
+        }
+        if (display.getDisplayId() > Display.DEFAULT_DISPLAY) {
             return DesktopRuntimeBridge.getDesktopTarget(
                     display.getDisplayId());
         }
-        final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getActiveDesktopTarget();
+        return null;
+    }
+
+    private static DesktopDisplayTarget externalTarget(
+            final DesktopDisplayTarget target) {
         return target != null
                         && target.displayId > Display.DEFAULT_DISPLAY
                 ? target : null;

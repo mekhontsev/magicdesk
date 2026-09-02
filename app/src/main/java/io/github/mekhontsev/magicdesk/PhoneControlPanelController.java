@@ -56,9 +56,11 @@ final class PhoneControlPanelController {
     }
 
     static final class State {
+        final boolean desktopSessionActive;
         final boolean externalDesktopActive;
         final boolean desktopReady;
-        final boolean consoleControlAvailable;
+        final boolean shellReady;
+        final boolean externalDesktopSupported;
         final boolean phoneScreenOff;
         final boolean phoneScreenControlAvailable;
         final boolean phoneTouchpadAvailable;
@@ -77,9 +79,11 @@ final class PhoneControlPanelController {
         final int externalDesktopDisplayId;
 
         State(
+                final boolean desktopSessionActive,
                 final boolean externalDesktopActive,
                 final boolean desktopReady,
-                final boolean consoleControlAvailable,
+                final boolean shellReady,
+                final boolean externalDesktopSupported,
                 final boolean phoneScreenOff,
                 final boolean phoneScreenControlAvailable,
                 final boolean phoneTouchpadAvailable,
@@ -96,9 +100,11 @@ final class PhoneControlPanelController {
                 final String runtime,
                 final int currentDisplayId,
                 final int externalDesktopDisplayId) {
+            this.desktopSessionActive = desktopSessionActive;
             this.externalDesktopActive = externalDesktopActive;
             this.desktopReady = desktopReady;
-            this.consoleControlAvailable = consoleControlAvailable;
+            this.shellReady = shellReady;
+            this.externalDesktopSupported = externalDesktopSupported;
             this.phoneScreenOff = phoneScreenOff;
             this.phoneScreenControlAvailable = phoneScreenControlAvailable;
             this.phoneTouchpadAvailable = phoneTouchpadAvailable;
@@ -229,7 +235,8 @@ final class PhoneControlPanelController {
                                 == ExternalDisplayState.CONNECTED
                         || state.simulatedDesktopAvailable;
         mExternalDesktop.setEnabled(
-                state.consoleControlAvailable
+                state.shellReady
+                        && state.externalDesktopSupported
                         && canStartOrShowExternalDesktop);
         final boolean canConnectWireless =
                 state.wirelessConnectionUiAvailable
@@ -240,7 +247,7 @@ final class PhoneControlPanelController {
         mConnectWirelessDisplay.setEnabled(canConnectWireless);
         final boolean canConfigureOutput =
                 !state.externalDesktopActive
-                        && state.consoleControlAvailable
+                        && state.shellReady
                         && state.externalOutputControlAvailable
                         && state.wiredDisplayConnected
                         && state.externalDisplayState
@@ -253,15 +260,16 @@ final class PhoneControlPanelController {
         mOutputMode.setEnabled(canConfigureOutput
                 && mOutputModesConfigurable
                 && !mOutputModes.isEmpty());
-        final boolean canCloseDesktop = state.externalDesktopActive
-                && state.consoleControlAvailable;
+        final boolean canCloseDesktop = canCloseDesktop(
+                state.desktopSessionActive, state.shellReady);
         final boolean canOpenTouchpad = state.externalDesktopActive
-                && state.consoleControlAvailable
+                && state.shellReady
                 && state.phoneTouchpadAvailable;
         final boolean canControlPhoneScreen = state.externalDesktopActive
                 && state.phoneScreenControlAvailable;
         mCloseDesktop.setVisibility(
-                canCloseDesktop ? View.VISIBLE : View.GONE);
+                shouldShowCloseDesktop(state.desktopSessionActive)
+                        ? View.VISIBLE : View.GONE);
         mCloseDesktop.setEnabled(canCloseDesktop);
         mTouchpad.setVisibility(
                 canOpenTouchpad ? View.VISIBLE : View.GONE);
@@ -273,7 +281,7 @@ final class PhoneControlPanelController {
                 canControlPhoneScreen ? View.VISIBLE : View.GONE);
         mPhoneScreen.setEnabled(canControlPhoneScreen);
         mSessionActions.setVisibility(
-                canCloseDesktop
+                shouldShowCloseDesktop(state.desktopSessionActive)
                         || canOpenTouchpad
                         || canControlPhoneScreen
                         ? View.VISIBLE : View.GONE);
@@ -285,6 +293,17 @@ final class PhoneControlPanelController {
                 mRendering = false;
             }
         });
+    }
+
+    static boolean shouldShowCloseDesktop(
+            final boolean desktopSessionActive) {
+        return desktopSessionActive;
+    }
+
+    static boolean canCloseDesktop(
+            final boolean desktopSessionActive,
+            final boolean shellReady) {
+        return desktopSessionActive && shellReady;
     }
 
     private View createHeader() {

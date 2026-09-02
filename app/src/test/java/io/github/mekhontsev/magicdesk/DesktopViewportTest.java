@@ -25,31 +25,21 @@ public final class DesktopViewportTest {
     }
 
     @Test
+    public void phoneDesktopReservesStatusBarAndOwnsBottomEdge() {
+        final DesktopViewport viewport = new DesktopViewport(
+                0, 0, 1216, 2688, 0, 147, 0, 0);
+
+        assertContentBounds(viewport, 0, 147, 1216, 2688);
+        assertEquals(2519, viewport.taskbarTop(169));
+    }
+
+    @Test
     public void asymmetricInsetsPreserveDisplayOrigin() {
         final DesktopViewport viewport = new DesktopViewport(
                 100, 200, 1300, 1000, 12, 24, 18, 30);
 
         assertContentBounds(viewport, 112, 224, 1282, 970);
         assertEquals(906, viewport.taskbarTop(64));
-    }
-
-    @Test
-    public void keyboardInsetRaisesOnlyTaskbarBounds() {
-        final DesktopViewport viewport = new DesktopViewport(
-                0, 0, 1920, 1080, 0, 0, 0, 0);
-
-        assertEquals(340, viewport.taskbarTop(64, 676));
-        assertEquals(404, viewport.taskbarBottom(64, 676));
-        assertContentBounds(viewport, 0, 0, 1920, 1080);
-    }
-
-    @Test
-    public void oversizedKeyboardInsetKeepsTaskbarInsideViewport() {
-        final DesktopViewport viewport = new DesktopViewport(
-                100, 200, 1300, 1000, 12, 24, 18, 30);
-
-        assertEquals(224, viewport.taskbarTop(64, 10_000));
-        assertEquals(288, viewport.taskbarBottom(64, 10_000));
     }
 
     private static void assertContentBounds(

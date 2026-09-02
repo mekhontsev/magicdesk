@@ -1109,13 +1109,11 @@ final class AppTaskController {
                                     runFocusCompletion(completion, false);
                                     return;
                                 }
-                                mActivity.setTaskbarVisible(
-                                        currentTask.isFreeform()
-                                                || DesktopTaskSnapshotController
-                                                        .hasVisibleFreeformTask(
-                                                                visibleTasks,
-                                                                currentTask
-                                                                        .taskId));
+                                // The pre-command interaction snapshot no
+                                // longer describes the visible stack after a
+                                // cross-area focus commit. Let the snapshot
+                                // controller apply the single taskbar policy
+                                // from the resulting hierarchy.
                                 mActivity.refreshTaskSnapshot();
                                 runFocusCompletion(completion, true);
                             }));

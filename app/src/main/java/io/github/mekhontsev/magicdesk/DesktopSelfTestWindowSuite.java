@@ -35,8 +35,6 @@ final class DesktopSelfTestWindowSuite {
             DesktopSelfTestComponents.FIXTURE_CLASS;
     private static final String BROWSER_FIXTURE_CLASS =
             DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS;
-    private static final String DESKTOP_CLASS =
-            DesktopSelfTestComponents.DESKTOP_CLASS;
     private static final int SIMULATED_WIDTH = 1920;
     private static final int SIMULATED_HEIGHT = 1080;
     private static final int SIMULATED_DENSITY = 160;
@@ -58,7 +56,8 @@ final class DesktopSelfTestWindowSuite {
         final int targetDisplayId = displayId;
         DesktopSelfTestPhoneUiObserver.begin(targetDisplayId);
         samplePhoneUiBestEffort();
-        require(result, "DESKTOP-001", "Prepare desktop session", () -> {
+        final TaskStackParser.Entry preparedDesktop = require(
+                result, "DESKTOP-001", "Prepare desktop session", () -> {
             if (target == DesktopSelfTestTarget.SIMULATED) {
                 // Exercise the same display policy as a user-started session,
                 // including profiles and the phone-side touchpad.
@@ -70,14 +69,21 @@ final class DesktopSelfTestWindowSuite {
                         null,
                         DesktopDisplayTarget.simulated(targetDisplayId));
             }
-            final TaskStackParser.Entry desktop = waitForTask(
-                    targetDisplayId, DESKTOP_CLASS, null);
-            return "display=" + targetDisplayId + ", task=" + desktop.taskId;
+            final DesktopSessionSnapshot session =
+                    DesktopRuntimeBridge.getSessionSnapshot();
+            if (session.activeDisplayId() != targetDisplayId
+                    || session.hostTaskId() < 0) {
+                throw new IOException(
+                        "desktop runtime has no host on display "
+                                + targetDisplayId);
+            }
+            return waitForTask(
+                    targetDisplayId, session.hostTaskId(), null);
         });
         final TaskStackParser.Entry desktopTask = require(result,
                 "DESKTOP-002", "Configure desktop host", () -> {
                     final TaskStackParser.Entry task = waitForTask(
-                            targetDisplayId, DESKTOP_CLASS,
+                            targetDisplayId, preparedDesktop.taskId,
                             entry -> "fullscreen".equals(entry.windowingMode));
                     return task;
                 }, "fullscreen host ready");
@@ -500,8 +506,8 @@ final class DesktopSelfTestWindowSuite {
                                         && DesktopSelfTestGeometry.matches(
                                                 entry.bounds,
                                                 expectedDisplayBounds));
-                        final Rect actualDisplayBounds = currentDisplayBounds(
-                                appContext, displayId);
+                        final Rect actualDisplayBounds =
+                                currentDesktopBounds(displayId);
                         final int actualRotation = displayRotation(
                                 appContext, displayId);
                         if (!expectedDisplayBounds.equals(actualDisplayBounds)
@@ -1370,12 +1376,19 @@ final class DesktopSelfTestWindowSuite {
                         DesktopRuntimeBridge.getDesktopViewport(displayId);
                 final Rect workArea =
                         DesktopRuntimeBridge.getDesktopWorkAreaBounds(displayId);
-                if (viewport != null && workArea != null) {
+                final DesktopUiSnapshot ui =
+                        DesktopRuntimeBridge.getAutomationUiSnapshot(displayId);
+                if (viewport != null && workArea != null && ui != null) {
                     final Rect display = viewport.displayBounds();
+                    final Rect taskbar = ui.taskbarBounds;
                     final int densityDpi = displayDensity(context, displayId);
                     final int rotation = displayRotation(context, displayId);
                     if (display.width() > 0
                             && display.height() > 0
+                            && taskbar != null
+                            && !taskbar.isEmpty()
+                            && display.contains(taskbar)
+                            && taskbar.bottom == display.bottom
                             && workArea.left == display.left
                             && workArea.right == display.right
                             && workArea.top >= display.top
@@ -1414,18 +1427,10 @@ final class DesktopSelfTestWindowSuite {
                 .getResources().getDisplayMetrics().densityDpi;
     }
 
-    private static Rect currentDisplayBounds(
-            final Context context, final int displayId) {
-        final DisplayManager manager = context.getSystemService(
-                DisplayManager.class);
-        final Display display = manager == null
-                ? null : manager.getDisplay(displayId);
-        if (display == null) {
-            return new Rect();
-        }
-        final DisplayMetrics metrics = new DisplayMetrics();
-        display.getRealMetrics(metrics);
-        return new Rect(0, 0, metrics.widthPixels, metrics.heightPixels);
+    private static Rect currentDesktopBounds(final int displayId) {
+        final DesktopViewport viewport =
+                DesktopRuntimeBridge.getDesktopViewport(displayId);
+        return viewport == null ? new Rect() : viewport.displayBounds();
     }
 
     private static int displayRotation(

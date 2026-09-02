@@ -186,13 +186,7 @@
             android:roundIcon="@mipmap/ic_launcher"
             android:stateNotNeeded="true"
             android:taskAffinity="${applicationId}.phone_home"
-            android:theme="@style/PhoneHomeTheme">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.HOME" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/PhoneHomeTheme" />
 
         <activity
             android:name=".DesktopActivity"
@@ -200,7 +194,7 @@
             android:exported="true"
             android:banner="@mipmap/ic_launcher"
             android:icon="@mipmap/ic_launcher"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:logo="@mipmap/ic_launcher"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:roundIcon="@mipmap/ic_launcher"
@@ -212,6 +206,30 @@
                 <category android:name="android.intent.category.SECONDARY_HOME" />
             </intent-filter>
         </activity>
+
+        <activity-alias
+            android:name=".PhoneHome"
+            android:enabled="true"
+            android:exported="true"
+            android:targetActivity=".PhoneHomeActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.HOME" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".PhoneDesktopHome"
+            android:enabled="false"
+            android:exported="true"
+            android:targetActivity=".DesktopActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.HOME" />
+            </intent-filter>
+        </activity-alias>
 
         <activity
             android:name=".DesktopTaskbarActivity"
