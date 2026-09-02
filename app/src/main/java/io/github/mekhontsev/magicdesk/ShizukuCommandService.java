@@ -472,6 +472,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void raiseDesktopTaskbarPlane(
+            final ITaskObserverCallback callback,
+            final int displayId) {
+        mTaskObserverManager.raiseDesktopTaskbarPlane(callback, displayId);
+    }
+
+    @Override
     public boolean clearTaskObserverConfiguration(
             final ITaskObserverCallback callback,
             final int expectedDisplayId) {
@@ -813,16 +820,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int sourceId) {
         mTaskObserverManager.refreshTaskCaption(
                 callback, displayId, taskId, sourceId);
-    }
-
-    @Override
-    public boolean capturePointerPosition() {
-        return mPointerDriver.capturePosition();
-    }
-
-    @Override
-    public void restorePointerPositionIfDisplaced() {
-        mPointerDriver.restorePositionIfDisplaced();
     }
 
     @Override

@@ -567,6 +567,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public void raiseDesktopTaskbarPlane(final int displayId) {
+        mHandler.post(() -> {
+            if (mRunning && mDisplayId == displayId && mTaskWatcherReady) {
+                mTaskWatcher.raiseDesktopTaskbarPlane(displayId);
+            }
+        });
+    }
+
+    @Override
     public List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final int displayId) {
         return isActiveOnDisplay(displayId)

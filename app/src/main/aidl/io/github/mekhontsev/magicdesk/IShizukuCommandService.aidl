@@ -75,10 +75,6 @@ interface IShizukuCommandService {
 
     void stopTaskObserver(ITaskObserverCallback callback) = 14;
 
-    boolean capturePointerPosition() = 15;
-
-    void restorePointerPositionIfDisplaced() = 16;
-
     boolean injectPointerClick(int displayId, int button) = 17;
 
     int[] startInputRouting(
@@ -439,5 +435,9 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int displayId,
         IBinder activityToken) = 110;
+
+    void raiseDesktopTaskbarPlane(
+        ITaskObserverCallback callback,
+        int displayId) = 111;
 
 }

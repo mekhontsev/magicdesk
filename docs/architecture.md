@@ -1284,8 +1284,15 @@ relative to its bounded parent and therefore never receives a freeform caption.
 The shell disables that Activity's Android 15+ ActivityRecord input sink, so
 only the taskbar window's bounded touch region receives input and pointer events
 outside the panel continue to the desktop and application windows.
-Auto-hide resizes the parent to the reveal strip only when presentation state
-changes; it adds no polling. The taskbar hides for an unrelated true-fullscreen
+Auto-hide keeps the parent geometry stable, makes the hidden taskbar window
+non-touchable, and resizes the application panel containing the taskbar View to
+its reveal edge. The same window therefore owns visible taskbar input and
+hidden-edge hover without forwarding synthetic events. It adds no polling and
+keeps the input frame aligned with the visible edge. The organizer retains its
+task-display-area surface leash and assigns it a layer above the independently
+layered fullscreen planes. That single shell-owned surface order keeps both the
+visible panel and hidden reveal edge above application input regions.
+The taskbar hides for an unrelated true-fullscreen
 task and returns for the desktop. Its shared controller measures the actual
 task viewport on every display and reserves one slot for an overflow menu when
 task or pin icons no longer fit. Overflow entries retain the same exact-task

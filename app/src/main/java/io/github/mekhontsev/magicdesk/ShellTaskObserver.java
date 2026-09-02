@@ -537,6 +537,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         return result;
     }
 
+    private boolean finishDesktopTransition(final boolean completed) {
+        if (completed) {
+            mDesktopTaskbarPlane.raise();
+        }
+        return completed;
+    }
+
     void updateDesktopTaskbarBounds(
             final int displayId,
             final Rect bounds) {
@@ -557,6 +564,15 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             + "; configured=" + mConfiguredDisplayId);
         }
         mDesktopTaskbarPlane.configureActivityInput(activityToken);
+    }
+
+    void raiseDesktopTaskbarPlane(final int displayId) {
+        if (displayId != mConfiguredDisplayId) {
+            throw new IllegalStateException(
+                    "stale taskbar display " + displayId
+                            + "; configured=" + mConfiguredDisplayId);
+        }
+        mDesktopTaskbarPlane.raise();
     }
 
     TaskWindowSnapshot inspectTaskWindow(
@@ -622,8 +638,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     }
 
     boolean concealFullscreenTaskPlanes(final int displayId) {
-        return displayId == mConfiguredDisplayId
+        final boolean concealed = displayId == mConfiguredDisplayId
                 && mFullscreenTaskArea.concealForShowDesktop(displayId);
+        return finishDesktopTransition(concealed);
     }
 
     boolean restoreFullscreenTask(
@@ -633,8 +650,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        return mFullscreenTaskArea.restoreTask(
-                mService, displayId, taskId, bounds);
+        return finishDesktopTransition(mFullscreenTaskArea.restoreTask(
+                mService, displayId, taskId, bounds));
     }
 
     boolean beginAppFullscreenTask(
@@ -644,8 +661,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed || displayId != mConfiguredDisplayId) {
             return false;
         }
-        return mFullscreenTaskArea.beginAppFullscreen(
-                mService, displayId, taskId, restoreBounds);
+        return finishDesktopTransition(mFullscreenTaskArea.beginAppFullscreen(
+                mService, displayId, taskId, restoreBounds));
     }
 
     boolean beginFullscreenTask(
@@ -654,11 +671,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed || displayId != mConfiguredDisplayId) {
             return false;
         }
-        return mFullscreenTaskArea.beginFullscreen(
+        return finishDesktopTransition(mFullscreenTaskArea.beginFullscreen(
                 mService,
                 displayId,
                 taskId,
-                mWindowing.requiresNativeFullscreenCaptionRefresh());
+                mWindowing.requiresNativeFullscreenCaptionRefresh()));
     }
 
     boolean protectExplicitFullscreenTask(
@@ -688,8 +705,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        return mWorkspaceCoordinator.closeTask(
-                displayId, taskId, focusTaskId);
+        return finishDesktopTransition(mWorkspaceCoordinator.closeTask(
+                displayId, taskId, focusTaskId));
     }
 
     boolean removeDesktopPackageTasks(
@@ -699,8 +716,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        return mDesktopTaskArea.removePackageTasks(
-                displayId, packageName, focusTaskId);
+        return finishDesktopTransition(mDesktopTaskArea.removePackageTasks(
+                displayId, packageName, focusTaskId));
     }
 
     int launchWindowedTask(
@@ -1126,6 +1143,15 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 }
             } else if (displayId == Display.DEFAULT_DISPLAY) {
                 preservePhoneTouchpad();
+            }
+            if (displayId == mConfiguredDisplayId
+                    && !mDesktopTaskbarPlane.isTaskbarTask(taskInfo)) {
+                try {
+                    mDesktopTaskbarPlane.raise();
+                } catch (RuntimeException error) {
+                    Log.w(TAG, "could not preserve desktop taskbar order",
+                            error);
+                }
             }
         }
         signalChange("task-front");

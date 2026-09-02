@@ -30,7 +30,6 @@ final class DesktopMouseBridge {
     private boolean mReady;
     private boolean mCaptureRequested;
     private boolean mCaptureStopPending;
-    private boolean mPointerRestoreArmed;
     private int mGeneration;
     private Thread mSupervisorThread;
     private ShellStreamHandle mStream;
@@ -80,7 +79,6 @@ final class DesktopMouseBridge {
             mReady = false;
             mCaptureRequested = false;
             mCaptureStopPending = false;
-            mPointerRestoreArmed = false;
             mMoveRemainderX = 0.0f;
             mMoveRemainderY = 0.0f;
             mScrollRemainder = 0.0f;
@@ -185,20 +183,6 @@ final class DesktopMouseBridge {
             stream.writeLine(command.toString());
         } catch (IOException error) {
             Log.w(TAG, "Could not refresh mouse sources", error);
-        }
-    }
-
-    void restorePointerPositionIfDisplacedOnNextMotion() {
-        final ShellStreamHandle stream;
-        synchronized (mLock) {
-            if (!mRequested) {
-                return;
-            }
-            mPointerRestoreArmed = true;
-            stream = mStream;
-        }
-        if (stream != null) {
-            writeControl(stream, "restore-pointer-on-motion");
         }
     }
 
@@ -412,7 +396,6 @@ final class DesktopMouseBridge {
             final ShellStreamHandle stream,
             final int generation) {
         if (line.startsWith("MAGICDESK_MOUSE_READY")) {
-            final boolean restorePointer;
             final boolean capturePointer;
             final boolean notifyStateChanged;
             synchronized (mLock) {
@@ -422,30 +405,15 @@ final class DesktopMouseBridge {
                 } else {
                     notifyStateChanged = false;
                 }
-                restorePointer = mPointerRestoreArmed;
                 capturePointer = mCaptureRequested;
             }
             if (capturePointer) {
                 writeControl(stream, "start");
             }
-            if (restorePointer) {
-                writeControl(stream, "restore-pointer-on-motion");
-            }
             Log.i(TAG, line);
             if (notifyStateChanged) {
                 mStateChanged.run();
             }
-            return;
-        }
-        if (line.startsWith("MAGICDESK_MOUSE_POINTER_MOTION")) {
-            synchronized (mLock) {
-                if (!isActiveLocked(generation) || mStream != stream
-                        || !mPointerRestoreArmed) {
-                    return;
-                }
-                mPointerRestoreArmed = false;
-            }
-            ShellAccess.restorePointerPositionIfDisplaced();
             return;
         }
         if (line.startsWith("MAGICDESK_MOUSE_CAPTURE_STOPPED")) {

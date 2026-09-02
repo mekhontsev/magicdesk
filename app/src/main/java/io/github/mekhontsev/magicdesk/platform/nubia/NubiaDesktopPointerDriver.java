@@ -11,19 +11,6 @@ import android.view.MotionEvent;
 final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
     private static final String TAG = "MagicDeskPointer";
 
-    private final NubiaDesktopPointerPositionGuard mPositionGuard =
-            new NubiaDesktopPointerPositionGuard();
-
-    @Override
-    public boolean capturePosition() {
-        return mPositionGuard.capture();
-    }
-
-    @Override
-    public Point restorePositionIfDisplaced() {
-        return mPositionGuard.restoreIfDisplaced();
-    }
-
     @Override
     public int[] getPosition(final int displayId) {
         try {
@@ -100,7 +87,6 @@ final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
 
     @Override
     public void close() {
-        mPositionGuard.close();
     }
 
     @Override

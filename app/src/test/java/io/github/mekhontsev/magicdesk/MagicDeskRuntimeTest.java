@@ -32,7 +32,6 @@ public final class MagicDeskRuntimeTest {
         assertFalse(MagicDeskRuntime.isSessionWakeLockHeld());
         assertFalse(MagicDeskRuntime.isDesktopMouseBridgeReady());
         assertFalse(MagicDeskRuntime.isFullKeyboardShortcutMode());
-        assertFalse(MagicDeskRuntime.capturePointerPosition());
         assertNull(MagicDeskRuntime.getDesktopPointerPosition(7));
         assertFalse(MagicDeskRuntime.showStart());
         assertFalse(MagicDeskRuntime.toggleDesktopWorkspace());
@@ -247,15 +246,6 @@ public final class MagicDeskRuntimeTest {
         public InputRelayRuntimeDiagnostics.Snapshot
                 captureInputRelayDiagnostics() {
             return InputRelayRuntimeDiagnostics.Snapshot.unavailable();
-        }
-
-        @Override
-        public boolean capturePointerPosition() {
-            return true;
-        }
-
-        @Override
-        public void restorePointerPositionOnNextMotion() {
         }
 
         @Override

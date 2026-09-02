@@ -2,22 +2,10 @@ package io.github.mekhontsev.magicdesk.platform.android;
 
 import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 
-import android.graphics.Point;
-
 final class GenericAndroidPointerDriver implements PlatformPointerDriver {
     @Override
     public boolean isAvailable() {
         return false;
-    }
-
-    @Override
-    public boolean capturePosition() {
-        return false;
-    }
-
-    @Override
-    public Point restorePositionIfDisplaced() {
-        return null;
     }
 
     @Override

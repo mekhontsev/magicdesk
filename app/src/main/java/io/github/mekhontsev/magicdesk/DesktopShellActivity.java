@@ -755,8 +755,6 @@ public abstract class DesktopShellActivity extends Activity
     public void onWindowFocusChanged(final boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
-            // A client may leave Android pointer capture orphaned after losing focus.
-            getWindow().getDecorView().releasePointerCapture();
             refreshDisplayProfile();
         }
         refreshTaskSnapshot();

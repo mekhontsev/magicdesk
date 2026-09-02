@@ -11,10 +11,6 @@ public interface PlatformPointerDriver extends AutoCloseable {
         return isAvailable();
     }
 
-    boolean capturePosition();
-
-    Point restorePositionIfDisplaced();
-
     int[] getPosition(int displayId);
 
     /** Current system cursor position, or {@code null} when not observable. */

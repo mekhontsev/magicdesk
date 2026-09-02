@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Rect;
 import android.view.Display;
+import android.view.MotionEvent;
 import android.view.View;
 
 import java.util.HashMap;
@@ -11,6 +12,10 @@ import java.util.Map;
 final class DesktopTaskbarHost {
     interface BoundsListener {
         void onBoundsChanged(Rect bounds);
+    }
+
+    interface EdgeInputListener {
+        void onEdgeInput(MotionEvent event);
     }
 
     private static final Object REGISTRY_LOCK = new Object();
@@ -28,6 +33,7 @@ final class DesktopTaskbarHost {
     private boolean mPresented = true;
     private boolean mEdgeHidden;
     private int mEdgeHeight = 1;
+    private EdgeInputListener mEdgeInputListener;
     private boolean mReleased;
 
     DesktopTaskbarHost(
@@ -72,7 +78,6 @@ final class DesktopTaskbarHost {
         }
         mPresented = presented;
         apply(currentActivity());
-        updatePlaneBounds();
     }
 
     void setEdgeHidden(final boolean hidden, final int edgeHeight) {
@@ -86,7 +91,12 @@ final class DesktopTaskbarHost {
         mEdgeHidden = hidden;
         mEdgeHeight = normalizedHeight;
         apply(currentActivity());
-        updatePlaneBounds();
+    }
+
+    void setEdgeInputListener(final EdgeInputListener listener) {
+        if (!mReleased) {
+            mEdgeInputListener = listener;
+        }
     }
 
     void release() {
@@ -105,6 +115,7 @@ final class DesktopTaskbarHost {
             activity.detachTaskbar();
         }
         mTaskbar = null;
+        mEdgeInputListener = null;
         mBounds.setEmpty();
         mAppliedBounds.setEmpty();
     }
@@ -142,9 +153,49 @@ final class DesktopTaskbarHost {
         }
     }
 
+    static void dispatchEdgeInput(
+            final int displayId,
+            final MotionEvent event) {
+        final DesktopTaskbarHost host;
+        synchronized (REGISTRY_LOCK) {
+            host = HOSTS.get(Integer.valueOf(displayId));
+        }
+        if (host != null) {
+            host.onEdgeInput(event);
+        }
+    }
+
+    static void notifyPanelLayoutCommitted(
+            final int displayId,
+            final DesktopTaskbarActivity activity) {
+        final DesktopTaskbarHost host;
+        synchronized (REGISTRY_LOCK) {
+            if (ACTIVITIES.get(Integer.valueOf(displayId)) != activity) {
+                return;
+            }
+            host = HOSTS.get(Integer.valueOf(displayId));
+        }
+        if (host != null) {
+            host.onPanelLayoutCommitted();
+        }
+    }
+
     private DesktopTaskbarActivity currentActivity() {
         synchronized (REGISTRY_LOCK) {
             return ACTIVITIES.get(Integer.valueOf(mDisplayId));
+        }
+    }
+
+    private void onEdgeInput(final MotionEvent event) {
+        final EdgeInputListener listener = mEdgeInputListener;
+        if (!mReleased && listener != null && event != null) {
+            listener.onEdgeInput(event);
+        }
+    }
+
+    private void onPanelLayoutCommitted() {
+        if (!mReleased) {
+            MagicDeskRuntime.raiseDesktopTaskbarPlane(mDisplayId);
         }
     }
 
@@ -153,15 +204,14 @@ final class DesktopTaskbarHost {
             return;
         }
         activity.attachTaskbar(mTaskbar);
-        activity.setPresentation(mPresented, mEdgeHidden);
+        activity.setPresentation(mPresented, mEdgeHidden, mEdgeHeight);
     }
 
     private void updatePlaneBounds() {
         if (mReleased || mBounds.isEmpty()) {
             return;
         }
-        final Rect target = resolveAppliedBounds(
-                mBounds, mPresented, mEdgeHidden, mEdgeHeight);
+        final Rect target = new Rect(mBounds);
         if (mAppliedBounds.equals(target)) {
             return;
         }
@@ -170,36 +220,5 @@ final class DesktopTaskbarHost {
             mBoundsListener.onBoundsChanged(new Rect(target));
         }
         MagicDeskRuntime.updateDesktopTaskbarBounds(mDisplayId, target);
-    }
-
-    static Rect resolveAppliedBounds(
-            final Rect bounds,
-            final boolean presented,
-            final boolean edgeHidden,
-            final int edgeHeight) {
-        final Rect target = bounds == null ? new Rect() : new Rect(bounds);
-        if (!target.isEmpty() && presented && edgeHidden) {
-            target.top = resolveAppliedTop(
-                    target.top,
-                    target.bottom,
-                    presented,
-                    edgeHidden,
-                    edgeHeight);
-        }
-        return target;
-    }
-
-    static int resolveAppliedTop(
-            final int top,
-            final int bottom,
-            final boolean presented,
-            final boolean edgeHidden,
-            final int edgeHeight) {
-        if (!presented || !edgeHidden || top >= bottom) {
-            return top;
-        }
-        final int visibleHeight = Math.max(
-                1, Math.min(bottom - top, edgeHeight));
-        return bottom - visibleHeight;
     }
 }

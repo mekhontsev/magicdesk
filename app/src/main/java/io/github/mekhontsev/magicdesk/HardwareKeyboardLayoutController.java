@@ -37,15 +37,9 @@ final class HardwareKeyboardLayoutController {
             return;
         }
         DesktopOperations.executeSerialized(() -> {
-            final boolean pointerCaptured = MagicDeskRuntime
-                    .capturePointerPosition();
             try {
                 apply("next");
             } finally {
-                if (pointerCaptured) {
-                    MagicDeskRuntime
-                            .restorePointerPositionOnNextMotion();
-                }
                 runCompletion(completion);
             }
         });

@@ -28,8 +28,6 @@ struct bridge_state {
     uint16_t key_down_count[KEY_MAX + 1];
     bool forwarded_down[KEY_MAX + 1];
     bool control_primary_down;
-    bool pointer_restore_armed;
-    bool pointer_moved;
     bool capture_enabled;
     uint64_t physical_reports;
     uint64_t physical_motion_reports;
@@ -141,7 +139,7 @@ static void emit_stats(
             " forwardedReports=%llu forwardedMotionReports=%llu"
             " writeErrors=%llu lastPhysicalMotionAgeMs=%lld"
             " lastForwardedMotionAgeMs=%lld sources=%d grabbed=%d"
-            " capture=%d restoreArmed=%d",
+            " capture=%d",
             request_id,
             (unsigned long long)state->physical_reports,
             (unsigned long long)state->physical_motion_reports,
@@ -155,8 +153,7 @@ static void emit_stats(
             state->source_count,
             magicdesk_grabbed_source_count(
                     state->sources, state->source_count),
-            state->capture_enabled ? 1 : 0,
-            state->pointer_restore_armed ? 1 : 0);
+            state->capture_enabled ? 1 : 0);
     emit_line(output);
 }
 
@@ -365,11 +362,6 @@ static int process_event(
                 && event->value != 0) {
             state->report_has_motion = true;
         }
-        if (state->pointer_restore_armed
-                && (event->code == REL_X || event->code == REL_Y)
-                && event->value != 0) {
-            state->pointer_moved = true;
-        }
         return write_event(state, state->uinput_fd, event);
     }
     if (event->type == EV_SYN) {
@@ -391,13 +383,6 @@ static int process_event(
                 state->last_forwarded_motion = event->time;
             }
             state->report_has_motion = false;
-        }
-        if (state->pointer_moved && report_complete) {
-            state->pointer_moved = false;
-            if (state->pointer_restore_armed) {
-                state->pointer_restore_armed = false;
-                emit_line("MAGICDESK_MOUSE_POINTER_MOTION");
-            }
         }
         return 0;
     }
@@ -432,11 +417,6 @@ static int handle_control_line(
     }
     if (strncmp(line, "sources ", 8) == 0) {
         return reconcile_sources(state, line + 8);
-    }
-    if (strcmp(line, "restore-pointer-on-motion") == 0) {
-        state->pointer_restore_armed = true;
-        state->pointer_moved = false;
-        return 0;
     }
     if (sscanf(line, "move %d %d", &first, &second) == 2) {
         if (emit_relative(state, state->uinput_fd, REL_X, first) < 0

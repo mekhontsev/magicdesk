@@ -128,6 +128,8 @@ interface DesktopTaskRuntime {
 
     void configureDesktopTaskbarInput(int displayId, IBinder activityToken);
 
+    void raiseDesktopTaskbarPlane(int displayId);
+
     void disableExternalTaskMigrationProtection();
 
     void restoreExternalTaskMigrationProtection();

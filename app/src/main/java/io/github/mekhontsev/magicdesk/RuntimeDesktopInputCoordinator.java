@@ -212,18 +212,6 @@ final class RuntimeDesktopInputCoordinator {
                 pointer);
     }
 
-    boolean capturePointerPosition() {
-        return isMouseBridgeReady()
-                && supportsAbsolutePointer(mDesktopDisplayId)
-                && ShellAccess.capturePointerPosition();
-    }
-
-    void restorePointerPositionOnNextMotion() {
-        if (!mDestroyed && supportsAbsolutePointer(mDesktopDisplayId)) {
-            mRelaySession.restorePointerPositionIfDisplacedOnNextMotion();
-        }
-    }
-
     boolean suspendMouseBridgeForDisplayRemoval(final int displayId) {
         if (!isActiveDesktopDisplay(displayId)) {
             return false;

@@ -153,6 +153,14 @@ public final class MagicDeskRuntime {
                 displayId, activityToken);
     }
 
+    static void raiseDesktopTaskbarPlane(final int displayId) {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend == null) {
+            return;
+        }
+        backend.desktopTasks().raiseDesktopTaskbarPlane(displayId);
+    }
+
     public static void refreshPlatformState() {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend != null) {
@@ -214,18 +222,6 @@ public final class MagicDeskRuntime {
         return backend == null
                 ? InputRelayRuntimeDiagnostics.Snapshot.unavailable()
                 : backend.captureInputRelayDiagnostics();
-    }
-
-    static boolean capturePointerPosition() {
-        final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.capturePointerPosition();
-    }
-
-    static void restorePointerPositionOnNextMotion() {
-        final MagicDeskRuntimeBackend backend = backend();
-        if (backend != null) {
-            backend.restorePointerPositionOnNextMotion();
-        }
     }
 
     static boolean prepareDesktopDisplayRemoval(

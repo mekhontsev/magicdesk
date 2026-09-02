@@ -178,21 +178,6 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
-    public boolean capturePointerPosition() {
-        return !mDestroyed
-                && mDesktopInput != null
-                && mDesktopInput.capturePointerPosition();
-    }
-
-    @Override
-    public void restorePointerPositionOnNextMotion() {
-        if (mDestroyed || mDesktopInput == null) {
-            return;
-        }
-        mDesktopInput.restorePointerPositionOnNextMotion();
-    }
-
-    @Override
     public boolean prepareDesktopDisplayRemoval(
             final int displayId) {
         if (mDestroyed || mDesktopInput == null

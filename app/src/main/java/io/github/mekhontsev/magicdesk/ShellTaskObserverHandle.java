@@ -107,6 +107,11 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, displayId, activityToken));
     }
 
+    void raiseDesktopTaskbarPlane(final int displayId) throws IOException {
+        callService(() -> mService.raiseDesktopTaskbarPlane(
+                mCallback, displayId));
+    }
+
     boolean clearConfiguration(final int expectedDisplayId)
             throws IOException {
         return callServiceForResult(() ->

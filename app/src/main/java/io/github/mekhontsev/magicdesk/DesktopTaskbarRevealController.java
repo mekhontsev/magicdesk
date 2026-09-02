@@ -57,7 +57,11 @@ final class DesktopTaskbarRevealController {
             return;
         }
         mStarted = true;
-        mActivity.taskbar().setEdgeInputListener(this::onEdgeInput);
+        final DesktopTaskbarHost taskbarHost = mActivity.taskbarHost();
+        if (taskbarHost == null) {
+            throw new IllegalStateException("desktop taskbar host is missing");
+        }
+        taskbarHost.setEdgeInputListener(this::onEdgeInput);
         updateArmedState();
         applyPresentation();
     }
@@ -125,7 +129,10 @@ final class DesktopTaskbarRevealController {
         }
         mReleased = true;
         cancelTimers();
-        mActivity.taskbar().setEdgeInputListener(null);
+        final DesktopTaskbarHost taskbarHost = mActivity.taskbarHost();
+        if (taskbarHost != null) {
+            taskbarHost.setEdgeInputListener(null);
+        }
     }
 
     private void onEdgeInput(final MotionEvent event) {

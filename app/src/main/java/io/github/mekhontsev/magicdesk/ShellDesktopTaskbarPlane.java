@@ -188,22 +188,6 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
                 mService, transactionClass, transaction);
     }
 
-    private void applyAreaBounds(final Rect bounds)
-            throws ReflectiveOperationException {
-        final FrameworkWindowingApi windowing =
-                FrameworkRuntime.current().windowing();
-        final Class<?> transactionClass = windowing.transactionClass();
-        final Object transaction = windowing.newTransaction();
-        windowing.setBounds(transaction, mArea.token(), new Rect(bounds));
-        if (mTaskId >= 0) {
-            final Object taskToken = HiddenTaskApi.requireTaskToken(
-                    mService, mDisplayId, mTaskId);
-            windowing.setBounds(transaction, taskToken, new Rect());
-        }
-        ShellWindowTransitionExecutor.applyAtomic(
-                mService, transactionClass, transaction);
-    }
-
     private void applySurfaceLayer() throws ReflectiveOperationException {
         final Class<?> surfaceClass = Class.forName(
                 "android.view.SurfaceControl");
@@ -221,6 +205,22 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
         } finally {
             transactionClass.getMethod("close").invoke(transaction);
         }
+    }
+
+    private void applyAreaBounds(final Rect bounds)
+            throws ReflectiveOperationException {
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        windowing.setBounds(transaction, mArea.token(), new Rect(bounds));
+        if (mTaskId >= 0) {
+            final Object taskToken = HiddenTaskApi.requireTaskToken(
+                    mService, mDisplayId, mTaskId);
+            windowing.setBounds(transaction, taskToken, new Rect());
+        }
+        ShellWindowTransitionExecutor.applyAtomic(
+                mService, transactionClass, transaction);
     }
 
     private Set<Integer> findOwnedTaskIds(

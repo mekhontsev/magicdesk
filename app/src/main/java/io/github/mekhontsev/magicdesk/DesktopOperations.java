@@ -52,12 +52,6 @@ public final class DesktopOperations {
             @Override
             public void run() {
                 boolean success = false;
-                final boolean pointerCaptured = MagicDeskRuntime
-                        .capturePointerPosition();
-                if (pointerCaptured) {
-                    MagicDeskRuntime
-                            .restorePointerPositionOnNextMotion();
-                }
                 try {
                     final int desktopDisplayId = screenOff
                             ? DesktopRuntimeBridge

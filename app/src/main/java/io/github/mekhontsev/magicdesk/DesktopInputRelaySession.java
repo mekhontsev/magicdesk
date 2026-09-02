@@ -170,10 +170,6 @@ final class DesktopInputRelaySession {
         }
     }
 
-    void restorePointerPositionIfDisplacedOnNextMotion() {
-        mMouseBridge.restorePointerPositionIfDisplacedOnNextMotion();
-    }
-
     boolean movePointer(final float deltaX, final float deltaY) {
         return mMouseBridge.movePointer(deltaX, deltaY);
     }

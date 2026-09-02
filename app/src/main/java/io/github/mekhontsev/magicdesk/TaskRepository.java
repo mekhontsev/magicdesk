@@ -473,6 +473,9 @@ public final class TaskRepository {
             final boolean home = parsed.isHome();
             final boolean active =
                     parsed.visible && !home
+                            && isForegroundApplicationCandidate(
+                                    parsed.componentName,
+                                    parsed.topActivityName)
                             && activeDisplays.add(
                                     Integer.valueOf(parsed.displayId));
             tasks.add(new TaskEntry(
@@ -513,6 +516,9 @@ public final class TaskRepository {
             final boolean home = snapshot.isHome();
             final boolean active = snapshot.visible
                     && !home
+                    && isForegroundApplicationCandidate(
+                            snapshot.componentName,
+                            snapshot.topActivityName)
                     && activeDisplays.add(Integer.valueOf(snapshot.displayId));
             tasks.add(new TaskEntry(
                     snapshot.rootTaskId,
@@ -528,6 +534,18 @@ public final class TaskRepository {
                     active));
         }
         return tasks;
+    }
+
+    static boolean isForegroundApplicationCandidate(
+            final String componentName,
+            final String topActivityName) {
+        return !DesktopTaskbarActivity.isTaskbarComponentName(componentName)
+                && !DesktopTaskbarActivity.isTaskbarComponentName(
+                        topActivityName)
+                && !TaskAreaBackstopActivity.isBackstopComponentName(
+                        componentName)
+                && !TaskAreaBackstopActivity.isBackstopComponentName(
+                        topActivityName);
     }
 
     private static String usefulMessage(final Throwable error) {

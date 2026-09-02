@@ -211,6 +211,20 @@ final class DesktopTaskWatcher {
         });
     }
 
+    void raiseDesktopTaskbarPlane(final int displayId) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            return;
+        }
+        TaskCommandQueue.execute(() -> {
+            try {
+                handle.raiseDesktopTaskbarPlane(displayId);
+            } catch (IOException error) {
+                Log.w(TAG, "failed to raise desktop taskbar plane", error);
+            }
+        });
+    }
+
     void clearConfiguration(final int expectedDisplayId) {
         if (expectedDisplayId < 0) {
             return;

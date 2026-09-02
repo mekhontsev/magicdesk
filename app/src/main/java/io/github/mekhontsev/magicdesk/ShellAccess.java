@@ -402,37 +402,6 @@ public final class ShellAccess {
         }
     }
 
-    public static boolean capturePointerPosition() {
-        if (!isReady()) {
-            return false;
-        }
-        final IShizukuCommandService service = connectedServiceOrConnect();
-        if (service == null) {
-            return false;
-        }
-        try {
-            return service.capturePointerPosition();
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure(error);
-            return false;
-        }
-    }
-
-    public static void restorePointerPositionIfDisplaced() {
-        if (!isReady()) {
-            return;
-        }
-        final IShizukuCommandService service = connectedServiceOrConnect();
-        if (service == null) {
-            return;
-        }
-        try {
-            service.restorePointerPositionIfDisplaced();
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure(error);
-        }
-    }
-
     static boolean refreshPointerViewport() {
         if (!isReady()) {
             return false;

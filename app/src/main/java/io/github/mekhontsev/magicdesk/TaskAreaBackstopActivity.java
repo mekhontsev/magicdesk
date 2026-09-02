@@ -70,7 +70,11 @@ public final class TaskAreaBackstopActivity extends Activity {
                 || !BuildConfig.APPLICATION_ID.equals(task.packageName)) {
             return false;
         }
-        final String componentName = task.componentName;
+        return isBackstopComponentName(task.componentName)
+                || isBackstopComponentName(task.topActivityName);
+    }
+
+    static boolean isBackstopComponentName(final String componentName) {
         return (BuildConfig.APPLICATION_ID + "/" + CLASS_NAME)
                         .equals(componentName)
                 || (BuildConfig.APPLICATION_ID

@@ -121,16 +121,6 @@ public final class PlatformCompositionTest {
         }
 
         @Override
-        public boolean capturePosition() {
-            return true;
-        }
-
-        @Override
-        public Point restorePositionIfDisplaced() {
-            return null;
-        }
-
-        @Override
         public int[] getPosition(final int displayId) {
             return null;
         }
