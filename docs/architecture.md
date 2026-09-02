@@ -1057,7 +1057,10 @@ are never persisted as constants.
 `DesktopDisplayTarget` identifies a phone, wired, wireless, or simulated display
 that is ready for desktop content. Starting any desktop first acquires one
 persisted `DesktopHomeRoleLease`: MagicDesk temporarily becomes the package-wide
-Android HOME holder and remembers the previous holder plus the complete target.
+Android HOME holder and remembers the previous role state plus the complete
+target. Android may have a working HOME surface while the role has no explicit
+holder; that empty state is valid and is restored by removing MagicDesk rather
+than selecting a launcher on the user's behalf.
 `DesktopHomeSurfaceRouter` atomically exposes exactly one primary HOME alias
 before the role is claimed. External targets use `PhoneHomeActivity` on display
 0 and launch `DesktopActivity` through the typed Shizuku task API as the
@@ -1747,7 +1750,8 @@ query it. An explicit **Exit MagicDesk** clears this record and closes built-in
 MagicDesk windows instead.
 
 Before any normal teardown mutation, `DesktopHomeRoleLease` restores and
-verifies the exact HOME package that owned the role when the session started.
+verifies the exact HOME role state from session start: either the previous
+holder or no explicit holder.
 The lease enters `RELEASING` before that handoff so startup recovery can finish
 an interrupted release without treating it as an active desktop. If MagicDesk
 still owns HOME after process loss, the pre-Shizuku startup guard instead

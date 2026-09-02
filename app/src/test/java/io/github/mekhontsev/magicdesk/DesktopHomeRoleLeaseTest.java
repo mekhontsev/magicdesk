@@ -173,6 +173,27 @@ public final class DesktopHomeRoleLeaseTest {
     }
 
     @Test
+    public void acquireAndReleasePreserveMissingRoleHolder()
+            throws Exception {
+        mBackend.homePackage = "";
+
+        final DesktopHomeRoleLease.AcquireResult result =
+                DesktopHomeRoleLease.acquire(
+                        DesktopDisplayTarget.phone());
+
+        assertTrue(result.created);
+        assertEquals("", result.state.previousPackage);
+        assertEquals(MAGICDESK, mBackend.homePackage);
+
+        assertTrue(DesktopHomeRoleLease.release(
+                DesktopDisplayTarget.phone()));
+        assertEquals("", mBackend.homePackage);
+        assertEquals(List.of("home:<none>", "surface:default"),
+                mBackend.releaseCalls);
+        assertNull(mStorage.state);
+    }
+
+    @Test
     public void releaseRejectsDifferentTarget() throws Exception {
         DesktopHomeRoleLease.acquire(DesktopDisplayTarget.simulated(7));
 
@@ -355,6 +376,16 @@ public final class DesktopHomeRoleLeaseTest {
             if (!MAGICDESK.equals(packageName)) {
                 releaseCalls.add("home:" + packageName);
             }
+        }
+
+        @Override
+        public void clearHomePackage(
+                final int userId,
+                final String packageName) {
+            if (packageName.equals(homePackage)) {
+                homePackage = "";
+            }
+            releaseCalls.add("home:<none>");
         }
 
         @Override

@@ -124,6 +124,9 @@ final class DesktopHomeRoleLease {
 
         void setHomePackage(int userId, String packageName) throws IOException;
 
+        void clearHomePackage(int userId, String packageName)
+                throws IOException;
+
         void presentMagicDeskHome(int userId) throws IOException;
     }
 
@@ -177,7 +180,8 @@ final class DesktopHomeRoleLease {
                 throw new IOException(
                         "MagicDesk already owns HOME without a recoverable lease");
             }
-            if (!PackageNameValidator.isSafe(previousPackage)) {
+            if (!previousPackage.isEmpty()
+                    && !PackageNameValidator.isSafe(previousPackage)) {
                 throw new IOException(
                         "current HOME package is unavailable: " + previousPackage);
             }
@@ -216,9 +220,7 @@ final class DesktopHomeRoleLease {
             sPhoneOverviewRoutingActive = false;
             final String holder = sBackend.getHomePackage(state.userId);
             if (MAGICDESK_PACKAGE.equals(holder)) {
-                sBackend.setHomePackage(
-                        state.userId, state.previousPackage);
-                requireHolder(state.userId, state.previousPackage);
+                restorePreviousHolder(state);
             }
             sBackend.restoreHomeSurface();
             sStorage.clear();
@@ -352,8 +354,7 @@ final class DesktopHomeRoleLease {
             sStorage.write(state.withPhase(Phase.RELEASING));
         }
         if (MAGICDESK_PACKAGE.equals(holder)) {
-            sBackend.setHomePackage(state.userId, state.previousPackage);
-            requireHolder(state.userId, state.previousPackage);
+            restorePreviousHolder(state);
         }
         sBackend.restoreHomeSurface();
         sStorage.clear();
@@ -366,9 +367,7 @@ final class DesktopHomeRoleLease {
         try {
             final String holder = sBackend.getHomePackage(state.userId);
             if (!state.previousPackage.equals(holder)) {
-                sBackend.setHomePackage(
-                        state.userId, state.previousPackage);
-                requireHolder(state.userId, state.previousPackage);
+                restorePreviousHolder(state);
             }
             sBackend.restoreHomeSurface();
             sStorage.clear();
@@ -386,6 +385,16 @@ final class DesktopHomeRoleLease {
                     "HOME role verification failed: expected="
                             + expectedPackage + " actual=" + actualPackage);
         }
+    }
+
+    private static void restorePreviousHolder(final State state)
+            throws IOException {
+        if (state.previousPackage.isEmpty()) {
+            sBackend.clearHomePackage(state.userId, MAGICDESK_PACKAGE);
+        } else {
+            sBackend.setHomePackage(state.userId, state.previousPackage);
+        }
+        requireHolder(state.userId, state.previousPackage);
     }
 
     private static final class ShellBackend implements Backend {
@@ -407,12 +416,12 @@ final class DesktopHomeRoleLease {
                     packages.add(packageName);
                 }
             }
-            if (packages.size() != 1) {
+            if (packages.size() > 1) {
                 throw new IOException(
-                        "expected one HOME role holder, found "
+                        "expected at most one HOME role holder, found "
                                 + packages.size());
             }
-            return packages.get(0);
+            return packages.isEmpty() ? "" : packages.get(0);
         }
 
         @Override
@@ -436,6 +445,20 @@ final class DesktopHomeRoleLease {
             }
             ShellAccess.run(
                     "/system/bin/cmd role add-role-holder --user "
+                            + userId + " " + HOME_ROLE + " "
+                            + ShellCommandLine.quote(packageName) + " "
+                            + DONT_KILL_APP);
+        }
+
+        @Override
+        public void clearHomePackage(
+                final int userId,
+                final String packageName) throws IOException {
+            if (!PackageNameValidator.isSafe(packageName)) {
+                throw new IOException("invalid HOME package " + packageName);
+            }
+            ShellAccess.run(
+                    "/system/bin/cmd role remove-role-holder --user "
                             + userId + " " + HOME_ROLE + " "
                             + ShellCommandLine.quote(packageName) + " "
                             + DONT_KILL_APP);
@@ -473,7 +496,9 @@ final class DesktopHomeRoleLease {
                     PREVIOUS_PACKAGE, "");
             final String targetKind = preferences.getString(TARGET_KIND, "");
             final String phase = preferences.getString(PHASE, "");
-            if (!PackageNameValidator.isSafe(previousPackage)
+            if (previousPackage == null
+                    || (!previousPackage.isEmpty()
+                            && !PackageNameValidator.isSafe(previousPackage))
                     || targetKind == null || targetKind.isEmpty()
                     || phase == null || phase.isEmpty()) {
                 return null;
