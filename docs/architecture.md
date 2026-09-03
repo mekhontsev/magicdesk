@@ -1278,7 +1278,10 @@ the source once into a physical-display-sized frame; the view uses a fixed
 top-left image matrix, so a transient system-bar inset cannot recrop that frame
 when HOME loses focus. Wallpaper readiness is published only after the selected
 bitmap reaches a committed frame; reload generations discard stale callbacks
-without a settling delay.
+without a settling delay. On the phone display, an opaque desktop-chrome
+backdrop covers the reserved status-bar inset above the wallpaper. Android can
+therefore keep its normal transparent status bar for HOME and freeform tasks
+without exposing a bright wallpaper strip above snapped windows.
 
 The taskbar is a regular fullscreen Activity inside a narrow organizer-owned
 task-display area. The area is bounded to the taskbar geometry, is not

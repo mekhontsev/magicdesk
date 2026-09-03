@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_AMBER;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_BACKGROUND;
+import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_PANEL;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -859,7 +860,6 @@ public abstract class DesktopShellActivity extends Activity
         root.setBackgroundColor(COLOR_BACKGROUND);
 
         final FrameLayout desktopViewport = new FrameLayout(this);
-        mDesktopLayout.attachDesktopViews(root, desktopViewport);
 
         final ImageView wallpaper = new ImageView(this);
         // The controller renders one display-sized frame. Keeping the image
@@ -873,6 +873,18 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopWallpaperController = new DesktopWallpaperController(
                 this, wallpaper);
         mDesktopWallpaperController.start();
+
+        // Android keeps the phone status bar transparent above freeform
+        // tasks. Cover its reserved viewport inset so desktop wallpaper does
+        // not reduce the contrast of the system icons.
+        final View statusBarBackdrop = new View(this);
+        statusBarBackdrop.setBackgroundColor(COLOR_PANEL);
+        statusBarBackdrop.setImportantForAccessibility(
+                View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        root.addView(statusBarBackdrop, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, 0));
+        mDesktopLayout.attachDesktopViews(
+                root, desktopViewport, statusBarBackdrop);
 
         final LinearLayout desktop = new LinearLayout(this);
         desktop.setOrientation(LinearLayout.VERTICAL);

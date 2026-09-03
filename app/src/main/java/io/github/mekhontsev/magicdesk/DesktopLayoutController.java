@@ -5,6 +5,7 @@ import android.graphics.Rect;
 import android.util.Log;
 import android.view.Display;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowMetrics;
@@ -29,6 +30,7 @@ final class DesktopLayoutController {
     private DesktopViewport mViewport;
     private View mWindowRoot;
     private View mDesktopContent;
+    private View mStatusBarBackdrop;
     private View mTaskbar;
     private DesktopTaskbarHost mTaskbarHost;
 
@@ -42,10 +44,13 @@ final class DesktopLayoutController {
 
     void attachDesktopViews(
             final View windowRoot,
-            final View desktopContent) {
+            final View desktopContent,
+            final View statusBarBackdrop) {
         mWindowRoot = windowRoot;
         mDesktopContent = desktopContent;
+        mStatusBarBackdrop = statusBarBackdrop;
         applyViewportPadding();
+        updateStatusBarBackdrop();
         if (windowRoot == null) {
             return;
         }
@@ -115,6 +120,7 @@ final class DesktopLayoutController {
         }
         mWindowRoot = null;
         mDesktopContent = null;
+        mStatusBarBackdrop = null;
         mTaskbar = null;
         mTaskbarHost = null;
     }
@@ -143,6 +149,7 @@ final class DesktopLayoutController {
         }
         mViewport = viewport;
         applyViewportPadding();
+        updateStatusBarBackdrop();
         updateTaskbarBounds();
         mRuntimeState.onViewportChanged();
     }
@@ -164,6 +171,21 @@ final class DesktopLayoutController {
         }
         final Rect bounds = taskbarBounds();
         mTaskbarHost.updateBounds(bounds);
+    }
+
+    private void updateStatusBarBackdrop() {
+        if (mStatusBarBackdrop == null || mViewport == null) {
+            return;
+        }
+        final int height = mRuntimeState.displayId() == Display.DEFAULT_DISPLAY
+                ? mViewport.insetTop() : 0;
+        final ViewGroup.LayoutParams layoutParams =
+                mStatusBarBackdrop.getLayoutParams();
+        if (layoutParams != null && layoutParams.height != height) {
+            layoutParams.height = height;
+            mStatusBarBackdrop.setLayoutParams(layoutParams);
+        }
+        mStatusBarBackdrop.setVisibility(height > 0 ? View.VISIBLE : View.GONE);
     }
 
     private void applyPhoneSystemBarPolicy() {
