@@ -69,6 +69,10 @@ public final class PhoneHomeActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (!hasActivePhoneHomeLease()) {
+            finishAndRemoveTask();
+            return;
+        }
         refreshCloseAction();
     }
 
@@ -131,6 +135,10 @@ public final class PhoneHomeActivity extends Activity {
                 false,
                 success -> runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    if (!hasActivePhoneHomeLease()) {
+                        finishAndRemoveTask();
                         return;
                     }
                     mClosing = false;

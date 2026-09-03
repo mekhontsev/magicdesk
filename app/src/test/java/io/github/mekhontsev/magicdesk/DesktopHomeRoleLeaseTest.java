@@ -170,11 +170,13 @@ public final class DesktopHomeRoleLeaseTest {
                 DesktopDisplayTarget.simulated(7)));
 
         assertEquals(LAUNCHER, mBackend.homePackage);
+        assertEquals(LAUNCHER, mBackend.presentedHomePackage);
         assertNull(mStorage.state);
         assertEquals(
                 List.of(
                         "surface:disabled",
                         "home:" + LAUNCHER,
+                        "present:" + LAUNCHER,
                         "surface:default"),
                 mBackend.releaseCalls);
     }
@@ -198,9 +200,30 @@ public final class DesktopHomeRoleLeaseTest {
         assertEquals(List.of(
                         "surface:disabled",
                         "home:<none>",
+                        "present:<none>",
                         "surface:default"),
                 mBackend.releaseCalls);
         assertNull(mStorage.state);
+    }
+
+    @Test
+    public void isolatedExternalReleaseDoesNotPresentPhoneHome()
+            throws Exception {
+        final DesktopDisplayTarget target =
+                DesktopDisplayTarget.simulated(7);
+        DesktopHomeRoleLease.acquire(
+                target,
+                DesktopSessionPolicy.ISOLATED_SELF_TEST);
+
+        assertTrue(DesktopHomeRoleLease.release(target));
+
+        assertNull(mBackend.presentedHomePackage);
+        assertEquals(
+                List.of(
+                        "surface:disabled",
+                        "home:" + LAUNCHER,
+                        "surface:default"),
+                mBackend.releaseCalls);
     }
 
     @Test
@@ -278,6 +301,7 @@ public final class DesktopHomeRoleLeaseTest {
                 DesktopDisplayTarget.simulated(7)));
 
         assertEquals("com.example.otherhome", mBackend.homePackage);
+        assertEquals("com.example.otherhome", mBackend.presentedHomePackage);
         assertTrue(mBackend.homeSurfaceRestored);
         assertNull(mStorage.state);
     }
@@ -348,6 +372,7 @@ public final class DesktopHomeRoleLeaseTest {
         boolean failHomeSurfaceDisable;
         boolean failHomeSurfaceRestore;
         int presentedUserId = -1;
+        String presentedHomePackage;
         DesktopHomeSurfaceRouter.Surface homeSurface;
         DesktopHomeSurfaceRouter.Surface presentedSurface;
         boolean homeSurfaceRestored;
@@ -424,10 +449,18 @@ public final class DesktopHomeRoleLeaseTest {
         }
 
         @Override
-        public void presentMagicDeskHome(final int userId) {
+        public void presentHome(
+                final int userId,
+                final String packageName) {
             primaryHomePresented = true;
             presentedUserId = userId;
+            presentedHomePackage = packageName;
             presentedSurface = homeSurface;
+            if (!MAGICDESK.equals(packageName)) {
+                releaseCalls.add("present:"
+                        + (packageName == null || packageName.isEmpty()
+                                ? "<none>" : packageName));
+            }
         }
     }
 

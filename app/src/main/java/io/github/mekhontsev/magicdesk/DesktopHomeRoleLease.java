@@ -129,7 +129,7 @@ final class DesktopHomeRoleLease {
         void clearHomePackage(int userId, String packageName)
                 throws IOException;
 
-        void presentMagicDeskHome(int userId) throws IOException;
+        void presentHome(int userId, String packageName) throws IOException;
     }
 
     static AcquireResult acquire(final DesktopDisplayTarget target)
@@ -159,7 +159,8 @@ final class DesktopHomeRoleLease {
                     sStorage.write(active);
                     sPhoneOverviewRoutingActive = true;
                     if (shouldPresentHome(active)) {
-                        sBackend.presentMagicDeskHome(active.userId);
+                        sBackend.presentHome(
+                                active.userId, MAGICDESK_PACKAGE);
                     }
                     return new AcquireResult(false, active);
                 }
@@ -332,7 +333,7 @@ final class DesktopHomeRoleLease {
         sStorage.write(active);
         sPhoneOverviewRoutingActive = true;
         if (shouldPresentHome(prepared)) {
-            sBackend.presentMagicDeskHome(prepared.userId);
+            sBackend.presentHome(prepared.userId, MAGICDESK_PACKAGE);
         }
         return new AcquireResult(true, active);
     }
@@ -370,6 +371,11 @@ final class DesktopHomeRoleLease {
             final String holder = sBackend.getHomePackage(state.userId);
             if (MAGICDESK_PACKAGE.equals(holder) || holder.isEmpty()) {
                 restorePreviousHolder(state);
+            }
+            if (shouldPresentHome(state)) {
+                sBackend.presentHome(
+                        state.userId,
+                        sBackend.getHomePackage(state.userId));
             }
             sBackend.restoreHomeSurface();
             sStorage.clear();
@@ -491,14 +497,20 @@ final class DesktopHomeRoleLease {
         }
 
         @Override
-        public void presentMagicDeskHome(final int userId) throws IOException {
+        public void presentHome(
+                final int userId,
+                final String packageName) throws IOException {
+            final String packageArgument = packageName == null
+                    || packageName.isEmpty()
+                    ? ""
+                    : " -p " + ShellCommandLine.quote(packageName);
             ShellAccess.run(
                     "/system/bin/am start --user " + userId
                             + " -f 0x"
                             + Integer.toHexString(HOME_ACTIVITY_FLAGS)
                             + " -a android.intent.action.MAIN"
                             + " -c android.intent.category.HOME"
-                            + " -p " + MAGICDESK_PACKAGE);
+                            + packageArgument);
         }
     }
 

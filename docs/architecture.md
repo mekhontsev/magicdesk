@@ -1374,6 +1374,10 @@ HOME is transferred on normal close, failed start, self-test cleanup, or
 unexpected display loss. Recents therefore returns to the system launcher at
 the HOME ownership boundary rather than at the end of task cleanup; the check
 runs only for an attempted Recents launch and adds no background work.
+After a user session relinquishes HOME, the same lease transaction explicitly
+presents the verified new role holder before restoring MagicDesk's dormant
+HOME components. This prevents Android from leaving the now-inactive
+`PhoneHomeActivity` task visible after the role itself has already changed.
 During either an external or phone-desktop session, that request opens the same
 `PhoneOverviewActivity` on display 0. It lists only ordinary phone tasks outside
 the active desktop ownership set. Managed freeform and fullscreen tasks remain
