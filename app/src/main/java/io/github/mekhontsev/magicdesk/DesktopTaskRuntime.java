@@ -15,11 +15,11 @@ interface DesktopTaskRuntime {
     int launchWindowedTask(
             int displayId, Intent intent, Rect bounds) throws IOException;
 
-    int launchFullscreenTaskInManagedSession(
-            int displayId, Intent intent) throws IOException;
-
     int launchFullscreenTask(
             int displayId, Intent intent) throws IOException;
+
+    boolean attachFullscreenTask(
+            int displayId, int taskId) throws IOException;
 
     int launchAppShortcut(
             int displayId,
@@ -34,17 +34,6 @@ interface DesktopTaskRuntime {
 
     void launchTaskAction(
             int displayId, int taskId, Intent intent) throws IOException;
-
-    void placeWindowedTaskInManagedSession(
-            int taskId,
-            int sourceDisplayId,
-            int targetDisplayId,
-            Rect bounds) throws IOException;
-
-    void placeFullscreenTaskInManagedSession(
-            int taskId,
-            int sourceDisplayId,
-            int targetDisplayId) throws IOException;
 
     boolean closeTask(
             TaskRepository.TaskEntry task,

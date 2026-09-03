@@ -32,14 +32,14 @@ final class TaskbarTaskOrder {
             final int activeTaskId,
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
             final Set<Integer> concealedTaskIds,
-            final boolean includeFlattenedFullscreenPlanes) {
+            final int desktopHostTaskId) {
         return concealActiveTask(
                 snapshot,
                 activeTaskId,
                 savedWorkspaceTopFirst,
                 concealedTaskIds,
-                includeFlattenedFullscreenPlanes,
-                -1);
+                -1,
+                desktopHostTaskId);
     }
 
     static List<Integer> concealActiveTask(
@@ -47,8 +47,8 @@ final class TaskbarTaskOrder {
             final int activeTaskId,
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
             final Set<Integer> concealedTaskIds,
-            final boolean includeFlattenedFullscreenPlanes,
-            final int focusedTaskId) {
+            final int focusedTaskId,
+            final int desktopHostTaskId) {
         final List<Integer> order = new ArrayList<>();
         if (snapshot == null || !snapshot.available || activeTaskId < 0) {
             return order;
@@ -56,7 +56,7 @@ final class TaskbarTaskOrder {
         final TaskRepository.TaskEntry activeTask = findTask(
                 snapshot.tasks, activeTaskId);
         final TaskRepository.TaskEntry desktopHost = findDesktopHost(
-                snapshot.tasks);
+                snapshot.tasks, desktopHostTaskId);
         if (activeTask == null
                 || (!activeTask.active && activeTask.taskId != focusedTaskId)
                 || desktopHost == null
@@ -78,7 +78,7 @@ final class TaskbarTaskOrder {
                         activeTask.displayId,
                         activeTask.taskId,
                         concealed,
-                        includeFlattenedFullscreenPlanes);
+                        desktopHostTaskId);
         final Set<Integer> includedTaskIds = new HashSet<>();
         for (final TaskRepository.TaskEntry task : snapshot.tasks) {
             if (task != null && task.displayId == activeTask.displayId
@@ -102,12 +102,12 @@ final class TaskbarTaskOrder {
             final TaskRepository.Snapshot snapshot,
             final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
             final Set<Integer> concealedTaskIds,
-            final boolean includeFlattenedFullscreenPlanes) {
+            final int desktopHostTaskId) {
         if (snapshot == null || !snapshot.available) {
             return null;
         }
         final TaskRepository.TaskEntry desktopHost = findDesktopHost(
-                snapshot.tasks);
+                snapshot.tasks, desktopHostTaskId);
         if (desktopHost == null) {
             return null;
         }
@@ -122,7 +122,7 @@ final class TaskbarTaskOrder {
                         desktopHost.displayId,
                         -1,
                         concealed,
-                        includeFlattenedFullscreenPlanes);
+                        desktopHostTaskId);
         final List<Integer> restoreOrder = new ArrayList<>();
         final Set<Integer> newlyConcealedTaskIds = new LinkedHashSet<>();
         for (int index = workspaceTopFirst.size() - 1;
@@ -147,13 +147,14 @@ final class TaskbarTaskOrder {
             final int displayId,
             final int excludedTaskId,
             final Set<Integer> concealedTaskIds,
-            final boolean includeFlattenedFullscreenPlanes) {
+            final int desktopHostTaskId) {
         final List<TaskRepository.TaskEntry> tasks = new ArrayList<>();
         final Set<Integer> includedTaskIds = new HashSet<>();
         boolean desktopHostSeen = false;
         if (liveTasks != null) {
             for (final TaskRepository.TaskEntry liveTask : liveTasks) {
-                if (DesktopTaskController.isDesktopHostTask(liveTask)) {
+                if (liveTask != null
+                        && liveTask.taskId == desktopHostTaskId) {
                     desktopHostSeen = true;
                     continue;
                 }
@@ -162,9 +163,7 @@ final class TaskbarTaskOrder {
                 // task snapshot. They remain valid demotion targets; ordinary
                 // tasks after the host are already concealed by that host.
                 if (desktopHostSeen
-                        && (!includeFlattenedFullscreenPlanes
-                                || liveTask == null
-                                || !liveTask.isFullscreen())) {
+                        && (liveTask == null || !liveTask.isFullscreen())) {
                     continue;
                 }
                 addVisibleTask(
@@ -214,10 +213,15 @@ final class TaskbarTaskOrder {
     }
 
     private static TaskRepository.TaskEntry findDesktopHost(
-            final List<TaskRepository.TaskEntry> tasks) {
+            final List<TaskRepository.TaskEntry> tasks,
+            final int desktopHostTaskId) {
+        if (desktopHostTaskId < 0) {
+            return null;
+        }
         if (tasks != null) {
             for (final TaskRepository.TaskEntry task : tasks) {
-                if (DesktopTaskController.isDesktopHostTask(task)) {
+                if (task != null && task.taskId == desktopHostTaskId
+                        && DesktopTaskController.isDesktopHostTask(task)) {
                     return task;
                 }
             }

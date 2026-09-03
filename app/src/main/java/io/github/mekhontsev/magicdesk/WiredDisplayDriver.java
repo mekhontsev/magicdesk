@@ -9,7 +9,6 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
     private static final String TAG = "MagicDeskWiredDisplay";
     private static final DesktopDisplayFeatures FEATURES =
             new DesktopDisplayFeatures(
-                    DesktopTaskAreaPolicy.INDEPENDENT,
                     true,
                     true);
     private final PlatformProjectionDriver mProjection;

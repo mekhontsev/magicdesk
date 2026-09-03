@@ -114,7 +114,7 @@ public final class DesktopTaskParkingControllerTest {
     }
 
     @Test
-    public void sessionParkingIncludesOnlyShellOwnedTasks() {
+    public void phoneParkingIncludesOnlyDesktopOwnedTasks() {
         final TaskRepository.TaskEntry desktopApp = task(
                 30,
                 "org.example.desktop",

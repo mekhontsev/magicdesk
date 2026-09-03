@@ -6,10 +6,6 @@ import java.util.Arrays;
 
 /** Serializes semantic workspace commands over the existing task topology. */
 final class ShellDesktopWorkspaceCoordinator {
-    interface ForegroundReporter {
-        void reportForTask(int taskId) throws ReflectiveOperationException;
-    }
-
     static final class Result {
         final boolean success;
         final int taskCount;
@@ -40,25 +36,21 @@ final class ShellDesktopWorkspaceCoordinator {
     private final Object mService;
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
     private final ShellDesktopFocusController mFocusController;
-    private final ForegroundReporter mForegroundReporter;
     private final Runnable mTaskSampleRequester;
 
     ShellDesktopWorkspaceCoordinator(
             final Object service,
             final ShellFullscreenTaskArea fullscreenTaskArea,
             final ShellDesktopFocusController focusController,
-            final ForegroundReporter foregroundReporter,
             final Runnable taskSampleRequester) {
         if (service == null || fullscreenTaskArea == null
-                || focusController == null || foregroundReporter == null
-                || taskSampleRequester == null) {
+                || focusController == null || taskSampleRequester == null) {
             throw new IllegalArgumentException(
                     "workspace coordinator dependencies are required");
         }
         mService = service;
         mFullscreenTaskArea = fullscreenTaskArea;
         mFocusController = focusController;
-        mForegroundReporter = foregroundReporter;
         mTaskSampleRequester = taskSampleRequester;
     }
 
@@ -101,6 +93,12 @@ final class ShellDesktopWorkspaceCoordinator {
                 throw new IllegalStateException(
                         "workspace target became unavailable");
             }
+            if (!mFullscreenTaskArea.ownsFocusTarget(
+                    mService, command.displayId, command.targetTaskId)) {
+                throw new IllegalStateException(
+                        "task " + command.targetTaskId
+                                + " is outside the desktop workspace");
+            }
             final ShellDesktopFocusController.CommitBarrier commitBarrier =
                     mFocusController.captureCommitBarrier();
             applyPhysicalOrder(command, physicalOrder);
@@ -122,7 +120,6 @@ final class ShellDesktopWorkspaceCoordinator {
                                 : "task commit did not converge for task ")
                                 + command.targetTaskId);
             }
-            mForegroundReporter.reportForTask(command.targetTaskId);
             Log.d(TAG, "completed " + command.operationName()
                     + " display=" + command.displayId
                     + " target=" + command.targetTaskId

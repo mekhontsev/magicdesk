@@ -432,7 +432,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int taskbarTop,
             final int taskbarRight,
             final int taskbarBottom,
-            final int taskAreaPolicy,
             final int desktopHostTaskId) {
         mTaskObserverManager.configure(
                 callback,
@@ -444,7 +443,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                         taskbarTop,
                         taskbarRight,
                         taskbarBottom),
-                taskAreaPolicy,
                 desktopHostTaskId);
     }
 
@@ -524,10 +522,9 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public int launchDesktopHost(
             final int displayId,
-            final String intentUri,
-            final int taskAreaPolicy) {
+            final String intentUri) {
         return mTaskObserverManager.launchDesktopHost(
-                displayId, intentUri, taskAreaPolicy);
+                displayId, intentUri);
     }
 
     @Override
@@ -595,16 +592,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public boolean removeDesktopPackageTasks(
-            final ITaskObserverCallback callback,
-            final int displayId,
-            final String packageName,
-            final int focusTaskId) {
-        return mTaskObserverManager.removeDesktopPackageTasks(
-                callback, displayId, packageName, focusTaskId);
-    }
-
-    @Override
     public int launchWindowedTask(
             final ITaskObserverCallback callback,
             final int displayId,
@@ -618,15 +605,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 displayId,
                 intent,
                 new Rect(left, top, right, bottom));
-    }
-
-    @Override
-    public int launchFullscreenTaskInManagedSession(
-            final ITaskObserverCallback callback,
-            final int displayId,
-            final Intent intent) {
-        return mTaskObserverManager.launchFullscreenTaskInManagedSession(
-                callback, displayId, intent);
     }
 
     @Override
@@ -670,37 +648,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final Intent intent) {
         mTaskObserverManager.launchTaskAction(
                 callback, displayId, taskId, intent);
-    }
-
-    @Override
-    public void placeWindowedTaskInManagedSession(
-            final ITaskObserverCallback callback,
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId,
-            final int left,
-            final int top,
-            final int right,
-            final int bottom) {
-        mTaskObserverManager.placeWindowedTaskInManagedSession(
-                callback,
-                taskId,
-                sourceDisplayId,
-                targetDisplayId,
-                new Rect(left, top, right, bottom));
-    }
-
-    @Override
-    public void placeFullscreenTaskInManagedSession(
-            final ITaskObserverCallback callback,
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId) {
-        mTaskObserverManager.placeFullscreenTaskInManagedSession(
-                callback,
-                taskId,
-                sourceDisplayId,
-                targetDisplayId);
     }
 
     @Override

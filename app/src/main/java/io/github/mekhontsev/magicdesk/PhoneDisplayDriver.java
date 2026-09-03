@@ -7,7 +7,6 @@ import android.view.Display;
 final class PhoneDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
             new DesktopDisplayFeatures(
-                    DesktopTaskAreaPolicy.SESSION,
                     false,
                     false);
 

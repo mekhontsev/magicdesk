@@ -116,7 +116,6 @@ public abstract class DesktopShellActivity extends Activity
     private boolean mTaskbarAutoHide;
     private boolean mTaskbarImeHold;
     private boolean mTaskbarStartHold;
-    private boolean mDesktopPlaneForeground = true;
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private int mDesktopProfileDisplayId = Display.INVALID_DISPLAY;
     private String mDesktopProfileKey = "";
@@ -613,9 +612,6 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onStart() {
         super.onStart();
-        if (usesSessionTaskArea()) {
-            applyDesktopPlaneForeground(true);
-        }
         if (mDesktopWorkspaceController != null) {
             mDesktopWorkspaceController.start();
         }
@@ -627,8 +623,8 @@ public abstract class DesktopShellActivity extends Activity
             mDesktopWorkspaceController.stop();
         }
         if (getCurrentDisplayId() == Display.DEFAULT_DISPLAY) {
-            // HOME also stops while the managed application area is in front.
-            // Its task observer owns desktop-plane foreground state.
+            // Phone HOME stops when an application covers it. Panels belong
+            // to the desktop surface and must not outlive that surface.
             hideAllPanels();
         }
         super.onStop();
@@ -1800,8 +1796,7 @@ public abstract class DesktopShellActivity extends Activity
                 overlays == null ? null : overlays.visibleBounds(),
                 overlays == null ? "" : overlays.visibleTitle(),
                 isDesktopWallpaperRendered(),
-                isUsingFallbackDesktopWallpaper(),
-                isDesktopPlaneForeground());
+                isUsingFallbackDesktopWallpaper());
     }
 
     DesktopAutomationUiRegistry.Snapshot getAutomationUiElements(
@@ -2089,34 +2084,6 @@ public abstract class DesktopShellActivity extends Activity
 
     boolean isTaskbarVisible() {
         return mTaskbarVisible;
-    }
-
-    void setDesktopPlaneForeground(final boolean foreground) {
-        if (getCurrentDisplayId() != Display.DEFAULT_DISPLAY) {
-            return;
-        }
-        applyDesktopPlaneForeground(foreground);
-    }
-
-    private void applyDesktopPlaneForeground(final boolean foreground) {
-        mDesktopPlaneForeground = foreground;
-        if (!foreground) {
-            hideAllPanels();
-        }
-        if (mTaskbarRevealController != null) {
-            mTaskbarRevealController.setDesktopPlaneForeground(foreground);
-        }
-    }
-
-    boolean isDesktopPlaneForeground() {
-        return mDesktopPlaneForeground;
-    }
-
-    private boolean usesSessionTaskArea() {
-        return getCurrentDisplayId() == Display.DEFAULT_DISPLAY
-                && DesktopDisplayDrivers.activeTaskAreaPolicy(
-                        getCurrentDisplayId())
-                        == DesktopTaskAreaPolicy.SESSION;
     }
 
     void refreshSettings() {

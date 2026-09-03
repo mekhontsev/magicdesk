@@ -170,10 +170,8 @@ final class WindowedAppLauncher {
             throws IOException {
         final Rect bounds = FloatingWindowController.getWindowBounds(
                 displayId, preferredBounds);
-        final DesktopTaskAreaPolicy taskAreaPolicy =
-                DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
         final boolean nativeDesktop =
-                taskAreaPolicy == DesktopTaskAreaPolicy.UNCONFIGURED
+                !DesktopDisplayDrivers.hasActiveWorkspace(displayId)
                         && NativeDesktopController.shouldUse();
         final boolean createNew = reusePolicy == TaskReusePolicy.CREATE_NEW;
         if (!createNew) {
@@ -206,34 +204,6 @@ final class WindowedAppLauncher {
             }
             if (explicitWindowed) {
                 launchLease.protectStartupTask(taskId);
-            }
-            if (!taskAreaPolicy.usesManagedApplicationArea()) {
-                return completeLaunch(
-                        displayId,
-                        taskId,
-                        displayId,
-                        launchPath(launchKind, createNew, false));
-            }
-            if (createNew) {
-                ExistingTaskController.confirmLaunchedWindow(taskId, displayId);
-            } else {
-                final ExistingTaskController.ReuseResult launched = reuse(
-                        nativeDesktop,
-                        launchTarget,
-                        displayId,
-                        preservedTaskIds,
-                        true,
-                        false,
-                        bounds,
-                        launchLease);
-                if (!launched.found) {
-                    throw new IOException("launched task not found");
-                }
-                return completeReusedTask(
-                        displayId,
-                        launched.taskId,
-                        displayId,
-                        launchPath(launchKind, createNew, false));
             }
             return completeLaunch(
                     displayId,

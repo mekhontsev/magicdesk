@@ -281,7 +281,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
             final Snapshot snapshot) {
         final List<TaskState> fullscreenTasks =
                 desktopFullscreenFixtures(snapshot);
-        final int minimumTaskCount = "WINDOW-015".equals(stage.name) ? 1 : 2;
+        final int minimumTaskCount = minimumFullscreenTaskCount(stage.name);
         if (fullscreenTasks.size() < minimumTaskCount) {
             addAnomaly("fullscreen-plane-count:" + stage.name,
                     formatSample("stage-end", snapshot)
@@ -291,7 +291,6 @@ final class SelfTestTaskStackInvariantAnalyzer {
             return;
         }
 
-        final int applicationFeatureId = sessionApplicationFeatureId(snapshot);
         final Set<Integer> planeFeatureIds = new LinkedHashSet<>();
         for (final TaskState task : fullscreenTasks) {
             if (task.displayAreaFeatureId == DISPLAY_AREA_FEATURE_UNKNOWN) {
@@ -300,19 +299,6 @@ final class SelfTestTaskStackInvariantAnalyzer {
                         formatSample("stage-end", snapshot)
                                 + " fullscreen task=" + task.taskId
                                 + " has no display-area feature id");
-                continue;
-            }
-            if (applicationFeatureId != DISPLAY_AREA_FEATURE_UNKNOWN) {
-                if (task.displayAreaFeatureId != applicationFeatureId) {
-                    addAnomaly("fullscreen-session-parent:" + stage.name
-                                    + ':' + task.taskId,
-                            formatSample("stage-end", snapshot)
-                                    + " fullscreen task=" + task.taskId
-                                    + " left application area="
-                                    + applicationFeatureId
-                                    + " for area="
-                                    + task.displayAreaFeatureId);
-                }
                 continue;
             }
             if (!planeFeatureIds.add(task.displayAreaFeatureId)) {
@@ -373,10 +359,22 @@ final class SelfTestTaskStackInvariantAnalyzer {
     }
 
     private static boolean isFullscreenHierarchyStage(final String stage) {
-        return "WINDOW-020-PREPARE".equals(stage)
+        return stage.startsWith("FULLSCREEN-LIFECYCLE-")
+                || "WINDOW-020-PREPARE".equals(stage)
                 || "WINDOW-020".equals(stage)
                 || stage.startsWith("WINDOW-020-PEER-")
                 || "WINDOW-020-RETURN".equals(stage);
+    }
+
+    private static int minimumFullscreenTaskCount(final String stage) {
+        if ("WINDOW-015".equals(stage)
+                || "FULLSCREEN-LIFECYCLE-005".equals(stage)) {
+            return 1;
+        }
+        if (stage.startsWith("WINDOW-020")) {
+            return 2;
+        }
+        return 0;
     }
 
     private static boolean isStableFullscreenSwitchStage(
@@ -403,33 +401,10 @@ final class SelfTestTaskStackInvariantAnalyzer {
     private void validateFullscreenTaskArea(
             final String reason,
             final Snapshot snapshot) {
-        final TaskState host = snapshot.find(mHostTaskId);
-        final int hostFeatureId = host == null
-                ? DISPLAY_AREA_FEATURE_UNKNOWN
-                : host.displayAreaFeatureId;
-        int sessionBackstopCount = 0;
         final Map<Integer, Integer> slotAnchorCounts =
                 new LinkedHashMap<>();
         for (final TaskState task : snapshot.tasks) {
             if (!task.backstop || task.displayId != mDisplayId) {
-                continue;
-            }
-            if (task.backstopRole == TaskAreaBackstopRole.SESSION) {
-                sessionBackstopCount++;
-                if (task.displayAreaFeatureId
-                        == DISPLAY_AREA_FEATURE_UNKNOWN) {
-                    addAnomaly("session-backstop-parent:" + mStage.name + ':'
-                                    + task.taskId,
-                            formatSample(reason, snapshot)
-                                    + " session backstop=" + task.taskId
-                                    + " has no display-area feature id");
-                } else if (task.displayAreaFeatureId == hostFeatureId) {
-                    addAnomaly("session-host-parent:" + mStage.name + ':'
-                                    + task.taskId,
-                            formatSample(reason, snapshot)
-                                    + " primary HOME and application session"
-                                    + " share area=" + hostFeatureId);
-                }
                 continue;
             }
             if (task.backstopRole != TaskAreaBackstopRole.FULLSCREEN) {
@@ -454,13 +429,6 @@ final class SelfTestTaskStackInvariantAnalyzer {
             slotAnchorCounts.put(
                     Integer.valueOf(task.displayAreaFeatureId),
                     Integer.valueOf(count == null ? 1 : count + 1));
-        }
-        if (sessionBackstopCount > 1) {
-            addAnomaly("fullscreen-backstop-count:" + mStage.name + ':'
-                            + sessionBackstopCount,
-                    formatSample(reason, snapshot)
-                            + " expected at most one session backstop,"
-                            + " found=" + sessionBackstopCount);
         }
         for (final Map.Entry<Integer, Integer> entry
                 : slotAnchorCounts.entrySet()) {
@@ -540,22 +508,6 @@ final class SelfTestTaskStackInvariantAnalyzer {
                                 + task.displayAreaFeatureId);
             }
         }
-    }
-
-    private int sessionApplicationFeatureId(final Snapshot snapshot) {
-        int featureId = DISPLAY_AREA_FEATURE_UNKNOWN;
-        for (final TaskState task : snapshot.tasks) {
-            if (!task.backstop
-                    || task.displayId != mDisplayId
-                    || task.backstopRole != TaskAreaBackstopRole.SESSION) {
-                continue;
-            }
-            if (featureId != DISPLAY_AREA_FEATURE_UNKNOWN) {
-                return DISPLAY_AREA_FEATURE_UNKNOWN;
-            }
-            featureId = task.displayAreaFeatureId;
-        }
-        return featureId;
     }
 
     private boolean isDesktopFullscreenFixture(final TaskState task) {

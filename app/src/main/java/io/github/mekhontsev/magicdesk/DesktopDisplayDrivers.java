@@ -78,16 +78,12 @@ final class DesktopDisplayDrivers {
         return forTarget(target);
     }
 
-    static DesktopTaskAreaPolicy activeTaskAreaPolicy(final int displayId) {
+    static boolean hasActiveWorkspace(final int displayId) {
         if (displayId == Display.DEFAULT_DISPLAY
                 && DesktopRuntimeBridge.isLocalDesktopActiveOrStarting()) {
-            return PHONE.features().taskAreaPolicy;
+            return true;
         }
-        final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getDesktopTarget(displayId);
-        return target == null
-                ? DesktopTaskAreaPolicy.UNCONFIGURED
-                : forTarget(target).features().taskAreaPolicy;
+        return DesktopRuntimeBridge.getDesktopTarget(displayId) != null;
     }
 
     static int captureDisplayId(final int desktopDisplayId) {

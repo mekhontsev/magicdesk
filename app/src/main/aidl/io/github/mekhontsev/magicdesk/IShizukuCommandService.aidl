@@ -64,7 +64,6 @@ interface IShizukuCommandService {
         int taskbarTop,
         int taskbarRight,
         int taskbarBottom,
-        int taskAreaPolicy,
         int desktopHostTaskId) = 12;
 
     void focusTaskStack(
@@ -266,29 +265,13 @@ interface IShizukuCommandService {
         int right,
         int bottom) = 73;
 
-    void placeWindowedTaskInManagedSession(
-        ITaskObserverCallback callback,
-        int taskId,
-        int sourceDisplayId,
-        int targetDisplayId,
-        int left,
-        int top,
-        int right,
-        int bottom) = 74;
-
-    int launchDesktopHost(int displayId, String intentUri, int taskAreaPolicy) = 75;
+    int launchDesktopHost(int displayId, String intentUri) = 75;
 
     boolean closeDesktopTask(
         ITaskObserverCallback callback,
         int displayId,
         int taskId,
         int focusTaskId) = 76;
-
-    boolean removeDesktopPackageTasks(
-        ITaskObserverCallback callback,
-        int displayId,
-        String packageName,
-        int focusTaskId) = 77;
 
     void launchTaskAction(
         ITaskObserverCallback callback,
@@ -300,17 +283,6 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int displayId,
         int taskId) = 79;
-
-    int launchFullscreenTaskInManagedSession(
-        ITaskObserverCallback callback,
-        int displayId,
-        in Intent intent) = 80;
-
-    void placeFullscreenTaskInManagedSession(
-        ITaskObserverCallback callback,
-        int taskId,
-        int sourceDisplayId,
-        int targetDisplayId) = 81;
 
     ParcelFileDescriptor openDisplayCapture(
         String captureSource,

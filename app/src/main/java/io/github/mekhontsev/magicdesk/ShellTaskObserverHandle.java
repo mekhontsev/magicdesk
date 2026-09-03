@@ -57,7 +57,6 @@ final class ShellTaskObserverHandle implements Closeable {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final Rect taskbarBounds,
-            final int taskAreaPolicy,
             final int desktopHostTaskId) throws IOException {
         if (displayBounds == null || workAreaBounds == null
                 || taskbarBounds == null) {
@@ -78,7 +77,6 @@ final class ShellTaskObserverHandle implements Closeable {
                 taskbarBounds.top,
                 taskbarBounds.right,
                 taskbarBounds.bottom,
-                taskAreaPolicy,
                 desktopHostTaskId));
     }
 
@@ -204,15 +202,6 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, displayId, taskId, focusTaskId));
     }
 
-    boolean removeDesktopPackageTasks(
-            final int displayId,
-            final String packageName,
-            final int focusTaskId) throws IOException {
-        return callServiceForResult(() ->
-                mService.removeDesktopPackageTasks(
-                        mCallback, displayId, packageName, focusTaskId));
-    }
-
     int launchWindowedTask(
             final int displayId,
             final Intent intent,
@@ -228,14 +217,6 @@ final class ShellTaskObserverHandle implements Closeable {
                 bounds.top,
                 bounds.right,
                 bounds.bottom));
-    }
-
-    int launchFullscreenTaskInManagedSession(
-            final int displayId,
-            final Intent intent) throws IOException {
-        return callServiceForResult(() ->
-                mService.launchFullscreenTaskInManagedSession(
-                mCallback, displayId, intent));
     }
 
     int launchFullscreenTask(
@@ -276,36 +257,6 @@ final class ShellTaskObserverHandle implements Closeable {
             final Intent intent) throws IOException {
         callService(() -> mService.launchTaskAction(
                 mCallback, displayId, taskId, intent));
-    }
-
-    void placeWindowedTaskInManagedSession(
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId,
-            final Rect bounds) throws IOException {
-        if (bounds == null || bounds.isEmpty()) {
-            throw new IOException("invalid desktop task bounds");
-        }
-        callService(() -> mService.placeWindowedTaskInManagedSession(
-                mCallback,
-                taskId,
-                sourceDisplayId,
-                targetDisplayId,
-                bounds.left,
-                bounds.top,
-                bounds.right,
-                bounds.bottom));
-    }
-
-    void placeFullscreenTaskInManagedSession(
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId) throws IOException {
-        callService(() -> mService.placeFullscreenTaskInManagedSession(
-                mCallback,
-                taskId,
-                sourceDisplayId,
-                targetDisplayId));
     }
 
     void startSelfTestTaskStackGuard(

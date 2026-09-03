@@ -98,10 +98,7 @@ final class DesktopSessionController {
             final Intent intent = createExternalHomeIntent(
                     preparedTarget, resolvedPolicy, restoreWindows);
             final int hostTaskId = ShellAccess.launchDesktopHost(
-                    preparedTarget.displayId,
-                    intent,
-                    DesktopDisplayDrivers.forTarget(preparedTarget)
-                            .features().taskAreaPolicy);
+                    preparedTarget.displayId, intent);
             Log.i(TAG, "launched desktop kind=" + preparedTarget.kind
                     + " display=" + preparedTarget.displayId
                     + " task=" + hostTaskId
@@ -140,8 +137,8 @@ final class DesktopSessionController {
             final DesktopHomeRoleLease.AcquireResult homeAcquisition,
             final int desktopTaskId) throws IOException {
         // Claiming HOME already starts DesktopActivity in Android's default
-        // task area. Launching it again through the organizer would either
-        // move that HOME task into the application area or replace it there.
+        // task area. Launching it again would create or select a second host
+        // instead of using the HOME task whose role acquisition just started.
         if (desktopTaskId < 0) {
             throw new IOException(
                     "primary HOME did not create the phone desktop task");

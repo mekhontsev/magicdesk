@@ -12,8 +12,6 @@ import android.window.OnBackInvokedDispatcher;
 
 /** Inert structural task that keeps an organizer-owned task area non-empty. */
 public final class TaskAreaBackstopActivity extends Activity {
-    private static final String EXTRA_PASSIVE_INPUT =
-            BuildConfig.APPLICATION_ID + ".extra.PASSIVE_BACKSTOP_INPUT";
     private static final String CLASS_NAME =
             BuildConfig.APPLICATION_ID + ".TaskAreaBackstopActivity";
     static final ComponentName COMPONENT = new ComponentName(
@@ -28,9 +26,6 @@ public final class TaskAreaBackstopActivity extends Activity {
                 .setComponent(COMPONENT)
                 .setData(Uri.parse("magicdesk-task-area-backstop:"
                         + Uri.encode(instanceKey)))
-                .putExtra(
-                        EXTRA_PASSIVE_INPUT,
-                        instanceKey.startsWith("session:"))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                         | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
@@ -52,9 +47,6 @@ public final class TaskAreaBackstopActivity extends Activity {
         }
         final String instanceKey = Uri.decode(
                 data.getEncodedSchemeSpecificPart());
-        if (instanceKey.startsWith("session:")) {
-            return TaskAreaBackstopRole.SESSION;
-        }
         if (instanceKey.startsWith("fullscreen-slot:")) {
             return TaskAreaBackstopRole.FULLSCREEN;
         }
@@ -81,16 +73,9 @@ public final class TaskAreaBackstopActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        int windowFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-        if (getIntent().getBooleanExtra(EXTRA_PASSIVE_INPUT, false)) {
-            // The session backstop has a real desktop owner below or above it,
-            // so it must never retain keyboard focus. A fullscreen-slot anchor
-            // stays focusable at the brief child-removal boundary to avoid
-            // leaving its still-focusable plane without an input target before
-            // ShellFullscreenTaskPlanes parks the plane.
-            windowFlags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-        }
-        getWindow().addFlags(windowFlags);
+        // The anchor stays focusable at the brief child-removal boundary so
+        // its plane always has an input target until it is parked.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
                 () -> { });

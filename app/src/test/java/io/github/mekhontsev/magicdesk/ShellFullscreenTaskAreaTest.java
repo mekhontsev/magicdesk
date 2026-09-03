@@ -4,12 +4,12 @@ import static org.junit.Assert.assertArrayEquals;
 
 import org.junit.Test;
 
-public final class IndependentFullscreenTaskTopologyTest {
+public final class ShellFullscreenTaskAreaTest {
     @Test
     public void insertsDesktopHostBeforeVisibleApplicationStack() {
         assertArrayEquals(
                 new int[]{10, 21, 22},
-                IndependentFullscreenTaskTopology.withDesktopHostBoundary(
+                ShellFullscreenTaskArea.withDesktopHostBoundary(
                         new int[]{21, 22}, 10));
     }
 
@@ -17,7 +17,7 @@ public final class IndependentFullscreenTaskTopologyTest {
     public void preservesExplicitConcealedAndVisiblePartition() {
         assertArrayEquals(
                 new int[]{21, 10, 22},
-                IndependentFullscreenTaskTopology.withDesktopHostBoundary(
+                ShellFullscreenTaskArea.withDesktopHostBoundary(
                         new int[]{21, 10, 22}, 10));
     }
 }

@@ -16,6 +16,10 @@ public final class ShellDesktopFocusControllerTest {
                 2,
                 BuildConfig.APPLICATION_ID,
                 BuildConfig.APPLICATION_ID + ".DesktopActivity"));
+        assertTrue(ShellDesktopFocusController.isDesktopHostTarget(
+                2,
+                BuildConfig.APPLICATION_ID,
+                BuildConfig.APPLICATION_ID + ".PhoneDesktopHome"));
         assertFalse(ShellDesktopFocusController.isDesktopHostTarget(
                 1,
                 BuildConfig.APPLICATION_ID,
@@ -56,6 +60,12 @@ public final class ShellDesktopFocusControllerTest {
     public void confirmsVisibleOrganizerChildWithoutAssumingPlaneOrder() {
         final FrameworkTaskSnapshot front = snapshot(42, true, false);
         final FrameworkTaskSnapshot covered = snapshot(41, true, false);
+        final FrameworkTaskSnapshot phoneHome = snapshot(
+                43,
+                FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME,
+                BuildConfig.APPLICATION_ID + "/.PhoneDesktopHome",
+                true,
+                true);
 
         assertTrue(ShellDesktopFocusController.isFocusConfirmationReady(
                 42, Arrays.asList(front, covered)));
@@ -65,12 +75,25 @@ public final class ShellDesktopFocusControllerTest {
                 40, Arrays.asList(front, covered)));
         assertFalse(ShellDesktopFocusController.isFocusConfirmationReady(
                 41, Arrays.asList(front, snapshot(41, false, true))));
+        assertTrue(ShellDesktopFocusController.isFocusConfirmationReady(
+                43, Arrays.asList(front, phoneHome)));
     }
 
     private static FrameworkTaskSnapshot snapshot(
             final int taskId,
             final boolean visible,
             final boolean focused) {
+        return snapshot(taskId, 1, "example/.Window", visible, focused);
+    }
+
+    private static FrameworkTaskSnapshot snapshot(
+            final int taskId,
+            final int activityType,
+            final String componentName,
+            final boolean visible,
+            final boolean focused) {
+        final String packageName = componentName.substring(
+                0, componentName.indexOf('/'));
         return new FrameworkTaskSnapshot(
                 new Object(),
                 taskId,
@@ -78,15 +101,15 @@ public final class ShellDesktopFocusControllerTest {
                 4,
                 0,
                 FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN,
-                1,
+                activityType,
                 null,
                 null,
-                "example/.Window",
-                "example/.Window",
-                "example",
-                "example",
+                componentName,
+                componentName,
+                packageName,
+                packageName,
                 10000,
-                "example",
+                packageName,
                 new Rect(0, 0, 100, 100),
                 visible,
                 focused,

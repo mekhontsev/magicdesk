@@ -50,8 +50,6 @@ final class DesktopTaskWatcher {
                 int generation, int focusedTaskId);
         void onTaskFocusChanged(
                 int generation, int taskId, int displayId, boolean focused);
-        void onDesktopTaskAreaForegroundChanged(
-                int generation, boolean foreground);
         void onDesktopTaskOwnershipChanged(
                 int generation, int displayId, int[] taskIds);
         void onSystemDialogVisibilityChanged(
@@ -142,7 +140,6 @@ final class DesktopTaskWatcher {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final Rect taskbarBounds,
-            final int taskAreaPolicy,
             final int desktopHostTaskId) {
         final ShellTaskObserverHandle handle;
         final LatestOperationSerializer.Ticket ticket;
@@ -156,14 +153,13 @@ final class DesktopTaskWatcher {
         try {
             // clearConfiguration() is intentionally asynchronous. Serialize it
             // with replacement configurations so cleanup from the previous
-            // display can never dismantle the newly registered application area.
+            // display can never dismantle the newly registered task topology.
             return mConfigurationOperations.executeIfCurrent(ticket, () ->
                     handle.configure(
                             displayId,
                             displayBounds,
                             workAreaBounds,
                             taskbarBounds,
-                            taskAreaPolicy,
                             desktopHostTaskId));
         } catch (IOException error) {
             Log.w(TAG, "failed to configure task observer", error);
@@ -266,23 +262,12 @@ final class DesktopTaskWatcher {
             final Rect bounds) throws IOException {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null || intent == null) {
-            throw new IOException("desktop task area is unavailable");
+            throw new IOException("desktop task observer is unavailable");
         }
         return handle.launchWindowedTask(
                 displayId,
                 intent,
                 bounds);
-    }
-
-    int launchFullscreenTaskInManagedSession(
-            final int displayId,
-            final Intent intent) throws IOException {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null || intent == null) {
-            throw new IOException("desktop task area is unavailable");
-        }
-        return handle.launchFullscreenTaskInManagedSession(
-                displayId, intent);
     }
 
     int launchFullscreenTask(
@@ -294,6 +279,16 @@ final class DesktopTaskWatcher {
         }
         return handle.launchFullscreenTask(
                 displayId, intent);
+    }
+
+    boolean attachFullscreenTask(
+            final int displayId,
+            final int taskId) throws IOException {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            throw new IOException("desktop task observer is unavailable");
+        }
+        return handle.beginFullscreenTask(displayId, taskId);
     }
 
     int launchAppShortcut(
@@ -324,37 +319,12 @@ final class DesktopTaskWatcher {
             final Intent intent) throws IOException {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null || intent == null) {
-            throw new IOException("desktop task area is unavailable");
+            throw new IOException("desktop task observer is unavailable");
         }
         handle.launchTaskAction(
                 displayId,
                 taskId,
                 intent);
-    }
-
-    void placeWindowedTaskInManagedSession(
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId,
-            final Rect bounds) throws IOException {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
-            throw new IOException("desktop task area is unavailable");
-        }
-        handle.placeWindowedTaskInManagedSession(
-                taskId, sourceDisplayId, targetDisplayId, bounds);
-    }
-
-    void placeFullscreenTaskInManagedSession(
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId) throws IOException {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
-            throw new IOException("desktop task area is unavailable");
-        }
-        handle.placeFullscreenTaskInManagedSession(
-                taskId, sourceDisplayId, targetDisplayId);
     }
 
     void sendFocusStack(
@@ -583,41 +553,6 @@ final class DesktopTaskWatcher {
 
     private interface TaskMutation {
         boolean apply(ShellTaskObserverHandle handle) throws IOException;
-    }
-
-    void removeDesktopPackageTasks(
-            final int displayId,
-            final String packageName,
-            final int focusTaskId,
-            final TaskRepository.ActionCallback callback) {
-        try {
-            mExecutor.execute(() -> {
-                final ShellTaskObserverHandle handle = currentHandle();
-                boolean success = false;
-                String message = "task observer unavailable";
-                if (handle != null) {
-                    try {
-                        success = handle.removeDesktopPackageTasks(
-                                displayId, packageName, focusTaskId);
-                        message = success
-                                ? "desktop package tasks removed"
-                                : "desktop package task removal rejected";
-                    } catch (IOException error) {
-                        message = ShellAccess.usefulMessage(error);
-                        Log.w(TAG,
-                                "failed to remove desktop package tasks",
-                                error);
-                    }
-                }
-                final boolean result = success;
-                final String resultMessage = message;
-                mHandler.post(() -> completeFocusCallback(
-                        callback, result, resultMessage));
-            });
-        } catch (RejectedExecutionException error) {
-            mHandler.post(() -> completeFocusCallback(
-                    callback, false, "task observer stopped"));
-        }
     }
 
     boolean startSelfTestTaskStackGuard(
@@ -951,14 +886,6 @@ final class DesktopTaskWatcher {
                         generation, taskId, displayId, focused));
     }
 
-    private void onDesktopTaskAreaForegroundChanged(
-            final int generation,
-            final boolean foreground) {
-        postIfActive(generation, () ->
-                mListener.onDesktopTaskAreaForegroundChanged(
-                        generation, foreground));
-    }
-
     private void onDesktopTaskOwnershipChanged(
             final int generation,
             final int displayId,
@@ -1252,13 +1179,6 @@ final class DesktopTaskWatcher {
         public void onPhoneTaskNormalized(final int taskId)
                 throws RemoteException {
             mOwner.onPhoneTaskNormalized(mGeneration, taskId);
-        }
-
-        @Override
-        public void onDesktopTaskAreaForegroundChanged(
-                final boolean foreground) throws RemoteException {
-            mOwner.onDesktopTaskAreaForegroundChanged(
-                    mGeneration, foreground);
         }
 
         @Override

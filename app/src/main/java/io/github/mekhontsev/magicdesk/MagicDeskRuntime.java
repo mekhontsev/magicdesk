@@ -429,16 +429,6 @@ public final class MagicDeskRuntime {
         return tasks.launchWindowedTask(displayId, intent, bounds);
     }
 
-    static int launchFullscreenTaskInManagedSession(
-            final int displayId,
-            final Intent intent) throws IOException {
-        final DesktopTaskRuntime tasks = desktopTasks();
-        if (tasks == null) {
-            throw new IOException("desktop task runtime unavailable");
-        }
-        return tasks.launchFullscreenTaskInManagedSession(displayId, intent);
-    }
-
     static int launchFullscreenTask(
             final int displayId,
             final Intent intent) throws IOException {
@@ -447,6 +437,16 @@ public final class MagicDeskRuntime {
             throw new IOException("desktop task runtime unavailable");
         }
         return tasks.launchFullscreenTask(displayId, intent);
+    }
+
+    static boolean attachFullscreenTask(
+            final int displayId,
+            final int taskId) throws IOException {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            throw new IOException("desktop task runtime unavailable");
+        }
+        return tasks.attachFullscreenTask(displayId, taskId);
     }
 
     static int launchAppShortcut(
@@ -488,31 +488,6 @@ public final class MagicDeskRuntime {
             throw new IOException("desktop task runtime unavailable");
         }
         tasks.launchTaskAction(displayId, taskId, intent);
-    }
-
-    static void placeWindowedTaskInManagedSession(
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId,
-            final Rect bounds) throws IOException {
-        final DesktopTaskRuntime tasks = desktopTasks();
-        if (tasks == null) {
-            throw new IOException("desktop task runtime unavailable");
-        }
-        tasks.placeWindowedTaskInManagedSession(
-                taskId, sourceDisplayId, targetDisplayId, bounds);
-    }
-
-    static void placeFullscreenTaskInManagedSession(
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId) throws IOException {
-        final DesktopTaskRuntime tasks = desktopTasks();
-        if (tasks == null) {
-            throw new IOException("desktop task runtime unavailable");
-        }
-        tasks.placeFullscreenTaskInManagedSession(
-                taskId, sourceDisplayId, targetDisplayId);
     }
 
     static void closeTask(

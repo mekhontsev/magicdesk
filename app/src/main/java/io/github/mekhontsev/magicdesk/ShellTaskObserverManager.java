@@ -69,14 +69,12 @@ final class ShellTaskObserverManager implements Closeable {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final Rect taskbarBounds,
-            final int taskAreaPolicy,
             final int desktopHostTaskId) {
         requireSession(callback).observer.configure(
                 displayId,
                 displayBounds,
                 workAreaBounds,
                 taskbarBounds,
-                taskAreaPolicy,
                 desktopHostTaskId);
     }
 
@@ -150,8 +148,7 @@ final class ShellTaskObserverManager implements Closeable {
 
     int launchDesktopHost(
             final int displayId,
-            final String intentUri,
-            final int taskAreaPolicy) {
+            final String intentUri) {
         final Session session;
         synchronized (mLock) {
             if (mSession == null) {
@@ -161,7 +158,7 @@ final class ShellTaskObserverManager implements Closeable {
             session = mSession;
         }
         return session.observer.launchDesktopHost(
-                displayId, intentUri, taskAreaPolicy);
+                displayId, intentUri);
     }
 
     boolean restoreFullscreenTask(
@@ -207,16 +204,6 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId, taskId, focusTaskId);
     }
 
-    boolean removeDesktopPackageTasks(
-            final ITaskObserverCallback callback,
-            final int displayId,
-            final String packageName,
-            final int focusTaskId) {
-        return requireSession(callback).observer
-                .removeDesktopPackageTasks(
-                        displayId, packageName, focusTaskId);
-    }
-
     int launchWindowedTask(
             final ITaskObserverCallback callback,
             final int displayId,
@@ -224,15 +211,6 @@ final class ShellTaskObserverManager implements Closeable {
             final Rect bounds) {
         return requireSession(callback).observer.launchWindowedTask(
                 displayId, intent, bounds);
-    }
-
-    int launchFullscreenTaskInManagedSession(
-            final ITaskObserverCallback callback,
-            final int displayId,
-            final Intent intent) {
-        return requireSession(callback).observer
-                .launchFullscreenTaskInManagedSession(
-                displayId, intent);
     }
 
     int launchFullscreenTask(
@@ -269,25 +247,6 @@ final class ShellTaskObserverManager implements Closeable {
             final Intent intent) {
         requireSession(callback).observer.launchTaskAction(
                 displayId, taskId, intent);
-    }
-
-    void placeWindowedTaskInManagedSession(
-            final ITaskObserverCallback callback,
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId,
-            final Rect bounds) {
-        requireSession(callback).observer.placeWindowedTaskInManagedSession(
-                taskId, sourceDisplayId, targetDisplayId, bounds);
-    }
-
-    void placeFullscreenTaskInManagedSession(
-            final ITaskObserverCallback callback,
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId) {
-        requireSession(callback).observer.placeFullscreenTaskInManagedSession(
-                taskId, sourceDisplayId, targetDisplayId);
     }
 
     void startSelfTestTaskStackGuard(

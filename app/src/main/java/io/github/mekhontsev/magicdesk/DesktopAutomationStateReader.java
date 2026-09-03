@@ -143,8 +143,7 @@ final class DesktopAutomationStateReader {
                         .put("bounds", rectJson(ui.popupBounds)))
                 .put("wallpaper", new JSONObject()
                         .put("rendered", ui.wallpaperRendered)
-                        .put("fallback", ui.fallbackWallpaper))
-                .put("desktopPlaneForeground", ui.desktopPlaneForeground);
+                        .put("fallback", ui.fallbackWallpaper));
     }
 
     JSONObject displays() throws JSONException {

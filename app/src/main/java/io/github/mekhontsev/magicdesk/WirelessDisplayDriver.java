@@ -6,7 +6,6 @@ import android.app.Activity;
 final class WirelessDisplayDriver implements DesktopDisplayDriver {
     private static final DesktopDisplayFeatures FEATURES =
             new DesktopDisplayFeatures(
-                    DesktopTaskAreaPolicy.INDEPENDENT,
                     true,
                     true);
 

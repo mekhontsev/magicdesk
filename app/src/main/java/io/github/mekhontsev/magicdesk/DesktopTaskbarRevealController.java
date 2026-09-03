@@ -25,7 +25,6 @@ final class DesktopTaskbarRevealController {
     private final int mTouchEdgeHeight;
 
     private boolean mPolicyVisible = true;
-    private boolean mDesktopPlaneForeground = true;
     private boolean mAutoHide;
     private boolean mForcedVisible;
     private boolean mStarted;
@@ -74,18 +73,6 @@ final class DesktopTaskbarRevealController {
             return;
         }
         mPolicyVisible = visible;
-        cancelTimers();
-        updateArmedState();
-        if (mStarted) {
-            applyPresentation();
-        }
-    }
-
-    void setDesktopPlaneForeground(final boolean foreground) {
-        if (mReleased || mDesktopPlaneForeground == foreground) {
-            return;
-        }
-        mDesktopPlaneForeground = foreground;
         cancelTimers();
         updateArmedState();
         if (mStarted) {
@@ -218,10 +205,6 @@ final class DesktopTaskbarRevealController {
         if (taskbar == null || taskbarHost == null) {
             return;
         }
-        if (!mDesktopPlaneForeground) {
-            taskbarHost.setPresented(false);
-            return;
-        }
         final boolean visible = mForcedVisible
                 || isPinnedVisible()
                 || mPointerState.isRevealed()
@@ -251,8 +234,7 @@ final class DesktopTaskbarRevealController {
     }
 
     private boolean shouldArm() {
-        return mDesktopPlaneForeground
-                && !mForcedVisible
+        return !mForcedVisible
                 && !isPinnedVisible();
     }
 

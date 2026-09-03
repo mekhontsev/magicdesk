@@ -275,8 +275,7 @@ public final class TaskRepository {
                 final boolean targetPhoneWithoutDesktop =
                         targetDisplayId == Display.DEFAULT_DISPLAY
                                 && !DesktopDisplayDrivers
-                                        .activeTaskAreaPolicy(targetDisplayId)
-                                        .usesManagedApplicationArea();
+                                        .hasActiveWorkspace(targetDisplayId);
                 final DesktopTaskTransfer.Mode mode =
                         targetPhoneWithoutDesktop
                                 ? DesktopTaskTransfer.Mode.FULLSCREEN

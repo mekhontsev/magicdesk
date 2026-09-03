@@ -33,7 +33,7 @@ public final class TaskbarTaskOrderTest {
                         fullscreen.taskId,
                         Arrays.asList(topWindow, lowerWindow),
                         ids(10),
-                        false));
+                        host.taskId));
     }
 
     @Test
@@ -53,7 +53,7 @@ public final class TaskbarTaskOrderTest {
                         fullscreen.taskId,
                         Arrays.asList(topWindow, closedWindow),
                         ids(10),
-                        false));
+                        host.taskId));
     }
 
     @Test
@@ -72,7 +72,7 @@ public final class TaskbarTaskOrderTest {
                         fullscreen.taskId,
                         Collections.emptyList(),
                         ids(10),
-                        false));
+                        99));
     }
 
     @Test
@@ -85,7 +85,7 @@ public final class TaskbarTaskOrderTest {
                 fullscreen.taskId,
                 Collections.emptyList(),
                 ids(10),
-                false).isEmpty());
+                99).isEmpty());
     }
 
     @Test
@@ -104,7 +104,7 @@ public final class TaskbarTaskOrderTest {
                         active.taskId,
                         Collections.emptyList(),
                         ids(10),
-                        false));
+                        99));
     }
 
     @Test
@@ -119,7 +119,7 @@ public final class TaskbarTaskOrderTest {
                         active.taskId,
                         Collections.emptyList(),
                         ids(10),
-                        false));
+                        99));
     }
 
     @Test
@@ -134,8 +134,8 @@ public final class TaskbarTaskOrderTest {
                         focused.taskId,
                         Collections.emptyList(),
                         ids(10),
-                        false,
-                        focused.taskId));
+                        focused.taskId,
+                        99));
     }
 
     @Test
@@ -152,24 +152,7 @@ public final class TaskbarTaskOrderTest {
                         activeWindow.taskId,
                         Collections.emptyList(),
                         ids(10),
-                        true));
-    }
-
-    @Test
-    public void sessionLeavesFullscreenTasksAfterHostConcealed() {
-        final TaskRepository.TaskEntry activeWindow = task(
-                10, "com.example.window", "freeform", true, true);
-        final TaskRepository.TaskEntry concealedFullscreen = task(
-                11, "com.example.fullscreen", "fullscreen", false, false);
-
-        assertEquals(
-                Arrays.asList(10, 99),
-                TaskbarTaskOrder.concealActiveTask(
-                        snapshot(activeWindow, host(99), concealedFullscreen),
-                        activeWindow.taskId,
-                        Collections.emptyList(),
-                        ids(10),
-                        false));
+                        99));
     }
 
     @Test
@@ -186,7 +169,22 @@ public final class TaskbarTaskOrderTest {
                         activeSecond.taskId,
                         Collections.emptyList(),
                         ids(10, 11),
-                        false));
+                        99));
+    }
+
+    @Test
+    public void usesExactSessionHostWhenAnOlderHomeTaskIsStillPresent() {
+        final TaskRepository.TaskEntry active = task(
+                10, "com.example.only", "freeform", true, true);
+
+        assertEquals(
+                Arrays.asList(10, 99),
+                TaskbarTaskOrder.concealActiveTask(
+                        snapshot(active, host(98), host(99)),
+                        active.taskId,
+                        Collections.emptyList(),
+                        ids(10),
+                        99));
     }
 
     private static Set<Integer> ids(final Integer... taskIds) {

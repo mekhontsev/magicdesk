@@ -6,7 +6,7 @@ import android.graphics.Rect;
 final class DesktopUiSnapshot {
     static final DesktopUiSnapshot UNAVAILABLE = new DesktopUiSnapshot(
             false, -1, false, null, false, false, null, "",
-            false, false, false);
+            false, false);
 
     final boolean available;
     final int displayId;
@@ -18,7 +18,6 @@ final class DesktopUiSnapshot {
     final String popupTitle;
     final boolean wallpaperRendered;
     final boolean fallbackWallpaper;
-    final boolean desktopPlaneForeground;
 
     DesktopUiSnapshot(
             final boolean available,
@@ -30,8 +29,7 @@ final class DesktopUiSnapshot {
             final Rect popupBounds,
             final String popupTitle,
             final boolean wallpaperRendered,
-            final boolean fallbackWallpaper,
-            final boolean desktopPlaneForeground) {
+            final boolean fallbackWallpaper) {
         this.available = available;
         this.displayId = displayId;
         this.taskbarVisible = taskbarVisible;
@@ -42,7 +40,6 @@ final class DesktopUiSnapshot {
         this.popupTitle = popupTitle == null ? "" : popupTitle;
         this.wallpaperRendered = wallpaperRendered;
         this.fallbackWallpaper = fallbackWallpaper;
-        this.desktopPlaneForeground = desktopPlaneForeground;
     }
 
     private static Rect copy(final Rect value) {

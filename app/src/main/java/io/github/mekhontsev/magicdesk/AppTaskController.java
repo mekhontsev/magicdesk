@@ -828,8 +828,12 @@ final class AppTaskController {
                     ExistingTaskController.reuseIfExists(
                             taskSource.launchTarget(), displayId, false);
             if (reuseResult.found) {
-                MagicDeskRuntime.focusDesktopTask(
-                        displayId, reuseResult.taskId, null);
+                if (!MagicDeskRuntime.attachFullscreenTask(
+                        displayId, reuseResult.taskId)) {
+                    throw new IOException(
+                            "could not attach reused fullscreen task"
+                                    + " to its plane");
+                }
                 taskSource.activateExisting(
                         displayId, reuseResult.taskId);
                 DesktopTaskLaunchDiagnostics.note(
@@ -920,11 +924,6 @@ final class AppTaskController {
         launchIntent.addFlags(separateTask
                 ? Intent.FLAG_ACTIVITY_NEW_TASK
                 : getFullscreenLaunchFlags());
-        if (DesktopDisplayDrivers.activeTaskAreaPolicy(displayId)
-                .usesManagedApplicationArea()) {
-            return MagicDeskRuntime.launchFullscreenTaskInManagedSession(
-                    displayId, launchIntent);
-        }
         return MagicDeskRuntime.launchFullscreenTask(displayId, launchIntent);
     }
 

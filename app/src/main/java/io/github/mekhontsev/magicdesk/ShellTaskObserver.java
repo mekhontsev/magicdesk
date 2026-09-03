@@ -41,6 +41,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellProcessFailureTracker mProcessFailureTracker;
     private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
     private final ShellPhoneOverviewRouter mPhoneOverviewRouter;
+    private final ShellPhoneDesktopWallpaperPolicy mPhoneWallpaperPolicy;
     private final ShellSecondaryHomeStartPolicy mSecondaryHomeStartPolicy =
             new ShellSecondaryHomeStartPolicy();
     private final ShellActivityStartController mActivityStartController;
@@ -49,7 +50,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             new ShellDesktopTaskOwnership();
     private final ShellTaskLauncher mTaskLauncher;
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
-    private final ShellDesktopTaskArea mDesktopTaskArea;
+    private final ShellDesktopHostLauncher mDesktopHostLauncher;
     private final ShellDesktopTaskbarPlane mDesktopTaskbarPlane;
     private final ShellSelfTestTaskStackGuard mSelfTestTaskStackGuard;
 
@@ -59,9 +60,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private boolean mPhoneTouchpadRequested;
     private boolean mRestoringPhoneTouchpad;
     private int mPhoneTouchpadTaskId = -1;
-    private Boolean mDesktopTaskAreaForeground;
-    private DesktopTaskAreaPolicy mTaskAreaPolicy =
-            DesktopTaskAreaPolicy.UNCONFIGURED;
     private volatile int mConfiguredDisplayId = Display.INVALID_DISPLAY;
     private int mReportedOwnershipDisplayId = Display.INVALID_DISPLAY;
     private int[] mReportedDesktopTaskIds = new int[0];
@@ -117,10 +115,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mDesktopOwnership,
                 mTaskActivityModeGuard,
                 activityLauncher);
-        mDesktopTaskArea = new ShellDesktopTaskArea(
-                mService, mDesktopOwnership, mTaskLauncher);
-        mFullscreenTaskArea = new ShellFullscreenTaskArea(
-                mDesktopOwnership, mDesktopTaskArea);
+        mDesktopHostLauncher = new ShellDesktopHostLauncher(
+                mService, mDesktopOwnership);
+        mFullscreenTaskArea = new ShellFullscreenTaskArea(mDesktopOwnership);
         mDesktopTaskbarPlane = new ShellDesktopTaskbarPlane(mService);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mWindowing = windowing;
@@ -184,12 +181,16 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 phoneUi.requiresLauncherOwnedOverview(),
                 activityLauncher,
                 error -> callCallback(() -> mCallback.onObserverError(error)));
+        mPhoneWallpaperPolicy = new ShellPhoneDesktopWallpaperPolicy(
+                mService,
+                error -> callCallback(() -> mCallback.onObserverError(error)));
         mActivityStartController = new ShellActivityStartController(
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)),
                 mProcessFailureTracker,
                 null,
                 mPhoneOverviewRouter,
+                mPhoneWallpaperPolicy,
                 mSecondaryHomeStartPolicy,
                 mMigrationGuard,
                 mTaskActivityModeGuard);
@@ -224,8 +225,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         reconcileFocusAfterTaskRemoval(
                                 displayId, taskSnapshots);
                         reportDesktopTaskOwnership();
-                        mDesktopTaskArea.removeOrphanedTransientTasks(
-                                displayId, tasks);
                         mFreeformCleanup.observeTasks(displayId, tasks);
                     }
 
@@ -298,13 +297,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService,
                 mFullscreenTaskArea,
                 mFocusController,
-                new ShellDesktopWorkspaceCoordinator.ForegroundReporter() {
-                    @Override
-                    public void reportForTask(final int taskId)
-                            throws ReflectiveOperationException {
-                        reportDesktopForeground(taskId);
-                    }
-                },
                 mTaskObservations::requestSample);
     }
 
@@ -349,7 +341,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final Rect displayBounds,
             final Rect workAreaBounds,
             final Rect taskbarBounds,
-            final int taskAreaPolicyValue,
             final int desktopHostTaskId) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
@@ -359,10 +350,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             // observation alive between sessions, but never retain launch
             // interception after the desktop configuration is cleared.
             mPhoneOverviewRouter.stop();
+            mPhoneWallpaperPolicy.configure(Display.INVALID_DISPLAY);
             mActivityStartController.close();
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
             clearPendingPostRemovalFocus();
-            mTaskAreaPolicy = DesktopTaskAreaPolicy.UNCONFIGURED;
             mFocusController.configure(-1);
             mSystemDialogTracker.configure(
                     Display.INVALID_DISPLAY,
@@ -374,18 +365,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mTaskObservations.clearConfiguration();
             mDesktopTaskbarPlane.close();
-            // Release reusable fullscreen slots before the workspace task
-            // area is torn down.
-            mFullscreenTaskArea.configure(
-                    Display.INVALID_DISPLAY,
-                    DesktopTaskAreaPolicy.UNCONFIGURED);
-            mDesktopTaskArea.configure(
-                    Display.INVALID_DISPLAY,
-                    DesktopTaskAreaPolicy.UNCONFIGURED,
-                    -1);
+            mFullscreenTaskArea.configure(Display.INVALID_DISPLAY);
             mDesktopOwnership.configure(Display.INVALID_DISPLAY);
             reportDesktopTaskOwnership();
-            mDesktopTaskAreaForeground = null;
             return;
         }
         mProcessFailureTracker.configure(displayId);
@@ -405,35 +387,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (desktopHostTaskId >= 0) {
             mDesktopOwnership.markDesktopHost(desktopHostTaskId);
         }
-        final DesktopTaskAreaPolicy taskAreaPolicy =
-                DesktopTaskAreaPolicy.fromWireValue(taskAreaPolicyValue);
-        if (!mDesktopTaskArea.matchesConfiguration(
-                displayId,
-                taskAreaPolicy,
-                desktopHostTaskId)) {
-            // Release any previous fullscreen parent before changing the
-            // workspace task-area configuration.
-            mFullscreenTaskArea.configure(
-                    Display.INVALID_DISPLAY,
-                    DesktopTaskAreaPolicy.UNCONFIGURED);
-            mDesktopTaskArea.configure(
-                    Display.INVALID_DISPLAY,
-                    DesktopTaskAreaPolicy.UNCONFIGURED,
-                    -1);
-        }
-        mDesktopTaskArea.configure(
-                displayId,
-                taskAreaPolicy,
-                desktopHostTaskId);
-        mTaskAreaPolicy = taskAreaPolicy;
-        mFullscreenTaskArea.configure(
-                displayId,
-                mTaskAreaPolicy);
+        mFullscreenTaskArea.configure(displayId);
         mDesktopTaskbarPlane.configure(displayId, taskbarBounds);
-        if (!taskAreaPolicy.usesManagedApplicationArea()) {
-            mDesktopTaskAreaForeground = null;
-        }
         mConfiguredDisplayId = displayId;
+        mPhoneWallpaperPolicy.configure(displayId);
         clearPendingPostRemovalFocus();
         mFocusController.configure(displayId);
         mSystemDialogTracker.configure(
@@ -454,16 +411,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     }
 
     boolean clearConfiguration(final int expectedDisplayId) {
-        final int managedAreaDisplayId =
-                mDesktopTaskArea.managedDisplayId();
-        if (!DesktopTaskConfigurationGuard.canClear(
-                expectedDisplayId,
-                mConfiguredDisplayId,
-                managedAreaDisplayId)) {
+        if (expectedDisplayId < 0
+                || mConfiguredDisplayId != expectedDisplayId) {
             Log.i(TAG, "ignored stale task observer clear expectedDisplay="
                     + expectedDisplayId
-                    + " configuredDisplay=" + mConfiguredDisplayId
-                    + " managedAreaDisplay=" + managedAreaDisplayId);
+                    + " configuredDisplay=" + mConfiguredDisplayId);
             return false;
         }
         configure(
@@ -471,7 +423,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 new Rect(),
                 new Rect(),
                 new Rect(),
-                DesktopTaskAreaPolicy.UNCONFIGURED.wireValue(),
                 -1);
         return true;
     }
@@ -616,20 +567,14 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     int launchDesktopHost(
             final int displayId,
-            final String intentUri,
-            final int taskAreaPolicyValue) {
+            final String intentUri) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
         try {
-            final int taskId = mDesktopTaskArea.launchHost(
-                    displayId,
-                    intentUri,
-                    DesktopTaskAreaPolicy.fromWireValue(
-                            taskAreaPolicyValue));
+            final int taskId = mDesktopHostLauncher.launch(
+                    displayId, intentUri);
             reportDesktopTaskOwnership();
-            reportDesktopForeground(
-                    ShellDesktopTaskArea.ForegroundState.HOST);
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
@@ -662,8 +607,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed || displayId != mConfiguredDisplayId) {
             return false;
         }
-        return finishDesktopTransition(mFullscreenTaskArea.beginAppFullscreen(
-                mService, displayId, taskId, restoreBounds));
+        mDesktopOwnership.markDesktop(taskId);
+        final boolean entered = mFullscreenTaskArea.beginAppFullscreen(
+                mService, displayId, taskId, restoreBounds);
+        reportDesktopTaskOwnership();
+        return finishDesktopTransition(entered);
     }
 
     boolean beginFullscreenTask(
@@ -672,11 +620,14 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed || displayId != mConfiguredDisplayId) {
             return false;
         }
-        return finishDesktopTransition(mFullscreenTaskArea.beginFullscreen(
+        mDesktopOwnership.markDesktop(taskId);
+        final boolean entered = mFullscreenTaskArea.beginFullscreen(
                 mService,
                 displayId,
                 taskId,
-                mWindowing.requiresNativeFullscreenCaptionRefresh()));
+                mWindowing.requiresNativeFullscreenCaptionRefresh());
+        reportDesktopTaskOwnership();
+        return finishDesktopTransition(entered);
     }
 
     boolean protectExplicitFullscreenTask(
@@ -713,17 +664,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 result == ShellFullscreenTaskArea.CloseResult.SUCCEEDED);
     }
 
-    boolean removeDesktopPackageTasks(
-            final int displayId,
-            final String packageName,
-            final int focusTaskId) {
-        if (mClosed) {
-            throw new IllegalStateException("task observer is closed");
-        }
-        return finishDesktopTransition(mDesktopTaskArea.removePackageTasks(
-                displayId, packageName, focusTaskId));
-    }
-
     int launchWindowedTask(
             final int displayId,
             final Intent intent,
@@ -736,48 +676,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     "display is not configured: " + displayId);
         }
         try {
-            final boolean managedApplicationArea =
-                    mDesktopTaskArea.ownsApplicationArea(displayId);
-            final int taskId = managedApplicationArea
-                    ? mDesktopTaskArea.launchSessionWindowedTask(
-                            displayId, intent, bounds)
-                    : mTaskLauncher.launchWindowed(
-                            displayId, intent, bounds, null);
+            final int taskId = mTaskLauncher.launchWindowed(
+                    displayId, intent, bounds, null);
             reportDesktopTaskOwnership();
-            if (managedApplicationArea) {
-                reportDesktopForeground(
-                        ShellDesktopTaskArea.ForegroundState.APPLICATION);
-            }
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch windowed task: "
-                            + usefulMessage(error),
-                    error);
-        }
-    }
-
-    int launchFullscreenTaskInManagedSession(
-            final int displayId,
-            final Intent intent) {
-        if (mClosed) {
-            throw new IllegalStateException("task observer is closed");
-        }
-        if (displayId != mConfiguredDisplayId
-                || !mDesktopTaskArea.ownsApplicationArea(displayId)) {
-            throw new IllegalArgumentException(
-                    "session task area is not configured: " + displayId);
-        }
-        try {
-            final int taskId = mDesktopTaskArea.launchSessionFullscreenTask(
-                    displayId, intent);
-            reportDesktopTaskOwnership();
-            reportDesktopForeground(
-                    ShellDesktopTaskArea.ForegroundState.APPLICATION);
-            return taskId;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException(
-                    "cannot launch fullscreen task: "
                             + usefulMessage(error),
                     error);
         }
@@ -794,8 +699,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     "display is not configured: " + displayId);
         }
         try {
-            final int taskId = mTaskLauncher.launchFullscreen(
-                    displayId, intent);
+            final int taskId = mFullscreenTaskArea.launchFullscreen(
+                    mService,
+                    displayId,
+                    taskAreaToken -> mTaskLauncher.launchFullscreen(
+                            displayId, intent, taskAreaToken));
             reportDesktopTaskOwnership();
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -836,41 +744,31 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     throw new IllegalArgumentException(
                             "windowed shortcut requires bounds");
                 }
-                taskId = mDesktopTaskArea.ownsApplicationArea(displayId)
-                        ? mDesktopTaskArea.launchSessionWindowedShortcut(
-                                displayId,
-                                packageName,
-                                shortcutId,
-                                user,
-                                bounds)
-                        : mTaskLauncher.launchShortcutWindowed(
-                                displayId,
-                                packageName,
-                                shortcutId,
-                                user,
-                                bounds,
-                                null,
-                                true);
+                taskId = mTaskLauncher.launchShortcutWindowed(
+                        displayId,
+                        packageName,
+                        shortcutId,
+                        user,
+                        bounds,
+                        null,
+                        true);
             } else if (windowingMode
                     == FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN) {
-                taskId = mDesktopTaskArea.ownsApplicationArea(displayId)
-                        ? mDesktopTaskArea.launchSessionFullscreenShortcut(
-                                displayId, packageName, shortcutId, user)
-                        : mTaskLauncher.launchShortcutFullscreen(
-                                displayId,
-                                packageName,
-                                shortcutId,
-                                user,
-                                null);
+                taskId = mFullscreenTaskArea.launchFullscreen(
+                        mService,
+                        displayId,
+                        taskAreaToken -> mTaskLauncher
+                                .launchShortcutFullscreen(
+                                        displayId,
+                                        packageName,
+                                        shortcutId,
+                                        user,
+                                        taskAreaToken));
             } else {
                 throw new IllegalArgumentException(
                         "unsupported shortcut windowing mode: " + windowingMode);
             }
             reportDesktopTaskOwnership();
-            if (mDesktopTaskArea.ownsApplicationArea(displayId)) {
-                reportDesktopForeground(
-                        ShellDesktopTaskArea.ForegroundState.APPLICATION);
-            }
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
@@ -895,49 +793,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch task action: " + usefulMessage(error),
-                    error);
-        }
-    }
-
-    void placeWindowedTaskInManagedSession(
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId,
-            final Rect bounds) {
-        if (mClosed) {
-            throw new IllegalStateException("task observer is closed");
-        }
-        try {
-            mDesktopTaskArea.placeSessionWindowedTask(
-                    taskId, sourceDisplayId, targetDisplayId, bounds);
-            reportDesktopTaskOwnership();
-            reportDesktopForeground(
-                    ShellDesktopTaskArea.ForegroundState.APPLICATION);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException(
-                    "cannot place task in desktop area: "
-                            + usefulMessage(error),
-                    error);
-        }
-    }
-
-    void placeFullscreenTaskInManagedSession(
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId) {
-        if (mClosed) {
-            throw new IllegalStateException("task observer is closed");
-        }
-        try {
-            mDesktopTaskArea.placeSessionFullscreenTask(
-                    taskId, sourceDisplayId, targetDisplayId);
-            reportDesktopTaskOwnership();
-            reportDesktopForeground(
-                    ShellDesktopTaskArea.ForegroundState.APPLICATION);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException(
-                    "cannot place fullscreen task in desktop area: "
-                            + usefulMessage(error),
                     error);
         }
     }
@@ -986,7 +841,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     @Override
     public void onTaskStackChanged() {
-        mFullscreenTaskArea.onTaskStackChanged();
         mMigrationGuard.onTaskStackChanged();
         signalChange("stack-changed");
     }
@@ -1027,7 +881,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             }
             mMigrationGuard.forget(taskId);
             mTaskActivityModeGuard.onTaskRemoved(taskId);
-            mDesktopTaskArea.onTaskRemoved(taskId);
             mFullscreenTaskArea.onTaskRemoved(taskId);
             mDesktopOwnership.forget(taskId);
             reportDesktopTaskOwnership();
@@ -1140,11 +993,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mTaskLauncher.onTaskMovedToFront(
                     taskInfo.taskId,
                     HiddenTaskApi.getTaskTopComponent(taskInfo));
-            mFullscreenTaskArea.onTaskMovedToFront(
-                    displayId, taskInfo.taskId);
             mDesktopOwnership.observeTask(taskInfo);
             reportDesktopTaskOwnership();
-            reportDesktopForeground(taskInfo);
             mMigrationGuard.onTaskMovedToFront(taskInfo);
             if (isPhoneTouchpadTask(taskInfo)) {
                 synchronized (this) {
@@ -1177,7 +1027,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int taskId,
             final int newDisplayId) {
         mFullscreenTaskArea.onTaskDisplayChanged(taskId, newDisplayId);
-        mDesktopTaskArea.onTaskDisplayChanged(taskId, newDisplayId);
         mTaskActivityModeGuard.onTaskDisplayChanged(taskId, newDisplayId);
         mMigrationGuard.onTaskDisplayChanged(taskId, newDisplayId);
         signalChange("display-changed");
@@ -1266,7 +1115,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         closeSafely("framework task observations", mTaskObservations::close);
         closeSafely("desktop taskbar plane", mDesktopTaskbarPlane::close);
         closeSafely("fullscreen task area", mFullscreenTaskArea::close);
-        closeSafely("desktop task area", mDesktopTaskArea::close);
         closeSafely("self-test task stack guard",
                 mSelfTestTaskStackGuard::close);
         if (registered) {
@@ -1285,28 +1133,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             cleanup.run();
         } catch (RuntimeException error) {
             Log.w(TAG, "failed to close " + component, error);
-        }
-    }
-
-    private void reportDesktopForeground(
-            final ActivityManager.RunningTaskInfo taskInfo) {
-        final ShellDesktopTaskArea.ForegroundState foreground = mDesktopTaskArea
-                .foregroundAfterTaskMovedToFront(taskInfo);
-        if (foreground != null) {
-            reportDesktopForeground(foreground);
-        }
-    }
-
-    private void reportDesktopForeground(final int taskId)
-            throws ReflectiveOperationException {
-        final Object task = HiddenTaskApi.requireTask(
-                mService, Display.INVALID_DISPLAY, taskId);
-        final int displayId = HiddenTaskApi.getTaskDisplayId(task);
-        final ShellDesktopTaskArea.ForegroundState foreground =
-                mDesktopTaskArea.foregroundForTask(
-                        displayId, taskId);
-        if (foreground != null) {
-            reportDesktopForeground(foreground);
         }
     }
 
@@ -1332,33 +1158,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             Log.w(TAG, "could not restore phone fullscreen task="
                     + taskId, error);
         }
-    }
-
-    private synchronized void reportDesktopForeground(
-            final ShellDesktopTaskArea.ForegroundState foreground) {
-        try {
-            mDesktopTaskArea.setApplicationAreaForeground(
-                    foreground.applicationAreaForeground);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            final String message = usefulMessage(error);
-            Log.w(TAG, "could not reorder desktop task area: "
-                    + message, error);
-            callCallback(() -> mCallback.onObserverError(
-                    "desktop task area ordering unavailable: " + message));
-            return;
-        }
-        publishDesktopTaskAreaForeground(
-                foreground.desktopSessionForeground);
-    }
-
-    private void publishDesktopTaskAreaForeground(final boolean foreground) {
-        if (mDesktopTaskAreaForeground != null
-                && mDesktopTaskAreaForeground.booleanValue() == foreground) {
-            return;
-        }
-        mDesktopTaskAreaForeground = Boolean.valueOf(foreground);
-        callCallback(() -> mCallback
-                .onDesktopTaskAreaForegroundChanged(foreground));
     }
 
     private synchronized void reportDesktopTaskOwnership() {

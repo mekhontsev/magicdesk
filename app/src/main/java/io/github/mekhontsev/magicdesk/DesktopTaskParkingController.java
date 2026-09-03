@@ -24,9 +24,8 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             new LinkedHashMap<>();
     private int mObservedDisplayId = Display.INVALID_DISPLAY;
     private List<ParkedTask> mObservedTopFirst = Collections.emptyList();
-    private boolean mObservedSessionTaskArea;
-    private boolean mObservedSessionOwnershipReady;
-    private Set<Integer> mObservedSessionOwnedTaskIds = Collections.emptySet();
+    private boolean mObservedOwnershipReady;
+    private Set<Integer> mObservedOwnedTaskIds = Collections.emptySet();
     private DesktopDisplayTarget mPendingTarget;
     private boolean mRestoreInProgress;
     private long mGeneration;
@@ -38,29 +37,28 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             final int displayId,
             final List<TaskRepository.TaskEntry> tasks,
             final Rect workArea,
-            final boolean sessionTaskArea,
-            final boolean sessionOwnershipReady,
-            final Set<Integer> sessionOwnedTaskIds) {
+            final boolean ownershipReady,
+            final Set<Integer> ownedTaskIds) {
         if (displayId < Display.DEFAULT_DISPLAY
                 || tasks == null
                 || !hasArea(workArea)) {
             return;
         }
-        final Set<Integer> ownedTaskIds = copyTaskIds(sessionOwnedTaskIds);
-        final List<ParkedTask> observed = sessionTaskArea
-                && !sessionOwnershipReady
+        final Set<Integer> ownership = copyTaskIds(ownedTaskIds);
+        final boolean filterByOwnership = displayId == Display.DEFAULT_DISPLAY;
+        final List<ParkedTask> observed = filterByOwnership
+                && !ownershipReady
                         ? Collections.emptyList()
                         : captureTasks(
                                 tasks,
                                 workArea,
-                                sessionTaskArea ? ownedTaskIds : null);
+                                filterByOwnership ? ownership : null);
         final DesktopDisplayTarget pendingTarget;
         synchronized (mLock) {
             mObservedDisplayId = displayId;
             mObservedTopFirst = observed;
-            mObservedSessionTaskArea = sessionTaskArea;
-            mObservedSessionOwnershipReady = sessionOwnershipReady;
-            mObservedSessionOwnedTaskIds = ownedTaskIds;
+            mObservedOwnershipReady = ownershipReady;
+            mObservedOwnedTaskIds = ownership;
             pendingTarget = mPendingTarget != null
                             && mPendingTarget.displayId == displayId
                     ? mPendingTarget : null;
@@ -93,8 +91,8 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         synchronized (mLock) {
             if (displayId < Display.DEFAULT_DISPLAY
                     || displayId != mObservedDisplayId
-                    || (mObservedSessionTaskArea
-                            && !mObservedSessionOwnershipReady)) {
+                    || (displayId == Display.DEFAULT_DISPLAY
+                            && !mObservedOwnershipReady)) {
                 return;
             }
             mGeneration++;
@@ -149,9 +147,8 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             mParked.clear();
             mObservedDisplayId = Display.INVALID_DISPLAY;
             mObservedTopFirst = Collections.emptyList();
-            mObservedSessionTaskArea = false;
-            mObservedSessionOwnershipReady = false;
-            mObservedSessionOwnedTaskIds = Collections.emptySet();
+            mObservedOwnershipReady = false;
+            mObservedOwnedTaskIds = Collections.emptySet();
             mPendingTarget = null;
             mRestoreInProgress = false;
         }
@@ -177,16 +174,17 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             complete(callback, false);
             return;
         }
-        final boolean sessionTaskArea = usesManagedApplicationSession(source);
+        final boolean filterByOwnership =
+                source.displayId == Display.DEFAULT_DISPLAY;
         final boolean ownershipReady;
         final Set<Integer> ownedTaskIds;
         synchronized (mLock) {
             ownershipReady = source.displayId == mObservedDisplayId
-                    && mObservedSessionOwnershipReady;
+                    && mObservedOwnershipReady;
             ownedTaskIds = source.displayId == mObservedDisplayId
-                    ? mObservedSessionOwnedTaskIds : Collections.emptySet();
+                    ? mObservedOwnedTaskIds : Collections.emptySet();
         }
-        if (sessionTaskArea && !ownershipReady) {
+        if (filterByOwnership && !ownershipReady) {
             recordFailure(
                     "Could not inspect desktop task ownership",
                     "display=" + source.displayId);
@@ -196,12 +194,11 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         final List<ParkedTask> candidates = captureTasks(
                 snapshot.tasks,
                 workArea,
-                sessionTaskArea ? ownedTaskIds : null);
+                filterByOwnership ? ownedTaskIds : null);
         observe(
                 source.displayId,
                 snapshot.tasks,
                 workArea,
-                sessionTaskArea,
                 ownershipReady,
                 ownedTaskIds);
         if (candidates.isEmpty()) {
@@ -266,8 +263,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 || target.displayId < Display.DEFAULT_DISPLAY
                 || !DesktopRuntimeBridge.isDesktopReadyOnDisplay(
                         target.displayId)
-                || (usesManagedApplicationSession(target)
-                        && !MagicDeskRuntime.isTaskObserverReady())) {
+                || !MagicDeskRuntime.isTaskObserverReady()) {
             return;
         }
         final long generation;
@@ -340,10 +336,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 }
             }
             if (isCurrentGeneration(generation)) {
-                if (!usesManagedApplicationSession(target)) {
-                    restoreFreeformLayout(
-                            target, saved, restoredTaskIds);
-                }
+                restoreFreeformLayout(target, saved, restoredTaskIds);
                 restoreStackState(target.displayId, saved, restoredTaskIds);
             }
         } catch (IOException | RuntimeException error) {
@@ -406,12 +399,13 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         } else {
             restoreMode(live, parked, target);
         }
-    }
-
-    private static boolean usesManagedApplicationSession(
-            final DesktopDisplayTarget target) {
-        return DesktopDisplayDrivers.forTarget(target)
-                .features().taskAreaPolicy.usesManagedApplicationArea();
+        if (parked.fullscreen
+                && !MagicDeskRuntime.attachFullscreenTask(
+                        target.displayId, parked.taskId)) {
+            throw new IOException(
+                    "could not attach restored fullscreen task="
+                            + parked.taskId);
+        }
     }
 
     private static void restoreMode(
@@ -419,11 +413,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             final ParkedTask parked,
             final DesktopDisplayTarget target) throws IOException {
         if (parked.fullscreen) {
-            if (!task.isFullscreen() || task.displayId != target.displayId) {
-                ShellAccess.run(
-                        TaskRepository.createFullscreenTransitionCommand(
-                                target.displayId, task.taskId));
-            }
+            // The topology owns the fullscreen mode and parent transition.
             return;
         }
         if (task.displayId == target.displayId && !task.isFreeform()) {

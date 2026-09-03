@@ -11,8 +11,31 @@ import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 
 public final class DesktopTaskControllerTest {
+    @Test
+    public void desktopWorkspaceRetainsOnlyShellOwnedTasks() {
+        final TaskRepository.TaskEntry host = task(
+                40,
+                BuildConfig.APPLICATION_ID + "/.DesktopActivity",
+                "fullscreen", true, true);
+        final TaskRepository.TaskEntry desktopWindow = task(
+                41, "org.example.desktop/.MainActivity",
+                "freeform", true, false);
+        final TaskRepository.TaskEntry phoneDiagnostics = task(
+                42,
+                BuildConfig.APPLICATION_ID + "/.DiagnosticsActivity",
+                "fullscreen", false, false);
+
+        assertEquals(
+                Arrays.asList(host, desktopWindow),
+                DesktopTaskController.retainOwnedTasks(
+                        Arrays.asList(
+                                host, desktopWindow, phoneDiagnostics),
+                        new HashSet<>(Arrays.asList(40, 41))));
+    }
+
     @Test
     public void identifiesOnlyDesktopActivityAsHost() {
         assertTrue(DesktopTaskController.isDesktopHostTask(task(
@@ -142,38 +165,6 @@ public final class DesktopTaskControllerTest {
     }
 
     @Test
-    public void forceStopSkipsEveryTaskOwnedByPackage() {
-        final TaskRepository.TaskEntry firstPackageTask = task(
-                10, "com.example.target/.FirstActivity", true, true);
-        final TaskRepository.TaskEntry secondPackageTask = task(
-                11, "com.example.target/.SecondActivity", true, false);
-        final TaskRepository.TaskEntry survivor = task(
-                12, "com.example.other/.MainActivity", true, false);
-
-        assertEquals(12,
-                DesktopTaskController.selectPackageRemovalSurvivorTaskId(
-                        Arrays.asList(
-                                firstPackageTask,
-                                secondPackageTask,
-                                survivor),
-                        "com.example.target",
-                        99));
-    }
-
-    @Test
-    public void forceStopFallsBackToDesktopHostForLastPackage() {
-        assertEquals(99,
-                DesktopTaskController.selectPackageRemovalSurvivorTaskId(
-                        Arrays.asList(task(
-                                10,
-                                "com.example.target/.MainActivity",
-                                true,
-                                true)),
-                        "com.example.target",
-                        99));
-    }
-
-    @Test
     public void showDesktopBuildsOneHomeTargetedWorkspaceCommand() {
         final TaskRepository.TaskEntry top = task(
                 10, "com.example.top/.MainActivity", true, true);
@@ -189,7 +180,7 @@ public final class DesktopTaskControllerTest {
                                 ""),
                         Collections.emptyList(),
                         Collections.emptySet(),
-                        true);
+                        host.taskId);
 
         assertEquals(Arrays.asList(11, 10, 1),
                 presentation.physicalOrder);
@@ -218,7 +209,7 @@ public final class DesktopTaskControllerTest {
                                 ""),
                         Collections.emptyList(),
                         Collections.singleton(Integer.valueOf(10)),
-                        true);
+                        host.taskId);
 
         assertEquals(Arrays.asList(11, 1), presentation.physicalOrder);
         assertEquals(Collections.singletonList(Integer.valueOf(11)),

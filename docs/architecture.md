@@ -240,25 +240,22 @@ can destroy an Activity and its user session. Use same-display transactions
 and the client-preserving refresh described in
 [Fullscreen transitions](fullscreen-transitions.md).
 
-### Select fullscreen topology by workspace ownership
+### Use one fullscreen topology on every desktop
 
-`DesktopTaskAreaPolicy` selects both the ordinary application workspace owner
-and the fullscreen hierarchy. `INDEPENDENT` targets keep the HOME host and
-freeform applications in the display's ordinary root workspace. Every
-fullscreen application is placed in its own organizer-created ordering plane.
-The task retains the same plane for its complete fullscreen residency, so
-focus never reparents it during a fullscreen peer switch.
+Every configured target uses the same independent topology. The HOME host and
+freeform applications remain in the display's ordinary root workspace.
+Every fullscreen application is placed in its own organizer-created ordering
+plane and retains that plane for its complete fullscreen residency, so focus
+never reparents it during a fullscreen peer switch. The topology does not
+branch on display kind or vendor.
 
-`SESSION` keeps the phone desktop's primary HOME host in Android's default task
-area and places only application tasks in one persistent organizer area.
-Freeform, manually fullscreen, and application-requested fullscreen tasks all
-retain that application parent. The area can move above or below HOME as one
-unit. A focus command commits both the selected application child and the
-application area's position relative to HOME in one WCT; selecting HOME orders
-the same area below it. Creating independent fullscreen planes inside the area
-would add a second hierarchy without improving isolation. The policy is
-selected from workspace ownership; the fullscreen manager does not infer a
-display kind or vendor.
+On display 0 MagicDesk is the active HOME surface. Android's WMShell normally
+starts `DesktopWallpaperActivity` above Launcher when its freeform mode is
+used; that fullscreen activity exists specifically to hide Launcher. While a
+phone desktop is active, the shell activity-start policy blocks only that
+exact SystemUI component and removes one instance that may predate observer
+configuration. Freeform tasks otherwise remain ordinary Android tasks in the
+default root workspace, and the taskbar retains its own bounded plane.
 
 Taskbar, task overview, MCP, and Alt+Tab submit the semantic target to the same
 `DesktopTaskController` focus gateway. The shell resolves the complete live
@@ -298,11 +295,13 @@ that previous stack without a repair transition. Activating a freeform task
 places it above the current fullscreen plane. Neither operation changes task
 mode, bounds, parent, or hidden state.
 
-`ShellFullscreenTaskArea` is the stable facade over both topology strategies.
-`IndependentFullscreenTaskTopology` and `ShellFullscreenTaskPlanes` own
-`INDEPENDENT` plane creation, ordering, restore, and removal. `SESSION` reorders
-children only within the existing phone application area. No delayed mode repair
-or fixed post-transition delay is involved. On affected external firmware,
+`ShellFullscreenTaskArea` and
+`ShellFullscreenTaskPlanes` own plane creation, ordering, restore, and removal.
+Each plane ignores child orientation requests: the desktop session owns the
+viewport orientation, while Android may rotate or letterbox application content
+inside the fixed fullscreen plane.
+No delayed mode repair or fixed post-transition delay is involved. On affected
+external firmware,
 workspace command completion captures a task-sample generation and a
 SurfaceFlinger input-window generation before submission. It then waits for
 both event sources and performs one InputDispatcher check. A missing input
@@ -310,7 +309,7 @@ target gets one ownership-aware repair followed by one more event-driven
 commit confirmation.
 
 Application-driven restores are completed by the observer before their result
-crosses Binder. An `INDEPENDENT` task leaves its independent plane through
+crosses Binder. A fullscreen task leaves its plane through
 ActivityTaskManager's existing-task freeform launch path. Every plane contains
 one retained standard anchor task, which keeps the source hierarchy valid while
 framework root selection moves the application task. The now-idle plane is
@@ -318,19 +317,18 @@ made non-focusable and reused by a later fullscreen task, avoiding repeated
 organizer creation and deletion. A new anchor launches behind the foreground
 task; its structural opening therefore cannot race the application's
 fullscreen entry or acquire user focus. Session teardown deletes the owned
-areas and their anchors. If Android removes a display first and migrates an
+planes and their anchors. If Android removes a display first and migrates an
 anchor to the phone, the plane owner removes that exact task by saved ID and
-component. A phone-session task remains in place and changes only mode, bounds,
-and order.
+component.
 
 ## Modules
 
 | Component | Path or package | Responsibility |
 | --- | --- | --- |
 | Main application | `io.github.mekhontsev.magicdesk` | Phone control, desktop shell, taskbar, setup, diagnostics, and runtime service |
-| Task transfer boundary | `DesktopTaskTransfer` | Selects managed-session or direct-root placement once from application workspace ownership |
-| Phone application-session owner | `ShellDesktopTaskArea` | Keeps phone application tasks in one organizer area below or above the root HOME host |
-| Fullscreen topology | `ShellFullscreenTaskArea` | Delegates phone session ordering or non-phone per-task fullscreen planes |
+| Task transfer boundary | `DesktopTaskTransfer` | Moves running tasks directly between display root workspaces |
+| Phone desktop wallpaper policy | `ShellPhoneDesktopWallpaperPolicy` | Keeps the MagicDesk HOME surface visible below standard freeform tasks |
+| Fullscreen topology | `ShellFullscreenTaskArea` | Owns per-task fullscreen planes on every desktop target |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
 | Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned external-to-virtual pointer forwarding |
 | Keyboard helper | `native/magicdesk_keyboard_bridge.c` | Binder-owned keyboard forwarding and shortcut interception |
@@ -569,9 +567,9 @@ runtime integration and are not distributed through the same release path.
 - `ShellWindowedTaskLauncher` owns every fresh windowed launch, independent of
   display type. It observes the new task through the persistent framework
   listener and joins mode and bounds to the task's original OPEN transition;
-  an organizer-owned task area is an optional parent, not a separate launch
-  implementation. The standalone shell command remains a diagnostic entry
-  point and is not used by the application launch path.
+  every target launches into Android's standard root workspace. The standalone
+  shell command remains a diagnostic entry point and is not used by the
+  application launch path.
 - `ShellActivityStartController` is MagicDesk's single owner of Android's global
   activity-controller slot and dispatches starts to the external-migration and
   windowed-startup policies. `ShellTaskActivityModeGuard` follows only
@@ -664,15 +662,18 @@ runtime integration and are not distributed through the same release path.
   single `WindowedTaskLaunchLease` spans each operation so startup-window
   protection and phone-touchpad preservation cannot be entered twice by the
   launcher and reuse path.
-- `ShellFullscreenTaskArea` owns both fullscreen policies behind one API. On a
-  `INDEPENDENT` target, each fullscreen task receives one stable, independently
-  ordered plane until it restores or closes. On a `SESSION` target, the same
-  focus requests reorder tasks inside the existing phone application parent.
-  Application-requested fullscreen follows the selected ownership policy
-  without recreating its Activity.
+- `ShellFullscreenTaskArea` gives each fullscreen task one stable,
+  independently ordered plane until it restores or closes.
+  A cold fullscreen launch reserves an anchored plane first and supplies its
+  token through `ActivityOptions.setLaunchTaskDisplayArea`, so the task's first
+  observable parent and mode are already final. A live freeform task entering
+  fullscreen uses the separate existing-task transition and preserves its
+  Activity instance.
+  Application-requested fullscreen uses the same topology without recreating
+  its Activity.
   Self-test checks `FULLSCREEN-ALT-TAB-001` through `003` and
   `FULLSCREEN-LIFECYCLE-001` through `006` verify both task modes, real input
-  focus, single-task restore and close, direct fullscreen session launches,
+  focus, single-task restore and close, direct fullscreen launches,
   system-Back removal, survivor visibility and parent continuity, structural
   task isolation, inactive-area ordering, and abrupt display removal.
   `FULLSCREEN-MIXED-001` additionally verifies the durable
@@ -1156,9 +1157,8 @@ injected text. A mixed-stack phase places a third freeform task between two
 fullscreen peers, selects it through Alt+Tab, and verifies from the rendered
 surface that the most recently selected fullscreen peer remains its background
 while the older peer stays underneath. It then selects both fullscreen peers
-through the production focus route and verifies their rendered colors. A
-default-parent desktop keeps the freeform window above that background; a
-session-parent desktop occludes it without changing its freeform mode. Input
+through the production focus route and verifies their rendered colors. The
+root-workspace freeform window remains above that background. Input
 assertions wait for the current InputDispatcher focus state rather than a fixed
 transition delay. InputDispatcher frames are normalized from the display's
 natural coordinates into its current rotation, so the same PHONE scenario runs
@@ -1169,8 +1169,7 @@ trace when that firmware trace is available.
 The application-fullscreen phase keeps one application-owned immersive task
 and two MagicDesk-managed fullscreen peers alive together. It activates each
 peer through the common single-task focus gateway, returns to the immersive
-task, and verifies distinct stable planes on `INDEPENDENT` ownership or one
-shared application parent on `SESSION`, all three task modes, real input
+task, and verifies distinct stable planes, all three task modes, real input
 focus, the application's immersive marker, and the rendered fullscreen
 surface. This
 catches a repeated hierarchy rebuild and an implementation that works only for
@@ -1193,48 +1192,33 @@ references to tasks that the test already destroyed. The phone navigation
 guard is released even when task reconciliation reports a failure; the pending
 marker remains for a later recovery attempt.
 
-Task placement is selected once by `DesktopTaskTransfer` from the target's
-application ownership, rather than by individual launch, reuse, parking, or
-self-test call sites. Wired, wireless, and simulated desktops use direct-root
-transfer: a running task is hidden and prepared as fullscreen, its root crosses
-the display boundary, and a target-local freeform transition reveals the final
-bounds. This gives WMShell an authoritative mode boundary on the destination
-so caption surfaces and input windows acquire the correct display. The
-simulated driver deliberately uses this same path to model external-display
-window behavior without connected hardware. Phone desktop uses the typed
-managed-session placement API instead. Its `DesktopActivity` is primary HOME in
-Android's default task area. The shell creates one organizer-owned application
-area as another child of the default task container and gives that area a
-non-focusable structural backstop. Freeform, manually fullscreen, and
-application-requested fullscreen tasks are siblings in that area; the HOME host
-never enters it. Focus operations atomically order application children and
-move their complete area above the root HOME host. Show-desktop ordering moves
-that complete area below HOME in the same kind of workspace transaction.
-Display 0 does not create the independent fullscreen planes used by
-`INDEPENDENT` targets. During teardown, application tasks are normalized and
-detached before the backstop and organizer area are removed; the HOME hierarchy
-is therefore never dismantled with an organizer area. Android 16 may still
-create its native desktop wallpaper in display 0's default area, but it does not
-replace the MagicDesk HOME host.
-Production launches, existing-task moves, and self-test fixtures resolve the
-same display policy.
-The shell observer also reports whether the focused phone task belongs to the
-application area. This gates the taskbar plane without changing its normal
-fullscreen or auto-hide policy: the taskbar disappears while an ordinary phone
-task is brought forward through Android UI and returns with the desktop plane.
-External-display taskbars are unaffected.
+Task placement has one direct-root policy rather than separate launch, reuse,
+parking, or self-test routes. A running task is hidden and prepared as
+fullscreen, its root crosses the display boundary, and a target-local freeform
+transition reveals the final bounds. This gives WMShell an authoritative mode
+boundary on the destination so caption surfaces and input windows acquire the
+correct display. The simulated driver deliberately uses this same path to model
+external-display behavior without connected hardware.
 
-`INDEPENDENT` wired, wireless, and simulated desktops launch applications in
-the display's ordinary root workspace. A cold freeform launch is staged behind
-the desktop host until Android assigns the task ID, then one complete WMShell
-`OPEN` reveals its final mode, bounds, and front order. A running cross-display
-task uses the direct-root transfer sequence described above. A `SESSION`
-transfer instead reparents the task into the phone application area and changes
-its mode, bounds, caption state, and order in one shell-owned transaction. The
-managed-session methods reject `INDEPENDENT` targets, so application-area ownership can
-never accidentally select application placement. All paths use explicit
-display IDs and never depend on display names, package exceptions, or timing
-guesses.
+Phone `DesktopActivity` is primary HOME in Android's default task area.
+Freeform applications remain standard root-workspace tasks above that HOME.
+Fullscreen applications use the same independent per-task planes as every
+other target. The exact SystemUI desktop-wallpaper activity is suppressed only
+while phone desktop is configured, because that AOSP surface exists to cover
+Launcher and would otherwise cover MagicDesk's desktop icons as well. Taskbar
+visibility follows fullscreen and auto-hide policy directly.
+
+A cold freeform launch is staged behind the desktop host until Android assigns
+the task ID, then one complete WMShell `OPEN` reveals its final mode, bounds,
+and front order. A running cross-display task uses the same direct-root
+transfer. A direct fullscreen launch is attached to its independent plane
+before the operation returns. Reused fullscreen tasks cross the same plane
+attachment boundary before their launch action runs. All paths use explicit
+display IDs and never
+depend on display names, package exceptions, or timing guesses. The shell still
+reports desktop task ownership so phone teardown can distinguish desktop tasks
+from unrelated display-0 fullscreen tasks; this classification does not own or
+reparent their hierarchy.
 
 The shell task observer exposes an optional self-test guard. While a test is
 active, every task callback captures a bounded `getAllTasks()` snapshot tagged
@@ -1242,10 +1226,9 @@ with the current test stage. A pure analyzer checks the desktop host, fixture
 display and windowing mode, HOME visibility, one-way task transitions, and
 windowed/fullscreen visibility continuity. It receives only the selected
 display ID and desktop-host task ID; it does not branch on a display kind,
-display number, task-area policy, or vendor. A session backstop identifies the
-phone's existing parent; when it is absent, the analyzer requires every
-simultaneous fullscreen fixture to have a distinct feature ID and retain that
-parent throughout focus switches. A fixture may
+display number or vendor. The analyzer requires every
+simultaneous fullscreen fixture to have a distinct feature ID, exactly one
+anchor in that plane, and the same parent throughout focus switches. A fixture may
 leave the selected display only in fullscreen mode during
 the explicit transfer scenario. A visible freeform fixture with a
 hidden desktop host is an error on every target; this also detects a native
@@ -2130,9 +2113,9 @@ These constraints define the supported implementation paths:
 - A custom caption overlay cannot stay atomically attached to a task leash.
 - Public freeform launch from an ordinary app UID is normalized to fullscreen
   on the verified firmware.
-- Session task areas are limited to display drivers whose lifecycle explicitly
-  supports them. The fullscreen focus owner may create its bounded, on-demand
-  shared parent on any desktop target and must drain it during session cleanup.
+- Every configured desktop uses direct-root freeform tasks and independent
+  per-task fullscreen planes. Session cleanup drains every owned plane and its
+  structural anchor.
 - Nubia `WindowReply` is allowlisted and cannot manage arbitrary packages.
 - Moving a running task through display 0 can kill or recreate the application.
 - Fixed sleeps around task transitions are both visible and race-prone.

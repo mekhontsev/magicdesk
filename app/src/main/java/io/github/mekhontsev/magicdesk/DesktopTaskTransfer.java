@@ -13,7 +13,6 @@ final class DesktopTaskTransfer {
     }
 
     enum Route {
-        MANAGED_SESSION,
         DIRECT_ROOT,
         UNAVAILABLE
     }
@@ -32,23 +31,9 @@ final class DesktopTaskTransfer {
                 || sourceDisplayId == targetDisplayId) {
             throw new IllegalArgumentException("invalid task transfer");
         }
-        final DesktopTaskAreaPolicy targetPolicy =
-                DesktopDisplayDrivers.activeTaskAreaPolicy(targetDisplayId);
-        final Route route = routeFor(targetPolicy, targetDisplayId);
-        if (route == Route.MANAGED_SESSION) {
-            if (mode == Mode.FREEFORM) {
-                requireFreeformBounds(freeformBounds);
-                MagicDeskRuntime.placeWindowedTaskInManagedSession(
-                        taskId,
-                        sourceDisplayId,
-                        targetDisplayId,
-                        freeformBounds);
-            } else {
-                MagicDeskRuntime.placeFullscreenTaskInManagedSession(
-                        taskId, sourceDisplayId, targetDisplayId);
-            }
-            return resultMarker(taskId, mode);
-        }
+        final Route route = routeFor(
+                DesktopDisplayDrivers.hasActiveWorkspace(targetDisplayId),
+                targetDisplayId);
         if (route != Route.DIRECT_ROOT) {
             throw new IOException(
                     "target desktop workspace is unavailable on display "
@@ -106,31 +91,22 @@ final class DesktopTaskTransfer {
     }
 
     static boolean usesDirectRoot(final int targetDisplayId) {
-        final DesktopTaskAreaPolicy policy =
-                DesktopDisplayDrivers.activeTaskAreaPolicy(targetDisplayId);
-        return routeFor(policy, targetDisplayId) == Route.DIRECT_ROOT;
+        return routeFor(
+                DesktopDisplayDrivers.hasActiveWorkspace(targetDisplayId),
+                targetDisplayId) == Route.DIRECT_ROOT;
     }
 
     static Route routeFor(
-            final DesktopTaskAreaPolicy policy,
+            final boolean configuredDesktop,
             final int targetDisplayId) {
-        if (policy == null || targetDisplayId < Display.DEFAULT_DISPLAY) {
+        if (targetDisplayId < Display.DEFAULT_DISPLAY) {
             return Route.UNAVAILABLE;
         }
-        if (policy.usesManagedApplicationArea()) {
-            return Route.MANAGED_SESSION;
-        }
-        if (policy.usesDirectRootWorkspace()
+        if (configuredDesktop
                 || targetDisplayId == Display.DEFAULT_DISPLAY) {
             return Route.DIRECT_ROOT;
         }
         return Route.UNAVAILABLE;
-    }
-
-    private static String resultMarker(final int taskId, final Mode mode) {
-        return mode == Mode.FREEFORM
-                ? "task-freeform-move=" + taskId
-                : "task-fullscreen-move=" + taskId;
     }
 
     private static void requireFreeformBounds(final Rect bounds) {

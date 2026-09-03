@@ -339,9 +339,8 @@ final class DesktopSelfTestController {
             return;
         }
         try {
-            // The phone desktop owns a temporary task display area. Focus the
-            // report only after cleanup, through the same shell transition as
-            // other tasks, so a stale vendor parent cannot crash the app UI.
+            // Restore the report only after desktop task cleanup so it cannot
+            // participate in the phone workspace being torn down.
             ShellAccess.run(TaskFocusCommands.createShellCommand(
                     Display.DEFAULT_DISPLAY,
                     Collections.singletonList(Integer.valueOf(resultTaskId))));

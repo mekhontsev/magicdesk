@@ -26,45 +26,6 @@ final class ExistingTaskController {
                 null, false, false, false, null, null);
     }
 
-    static ReuseResult normalizeLaunchedFullscreen(
-            final AppLaunchTarget target,
-            final int targetDisplayId) throws IOException {
-        TaskInfo task = waitForBestTask(
-                target, targetDisplayId, false);
-        if (task == null) {
-            throw new IOException(
-                    "launched task not found for " + target.packageName);
-        }
-        final int originalDisplayId = task.displayId;
-
-        Log.i(TAG, "normalize launched fullscreen package="
-                + target.packageName
-                + " task=" + task.taskId
-                + " display=" + task.displayId
-                + " mode=" + task.windowingMode
-                + " targetDisplay=" + targetDisplayId);
-        if (task.displayId != targetDisplayId) {
-            DesktopTaskTransfer.move(
-                    task.taskId,
-                    task.rootTaskId,
-                    task.displayId,
-                    targetDisplayId,
-                    DesktopTaskTransfer.Mode.FULLSCREEN,
-                    null);
-            waitForTaskDisplay(task.taskId, targetDisplayId);
-            final TaskInfo movedTask = findTask(task.taskId);
-            if (movedTask == null) {
-                throw new IOException(
-                        "moved task " + task.taskId + " is unavailable");
-            }
-            task = movedTask;
-        } else {
-            setFullscreen(task, targetDisplayId);
-        }
-        return ReuseResult.reused(
-                task.taskId, task.packageName, originalDisplayId);
-    }
-
     static ReuseResult reuseNativeDesktopIfExists(
             final AppLaunchTarget target,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
@@ -100,18 +61,6 @@ final class ExistingTaskController {
     static void waitForNativeDesktopTask(final int taskId, final int displayId)
             throws IOException {
         waitForTaskState(taskId, displayId, MODE_FREEFORM);
-    }
-
-    static void confirmLaunchedWindow(
-            final int taskId,
-            final int displayId) throws IOException {
-        waitForTaskState(taskId, displayId, MODE_FREEFORM);
-        final TaskInfo task = findTask(taskId);
-        if (task == null) {
-            throw new IOException("launched task " + taskId
-                    + " is unavailable");
-        }
-        setCaptionInsetExcluded(taskId, displayId, false);
     }
 
     private static ReuseResult reuseIfExists(final AppLaunchTarget target,
@@ -209,9 +158,6 @@ final class ExistingTaskController {
                 Log.i(TAG, "convert fullscreen to freeform task=" + task.taskId);
                 setFreeform(task.taskId, targetDisplayId, targetBounds);
                 waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
-            } else if (!targetFreeform && taskIsFreeform) {
-                Log.i(TAG, "convert freeform to fullscreen task=" + task.taskId);
-                setFullscreen(task, targetDisplayId);
             }
 
             return ReuseResult.reused(
@@ -294,12 +240,6 @@ final class ExistingTaskController {
             final Rect bounds) throws IOException {
         runCommand(TaskRepository.createBoundsTransactionCommand(
                 displayId, taskId, bounds));
-    }
-
-    private static void setFullscreen(final TaskInfo task, final int displayId)
-            throws IOException {
-        runCommand(TaskRepository.createFullscreenTransitionCommand(
-                displayId, task.taskId));
     }
 
     private static void setCaptionInsetExcluded(final int taskId, final int displayId,

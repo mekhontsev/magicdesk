@@ -1,12 +1,22 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.graphics.Rect;
+import android.util.Log;
 
-/** Stable shell-facing coordinator for fullscreen topology strategies. */
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/** Coordinates stable per-task fullscreen planes on one desktop. */
 final class ShellFullscreenTaskArea implements AutoCloseable {
+    interface FullscreenTaskStarter {
+        int start(Object taskAreaToken) throws ReflectiveOperationException;
+    }
+
     enum FocusResult {
         NOT_HANDLED,
-        SESSION_FOREGROUND,
+        WORKSPACE_FOREGROUND,
         FULLSCREEN_FOREGROUND
     }
 
@@ -16,35 +26,71 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         FAILED
     }
 
-    private final ShellFullscreenTaskTopology mSessionTopology;
-    private final ShellFullscreenTaskTopology mIndependentTopology;
-    private ShellFullscreenTaskTopology mTopology;
-    private DesktopTaskAreaPolicy mTaskAreaPolicy =
-            DesktopTaskAreaPolicy.SESSION;
+    private static final String TAG = "MagicDeskFullscreenTopology";
+    private static final int WINDOWING_MODE_FULLSCREEN = 1;
+
+    private final ShellDesktopTaskOwnership mOwnership;
+    private final ShellFullscreenTaskPlanes mPlanes =
+            new ShellFullscreenTaskPlanes();
+    private final Map<Integer, Rect> mAppRestoreBounds = new HashMap<>();
+
+    private int mDisplayId = -1;
 
     ShellFullscreenTaskArea(
-            final ShellDesktopTaskOwnership ownership,
-            final ShellDesktopTaskArea desktopTaskArea) {
-        mSessionTopology = new SessionFullscreenTaskTopology(
-                ownership, desktopTaskArea);
-        mIndependentTopology =
-                new IndependentFullscreenTaskTopology(ownership);
-        mTopology = mSessionTopology;
+            final ShellDesktopTaskOwnership ownership) {
+        if (ownership == null) {
+            throw new IllegalArgumentException(
+                    "desktop task ownership is required");
+        }
+        mOwnership = ownership;
     }
 
-    synchronized FocusResult focusStack(
+    synchronized ShellFullscreenTaskArea.FocusResult focusStack(
             final Object service,
             final int displayId,
             final int[] taskIds) {
-        return mTopology.focusStack(service, displayId, taskIds);
+        if (displayId != mDisplayId) {
+            return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
+        }
+        try {
+            if (taskIds == null || taskIds.length == 0) {
+                return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
+            }
+            final int targetTaskId = taskIds[taskIds.length - 1];
+            final Object targetTask = HiddenTaskApi.requireTask(
+                    service, displayId, targetTaskId);
+            if (!mOwnership.isDesktopHostTask(targetTaskId)
+                    && !mOwnership.isDesktopTask(targetTask)) {
+                return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
+            }
+            final int[] desktopTaskIds = desktopFocusTasks(
+                    service, displayId, taskIds);
+            if (desktopTaskIds.length == 0) {
+                return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
+            }
+            return mPlanes.focusStack(
+                    service, displayId, desktopTaskIds, mOwnership);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "fullscreen plane focus unavailable", error);
+            return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
+        }
+    }
+
+    synchronized boolean ownsFocusTarget(
+            final Object service,
+            final int displayId,
+            final int taskId) throws ReflectiveOperationException {
+        if (displayId != mDisplayId || taskId < 0) {
+            return false;
+        }
+        final Object task = HiddenTaskApi.requireTask(
+                service, displayId, taskId);
+        return mOwnership.isDesktopHostTask(taskId)
+                || mOwnership.isDesktopTask(task);
     }
 
     synchronized boolean concealForShowDesktop(final int displayId) {
-        return mTopology.concealForShowDesktop(displayId);
-    }
-
-    synchronized boolean usesDirectRootWorkspace() {
-        return mTaskAreaPolicy.usesDirectRootWorkspace();
+        return mPlanes.concealForShowDesktop(displayId);
     }
 
     synchronized boolean beginAppFullscreen(
@@ -52,8 +98,17 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int displayId,
             final int taskId,
             final Rect restoreBounds) {
-        return mTopology.beginAppFullscreen(
-                service, displayId, taskId, restoreBounds);
+        if (displayId != mDisplayId || restoreBounds == null
+                || restoreBounds.isEmpty()) {
+            return false;
+        }
+        final boolean entered = mPlanes.beginFullscreen(
+                service, displayId, taskId, false, mOwnership);
+        if (entered) {
+            mAppRestoreBounds.put(
+                    Integer.valueOf(taskId), new Rect(restoreBounds));
+        }
+        return entered;
     }
 
     synchronized boolean beginFullscreen(
@@ -61,8 +116,26 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int displayId,
             final int taskId,
             final boolean refreshCaption) {
-        return mTopology.beginFullscreen(
-                service, displayId, taskId, refreshCaption);
+        return displayId == mDisplayId
+                && mPlanes.beginFullscreen(
+                        service,
+                        displayId,
+                        taskId,
+                        refreshCaption,
+                        mOwnership);
+    }
+
+    synchronized int launchFullscreen(
+            final Object service,
+            final int displayId,
+            final FullscreenTaskStarter starter)
+            throws ReflectiveOperationException {
+        if (displayId != mDisplayId) {
+            throw new IllegalArgumentException(
+                    "display is not configured: " + displayId);
+        }
+        return mPlanes.launchFullscreen(
+                service, displayId, starter, mOwnership);
     }
 
     synchronized boolean restoreTask(
@@ -70,16 +143,39 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int displayId,
             final int taskId,
             final Rect bounds) {
-        return mTopology.restoreTask(service, displayId, taskId, bounds);
+        if (displayId != mDisplayId) {
+            return false;
+        }
+        final Integer taskKey = Integer.valueOf(taskId);
+        final Rect appBounds = mAppRestoreBounds.get(taskKey);
+        final Rect restoreBounds = appBounds == null ? bounds : appBounds;
+        if (restoreBounds == null || restoreBounds.isEmpty()) {
+            return false;
+        }
+        final boolean restored = mPlanes.restoreFreeform(
+                service, displayId, taskId, restoreBounds);
+        if (restored) {
+            mAppRestoreBounds.remove(taskKey);
+        }
+        return restored;
     }
 
-    synchronized CloseResult closeTask(
+    synchronized ShellFullscreenTaskArea.CloseResult closeTask(
             final Object service,
             final int displayId,
             final int taskId,
             final int focusTaskId) {
-        return mTopology.closeTask(
-                service, displayId, taskId, focusTaskId);
+        if (displayId != mDisplayId || !mPlanes.ownsTask(taskId)) {
+            return ShellFullscreenTaskArea.CloseResult.NOT_HANDLED;
+        }
+        final boolean closed = mPlanes.closeTask(
+                service, displayId, taskId, focusTaskId, mOwnership);
+        if (closed) {
+            mAppRestoreBounds.remove(Integer.valueOf(taskId));
+        }
+        return closed
+                ? ShellFullscreenTaskArea.CloseResult.SUCCEEDED
+                : ShellFullscreenTaskArea.CloseResult.FAILED;
     }
 
     synchronized boolean onWindowingModeChanged(
@@ -87,65 +183,111 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final int taskId,
             final int windowingMode,
             final boolean focused) {
-        return mTopology.onWindowingModeChanged(
-                displayId, taskId, windowingMode, focused);
+        if (displayId != mDisplayId) {
+            return false;
+        }
+        mPlanes.onWindowingModeChanged(displayId, taskId, windowingMode);
+        final Integer taskKey = Integer.valueOf(taskId);
+        final boolean released =
+                !focused
+                        && windowingMode != WINDOWING_MODE_FULLSCREEN
+                        && mAppRestoreBounds.containsKey(taskKey);
+        if (released) {
+            mAppRestoreBounds.remove(taskKey);
+            Log.i(TAG, "released background app fullscreen task=" + taskId
+                    + " display=" + displayId);
+        }
+        return released;
     }
 
     synchronized void onTaskRemovalStarted(
             final Object service,
             final int taskId) {
-        mTopology.onTaskRemovalStarted(service, taskId);
+        mPlanes.onTaskRemovalStarted(service, taskId, mOwnership);
     }
 
     synchronized boolean recoverAnchorFocus(
             final Object service,
             final int taskId) {
-        return mTopology.recoverAnchorFocus(service, taskId);
+        return mPlanes.recoverAnchorFocus(service, taskId, mOwnership);
     }
 
     synchronized void onTaskRemoved(final int taskId) {
-        mTopology.onTaskRemoved(taskId);
-    }
-
-    synchronized void onTaskMovedToFront(
-            final int displayId,
-            final int taskId) {
-        mTopology.onTaskMovedToFront(displayId, taskId);
-    }
-
-    synchronized void onTaskStackChanged() {
-        mTopology.onTaskStackChanged();
+        mPlanes.onTaskRemoved(taskId);
+        mAppRestoreBounds.remove(Integer.valueOf(taskId));
     }
 
     synchronized void onTaskDisplayChanged(
             final int taskId,
             final int displayId) {
-        mTopology.onTaskDisplayChanged(taskId, displayId);
+        if (displayId == mDisplayId) {
+            return;
+        }
+        mPlanes.onTaskDisplayChanged(taskId, displayId);
+        mAppRestoreBounds.remove(Integer.valueOf(taskId));
     }
 
-    synchronized void configure(
+    synchronized void configure(final int displayId) {
+        if (displayId < 0) {
+            close();
+            return;
+        }
+        if (mDisplayId != displayId) {
+            close();
+        }
+        mDisplayId = displayId;
+        mPlanes.configure(displayId);
+    }
+
+    private int[] desktopFocusTasks(
+            final Object service,
             final int displayId,
-            final DesktopTaskAreaPolicy taskAreaPolicy) {
-        if (taskAreaPolicy == null) {
+            final int[] taskIds) throws ReflectiveOperationException {
+        final List<Integer> output = new ArrayList<>();
+        for (final int taskId : taskIds) {
+            final Object task = HiddenTaskApi.requireTask(
+                    service, displayId, taskId);
+            if (mOwnership.isDesktopHostTask(taskId)
+                    || mOwnership.isDesktopTask(task)) {
+                output.add(Integer.valueOf(taskId));
+            }
+        }
+        final int[] result = new int[output.size()];
+        for (int index = 0; index < output.size(); index++) {
+            result[index] = output.get(index).intValue();
+        }
+        return withDesktopHostBoundary(
+                result, mOwnership.desktopHostTaskId());
+    }
+
+    static int[] withDesktopHostBoundary(
+            final int[] requestedTaskIds,
+            final int desktopHostTaskId) {
+        if (requestedTaskIds == null || requestedTaskIds.length == 0
+                || desktopHostTaskId < 0) {
             throw new IllegalArgumentException(
-                    "fullscreen task area policy is required");
+                    "desktop stack and host are required");
         }
-        final ShellFullscreenTaskTopology selected =
-                taskAreaPolicy.usesIndependentFullscreenPlanes()
-                        ? mIndependentTopology : mSessionTopology;
-        if (selected != mTopology) {
-            mTopology.close();
-            mTopology = selected;
+        for (final int taskId : requestedTaskIds) {
+            if (taskId == desktopHostTaskId) {
+                return requestedTaskIds;
+            }
         }
-        mTopology.configure(
-                displayId,
-                taskAreaPolicy);
-        mTaskAreaPolicy = taskAreaPolicy;
+        final int[] physicalOrder = new int[requestedTaskIds.length + 1];
+        physicalOrder[0] = desktopHostTaskId;
+        System.arraycopy(
+                requestedTaskIds,
+                0,
+                physicalOrder,
+                1,
+                requestedTaskIds.length);
+        return physicalOrder;
     }
 
     @Override
     public synchronized void close() {
-        mSessionTopology.close();
-        mIndependentTopology.close();
+        mPlanes.configure(-1);
+        mAppRestoreBounds.clear();
+        mDisplayId = -1;
     }
 }

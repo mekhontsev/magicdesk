@@ -11,7 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-/** Keeps task and input focus synchronized on a secondary desktop display. */
+/** Keeps task and input focus synchronized on the active desktop display. */
 final class ShellDesktopFocusController implements AutoCloseable {
     interface Listener {
         void onInputFocusRefreshRequired(int focusedTaskId);
@@ -183,7 +183,8 @@ final class ShellDesktopFocusController implements AutoCloseable {
         for (final FrameworkTaskSnapshot task : tasks) {
             if (task.taskId == confirmationTaskId
                     && task.visible
-                    && task.activityType == ACTIVITY_TYPE_STANDARD
+                    && (task.activityType == ACTIVITY_TYPE_STANDARD
+                            || isDesktopHostSnapshot(task))
                     && !isBackstopSnapshot(task)) {
                 return true;
             }
@@ -197,6 +198,30 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 || BACKSTOP_COMPONENT_FULL.equals(task.componentName)
                 || BACKSTOP_COMPONENT_SHORT.equals(task.topActivityName)
                 || BACKSTOP_COMPONENT_FULL.equals(task.topActivityName);
+    }
+
+    private static boolean isDesktopHostSnapshot(
+            final FrameworkTaskSnapshot task) {
+        return task.activityType == ACTIVITY_TYPE_HOME
+                && (BuildConfig.APPLICATION_ID.equals(task.topPackage)
+                        || BuildConfig.APPLICATION_ID.equals(
+                                task.packageName))
+                && (isDesktopHostComponentName(task.topActivityName)
+                        || isDesktopHostComponentName(task.componentName));
+    }
+
+    private static boolean isDesktopHostComponentName(
+            final String componentName) {
+        return (BuildConfig.APPLICATION_ID + "/.DesktopActivity").equals(
+                componentName)
+                || (BuildConfig.APPLICATION_ID + "/"
+                        + BuildConfig.APPLICATION_ID
+                        + ".DesktopActivity").equals(componentName)
+                || (BuildConfig.APPLICATION_ID
+                        + "/.PhoneDesktopHome").equals(componentName)
+                || (BuildConfig.APPLICATION_ID + "/"
+                        + BuildConfig.APPLICATION_ID
+                        + ".PhoneDesktopHome").equals(componentName);
     }
 
     private void enqueueFocusReconciliation(
@@ -246,17 +271,17 @@ final class ShellDesktopFocusController implements AutoCloseable {
     }
 
     private void configureOnWorker(final int displayId) {
-        final int secondaryDisplayId = mAvailable
-                && displayId > Display.DEFAULT_DISPLAY
+        final int desktopDisplayId = mAvailable
+                && displayId >= Display.DEFAULT_DISPLAY
                 ? displayId : Display.INVALID_DISPLAY;
-        if (mDisplayId == secondaryDisplayId) {
+        if (mDisplayId == desktopDisplayId) {
             return;
         }
         clearConfigurationOnWorker();
-        if (secondaryDisplayId == Display.INVALID_DISPLAY) {
+        if (desktopDisplayId == Display.INVALID_DISPLAY) {
             return;
         }
-        mDisplayId = secondaryDisplayId;
+        mDisplayId = desktopDisplayId;
     }
 
     private void clearConfigurationOnWorker() {
@@ -627,8 +652,10 @@ final class ShellDesktopFocusController implements AutoCloseable {
             final String className) {
         return activityType == ACTIVITY_TYPE_HOME
                 && BuildConfig.APPLICATION_ID.equals(packageName)
-                && (BuildConfig.APPLICATION_ID + ".DesktopActivity").equals(
-                        className);
+                && ((BuildConfig.APPLICATION_ID + ".DesktopActivity").equals(
+                        className)
+                        || (BuildConfig.APPLICATION_ID
+                                + ".PhoneDesktopHome").equals(className));
     }
 
     static boolean requiresInputFocusRefresh(

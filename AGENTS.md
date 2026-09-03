@@ -82,14 +82,14 @@ Alt+Tab, overview, and MCP focus must continue through the same
 they never hide, minimize, reparent, resize, or change an application's
 windowing mode.
 
-Respect the selected ownership policy. An `INDEPENDENT` fullscreen task retains
-one stable ordering plane for its complete fullscreen residency. `SESSION`
-keeps phone application tasks in one organizer-owned parent while the primary
-HOME host remains in Android's default task area. Every shell transaction has
-one explicit owner, and steady-state focus only reorders the existing
-hierarchy. Do not remove an owned desktop display until its transitions are
-quiescent. Low-level transition boundaries and rejected approaches are
-documented in `docs/fullscreen-transitions.md`.
+Use the same ownership model on every target. The HOME host and freeform tasks
+remain in Android's standard root workspace; every fullscreen task retains one
+stable organizer plane for its complete fullscreen residency. Every shell
+transaction has one explicit owner, and steady-state focus only reorders the
+existing hierarchy. Do not reintroduce a session-wide application task area or
+remove an owned desktop display until its transitions are quiescent. Low-level
+transition boundaries and rejected approaches are documented in
+`docs/fullscreen-transitions.md`.
 
 Before completing such a change, run the focused unit tests and the simulated
 and phone desktop self-tests. Changes to shared task-area ownership or display

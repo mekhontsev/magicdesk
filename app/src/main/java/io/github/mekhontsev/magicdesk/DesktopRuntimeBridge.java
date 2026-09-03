@@ -184,12 +184,6 @@ public final class DesktopRuntimeBridge {
                 displayId, focusedTaskId, completion);
     }
 
-    static void setDesktopPlaneForeground(
-            final int displayId,
-            final boolean foreground) {
-        UI.setDesktopPlaneForeground(displayId, foreground);
-    }
-
     static void setSystemDialogVisible(
             final int displayId,
             final boolean visible) {

@@ -551,22 +551,6 @@ final class DesktopUiGateway {
         return true;
     }
 
-    void setDesktopPlaneForeground(
-            final int displayId,
-            final boolean foreground) {
-        final DesktopShellActivity activity = usableDesktop(false);
-        if (!isUsable(activity)
-                || activity.getCurrentDisplayId() != displayId) {
-            return;
-        }
-        mMainHandler.post(() -> {
-            if (isUsable(activity)
-                    && activity.getCurrentDisplayId() == displayId) {
-                activity.setDesktopPlaneForeground(foreground);
-            }
-        });
-    }
-
     void setSystemDialogVisible(
             final int displayId,
             final boolean visible) {

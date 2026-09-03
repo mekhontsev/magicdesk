@@ -6,22 +6,18 @@ import org.junit.Test;
 
 public final class DesktopTaskTransferTest {
     @Test
-    public void routeFollowsApplicationWorkspaceOwnership() {
-        assertEquals(
-                DesktopTaskTransfer.Route.MANAGED_SESSION,
-                DesktopTaskTransfer.routeFor(
-                        DesktopTaskAreaPolicy.SESSION, 0));
+    public void routeUsesDisplayRootForEveryConfiguredDesktop() {
         assertEquals(
                 DesktopTaskTransfer.Route.DIRECT_ROOT,
                 DesktopTaskTransfer.routeFor(
-                        DesktopTaskAreaPolicy.INDEPENDENT, 3));
+                        true, 3));
         assertEquals(
                 DesktopTaskTransfer.Route.DIRECT_ROOT,
                 DesktopTaskTransfer.routeFor(
-                        DesktopTaskAreaPolicy.UNCONFIGURED, 0));
+                        false, 0));
         assertEquals(
                 DesktopTaskTransfer.Route.UNAVAILABLE,
                 DesktopTaskTransfer.routeFor(
-                        DesktopTaskAreaPolicy.UNCONFIGURED, 3));
+                        false, 3));
     }
 }

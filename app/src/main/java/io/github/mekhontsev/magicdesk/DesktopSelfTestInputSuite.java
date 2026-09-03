@@ -1267,11 +1267,11 @@ final class DesktopSelfTestInputSuite {
                     "fullscreen close failed");
             result.add(DesktopSelfTestResult.State.NOT_TESTED,
                     "FULLSCREEN-LIFECYCLE-005",
-                    "Launch a fullscreen task directly in the session",
+                    "Launch a fullscreen task directly",
                     "fullscreen close failed");
             result.add(DesktopSelfTestResult.State.NOT_TESTED,
                     "FULLSCREEN-LIFECYCLE-006",
-                    "Return from a directly launched session fullscreen task",
+                    "Return from a directly launched fullscreen task",
                     "fullscreen close failed");
             return;
         }
@@ -1302,7 +1302,7 @@ final class DesktopSelfTestInputSuite {
                 "Return to the desktop after system Back",
                 () -> finishFullscreenTaskThroughSystemBack(
                         displayId, secondTaskId));
-        runDirectSessionFullscreenBackTest(result, displayId);
+        runDirectFullscreenBackTest(result, displayId);
     }
 
     private static void addSkippedFullscreenLifecycleResults(
@@ -1322,34 +1322,22 @@ final class DesktopSelfTestInputSuite {
                 reason);
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "FULLSCREEN-LIFECYCLE-005",
-                "Launch a fullscreen task directly in the session",
+                "Launch a fullscreen task directly",
                 reason);
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "FULLSCREEN-LIFECYCLE-006",
-                "Return from a directly launched session fullscreen task",
+                "Return from a directly launched fullscreen task",
                 reason);
     }
 
-    private static void runDirectSessionFullscreenBackTest(
+    private static void runDirectFullscreenBackTest(
             final DesktopSelfTestResult result,
             final int displayId) {
-        if (DesktopDisplayDrivers.activeTaskAreaPolicy(displayId)
-                != DesktopTaskAreaPolicy.SESSION) {
-            result.add(DesktopSelfTestResult.State.NOT_TESTED,
-                    "FULLSCREEN-LIFECYCLE-005",
-                    "Launch a fullscreen task directly in the session",
-                    "the selected display does not use a session task area");
-            result.add(DesktopSelfTestResult.State.NOT_TESTED,
-                    "FULLSCREEN-LIFECYCLE-006",
-                    "Return from a directly launched session fullscreen task",
-                    "the selected display does not use a session task area");
-            return;
-        }
         final String launchCode = "FULLSCREEN-LIFECYCLE-005";
         DesktopSelfTestHostObserver.stage(launchCode);
         final int taskId;
         try {
-            final String token = "session-fullscreen-"
+            final String token = "direct-fullscreen-"
                     + Long.toHexString(System.nanoTime());
             final Intent intent = TaskDisplayAreaLaunchCommand
                     .createSelfTestIntent(
@@ -1357,7 +1345,7 @@ final class DesktopSelfTestInputSuite {
                             token,
                             false,
                             DesktopSelfTestFixtureAppearance.TRANSITION);
-            taskId = MagicDeskRuntime.launchFullscreenTaskInManagedSession(
+            taskId = MagicDeskRuntime.launchFullscreenTask(
                     displayId, intent);
             waitForTask(
                     displayId,
@@ -1368,22 +1356,22 @@ final class DesktopSelfTestInputSuite {
             waitForFrontTask(displayId, taskId);
             result.add(DesktopSelfTestResult.State.PASS,
                     launchCode,
-                    "Launch a fullscreen task directly in the session",
+                    "Launch a fullscreen task directly",
                     "task=" + taskId + "/fullscreen/visible");
         } catch (Exception error) {
             result.add(DesktopSelfTestResult.State.FAIL,
                     launchCode,
-                    "Launch a fullscreen task directly in the session",
+                    "Launch a fullscreen task directly",
                     usefulMessage(error));
             result.add(DesktopSelfTestResult.State.NOT_TESTED,
                     "FULLSCREEN-LIFECYCLE-006",
-                    "Return from a directly launched session fullscreen task",
+                    "Return from a directly launched fullscreen task",
                     "direct fullscreen launch failed");
             return;
         }
         check(result,
                 "FULLSCREEN-LIFECYCLE-006",
-                "Return from a directly launched session fullscreen task",
+                "Return from a directly launched fullscreen task",
                 () -> finishFullscreenTaskThroughSystemBack(
                         displayId, taskId));
     }
@@ -1863,17 +1851,9 @@ final class DesktopSelfTestInputSuite {
                 DesktopSelfTestTaskHierarchy.inspect(displayId, targetTaskId);
         final DesktopSelfTestTaskHierarchy.Snapshot otherHierarchy =
                 DesktopSelfTestTaskHierarchy.inspect(displayId, otherTaskId);
-        final DesktopTaskAreaPolicy policy =
-                DesktopDisplayDrivers.activeTaskAreaPolicy(displayId);
-        if (policy.usesIndependentFullscreenPlanes()) {
-            if (targetHierarchy.featureId == otherHierarchy.featureId) {
-                throw new IOException("fullscreen tasks share plane feature="
-                        + targetHierarchy.featureId);
-            }
-        } else if (targetHierarchy.featureId != otherHierarchy.featureId) {
-            throw new IOException("session fullscreen tasks use different areas: "
-                    + targetHierarchy.featureId + " and "
-                    + otherHierarchy.featureId);
+        if (targetHierarchy.featureId == otherHierarchy.featureId) {
+            throw new IOException("fullscreen tasks share plane feature="
+                    + targetHierarchy.featureId);
         }
         return "target=" + targetTaskId + "/fullscreen/visible"
                 + "/feature=" + targetHierarchy.featureId

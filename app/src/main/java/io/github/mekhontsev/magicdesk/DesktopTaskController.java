@@ -25,9 +25,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 int displayId,
                 List<TaskRepository.TaskEntry> tasks,
                 Rect workArea,
-                boolean sessionTaskArea,
-                boolean sessionOwnershipReady,
-                Set<Integer> sessionOwnedTaskIds);
+                boolean ownershipReady,
+                Set<Integer> ownedTaskIds);
     }
 
     private static final String TAG = "MagicDeskTasks";
@@ -70,10 +69,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private boolean mRunning;
     private volatile boolean mTaskWatcherRunning;
     private boolean mTaskWatcherReady;
-    private boolean mSessionOwnershipReady;
+    private boolean mDesktopOwnershipReady;
     private volatile List<TaskRepository.TaskEntry> mLatestTasks =
             Collections.emptyList();
-    private Set<Integer> mSessionOwnedTaskIds = Collections.emptySet();
+    private Set<Integer> mDesktopOwnedTaskIds = Collections.emptySet();
     private final Set<Integer> mTaskbarConcealedTaskIds =
             new LinkedHashSet<>();
     private List<Integer> mShowDesktopRestoreOrder = Collections.emptyList();
@@ -355,6 +354,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                                 || displayId != mDisplayId) {
                             return;
                         }
+                        if (mDesktopOwnershipReady
+                                && !mDesktopOwnedTaskIds.contains(
+                                        Integer.valueOf(taskId))) {
+                            scheduleRefresh(0);
+                            return;
+                        }
                         // System Back and native task activation bypass the
                         // requested-focus path. Keep host focusability in sync
                         // with the framework callback before input repair runs.
@@ -377,19 +382,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
-                    public void onDesktopTaskAreaForegroundChanged(
-                            final int generation,
-                            final boolean foreground) {
-                        if (mRunning
-                                && taskAreaPolicy()
-                                        .usesManagedApplicationArea()) {
-                            DesktopRuntimeBridge
-                                    .setDesktopPlaneForeground(
-                                            mDisplayId, foreground);
-                        }
-                    }
-
-                    @Override
                     public void onDesktopTaskOwnershipChanged(
                             final int generation,
                             final int displayId,
@@ -405,8 +397,9 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                                 }
                             }
                         }
-                        mSessionOwnedTaskIds = owned;
-                        mSessionOwnershipReady = true;
+                        mDesktopOwnedTaskIds = Collections.unmodifiableSet(
+                                owned);
+                        mDesktopOwnershipReady = true;
                         scheduleRefresh(0);
                     }
 
@@ -424,7 +417,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     @Override
                     public void onDisconnected(final int generation) {
                         mTaskWatcherReady = false;
-                        clearSessionOwnership();
+                        clearDesktopOwnership();
                         if (mRunning) {
                             DesktopRuntimeBridge.setSystemDialogVisible(
                                     mDisplayId, false);
@@ -451,14 +444,13 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             scheduleRefresh(0);
             return;
         }
-        // A phone session can pre-create its shell task area before this
-        // controller becomes active. Do not clear that valid configuration on
-        // the initial start; only tear down an earlier controller display.
+        // Do not clear a valid observer configuration on initial startup;
+        // only tear down an earlier controller display.
         if (mRunning || mDisplayId >= Display.DEFAULT_DISPLAY) {
             stop();
         }
         mDisplayId = displayId;
-        clearSessionOwnership();
+        clearDesktopOwnership();
         mRunning = createWindowContext(displayId);
         if (!mRunning) {
             return;
@@ -489,7 +481,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             mShowDesktopRestoreOrder = Collections.emptyList();
             mShowDesktopNewlyConcealedTaskIds = Collections.emptySet();
         }
-        clearSessionOwnership();
+        clearDesktopOwnership();
         mNativeWindowBounds.reset();
         mAppWindowStates.stop();
         mPhoneTouchpadReconciler.reset();
@@ -685,55 +677,18 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         if (!containsPackageTask(visibleTasks, packageName)) {
             return false;
         }
-        final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
-        final int hostTaskId = session.activeDisplayId() == mDisplayId
-                ? session.hostTaskId() : -1;
-        final int focusTaskId = selectPackageRemovalSurvivorTaskId(
-                visibleTasks, packageName, hostTaskId);
-        if (focusTaskId < 0) {
-            return false;
-        }
-
         final int displayId = mDisplayId;
         final int generation = mGeneration;
         mHandler.post(() -> {
-            if (!mRunning || generation != mGeneration
-                    || displayId != mDisplayId || !mTaskWatcherReady) {
-                TaskRepository.forceStop(packageName, callback);
-                return;
-            }
-            // Remove the package's desktop tasks with the survivor handoff in
-            // one committed hierarchy update. A later process stop then has
-            // no foreground task whose death could make Android launch HOME.
-            DesktopRuntimeBridge.prepareTaskFocus(displayId, focusTaskId);
-            mTaskWatcher.removeDesktopPackageTasks(
-                    displayId,
-                    packageName,
-                    focusTaskId,
-                    removal -> {
-                        if (!removal.success) {
-                            Log.w(TAG, "desktop force-stop removal failed: "
-                                    + removal.message);
-                        }
-                        // The task may have disappeared because the process
-                        // already crashed. Task removal preserves the desktop
-                        // handoff, but it is not a prerequisite for honoring
-                        // an explicit package force-stop request.
-                        TaskRepository.forceStop(
-                                packageName,
-                                result -> {
-                                    if (mRunning
-                                            && generation == mGeneration
-                                            && displayId == mDisplayId) {
-                                        scheduleRefresh(0);
-                                    }
-                                    completeActionCallback(
-                                            callback,
-                                            result.success,
-                                            result.message);
-                                });
-                    });
+            TaskRepository.forceStop(packageName, result -> {
+                if (mRunning
+                        && generation == mGeneration
+                        && displayId == mDisplayId) {
+                    scheduleRefresh(0);
+                }
+                completeActionCallback(
+                        callback, result.success, result.message);
+            });
         });
         return true;
     }
@@ -815,21 +770,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         if (visibleTasks != null) {
             for (final TaskRepository.TaskEntry task : visibleTasks) {
                 if (task != null && task.taskId != closingTaskId) {
-                    return task.taskId;
-                }
-            }
-        }
-        return hostTaskId;
-    }
-
-    static int selectPackageRemovalSurvivorTaskId(
-            final List<TaskRepository.TaskEntry> visibleTasks,
-            final String packageName,
-            final int hostTaskId) {
-        if (visibleTasks != null) {
-            for (final TaskRepository.TaskEntry task : visibleTasks) {
-                if (task != null
-                        && !packageName.equals(task.packageName)) {
                     return task.taskId;
                 }
             }
@@ -930,12 +870,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         if (topFirstTasks != null) {
             for (int index = topFirstTasks.size() - 1; index >= 0; index--) {
                 final TaskRepository.TaskEntry task = topFirstTasks.get(index);
-                if (isFocusableTask(task)) {
+                if (isFocusableTask(task)
+                        && isDesktopOwnedTask(task.taskId)) {
                     orderedTaskIds.add(Integer.valueOf(task.taskId));
                 }
             }
         }
-        if (isFocusableTask(topTask)) {
+        if (isFocusableTask(topTask)
+                && isDesktopOwnedTask(topTask.taskId)) {
             orderedTaskIds.remove(Integer.valueOf(topTask.taskId));
             orderedTaskIds.add(Integer.valueOf(topTask.taskId));
         }
@@ -984,16 +926,30 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, snapshot.error);
                 return;
             }
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
+            if (!workspace.available) {
+                completeActionCallback(callback, false, workspace.error);
+                return;
+            }
             final int focusedTaskId = taskIds.get(
                     taskIds.size() - 1).intValue();
             final TaskRepository.TaskEntry focusedTask = findTask(
-                    snapshot.tasks, focusedTaskId);
+                    workspace.tasks, focusedTaskId);
             if (focusedTask == null || !isFocusableTask(focusedTask)) {
                 completeActionCallback(callback, false, "task unavailable");
                 return;
             }
+            final List<Integer> liveOrder = liveTaskOrder(
+                    workspace.tasks, displayId, taskIds);
+            if (liveOrder.isEmpty()
+                    || liveOrder.get(liveOrder.size() - 1).intValue()
+                            != focusedTaskId) {
+                completeActionCallback(callback, false, "task unavailable");
+                return;
+            }
             focusThroughGateway(
-                    taskIds,
+                    liveOrder,
                     focusedTaskId,
                     callback);
         }));
@@ -1024,6 +980,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, snapshot.error);
                 return;
             }
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
+            if (!workspace.available) {
+                completeActionCallback(callback, false, workspace.error);
+                return;
+            }
             final Set<Integer> concealedTaskIds;
             synchronized (mTaskbarConcealedTaskIds) {
                 concealedTaskIds = new LinkedHashSet<>(
@@ -1031,11 +993,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
             final TaskbarTaskOrder.DesktopPresentation presentation =
                     TaskbarTaskOrder.presentDesktop(
-                            snapshot,
+                            workspace,
                             mDisplayTaskState.lastVisibleTasks(),
                             concealedTaskIds,
-                            taskAreaPolicy()
-                                    .usesIndependentFullscreenPlanes());
+                            desktopHostTaskId);
             if (presentation == null
                     || presentation.physicalOrder.isEmpty()
                     || presentation.physicalOrder.get(
@@ -1100,6 +1061,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, snapshot.error);
                 return;
             }
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
+            if (!workspace.available) {
+                completeActionCallback(callback, false, workspace.error);
+                return;
+            }
             final List<Integer> savedOrder;
             final Set<Integer> savedConcealedTaskIds;
             synchronized (mTaskbarConcealedTaskIds) {
@@ -1108,7 +1075,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         mShowDesktopNewlyConcealedTaskIds);
             }
             final List<Integer> liveOrder = liveTaskOrder(
-                    snapshot.tasks, displayId, savedOrder);
+                    workspace.tasks, displayId, savedOrder);
             if (liveOrder.isEmpty()) {
                 completeActionCallback(
                         callback, true, "no saved workspace");
@@ -1244,8 +1211,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, snapshot.error);
                 return;
             }
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
+            if (!workspace.available) {
+                completeActionCallback(callback, false, workspace.error);
+                return;
+            }
             final List<Integer> liveOrder = liveTaskOrder(
-                    snapshot.tasks, displayId, backToFrontTaskIds);
+                    workspace.tasks, displayId, backToFrontTaskIds);
             if (liveOrder.isEmpty()) {
                 completeActionCallback(callback, false, "session tasks unavailable");
                 return;
@@ -1281,8 +1254,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, snapshot.error);
                 return;
             }
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
+            if (!workspace.available) {
+                completeActionCallback(callback, false, workspace.error);
+                return;
+            }
             final TaskRepository.TaskEntry task = findTask(
-                    snapshot.tasks, taskId);
+                    workspace.tasks, taskId);
             if (task == null || !isFocusableTask(task)) {
                 completeActionCallback(callback, false, "task unavailable");
                 return;
@@ -1293,7 +1272,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         mTaskbarConcealedTaskIds);
             }
             if (EffectiveTaskStack.shouldActivateTaskbarTarget(
-                    snapshot,
+                    workspace,
                     task,
                     effectiveConcealedTaskIds,
                     mActiveTaskId)) {
@@ -1304,7 +1283,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 return;
             }
 
-            demoteTask(snapshot, taskId, callback);
+            demoteTask(workspace, taskId, callback);
         }));
     }
 
@@ -1324,8 +1303,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, snapshot.error);
                 return;
             }
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
+            if (!workspace.available) {
+                completeActionCallback(callback, false, workspace.error);
+                return;
+            }
             final TaskRepository.TaskEntry task = findTask(
-                    snapshot.tasks, taskId);
+                    workspace.tasks, taskId);
             if (task == null || !isFocusableTask(task)) {
                 completeActionCallback(callback, false, "task unavailable");
                 return;
@@ -1336,7 +1321,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         mTaskbarConcealedTaskIds);
             }
             if (EffectiveTaskStack.shouldActivateTaskbarTarget(
-                    snapshot,
+                    workspace,
                     task,
                     concealedTaskIds,
                     mActiveTaskId)) {
@@ -1344,7 +1329,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         callback, false, "task is not foreground");
                 return;
             }
-            demoteTask(snapshot, taskId, callback);
+            demoteTask(workspace, taskId, callback);
         }));
     }
 
@@ -1366,10 +1351,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         taskId,
                         mDisplayTaskState.lastVisibleTasks(),
                         concealedTaskIds,
-                        DesktopDisplayDrivers.activeTaskAreaPolicy(
-                                mDisplayId)
-                                .usesIndependentFullscreenPlanes(),
-                        mActiveTaskId);
+                        mActiveTaskId,
+                        currentDesktopHostTaskId());
         if (focusOrder.size() < 2) {
             if (!alreadyConcealed) {
                 restoreTaskbarTask(taskId);
@@ -1405,11 +1388,23 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 callback);
     }
 
+    private int currentDesktopHostTaskId() {
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        return session.activeDisplayId() == mDisplayId
+                ? session.hostTaskId() : -1;
+    }
+
     private void focusThroughGateway(
             final int operation,
             final List<Integer> requestedTaskIds,
             final int focusedTaskId,
             final TaskRepository.ActionCallback callback) {
+        if (!isDesktopOwnedTask(focusedTaskId)) {
+            completeActionCallback(
+                    callback, false, "task is outside the desktop workspace");
+            return;
+        }
         final boolean restoredConcealedTask =
                 restoreTaskbarTask(focusedTaskId);
         sendWorkspaceCommand(
@@ -1624,8 +1619,13 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     || mDisplayId != displayId || !snapshot.available) {
                 return;
             }
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
+            if (!workspace.available) {
+                return;
+            }
             TaskRepository.TaskEntry task = null;
-            for (final TaskRepository.TaskEntry candidate : snapshot.tasks) {
+            for (final TaskRepository.TaskEntry candidate : workspace.tasks) {
                 if (candidate != null && candidate.taskId == taskId) {
                     task = candidate;
                     break;
@@ -1818,8 +1818,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             if (!mRunning || generation != mGeneration || mDisplayId != displayId) {
                 return;
             }
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
             final TaskRepository.TaskEntry task = selectShortcutTask(
-                    snapshot.tasks,
+                    workspace.available
+                            ? workspace.tasks : Collections.emptyList(),
                     activeTaskId,
                     !supportsFullscreenTask);
             if (task == null) {
@@ -1992,7 +1995,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     displayBounds.right,
                     displayBounds.bottom);
         }
-        final DesktopTaskAreaPolicy taskAreaPolicy = taskAreaPolicy();
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
         final int desktopHostTaskId = session.activeDisplayId() == mDisplayId
@@ -2002,7 +2004,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 displayBounds,
                 workAreaBounds,
                 taskbarBounds,
-                taskAreaPolicy.wireValue(),
                 desktopHostTaskId);
         mTaskWatcher.setExternalTaskMigrationProtection(
                 shouldProtectExternalSession());
@@ -2014,17 +2015,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         return target != null
                 && (target.kind == DesktopDisplayTarget.Kind.WIRED
                         || target.kind == DesktopDisplayTarget.Kind.WIRELESS)
-                && DesktopDisplayDrivers.forTarget(target)
-                        .features().taskAreaPolicy
-                        .usesDirectRootWorkspace()
                 && mWindowing.protectsExternalSessionFromPhoneTaskMigration();
-    }
-
-    private DesktopTaskAreaPolicy taskAreaPolicy() {
-        if (mDisplayId < 0) {
-            return DesktopTaskAreaPolicy.UNCONFIGURED;
-        }
-        return DesktopDisplayDrivers.activeTaskAreaPolicy(mDisplayId);
     }
 
     @Override
@@ -2038,20 +2029,19 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public int launchFullscreenTaskInManagedSession(
-            final int displayId,
-            final Intent intent) throws IOException {
-        requireSessionTaskArea(displayId);
-        return mTaskWatcher.launchFullscreenTaskInManagedSession(
-                displayId, intent);
-    }
-
-    @Override
     public int launchFullscreenTask(
             final int displayId,
             final Intent intent) throws IOException {
         requireTaskObserver(displayId);
         return mTaskWatcher.launchFullscreenTask(displayId, intent);
+    }
+
+    @Override
+    public boolean attachFullscreenTask(
+            final int displayId,
+            final int taskId) throws IOException {
+        requireTaskObserver(displayId);
+        return mTaskWatcher.attachFullscreenTask(displayId, taskId);
     }
 
     @Override
@@ -2104,37 +2094,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mTaskWatcher.launchTaskAction(displayId, taskId, intent);
     }
 
-    @Override
-    public void placeWindowedTaskInManagedSession(
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId,
-            final Rect bounds) throws IOException {
-        requireSessionTaskArea(targetDisplayId);
-        mTaskWatcher.placeWindowedTaskInManagedSession(
-                taskId, sourceDisplayId, targetDisplayId, bounds);
-    }
-
-    @Override
-    public void placeFullscreenTaskInManagedSession(
-            final int taskId,
-            final int sourceDisplayId,
-            final int targetDisplayId) throws IOException {
-        requireSessionTaskArea(targetDisplayId);
-        mTaskWatcher.placeFullscreenTaskInManagedSession(
-                taskId, sourceDisplayId, targetDisplayId);
-    }
-
-    private void requireSessionTaskArea(final int displayId)
-            throws IOException {
-        requireTaskObserver(displayId);
-        if (!taskAreaPolicy().usesManagedApplicationArea()) {
-            throw new IOException(
-                    "session task area is unavailable for display "
-                            + displayId);
-        }
-    }
-
     private void requireTaskObserver(final int displayId)
             throws IOException {
         if (!mRunning || !mTaskWatcherReady || displayId != mDisplayId) {
@@ -2148,25 +2107,30 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             Log.w(TAG, "task snapshot unavailable: " + snapshot.error);
             return;
         }
-        mLatestTasks = Collections.unmodifiableList(
-                new ArrayList<>(snapshot.tasks));
-        reconcileTaskbarConcealment(snapshot.tasks);
         if (mSnapshotListener != null) {
             mSnapshotListener.onSnapshot(
                     mDisplayId,
                     snapshot.tasks,
                     DesktopRuntimeBridge.getDesktopWorkAreaBounds(mDisplayId),
-                    taskAreaPolicy().usesManagedApplicationArea(),
-                    mSessionOwnershipReady,
-                    mSessionOwnedTaskIds);
+                    mDesktopOwnershipReady,
+                    mDesktopOwnedTaskIds);
         }
         mAutomationEvents.observe(snapshot);
-        mNativeWindowBounds.reconcile(snapshot.tasks);
-        DesktopRuntimeBridge.syncTaskbarWithSnapshot(mDisplayId, snapshot);
+        final TaskRepository.Snapshot workspace =
+                desktopWorkspaceSnapshot(snapshot);
+        if (!workspace.available) {
+            mLatestTasks = Collections.emptyList();
+            return;
+        }
+        mLatestTasks = Collections.unmodifiableList(
+                new ArrayList<>(workspace.tasks));
+        reconcileTaskbarConcealment(workspace.tasks);
+        mNativeWindowBounds.reconcile(workspace.tasks);
+        DesktopRuntimeBridge.syncTaskbarWithSnapshot(mDisplayId, workspace);
         final List<TaskRepository.TaskEntry> visibleTasks = new ArrayList<>();
         boolean hasVisibleAppTask = false;
         boolean aboveDesktopHost = true;
-        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+        for (final TaskRepository.TaskEntry task : workspace.tasks) {
             if (isDesktopHostTask(task)) {
                 aboveDesktopHost = false;
                 continue;
@@ -2189,7 +2153,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         if (focusingTaskId >= 0) {
             final TaskRepository.TaskEntry focusingTask =
-                    findTask(snapshot.tasks, focusingTaskId);
+                    findTask(workspace.tasks, focusingTaskId);
             if (focusingTask == null) {
                 clearTrackedFocus(focusingTaskId);
             } else if (focusingTask.active) {
@@ -2198,14 +2162,56 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         } else {
             final TaskRepository.TaskEntry activeTask =
                     selectKnownOrTopVisibleTask(
-                            snapshot.tasks, mActiveTaskId);
+                            workspace.tasks, mActiveTaskId);
             mActiveTaskId = activeTask == null ? -1 : activeTask.taskId;
         }
         mDisplayTaskState.publish(visibleTasks, hasVisibleAppTask);
         mWindowTransitions.reconcile(
-                snapshot.tasks,
+                workspace.tasks,
                 visibleTasks,
                 focusingTaskId >= 0);
+    }
+
+    private TaskRepository.Snapshot desktopWorkspaceSnapshot(
+            final TaskRepository.Snapshot snapshot) {
+        if (snapshot == null || !snapshot.available) {
+            return snapshot;
+        }
+        if (!mDesktopOwnershipReady) {
+            return new TaskRepository.Snapshot(
+                    Collections.emptyList(),
+                    snapshot.phoneTasks,
+                    false,
+                    "desktop task ownership unavailable");
+        }
+        return new TaskRepository.Snapshot(
+                retainOwnedTasks(snapshot.tasks, mDesktopOwnedTaskIds),
+                snapshot.phoneTasks,
+                true,
+                "");
+    }
+
+    static List<TaskRepository.TaskEntry> retainOwnedTasks(
+            final List<TaskRepository.TaskEntry> tasks,
+            final Set<Integer> ownedTaskIds) {
+        if (tasks == null || tasks.isEmpty()
+                || ownedTaskIds == null || ownedTaskIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        final List<TaskRepository.TaskEntry> ownedTasks = new ArrayList<>();
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (task != null && ownedTaskIds.contains(
+                    Integer.valueOf(task.taskId))) {
+                ownedTasks.add(task);
+            }
+        }
+        return ownedTasks;
+    }
+
+    private boolean isDesktopOwnedTask(final int taskId) {
+        return taskId >= 0
+                && mDesktopOwnershipReady
+                && mDesktopOwnedTaskIds.contains(Integer.valueOf(taskId));
     }
 
     private void reconcileTaskbarConcealment(
@@ -2243,13 +2249,13 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
     }
 
-    private void clearSessionOwnership() {
-        mSessionOwnershipReady = false;
-        mSessionOwnedTaskIds = Collections.emptySet();
-    }
-
     private boolean isActiveOnDisplay(final int displayId) {
         return mRunning && mDisplayId == displayId;
+    }
+
+    private void clearDesktopOwnership() {
+        mDesktopOwnershipReady = false;
+        mDesktopOwnedTaskIds = Collections.emptySet();
     }
 
     private static TaskRepository.TaskEntry findTask(
