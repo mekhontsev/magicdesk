@@ -117,8 +117,10 @@ final class DesktopSessionTransitionCoordinator {
         // HOME ownership is the outer session lease. Release it before any
         // task, input, or display teardown so a partial close cannot trap the
         // user in a launcher that Android keeps restarting.
+        final DesktopHomeRoleLease.RestoredHomePresentation homePresentation;
         try {
-            DesktopHomeRoleLease.release(target);
+            homePresentation =
+                    DesktopHomeRoleLease.releaseForSessionClose(target);
         } catch (java.io.IOException error) {
             Log.w(TAG, "Could not restore HOME before desktop close", error);
             CompatibilityDiagnostics.record(
@@ -131,7 +133,8 @@ final class DesktopSessionTransitionCoordinator {
         }
         MagicDeskRuntime.disableExternalTaskMigrationProtection();
         if (!restorePhonePanel) {
-            finishDesktopSessionClose(target, false, callback);
+            finishDesktopSessionClose(
+                    target, false, homePresentation, callback);
             return;
         }
         MagicDeskRuntime.parkDesktopTasks(target, parked -> {
@@ -140,15 +143,17 @@ final class DesktopSessionTransitionCoordinator {
                         "Desktop close continues after partial task parking");
             }
             mOperations.execute(() -> finishDesktopSessionClose(
-                    target, true, callback));
+                    target, true, homePresentation, callback));
         });
     }
 
     private void finishDesktopSessionClose(
             final DesktopDisplayTarget target,
             final boolean restorePhonePanel,
+            final DesktopHomeRoleLease.RestoredHomePresentation
+                    homePresentation,
             final CompletionCallback callback) {
-        final boolean success;
+        boolean success;
         try {
             if (target.kind == DesktopDisplayTarget.Kind.SIMULATED) {
                 MagicDeskRuntime.prepareDesktopDisplayRemoval(
@@ -161,6 +166,17 @@ final class DesktopSessionTransitionCoordinator {
             Log.w(TAG, "Desktop close failed", error);
             finishDesktopClose(callback, false);
             return;
+        }
+        try {
+            DesktopHomeRoleLease.presentRestoredHome(homePresentation);
+        } catch (java.io.IOException error) {
+            success = false;
+            Log.w(TAG, "Could not present HOME after desktop close", error);
+            CompatibilityDiagnostics.record(
+                    "DESKTOP-HOME-008",
+                    "Could not show the restored Home app",
+                    error.getMessage(),
+                    error);
         }
         if (shouldOpenPhonePanel(
                 restorePhonePanel,

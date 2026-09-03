@@ -73,14 +73,26 @@ public final class DesktopHomeRoleLeaseTest {
     @Test
     public void isolatedPhoneTargetStillPresentsDesktopHome()
             throws Exception {
+        final DesktopDisplayTarget target = DesktopDisplayTarget.phone();
         DesktopHomeRoleLease.acquire(
-                DesktopDisplayTarget.phone(),
+                target,
                 DesktopSessionPolicy.ISOLATED_SELF_TEST);
 
         assertTrue(mBackend.primaryHomePresented);
         assertEquals(
                 DesktopHomeSurfaceRouter.Surface.DESKTOP,
                 mBackend.presentedSurface);
+
+        assertTrue(DesktopHomeRoleLease.release(target));
+
+        assertEquals(LAUNCHER, mBackend.homePackage);
+        assertEquals(MAGICDESK, mBackend.presentedHomePackage);
+        assertEquals(
+                List.of(
+                        "surface:disabled",
+                        "home:" + LAUNCHER,
+                        "surface:default"),
+                mBackend.releaseCalls);
     }
 
     @Test
@@ -179,6 +191,31 @@ public final class DesktopHomeRoleLeaseTest {
                         "present:" + LAUNCHER,
                         "surface:default"),
                 mBackend.releaseCalls);
+    }
+
+    @Test
+    public void sessionClosePresentsRestoredHomeOnlyAfterTeardown()
+            throws Exception {
+        DesktopHomeRoleLease.acquire(DesktopDisplayTarget.phone());
+
+        final DesktopHomeRoleLease.RestoredHomePresentation presentation =
+                DesktopHomeRoleLease.releaseForSessionClose(
+                        DesktopDisplayTarget.phone());
+
+        assertEquals(LAUNCHER, mBackend.homePackage);
+        assertEquals(MAGICDESK, mBackend.presentedHomePackage);
+        assertEquals(
+                List.of(
+                        "surface:disabled",
+                        "home:" + LAUNCHER,
+                        "surface:default"),
+                mBackend.releaseCalls);
+
+        DesktopHomeRoleLease.presentRestoredHome(presentation);
+
+        assertEquals(LAUNCHER, mBackend.presentedHomePackage);
+        assertEquals("present:" + LAUNCHER,
+                mBackend.releaseCalls.get(mBackend.releaseCalls.size() - 1));
     }
 
     @Test

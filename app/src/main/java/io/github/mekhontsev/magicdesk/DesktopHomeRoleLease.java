@@ -104,6 +104,18 @@ final class DesktopHomeRoleLease {
         }
     }
 
+    static final class RestoredHomePresentation {
+        final int userId;
+        final boolean required;
+
+        private RestoredHomePresentation(
+                final int userId,
+                final boolean required) {
+            this.userId = userId;
+            this.required = required;
+        }
+    }
+
     interface Storage {
         State read();
 
@@ -158,7 +170,7 @@ final class DesktopHomeRoleLease {
                     final State active = existing.withPhase(Phase.ACTIVE);
                     sStorage.write(active);
                     sPhoneOverviewRoutingActive = true;
-                    if (shouldPresentHome(active)) {
+                    if (shouldPresentMagicDeskHome(active)) {
                         sBackend.presentHome(
                                 active.userId, MAGICDESK_PACKAGE);
                     }
@@ -206,10 +218,33 @@ final class DesktopHomeRoleLease {
 
     static boolean release(final DesktopDisplayTarget target)
             throws IOException {
+        return release(target, false) != null;
+    }
+
+    static RestoredHomePresentation releaseForSessionClose(
+            final DesktopDisplayTarget target) throws IOException {
+        return release(target, true);
+    }
+
+    static void presentRestoredHome(
+            final RestoredHomePresentation presentation) throws IOException {
+        if (presentation == null || !presentation.required) {
+            return;
+        }
+        synchronized (LOCK) {
+            sBackend.presentHome(
+                    presentation.userId,
+                    sBackend.getHomePackage(presentation.userId));
+        }
+    }
+
+    private static RestoredHomePresentation release(
+            final DesktopDisplayTarget target,
+            final boolean deferPresentation) throws IOException {
         synchronized (LOCK) {
             final State state = sStorage.read();
             if (state == null) {
-                return false;
+                return null;
             }
             if (!state.matches(target)) {
                 throw new IOException("HOME lease target mismatch: leased="
@@ -221,8 +256,7 @@ final class DesktopHomeRoleLease {
             final State releasing = state.withPhase(Phase.RELEASING);
             sStorage.write(releasing);
             sPhoneOverviewRoutingActive = false;
-            quiesceAndRestore(state);
-            return true;
+            return quiesceAndRestore(state, deferPresentation);
         }
     }
 
@@ -332,15 +366,19 @@ final class DesktopHomeRoleLease {
         final State active = prepared.withPhase(Phase.ACTIVE);
         sStorage.write(active);
         sPhoneOverviewRoutingActive = true;
-        if (shouldPresentHome(prepared)) {
+        if (shouldPresentMagicDeskHome(prepared)) {
             sBackend.presentHome(prepared.userId, MAGICDESK_PACKAGE);
         }
         return new AcquireResult(true, active);
     }
 
-    private static boolean shouldPresentHome(final State state) {
+    private static boolean shouldPresentMagicDeskHome(final State state) {
         return state.targetKind == DesktopDisplayTarget.Kind.PHONE
                 || state.policy != DesktopSessionPolicy.ISOLATED_SELF_TEST;
+    }
+
+    private static boolean shouldPresentRestoredHome(final State state) {
+        return state.policy != DesktopSessionPolicy.ISOLATED_SELF_TEST;
     }
 
     private static DesktopHomeSurfaceRouter.Surface surfaceFor(
@@ -354,10 +392,12 @@ final class DesktopHomeRoleLease {
         if (state.phase != Phase.RELEASING) {
             sStorage.write(state.withPhase(Phase.RELEASING));
         }
-        quiesceAndRestore(state);
+        quiesceAndRestore(state, false);
     }
 
-    private static void quiesceAndRestore(final State state)
+    private static RestoredHomePresentation quiesceAndRestore(
+            final State state,
+            final boolean deferPresentation)
             throws IOException {
         IOException quiesceError = null;
         try {
@@ -372,13 +412,18 @@ final class DesktopHomeRoleLease {
             if (MAGICDESK_PACKAGE.equals(holder) || holder.isEmpty()) {
                 restorePreviousHolder(state);
             }
-            if (shouldPresentHome(state)) {
+            final RestoredHomePresentation presentation =
+                    new RestoredHomePresentation(
+                            state.userId,
+                            shouldPresentRestoredHome(state));
+            if (!deferPresentation && presentation.required) {
                 sBackend.presentHome(
                         state.userId,
                         sBackend.getHomePackage(state.userId));
             }
             sBackend.restoreHomeSurface();
             sStorage.clear();
+            return presentation;
         } catch (IOException error) {
             if (quiesceError != null) {
                 error.addSuppressed(quiesceError);
