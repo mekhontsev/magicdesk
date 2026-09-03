@@ -626,14 +626,23 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     requestedTaskIds.length - 1];
             // Exactly one fullscreen plane participates in focus selection;
             // covered planes remain visible and retain their fullscreen mode.
+            final TaskDisplayAreaHandle focusPlane = effectivePlanes.get(
+                    Integer.valueOf(focusTargetTaskId));
+            if (!workspaceForeground && focusPlane != null) {
+                // Make the destination eligible before suppressing the old
+                // plane, so focus never has to fall through to desktop HOME.
+                windowing.setFocusable(
+                        transaction, focusPlane.token(), true);
+            }
             for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
                     : effectivePlanes.entrySet()) {
+                if (entry.getKey().intValue() == focusTargetTaskId) {
+                    continue;
+                }
                 windowing.setFocusable(
                         transaction,
                         entry.getValue().token(),
-                        !workspaceForeground
-                                && entry.getKey().intValue()
-                                        == focusTargetTaskId);
+                        false);
             }
             if (forceEnteringFullscreen && !launchEnteringTask) {
                 final Object taskToken = HiddenTaskApi.requireTaskToken(
@@ -815,6 +824,19 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             }
         }
         return output;
+    }
+
+    static int[] coveredPlaneBottomReorderOrder(
+            final int[] taskIds,
+            final Set<Integer> planeTaskIds,
+            final int targetTaskId) {
+        if (planeTaskIds == null || planeTaskIds.isEmpty()) {
+            return new int[0];
+        }
+        final Set<Integer> coveredPlaneTaskIds = new LinkedHashSet<>(
+                planeTaskIds);
+        coveredPlaneTaskIds.remove(Integer.valueOf(targetTaskId));
+        return planeBottomReorderOrder(taskIds, coveredPlaneTaskIds);
     }
 
     static MixedStackOrder buildMixedStackOrder(
@@ -1003,39 +1025,42 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         final int targetTaskId = taskIds[taskIds.length - 1];
         final boolean fullscreenForeground = planes.containsKey(
                 Integer.valueOf(targetTaskId));
-        if (!fullscreenForeground) {
-            for (final int taskId : planeBottomReorderOrder(
-                    taskIds, planes.keySet())) {
-                final TaskDisplayAreaHandle plane = planes.get(
-                        Integer.valueOf(taskId));
-                windowing.reorder(transaction, plane.token(), false);
+        if (fullscreenForeground) {
+            // Leave HOME in place as the opaque boundary between the selected
+            // plane and its covered peers. Raising HOME as an intermediate
+            // operation can leave its input window focused even when ATMS
+            // selects the final fullscreen task in the same transaction.
+            for (final int taskId : coveredPlaneBottomReorderOrder(
+                    taskIds, planes.keySet(), targetTaskId)) {
+                windowing.reorder(
+                        transaction,
+                        planes.get(Integer.valueOf(taskId)).token(),
+                        false);
             }
+            windowing.reorder(
+                    transaction,
+                    planes.get(Integer.valueOf(targetTaskId)).token(),
+                    true);
+            if (selectFullscreenChild) {
+                windowing.reorder(
+                        transaction,
+                        HiddenTaskApi.requireTaskToken(
+                                service, displayId, targetTaskId),
+                        true,
+                        false);
+            }
+            return;
+        }
+        for (final int taskId : planeBottomReorderOrder(
+                taskIds, planes.keySet())) {
+            final TaskDisplayAreaHandle plane = planes.get(
+                    Integer.valueOf(taskId));
+            windowing.reorder(transaction, plane.token(), false);
         }
         for (final int taskId : taskIds) {
             final TaskDisplayAreaHandle plane =
                     planes.get(Integer.valueOf(taskId));
             if (plane != null) {
-                if (!fullscreenForeground) {
-                    continue;
-                }
-                final boolean active = fullscreenForeground
-                        && taskId == targetTaskId;
-                if (fullscreenForeground && !active) {
-                    // Raising one fullscreen plane must not reorder the
-                    // covered planes. Moving every inactive sibling to the
-                    // bottom reverses their relative order on each cycle, so
-                    // restoring a freeform window exposes a different task.
-                    continue;
-                }
-                // Each plane remains focusable and owns exactly one fullscreen
-                // root. Reordering the plane is therefore sufficient to move
-                // both visual and input focus. Mutating focusability or
-                // reordering the child root itself creates lifecycle effects
-                // that applications can observe as a task switch.
-                windowing.reorder(
-                        transaction,
-                        plane.token(),
-                        active && fullscreenForeground);
                 continue;
             }
             final Object taskToken = HiddenTaskApi.requireTaskToken(
@@ -1046,18 +1071,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             } else {
                 windowing.reorder(transaction, taskToken, true, true);
             }
-        }
-        if (fullscreenForeground && selectFullscreenChild) {
-            // Raising a plane is sufficient for plane-to-plane switches and
-            // keeps the child lifecycle untouched. When focus crosses an
-            // ordinary workspace task, however, Nubia can retain that task's
-            // input window even after selecting the fullscreen plane. Select
-            // the plane's only child in the same transaction so hierarchy and
-            // InputDispatcher focus commit together.
-            final Object targetTaskToken = HiddenTaskApi.requireTaskToken(
-                    service, displayId, targetTaskId);
-            windowing.reorder(
-                    transaction, targetTaskToken, true, true);
         }
     }
 

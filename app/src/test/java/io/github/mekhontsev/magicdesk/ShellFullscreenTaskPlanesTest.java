@@ -106,6 +106,16 @@ public final class ShellFullscreenTaskPlanesTest {
     }
 
     @Test
+    public void lowersOnlyCoveredPlanesWhenSelectingFullscreenPeer() {
+        assertArrayEquals(
+                new int[]{11, 10},
+                ShellFullscreenTaskPlanes.coveredPlaneBottomReorderOrder(
+                        new int[]{10, 11, 99, 12},
+                        planeIds(10, 11, 12),
+                        12));
+    }
+
+    @Test
     public void selectsFullscreenChildWhenFocusCrossesWorkspaceBoundary() {
         assertEquals(
                 true,
