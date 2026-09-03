@@ -165,6 +165,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
 
                     @Override
+                    public TaskRepository.Snapshot selectDesktopTaskSnapshot(
+                            final TaskRepository.Snapshot snapshot) {
+                        return DesktopTaskController.this
+                                .selectDesktopTaskSnapshot(
+                                        mDisplayId, snapshot);
+                    }
+
+                    @Override
                     public void focusTask(final int taskId) {
                         if (!mRunning || taskId < 0) {
                             return;
@@ -1775,7 +1783,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             if (!mRunning || generation != mGeneration || mDisplayId != displayId) {
                 return;
             }
-            for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
+            if (!workspace.available) {
+                return;
+            }
+            for (final TaskRepository.TaskEntry task : workspace.tasks) {
                 if (task != null && task.active && task.visible
                         && task.hasCrossPackageTopActivity()) {
                     TaskRepository.sendBackToDisplay(displayId, result -> {
@@ -2174,10 +2187,20 @@ final class DesktopTaskController implements DesktopTaskRuntime {
 
     private TaskRepository.Snapshot desktopWorkspaceSnapshot(
             final TaskRepository.Snapshot snapshot) {
+        return retainOwnedSnapshot(
+                snapshot,
+                mDesktopOwnershipReady,
+                mDesktopOwnedTaskIds);
+    }
+
+    static TaskRepository.Snapshot retainOwnedSnapshot(
+            final TaskRepository.Snapshot snapshot,
+            final boolean ownershipReady,
+            final Set<Integer> ownedTaskIds) {
         if (snapshot == null || !snapshot.available) {
             return snapshot;
         }
-        if (!mDesktopOwnershipReady) {
+        if (!ownershipReady) {
             return new TaskRepository.Snapshot(
                     Collections.emptyList(),
                     snapshot.phoneTasks,
@@ -2185,10 +2208,23 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     "desktop task ownership unavailable");
         }
         return new TaskRepository.Snapshot(
-                retainOwnedTasks(snapshot.tasks, mDesktopOwnedTaskIds),
+                retainOwnedTasks(snapshot.tasks, ownedTaskIds),
                 snapshot.phoneTasks,
                 true,
                 "");
+    }
+
+    @Override
+    public TaskRepository.Snapshot selectDesktopTaskSnapshot(
+            final int displayId,
+            final TaskRepository.Snapshot snapshot) {
+        if (!mRunning || displayId != mDisplayId) {
+            return new TaskRepository.Snapshot(
+                    Collections.emptyList(),
+                    false,
+                    "desktop task runtime unavailable");
+        }
+        return desktopWorkspaceSnapshot(snapshot);
     }
 
     static List<TaskRepository.TaskEntry> retainOwnedTasks(

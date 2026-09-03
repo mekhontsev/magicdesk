@@ -7,6 +7,7 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -15,6 +16,8 @@ final class DesktopWindowTransitionController {
     interface RuntimeState {
         int displayId();
         boolean isRunning();
+        TaskRepository.Snapshot selectDesktopTaskSnapshot(
+                TaskRepository.Snapshot snapshot);
         void focusTask(int taskId);
         void demoteTask(int taskId);
         void scheduleRefresh();
@@ -170,8 +173,12 @@ final class DesktopWindowTransitionController {
                     || mRuntimeState.displayId() != displayId) {
                 return;
             }
+            final TaskRepository.Snapshot workspace =
+                    mRuntimeState.selectDesktopTaskSnapshot(snapshot);
             final TaskRepository.TaskEntry task =
-                    findTopFullscreenTask(snapshot.tasks);
+                    findTopFullscreenTask(workspace.available
+                            ? workspace.tasks
+                            : Collections.emptyList());
             if (task == null) {
                 return;
             }

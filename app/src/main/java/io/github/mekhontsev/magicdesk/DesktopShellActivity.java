@@ -567,8 +567,9 @@ public abstract class DesktopShellActivity extends Activity
         mAppTasks.clearInteractionStack();
     }
 
-    void setTaskSnapshot(final TaskRepository.Snapshot snapshot) {
-        mTaskSnapshots.setSnapshot(snapshot);
+    TaskRepository.Snapshot setTaskSnapshot(
+            final TaskRepository.Snapshot snapshot) {
+        return mTaskSnapshots.setSnapshot(snapshot);
     }
 
     boolean isAltTabTaskSelected(final TaskRepository.TaskEntry task) {

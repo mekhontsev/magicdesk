@@ -98,11 +98,19 @@ final class AltTabController {
                         return;
                     }
 
-                    mActivity.setTaskSnapshot(snapshot);
+                    final TaskRepository.Snapshot desktopSnapshot =
+                            mActivity.setTaskSnapshot(snapshot);
+                    if (!desktopSnapshot.available) {
+                        reset();
+                        mActivity.setStatus(mActivity.getString(
+                                R.string.status_switch_failed,
+                                desktopSnapshot.error));
+                        return;
+                    }
                     final List<TaskRepository.TaskEntry> tasks =
                             new ArrayList<>();
                     for (final TaskRepository.TaskEntry task :
-                            snapshot.tasks) {
+                            desktopSnapshot.tasks) {
                         if (mActivity.isAltTabTask(task)) {
                             tasks.add(task);
                         }
@@ -144,7 +152,7 @@ final class AltTabController {
                         mActivity.finishTaskbarActivation();
                         return;
                     }
-                    mActivity.populateTaskOverview(snapshot);
+                    mActivity.populateTaskOverview(desktopSnapshot);
                     if (mCommitPending) {
                         finish();
                     } else if (!mActivity.showAltTabPanel()) {

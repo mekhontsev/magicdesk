@@ -12,6 +12,9 @@ import java.util.List;
 interface DesktopTaskRuntime {
     boolean isTaskObserverReady();
 
+    TaskRepository.Snapshot selectDesktopTaskSnapshot(
+            int displayId, TaskRepository.Snapshot snapshot);
+
     int launchWindowedTask(
             int displayId, Intent intent, Rect bounds) throws IOException;
 

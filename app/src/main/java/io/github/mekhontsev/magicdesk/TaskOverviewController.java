@@ -75,8 +75,9 @@ final class TaskOverviewController {
                             || displayId != mActivity.getCurrentDisplayId()) {
                         return;
                     }
-                    mActivity.setTaskSnapshot(snapshot);
-                    populate(snapshot);
+                    final TaskRepository.Snapshot desktopSnapshot =
+                            mActivity.setTaskSnapshot(snapshot);
+                    populate(desktopSnapshot);
                     showPanel();
                 }));
     }

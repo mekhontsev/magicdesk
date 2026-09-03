@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /** Owns the current task snapshot and serialized asynchronous refreshes. */
@@ -10,7 +11,7 @@ final class DesktopTaskSnapshotController {
             new DesktopTaskbarDialogHold();
 
     private TaskRepository.Snapshot mSnapshot = new TaskRepository.Snapshot(
-            java.util.Collections.<TaskRepository.TaskEntry>emptyList(),
+            Collections.<TaskRepository.TaskEntry>emptyList(),
             false,
             "not loaded");
     private int mRefreshGeneration;
@@ -23,18 +24,25 @@ final class DesktopTaskSnapshotController {
         return mSnapshot;
     }
 
-    void setSnapshot(final TaskRepository.Snapshot snapshot) {
-        if (snapshot != null) {
-            mSnapshot = snapshot;
-        }
+    TaskRepository.Snapshot setSnapshot(
+            final TaskRepository.Snapshot snapshot) {
+        mSnapshot = selectDesktopTaskSnapshot(snapshot);
+        return mSnapshot;
     }
 
     void sync(final TaskRepository.Snapshot snapshot) {
         if (snapshot == null) {
             return;
         }
+        final TaskRepository.Snapshot desktopSnapshot =
+                selectDesktopTaskSnapshot(snapshot);
+        if (!desktopSnapshot.available) {
+            mSnapshot = desktopSnapshot;
+            mActivity.renderTaskbarPins(mActivity.getLauncherApps());
+            return;
+        }
         TaskRepository.TaskEntry activeTask = null;
-        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+        for (final TaskRepository.TaskEntry task : desktopSnapshot.tasks) {
             if (task.active) {
                 activeTask = task;
                 break;
@@ -45,11 +53,11 @@ final class DesktopTaskSnapshotController {
         // workspace: treating session foreground as HOME foreground would
         // keep the taskbar pinned over a selected fullscreen task.
         final boolean desktopHostActive =
-                isDesktopHostForeground(snapshot.tasks);
+                isDesktopHostForeground(desktopSnapshot.tasks);
         final boolean hasVisibleFreeformTask = hasVisibleFreeformTask(
-                snapshot.tasks);
+                desktopSnapshot.tasks);
         final boolean hasVisibleFullscreenTask = hasVisibleFullscreenTask(
-                snapshot.tasks);
+                desktopSnapshot.tasks);
         final boolean taskbarVisible = mSystemDialogHold.applySnapshot(
                 DesktopTaskbarVisibilityPolicy.isVisible(
                         mActivity.getCurrentDisplayId()
@@ -59,7 +67,7 @@ final class DesktopTaskSnapshotController {
                         hasVisibleFullscreenTask,
                         desktopHostActive,
                         mActivity.isTaskbarVisible()));
-        mSnapshot = snapshot;
+        mSnapshot = desktopSnapshot;
         if (activeTask != null
                 && isTaskbarTask(activeTask)) {
             DesktopPreferences.recordRecentApp(
@@ -226,5 +234,17 @@ final class DesktopTaskSnapshotController {
 
     void release() {
         mRefreshGeneration++;
+    }
+
+    private TaskRepository.Snapshot selectDesktopTaskSnapshot(
+            final TaskRepository.Snapshot snapshot) {
+        if (snapshot == null) {
+            return new TaskRepository.Snapshot(
+                    Collections.emptyList(),
+                    false,
+                    "task snapshot unavailable");
+        }
+        return MagicDeskRuntime.selectDesktopTaskSnapshot(
+                mActivity.getCurrentDisplayId(), snapshot);
     }
 }

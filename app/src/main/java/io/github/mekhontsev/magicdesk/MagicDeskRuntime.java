@@ -418,6 +418,19 @@ public final class MagicDeskRuntime {
         return tasks != null && tasks.isTaskObserverReady();
     }
 
+    static TaskRepository.Snapshot selectDesktopTaskSnapshot(
+            final int displayId,
+            final TaskRepository.Snapshot snapshot) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            return new TaskRepository.Snapshot(
+                    Collections.emptyList(),
+                    false,
+                    "desktop task runtime unavailable");
+        }
+        return tasks.selectDesktopTaskSnapshot(displayId, snapshot);
+    }
+
     static int launchWindowedTask(
             final int displayId,
             final Intent intent,

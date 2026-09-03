@@ -1079,10 +1079,18 @@ final class AppTaskController {
                         runFocusCompletion(completion, false);
                         return;
                     }
-                    mActivity.setTaskSnapshot(snapshot);
+                    final TaskRepository.Snapshot desktopSnapshot =
+                            mActivity.setTaskSnapshot(snapshot);
+                    if (!desktopSnapshot.available) {
+                        mActivity.setStatus(mActivity.getString(
+                                R.string.status_switch_failed,
+                                desktopSnapshot.error));
+                        runFocusCompletion(completion, false);
+                        return;
+                    }
                     final TaskRepository.TaskEntry currentTask =
                             DesktopShellActivity.findTask(
-                                    snapshot, task.taskId);
+                                    desktopSnapshot, task.taskId);
                     if (currentTask == null) {
                         mActivity.setStatus(mActivity.getString(
                                 R.string.status_switch_failed,

@@ -37,6 +37,57 @@ public final class DesktopTaskControllerTest {
     }
 
     @Test
+    public void desktopSnapshotExcludesForeignPhoneTasks() {
+        final TaskRepository.TaskEntry host = task(
+                40,
+                BuildConfig.APPLICATION_ID + "/.DesktopActivity",
+                "fullscreen", true, true);
+        final TaskRepository.TaskEntry desktopWindow = task(
+                41, "org.example.desktop/.MainActivity",
+                "freeform", true, false);
+        final TaskRepository.TaskEntry phoneWindow = task(
+                42, "org.example.phone/.MainActivity",
+                "fullscreen", false, false);
+
+        final TaskRepository.Snapshot selected =
+                DesktopTaskController.retainOwnedSnapshot(
+                        new TaskRepository.Snapshot(
+                                Arrays.asList(
+                                        phoneWindow,
+                                        desktopWindow,
+                                        host),
+                                true,
+                                ""),
+                        true,
+                        new HashSet<>(Arrays.asList(40, 41)));
+
+        assertTrue(selected.available);
+        assertEquals(
+                Arrays.asList(desktopWindow, host),
+                selected.tasks);
+    }
+
+    @Test
+    public void desktopSnapshotFailsClosedUntilOwnershipIsReady() {
+        final TaskRepository.TaskEntry phoneWindow = task(
+                42, "org.example.phone/.MainActivity",
+                "fullscreen", true, true);
+
+        final TaskRepository.Snapshot selected =
+                DesktopTaskController.retainOwnedSnapshot(
+                        new TaskRepository.Snapshot(
+                                Collections.singletonList(phoneWindow),
+                                true,
+                                ""),
+                        false,
+                        Collections.emptySet());
+
+        assertFalse(selected.available);
+        assertTrue(selected.tasks.isEmpty());
+        assertEquals("desktop task ownership unavailable", selected.error);
+    }
+
+    @Test
     public void identifiesOnlyDesktopActivityAsHost() {
         assertTrue(DesktopTaskController.isDesktopHostTask(task(
                 "io.github.mekhontsev.magicdesk/.DesktopActivity")));
