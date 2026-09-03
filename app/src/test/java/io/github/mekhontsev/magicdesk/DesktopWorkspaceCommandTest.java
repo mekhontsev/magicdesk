@@ -48,6 +48,17 @@ public final class DesktopWorkspaceCommandTest {
                 .requiresInputFocusCommit());
         assertTrue(command(DesktopWorkspaceCommand.RESTORE_SESSION)
                 .requiresInputFocusCommit());
+        assertTrue(command(DesktopWorkspaceCommand.PRESENT_WORKSPACE)
+                .requiresInputFocusCommit());
+    }
+
+    @Test
+    public void namesDesktopWorkspacePresentationIndependently() {
+        final DesktopWorkspaceCommand command = command(
+                DesktopWorkspaceCommand.PRESENT_WORKSPACE);
+
+        assertEquals("present-workspace", command.operationName());
+        assertFalse(command.presentsDesktop());
     }
 
     @Test(expected = IllegalArgumentException.class)

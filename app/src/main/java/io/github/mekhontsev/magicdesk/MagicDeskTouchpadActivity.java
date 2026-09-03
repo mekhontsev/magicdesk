@@ -303,6 +303,21 @@ public final class MagicDeskTouchpadActivity extends Activity {
         header.addView(title, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
+        final ImageButton desktop = new ImageButton(this);
+        desktop.setImageResource(R.drawable.ic_home_workspace);
+        desktop.setColorFilter(DesktopUiFactory.COLOR_TEXT);
+        desktop.setBackgroundColor(Color.TRANSPARENT);
+        desktop.setContentDescription(
+                getString(R.string.touchpad_present_desktop_workspace));
+        desktop.setTooltipText(
+                getString(R.string.touchpad_present_desktop_workspace));
+        desktop.setOnClickListener(view -> {
+            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+            presentDesktopWorkspace();
+        });
+        header.addView(desktop, new LinearLayout.LayoutParams(
+                ui.dp(48), ui.dp(48)));
+
         mHelpButton = new ImageButton(this);
         mHelpButton.setImageResource(android.R.drawable.ic_menu_help);
         mHelpButton.setColorFilter(DesktopUiFactory.COLOR_TEXT);
@@ -367,6 +382,14 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 0,
                 1));
         return root;
+    }
+
+    private void presentDesktopWorkspace() {
+        final DesktopDisplayTarget target =
+                DesktopRuntimeBridge.getDesktopTarget(mTargetDisplayId);
+        if (target != null && target.displayId == mTargetDisplayId) {
+            DesktopOperations.presentDesktopWorkspace(target, null);
+        }
     }
 
     private void toggleHelp() {

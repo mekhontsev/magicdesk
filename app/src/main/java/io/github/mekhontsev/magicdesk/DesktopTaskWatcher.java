@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityOptions;
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.os.Bundle;
@@ -1294,11 +1295,15 @@ final class DesktopTaskWatcher {
                         "desktop HOME activity launcher is not active");
             }
             try {
+                final Context context =
+                        MagicDeskApplication.applicationContext();
                 final ActivityOptions options = ActivityOptions.makeBasic();
                 options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
-                MagicDeskApplication.applicationContext().startActivity(
-                        PhoneHomeActivity.createOverviewIntent(
-                                MagicDeskApplication.applicationContext()),
+                DesktopShellActivity.setLaunchWindowingMode(
+                        options,
+                        FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN);
+                context.startActivity(
+                        PhoneOverviewActivity.createLaunchIntent(context),
                         options.toBundle());
             } catch (RuntimeException error) {
                 final RemoteException remote = new RemoteException(

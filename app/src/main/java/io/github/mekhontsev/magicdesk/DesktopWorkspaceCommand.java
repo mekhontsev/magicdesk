@@ -14,6 +14,7 @@ public final class DesktopWorkspaceCommand implements Parcelable {
     public static final int PRESENT_DESKTOP = 3;
     public static final int RESTORE_WORKSPACE = 4;
     public static final int RESTORE_SESSION = 5;
+    public static final int PRESENT_WORKSPACE = 6;
 
     public static final Creator<DesktopWorkspaceCommand> CREATOR =
             new Creator<DesktopWorkspaceCommand>() {
@@ -99,6 +100,8 @@ public final class DesktopWorkspaceCommand implements Parcelable {
                 return "restore-workspace";
             case RESTORE_SESSION:
                 return "restore-session";
+            case PRESENT_WORKSPACE:
+                return "present-workspace";
             default:
                 return "unknown(" + operation + ")";
         }
@@ -115,7 +118,8 @@ public final class DesktopWorkspaceCommand implements Parcelable {
     }
 
     private static boolean isKnownOperation(final int operation) {
-        return operation >= ACTIVATE && operation <= RESTORE_SESSION;
+        return operation >= ACTIVATE
+                && operation <= PRESENT_WORKSPACE;
     }
 
     @Override

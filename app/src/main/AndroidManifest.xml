@@ -196,6 +196,13 @@
         </activity>
 
         <activity
+            android:name=".PhoneOverviewActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="${applicationId}.phone_overview" />
+
+        <activity
             android:name=".PhoneDesktopHomeActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
             android:enabled="false"

@@ -276,6 +276,59 @@ public final class DesktopTaskControllerTest {
     }
 
     @Test
+    public void presentWorkspaceDemotesFullscreenAndRaisesEveryFreeform() {
+        final TaskRepository.TaskEntry fullscreen = task(
+                12, "com.example.fullscreen/.MainActivity",
+                "fullscreen", true, true);
+        final TaskRepository.TaskEntry top = task(
+                10, "com.example.top/.MainActivity", true, false);
+        final TaskRepository.TaskEntry lower = task(
+                11, "com.example.lower/.MainActivity", false, false);
+        final TaskRepository.TaskEntry host = task(
+                "io.github.mekhontsev.magicdesk/.DesktopActivity");
+
+        final TaskbarTaskOrder.WorkspacePresentation presentation =
+                TaskbarTaskOrder.presentWorkspace(
+                        new TaskRepository.Snapshot(
+                                Arrays.asList(
+                                        fullscreen, top, host, lower),
+                                true,
+                                ""),
+                        Arrays.asList(top, lower),
+                        host.taskId);
+
+        assertEquals(Arrays.asList(12, 1, 11, 10),
+                presentation.physicalOrder);
+        assertEquals(new HashSet<>(Arrays.asList(10, 11)),
+                presentation.freeformTaskIds);
+        assertEquals(Collections.singleton(Integer.valueOf(12)),
+                presentation.fullscreenTaskIds);
+    }
+
+    @Test
+    public void presentWorkspaceTargetsHostWithoutFreeformWindows() {
+        final TaskRepository.TaskEntry fullscreen = task(
+                12, "com.example.fullscreen/.MainActivity",
+                "fullscreen", true, true);
+        final TaskRepository.TaskEntry host = task(
+                "io.github.mekhontsev.magicdesk/.DesktopActivity");
+
+        final TaskbarTaskOrder.WorkspacePresentation presentation =
+                TaskbarTaskOrder.presentWorkspace(
+                        new TaskRepository.Snapshot(
+                                Arrays.asList(fullscreen, host),
+                                true,
+                                ""),
+                        Collections.emptyList(),
+                        host.taskId);
+
+        assertEquals(Arrays.asList(12, 1), presentation.physicalOrder);
+        assertTrue(presentation.freeformTaskIds.isEmpty());
+        assertEquals(Collections.singleton(Integer.valueOf(12)),
+                presentation.fullscreenTaskIds);
+    }
+
+    @Test
     public void showDesktopRestoreDropsClosedTasksWithoutReordering() {
         final TaskRepository.TaskEntry bottom = task(
                 12, "com.example.bottom/.MainActivity", true, false);

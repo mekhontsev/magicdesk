@@ -51,6 +51,10 @@ final class DesktopSessionController {
         }
         final DesktopSessionPolicy resolvedPolicy = policy == null
                 ? DesktopSessionPolicy.USER : policy;
+        if (presentExistingSession(
+                preparedTarget, resolvedPolicy, null)) {
+            return new ShowResult(true, false);
+        }
         final DesktopHomeRoleLease.AcquireResult homeAcquisition =
                 DesktopHomeRoleLease.acquire(preparedTarget, resolvedPolicy);
         DesktopRuntimeBridge.noteDesktopTarget(
@@ -128,6 +132,45 @@ final class DesktopSessionController {
                     preparedTarget.displayId);
             throw error;
         }
+    }
+
+    static boolean presentExistingSession(
+            final DesktopDisplayTarget target,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        return presentExistingSession(target, session.policy(), callback);
+    }
+
+    static boolean presentExistingSession(
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy,
+            final TaskRepository.ActionCallback callback) {
+        if (target == null || policy == null) {
+            return false;
+        }
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        final DesktopDisplayTarget activeTarget = session.target();
+        final DesktopHomeRoleLease.State lease =
+                DesktopHomeRoleLease.snapshot();
+        if (!session.hasHost()
+                || session.activeDisplayId() != target.displayId
+                || activeTarget == null
+                || activeTarget.kind != target.kind
+                || activeTarget.displayId != target.displayId
+                || session.policy() != policy
+                || lease == null
+                || lease.phase != DesktopHomeRoleLease.Phase.ACTIVE
+                || !lease.matches(target)) {
+            return false;
+        }
+        MagicDeskRuntime.presentDesktopWorkspace(
+                target.displayId, session.hostTaskId(), callback);
+        Log.i(TAG, "presenting existing desktop kind=" + target.kind
+                + " display=" + target.displayId
+                + " task=" + session.hostTaskId());
+        return true;
     }
 
     private static ShowResult showPrimaryHome(

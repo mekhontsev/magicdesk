@@ -393,11 +393,14 @@
     <string name="status_wireless_display_connecting">Choose a wireless display&#8230;</string>
     <string name="status_wireless_desktop_starting">Starting wireless desktop&#8230;</string>
     <string name="status_desktop_opening">Opening desktop here&#8230;</string>
+    <string name="status_desktop_present_failed">Could not return to the desktop</string>
+    <string name="status_close_current_desktop_first">Close the current desktop first</string>
     <string name="status_desktop_closing">Closing desktop&#8230;</string>
     <string name="status_close_desktop_failed">Could not close the external desktop</string>
     <string name="status_touchpad_opening">Opening touchpad&#8230;</string>
     <string name="touchpad_title">Touchpad</string>
     <string name="touchpad_toggle_keyboard">Show or hide keyboard</string>
+    <string name="touchpad_present_desktop_workspace">Return to desktop workspace</string>
     <string name="touchpad_help">Touchpad help</string>
     <string name="touchpad_gestures_title">Touch gestures</string>
     <string name="touchpad_gesture_move">Move</string>

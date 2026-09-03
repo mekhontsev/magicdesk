@@ -1049,6 +1049,70 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public void presentDesktopWorkspace(
+            final int displayId,
+            final int desktopHostTaskId,
+            final TaskRepository.ActionCallback callback) {
+        if (displayId < 0 || desktopHostTaskId < 0) {
+            completeActionCallback(callback, false, "invalid desktop host");
+            return;
+        }
+        final int generation = mGeneration;
+        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != displayId || !mTaskWatcherReady) {
+                completeActionCallback(
+                        callback, false, "desktop task runtime unavailable");
+                return;
+            }
+            if (!snapshot.available) {
+                completeActionCallback(callback, false, snapshot.error);
+                return;
+            }
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
+            if (!workspace.available) {
+                completeActionCallback(callback, false, workspace.error);
+                return;
+            }
+            final TaskbarTaskOrder.WorkspacePresentation presentation =
+                    TaskbarTaskOrder.presentWorkspace(
+                            workspace,
+                            mDisplayTaskState.lastVisibleTasks(),
+                            desktopHostTaskId);
+            if (presentation == null
+                    || presentation.physicalOrder.isEmpty()) {
+                completeActionCallback(
+                        callback, false, "desktop host unavailable");
+                return;
+            }
+            final int targetTaskId = presentation.physicalOrder.get(
+                    presentation.physicalOrder.size() - 1).intValue();
+            sendWorkspaceCommand(
+                    DesktopWorkspaceCommand.PRESENT_WORKSPACE,
+                    displayId,
+                    presentation.physicalOrder,
+                    beginFocusTracking(targetTaskId, result -> {
+                        if (result.success) {
+                            synchronized (mTaskbarConcealedTaskIds) {
+                                mTaskbarConcealedTaskIds.removeAll(
+                                        presentation.freeformTaskIds);
+                                mTaskbarConcealedTaskIds.addAll(
+                                        presentation.fullscreenTaskIds);
+                                mShowDesktopRestoreOrder =
+                                        Collections.emptyList();
+                                mShowDesktopNewlyConcealedTaskIds =
+                                        Collections.emptySet();
+                            }
+                            scheduleRefresh(0);
+                        }
+                        completeActionCallback(
+                                callback, result.success, result.message);
+                    }));
+        }));
+    }
+
+    @Override
     public void restoreShowDesktopWorkspace(
             final int displayId,
             final int desktopHostTaskId,

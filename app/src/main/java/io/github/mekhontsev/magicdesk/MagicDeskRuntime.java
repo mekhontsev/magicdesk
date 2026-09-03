@@ -642,6 +642,24 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void presentDesktopWorkspace(
+            final int displayId,
+            final int desktopHostTaskId,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks != null) {
+            tasks.presentDesktopWorkspace(
+                    displayId, desktopHostTaskId, callback);
+        } else {
+            completeTaskAction(
+                    callback, false, "desktop task runtime unavailable");
+        }
+    }
+
+    static int activeDesktopDisplayId() {
+        return DesktopRuntimeBridge.getActiveDesktopDisplayId();
+    }
+
     static void restoreShowDesktopWorkspace(
             final int displayId,
             final int desktopHostTaskId,

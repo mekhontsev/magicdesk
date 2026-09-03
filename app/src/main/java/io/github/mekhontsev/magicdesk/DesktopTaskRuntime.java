@@ -83,6 +83,11 @@ interface DesktopTaskRuntime {
             int desktopHostTaskId,
             TaskRepository.ActionCallback callback);
 
+    void presentDesktopWorkspace(
+            int displayId,
+            int desktopHostTaskId,
+            TaskRepository.ActionCallback callback);
+
     void restoreShowDesktopWorkspace(
             int displayId,
             int desktopHostTaskId,

@@ -24,6 +24,21 @@ final class TaskbarTaskOrder {
         }
     }
 
+    static final class WorkspacePresentation {
+        final List<Integer> physicalOrder;
+        final Set<Integer> freeformTaskIds;
+        final Set<Integer> fullscreenTaskIds;
+
+        WorkspacePresentation(
+                final List<Integer> physicalOrder,
+                final Set<Integer> freeformTaskIds,
+                final Set<Integer> fullscreenTaskIds) {
+            this.physicalOrder = physicalOrder;
+            this.freeformTaskIds = freeformTaskIds;
+            this.fullscreenTaskIds = fullscreenTaskIds;
+        }
+    }
+
     private TaskbarTaskOrder() {
     }
 
@@ -139,6 +154,98 @@ final class TaskbarTaskOrder {
                 Collections.unmodifiableList(physicalOrder),
                 Collections.unmodifiableList(restoreOrder),
                 Collections.unmodifiableSet(newlyConcealedTaskIds));
+    }
+
+    static WorkspacePresentation presentWorkspace(
+            final TaskRepository.Snapshot snapshot,
+            final List<TaskRepository.TaskEntry> savedWorkspaceTopFirst,
+            final int desktopHostTaskId) {
+        if (snapshot == null || !snapshot.available) {
+            return null;
+        }
+        final TaskRepository.TaskEntry desktopHost = findDesktopHost(
+                snapshot.tasks, desktopHostTaskId);
+        if (desktopHost == null) {
+            return null;
+        }
+        final List<TaskRepository.TaskEntry> freeformsTopFirst =
+                new ArrayList<>();
+        final Set<Integer> freeformTaskIds = new LinkedHashSet<>();
+        addLiveFreeforms(
+                freeformsTopFirst,
+                freeformTaskIds,
+                snapshot.tasks,
+                savedWorkspaceTopFirst,
+                desktopHost.displayId);
+
+        final List<Integer> physicalOrder = new ArrayList<>();
+        final Set<Integer> fullscreenTaskIds = new LinkedHashSet<>();
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (task == null || task.displayId != desktopHost.displayId
+                    || !task.isFullscreen()
+                    || !DesktopManagedTaskPolicy
+                            .isControllableApplicationTask(task)
+                    || !fullscreenTaskIds.add(
+                            Integer.valueOf(task.taskId))) {
+                continue;
+            }
+            physicalOrder.add(Integer.valueOf(task.taskId));
+        }
+        physicalOrder.add(Integer.valueOf(desktopHost.taskId));
+        for (int index = freeformsTopFirst.size() - 1;
+                index >= 0;
+                index--) {
+            physicalOrder.add(Integer.valueOf(
+                    freeformsTopFirst.get(index).taskId));
+        }
+        return new WorkspacePresentation(
+                Collections.unmodifiableList(physicalOrder),
+                Collections.unmodifiableSet(freeformTaskIds),
+                Collections.unmodifiableSet(fullscreenTaskIds));
+    }
+
+    private static void addLiveFreeforms(
+            final List<TaskRepository.TaskEntry> freeformsTopFirst,
+            final Set<Integer> includedTaskIds,
+            final List<TaskRepository.TaskEntry> liveTasks,
+            final List<TaskRepository.TaskEntry> preferredTopFirst,
+            final int displayId) {
+        if (preferredTopFirst != null) {
+            for (final TaskRepository.TaskEntry preferred
+                    : preferredTopFirst) {
+                final TaskRepository.TaskEntry live = preferred == null
+                        ? null : findTask(liveTasks, preferred.taskId);
+                addLiveFreeform(
+                        freeformsTopFirst,
+                        includedTaskIds,
+                        live,
+                        displayId);
+            }
+        }
+        if (liveTasks != null) {
+            for (final TaskRepository.TaskEntry task : liveTasks) {
+                addLiveFreeform(
+                        freeformsTopFirst,
+                        includedTaskIds,
+                        task,
+                        displayId);
+            }
+        }
+    }
+
+    private static void addLiveFreeform(
+            final List<TaskRepository.TaskEntry> freeformsTopFirst,
+            final Set<Integer> includedTaskIds,
+            final TaskRepository.TaskEntry task,
+            final int displayId) {
+        if (task == null || task.displayId != displayId
+                || !task.isFreeform()
+                || !DesktopManagedTaskPolicy
+                        .isControllableApplicationTask(task)
+                || !includedTaskIds.add(Integer.valueOf(task.taskId))) {
+            return;
+        }
+        freeformsTopFirst.add(task);
     }
 
     private static List<TaskRepository.TaskEntry> resolveVisibleTasks(

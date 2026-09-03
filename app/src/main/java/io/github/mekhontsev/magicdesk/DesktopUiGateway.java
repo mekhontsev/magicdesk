@@ -813,26 +813,6 @@ final class DesktopUiGateway {
         return result[0];
     }
 
-    boolean focusDesktopOnDisplay(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
-        if (activity == null
-                || activity.getCurrentDisplayId() != displayId) {
-            return false;
-        }
-        final int taskId = activity.getTaskId();
-        MagicDeskRuntime.focusDesktopTask(
-                displayId,
-                taskId,
-                result -> {
-                    if (!result.success) {
-                        Log.w(TAG, "Could not focus desktop task=" + taskId
-                                + " display=" + displayId
-                                + " result=" + result.message);
-                    }
-                });
-        return true;
-    }
-
     private boolean toggleShowDesktopWorkspaceOnDisplay(
             final int displayId,
             final TaskRepository.ActionCallback callback) {

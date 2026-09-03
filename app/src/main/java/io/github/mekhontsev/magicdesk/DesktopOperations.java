@@ -54,8 +54,7 @@ public final class DesktopOperations {
                 boolean success = false;
                 try {
                     final int desktopDisplayId = screenOff
-                            ? DesktopRuntimeBridge
-                                    .getActiveDesktopDisplayId()
+                            ? MagicDeskRuntime.activeDesktopDisplayId()
                             : android.view.Display.INVALID_DISPLAY;
                     success = PHONE_UI.setPhoneScreenOff(
                             screenOff, desktopDisplayId);
@@ -97,6 +96,18 @@ public final class DesktopOperations {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         TRANSITIONS.showDesktop(target, policy);
+    }
+
+    static boolean presentDesktopWorkspace(
+            final DesktopDisplayTarget target,
+            final ResultCallback callback) {
+        final TaskRepository.ActionCallback actionCallback = result -> {
+            if (callback != null) {
+                callback.onComplete(result != null && result.success);
+            }
+        };
+        return DesktopSessionController.presentExistingSession(
+                target, actionCallback);
     }
 
     static void recoverDesktopSession(
@@ -217,8 +228,7 @@ public final class DesktopOperations {
                     final int displayId = target != null
                             && target.displayId > 0
                             ? target.displayId
-                            : DesktopRuntimeBridge
-                                    .getActiveDesktopDisplayId();
+                            : MagicDeskRuntime.activeDesktopDisplayId();
                     if (displayId <= 0) {
                         success = true;
                         return;

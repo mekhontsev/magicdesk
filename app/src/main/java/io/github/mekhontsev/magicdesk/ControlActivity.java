@@ -297,6 +297,14 @@ public final class ControlActivity extends Activity
     public void openDesktopHere() {
         mStatus = getString(R.string.status_desktop_opening);
         refresh();
+        final DesktopDisplayTarget activeTarget =
+                DesktopRuntimeBridge.getActiveDesktopTarget();
+        if (activeTarget != null
+                && activeTarget.kind != DesktopDisplayTarget.Kind.PHONE) {
+            mStatus = getString(R.string.control_status_desktop_active);
+            refresh();
+            return;
+        }
         final int displayId = currentDisplayId();
         final DesktopDisplayTarget target = displayId == Display.DEFAULT_DISPLAY
                 ? DesktopDisplayTarget.phone()
@@ -311,11 +319,19 @@ public final class ControlActivity extends Activity
             refresh();
             return;
         }
+        if (mSessionController.presentDesktopWorkspace(target)) {
+            return;
+        }
         DesktopOperations.showDesktop(target);
     }
 
     @Override
     public void showExternalDesktop() {
+        if (isPhoneDesktopActiveOrStarting()) {
+            mStatus = getString(R.string.status_close_current_desktop_first);
+            refresh();
+            return;
+        }
         if (!ShellAccess.isReady()
                 || !DesktopDisplayDrivers.isExternalDesktopSupported()) {
             mStatus = getString(R.string.status_external_display_unavailable);
@@ -351,7 +367,7 @@ public final class ControlActivity extends Activity
     @Override
     public void connectWirelessDisplay() {
         if (!mWirelessConnectionUiAvailable
-                || isExternalDesktopActive()
+                || hasDesktopSessionActiveOrStarting()
                 || isDisplayConnected(mWirelessDisplayId)) {
             mStatus = getString(R.string.status_external_display_unavailable);
             refresh();
@@ -368,6 +384,11 @@ public final class ControlActivity extends Activity
     }
 
     private void launchWirelessDesktop(final int displayId) {
+        if (isPhoneDesktopActiveOrStarting()) {
+            mStatus = getString(R.string.status_close_current_desktop_first);
+            refresh();
+            return;
+        }
         mExternalDisplayProfile = null;
         mExternalModeSelection = null;
         mExternalDisplaySummary = describeExternalDisplay(displayId, null);
@@ -378,6 +399,11 @@ public final class ControlActivity extends Activity
     }
 
     private void startExternalDesktopAfterProbe() {
+        if (isPhoneDesktopActiveOrStarting()) {
+            mStatus = getString(R.string.status_close_current_desktop_first);
+            refresh();
+            return;
+        }
         mStatus = getString(R.string.status_desktop_starting);
         refresh();
         if (mWiredDisplayId > Display.DEFAULT_DISPLAY) {
@@ -554,6 +580,7 @@ public final class ControlActivity extends Activity
         final int externalDesktopDisplayId = activeDesktopDisplayId;
         mPanel.render(new PhoneControlPanelController.State(
                 desktopSessionActive,
+                mSessionController.isOperationInProgress(),
                 externalDesktopActive,
                 activeDesktopDisplayId > Display.DEFAULT_DISPLAY
                         && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
@@ -737,6 +764,17 @@ public final class ControlActivity extends Activity
         return target != null
                 && target.displayId > Display.DEFAULT_DISPLAY
                 && target.kind != DesktopDisplayTarget.Kind.PHONE;
+    }
+
+    private boolean isPhoneDesktopActiveOrStarting() {
+        final DesktopDisplayTarget target =
+                DesktopRuntimeBridge.getActiveDesktopTarget();
+        return target != null
+                && target.kind == DesktopDisplayTarget.Kind.PHONE;
+    }
+
+    private boolean hasDesktopSessionActiveOrStarting() {
+        return DesktopRuntimeBridge.getActiveDesktopTarget() != null;
     }
 
     private String describeExternalDisplay(

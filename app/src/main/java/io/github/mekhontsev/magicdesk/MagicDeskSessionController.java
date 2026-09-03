@@ -22,6 +22,47 @@ final class MagicDeskSessionController {
         mPhoneUi = mPlatform.phoneUi();
     }
 
+    boolean isOperationInProgress() {
+        return mOperationInProgress;
+    }
+
+    boolean presentDesktopWorkspace(final DesktopDisplayTarget target) {
+        if (mOperationInProgress) {
+            return true;
+        }
+        mOperationInProgress = true;
+        final boolean accepted = DesktopOperations.presentDesktopWorkspace(
+                target,
+                success -> {
+                    mOperationInProgress = false;
+                    final int statusResource = presentationStatusResource(
+                            target, success);
+                    mActivity.runOnUiThread(() -> {
+                        if (mActivity.isFinishing()
+                                || mActivity.isDestroyed()) {
+                            return;
+                        }
+                        mHost.showSessionStatus(
+                                mActivity.getString(statusResource));
+                    });
+                });
+        if (!accepted) {
+            mOperationInProgress = false;
+        }
+        return accepted;
+    }
+
+    private static int presentationStatusResource(
+            final DesktopDisplayTarget target,
+            final boolean success) {
+        if (!success) {
+            return R.string.status_desktop_present_failed;
+        }
+        return target.kind == DesktopDisplayTarget.Kind.PHONE
+                ? R.string.control_status_ready
+                : R.string.control_status_desktop_active;
+    }
+
     void exit() {
         if (mOperationInProgress) {
             return;
@@ -194,12 +235,19 @@ final class MagicDeskSessionController {
             final boolean success,
             final String code,
             final int messageResource) {
-        if (!success) {
-            abort(
-                    code,
-                    mActivity.getString(messageResource),
-                    null);
+        if (success) {
+            mActivity.runOnUiThread(() -> {
+                if (!mActivity.isFinishing() && !mActivity.isDestroyed()) {
+                    mHost.showSessionStatus(mActivity.getString(
+                            R.string.control_status_ready));
+                }
+            });
+            return;
         }
+        abort(
+                code,
+                mActivity.getString(messageResource),
+                null);
     }
 
     private void finishExit() {

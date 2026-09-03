@@ -57,6 +57,7 @@ final class PhoneControlPanelController {
 
     static final class State {
         final boolean desktopSessionActive;
+        final boolean sessionOperationInProgress;
         final boolean externalDesktopActive;
         final boolean desktopReady;
         final boolean shellReady;
@@ -80,6 +81,7 @@ final class PhoneControlPanelController {
 
         State(
                 final boolean desktopSessionActive,
+                final boolean sessionOperationInProgress,
                 final boolean externalDesktopActive,
                 final boolean desktopReady,
                 final boolean shellReady,
@@ -101,6 +103,7 @@ final class PhoneControlPanelController {
                 final int currentDisplayId,
                 final int externalDesktopDisplayId) {
             this.desktopSessionActive = desktopSessionActive;
+            this.sessionOperationInProgress = sessionOperationInProgress;
             this.externalDesktopActive = externalDesktopActive;
             this.desktopReady = desktopReady;
             this.shellReady = shellReady;
@@ -139,6 +142,7 @@ final class PhoneControlPanelController {
     private LinearLayout mExternalDisplayOptions;
     private Button mConnectWirelessDisplay;
     private Button mExternalDesktop;
+    private Button mDesktopHere;
     private Button mCloseDesktop;
     private Button mTouchpad;
     private Button mPhoneScreen;
@@ -234,17 +238,23 @@ final class PhoneControlPanelController {
                         || state.externalDisplayState
                                 == ExternalDisplayState.CONNECTED
                         || state.simulatedDesktopAvailable;
-        mExternalDesktop.setEnabled(
-                state.shellReady
-                        && state.externalDesktopSupported
-                        && canStartOrShowExternalDesktop);
+        mExternalDesktop.setEnabled(canOpenExternalDesktop(
+                state.desktopSessionActive,
+                state.externalDesktopActive,
+                state.shellReady,
+                state.externalDesktopSupported,
+                canStartOrShowExternalDesktop,
+                state.sessionOperationInProgress));
         final boolean canConnectWireless =
                 state.wirelessConnectionUiAvailable
-                        && !state.externalDesktopActive
+                        && !state.desktopSessionActive
                         && !state.wirelessDisplayConnected;
-        mConnectWirelessDisplay.setVisibility(
-                canConnectWireless ? View.VISIBLE : View.GONE);
         mConnectWirelessDisplay.setEnabled(canConnectWireless);
+        mDesktopHere.setEnabled(canOpenDesktopHere(
+                state.desktopSessionActive,
+                state.externalDesktopActive,
+                state.shellReady,
+                state.sessionOperationInProgress));
         final boolean canConfigureOutput =
                 !state.externalDesktopActive
                         && state.shellReady
@@ -261,30 +271,20 @@ final class PhoneControlPanelController {
                 && mOutputModesConfigurable
                 && !mOutputModes.isEmpty());
         final boolean canCloseDesktop = canCloseDesktop(
-                state.desktopSessionActive, state.shellReady);
+                state.desktopSessionActive,
+                state.shellReady,
+                state.sessionOperationInProgress);
         final boolean canOpenTouchpad = state.externalDesktopActive
                 && state.shellReady
                 && state.phoneTouchpadAvailable;
         final boolean canControlPhoneScreen = state.externalDesktopActive
                 && state.phoneScreenControlAvailable;
-        mCloseDesktop.setVisibility(
-                shouldShowCloseDesktop(state.desktopSessionActive)
-                        ? View.VISIBLE : View.GONE);
         mCloseDesktop.setEnabled(canCloseDesktop);
-        mTouchpad.setVisibility(
-                canOpenTouchpad ? View.VISIBLE : View.GONE);
         mTouchpad.setEnabled(canOpenTouchpad);
         mPhoneScreen.setText(state.phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off);
-        mPhoneScreen.setVisibility(
-                canControlPhoneScreen ? View.VISIBLE : View.GONE);
         mPhoneScreen.setEnabled(canControlPhoneScreen);
-        mSessionActions.setVisibility(
-                shouldShowCloseDesktop(state.desktopSessionActive)
-                        || canOpenTouchpad
-                        || canControlPhoneScreen
-                        ? View.VISIBLE : View.GONE);
         // Spinner selection callbacks can be posted after setSelection(). Keep
         // rendering guarded through the current UI turn so merely displaying a
         // mode never persists it as a user choice.
@@ -295,15 +295,35 @@ final class PhoneControlPanelController {
         });
     }
 
-    static boolean shouldShowCloseDesktop(
-            final boolean desktopSessionActive) {
-        return desktopSessionActive;
-    }
-
     static boolean canCloseDesktop(
             final boolean desktopSessionActive,
-            final boolean shellReady) {
-        return desktopSessionActive && shellReady;
+            final boolean shellReady,
+            final boolean operationInProgress) {
+        return desktopSessionActive && shellReady && !operationInProgress;
+    }
+
+    static boolean canOpenDesktopHere(
+            final boolean desktopSessionActive,
+            final boolean externalDesktopActive,
+            final boolean shellReady,
+            final boolean operationInProgress) {
+        return shellReady
+                && !operationInProgress
+                && (!desktopSessionActive || !externalDesktopActive);
+    }
+
+    static boolean canOpenExternalDesktop(
+            final boolean desktopSessionActive,
+            final boolean externalDesktopActive,
+            final boolean shellReady,
+            final boolean externalDesktopSupported,
+            final boolean externalTargetAvailable,
+            final boolean operationInProgress) {
+        return shellReady
+                && externalDesktopSupported
+                && externalTargetAvailable
+                && !operationInProgress
+                && (!desktopSessionActive || externalDesktopActive);
     }
 
     private View createHeader() {
@@ -388,10 +408,10 @@ final class PhoneControlPanelController {
         secondaryActions.addView(
                 mConnectWirelessDisplay, rowActionParams(false));
 
-        final Button desktopHere = actionButton(
+        mDesktopHere = actionButton(
                 R.string.action_desktop_this_screen, COLOR_PANEL_ALT);
-        desktopHere.setOnClickListener(view -> mActions.openDesktopHere());
-        secondaryActions.addView(desktopHere, rowActionParams(true));
+        mDesktopHere.setOnClickListener(view -> mActions.openDesktopHere());
+        secondaryActions.addView(mDesktopHere, rowActionParams(true));
         parent.addView(secondaryActions, fullWidthWrapParams(0));
 
         addExternalDisplayOptions(parent);
@@ -412,6 +432,11 @@ final class PhoneControlPanelController {
                 R.string.action_phone_screen_off, COLOR_CYAN);
         mPhoneScreen.setOnClickListener(view -> mActions.togglePhoneScreen());
         addGridAction(mSessionActions, mPhoneScreen);
+
+        final Button settings = actionButton(
+                R.string.action_settings, COLOR_PANEL_ALT);
+        settings.setOnClickListener(view -> mActions.openSettings());
+        addGridAction(mSessionActions, settings);
         parent.addView(mSessionActions, fullWidthWrapParams(dp(6)));
     }
 
@@ -558,11 +583,6 @@ final class PhoneControlPanelController {
 
     private void addSystemActions(final LinearLayout parent) {
         final GridLayout actions = actionGrid();
-
-        final Button settings = actionButton(
-                R.string.action_settings, COLOR_PANEL_ALT);
-        settings.setOnClickListener(view -> mActions.openSettings());
-        addGridAction(actions, settings);
 
         final Button exit = actionButton(R.string.action_exit, COLOR_RED);
         exit.setOnClickListener(view -> mActions.exitMagicDesk());

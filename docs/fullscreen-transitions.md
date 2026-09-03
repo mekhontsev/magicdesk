@@ -199,6 +199,11 @@ residency are prepared first, then `RESTORE_SESSION` publishes one final
 workspace order instead of focusing the host through a separate raw shell
 route.
 
+`PRESENT_WORKSPACE` is the non-toggle return-to-desktop operation. It keeps all
+live managed freeform tasks above HOME while demoting every managed fullscreen
+plane below HOME. The operation is scoped to the active desktop display and
+does not change task mode, bounds, parent, or tasks on any other display.
+
 An orientation change can make Android report the saved freeform mode and
 bounds before WMShell has recreated the task decoration. Orientation task
 callbacks wake the shell observer immediately and route the task through the

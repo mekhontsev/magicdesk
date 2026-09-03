@@ -54,6 +54,24 @@ public final class PhoneOverviewTaskPolicyTest {
         assertEquals(22, selected.get(0).taskId);
     }
 
+    @Test
+    public void excludesFullscreenTasksOwnedByPhoneDesktop() {
+        final TaskRepository.TaskEntry phoneApp = task(
+                30, 30, 0, "com.example.phone", "fullscreen", false);
+        final TaskRepository.TaskEntry desktopFullscreen = task(
+                31, 31, 0, "com.example.desktop", "fullscreen", false);
+
+        final List<TaskRepository.TaskEntry> selected =
+                PhoneOverviewTaskPolicy.select(
+                        Arrays.asList(phoneApp, desktopFullscreen),
+                        MAGICDESK,
+                        PREVIOUS_HOME,
+                        Arrays.asList(desktopFullscreen));
+
+        assertEquals(1, selected.size());
+        assertEquals(phoneApp, selected.get(0));
+    }
+
     private static TaskRepository.TaskEntry task(
             final int rootTaskId,
             final int taskId,

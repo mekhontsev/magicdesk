@@ -839,7 +839,16 @@ public abstract class DesktopShellActivity extends Activity
             setStartMenuVisible(true);
         } else if (ACTION_RESTORE_WINDOWS.equals(action)) {
             restoreLastVisibleWindows();
+        } else if (isPhoneDesktopHomeIntent(intent)) {
+            DesktopOperations.presentDesktopWorkspace(
+                    resolvedDesktopTarget(), null);
         }
+    }
+
+    private boolean isPhoneDesktopHomeIntent(final Intent intent) {
+        return mDesktopTargetKind == DesktopDisplayTarget.Kind.PHONE
+                && Intent.ACTION_MAIN.equals(intent.getAction())
+                && intent.hasCategory(Intent.CATEGORY_HOME);
     }
 
     static Intent createShowStartIntent(

@@ -266,9 +266,10 @@ UI and automation controllers never construct their own fullscreen stack or
 transition sequence.
 
 The process boundary is `DesktopWorkspaceCommand`, with distinct activate,
-demote, desktop presentation, workspace restore, and session restore
-operations. The command carries a named back-to-front plan; it is never
-interpreted as an operation merely from the shape of an integer list.
+demote, bare-desktop presentation, desktop-workspace presentation, workspace
+restore, and session restore operations. The command carries a named
+back-to-front plan; it is never interpreted as an operation merely from the
+shape of an integer list.
 `ShellDesktopWorkspaceCoordinator` serializes the commands for the configured
 display and is the sole adapter from logical workspace intent to
 `ShellFullscreenTaskArea` and ordinary task ordering. The application retains
@@ -1373,6 +1374,38 @@ HOME is transferred on normal close, failed start, self-test cleanup, or
 unexpected display loss. Recents therefore returns to the system launcher at
 the HOME ownership boundary rather than at the end of task cleanup; the check
 runs only for an attempted Recents launch and adds no background work.
+During either an external or phone-desktop session, that request opens the same
+`PhoneOverviewActivity` on display 0. It lists only ordinary phone tasks outside
+the active desktop ownership set. Managed freeform and fullscreen tasks remain
+available through the desktop taskbar and task overview instead. The firmware
+gesture therefore retains normal phone Recents semantics without enabling
+Quickstep or mixing the two task sets.
+
+Returning to an already active desktop is display-scoped and does not restart
+the session. `PRESENT_WORKSPACE` orders every managed fullscreen plane below
+the HOME host and raises every live managed freeform task above it. On a phone
+desktop, Android's HOME intent and a repeated **Open desktop here** request use
+this operation; a foreign fullscreen phone task is left to Android's normal
+HOME transition. The external-session touchpad exposes the same operation for
+its target display, so its own phone task and every other display remain
+untouched. `PRESENT_DESKTOP` remains the separate command that conceals all
+application windows to expose bare wallpaper.
+
+**Open desktop here** is a phone-target action. The control panel keeps it in a
+stable location but disables it while an external desktop session is active;
+the action boundary rejects the same conflicting request if it arrives through
+an intent instead of the button. **Start external desktop** and wireless
+connection actions are disabled while a phone desktop is active, with the same
+guard repeated at their action boundaries. Switching targets therefore requires
+closing the current desktop session first.
+
+Task mode is not an ownership signal on display 0. MagicDesk claims a task
+before submitting a desktop launch or window transition, and only claimed
+tasks publish immersive, orientation, mode, and bounds changes to the desktop
+window controller. This prevents a SystemUI launch that briefly reports
+freeform from being restored or resized by MagicDesk. The active external
+display remains an ownership boundary of its own, so every standard task
+observed there is published regardless of mode.
 
 Task snapshots and windowing commands issued through `TaskRepository` share a
 single `TaskCommandQueue` with phone-task recovery. Recovery observes the

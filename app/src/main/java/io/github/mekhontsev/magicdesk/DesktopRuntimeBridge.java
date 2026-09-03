@@ -293,10 +293,6 @@ public final class DesktopRuntimeBridge {
                 displayId, elementId, action);
     }
 
-    static boolean focusDesktopOnDisplay(final int displayId) {
-        return UI.focusDesktopOnDisplay(displayId);
-    }
-
     static void prepareTaskFocus(
             final int displayId, final int taskId) {
         UI.prepareTaskFocus(displayId, taskId);
