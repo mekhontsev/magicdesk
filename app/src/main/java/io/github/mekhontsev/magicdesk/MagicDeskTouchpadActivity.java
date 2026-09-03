@@ -26,7 +26,6 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.TextView;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 
@@ -296,12 +295,22 @@ public final class MagicDeskTouchpadActivity extends Activity {
         header.addView(close, new LinearLayout.LayoutParams(
                 ui.dp(48), ui.dp(48)));
 
-        final TextView title = new TextView(this);
-        title.setText(R.string.touchpad_title);
-        title.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        title.setTextSize(20);
-        header.addView(title, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        header.addView(new View(this), new LinearLayout.LayoutParams(
+                0, 0, 1));
+
+        final ImageButton fullscreen = headerButton(
+                R.drawable.ic_arrow_up,
+                R.string.touchpad_fullscreen_current_window,
+                view -> manageActiveWindow(
+                        DesktopTaskController.SHORTCUT_FULLSCREEN));
+        header.addView(fullscreen, headerButtonParams(ui));
+
+        final ImageButton restore = headerButton(
+                R.drawable.ic_arrow_down,
+                R.string.touchpad_restore_current_window,
+                view -> manageActiveWindow(
+                        DesktopTaskController.SHORTCUT_RESTORE));
+        header.addView(restore, headerButtonParams(ui));
 
         final ImageButton desktop = new ImageButton(this);
         desktop.setImageResource(R.drawable.ic_home_workspace);
@@ -382,6 +391,33 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 0,
                 1));
         return root;
+    }
+
+    private ImageButton headerButton(
+            final int iconResource,
+            final int descriptionResource,
+            final View.OnClickListener listener) {
+        final ImageButton button = new ImageButton(this);
+        button.setImageResource(iconResource);
+        button.setColorFilter(DesktopUiFactory.COLOR_TEXT);
+        button.setBackgroundColor(Color.TRANSPARENT);
+        button.setContentDescription(getString(descriptionResource));
+        button.setTooltipText(getString(descriptionResource));
+        button.setOnClickListener(view -> {
+            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+            listener.onClick(view);
+        });
+        return button;
+    }
+
+    private static LinearLayout.LayoutParams headerButtonParams(
+            final DesktopUiFactory ui) {
+        return new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48));
+    }
+
+    private void manageActiveWindow(final int shortcut) {
+        hideHelp();
+        DesktopOperations.manageActiveWindow(shortcut);
     }
 
     private void presentDesktopWorkspace() {
