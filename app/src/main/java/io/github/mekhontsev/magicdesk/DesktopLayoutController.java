@@ -86,8 +86,10 @@ final class DesktopLayoutController {
         if (taskbar == null || taskbarHost == null) {
             return false;
         }
-        final Rect bounds = taskbarBounds();
-        return taskbarHost.attachTaskbar(taskbar, bounds);
+        return taskbarHost.attachTaskbar(
+                taskbar,
+                taskbarBounds(),
+                taskbarPlaneBounds());
     }
 
     DesktopViewport viewport() {
@@ -96,6 +98,11 @@ final class DesktopLayoutController {
 
     Rect taskbarBounds() {
         return mViewport.taskbarBounds(mRuntimeState.taskbarHeight());
+    }
+
+    private Rect taskbarPlaneBounds() {
+        return mViewport.taskbarPlaneBounds(
+                mRuntimeState.taskbarHeight());
     }
 
     int desktopAreaWidth() {
@@ -170,8 +177,7 @@ final class DesktopLayoutController {
         if (mTaskbar == null || mTaskbarHost == null || mViewport == null) {
             return;
         }
-        final Rect bounds = taskbarBounds();
-        mTaskbarHost.updateBounds(bounds);
+        mTaskbarHost.updateBounds(taskbarBounds(), taskbarPlaneBounds());
     }
 
     private void updateSystemBarBackdrops() {

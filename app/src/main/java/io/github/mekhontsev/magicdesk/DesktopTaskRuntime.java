@@ -124,7 +124,8 @@ interface DesktopTaskRuntime {
 
     void setPhoneTouchpadRequested(boolean requested);
 
-    void updateDesktopTaskbarBounds(int displayId, Rect bounds);
+    void updateDesktopTaskbarPresentation(
+            int displayId, Rect bounds, boolean visible);
 
     void configureDesktopTaskbarInput(int displayId, IBinder activityToken);
 

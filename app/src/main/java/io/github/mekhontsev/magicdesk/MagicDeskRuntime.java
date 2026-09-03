@@ -131,15 +131,16 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static void updateDesktopTaskbarBounds(
+    static void updateDesktopTaskbarPresentation(
             final int displayId,
-            final Rect bounds) {
+            final Rect bounds,
+            final boolean visible) {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend == null || bounds == null || bounds.isEmpty()) {
             return;
         }
-        backend.desktopTasks().updateDesktopTaskbarBounds(
-                displayId, new Rect(bounds));
+        backend.desktopTasks().updateDesktopTaskbarPresentation(
+                displayId, new Rect(bounds), visible);
     }
 
     static void configureDesktopTaskbarInput(

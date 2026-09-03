@@ -975,6 +975,11 @@ final class DesktopSelfTestInputSuite {
                     freeformSampleX,
                     freeformSampleY,
                     DesktopSelfTestFixtureAppearance.PRIMARY.color());
+            final int concealedTaskbarColor =
+                    awaitFullscreenColorInTaskbarArea(
+                            displayId,
+                            captureSource,
+                            DesktopSelfTestFixtureAppearance.PRIMARY.color());
 
             focusTaskThroughDesktop(displayId, second.taskId);
             waitForCoveredFreeformTopology(displayId, fixture);
@@ -1027,6 +1032,9 @@ final class DesktopSelfTestInputSuite {
                             + "/"
                             + DesktopTransitionSurfaceProbe.formatColor(
                                     secondForegroundColor)
+                            + ", concealed-taskbar-area="
+                            + DesktopTransitionSurfaceProbe.formatColor(
+                                    concealedTaskbarColor)
                             + ", fullscreen=" + second.taskId
                             + ", older=" + first.taskId
                             + ", freeform-on-fullscreen=occluded");
@@ -1157,6 +1165,57 @@ final class DesktopSelfTestInputSuite {
                 + ", actual="
                 + DesktopTransitionSurfaceProbe.formatColor(actualColor)
                 + ", sample=" + x + "," + y);
+    }
+
+    static String verifyConcealedTaskbarSurface(
+            final int displayId,
+            final DisplayCaptureSource captureSource,
+            final int expectedColor) throws IOException {
+        final TaskRepository.Snapshot snapshot = BoundedStateAwaiter.awaitIo(
+                BoundedStateAwaiter.Reason.TASK_VISIBILITY,
+                STEP_TIMEOUT_MILLIS,
+                POLL_MILLIS,
+                () -> TaskRepository.loadNow(displayId),
+                DesktopSelfTestInputSuite::isTaskbarTaskHidden);
+        if (!isTaskbarTaskHidden(snapshot)) {
+            throw new IOException("taskbar task remained visible");
+        }
+        final int color = awaitFullscreenColorInTaskbarArea(
+                displayId, captureSource, expectedColor);
+        return "task=hidden, color="
+                + DesktopTransitionSurfaceProbe.formatColor(color);
+    }
+
+    private static boolean isTaskbarTaskHidden(
+            final TaskRepository.Snapshot snapshot) {
+        if (snapshot == null || !snapshot.available) {
+            return false;
+        }
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (DesktopTaskbarActivity.isTaskbarTask(task)) {
+                return !task.visible;
+            }
+        }
+        return false;
+    }
+
+    private static int awaitFullscreenColorInTaskbarArea(
+            final int displayId,
+            final DisplayCaptureSource captureSource,
+            final int expectedColor) throws IOException {
+        final DesktopUiSnapshot ui =
+                DesktopRuntimeBridge.getAutomationUiSnapshot(displayId);
+        if (ui == null || !ui.available || ui.taskbarBounds.isEmpty()) {
+            throw new IOException("taskbar bounds are unavailable");
+        }
+        final Rect taskbar = ui.taskbarBounds;
+        final int x = taskbar.left + Math.min(
+                taskbar.width() - 1,
+                Math.max(1, taskbar.width() / 8));
+        final int y = taskbar.top + Math.min(
+                taskbar.height() - 1,
+                Math.max(1, taskbar.height() / 4));
+        return awaitDisplayColor(captureSource, x, y, expectedColor);
     }
 
     private static void waitForTaskbarVisibility(

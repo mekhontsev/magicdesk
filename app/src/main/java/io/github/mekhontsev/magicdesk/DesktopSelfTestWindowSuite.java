@@ -303,6 +303,15 @@ final class DesktopSelfTestWindowSuite {
                     entry -> "fullscreen".equals(entry.windowingMode));
             return "task=" + task.taskId;
         });
+        require(result,
+                "TASKBAR-003",
+                "Keep the concealed taskbar plane out of fullscreen",
+                () -> DesktopSelfTestInputSuite
+                        .verifyConcealedTaskbarSurface(
+                                targetDisplayId,
+                                captureSource,
+                                DesktopSelfTestFixtureAppearance.PRIMARY
+                                        .color()));
         require(result, "WINDOW-004", "Restore freeform window", () -> {
             ShellAccess.run(TaskRepository.createFreeformTransitionCommand(
                     targetDisplayId, targetFixtureTaskId, windowBounds));

@@ -218,7 +218,7 @@ final class DesktopTaskbarRevealController {
         if (taskbar == null || taskbarHost == null) {
             return;
         }
-        if (!mAvailable) {
+        if (!mAvailable || !mPolicyVisible) {
             taskbarHost.setPresented(false);
             taskbar.setEdgeHidden(false);
             taskbarHost.setEdgeHidden(false, 1);
@@ -254,6 +254,7 @@ final class DesktopTaskbarRevealController {
 
     private boolean shouldArm() {
         return mAvailable
+                && mPolicyVisible
                 && !mForcedVisible
                 && !isPinnedVisible();
     }

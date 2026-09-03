@@ -78,12 +78,13 @@ final class ShellTaskObserverManager implements Closeable {
                 desktopHostTaskId);
     }
 
-    void updateDesktopTaskbarBounds(
+    void updateDesktopTaskbarPresentation(
             final ITaskObserverCallback callback,
             final int displayId,
-            final Rect bounds) {
-        requireSession(callback).observer.updateDesktopTaskbarBounds(
-                displayId, bounds);
+            final Rect bounds,
+            final boolean visible) {
+        requireSession(callback).observer.updateDesktopTaskbarPresentation(
+                displayId, bounds, visible);
     }
 
     void configureDesktopTaskbarInput(

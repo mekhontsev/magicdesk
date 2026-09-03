@@ -173,9 +173,10 @@ final class DesktopTaskWatcher {
         }
     }
 
-    void updateDesktopTaskbarBounds(
+    void updateDesktopTaskbarPresentation(
             final int displayId,
-            final Rect bounds) {
+            final Rect bounds,
+            final boolean visible) {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null || bounds == null || bounds.isEmpty()) {
             return;
@@ -183,10 +184,12 @@ final class DesktopTaskWatcher {
         final Rect requestedBounds = new Rect(bounds);
         TaskCommandQueue.execute(() -> {
             try {
-                handle.updateDesktopTaskbarBounds(
-                        displayId, requestedBounds);
+                handle.updateDesktopTaskbarPresentation(
+                        displayId, requestedBounds, visible);
             } catch (IOException error) {
-                Log.w(TAG, "failed to update desktop taskbar bounds", error);
+                Log.w(TAG,
+                        "failed to update desktop taskbar presentation",
+                        error);
             }
         });
     }

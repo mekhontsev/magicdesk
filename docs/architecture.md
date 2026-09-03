@@ -1279,10 +1279,20 @@ display. A phone desktop is an explicitly selected primary HOME session: it
 reserves the status and navigation bars and places its taskbar above the stable
 navigation inset. Visibility changes do not move the desktop because geometry
 uses the bars' ignoring-visibility insets. A dedicated external display
-normally reports zero system-bar insets and fills the panel. The
-taskbar plane receives its final bounds from the desktop viewport; its attached
-application panel does not apply system-bar or IME insets a second time. There
-is no separate phone implementation of the desktop. IME visibility may keep an
+normally reports zero system-bar insets and fills the panel. The desktop
+viewport provides separate chrome and plane bounds for the taskbar. On the
+phone display the visible plane extends through the stable navigation inset,
+so its application panel paints that inset as taskbar chrome even when a
+managed fullscreen plane covers HOME. The taskbar controls retain their
+ordinary height above the inset. On displays without a lower inset the two
+bounds are identical. The attached application panel does not apply system-bar
+or IME insets a second time. The plane geometry remains stable. When fullscreen
+policy conceals the taskbar, shell hides the complete task-display area through
+`WindowContainerTransaction` and the transparent Activity removes its panel.
+The area's surface and lower inset are therefore not retained above fullscreen
+content.
+There is no separate phone implementation of the desktop.
+IME visibility may keep an
 auto-hiding taskbar logically presented, but it never moves the taskbar plane:
 the keyboard temporarily covers the physical bottom edge instead of relocating
 desktop chrome into the workspace.
@@ -1300,7 +1310,8 @@ Android can therefore keep normal system-bar behavior for HOME and freeform
 tasks without exposing bright wallpaper strips around snapped windows.
 
 The taskbar is a regular fullscreen Activity inside a narrow organizer-owned
-task-display area. The area is bounded to the taskbar geometry, is not
+task-display area. The area is bounded to the taskbar chrome and any stable
+lower system-bar inset. It is not
 focusable, and is an `alwaysOnTop` child of Android's default task container.
 This places it in the same WindowManager ordering domain as application and
 fullscreen planes while keeping application tasks out of the taskbar area.

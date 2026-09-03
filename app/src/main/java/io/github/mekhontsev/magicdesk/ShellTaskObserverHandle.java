@@ -80,19 +80,21 @@ final class ShellTaskObserverHandle implements Closeable {
                 desktopHostTaskId));
     }
 
-    void updateDesktopTaskbarBounds(
+    void updateDesktopTaskbarPresentation(
             final int displayId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final boolean visible) throws IOException {
         if (bounds == null || bounds.isEmpty()) {
             throw new IOException("missing desktop taskbar bounds");
         }
-        callService(() -> mService.updateDesktopTaskbarBounds(
+        callService(() -> mService.updateDesktopTaskbarPresentation(
                 mCallback,
                 displayId,
                 bounds.left,
                 bounds.top,
                 bounds.right,
-                bounds.bottom));
+                bounds.bottom,
+                visible));
     }
 
     void configureDesktopTaskbarInput(

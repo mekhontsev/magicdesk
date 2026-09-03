@@ -57,6 +57,14 @@ default task container's ordering domain with freeform tasks and fullscreen
 planes, and WindowManager keeps it above them through the standard
 `alwaysOnTop` container property. Application tasks never enter that area, and
 MagicDesk does not retain or assign its organizer surface layer directly.
+On the phone display the taskbar area also covers the stable lower system-bar
+inset. Its panel paints that portion with the taskbar background, while the
+taskbar controls remain above the inset. A managed fullscreen plane therefore
+cannot expose application content below a visible taskbar.
+When fullscreen policy conceals the taskbar, shell returns the organizer area
+to a hidden state through `WindowContainerTransaction` and the transparent
+Activity removes its panel. Hiding the complete task-display area force-hides
+its child task, so no organizer surface remains over fullscreen content.
 
 Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. The app
 process emits a typed `DesktopWorkspaceCommand`: `ACTIVATE`, `DEMOTE`,

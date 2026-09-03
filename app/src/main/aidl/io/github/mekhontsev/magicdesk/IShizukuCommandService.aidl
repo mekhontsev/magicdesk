@@ -395,13 +395,14 @@ interface IShizukuCommandService {
         int bottom,
         int existingTaskId) = 108;
 
-    void updateDesktopTaskbarBounds(
+    void updateDesktopTaskbarPresentation(
         ITaskObserverCallback callback,
         int displayId,
         int left,
         int top,
         int right,
-        int bottom) = 109;
+        int bottom,
+        boolean visible) = 109;
 
     void configureDesktopTaskbarInput(
         ITaskObserverCallback callback,

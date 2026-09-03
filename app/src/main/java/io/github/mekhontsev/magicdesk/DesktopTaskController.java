@@ -536,17 +536,18 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public void updateDesktopTaskbarBounds(
+    public void updateDesktopTaskbarPresentation(
             final int displayId,
-            final Rect bounds) {
+            final Rect bounds,
+            final boolean visible) {
         if (bounds == null || bounds.isEmpty()) {
             return;
         }
         final Rect requestedBounds = new Rect(bounds);
         mHandler.post(() -> {
             if (mRunning && mDisplayId == displayId && mTaskWatcherReady) {
-                mTaskWatcher.updateDesktopTaskbarBounds(
-                        displayId, requestedBounds);
+                mTaskWatcher.updateDesktopTaskbarPresentation(
+                        displayId, requestedBounds, visible);
             }
         });
     }

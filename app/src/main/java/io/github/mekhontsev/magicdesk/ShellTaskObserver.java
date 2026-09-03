@@ -507,15 +507,17 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         return completed;
     }
 
-    void updateDesktopTaskbarBounds(
+    void updateDesktopTaskbarPresentation(
             final int displayId,
-            final Rect bounds) {
+            final Rect bounds,
+            final boolean visible) {
         if (displayId != mConfiguredDisplayId) {
             throw new IllegalStateException(
                     "stale taskbar display " + displayId
                             + "; configured=" + mConfiguredDisplayId);
         }
-        mDesktopTaskbarPlane.updateBounds(displayId, bounds);
+        mDesktopTaskbarPlane.updatePresentation(
+                displayId, bounds, visible);
     }
 
     void configureDesktopTaskbarInput(

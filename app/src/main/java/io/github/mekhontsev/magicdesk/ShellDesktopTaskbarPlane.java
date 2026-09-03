@@ -22,6 +22,7 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
     private TaskDisplayAreaHandle mArea;
     private int mDisplayId = Display.INVALID_DISPLAY;
     private int mTaskId = -1;
+    private boolean mVisible;
 
     ShellDesktopTaskbarPlane(final Object service) {
         mService = service;
@@ -34,7 +35,7 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
         }
         requireBounds(bounds);
         if (mArea != null && mDisplayId == displayId && mTaskId >= 0) {
-            updateBounds(displayId, bounds);
+            updatePresentation(displayId, bounds, true);
             raise();
             return;
         }
@@ -45,6 +46,7 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
         }
         mDisplayId = displayId;
         mBounds.set(bounds);
+        mVisible = true;
         try {
             mArea = TaskDisplayAreaHandle.create(
                     displayId,
@@ -78,22 +80,48 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
         }
     }
 
-    synchronized void updateBounds(final int displayId, final Rect bounds) {
+    synchronized void updatePresentation(
+            final int displayId,
+            final Rect bounds,
+            final boolean visible) {
         requireBounds(bounds);
         if (mArea == null || mDisplayId != displayId) {
             throw new IllegalStateException(
                     "desktop taskbar plane is not configured for display "
                             + displayId);
         }
-        if (mBounds.equals(bounds)) {
+        if (mBounds.equals(bounds) && mVisible == visible) {
             return;
         }
         try {
-            applyAreaBounds(bounds);
+            final FrameworkWindowingApi windowing =
+                    FrameworkRuntime.current().windowing();
+            final Class<?> transactionClass = windowing.transactionClass();
+            final Object transaction = windowing.newTransaction();
+            if (!mBounds.equals(bounds)) {
+                final Object taskToken = HiddenTaskApi.requireTaskToken(
+                        mService, mDisplayId, mTaskId);
+                windowing.setBounds(
+                        transaction, mArea.token(), new Rect(bounds));
+                windowing.setBounds(transaction, taskToken, new Rect());
+            }
+            // Hiding only the child task leaves the organizer area's surface
+            // composited on some WindowManager implementations. Hiding the
+            // TaskDisplayArea is the framework operation that force-hides all
+            // of its tasks as one presentation unit.
+            windowing.setHidden(transaction, mArea.token(), !visible);
+            if (visible) {
+                windowing.setAlwaysOnTop(
+                        transaction, mArea.token(), true);
+                windowing.reorder(transaction, mArea.token(), true);
+            }
+            ShellWindowTransitionExecutor.applyAtomic(
+                    mService, transactionClass, transaction);
             mBounds.set(bounds);
+            mVisible = visible;
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
-                    "cannot resize desktop taskbar plane", error);
+                    "cannot update desktop taskbar presentation", error);
         }
     }
 
@@ -120,7 +148,7 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
     }
 
     synchronized void raise() {
-        if (mArea == null) {
+        if (mArea == null || !mVisible) {
             return;
         }
         try {
@@ -272,6 +300,7 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
         mArea = null;
         mDisplayId = Display.INVALID_DISPLAY;
         mTaskId = -1;
+        mVisible = false;
         mBounds.setEmpty();
     }
 

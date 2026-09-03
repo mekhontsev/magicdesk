@@ -447,17 +447,19 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public void updateDesktopTaskbarBounds(
+    public void updateDesktopTaskbarPresentation(
             final ITaskObserverCallback callback,
             final int displayId,
             final int left,
             final int top,
             final int right,
-            final int bottom) {
-        mTaskObserverManager.updateDesktopTaskbarBounds(
+            final int bottom,
+            final boolean visible) {
+        mTaskObserverManager.updateDesktopTaskbarPresentation(
                 callback,
                 displayId,
-                new Rect(left, top, right, bottom));
+                new Rect(left, top, right, bottom),
+                visible);
     }
 
     @Override

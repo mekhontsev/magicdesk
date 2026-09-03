@@ -30,6 +30,7 @@ public final class DesktopTaskbarActivity extends Activity {
     private boolean mTaskbarPanelAdded;
     private int mTaskbarPanelHeight;
     private int mTaskbarPanelLayoutGeneration;
+    private int mTaskbarHeight = 1;
     private int mDisplayId = Display.INVALID_DISPLAY;
     private boolean mPresented = true;
     private boolean mEdgeHidden;
@@ -73,8 +74,8 @@ public final class DesktopTaskbarActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // The taskbar plane already excludes persistent system-bar insets.
-        // Its attached panel must not apply them a second time.
+        // The taskbar plane owns both desktop chrome and any stable lower
+        // system-bar inset. Its panel must not apply those insets again.
         getWindow().setDecorFitsSystemWindows(false);
         getWindow().setNavigationBarContrastEnforced(false);
         getWindow().addFlags(
@@ -116,12 +117,14 @@ public final class DesktopTaskbarActivity extends Activity {
         super.onDestroy();
     }
 
-    void attachTaskbar(final View taskbar) {
+    void attachTaskbar(final View taskbar, final int taskbarHeight) {
+        mTaskbarHeight = Math.max(1, taskbarHeight);
         if (mRoot == null || taskbar == null) {
             applyPresentation();
             return;
         }
         if (mTaskbar == taskbar) {
+            updateTaskbarLayout();
             applyPresentation();
             return;
         }
@@ -133,14 +136,15 @@ public final class DesktopTaskbarActivity extends Activity {
         }
         if (mTaskbarPanel == null) {
             mTaskbarPanel = new TaskbarPanel();
-            mTaskbarPanel.setBackgroundColor(Color.TRANSPARENT);
+            mTaskbarPanel.setBackgroundColor(DesktopUiFactory.COLOR_PANEL);
             mTaskbarPanel.setImportantForAccessibility(
                     View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         }
         mTaskbar = taskbar;
         mTaskbarPanel.addView(taskbar, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
+                mTaskbarHeight,
+                Gravity.TOP));
         applyPresentation();
     }
 
@@ -168,6 +172,7 @@ public final class DesktopTaskbarActivity extends Activity {
     }
 
     private void applyPresentation() {
+        updateTaskbarLayout();
         if (mTaskbar != null) {
             mTaskbar.setAlpha(mPresented && !mEdgeHidden ? 1f : 0f);
             mTaskbar.setVisibility(mPresented ? View.VISIBLE : View.INVISIBLE);
@@ -175,6 +180,26 @@ public final class DesktopTaskbarActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
         updateTaskbarPanel(resolvePanelHeight(
                 mPresented, mEdgeHidden, mEdgeHeight));
+    }
+
+    private void updateTaskbarLayout() {
+        if (mTaskbar == null) {
+            return;
+        }
+        final ViewGroup.LayoutParams current = mTaskbar.getLayoutParams();
+        if (!(current instanceof FrameLayout.LayoutParams)) {
+            return;
+        }
+        final FrameLayout.LayoutParams params =
+                (FrameLayout.LayoutParams) current;
+        if (params.width != FrameLayout.LayoutParams.MATCH_PARENT
+                || params.height != mTaskbarHeight
+                || params.gravity != Gravity.TOP) {
+            params.width = FrameLayout.LayoutParams.MATCH_PARENT;
+            params.height = mTaskbarHeight;
+            params.gravity = Gravity.TOP;
+            mTaskbar.setLayoutParams(params);
+        }
     }
 
     static int resolvePanelHeight(
