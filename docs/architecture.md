@@ -1290,9 +1290,12 @@ desktop chrome into the workspace.
 
 The wallpaper is a full-display backdrop outside the inset-aware desktop
 content layer. Status-bar and viewport changes therefore reposition icons and
-windows without rescaling the wallpaper. Wallpaper readiness is published only
-after the selected bitmap reaches a committed frame; reload generations discard
-stale callbacks without a settling delay.
+windows without rescaling the wallpaper. The wallpaper controller center-crops
+the source once into a physical-display-sized frame; the view uses a fixed
+top-left image matrix, so a transient system-bar inset cannot recrop that frame
+when HOME loses focus. Wallpaper readiness is published only after the selected
+bitmap reaches a committed frame; reload generations discard stale callbacks
+without a settling delay.
 
 The taskbar is a regular fullscreen Activity inside a narrow organizer-owned
 task-display area. The area is bounded to the taskbar geometry, is not

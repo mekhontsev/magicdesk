@@ -627,11 +627,9 @@ public abstract class DesktopShellActivity extends Activity
             mDesktopWorkspaceController.stop();
         }
         if (getCurrentDisplayId() == Display.DEFAULT_DISPLAY) {
-            if (usesSessionTaskArea()) {
-                applyDesktopPlaneForeground(false);
-            }
+            // HOME also stops while the managed application area is in front.
+            // Its task observer owns desktop-plane foreground state.
             hideAllPanels();
-            setTaskbarVisible(false);
         }
         super.onStop();
     }
@@ -867,7 +865,10 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopLayout.attachDesktopViews(root, desktopViewport);
 
         final ImageView wallpaper = new ImageView(this);
-        wallpaper.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        // The controller renders one display-sized frame. Keeping the image
+        // matrix fixed prevents transient system bars from recropping it when
+        // the HOME window loses focus to a freeform task.
+        wallpaper.setScaleType(ImageView.ScaleType.MATRIX);
         wallpaper.setBackgroundColor(COLOR_BACKGROUND);
         root.addView(wallpaper, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,

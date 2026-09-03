@@ -8,6 +8,8 @@ import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -147,8 +149,10 @@ final class DesktopWallpaperController {
             @Override
             public void run() {
                 try {
-                    final WallpaperResult result = loadWallpaper(
-                            targetWidth, targetHeight);
+                    final WallpaperResult result = renderDisplayFrame(
+                            loadWallpaper(targetWidth, targetHeight),
+                            targetWidth,
+                            targetHeight);
                     mMainHandler.post(new Runnable() {
                         @Override
                         public void run() {
@@ -272,6 +276,42 @@ final class DesktopWallpaperController {
                     cacheFile, targetWidth, targetHeight);
         } finally {
             pendingFile.delete();
+        }
+    }
+
+    private static WallpaperResult renderDisplayFrame(
+            final WallpaperResult source,
+            final int targetWidth,
+            final int targetHeight) {
+        final Bitmap sourceBitmap = source.bitmap;
+        if (sourceBitmap.getWidth() == targetWidth
+                && sourceBitmap.getHeight() == targetHeight) {
+            return source;
+        }
+        final Bitmap frame = Bitmap.createBitmap(
+                targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
+        try {
+            final float scale = Math.max(
+                    targetWidth / (float) sourceBitmap.getWidth(),
+                    targetHeight / (float) sourceBitmap.getHeight());
+            final float width = sourceBitmap.getWidth() * scale;
+            final float height = sourceBitmap.getHeight() * scale;
+            final RectF destination = new RectF(
+                    (targetWidth - width) / 2.0f,
+                    (targetHeight - height) / 2.0f,
+                    (targetWidth + width) / 2.0f,
+                    (targetHeight + height) / 2.0f);
+            final Paint paint = new Paint(
+                    Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
+            new Canvas(frame).drawBitmap(
+                    sourceBitmap, null, destination, paint);
+            sourceBitmap.recycle();
+            return new WallpaperResult(
+                    frame, source.custom, source.fallback);
+        } catch (RuntimeException error) {
+            frame.recycle();
+            sourceBitmap.recycle();
+            throw error;
         }
     }
 
