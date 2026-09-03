@@ -613,7 +613,8 @@ final class DesktopAutomationController {
         final Rect bounds = readBounds(
                 requiredObject(args, "bounds"), task.displayId);
         return awaitTaskAction(callback ->
-                TaskRepository.resizeTaskBounds(task, bounds, callback));
+                MagicDeskRuntime.setWindowBounds(
+                        task.displayId, taskId, bounds, callback));
     }
 
     private DesktopAutomationResult openSettings() {

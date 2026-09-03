@@ -10,6 +10,8 @@ import org.junit.Test;
 public final class NativeWindowBoundsControllerTest {
     private static final Rect DISPLAY = rect(0, 0, 1920, 1080);
     private static final Rect WORK_AREA = rect(0, 0, 1920, 1016);
+    private static final Rect PHONE_STABLE_AREA = rect(0, 125, 1216, 2623);
+    private static final Rect PHONE_WORK_AREA = rect(0, 125, 1216, 2454);
 
     @Test
     public void nativeLeftSnapUsesTaskbarWorkArea() {
@@ -32,6 +34,28 @@ public final class NativeWindowBoundsControllerTest {
     }
 
     @Test
+    public void fullStableHeightPreservesHorizontalBounds() {
+        assertBounds(
+                NativeWindowBoundsController.correctNativeCaptionSnapBounds(
+                        rect(0, 125, 715, 2623),
+                        PHONE_STABLE_AREA,
+                        PHONE_WORK_AREA),
+                0, 125, 715, 2454);
+        assertBounds(
+                NativeWindowBoundsController.correctNativeCaptionSnapBounds(
+                        rect(608, 125, 1323, 2623),
+                        PHONE_STABLE_AREA,
+                        PHONE_WORK_AREA),
+                608, 125, 1323, 2454);
+        assertBounds(
+                NativeWindowBoundsController.correctNativeCaptionSnapBounds(
+                        rect(137, 125, 1048, 2623),
+                        PHONE_STABLE_AREA,
+                        PHONE_WORK_AREA),
+                137, 125, 1048, 2454);
+    }
+
+    @Test
     public void existingWorkAreaSnapNeedsNoCorrection() {
         assertNull(
                 NativeWindowBoundsController.correctNativeCaptionSnapBounds(
@@ -49,7 +73,7 @@ public final class NativeWindowBoundsControllerTest {
                         WORK_AREA));
         assertNull(
                 NativeWindowBoundsController.correctNativeCaptionSnapBounds(
-                        rect(100, 0, 1000, 1080),
+                        rect(100, 0, 1000, 1060),
                         DISPLAY,
                         WORK_AREA));
     }

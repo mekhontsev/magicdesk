@@ -40,6 +40,8 @@ public final class DesktopSelfTestGeometryTest {
                 rect(600, 80, 1200, 2300), false));
         assertFalse(geometry.isSnapped(
                 rect(250, 200, 950, 1800), true));
+        assertFalse(geometry.isSnapped(
+                rect(0, 80, 600, 2400), true));
     }
 
     @Test
@@ -123,11 +125,11 @@ public final class DesktopSelfTestGeometryTest {
                 520).withObservedWindow(rect(97, 358, 812, 1755));
 
         assertTrue(geometry.isNativeSideBySide(
-                rect(0, 125, 715, 2623),
-                rect(608, 125, 1323, 2623)));
+                rect(0, 125, 715, 2454),
+                rect(608, 125, 1323, 2454)));
         assertFalse(geometry.isNativeSideBySide(
-                rect(0, 125, 715, 2623),
-                rect(760, 125, 1475, 2623)));
+                rect(0, 125, 715, 2454),
+                rect(760, 125, 1475, 2454)));
     }
 
     @Test

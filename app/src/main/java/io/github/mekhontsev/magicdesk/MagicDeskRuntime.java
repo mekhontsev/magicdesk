@@ -741,6 +741,20 @@ public final class MagicDeskRuntime {
         return tasks != null && tasks.arrangeTask(taskId, shortcut);
     }
 
+    static void setWindowBounds(
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            completeTaskAction(
+                    callback, false, "desktop task runtime unavailable");
+            return;
+        }
+        tasks.setWindowBounds(displayId, taskId, bounds, callback);
+    }
+
     static void noteManualFreeformTransition(final int taskId) {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks != null) {

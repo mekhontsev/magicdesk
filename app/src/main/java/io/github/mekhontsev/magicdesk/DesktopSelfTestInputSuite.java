@@ -1538,9 +1538,27 @@ final class DesktopSelfTestInputSuite {
             final int displayId,
             final int taskId,
             final Rect bounds) throws IOException {
-        ShellAccess.run(TaskRepository.createBoundsTransactionCommand(
-                displayId, taskId, bounds));
+        final CountDownLatch complete = new CountDownLatch(1);
+        final AtomicBoolean success = new AtomicBoolean();
+        final StringBuilder message = new StringBuilder();
+        MagicDeskRuntime.setWindowBounds(
+                displayId,
+                taskId,
+                bounds,
+                action -> {
+                    success.set(action.success);
+                    message.append(action.message);
+                    complete.countDown();
+                });
         try {
+            if (!complete.await(
+                    STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                throw new IOException("desktop task resize timed out");
+            }
+            if (!success.get()) {
+                throw new IOException(
+                        "desktop task resize failed: " + message);
+            }
             waitForTask(
                     displayId,
                     FIXTURE_CLASS,
@@ -1556,6 +1574,12 @@ final class DesktopSelfTestInputSuite {
                             && "freeform".equals(task.windowingMode)
                             && DesktopSelfTestGeometry.matches(
                                     task.bounds, bounds));
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException(
+                    "could not establish windowed bounds for task "
+                            + taskId + ": desktop task resize interrupted",
+                    error);
         } catch (IOException error) {
             throw new IOException("could not establish windowed bounds for task "
                     + taskId + ": " + usefulMessage(error));

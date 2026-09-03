@@ -324,8 +324,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         if (!mRunning || displayId != mDisplayId) {
                             return;
                         }
-                        if (!mNativeWindowBounds
-                                .isNativeCaptionSnapOutsideWorkArea(bounds)) {
+                        if (AppWindowStateStore.isSafeStateKey(stateKey)
+                                && !mNativeWindowBounds
+                                        .isNativeCaptionSnapOutsideWorkArea(
+                                                bounds)) {
                             mAppWindowStates.observe(
                                     stateKey,
                                     displayId,
@@ -1710,6 +1712,47 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             mWindowTransitions.applyShortcut(task, shortcut);
         }));
         return true;
+    }
+
+    @Override
+    public void setWindowBounds(
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final TaskRepository.ActionCallback callback) {
+        if (displayId < 0 || taskId < 0
+                || !TaskRepository.hasExplicitBounds(bounds)) {
+            completeActionCallback(callback, false, "invalid task bounds");
+            return;
+        }
+        final int generation = mGeneration;
+        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
+            if (!mRunning || generation != mGeneration
+                    || mDisplayId != displayId || !mTaskWatcherReady) {
+                completeActionCallback(
+                        callback, false, "desktop task runtime unavailable");
+                return;
+            }
+            if (!snapshot.available) {
+                completeActionCallback(callback, false, snapshot.error);
+                return;
+            }
+            final TaskRepository.Snapshot workspace =
+                    desktopWorkspaceSnapshot(snapshot);
+            if (!workspace.available) {
+                completeActionCallback(callback, false, workspace.error);
+                return;
+            }
+            final TaskRepository.TaskEntry task = findTask(
+                    workspace.tasks, taskId);
+            if (task == null || !task.isFreeform()
+                    || !DesktopManagedTaskPolicy
+                            .isControllableApplicationTask(task)) {
+                completeActionCallback(callback, false, "task unavailable");
+                return;
+            }
+            mWindowTransitions.setWindowBounds(task, bounds, callback);
+        }));
     }
 
     @Override

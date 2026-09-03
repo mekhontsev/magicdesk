@@ -112,6 +112,12 @@ interface DesktopTaskRuntime {
 
     boolean arrangeTask(int taskId, int shortcut);
 
+    void setWindowBounds(
+            int displayId,
+            int taskId,
+            Rect bounds,
+            TaskRepository.ActionCallback callback);
+
     void noteManualFreeformTransition(int taskId);
 
     void beginExplicitWindowedLaunch(int taskId);

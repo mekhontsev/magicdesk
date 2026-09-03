@@ -460,10 +460,9 @@ final class FrameworkTaskObservationSource implements Closeable {
             final List<FrameworkTaskSnapshot> states) {
         final Set<Integer> liveTaskIds = new HashSet<>();
         final Set<Integer> visibleTaskIds = new HashSet<>();
-        final Set<String> observedStateKeys = new HashSet<>();
         final Map<Integer, Integer> windowingModes = new HashMap<>();
         final Map<Integer, FreeformBoundsState> freeformBounds =
-                new HashMap<>();
+                collectFreeformBounds(states);
         for (final FrameworkTaskSnapshot state : states) {
             if (state.activityType != ACTIVITY_TYPE_STANDARD
                     || !PackageNameValidator.isSafe(state.packageName)
@@ -480,14 +479,6 @@ final class FrameworkTaskObservationSource implements Closeable {
                 continue;
             }
             final Integer taskKey = Integer.valueOf(state.taskId);
-            if (state.windowingMode == WINDOWING_MODE_FREEFORM
-                    && state.visible
-                    && !state.bounds.isEmpty()
-                    && observedStateKeys.add(stateKey)) {
-                freeformBounds.put(
-                        taskKey,
-                        new FreeformBoundsState(stateKey, state.bounds));
-            }
             // A valid built-in key identifies a user-facing MagicDesk window.
             // Infrastructure activities returned no key and were rejected
             // above, so native caption transitions must observe these tasks
@@ -600,6 +591,47 @@ final class FrameworkTaskObservationSource implements Closeable {
         }
     }
 
+    static Map<Integer, FreeformBoundsState> collectFreeformBounds(
+            final List<FrameworkTaskSnapshot> states) {
+        final Map<Integer, FreeformBoundsState> result = new HashMap<>();
+        if (states == null) {
+            return result;
+        }
+        for (final FrameworkTaskSnapshot state : states) {
+            if (state == null
+                    || state.activityType != ACTIVITY_TYPE_STANDARD
+                    || state.windowingMode != WINDOWING_MODE_FREEFORM
+                    || !state.visible
+                    || state.bounds.right <= state.bounds.left
+                    || state.bounds.bottom <= state.bounds.top
+                    || !PackageNameValidator.isSafe(state.packageName)) {
+                continue;
+            }
+            final String stateKey = BuiltInDesktopAppCatalog.appIdentityKey(
+                    state.packageName,
+                    state.rootComponent == null
+                            ? null
+                            : state.rootComponent.flattenToString());
+            final boolean fixture = DesktopSelfTestComponents
+                    .isFixtureComponent(state.componentName)
+                    || DesktopSelfTestComponents
+                            .isFixtureComponent(state.topActivityName);
+            if (!AppWindowStateStore.isSafeStateKey(stateKey) && !fixture) {
+                continue;
+            }
+            final boolean persistable = AppWindowStateStore.isSafeStateKey(
+                    stateKey)
+                    && (state.topPackage == null
+                            || state.packageName.equals(state.topPackage));
+            result.put(
+                    Integer.valueOf(state.taskId),
+                    new FreeformBoundsState(
+                            persistable ? stateKey : "",
+                            state.bounds));
+        }
+        return result;
+    }
+
     static boolean isRequestingImmersive(
             final int requestedVisibleTypes) {
         return (requestedVisibleTypes & WindowInsets.Type.statusBars()) == 0;
@@ -687,7 +719,7 @@ final class FrameworkTaskObservationSource implements Closeable {
         }
     }
 
-    private static final class FreeformBoundsState {
+    static final class FreeformBoundsState {
         final String stateKey;
         final Rect bounds;
 

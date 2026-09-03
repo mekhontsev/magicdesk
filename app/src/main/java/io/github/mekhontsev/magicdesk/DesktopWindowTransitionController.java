@@ -357,6 +357,25 @@ final class DesktopWindowTransitionController {
                 task, mNativeWindowBounds.getSnappedBounds(left), true);
     }
 
+    void setWindowBounds(
+            final TaskRepository.TaskEntry task,
+            final Rect targetBounds,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntimeState state =
+                mTaskStates.state(task.taskId);
+        mNativeWindowBounds.requestBounds(
+                task,
+                targetBounds,
+                true,
+                result -> {
+                    if (result.success
+                            && mTaskStates.isCurrent(task.taskId, state)) {
+                        state.clearWindowRestoreBounds();
+                    }
+                    complete(callback, result.success, result.message);
+                });
+    }
+
     private void snapFullscreenTask(
             final TaskRepository.TaskEntry task,
             final boolean left) {

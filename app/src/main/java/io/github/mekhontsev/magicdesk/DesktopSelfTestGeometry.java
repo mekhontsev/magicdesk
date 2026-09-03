@@ -278,12 +278,18 @@ final class DesktopSelfTestGeometry {
             return false;
         }
         final int midpoint = (workArea.left + workArea.right) / 2;
-        final int tolerance = Math.max(16, width(workArea) / 10);
-        return left
-                ? bounds.left <= workArea.left + tolerance
-                        && Math.abs(bounds.right - midpoint) <= tolerance
-                : bounds.right >= workArea.right - tolerance
-                        && Math.abs(bounds.left - midpoint) <= tolerance;
+        final int horizontalTolerance = Math.max(16, width(workArea) / 10);
+        final int verticalTolerance = 4;
+        return Math.abs(bounds.top - workArea.top) <= verticalTolerance
+                && Math.abs(bounds.bottom - workArea.bottom)
+                        <= verticalTolerance
+                && (left
+                ? bounds.left <= workArea.left + horizontalTolerance
+                        && Math.abs(bounds.right - midpoint)
+                                <= horizontalTolerance
+                : bounds.right >= workArea.right - horizontalTolerance
+                        && Math.abs(bounds.left - midpoint)
+                                <= horizontalTolerance);
     }
 
     boolean isNativeSideBySide(final Rect left, final Rect right) {

@@ -73,7 +73,7 @@ final class NativeWindowBoundsController {
     boolean isNativeCaptionSnapOutsideWorkArea(final Rect bounds) {
         return correctNativeCaptionSnapBounds(
                 bounds,
-                getFullscreenBounds(),
+                getNativeCaptionSnapArea(),
                 getTaskbarMaximizedBounds()) != null;
     }
 
@@ -119,6 +119,14 @@ final class NativeWindowBoundsController {
             final TaskRepository.TaskEntry task,
             final Rect targetBounds,
             final boolean clearsMaximizeState) {
+        requestBounds(task, targetBounds, clearsMaximizeState, null);
+    }
+
+    void requestBounds(
+            final TaskRepository.TaskEntry task,
+            final Rect targetBounds,
+            final boolean clearsMaximizeState,
+            final TaskRepository.ActionCallback callback) {
         final int taskId = task.taskId;
         final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
         final DesktopTaskRuntimeState.BoundsTransition transition =
@@ -133,6 +141,7 @@ final class NativeWindowBoundsController {
                         if (result.success) {
                             mRuntimeState.scheduleRefresh();
                         }
+                        complete(callback, result);
                         return;
                     }
                     if (!result.success) {
@@ -144,10 +153,20 @@ final class NativeWindowBoundsController {
                                 "native bounds transition failed task="
                                         + taskId
                                         + " message=" + result.message);
+                        complete(callback, result);
                         return;
                     }
                     mRuntimeState.scheduleRefresh();
+                    complete(callback, result);
                 }));
+    }
+
+    private static void complete(
+            final TaskRepository.ActionCallback callback,
+            final TaskRepository.ActionResult result) {
+        if (callback != null) {
+            callback.onComplete(result);
+        }
     }
 
     void reconcile(final List<TaskRepository.TaskEntry> tasks) {
@@ -156,11 +175,12 @@ final class NativeWindowBoundsController {
         }
         final int displayId = mRuntimeState.displayId();
         final Rect fullscreenBounds = getFullscreenBounds();
+        final Rect nativeCaptionSnapArea = getNativeCaptionSnapArea();
         final Rect maximizedBounds = getTaskbarMaximizedBounds();
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task == null || task.displayId != displayId
                     || !DesktopManagedTaskPolicy
-                            .isManagedApplicationTask(task)
+                            .isControllableApplicationTask(task)
                     || !task.isBoundedFreeform()) {
                 continue;
             }
@@ -192,13 +212,13 @@ final class NativeWindowBoundsController {
             final Rect correctedSnapBounds =
                     correctNativeCaptionSnapBounds(
                             task.bounds,
-                            fullscreenBounds,
+                            nativeCaptionSnapArea,
                             maximizedBounds);
             if (correctedSnapBounds != null) {
-                // Nubia's caption layout menu divides the full display and
-                // ignores MagicDesk's taskbar work area. Keep the native UI,
-                // but normalize its exact half-screen result like Win+Left or
-                // Win+Right. Arbitrary user resizing is left untouched.
+                // Some native caption menus divide Android's stable area and
+                // ignore the MagicDesk taskbar. Preserve Android's horizontal
+                // result, including application minimum width, and reserve
+                // only the taskbar-owned vertical area.
                 requestBounds(task, correctedSnapBounds, true);
                 continue;
             }
@@ -249,43 +269,33 @@ final class NativeWindowBoundsController {
 
     static Rect correctNativeCaptionSnapBounds(
             final Rect taskBounds,
-            final Rect displayBounds,
+            final Rect nativeSnapArea,
             final Rect workAreaBounds) {
         if (taskBounds == null
-                || displayBounds == null
+                || nativeSnapArea == null
                 || workAreaBounds == null
                 || !TaskRepository.hasExplicitBounds(taskBounds)
-                || !TaskRepository.hasExplicitBounds(displayBounds)
+                || !TaskRepository.hasExplicitBounds(nativeSnapArea)
                 || !TaskRepository.hasExplicitBounds(workAreaBounds)
-                || taskBounds.top != displayBounds.top
-                || taskBounds.bottom != displayBounds.bottom) {
+                || taskBounds.top != nativeSnapArea.top
+                || taskBounds.bottom != nativeSnapArea.bottom) {
             return null;
         }
-        final int displayMiddle =
-                displayBounds.left
-                        + (displayBounds.right - displayBounds.left) / 2;
-        final boolean left = taskBounds.left == displayBounds.left
-                && taskBounds.right == displayMiddle;
-        final boolean right = taskBounds.left == displayMiddle
-                && taskBounds.right == displayBounds.right;
-        if (!left && !right) {
-            return null;
-        }
-        final int workAreaMiddle =
-                workAreaBounds.left
-                        + (workAreaBounds.right - workAreaBounds.left) / 2;
-        final Rect corrected = left
-                ? rect(
-                        workAreaBounds.left,
-                        workAreaBounds.top,
-                        workAreaMiddle,
-                        workAreaBounds.bottom)
-                : rect(
-                        workAreaMiddle,
-                        workAreaBounds.top,
-                        workAreaBounds.right,
-                        workAreaBounds.bottom);
+        final Rect corrected = rect(
+                taskBounds.left,
+                taskBounds.top,
+                taskBounds.right,
+                taskBounds.bottom);
+        corrected.top = workAreaBounds.top;
+        corrected.bottom = workAreaBounds.bottom;
         return sameBounds(taskBounds, corrected) ? null : corrected;
+    }
+
+    private Rect getNativeCaptionSnapArea() {
+        final DesktopViewport viewport = mRuntimeState.viewport();
+        return viewport == null
+                ? getFullscreenBounds()
+                : viewport.contentBounds();
     }
 
     private static boolean sameBounds(
