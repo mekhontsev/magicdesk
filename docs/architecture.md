@@ -1211,7 +1211,10 @@ visibility follows fullscreen and auto-hide policy directly.
 A cold freeform launch is staged behind the desktop host until Android assigns
 the task ID, then one complete WMShell `OPEN` reveals its final mode, bounds,
 and front order. A running cross-display task uses the same direct-root
-transfer. A direct fullscreen launch is attached to its independent plane
+transfer. Reusing a fullscreen task on the desktop display claims its exact
+task ID in shell-owned desktop topology before the freeform transaction, so
+display-0 phone-task normalization cannot reverse the requested transition.
+A direct fullscreen launch is attached to its independent plane
 before the operation returns. Reused fullscreen tasks cross the same plane
 attachment boundary before their launch action runs. All paths use explicit
 display IDs and never

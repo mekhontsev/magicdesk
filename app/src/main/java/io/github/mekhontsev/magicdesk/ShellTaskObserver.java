@@ -630,6 +630,32 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         return finishDesktopTransition(entered);
     }
 
+    boolean beginWindowedTask(
+            final int displayId,
+            final int taskId,
+            final Rect bounds) {
+        if (mClosed || displayId != mConfiguredDisplayId
+                || taskId < 0 || bounds == null || bounds.isEmpty()) {
+            return false;
+        }
+        try {
+            HiddenTaskApi.requireTask(mService, displayId, taskId);
+            // Claim before submitting the transition. On display 0 the same
+            // observer otherwise treats a previously fullscreen phone task as
+            // an accidental WMShell migration and immediately restores it.
+            mDesktopOwnership.markDesktop(taskId);
+            ShellPreparedTaskTransition.applyFreeform(
+                    mService, displayId, taskId, new Rect(bounds));
+            reportDesktopTaskOwnership();
+            return finishDesktopTransition(true);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot attach windowed task: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     boolean protectExplicitFullscreenTask(
             final int displayId,
             final int taskId) {

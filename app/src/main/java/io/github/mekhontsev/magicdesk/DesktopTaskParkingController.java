@@ -419,8 +419,12 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         if (task.displayId == target.displayId && !task.isFreeform()) {
             final Rect bounds = FloatingWindowController.getWindowBounds(
                     target.displayId, parked.bounds);
-            ShellAccess.run(TaskRepository.createFreeformTransitionCommand(
-                    target.displayId, task.taskId, bounds));
+            if (!MagicDeskRuntime.attachWindowedTask(
+                    target.displayId, task.taskId, bounds)) {
+                throw new IOException(
+                        "could not attach restored windowed task="
+                                + task.taskId);
+            }
         }
     }
 

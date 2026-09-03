@@ -2050,6 +2050,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public boolean attachWindowedTask(
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws IOException {
+        requireTaskObserver(displayId);
+        return mTaskWatcher.attachWindowedTask(displayId, taskId, bounds);
+    }
+
+    @Override
     public boolean attachFullscreenTask(
             final int displayId,
             final int taskId) throws IOException {

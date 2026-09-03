@@ -281,6 +281,17 @@ final class DesktopTaskWatcher {
                 displayId, intent);
     }
 
+    boolean attachWindowedTask(
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws IOException {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            throw new IOException("desktop task observer is unavailable");
+        }
+        return handle.beginWindowedTask(displayId, taskId, bounds);
+    }
+
     boolean attachFullscreenTask(
             final int displayId,
             final int taskId) throws IOException {

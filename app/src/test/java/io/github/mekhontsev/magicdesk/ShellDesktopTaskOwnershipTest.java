@@ -1,7 +1,9 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -84,6 +86,25 @@ public final class ShellDesktopTaskOwnershipTest {
         assertFalse(shouldRestore(
                 true, true, false, true,
                 WINDOWING_MODE_FULLSCREEN));
+    }
+
+    @Test
+    public void explicitDesktopClaimPrecedesPhoneFreeformObservation() {
+        final ShellDesktopTaskOwnership ownership =
+                new ShellDesktopTaskOwnership();
+
+        ownership.configure(0);
+        assertNull(ownership.observeStandardTaskState(
+                0, 0, 42, WINDOWING_MODE_FULLSCREEN));
+        assertEquals(Integer.valueOf(42),
+                ownership.observeStandardTaskState(
+                        0, 0, 42, WINDOWING_MODE_FREEFORM));
+
+        ownership.markDesktop(42);
+
+        assertNull(ownership.observeStandardTaskState(
+                0, 0, 42, WINDOWING_MODE_FREEFORM));
+        assertArrayEquals(new int[]{42}, ownership.desktopTaskIds());
     }
 
     private static boolean shouldRestore(

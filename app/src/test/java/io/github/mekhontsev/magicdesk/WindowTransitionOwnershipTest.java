@@ -52,6 +52,27 @@ public final class WindowTransitionOwnershipTest {
                 + violations, violations.isEmpty());
     }
 
+    @Test
+    public void desktopRuntimeDoesNotInvokeRawWindowModeCommands()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            final String name = source.getFileName().toString();
+            if (name.startsWith("DesktopSelfTest")) {
+                continue;
+            }
+            final String contents = read(source);
+            if (contents.contains(
+                    "TaskRepository.createFreeformTransitionCommand(")
+                    || contents.contains(
+                            "TaskRepository.createFullscreenTransitionCommand(")) {
+                violations.add(source.toString());
+            }
+        }
+        assertTrue("Raw window-mode commands in desktop runtime: "
+                + violations, violations.isEmpty());
+    }
+
     private static List<Path> productionSources() throws IOException {
         final List<Path> sources = new ArrayList<>();
         try (Stream<Path> paths = Files.walk(MAIN_JAVA)) {

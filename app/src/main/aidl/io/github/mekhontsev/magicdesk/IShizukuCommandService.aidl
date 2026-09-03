@@ -412,4 +412,13 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int displayId) = 111;
 
+    boolean beginWindowedTask(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId,
+        int left,
+        int top,
+        int right,
+        int bottom) = 112;
+
 }

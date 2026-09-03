@@ -222,8 +222,12 @@ final class ExistingTaskController {
             final Rect targetBounds)
             throws IOException {
         final Rect bounds = resolveTargetBounds(displayId, targetBounds);
-        runCommand(TaskRepository.createFreeformTransitionCommand(
-                displayId, taskId, bounds));
+        if (!MagicDeskRuntime.attachWindowedTask(
+                displayId, taskId, bounds)) {
+            throw new IOException(
+                    "could not attach task " + taskId
+                            + " as a desktop window on display " + displayId);
+        }
     }
 
     private static Rect resolveTargetBounds(

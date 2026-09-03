@@ -172,31 +172,46 @@ final class ShellDesktopTaskOwnership {
             return null;
         }
         try {
-            final Integer taskId = Integer.valueOf(
-                    HiddenTaskApi.getTaskId(task));
-            final int mode = HiddenTaskApi.getTaskWindowingMode(task);
-            if (mode == WINDOWING_MODE_FREEFORM) {
-                final boolean restorePhoneTask =
-                        shouldRestoreKnownPhoneFreeform(
-                                mDesktopDisplayId == Display.DEFAULT_DISPLAY,
-                                displayId == Display.DEFAULT_DISPLAY,
-                                mDesktopTaskIds.contains(taskId),
-                                mPhoneFullscreenTaskIds.contains(taskId),
-                                mode);
-                // Do not adopt a known phone task while platform desktop mode
-                // repeatedly exposes it as freeform. The stack sampler keeps
-                // enforcing this until the task is stably fullscreen again.
-                if (!restorePhoneTask) {
-                    mDesktopTaskIds.add(taskId);
-                }
-                return restorePhoneTask ? taskId : null;
-            } else if (displayId == Display.DEFAULT_DISPLAY
-                    && mode == WINDOWING_MODE_FULLSCREEN
-                    && !mDesktopTaskIds.contains(taskId)) {
-                mPhoneFullscreenTaskIds.add(taskId);
-            }
+            return observeStandardTaskState(
+                    displayId,
+                    HiddenTaskApi.getTaskDisplayId(task),
+                    HiddenTaskApi.getTaskId(task),
+                    HiddenTaskApi.getTaskWindowingMode(task));
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not classify desktop task", error);
+        }
+        return null;
+    }
+
+    synchronized Integer observeStandardTaskState(
+            final int displayId,
+            final int taskDisplayId,
+            final int taskId,
+            final int mode) {
+        if (mDesktopDisplayId == Display.INVALID_DISPLAY
+                || taskId < 0 || taskDisplayId != displayId) {
+            return null;
+        }
+        final Integer taskKey = Integer.valueOf(taskId);
+        if (mode == WINDOWING_MODE_FREEFORM) {
+            final boolean restorePhoneTask =
+                    shouldRestoreKnownPhoneFreeform(
+                            mDesktopDisplayId == Display.DEFAULT_DISPLAY,
+                            displayId == Display.DEFAULT_DISPLAY,
+                            mDesktopTaskIds.contains(taskKey),
+                            mPhoneFullscreenTaskIds.contains(taskKey),
+                            mode);
+            // Do not adopt a known phone task while platform desktop mode
+            // repeatedly exposes it as freeform. The stack sampler keeps
+            // enforcing this until the task is stably fullscreen again.
+            if (!restorePhoneTask) {
+                mDesktopTaskIds.add(taskKey);
+            }
+            return restorePhoneTask ? taskKey : null;
+        } else if (displayId == Display.DEFAULT_DISPLAY
+                && mode == WINDOWING_MODE_FULLSCREEN
+                && !mDesktopTaskIds.contains(taskKey)) {
+            mPhoneFullscreenTaskIds.add(taskKey);
         }
         return null;
     }

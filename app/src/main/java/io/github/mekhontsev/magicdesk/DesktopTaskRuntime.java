@@ -21,6 +21,9 @@ interface DesktopTaskRuntime {
     int launchFullscreenTask(
             int displayId, Intent intent) throws IOException;
 
+    boolean attachWindowedTask(
+            int displayId, int taskId, Rect bounds) throws IOException;
+
     boolean attachFullscreenTask(
             int displayId, int taskId) throws IOException;
 
