@@ -41,28 +41,27 @@ final class DesktopTaskSnapshotController {
             mActivity.renderTaskbarPins(mActivity.getLauncherApps());
             return;
         }
-        TaskRepository.TaskEntry activeTask = null;
-        for (final TaskRepository.TaskEntry task : desktopSnapshot.tasks) {
-            if (task.active) {
-                activeTask = task;
-                break;
-            }
-        }
+        final TaskRepository.TaskEntry activeTask =
+                findActiveTask(desktopSnapshot.tasks);
+        final TaskRepository.TaskEntry displayActiveTask =
+                findActiveTask(snapshot.tasks);
+        final boolean taskbarAvailable = isDesktopChromeAvailable(
+                snapshot.tasks, desktopSnapshot.tasks);
         // The taskbar plane remains available for edge reveal throughout an
         // active session. Policy visibility instead follows the physical
         // workspace: treating session foreground as HOME foreground would
         // keep the taskbar pinned over a selected fullscreen task.
         final boolean desktopHostActive =
-                isDesktopHostForeground(desktopSnapshot.tasks);
+                isDesktopHostForeground(snapshot.tasks);
         final boolean hasVisibleFreeformTask = hasVisibleFreeformTask(
-                desktopSnapshot.tasks);
+                snapshot.tasks);
         final boolean hasVisibleFullscreenTask = hasVisibleFullscreenTask(
-                desktopSnapshot.tasks);
+                snapshot.tasks);
         final boolean taskbarVisible = mSystemDialogHold.applySnapshot(
                 DesktopTaskbarVisibilityPolicy.isVisible(
                         mActivity.getCurrentDisplayId()
                                 == android.view.Display.DEFAULT_DISPLAY,
-                        activeTask != null,
+                        displayActiveTask != null,
                         hasVisibleFreeformTask,
                         hasVisibleFullscreenTask,
                         desktopHostActive,
@@ -76,8 +75,9 @@ final class DesktopTaskSnapshotController {
         }
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setTaskbarVisible(taskbarVisible);
+        mActivity.setTaskbarAvailable(taskbarAvailable);
         mActivity.setDesktopWindowFocusable(
-                activeTask == null || desktopHostActive);
+                displayActiveTask == null || desktopHostActive);
     }
 
     boolean setSystemDialogVisible(final boolean visible) {
@@ -96,6 +96,45 @@ final class DesktopTaskSnapshotController {
     static boolean hasVisibleFreeformTask(
             final List<TaskRepository.TaskEntry> tasks) {
         return hasVisibleFreeformTask(tasks, -1);
+    }
+
+    private static TaskRepository.TaskEntry findActiveTask(
+            final List<TaskRepository.TaskEntry> tasks) {
+        if (tasks == null) {
+            return null;
+        }
+        for (final TaskRepository.TaskEntry task : tasks) {
+            if (task != null && task.active) {
+                return task;
+            }
+        }
+        return null;
+    }
+
+    static boolean isDesktopChromeAvailable(
+            final List<TaskRepository.TaskEntry> displayTasks,
+            final List<TaskRepository.TaskEntry> desktopTasks) {
+        if (displayTasks == null) {
+            return true;
+        }
+        for (final TaskRepository.TaskEntry task : displayTasks) {
+            if (task == null || !task.visible
+                    || DesktopTaskbarActivity.isTaskbarTask(task)
+                    || TaskAreaBackstopActivity.isBackstopTask(task)) {
+                continue;
+            }
+            if (desktopTasks == null) {
+                return false;
+            }
+            for (final TaskRepository.TaskEntry desktopTask : desktopTasks) {
+                if (desktopTask != null
+                        && desktopTask.taskId == task.taskId) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return true;
     }
 
     static boolean hasVisibleFreeformTask(

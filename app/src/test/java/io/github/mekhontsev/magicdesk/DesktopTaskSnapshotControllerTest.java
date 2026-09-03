@@ -105,6 +105,25 @@ public final class DesktopTaskSnapshotControllerTest {
                         desktopHost(true))));
     }
 
+    @Test
+    public void foreignFullscreenForegroundRemainsPartOfChromePolicy() {
+        final TaskRepository.TaskEntry foreignFullscreen = app(true, true);
+        final TaskRepository.TaskEntry host = desktopHost(false);
+        final java.util.List<TaskRepository.TaskEntry> displayTasks =
+                Arrays.asList(taskbar(true), foreignFullscreen, host);
+        final java.util.List<TaskRepository.TaskEntry> desktopTasks =
+                Arrays.asList(taskbar(true), host);
+
+        assertTrue(DesktopTaskSnapshotController.hasVisibleFullscreenTask(
+                displayTasks));
+        assertFalse(DesktopTaskSnapshotController.hasVisibleFullscreenTask(
+                desktopTasks));
+        assertFalse(DesktopTaskSnapshotController.isDesktopChromeAvailable(
+                displayTasks, desktopTasks));
+        assertTrue(DesktopTaskSnapshotController.isDesktopChromeAvailable(
+                displayTasks, displayTasks));
+    }
+
     private static TaskRepository.TaskEntry desktopHost(
             final boolean visible) {
         return new TaskRepository.TaskEntry(

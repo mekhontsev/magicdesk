@@ -1169,10 +1169,15 @@ final class DesktopAutomationController {
             }
             case "taskbar_visible": {
                 final int displayId = optionalDisplayId(args);
+                final boolean expectedVisible =
+                        args.optBoolean("visible", true);
+                final boolean visible = DesktopRuntimeBridge
+                        .isTaskbarVisibleOnDisplay(displayId);
                 return observation
-                        .put("matched", DesktopRuntimeBridge
-                                .isTaskbarVisibleOnDisplay(displayId))
-                        .put("displayId", displayId);
+                        .put("matched", visible == expectedVisible)
+                        .put("displayId", displayId)
+                        .put("expectedVisible", expectedVisible)
+                        .put("visible", visible);
             }
             case "wallpaper_rendered": {
                 final int displayId = optionalDisplayId(args);

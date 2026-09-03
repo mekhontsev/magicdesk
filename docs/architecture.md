@@ -1300,12 +1300,16 @@ keeps the input frame aligned with the visible edge. The organizer retains its
 task-display-area surface leash and assigns it a layer above the independently
 layered fullscreen planes. That single shell-owned surface order keeps both the
 visible panel and hidden reveal edge above application input regions.
-The taskbar hides for an unrelated true-fullscreen
-task and returns for the desktop. Its shared controller measures the actual
-task viewport on every display and reserves one slot for an overflow menu when
-task or pin icons no longer fit. Overflow entries retain the same exact-task
-actions and context targets as their ordinary taskbar icons; screen drivers do
-not implement separate sizing or task-switching behavior.
+The taskbar hides for an unrelated true-fullscreen task and returns for the
+desktop. Chrome policy reads the complete physical display snapshot before
+workspace ownership filtering, while task lists and window operations remain
+limited to session-owned tasks. A foreign foreground task disables both the
+panel and its reveal edge; managed fullscreen tasks retain edge reveal. Its
+shared controller measures the actual task viewport on every display and
+reserves one slot for an overflow menu when task or pin icons no longer fit.
+Overflow entries retain the same exact-task actions and context targets as
+their ordinary taskbar icons; screen drivers do not implement separate sizing
+or task-switching behavior.
 The phone desktop also exposes the hidden taskbar through a touch edge gesture.
 It uses Android's configured edge and touch slop, is scoped to display 0, and
 feeds an explicit reveal state into the shared controller. The taskbar is

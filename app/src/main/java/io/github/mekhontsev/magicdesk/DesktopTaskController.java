@@ -2139,7 +2139,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 new ArrayList<>(workspace.tasks));
         reconcileTaskbarConcealment(workspace.tasks);
         mNativeWindowBounds.reconcile(workspace.tasks);
-        DesktopRuntimeBridge.syncTaskbarWithSnapshot(mDisplayId, workspace);
+        // Workspace operations remain ownership-scoped, but shell chrome must
+        // follow the physical display foreground. A foreign fullscreen task
+        // can be launched by SystemUI without joining the desktop workspace.
+        DesktopRuntimeBridge.syncTaskbarWithSnapshot(mDisplayId, snapshot);
         final List<TaskRepository.TaskEntry> visibleTasks = new ArrayList<>();
         boolean hasVisibleAppTask = false;
         boolean aboveDesktopHost = true;
