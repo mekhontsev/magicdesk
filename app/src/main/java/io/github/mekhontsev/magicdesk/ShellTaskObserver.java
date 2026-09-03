@@ -242,6 +242,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             final boolean requesting,
                             final boolean initialSample,
                             final boolean foreground) {
+                        if (!mDesktopOwnership.isRememberedDesktopTask(
+                                taskId)) {
+                            return;
+                        }
                         callCallback(() -> mCallback.onImmersiveRequest(
                                 taskId,
                                 requesting,
@@ -264,6 +268,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                         currentMode,
                                         focused);
                         mSelfTestTaskStackGuard.sample("windowing-mode");
+                        if (!mDesktopOwnership.isRememberedDesktopTask(
+                                taskId)) {
+                            return;
+                        }
                         callCallback(() -> mCallback.onWindowingModeChanged(
                                 taskId,
                                 previousMode,
@@ -278,6 +286,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             final String stateKey,
                             final int displayId,
                             final Rect bounds) {
+                        if (!mDesktopOwnership.isRememberedDesktopTask(
+                                taskId)) {
+                            return;
+                        }
                         callCallback(() -> mCallback.onFreeformBoundsChanged(
                                 taskId,
                                 stateKey,
@@ -1110,8 +1122,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int taskId,
             final int requestedOrientation,
             final String reason) {
-        callCallback(() -> mCallback.onTaskRequestedOrientationChanged(
-                taskId, requestedOrientation));
+        if (mDesktopOwnership.isRememberedDesktopTask(taskId)) {
+            callCallback(() -> mCallback.onTaskRequestedOrientationChanged(
+                    taskId, requestedOrientation));
+        }
         signalChange(reason);
     }
 

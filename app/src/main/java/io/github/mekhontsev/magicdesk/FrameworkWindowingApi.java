@@ -53,6 +53,8 @@ final class FrameworkWindowingApi {
                     "reparent", tokenClass, tokenClass, Boolean.TYPE));
             methods.put("setFocusable", transactionClass.getMethod(
                     "setFocusable", tokenClass, Boolean.TYPE));
+            methods.put("setAlwaysOnTop", transactionClass.getMethod(
+                    "setAlwaysOnTop", tokenClass, Boolean.TYPE));
             methods.put("setForceTranslucent", transactionClass.getMethod(
                     "setForceTranslucent", tokenClass, Boolean.TYPE));
             methods.put("setHidden", transactionClass.getMethod(
@@ -146,6 +148,14 @@ final class FrameworkWindowingApi {
             final boolean focusable) throws ReflectiveOperationException {
         invoke("setFocusable", transaction,
                 token, Boolean.valueOf(focusable));
+    }
+
+    void setAlwaysOnTop(
+            final Object transaction,
+            final Object token,
+            final boolean alwaysOnTop) throws ReflectiveOperationException {
+        invoke("setAlwaysOnTop", transaction,
+                token, Boolean.valueOf(alwaysOnTop));
     }
 
     void setForceTranslucent(

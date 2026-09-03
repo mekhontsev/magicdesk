@@ -65,6 +65,11 @@ public final class PhoneHomeActivity extends Activity {
             finishAndRemoveTask();
             return;
         }
+        if (!DesktopHomeRoleLease.isActiveForSurface(
+                DesktopHomeSurfaceRouter.Surface.PHONE)) {
+            finishAndRemoveTask();
+            return;
+        }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER);
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -85,6 +90,11 @@ public final class PhoneHomeActivity extends Activity {
     @Override
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
+        if (!DesktopHomeRoleLease.isActiveForSurface(
+                DesktopHomeSurfaceRouter.Surface.PHONE)) {
+            finishAndRemoveTask();
+            return;
+        }
         setIntent(intent);
         presentIntent(intent);
     }

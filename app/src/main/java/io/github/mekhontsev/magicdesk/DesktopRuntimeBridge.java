@@ -12,12 +12,11 @@ public final class DesktopRuntimeBridge {
     private DesktopRuntimeBridge() {
     }
 
-    static void registerShell(final DesktopShellActivity activity) {
-        UI.registerShell(activity);
-    }
-
-    static void registerDesktop(final DesktopShellActivity activity) {
-        UI.registerDesktop(activity);
+    static boolean registerDesktop(
+            final DesktopShellActivity activity,
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
+        return UI.registerDesktop(activity, target, policy);
     }
 
     static void unregister(final DesktopShellActivity activity) {

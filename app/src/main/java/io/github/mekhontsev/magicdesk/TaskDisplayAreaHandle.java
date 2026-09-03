@@ -11,6 +11,21 @@ import java.util.concurrent.Executor;
 final class TaskDisplayAreaHandle {
     private static final String TAG = "MagicDeskDisplayArea";
 
+    enum Parent {
+        ROOT(0),
+        DEFAULT_TASK_CONTAINER(1);
+
+        private final int mFeatureId;
+
+        Parent(final int featureId) {
+            mFeatureId = featureId;
+        }
+
+        int featureId() {
+            return mFeatureId;
+        }
+    }
+
     private final Object mOrganizer;
     private final Object mToken;
     private final Object mLeash;
@@ -31,23 +46,27 @@ final class TaskDisplayAreaHandle {
 
     static TaskDisplayAreaHandle create(
             final int displayId,
-            final int parentFeatureId,
+            final Parent parent,
             final String name) throws ReflectiveOperationException {
-        return create(displayId, parentFeatureId, name, false);
+        return create(displayId, parent, name, false);
     }
 
     static TaskDisplayAreaHandle createSurfaceOrdered(
             final int displayId,
-            final int parentFeatureId,
+            final Parent parent,
             final String name) throws ReflectiveOperationException {
-        return create(displayId, parentFeatureId, name, true);
+        return create(displayId, parent, name, true);
     }
 
     private static TaskDisplayAreaHandle create(
             final int displayId,
-            final int parentFeatureId,
+            final Parent parent,
             final String name,
             final boolean retainLeash) throws ReflectiveOperationException {
+        if (parent == null) {
+            throw new IllegalArgumentException(
+                    "task display area requires a parent");
+        }
         final Class<?> organizerClass = Class.forName(
                 "android.window.DisplayAreaOrganizer");
         final Executor directExecutor = Runnable::run;
@@ -61,7 +80,7 @@ final class TaskDisplayAreaHandle {
                 .invoke(
                         organizer,
                         Integer.valueOf(displayId),
-                        Integer.valueOf(parentFeatureId),
+                        Integer.valueOf(parent.featureId()),
                         name);
         final Object areaInfo = appeared.getClass()
                 .getMethod("getDisplayAreaInfo")

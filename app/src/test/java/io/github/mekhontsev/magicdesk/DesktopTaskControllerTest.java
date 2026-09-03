@@ -88,12 +88,18 @@ public final class DesktopTaskControllerTest {
     }
 
     @Test
-    public void identifiesOnlyDesktopActivityAsHost() {
+    public void identifiesBothDesktopHostActivities() {
         assertTrue(DesktopTaskController.isDesktopHostTask(task(
                 "io.github.mekhontsev.magicdesk/.DesktopActivity")));
         assertTrue(DesktopTaskController.isDesktopHostTask(task(
                 "io.github.mekhontsev.magicdesk/"
                         + "io.github.mekhontsev.magicdesk.DesktopActivity")));
+        assertTrue(DesktopTaskController.isDesktopHostTask(task(
+                "io.github.mekhontsev.magicdesk/.PhoneDesktopHomeActivity")));
+        assertTrue(DesktopTaskController.isDesktopHostTask(task(
+                "io.github.mekhontsev.magicdesk/"
+                        + "io.github.mekhontsev.magicdesk."
+                        + "PhoneDesktopHomeActivity")));
         assertFalse(DesktopTaskController.isDesktopHostTask(task(
                 "io.github.mekhontsev.magicdesk/.DesktopSelfTestActivity")));
         assertFalse(DesktopTaskController.isDesktopHostTask(task(

@@ -73,8 +73,8 @@ public final class DesktopTaskbarActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // The taskbar plane owns the physical bottom edge. System navigation
-        // may appear transiently over it, but must not resize or shade it.
+        // The taskbar plane already excludes persistent system-bar insets.
+        // Its attached panel must not apply them a second time.
         getWindow().setDecorFitsSystemWindows(false);
         getWindow().setNavigationBarContrastEnforced(false);
         getWindow().addFlags(

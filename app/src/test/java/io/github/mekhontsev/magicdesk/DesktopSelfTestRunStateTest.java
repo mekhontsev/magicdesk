@@ -98,6 +98,42 @@ public final class DesktopSelfTestRunStateTest {
     }
 
     @Test
+    public void isolatedDesktopSessionClosureCancelsTheActiveRun() {
+        final long runId = DesktopSelfTestRunState.startRun(
+                0L, "phone", DesktopSelfTestExecutionPolicy.FULL, 100L);
+
+        DesktopSelfTestRunState.noteDesktopSessionClosed(
+                DesktopSessionPolicy.USER, 0);
+        DesktopSelfTestRunState.checkpoint();
+
+        DesktopSelfTestRunState.noteDesktopSessionClosed(
+                DesktopSessionPolicy.ISOLATED_SELF_TEST, 0);
+        assertTrue(DesktopSelfTestRunState.isCancellationRequested());
+        assertEquals("desktop session closed on display 0",
+                DesktopSelfTestRunState.snapshot().detail);
+        try {
+            DesktopSelfTestRunState.checkpoint();
+            fail("closed desktop session did not stop the run");
+        } catch (DesktopSelfTestRunState.Cancelled expected) {
+            assertEquals(runId,
+                    DesktopSelfTestRunState.snapshot().runId);
+        }
+    }
+
+    @Test
+    public void desktopSessionClosureDoesNotCancelCleanup() {
+        final long runId = DesktopSelfTestRunState.startRun(
+                0L, "simulated", DesktopSelfTestExecutionPolicy.FULL, 100L);
+        DesktopSelfTestRunState.beginCleanup(runId);
+
+        DesktopSelfTestRunState.noteDesktopSessionClosed(
+                DesktopSessionPolicy.ISOLATED_SELF_TEST, 7);
+
+        assertFalse(DesktopSelfTestRunState.isCancellationRequested());
+        DesktopSelfTestRunState.checkpoint();
+    }
+
+    @Test
     public void cleanupCannotBeCancelledOrCompletedTwice() {
         final long runId = DesktopSelfTestRunState.startRun(
                 0L, "simulated", DesktopSelfTestExecutionPolicy.FULL, 100L);

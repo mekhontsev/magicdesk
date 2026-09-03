@@ -82,25 +82,10 @@ final class DesktopSessionSnapshot {
 
     DesktopSessionSnapshot registerHost(
             final int displayId,
-            final int taskId,
-            final boolean replacingSameTask) {
-        DesktopDisplayTarget target = mTarget;
-        // Preserve an external target when WMS briefly moves the same desktop
-        // task to the phone before the replacement Console HOME is registered.
-        if (!replacingSameTask || displayId != Display.DEFAULT_DISPLAY) {
-            if (target == null || target.displayId != displayId) {
-                target = displayId == Display.DEFAULT_DISPLAY
-                        ? DesktopDisplayTarget.phone() : null;
-            }
-        }
-        return new DesktopSessionSnapshot(
-                target, mPolicy, displayId, taskId);
-    }
-
-    DesktopSessionSnapshot observeHost(
-            final int displayId, final int taskId) {
-        if (mHostDisplayId == displayId && mHostTaskId == taskId) {
-            return this;
+            final int taskId) {
+        if (mTarget == null || mTarget.displayId != displayId) {
+            throw new IllegalStateException(
+                    "desktop host does not match the prepared target");
         }
         return new DesktopSessionSnapshot(
                 mTarget, mPolicy, displayId, taskId);

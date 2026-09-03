@@ -27,7 +27,7 @@ public final class DesktopSessionSnapshotTest {
         final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7);
         final DesktopSessionSnapshot snapshot = DesktopSessionSnapshot.empty()
                 .noteTarget(target)
-                .registerHost(7, 42, false);
+                .registerHost(7, 42);
 
         assertTrue(snapshot.hasHost());
         assertEquals(7, snapshot.activeDisplayId());
@@ -36,55 +36,11 @@ public final class DesktopSessionSnapshotTest {
     }
 
     @Test
-    public void unexpectedExternalHostDoesNotClaimAnotherTarget() {
-        final DesktopSessionSnapshot snapshot = DesktopSessionSnapshot.empty()
-                .noteTarget(DesktopDisplayTarget.wired(7))
-                .registerHost(8, 42, false);
-
-        assertEquals(8, snapshot.activeDisplayId());
-        assertNull(snapshot.target());
-    }
-
-    @Test
-    public void localHostCreatesPhoneTarget() {
-        final DesktopSessionSnapshot snapshot = DesktopSessionSnapshot.empty()
-                .registerHost(Display.DEFAULT_DISPLAY, 42, false);
-
-        assertTrue(snapshot.isLocalActiveOrStarting());
-        assertEquals(DesktopDisplayTarget.Kind.PHONE,
-                snapshot.target().kind);
-    }
-
-    @Test
-    public void sameTaskMoveToPhoneKeepsExternalTarget() {
-        final DesktopDisplayTarget target = DesktopDisplayTarget.wireless(7);
-        final DesktopSessionSnapshot snapshot = DesktopSessionSnapshot.empty()
-                .noteTarget(target)
-                .registerHost(7, 42, false)
-                .registerHost(Display.DEFAULT_DISPLAY, 42, true);
-
-        assertEquals(Display.DEFAULT_DISPLAY, snapshot.activeDisplayId());
-        assertSame(target, snapshot.target());
-    }
-
-    @Test
-    public void observedHostMoveDoesNotDiscardSessionTarget() {
-        final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7);
-        final DesktopSessionSnapshot snapshot = DesktopSessionSnapshot.empty()
-                .noteTarget(target)
-                .registerHost(7, 42, false)
-                .observeHost(Display.DEFAULT_DISPLAY, 42);
-
-        assertEquals(Display.DEFAULT_DISPLAY, snapshot.activeDisplayId());
-        assertSame(target, snapshot.target());
-    }
-
-    @Test
     public void configurationChangeKeepsTargetWithoutHost() {
         final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7);
         final DesktopSessionSnapshot snapshot = DesktopSessionSnapshot.empty()
                 .noteTarget(target)
-                .registerHost(7, 42, false)
+                .registerHost(7, 42)
                 .unregisterHost(7, true);
 
         assertFalse(snapshot.hasHost());
@@ -95,7 +51,7 @@ public final class DesktopSessionSnapshotTest {
     public void normalHostRemovalClearsMatchingTarget() {
         final DesktopSessionSnapshot snapshot = DesktopSessionSnapshot.empty()
                 .noteTarget(DesktopDisplayTarget.wired(7))
-                .registerHost(7, 42, false)
+                .registerHost(7, 42)
                 .unregisterHost(7, false);
 
         assertFalse(snapshot.hasHost());
@@ -109,7 +65,7 @@ public final class DesktopSessionSnapshotTest {
                         .noteTarget(
                                 DesktopDisplayTarget.simulated(7),
                                 DesktopSessionPolicy.ISOLATED_SELF_TEST)
-                        .registerHost(7, 42, false)
+                        .registerHost(7, 42)
                         .unregisterHost(7, true);
 
         assertEquals(

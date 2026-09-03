@@ -82,6 +82,11 @@ final class DesktopSelfTestInputSuite {
                 taskId,
                 bounds,
                 captionReference);
+        check(result,
+                "TASKBAR-002",
+                "Keep taskbar rendered before desktop input",
+                () -> waitForRenderedTaskbar(
+                        displayId, captureSource, geometry));
         check(result, "INPUT-001", "Route input to selected display", () -> {
             DesktopSelfTestFixtureState.clearText(context);
             final int x = bounds.centerX();
@@ -1171,6 +1176,60 @@ final class DesktopSelfTestInputSuite {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("taskbar visibility did not match: expected="
                 + expectedVisible + ", actual=" + actualVisible);
+    }
+
+    private static String waitForRenderedTaskbar(
+            final int displayId,
+            final DisplayCaptureSource captureSource,
+            final DesktopSelfTestGeometry geometry) throws IOException {
+        final long deadline = SystemClock.uptimeMillis()
+                + STEP_TIMEOUT_MILLIS;
+        String lastDetail = "taskbar UI snapshot unavailable";
+        do {
+            DesktopSelfTestRunState.checkpoint();
+            final DesktopUiSnapshot ui =
+                    DesktopRuntimeBridge.getAutomationUiSnapshot(displayId);
+            if (ui != null && ui.available && ui.taskbarVisible
+                    && !ui.taskbarBounds.isEmpty()) {
+                final Rect taskbar = ui.taskbarBounds;
+                final int horizontalInset = Math.min(
+                        taskbar.width() - 1,
+                        geometry.scaleFrom160Dpi(2));
+                final int x = taskbar.left + Math.max(0, horizontalInset);
+                final int y = taskbar.centerY();
+                try {
+                    final String output = ShellAccess.run(
+                            DesktopTransitionSurfaceProbe
+                                    .createCaptureCommand(
+                                            captureSource, x, y));
+                    final int color = DesktopTransitionSurfaceProbe
+                            .parseReference(
+                                    captureSource, x, y, output).color;
+                    lastDetail = "bounds="
+                            + DesktopSelfTestGeometry.format(taskbar)
+                            + ", sample=" + x + "," + y
+                            + ", color="
+                            + DesktopTransitionSurfaceProbe.formatColor(color);
+                    if (colorsMatch(DesktopUiFactory.COLOR_PANEL, color)
+                            || colorsMatch(
+                                    DesktopUiFactory.COLOR_PANEL_ALT,
+                                    color)) {
+                        return lastDetail;
+                    }
+                } catch (IOException error) {
+                    lastDetail = usefulMessage(error);
+                }
+            } else if (ui != null && ui.available) {
+                lastDetail = "logical-visible=" + ui.taskbarVisible
+                        + ", bounds="
+                        + DesktopSelfTestGeometry.format(ui.taskbarBounds);
+            }
+            BoundedStateAwaiter.pause(
+                    BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                    POLL_MILLIS);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new IOException("taskbar was not rendered before input: "
+                + lastDetail);
     }
 
     private static boolean colorsMatch(

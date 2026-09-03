@@ -3,15 +3,15 @@ package io.github.mekhontsev.magicdesk;
 /** Component names shared by the self-test orchestrator and its suites. */
 final class DesktopSelfTestComponents {
     static final String PACKAGE_NAME =
-            "io.github.mekhontsev.magicdesk";
+            DesktopHostComponents.PACKAGE_NAME;
     static final String FIXTURE_CLASS =
             PACKAGE_NAME + ".DesktopSelfTestActivity";
     static final String BROWSER_FIXTURE_CLASS =
             PACKAGE_NAME + ".DesktopSelfTestBrowserActivity";
     static final String DESKTOP_CLASS =
-            PACKAGE_NAME + ".DesktopActivity";
-    static final String PHONE_DESKTOP_HOME_ALIAS_CLASS =
-            PACKAGE_NAME + ".PhoneDesktopHome";
+            DesktopHostComponents.EXTERNAL_HOME_CLASS;
+    static final String PHONE_DESKTOP_HOME_CLASS =
+            DesktopHostComponents.PHONE_HOME_CLASS;
 
     private DesktopSelfTestComponents() {
     }
@@ -35,9 +35,7 @@ final class DesktopSelfTestComponents {
     }
 
     private static boolean isDesktopComponent(final String componentName) {
-        return DesktopSelfTestTasks.hasClass(componentName, DESKTOP_CLASS)
-                || DesktopSelfTestTasks.hasClass(
-                        componentName, PHONE_DESKTOP_HOME_ALIAS_CLASS);
+        return DesktopHostComponents.isHostComponentName(componentName);
     }
 
     static boolean isFixtureComponent(final String componentName) {

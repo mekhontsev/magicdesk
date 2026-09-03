@@ -497,15 +497,16 @@ public final class MagicDeskRuntimeService extends Service
         if (DesktopRuntimeBridge.showStart()) {
             return;
         }
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        final int displayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        if (displayId > 0) {
-            options.setLaunchDisplayId(displayId);
+        final DesktopDisplayTarget target =
+                DesktopRuntimeBridge.getActiveDesktopTarget();
+        if (target == null) {
+            return;
         }
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(target.displayId);
         DesktopShellActivity.setLaunchWindowingMode(options, 5);
         startActivity(
-                DesktopShellActivity.createShowStartIntent(this),
+                DesktopShellActivity.createShowStartIntent(this, target),
                 options.toBundle());
     }
 

@@ -370,10 +370,12 @@ runtime integration and are not distributed through the same release path.
   desktop task controller launches the same Activity in a dedicated reusable
   freeform task.
 - Diagnostics follows that same built-in-window path on a desktop. It therefore
-  cannot replace `DesktopActivity` in the host task or hide every application
+  cannot replace the desktop host Activity or hide every application
   merely because a report was opened. Phone-side callers may still open the
   same Activity normally in their current task.
-- `DesktopActivity` is the concrete desktop Activity.
+- `DesktopActivity` hosts external desktops, while
+  `PhoneDesktopHomeActivity` is the dedicated primary-HOME host for a phone
+  desktop.
   `DesktopShellActivity` composes controllers and forwards Android callbacks;
   it does not own every feature directly.
 - `DeviceSetupActivity`, `DeviceSetupManager`, and `DeviceSetupView` own the
@@ -1062,15 +1064,17 @@ Android HOME holder and remembers the previous role state plus the complete
 target. Android may have a working HOME surface while the role has no explicit
 holder; that empty state is valid and is restored by removing MagicDesk rather
 than selecting a launcher on the user's behalf.
-`DesktopHomeSurfaceRouter` atomically exposes exactly one primary HOME alias
+`DesktopHomeSurfaceRouter` atomically exposes exactly one primary HOME Activity
 before the role is claimed. External targets use `PhoneHomeActivity` on display
 0 and launch `DesktopActivity` through the typed Shizuku task API as the
 `SECONDARY_HOME` task on the selected display. A phone target exposes
-`DesktopActivity` itself as primary HOME, so Android creates the desktop host
-directly in its standard task area without a second phone HOME task.
+the dedicated `PhoneDesktopHomeActivity` as primary HOME, so Android creates
+the desktop host directly in its standard task area without conflating it with
+the external-display host component.
 
 The lease is the only owner of HOME transitions and HOME-surface selection.
-Normal close restores the previous holder and the default alias state before
+Normal close quiesces MagicDesk's HOME entry points, restores the previous
+holder, and restores the default component state before
 session teardown; later cleanup failure never reclaims HOME for MagicDesk.
 Unexpected display loss releases a live lease through the same role boundary,
 and a user-selected third-party HOME is never overwritten. If a new MagicDesk
@@ -1200,7 +1204,7 @@ boundary on the destination so caption surfaces and input windows acquire the
 correct display. The simulated driver deliberately uses this same path to model
 external-display behavior without connected hardware.
 
-Phone `DesktopActivity` is primary HOME in Android's default task area.
+`PhoneDesktopHomeActivity` is primary HOME in Android's default task area.
 Freeform applications remain standard root-workspace tasks above that HOME.
 Fullscreen applications use the same independent per-task planes as every
 other target. The exact SystemUI desktop-wallpaper activity is suppressed only
@@ -1242,6 +1246,14 @@ visibility update; only a gap beginning at that callback may remain pending,
 and it must resolve by the coalesced `onTaskStackChanged` callback or the test
 stage boundary. Other visibility gaps fail immediately.
 
+Before the first desktop input step, `TASKBAR-002` verifies both the host's
+logical taskbar state and one pixel from the rendered taskbar surface. The
+capture runs only inside the manually requested self-test and detects a panel
+that is logically shown but composed below another surface. Closing the
+isolated desktop session emits a lifecycle cancellation event; the test stops
+at its next checkpoint and proceeds directly to cleanup instead of recording
+failures against a session that no longer exists.
+
 `SelfTestTaskStackInvariantAnalyzerTest` exercises these structural rules
 without an Android device. Simulated, phone, and wired self-tests exercise the
 same assertions against real WindowManager and firmware paths. All targets
@@ -1263,10 +1275,10 @@ assertions do not depend on the palette.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
 display. A phone desktop is an explicitly selected primary HOME session: it
-reserves the status bar, requests transient navigation bars, and owns the
-physical bottom edge for its taskbar. A temporarily revealed navigation bar
-overlays the stable desktop geometry instead of moving it. A dedicated external
-display normally reports zero system-bar insets and fills the panel. The
+reserves the status and navigation bars and places its taskbar above the stable
+navigation inset. Visibility changes do not move the desktop because geometry
+uses the bars' ignoring-visibility insets. A dedicated external display
+normally reports zero system-bar insets and fills the panel. The
 taskbar plane receives its final bounds from the desktop viewport; its attached
 application panel does not apply system-bar or IME insets a second time. There
 is no separate phone implementation of the desktop. IME visibility may keep an
@@ -1281,17 +1293,20 @@ the source once into a physical-display-sized frame; the view uses a fixed
 top-left image matrix, so a transient system-bar inset cannot recrop that frame
 when HOME loses focus. Wallpaper readiness is published only after the selected
 bitmap reaches a committed frame; reload generations discard stale callbacks
-without a settling delay. On the phone display, an opaque desktop-chrome
-backdrop covers the reserved status-bar inset above the wallpaper. Android can
-therefore keep its normal transparent status bar for HOME and freeform tasks
-without exposing a bright wallpaper strip above snapped windows.
+without a settling delay. On the phone display, opaque desktop-chrome backdrops
+cover the reserved status- and navigation-bar insets above the wallpaper.
+Android can therefore keep normal system-bar behavior for HOME and freeform
+tasks without exposing bright wallpaper strips around snapped windows.
 
 The taskbar is a regular fullscreen Activity inside a narrow organizer-owned
 task-display area. The area is bounded to the taskbar geometry, is not
-focusable, and remains above ordinary application task areas. This gives the
-taskbar normal application-window treatment, so a foreground application that
-suppresses non-system overlays cannot suppress it. The Activity is fullscreen
-relative to its bounded parent and therefore never receives a freeform caption.
+focusable, and is an `alwaysOnTop` child of Android's default task container.
+This places it in the same WindowManager ordering domain as application and
+fullscreen planes while keeping application tasks out of the taskbar area.
+Ordering uses a standard `WindowContainerTransaction`. This gives the taskbar normal
+application-window treatment, so a foreground application that suppresses
+non-system overlays cannot suppress it. The Activity is fullscreen relative to
+its bounded parent and therefore never receives a freeform caption.
 The shell disables that Activity's Android 15+ ActivityRecord input sink, so
 only the taskbar window's bounded touch region receives input and pointer events
 outside the panel continue to the desktop and application windows.
@@ -1300,9 +1315,9 @@ non-touchable, and resizes the application panel containing the taskbar View to
 its reveal edge. The same window therefore owns visible taskbar input and
 hidden-edge hover without forwarding synthetic events. It adds no polling and
 keeps the input frame aligned with the visible edge. The organizer retains its
-task-display-area surface leash and assigns it a layer above the independently
-layered fullscreen planes. That single shell-owned surface order keeps both the
-visible panel and hidden reveal edge above application input regions.
+task-display-area token but does not retain or manually layer its surface leash.
+WindowManager's container order keeps both the visible panel and hidden reveal
+edge above application input regions.
 The taskbar hides for an unrelated true-fullscreen task and returns for the
 desktop. Chrome policy reads the complete physical display snapshot before
 workspace ownership filtering, while task lists and window operations remain
@@ -1344,7 +1359,7 @@ malformed task metadata.
 
 While a desktop session is active, MagicDesk owns Android's HOME role. An
 external session uses `PhoneHomeActivity` as the phone navigation surface; a
-phone session uses `DesktopActivity` as primary HOME. The task layer enforces a
+phone session uses `PhoneDesktopHomeActivity` as primary HOME. The task layer enforces a
 separate invariant: no application task may remain freeform on display 0 after
 migration or teardown. `ShellExternalTaskMigrationGuard` normalizes
 system-driven moves during an external session, and
@@ -1752,7 +1767,7 @@ The lease enters `RELEASING` before that handoff so startup recovery can finish
 an interrupted release without treating it as an active desktop. If MagicDesk
 still owns HOME after process loss, the pre-Shizuku startup guard instead
 disables its HOME surfaces and discards the lease immediately. Once the previous
-HOME is confirmed during normal close, the routing aliases and persisted lease
+HOME is confirmed during normal close, the routed components and persisted lease
 are restored immediately; a later task or display cleanup failure never claims
 HOME for MagicDesk again. Unexpected display loss performs the same restoration
 without waiting for a UI callback.
@@ -1799,8 +1814,9 @@ Bounds are resolved against the active desktop work area when a task is
 launched, restored, or moved to another display.
 
 MagicDesk temporarily owns Android's HOME role for the desktop session. The
-selected alias makes `PhoneHomeActivity` the phone navigation surface for an
-external session or makes `DesktopActivity` primary HOME for a phone session.
+selected component makes `PhoneHomeActivity` the phone navigation surface for
+an external session or makes `PhoneDesktopHomeActivity` primary HOME for a
+phone session.
 For an external session, `DesktopActivity` is launched and verified as the root
 secondary HOME task on the selected desktop display. The desktop host is an
 opaque, display-sized fullscreen Activity; it
@@ -1809,6 +1825,15 @@ The Activity becomes available to parked-task restoration after its first
 rendered frame. HOME-role acquisition, root-task creation, and first-frame
 readiness are separate lifecycle facts, so callers never infer host readiness
 from an arbitrary delay or configuration retry.
+The runtime admits one host task per session. Configuration recreation of that
+same task is idempotent; a second live task is rejected without releasing the
+registered host's taskbar, fullscreen planes, or other session resources.
+
+All phone, simulated, wired, and wireless sessions use one taskbar topology.
+Its bounded organizer area is an `alwaysOnTop` child of Android's default task
+container and does not manage a private surface layer. Freeform tasks remain
+direct children of the default task area, while the taskbar and each fullscreen
+task retain isolated organizer areas under that same ordering parent.
 
 Task order around this host is the desktop visibility boundary. Freeform tasks
 above it are visible windows; tasks below it are minimized and follow Android's
@@ -2126,6 +2151,9 @@ These constraints define the supported implementation paths:
 - Every configured desktop uses direct-root freeform tasks and independent
   per-task fullscreen planes. Session cleanup drains every owned plane and its
   structural anchor.
+- Every desktop target hosts the taskbar in one non-focusable, always-on-top
+  organizer area under the default task container; application tasks never
+  enter that area.
 - Nubia `WindowReply` is allowlisted and cannot manage arbitrary packages.
 - Moving a running task through display 0 can kill or recreate the application.
 - Fixed sleeps around task transitions are both visible and race-prone.

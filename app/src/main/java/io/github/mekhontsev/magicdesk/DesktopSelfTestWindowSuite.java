@@ -1371,6 +1371,7 @@ final class DesktopSelfTestWindowSuite {
                 "Verify desktop viewport and taskbar",
                 () -> {
             final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+            String lastDetail = "desktop runtime state unavailable";
             do {
                 final DesktopViewport viewport =
                         DesktopRuntimeBridge.getDesktopViewport(displayId);
@@ -1383,16 +1384,37 @@ final class DesktopSelfTestWindowSuite {
                     final Rect taskbar = ui.taskbarBounds;
                     final int densityDpi = displayDensity(context, displayId);
                     final int rotation = displayRotation(context, displayId);
+                    lastDetail = "display="
+                            + DesktopSelfTestGeometry.format(display)
+                            + ", content="
+                            + DesktopSelfTestGeometry.format(
+                                    viewport.contentBounds())
+                            + ", insets=" + viewport.insetLeft()
+                            + "," + viewport.insetTop()
+                            + "," + viewport.insetRight()
+                            + "," + viewport.insetBottom()
+                            + ", work="
+                            + DesktopSelfTestGeometry.format(workArea)
+                            + ", taskbar="
+                            + DesktopSelfTestGeometry.format(taskbar)
+                            + ", uiAvailable=" + ui.available
+                            + ", uiVisible=" + ui.taskbarVisible
+                            + ", density=" + densityDpi
+                            + ", rotation=" + rotation;
                     if (display.width() > 0
                             && display.height() > 0
+                            && ui.available
+                            && ui.taskbarVisible
                             && taskbar != null
                             && !taskbar.isEmpty()
                             && display.contains(taskbar)
-                            && taskbar.bottom == display.bottom
-                            && workArea.left == display.left
-                            && workArea.right == display.right
-                            && workArea.top >= display.top
-                            && workArea.bottom < display.bottom
+                            && taskbar.left == viewport.contentLeft()
+                            && taskbar.right == viewport.contentRight()
+                            && taskbar.bottom == viewport.contentBottom()
+                            && workArea.left == viewport.contentLeft()
+                            && workArea.right == viewport.contentRight()
+                            && workArea.top == viewport.contentTop()
+                            && workArea.bottom == taskbar.top
                             && densityDpi > 0
                             && rotation >= 0) {
                         return DesktopSelfTestViewportProbe.withCaptureOutput(
@@ -1410,7 +1432,8 @@ final class DesktopSelfTestWindowSuite {
                         BoundedStateAwaiter.Reason.DISPLAY_STATE,
                         POLL_MILLIS);
             } while (SystemClock.uptimeMillis() < deadline);
-            throw new IOException("desktop viewport did not settle");
+            throw new IOException("desktop viewport did not settle: "
+                    + lastDetail);
         }, null);
     }
 

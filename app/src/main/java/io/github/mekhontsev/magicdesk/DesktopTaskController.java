@@ -2331,10 +2331,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     static boolean isDesktopHostTask(final TaskRepository.TaskEntry task) {
         return task != null
                 && MAGICDESK_PACKAGE.equals(task.packageName)
-                && task.componentName != null
-                && (task.componentName.endsWith("/.DesktopActivity")
-                        || task.componentName.endsWith(
-                                "/" + MAGICDESK_PACKAGE + ".DesktopActivity"));
+                && DesktopHostComponents.isHostComponentName(
+                        task.componentName);
     }
 
     private void scheduleRefresh(final long delayMillis) {

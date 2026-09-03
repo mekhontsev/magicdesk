@@ -136,9 +136,8 @@ final class DesktopSessionController {
             final boolean restoreWindows,
             final DesktopHomeRoleLease.AcquireResult homeAcquisition,
             final int desktopTaskId) throws IOException {
-        // Claiming HOME already starts DesktopActivity in Android's default
-        // task area. Launching it again would create or select a second host
-        // instead of using the HOME task whose role acquisition just started.
+        // Claiming HOME starts the selected primary host in Android's default
+        // task area. Launching it again would race that HOME task.
         if (desktopTaskId < 0) {
             throw new IOException(
                     "primary HOME did not create the phone desktop task");

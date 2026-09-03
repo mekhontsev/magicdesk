@@ -218,6 +218,32 @@ final class DesktopSelfTestRunState {
     }
 
     static CancellationStatus requestCancellation(final long requestedRunId) {
+        return requestCancellation(
+                requestedRunId,
+                "cancellation requested",
+                "cancel_requested");
+    }
+
+    static void noteDesktopSessionClosed(
+            final DesktopSessionPolicy policy,
+            final int displayId) {
+        if (policy != DesktopSessionPolicy.ISOLATED_SELF_TEST) {
+            return;
+        }
+        final long runId;
+        synchronized (LOCK) {
+            runId = sSnapshot.runId;
+        }
+        requestCancellation(
+                runId,
+                "desktop session closed on display " + displayId,
+                "session_closed");
+    }
+
+    private static CancellationStatus requestCancellation(
+            final long requestedRunId,
+            final String detail,
+            final String operation) {
         final Snapshot snapshot;
         final CancellationStatus status;
         final Runnable handler;
@@ -237,13 +263,13 @@ final class DesktopSelfTestRunState {
             if (current.cancellationRequested) {
                 return CancellationStatus.ALREADY_REQUESTED;
             }
-            snapshot = current.withCancellationRequested();
+            snapshot = current.withCancellationRequested(clean(detail));
             sSnapshot = snapshot;
             status = CancellationStatus.ACCEPTED;
             handler = current.state == State.STARTING
                     ? sPreparationCancellationHandler : null;
         }
-        record(snapshot, "cancel_requested", true);
+        record(snapshot, operation, true);
         if (handler != null) {
             handler.run();
         }
@@ -430,11 +456,11 @@ final class DesktopSelfTestRunState {
                     detail);
         }
 
-        private Snapshot withCancellationRequested() {
+        private Snapshot withCancellationRequested(final String detail) {
             return new Snapshot(
                     runId, state, target, mode, stage, lastCompletedStage, true,
                     requestedAtMillis, startedAtMillis, completedAtMillis,
-                    "cancellation requested");
+                    detail);
         }
 
         private Snapshot withState(

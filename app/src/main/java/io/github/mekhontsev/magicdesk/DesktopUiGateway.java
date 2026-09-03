@@ -30,67 +30,47 @@ final class DesktopUiGateway {
         mSession = session;
     }
 
-    void registerShell(final DesktopShellActivity activity) {
-        synchronized (mHostLock) {
-            mShell = new WeakReference<>(activity);
-        }
-    }
-
-    void registerDesktop(final DesktopShellActivity activity) {
+    boolean registerDesktop(
+            final DesktopShellActivity activity,
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
         final DesktopShellActivity previous;
         final boolean replacingSameTask;
-        final boolean previousWasLocal;
-        final int previousDisplayId;
-        final DesktopSessionPolicy previousPolicy;
         final int displayId = activity.getCurrentDisplayId();
         synchronized (mHostLock) {
-            previous = mDesktop.get();
+            previous = reconcileSessionHostLocked();
+            if (previous == activity) {
+                return true;
+            }
             replacingSameTask = previous != null
-                    && previous != activity
-                    && previous.getTaskId() == activity.getTaskId();
-            previousWasLocal = previous != null
-                    && previous != activity
-                    && previous.getCurrentDisplayId()
-                            == Display.DEFAULT_DISPLAY;
-            previousDisplayId = previous == null
-                    ? Display.INVALID_DISPLAY
-                    : previous.getCurrentDisplayId();
-            previousPolicy = mSession.snapshot().policy();
+                    && previous.getTaskId() == activity.getTaskId()
+                    && previous.getCurrentDisplayId() == displayId;
+            if (!mSession.registerHost(
+                    displayId,
+                    activity.getTaskId(),
+                    target,
+                    policy)) {
+                recordSession(
+                        "host_registration_rejected",
+                        displayId,
+                        activity.getTaskId());
+                return false;
+            }
+            mShell = new WeakReference<>(activity);
             mDesktop = new WeakReference<>(activity);
-            mSession.registerHost(
-                    displayId, activity.getTaskId(), replacingSameTask);
         }
         AppWindowStateStore.beginSession(
                 sessionSnapshot().policy(), replacingSameTask);
-        if (previous != null && previous != activity) {
-            if (previousDisplayId >= Display.DEFAULT_DISPLAY
-                    && previousDisplayId != displayId) {
-                if (previousPolicy.persistWorkspace) {
-                    MagicDeskRuntime.preserveDesktopTasks(previousDisplayId);
-                }
-            }
-            // Nubia may move the phone task before the dedicated Console HOME
-            // starts.
-            Log.i(TAG, "replacing desktop shell task=" + previous.getTaskId()
-                    + " with task=" + activity.getTaskId());
-            previous.releaseDesktopOverlays();
-            if (previous.getTaskId() != activity.getTaskId()
-                    && !previous.isFinishing()) {
-                previous.finishAndRemoveTask();
-            }
-        }
-        final DesktopDisplayTarget target = sessionSnapshot().target();
+        final DesktopDisplayTarget activeTarget = sessionSnapshot().target();
         if (displayId == Display.DEFAULT_DISPLAY
-                && target != null
-                && target.kind == DesktopDisplayTarget.Kind.PHONE
+                && activeTarget != null
+                && activeTarget.kind == DesktopDisplayTarget.Kind.PHONE
                 && ShellAccess.isReady()) {
             LocalDesktopSessionState.markCleanupPending(activity);
         }
         MagicDeskRuntime.refreshDesktopTasks();
         recordSession("host_registered", displayId, activity.getTaskId());
-        if (previousWasLocal) {
-            MagicDeskRuntime.scheduleLocalDesktopCleanup();
-        }
+        return true;
     }
 
     void unregister(final DesktopShellActivity activity) {
@@ -113,6 +93,7 @@ final class DesktopUiGateway {
         if (!desktopRemoved || changingConfigurations) {
             return;
         }
+        DesktopSelfTestRunState.noteDesktopSessionClosed(policy, displayId);
         if (policy.persistWorkspace) {
             MagicDeskRuntime.preserveDesktopTasks(displayId);
         }
@@ -150,6 +131,7 @@ final class DesktopUiGateway {
             }
             mSession.close();
         }
+        DesktopSelfTestRunState.noteDesktopSessionClosed(policy, displayId);
         if (policy.persistWorkspace) {
             MagicDeskRuntime.preserveDesktopTasks(displayId);
         }
@@ -933,8 +915,15 @@ final class DesktopUiGateway {
             }
             return null;
         }
-        mSession.observeHost(
-                activity.getCurrentDisplayId(), activity.getTaskId());
+        final DesktopSessionSnapshot snapshot = mSession.snapshot();
+        if (snapshot.activeDisplayId() != activity.getCurrentDisplayId()
+                || snapshot.hostTaskId() != activity.getTaskId()) {
+            recordSession(
+                    "host_identity_mismatch",
+                    activity.getCurrentDisplayId(),
+                    activity.getTaskId());
+            return null;
+        }
         return activity;
     }
 

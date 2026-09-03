@@ -32,6 +32,7 @@ final class DesktopSelfTestSteps {
         } catch (DesktopSelfTestRunState.Cancelled cancelled) {
             throw cancelled;
         } catch (Exception error) {
+            DesktopSelfTestRunState.checkpoint();
             failAndAbort(result, code, label, usefulMessage(error));
             throw new AssertionError("unreachable");
         }
@@ -52,6 +53,7 @@ final class DesktopSelfTestSteps {
         } catch (DesktopSelfTestRunState.Cancelled cancelled) {
             throw cancelled;
         } catch (Exception error) {
+            DesktopSelfTestRunState.checkpoint();
             result.add(DesktopSelfTestResult.State.FAIL,
                     code, label, usefulMessage(error));
         }

@@ -23,6 +23,7 @@ public final class FrameworkWindowingApiTest {
         api.reparent(transaction, token, parent, true);
         api.reorder(transaction, token, true, true);
         api.setHidden(transaction, token, true);
+        api.setAlwaysOnTop(transaction, token, true);
 
         assertEquals(5, transaction.mode);
         assertEquals(token, transaction.token);
@@ -30,6 +31,7 @@ public final class FrameworkWindowingApiTest {
         assertTrue(transaction.onTop);
         assertTrue(transaction.includingParents);
         assertTrue(transaction.hidden);
+        assertTrue(transaction.alwaysOnTop);
     }
 
     @Test
@@ -51,6 +53,7 @@ public final class FrameworkWindowingApiTest {
         boolean onTop;
         boolean includingParents;
         boolean hidden;
+        boolean alwaysOnTop;
 
         public void setWindowingMode(final FakeToken value, final int newMode) {
             token = value;
@@ -86,6 +89,12 @@ public final class FrameworkWindowingApiTest {
 
         public void setFocusable(final FakeToken value, final boolean focusable) {
             token = value;
+        }
+
+        public void setAlwaysOnTop(
+                final FakeToken value, final boolean enabled) {
+            token = value;
+            alwaysOnTop = enabled;
         }
 
         public void setForceTranslucent(

@@ -47,23 +47,43 @@ public final class ShellDesktopTaskOwnershipTest {
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     @Test
-    public void everyFreeformTaskIsDesktopOwned() {
-        assertTrue(ShellDesktopTaskOwnership.isDesktopOwnedMode(
-                WINDOWING_MODE_FREEFORM, false, false));
-        assertTrue(ShellDesktopTaskOwnership.isDesktopOwnedMode(
-                WINDOWING_MODE_FULLSCREEN, true, false));
-        assertFalse(ShellDesktopTaskOwnership.isDesktopOwnedMode(
-                WINDOWING_MODE_FULLSCREEN, false, false));
-        assertFalse(ShellDesktopTaskOwnership.isDesktopOwnedMode(
-                WINDOWING_MODE_FREEFORM, false, true));
+    public void phoneOwnershipRequiresAnExplicitClaim() {
+        assertTrue(ShellDesktopTaskOwnership.isDesktopOwnedTask(
+                false, true));
+        assertFalse(ShellDesktopTaskOwnership.isDesktopOwnedTask(
+                false, false));
     }
 
     @Test
     public void everyStandardTaskOnActiveExternalDisplayIsDesktopOwned() {
         assertTrue(ShellDesktopTaskOwnership.isDesktopOwnedTask(
-                true, WINDOWING_MODE_FULLSCREEN, false, false));
+                true, false));
         assertFalse(ShellDesktopTaskOwnership.isDesktopOwnedTask(
-                false, WINDOWING_MODE_FULLSCREEN, false, false));
+                false, false));
+    }
+
+    @Test
+    public void unclaimedPhoneFreeformTaskIsNotAdopted() {
+        final ShellDesktopTaskOwnership ownership =
+                new ShellDesktopTaskOwnership();
+
+        ownership.configure(0);
+        assertNull(ownership.observeStandardTaskState(
+                0, 0, 42, WINDOWING_MODE_FREEFORM));
+        assertArrayEquals(new int[0], ownership.desktopTaskIds());
+    }
+
+    @Test
+    public void externalObservationPublishesEveryTaskMode() {
+        final ShellDesktopTaskOwnership ownership =
+                new ShellDesktopTaskOwnership();
+
+        ownership.configure(4);
+        assertNull(ownership.observeStandardTaskState(
+                4, 4, 41, WINDOWING_MODE_FULLSCREEN));
+        assertNull(ownership.observeStandardTaskState(
+                4, 4, 42, WINDOWING_MODE_FREEFORM));
+        assertArrayEquals(new int[]{41, 42}, ownership.desktopTaskIds());
     }
 
     @Test

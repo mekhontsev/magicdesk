@@ -49,9 +49,14 @@ stable surface-order identity, so selection can change z-order without an
 application-visible lifecycle, mode, bounds, or parent change.
 
 The same topology is used on phone, simulated, wired, and wireless targets.
-Phone `DesktopActivity` remains primary HOME in Android's default task area;
+`PhoneDesktopHomeActivity` remains primary HOME in Android's default task area;
 ordinary freeform tasks share the standard root workspace, while fullscreen
-tasks use independent planes. The taskbar remains in its bounded top plane.
+tasks use independent planes under that workspace. The taskbar is display
+chrome rather than an application task: its bounded organizer area shares the
+default task container's ordering domain with freeform tasks and fullscreen
+planes, and WindowManager keeps it above them through the standard
+`alwaysOnTop` container property. Application tasks never enter that area, and
+MagicDesk does not retain or assign its organizer surface layer directly.
 
 Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. The app
 process emits a typed `DesktopWorkspaceCommand`: `ACTIVATE`, `DEMOTE`,

@@ -43,14 +43,15 @@ public final class DesktopSelfTestTasksTest {
     }
 
     @Test
-    public void recognizesPhoneDesktopHomeAliasAsDesktopTask() {
+    public void recognizesPhoneDesktopHomeAsDesktopTask() {
         final String stack =
                 "RootTask id=1 displayId=0\n"
                         + " configuration={mWindowingMode=fullscreen "
                         + "mActivityType=home}\n"
                         + " taskId=20: io.github.mekhontsev.magicdesk/"
-                        + ".PhoneDesktopHome topActivity=ComponentInfo{"
-                        + "io.github.mekhontsev.magicdesk/.PhoneDesktopHome} "
+                        + ".PhoneDesktopHomeActivity topActivity=ComponentInfo{"
+                        + "io.github.mekhontsev.magicdesk/"
+                        + ".PhoneDesktopHomeActivity} "
                         + "visible=true\n";
 
         assertEquals(20, DesktopSelfTestTasks.findDesktopTaskOnAnyDisplay(

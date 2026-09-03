@@ -13,7 +13,7 @@ final class ShellSecondaryHomeStartPolicy implements
     private static final String TAG = "MagicDeskTasks";
     private static final String MAGICDESK_PACKAGE = BuildConfig.APPLICATION_ID;
     private static final String DESKTOP_ACTIVITY =
-            MAGICDESK_PACKAGE + ".DesktopActivity";
+            DesktopHostComponents.EXTERNAL_HOME_CLASS;
 
     private int mDisplayId = Display.INVALID_DISPLAY;
 

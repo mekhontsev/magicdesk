@@ -12,9 +12,7 @@ import java.util.Set;
 /** Owns the bounded organizer area containing the desktop taskbar task. */
 final class ShellDesktopTaskbarPlane implements AutoCloseable {
     private static final String TAG = "MagicDeskTaskbarPlane";
-    private static final int FEATURE_DEFAULT_TASK_CONTAINER = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
-    private static final int TASKBAR_SURFACE_LAYER = 1_000_000;
     private static final long TASK_REMOVAL_TIMEOUT_MILLIS = 1_000L;
     private static final long TASK_REMOVAL_POLL_MILLIS = 25L;
 
@@ -48,9 +46,9 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
         mDisplayId = displayId;
         mBounds.set(bounds);
         try {
-            mArea = TaskDisplayAreaHandle.createSurfaceOrdered(
+            mArea = TaskDisplayAreaHandle.create(
                     displayId,
-                    FEATURE_DEFAULT_TASK_CONTAINER,
+                    TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER,
                     "MagicDesk desktop taskbar");
             applyAreaBounds(bounds);
             mTaskId = TaskDisplayAreaLaunchCommand.launchFullscreenTaskBehind(
@@ -69,7 +67,6 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
                         "taskbar task did not enter its desktop plane");
             }
             configureTask(task);
-            applySurfaceLayer();
             Log.i(TAG, "created display=" + displayId
                     + " feature=" + mArea.featureId()
                     + " task=" + mTaskId
@@ -94,7 +91,6 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
         try {
             applyAreaBounds(bounds);
             mBounds.set(bounds);
-            applySurfaceLayer();
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot resize desktop taskbar plane", error);
@@ -132,11 +128,11 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
                     FrameworkRuntime.current().windowing();
             final Class<?> transactionClass = windowing.transactionClass();
             final Object transaction = windowing.newTransaction();
+            windowing.setAlwaysOnTop(transaction, mArea.token(), true);
             windowing.reorder(transaction, mArea.token(), true);
             windowing.setFocusable(transaction, mArea.token(), false);
             ShellWindowTransitionExecutor.applyAtomic(
                     mService, transactionClass, transaction);
-            applySurfaceLayer();
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot raise desktop taskbar plane", error);
@@ -183,28 +179,12 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transaction, taskToken, true);
         windowing.setFocusable(transaction, mArea.token(), false);
-        windowing.reorder(transaction, mArea.token(), true);
+        // Keep the taskbar in the same WindowManager ordering domain as
+        // application and fullscreen planes, while retaining an isolated
+        // parent that applications can never enter.
+        windowing.setAlwaysOnTop(transaction, mArea.token(), true);
         ShellWindowTransitionExecutor.applyAtomic(
                 mService, transactionClass, transaction);
-    }
-
-    private void applySurfaceLayer() throws ReflectiveOperationException {
-        final Class<?> surfaceClass = Class.forName(
-                "android.view.SurfaceControl");
-        final Class<?> transactionClass = Class.forName(
-                "android.view.SurfaceControl$Transaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
-        try {
-            transactionClass.getMethod(
-                    "setLayer", surfaceClass, Integer.TYPE)
-                    .invoke(
-                            transaction,
-                            mArea.surfaceLeash(),
-                            Integer.valueOf(TASKBAR_SURFACE_LAYER));
-            transactionClass.getMethod("apply").invoke(transaction);
-        } finally {
-            transactionClass.getMethod("close").invoke(transaction);
-        }
     }
 
     private void applyAreaBounds(final Rect bounds)

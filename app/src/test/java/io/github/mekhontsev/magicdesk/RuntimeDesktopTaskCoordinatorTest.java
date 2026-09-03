@@ -9,7 +9,7 @@ public final class RuntimeDesktopTaskCoordinatorTest {
     public void disablesTaskRuntimeWithoutShell() {
         final DesktopSessionSnapshot session = DesktopSessionSnapshot.empty()
                 .noteTarget(DesktopDisplayTarget.wired(7))
-                .registerHost(7, 42, false);
+                .registerHost(7, 42);
 
         assertEquals(RuntimeDesktopTaskCoordinator.Mode.DISABLED,
                 RuntimeDesktopTaskCoordinator.modeFor(session, false));
@@ -25,10 +25,11 @@ public final class RuntimeDesktopTaskCoordinatorTest {
     @Test
     public void activatesTaskRuntimeForPhoneOrExternalDesktop() {
         final DesktopSessionSnapshot phone = DesktopSessionSnapshot.empty()
-                .registerHost(0, 41, false);
+                .noteTarget(DesktopDisplayTarget.phone())
+                .registerHost(0, 41);
         final DesktopSessionSnapshot external = DesktopSessionSnapshot.empty()
                 .noteTarget(DesktopDisplayTarget.wired(7))
-                .registerHost(7, 42, false);
+                .registerHost(7, 42);
 
         assertEquals(RuntimeDesktopTaskCoordinator.Mode.ACTIVE,
                 RuntimeDesktopTaskCoordinator.modeFor(phone, true));

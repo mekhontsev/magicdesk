@@ -20,7 +20,6 @@ import java.util.concurrent.TimeUnit;
 final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private static final String TAG = "MagicDeskFullscreenPlanes";
     private static final int ACTIVITY_TYPE_STANDARD = 1;
-    private static final int FEATURE_DEFAULT_TASK_CONTAINER = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final long SURFACE_COMMIT_TIMEOUT_SECONDS = 2L;
@@ -287,7 +286,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         final TaskDisplayAreaHandle plane =
                 TaskDisplayAreaHandle.createSurfaceOrdered(
                         displayId,
-                        FEATURE_DEFAULT_TASK_CONTAINER,
+                        TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER,
                         "MagicDesk fullscreen slot " + mNextPlaneSlotId++);
         int anchorTaskId = -1;
         try {

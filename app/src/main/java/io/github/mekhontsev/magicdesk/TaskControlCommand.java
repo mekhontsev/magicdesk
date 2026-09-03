@@ -9,7 +9,8 @@ import java.lang.reflect.Method;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class TaskControlCommand {
-    private static final String PACKAGE_NAME = "io.github.mekhontsev.magicdesk";
+    private static final String PACKAGE_NAME =
+            DesktopHostComponents.PACKAGE_NAME;
     private static final String SHELL_PACKAGE_NAME = "com.android.shell";
     private static final int SHELL_UID = 2000;
     private static final int ACTIVITY_TYPE_HOME = 2;
@@ -172,10 +173,7 @@ public final class TaskControlCommand {
     }
 
     private static boolean isDesktopComponent(final ComponentName component) {
-        return component != null
-                && PACKAGE_NAME.equals(component.getPackageName())
-                && (PACKAGE_NAME + ".DesktopActivity").equals(
-                        component.getClassName());
+        return DesktopHostComponents.isHostComponent(component);
     }
 
     private static boolean isMagicDeskTask(final Object task)

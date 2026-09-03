@@ -109,16 +109,13 @@ final class ShellDesktopTaskOwnership {
         }
         try {
             final int taskId = HiddenTaskApi.getTaskId(task);
-            final int mode = HiddenTaskApi.getTaskWindowingMode(task);
             final boolean activeExternalDisplayTask =
                     mDesktopDisplayId > Display.DEFAULT_DISPLAY
                             && HiddenTaskApi.getTaskDisplayId(task)
                                     == mDesktopDisplayId;
             return isDesktopOwnedTask(
                     activeExternalDisplayTask,
-                    mode,
-                    mDesktopTaskIds.contains(Integer.valueOf(taskId)),
-                    mPhoneFullscreenTaskIds.contains(Integer.valueOf(taskId)));
+                    mDesktopTaskIds.contains(Integer.valueOf(taskId)));
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not inspect desktop task ownership", error);
             return false;
@@ -127,28 +124,13 @@ final class ShellDesktopTaskOwnership {
 
     static boolean isDesktopOwnedTask(
             final boolean activeExternalDisplayTask,
-            final int mode,
-            final boolean rememberedDesktopTask,
-            final boolean knownPhoneFullscreen) {
+            final boolean rememberedDesktopTask) {
         // Every standard task on the active external display belongs to that
         // desktop session, including tasks launched directly in fullscreen.
-        // Display 0 still needs remembered ownership to distinguish its phone
-        // fullscreen plane from the local desktop.
-        return activeExternalDisplayTask
-                || isDesktopOwnedMode(
-                        mode, rememberedDesktopTask, knownPhoneFullscreen);
-    }
-
-    static boolean isDesktopOwnedMode(
-            final int mode,
-            final boolean rememberedDesktopTask,
-            final boolean knownPhoneFullscreen) {
-        // Freeform belongs to the desktop on every driver, except for the
-        // transient firmware state of a task already known to belong to the
-        // phone fullscreen plane.
-        return rememberedDesktopTask
-                || (mode == WINDOWING_MODE_FREEFORM
-                        && !knownPhoneFullscreen);
+        // Display 0 is shared with ordinary Android tasks, so a sampled mode
+        // can never establish ownership there. MagicDesk claims those tasks
+        // before submitting its explicit launch or window transition.
+        return activeExternalDisplayTask || rememberedDesktopTask;
     }
 
     static boolean shouldRestoreKnownPhoneFreeform(
@@ -193,6 +175,14 @@ final class ShellDesktopTaskOwnership {
             return null;
         }
         final Integer taskKey = Integer.valueOf(taskId);
+        if (mDesktopDisplayId > Display.DEFAULT_DISPLAY
+                && displayId == mDesktopDisplayId) {
+            // The external display itself is the ownership boundary. Publish
+            // every standard task there, regardless of its current mode.
+            mDesktopTaskIds.add(taskKey);
+            mPhoneFullscreenTaskIds.remove(taskKey);
+            return null;
+        }
         if (mode == WINDOWING_MODE_FREEFORM) {
             final boolean restorePhoneTask =
                     shouldRestoreKnownPhoneFreeform(
@@ -201,12 +191,9 @@ final class ShellDesktopTaskOwnership {
                             mDesktopTaskIds.contains(taskKey),
                             mPhoneFullscreenTaskIds.contains(taskKey),
                             mode);
-            // Do not adopt a known phone task while platform desktop mode
-            // repeatedly exposes it as freeform. The stack sampler keeps
-            // enforcing this until the task is stably fullscreen again.
-            if (!restorePhoneTask) {
-                mDesktopTaskIds.add(taskKey);
-            }
+            // Display 0 is shared. An unclaimed task may pass through freeform
+            // during a SystemUI launch, so observation alone must not adopt
+            // it into the desktop workspace.
             return restorePhoneTask ? taskKey : null;
         } else if (displayId == Display.DEFAULT_DISPLAY
                 && mode == WINDOWING_MODE_FULLSCREEN

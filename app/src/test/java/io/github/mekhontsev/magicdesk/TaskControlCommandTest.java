@@ -1,7 +1,9 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Method;
 
@@ -41,6 +43,27 @@ public final class TaskControlCommandTest {
         assertThrows(NoSuchMethodException.class, () ->
                 TaskControlCommand.findMoveTaskToFrontMethod(
                         UnsupportedOverload.class));
+    }
+
+    @Test
+    public void desktopHostClassesIncludePhoneAndExternalHome() {
+        assertTrue(DesktopHostComponents.isHostClassName(
+                "io.github.mekhontsev.magicdesk.DesktopActivity"));
+        assertTrue(DesktopHostComponents.isHostClassName(
+                "io.github.mekhontsev.magicdesk.PhoneDesktopHomeActivity"));
+        assertFalse(DesktopHostComponents.isHostClassName(
+                "io.github.mekhontsev.magicdesk.PhoneHomeActivity"));
+    }
+
+    @Test
+    public void flattenedHostNamesRequireTheMagicDeskPackage() {
+        assertTrue(DesktopHostComponents.isHostComponentName(
+                "io.github.mekhontsev.magicdesk/.PhoneDesktopHomeActivity"));
+        assertTrue(DesktopHostComponents.isHostComponentName(
+                "io.github.mekhontsev.magicdesk/"
+                        + "io.github.mekhontsev.magicdesk.DesktopActivity"));
+        assertFalse(DesktopHostComponents.isHostComponentName(
+                "com.example/.PhoneDesktopHomeActivity"));
     }
 
     public static final class SupportedOverloads {

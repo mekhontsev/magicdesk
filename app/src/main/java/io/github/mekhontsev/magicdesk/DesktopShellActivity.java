@@ -20,6 +20,7 @@ import android.provider.Settings;
 import android.text.InputType;
 import android.util.Log;
 import android.view.Display;
+import android.view.Gravity;
 import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -133,6 +134,11 @@ public abstract class DesktopShellActivity extends Activity
             finishAndRemoveTask();
             return;
         }
+        if (!hasRequiredHomeLease()) {
+            Log.i(TAG, "discarding inactive primary HOME launch");
+            finishAndRemoveTask();
+            return;
+        }
         // A newly selected HOME must not inherit an IME left visible by the
         // previous phone task. Applications can still show it normally later.
         getWindow().setSoftInputMode(
@@ -228,16 +234,15 @@ public abstract class DesktopShellActivity extends Activity
             finish();
             return;
         }
-        DesktopRuntimeBridge.registerShell(this);
-        if (mDesktopTargetKind != null) {
-            DesktopRuntimeBridge.noteDesktopTarget(
-                    DesktopDisplayTarget.restore(
-                            mDesktopTargetKind,
-                            mExpectedDisplayId,
-                            mDesktopProfileDisplayId,
-                            mDesktopProfileKey,
-                            mActivationSource),
-                    mSessionPolicy);
+        final DesktopDisplayTarget registrationTarget =
+                resolvedDesktopTarget();
+        if (!DesktopRuntimeBridge.registerDesktop(
+                this, registrationTarget, mSessionPolicy)) {
+            Log.w(TAG, "discarding unclaimed desktop host task="
+                    + getTaskId() + " display=" + getCurrentDisplayId());
+            finishAndRemoveTask();
+            overridePendingTransition(0, 0);
+            return;
         }
         mUi = new DesktopUiFactory(this);
         mAutomationUi = new DesktopAutomationUiRegistry();
@@ -318,10 +323,8 @@ public abstract class DesktopShellActivity extends Activity
         mLaunchCoordinator = new DesktopLaunchCoordinator(
                 new DesktopSessionLaunchContext(this));
         registerDesktopBackCallback();
-        DesktopRuntimeBridge.registerDesktop(this);
         setDesktopWindowFocusable(true);
         setContentView(createDesktopContentView());
-        mDesktopLayout.onWindowAttached();
         observeDesktopHomeReady();
         DesktopSelfTestHostObserver.observeNextFrame(this, "first-frame");
         mTaskbarRevealController.start();
@@ -340,6 +343,10 @@ public abstract class DesktopShellActivity extends Activity
                 && savedInstanceState.getBoolean(STATE_TOOLS_VISIBLE)) {
             mDesktopRoot.post(this::toggleToolsMenu);
         }
+    }
+
+    DesktopHomeSurfaceRouter.Surface requiredHomeSurface() {
+        return null;
     }
 
     @Override
@@ -651,9 +658,6 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
-        if (mDesktopLayout != null) {
-            mDesktopLayout.onWindowAttached();
-        }
         refreshDisplayProfile();
         setDesktopWindowFocusable(true);
     }
@@ -756,9 +760,6 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     public void onWindowFocusChanged(final boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (mDesktopLayout != null) {
-            mDesktopLayout.onWindowFocusChanged(hasFocus);
-        }
         if (hasFocus) {
             refreshDisplayProfile();
         }
@@ -799,8 +800,32 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
+        if (!hasRequiredHomeLease()) {
+            Log.i(TAG, "finishing inactive primary HOME host");
+            finishAndRemoveTask();
+            return;
+        }
         setIntent(intent);
         handleLaunchAction(intent);
+    }
+
+    private boolean hasRequiredHomeLease() {
+        final DesktopHomeSurfaceRouter.Surface surface =
+                requiredHomeSurface();
+        return surface == null
+                || DesktopHomeRoleLease.isActiveForSurface(surface);
+    }
+
+    private DesktopDisplayTarget resolvedDesktopTarget() {
+        if (mDesktopTargetKind == null) {
+            return null;
+        }
+        return DesktopDisplayTarget.restore(
+                mDesktopTargetKind,
+                mExpectedDisplayId,
+                mDesktopProfileDisplayId,
+                mDesktopProfileKey,
+                mActivationSource);
     }
 
     private void handleLaunchAction(final Intent intent) {
@@ -817,8 +842,16 @@ public abstract class DesktopShellActivity extends Activity
         }
     }
 
-    static Intent createShowStartIntent(final Context context) {
-        return DesktopActivity.createLaunchIntent(context)
+    static Intent createShowStartIntent(
+            final Context context,
+            final DesktopDisplayTarget target) {
+        if (target == null) {
+            throw new IllegalArgumentException("desktop target is required");
+        }
+        final Intent intent = target.kind == DesktopDisplayTarget.Kind.PHONE
+                ? PhoneDesktopHomeActivity.createLaunchIntent(context)
+                : DesktopActivity.createLaunchIntent(context);
+        return intent
                 .putExtra(EXTRA_ACTION, ACTION_SHOW_START);
     }
 
@@ -883,8 +916,20 @@ public abstract class DesktopShellActivity extends Activity
                 View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         root.addView(statusBarBackdrop, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, 0));
+        final View navigationBarBackdrop = new View(this);
+        navigationBarBackdrop.setBackgroundColor(COLOR_PANEL);
+        navigationBarBackdrop.setImportantForAccessibility(
+                View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        final FrameLayout.LayoutParams navigationBackdropParams =
+                new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, 0);
+        navigationBackdropParams.gravity = Gravity.BOTTOM;
+        root.addView(navigationBarBackdrop, navigationBackdropParams);
         mDesktopLayout.attachDesktopViews(
-                root, desktopViewport, statusBarBackdrop);
+                root,
+                desktopViewport,
+                statusBarBackdrop,
+                navigationBarBackdrop);
 
         final LinearLayout desktop = new LinearLayout(this);
         desktop.setOrientation(LinearLayout.VERTICAL);

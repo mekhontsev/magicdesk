@@ -9,7 +9,8 @@ import java.util.List;
 /** Launches the MagicDesk HOME host directly in a display root workspace. */
 final class ShellDesktopHostLauncher {
     private static final String HOST_PACKAGE = BuildConfig.APPLICATION_ID;
-    private static final String HOST_CLASS = HOST_PACKAGE + ".DesktopActivity";
+    private static final String HOST_CLASS =
+            DesktopHostComponents.EXTERNAL_HOME_CLASS;
     private static final int ACTIVITY_TYPE_HOME = 2;
 
     private final Object mService;

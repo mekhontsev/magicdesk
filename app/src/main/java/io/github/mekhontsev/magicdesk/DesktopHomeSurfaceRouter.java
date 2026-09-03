@@ -9,11 +9,6 @@ import java.util.Arrays;
 
 /** Selects the single primary HOME surface exposed by MagicDesk. */
 final class DesktopHomeSurfaceRouter {
-    private static final String PHONE_HOME =
-            BuildConfig.APPLICATION_ID + ".PhoneHome";
-    private static final String PHONE_DESKTOP_HOME =
-            BuildConfig.APPLICATION_ID + ".PhoneDesktopHome";
-
     enum Surface {
         PHONE,
         DESKTOP
@@ -61,9 +56,9 @@ final class DesktopHomeSurfaceRouter {
         final Context context = MagicDeskApplication.applicationContext();
         final PackageManager manager = context.getPackageManager();
         final ComponentName phone = new ComponentName(
-                BuildConfig.APPLICATION_ID, PHONE_HOME);
+                context, PhoneHomeActivity.class);
         final ComponentName desktop = new ComponentName(
-                BuildConfig.APPLICATION_ID, PHONE_DESKTOP_HOME);
+                context, PhoneDesktopHomeActivity.class);
         if (manager.getComponentEnabledSetting(phone) == phoneState
                 && manager.getComponentEnabledSetting(desktop)
                         == desktopState) {

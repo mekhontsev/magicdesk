@@ -178,6 +178,7 @@
             android:name=".PhoneHomeActivity"
             android:banner="@mipmap/ic_launcher"
             android:clearTaskOnLaunch="true"
+            android:enabled="true"
             android:excludeFromRecents="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
@@ -186,7 +187,33 @@
             android:roundIcon="@mipmap/ic_launcher"
             android:stateNotNeeded="true"
             android:taskAffinity="${applicationId}.phone_home"
-            android:theme="@style/PhoneHomeTheme" />
+            android:theme="@style/PhoneHomeTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.HOME" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".PhoneDesktopHomeActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:enabled="false"
+            android:exported="true"
+            android:banner="@mipmap/ic_launcher"
+            android:icon="@mipmap/ic_launcher"
+            android:launchMode="singleTask"
+            android:logo="@mipmap/ic_launcher"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.phone_desktop_home">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.HOME" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".DesktopActivity"
@@ -206,30 +233,6 @@
                 <category android:name="android.intent.category.SECONDARY_HOME" />
             </intent-filter>
         </activity>
-
-        <activity-alias
-            android:name=".PhoneHome"
-            android:enabled="true"
-            android:exported="true"
-            android:targetActivity=".PhoneHomeActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.HOME" />
-            </intent-filter>
-        </activity-alias>
-
-        <activity-alias
-            android:name=".PhoneDesktopHome"
-            android:enabled="false"
-            android:exported="true"
-            android:targetActivity=".DesktopActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.HOME" />
-            </intent-filter>
-        </activity-alias>
 
         <activity
             android:name=".DesktopTaskbarActivity"

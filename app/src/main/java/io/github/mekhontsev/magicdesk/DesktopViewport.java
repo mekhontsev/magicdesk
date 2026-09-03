@@ -11,9 +11,8 @@ import java.util.Objects;
  * Display-relative desktop geometry after persistent desktop obstructions
  * have been reserved.
  *
- * <p>The phone desktop reserves the status bar but owns the bottom edge where
- * its taskbar replaces persistent system navigation. A dedicated external
- * desktop owns the full display.</p>
+ * <p>The phone desktop reserves the system bars and places its taskbar above
+ * persistent navigation. A dedicated external desktop owns the full display.</p>
  */
 final class DesktopViewport {
     private final int mDisplayLeft;
@@ -44,14 +43,12 @@ final class DesktopViewport {
         if (metrics == null) {
             return new DesktopViewport(new Rect(0, 0, 1, 1), 0, 0, 0, 0);
         }
-        // Keep the status-bar reservation stable while allowing the explicit
-        // phone desktop session to own the complete bottom edge. A transient
-        // navigation bar overlays that stable desktop instead of changing its
-        // layout.
+        // Ignoring visibility keeps desktop geometry stable when an app
+        // transiently hides or reveals either system bar.
         final Insets insets = windowInsets == null
                 ? Insets.NONE
                 : windowInsets.getInsetsIgnoringVisibility(
-                        WindowInsets.Type.statusBars());
+                        WindowInsets.Type.systemBars());
         return new DesktopViewport(
                 metrics.getBounds(),
                 insets.left,

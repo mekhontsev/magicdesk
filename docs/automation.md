@@ -416,4 +416,6 @@ phone orientation policy, and writing final transition diagnostics.
 
 Every self-test session uses an isolated workspace policy: it neither restores
 the saved user window stack nor persists test window state. The phone rotation
-is locked at its current value for the run and restored exactly afterward.
+is locked at its current value for the run and restored exactly afterward. If
+the tested desktop session closes, its existing lifecycle event cancels the run
+and cleanup begins; no background session polling is added.

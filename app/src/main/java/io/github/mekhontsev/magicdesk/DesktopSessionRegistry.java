@@ -22,16 +22,34 @@ final class DesktopSessionRegistry {
         mSnapshot = mSnapshot.clearTarget(target);
     }
 
-    void registerHost(
+    boolean registerHost(
             final int displayId,
             final int taskId,
-            final boolean replacingSameTask) {
-        mSnapshot = mSnapshot.registerHost(
-                displayId, taskId, replacingSameTask);
-    }
-
-    void observeHost(final int displayId, final int taskId) {
-        mSnapshot = mSnapshot.observeHost(displayId, taskId);
+            final DesktopDisplayTarget target,
+            final DesktopSessionPolicy policy) {
+        if (mSnapshot.hasHost()
+                && (mSnapshot.activeDisplayId() != displayId
+                        || mSnapshot.hostTaskId() != taskId)) {
+            return false;
+        }
+        if (mSnapshot.hasHost()) {
+            return target != null
+                    && sameTarget(mSnapshot.target(), target)
+                    && mSnapshot.policy() == (policy == null
+                            ? DesktopSessionPolicy.USER : policy);
+        }
+        final DesktopDisplayTarget registeredTarget = target == null
+                ? mSnapshot.targetForDisplay(displayId) : target;
+        if (registeredTarget == null
+                || registeredTarget.displayId != displayId
+                || (mSnapshot.target() != null
+                        && !sameTarget(
+                                mSnapshot.target(), registeredTarget))) {
+            return false;
+        }
+        mSnapshot = mSnapshot.noteTarget(registeredTarget, policy);
+        mSnapshot = mSnapshot.registerHost(displayId, taskId);
+        return true;
     }
 
     void unregisterHost(
@@ -43,5 +61,14 @@ final class DesktopSessionRegistry {
 
     void close() {
         mSnapshot = mSnapshot.close();
+    }
+
+    private static boolean sameTarget(
+            final DesktopDisplayTarget first,
+            final DesktopDisplayTarget second) {
+        return first != null
+                && second != null
+                && first.displayId == second.displayId
+                && first.kind == second.kind;
     }
 }

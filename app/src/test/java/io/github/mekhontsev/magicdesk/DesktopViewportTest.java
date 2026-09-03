@@ -25,12 +25,12 @@ public final class DesktopViewportTest {
     }
 
     @Test
-    public void phoneDesktopReservesStatusBarAndOwnsBottomEdge() {
+    public void phoneDesktopReservesSystemBarsAndTaskbar() {
         final DesktopViewport viewport = new DesktopViewport(
-                0, 0, 1216, 2688, 0, 147, 0, 0);
+                0, 0, 1216, 2688, 0, 147, 0, 126);
 
-        assertContentBounds(viewport, 0, 147, 1216, 2688);
-        assertEquals(2519, viewport.taskbarTop(169));
+        assertContentBounds(viewport, 0, 147, 1216, 2562);
+        assertEquals(2393, viewport.taskbarTop(169));
     }
 
     @Test

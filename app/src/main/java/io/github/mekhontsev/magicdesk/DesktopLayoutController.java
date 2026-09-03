@@ -4,11 +4,12 @@ import android.app.Activity;
 import android.graphics.Rect;
 import android.util.Log;
 import android.view.Display;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
-import android.view.WindowInsetsController;
 import android.view.WindowMetrics;
+import android.widget.FrameLayout;
 
 /**
  * Owns desktop viewport policy and keeps the taskbar plane aligned with the
@@ -31,6 +32,7 @@ final class DesktopLayoutController {
     private View mWindowRoot;
     private View mDesktopContent;
     private View mStatusBarBackdrop;
+    private View mNavigationBarBackdrop;
     private View mTaskbar;
     private DesktopTaskbarHost mTaskbarHost;
 
@@ -39,18 +41,26 @@ final class DesktopLayoutController {
             final RuntimeState runtimeState) {
         mActivity = activity;
         mRuntimeState = runtimeState;
+        if (runtimeState.displayId() == Display.DEFAULT_DISPLAY) {
+            // Keep the HOME surface full-display so the explicit backdrop
+            // views can cover stable system-bar insets without recropping the
+            // wallpaper.
+            activity.getWindow().setDecorFitsSystemWindows(false);
+        }
         mViewport = readViewport();
     }
 
     void attachDesktopViews(
             final View windowRoot,
             final View desktopContent,
-            final View statusBarBackdrop) {
+            final View statusBarBackdrop,
+            final View navigationBarBackdrop) {
         mWindowRoot = windowRoot;
         mDesktopContent = desktopContent;
         mStatusBarBackdrop = statusBarBackdrop;
+        mNavigationBarBackdrop = navigationBarBackdrop;
         applyViewportPadding();
-        updateStatusBarBackdrop();
+        updateSystemBarBackdrops();
         if (windowRoot == null) {
             return;
         }
@@ -104,16 +114,6 @@ final class DesktopLayoutController {
         return mViewport.contentTop();
     }
 
-    void onWindowFocusChanged(final boolean hasFocus) {
-        if (hasFocus) {
-            applyPhoneSystemBarPolicy();
-        }
-    }
-
-    void onWindowAttached() {
-        applyPhoneSystemBarPolicy();
-    }
-
     void release() {
         if (mWindowRoot != null) {
             mWindowRoot.setOnApplyWindowInsetsListener(null);
@@ -121,6 +121,7 @@ final class DesktopLayoutController {
         mWindowRoot = null;
         mDesktopContent = null;
         mStatusBarBackdrop = null;
+        mNavigationBarBackdrop = null;
         mTaskbar = null;
         mTaskbarHost = null;
     }
@@ -149,7 +150,7 @@ final class DesktopLayoutController {
         }
         mViewport = viewport;
         applyViewportPadding();
-        updateStatusBarBackdrop();
+        updateSystemBarBackdrops();
         updateTaskbarBounds();
         mRuntimeState.onViewportChanged();
     }
@@ -173,34 +174,44 @@ final class DesktopLayoutController {
         mTaskbarHost.updateBounds(bounds);
     }
 
-    private void updateStatusBarBackdrop() {
-        if (mStatusBarBackdrop == null || mViewport == null) {
+    private void updateSystemBarBackdrops() {
+        if (mViewport == null) {
             return;
         }
-        final int height = mRuntimeState.displayId() == Display.DEFAULT_DISPLAY
-                ? mViewport.insetTop() : 0;
-        final ViewGroup.LayoutParams layoutParams =
-                mStatusBarBackdrop.getLayoutParams();
-        if (layoutParams != null && layoutParams.height != height) {
-            layoutParams.height = height;
-            mStatusBarBackdrop.setLayoutParams(layoutParams);
-        }
-        mStatusBarBackdrop.setVisibility(height > 0 ? View.VISIBLE : View.GONE);
+        final boolean phone = mRuntimeState.displayId()
+                == Display.DEFAULT_DISPLAY;
+        updateHorizontalBackdrop(
+                mStatusBarBackdrop,
+                phone ? mViewport.insetTop() : 0,
+                Gravity.TOP);
+        updateHorizontalBackdrop(
+                mNavigationBarBackdrop,
+                phone ? mViewport.insetBottom() : 0,
+                Gravity.BOTTOM);
     }
 
-    private void applyPhoneSystemBarPolicy() {
-        if (mRuntimeState.displayId() != Display.DEFAULT_DISPLAY) {
+    private static void updateHorizontalBackdrop(
+            final View backdrop,
+            final int height,
+            final int gravity) {
+        if (backdrop == null) {
             return;
         }
-        mActivity.getWindow().setDecorFitsSystemWindows(false);
-        final WindowInsetsController controller =
-                mActivity.getWindow().getInsetsController();
-        if (controller == null) {
+        final ViewGroup.LayoutParams current = backdrop.getLayoutParams();
+        if (!(current instanceof FrameLayout.LayoutParams)) {
             return;
         }
-        controller.hide(WindowInsets.Type.navigationBars());
-        controller.setSystemBarsBehavior(
-                WindowInsetsController
-                        .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        final FrameLayout.LayoutParams layoutParams =
+                (FrameLayout.LayoutParams) current;
+        final int resolvedHeight = Math.max(0, height);
+        if (layoutParams.height != resolvedHeight
+                || layoutParams.gravity != gravity) {
+            layoutParams.height = resolvedHeight;
+            layoutParams.gravity = gravity;
+            backdrop.setLayoutParams(layoutParams);
+        }
+        backdrop.setVisibility(
+                resolvedHeight > 0 ? View.VISIBLE : View.GONE);
     }
+
 }

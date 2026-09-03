@@ -15,10 +15,11 @@ import java.util.Set;
 final class PhoneDesktopTaskRecovery {
     private static final String TAG = "MagicDeskPhoneRecovery";
     private static final String MAGICDESK_PACKAGE =
-            "io.github.mekhontsev.magicdesk";
+            DesktopHostComponents.PACKAGE_NAME;
     private static final List<String> TRANSIENT_MAGICDESK_CLASSES =
             Arrays.asList(
-                    MAGICDESK_PACKAGE + ".DesktopActivity",
+                    DesktopHostComponents.EXTERNAL_HOME_CLASS,
+                    DesktopHostComponents.PHONE_HOME_CLASS,
                     MAGICDESK_PACKAGE + ".DesktopSelfTestActivity",
                     MAGICDESK_PACKAGE + ".DesktopSelfTestBrowserActivity",
                     MAGICDESK_PACKAGE + ".TaskAreaBackstopActivity",
