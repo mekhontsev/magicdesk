@@ -463,12 +463,20 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public void configureDesktopTaskbarInput(
+    public void configureDesktopActivityInput(
             final ITaskObserverCallback callback,
             final int displayId,
             final IBinder activityToken) {
-        mTaskObserverManager.configureDesktopTaskbarInput(
+        mTaskObserverManager.configureDesktopActivityInput(
                 callback, displayId, activityToken);
+    }
+
+    @Override
+    public int launchDesktopPanelHost(
+            final ITaskObserverCallback callback,
+            final int displayId) {
+        return mTaskObserverManager.launchDesktopPanelHost(
+                callback, displayId);
     }
 
     @Override

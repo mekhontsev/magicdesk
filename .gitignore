@@ -25,3 +25,6 @@ captures/
 *.jks
 *.keystore
 signing.properties
+
+# Local design notes
+/tmp-notes.md

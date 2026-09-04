@@ -213,7 +213,7 @@ final class ShellDesktopTaskOwnership {
         try {
             return HiddenTaskApi.getTaskActivityType(task)
                             == ACTIVITY_TYPE_STANDARD
-                    && !DesktopTaskbarActivity.isTaskbarComponent(
+                    && !DesktopInfrastructureTasks.isComponent(
                             HiddenTaskApi.getTaskComponent(task));
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not inspect desktop task type", error);

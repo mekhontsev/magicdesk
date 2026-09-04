@@ -22,7 +22,6 @@ final class PhoneDesktopTaskRecovery {
                     DesktopHostComponents.PHONE_HOME_CLASS,
                     MAGICDESK_PACKAGE + ".DesktopSelfTestActivity",
                     MAGICDESK_PACKAGE + ".DesktopSelfTestBrowserActivity",
-                    MAGICDESK_PACKAGE + ".TaskAreaBackstopActivity",
                     MAGICDESK_PACKAGE + ".MagicDeskTouchpadActivity");
     private static final String CMD = "/system/bin/cmd";
     private static final String WMSHELL_HELP =
@@ -623,6 +622,9 @@ final class PhoneDesktopTaskRecovery {
 
     private static boolean isTransientMagicDeskComponent(
             final String componentName) {
+        if (DesktopInfrastructureTasks.isComponentName(componentName)) {
+            return true;
+        }
         final String prefix = MAGICDESK_PACKAGE + "/";
         if (componentName == null || !componentName.startsWith(prefix)) {
             return false;

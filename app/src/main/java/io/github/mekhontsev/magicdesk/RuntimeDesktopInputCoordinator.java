@@ -306,7 +306,7 @@ final class RuntimeDesktopInputCoordinator {
         if (!isActiveDesktopDisplay(displayId)) {
             return false;
         }
-        if (DesktopRuntimeBridge.dispatchOverlayTextInput(
+        if (DesktopRuntimeBridge.dispatchPanelTextInput(
                 displayId, action, text, arg1, arg2, arg3)) {
             return true;
         }
@@ -316,7 +316,7 @@ final class RuntimeDesktopInputCoordinator {
 
     boolean beginTextInput(final int displayId) {
         return isActiveDesktopDisplay(displayId)
-                && (DesktopRuntimeBridge.hasOverlayTextInput(displayId)
+                && (DesktopRuntimeBridge.hasPanelTextInput(displayId)
                         || ShellAccess.beginMirrorTextInput(displayId));
     }
 

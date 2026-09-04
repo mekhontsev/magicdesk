@@ -302,13 +302,8 @@ final class DesktopSelfTestTasks {
 
     private static boolean isInfrastructureTask(
             final TaskStackParser.Entry task) {
-        final String backstopClassName = BuildConfig.APPLICATION_ID
-                + ".TaskAreaBackstopActivity";
-        return hasClass(task.componentName, backstopClassName)
-                || hasClass(task.topActivityName, backstopClassName)
-                || DesktopTaskbarActivity.isTaskbarComponentName(
-                        task.componentName)
-                || DesktopTaskbarActivity.isTaskbarComponentName(
+        return DesktopInfrastructureTasks.isComponentName(task.componentName)
+                || DesktopInfrastructureTasks.isComponentName(
                         task.topActivityName);
     }
 

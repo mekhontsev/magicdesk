@@ -107,9 +107,9 @@ final class TaskbarOverflowController {
     }
 
     void clear() {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays != null && overlays.isVisible(mPanel)) {
-            overlays.hide(mPanel);
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels != null && panels.isRequested(mPanel)) {
+            panels.hide(mPanel);
         }
         mItems.clear();
     }
@@ -121,12 +121,12 @@ final class TaskbarOverflowController {
     }
 
     private void toggle(final View anchor) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays == null || mItems.isEmpty()) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels == null || mItems.isEmpty()) {
             return;
         }
-        if (overlays.isVisible(mPanel)) {
-            overlays.hide(mPanel);
+        if (panels.isRequested(mPanel)) {
+            panels.hide(mPanel);
             return;
         }
         ensurePanel();
@@ -155,7 +155,7 @@ final class TaskbarOverflowController {
                 areaLeft,
                 Math.min(maxLeft, location[0] + anchor.getWidth() - width));
         final int top = Math.max(areaTop, location[1] - height);
-        if (!overlays.show(
+        if (!panels.show(
                 mPanel,
                 left,
                 top,
@@ -165,9 +165,9 @@ final class TaskbarOverflowController {
                 false,
                 "MagicDesk taskbar overflow")) {
             mActivity.setErrorStatus(
-                    "OVERLAY-001",
+                    "PANEL-001",
                     mActivity.getString(
-                            R.string.status_overlay_panel_unavailable));
+                            R.string.status_desktop_panel_unavailable));
         } else {
             mMenuNavigator.activate(mPanel);
         }

@@ -107,8 +107,6 @@ public final class ControlActivity extends Activity
                     runOnUiThread(this::openDeviceSetupAfterFailedAudit);
                     return;
                 }
-                DeviceSetupManager.ensureOverlayPermission(
-                        getApplicationContext());
                 runOnUiThread(() -> {
                     if (isActivityUnavailable()) {
                         return;
@@ -117,7 +115,7 @@ public final class ControlActivity extends Activity
                     mStartupPrepared = true;
                     continueStartup();
                 });
-            } catch (java.io.IOException | RuntimeException error) {
+            } catch (RuntimeException error) {
                 CompatibilityDiagnostics.record(
                         "SETUP-002",
                         "MagicDesk startup audit failed",

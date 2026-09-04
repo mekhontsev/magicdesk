@@ -152,7 +152,7 @@ The software keyboard is a separate path. An invisible phone-side
 `InputConnection` receives normal IME operations, including composing text,
 commits, deletion, and key events. For desktop applications those operations
 are forwarded to the focused vendor `IDisplayMirrorWindow`; MagicDesk-owned
-overlay fields are handled locally. The focused mirror window is captured for
+panel fields are handled locally. The focused mirror window is captured for
 one explicit keyboard session and released when the keyboard closes, so text
 input does not depend on polling or changing the user's selected IME.
 While an external desktop is owned, the runtime temporarily enables Android's
@@ -190,9 +190,15 @@ An application overlay cannot share a task's SurfaceControl leash or transition
 atomically with WMShell. A separately drawn caption trails live movement,
 maintains a different Z-order, and can leave controls above the wrong window.
 
-MagicDesk instead keeps native WMShell captions visible. Application overlays
-are reserved for transient shell-owned UI such as Start, context menus, and the
-notification center. The persistent taskbar uses its bounded Activity plane.
+MagicDesk instead keeps native WMShell captions visible. Start, context menus,
+the notification center, and desktop dialogs use ordinary application-panel
+windows from a short-lived private Activity task. The shell launches that task
+as a fullscreen standard task and only allows child panels to attach after the
+framework task snapshot confirms that state. The panel host therefore has
+display-relative coordinates and never enters the freeform caption path. It
+does not own an organizer area. Its exported component is protected by the
+framework `MANAGE_ACTIVITY_TASKS` permission, so only the authorized shell
+runtime can create it. The persistent taskbar uses its bounded Activity plane.
 
 The [Chrome custom-caption input investigation](chrome-custom-caption-investigation.md)
 documents why a shell-side gesture-transfer or synthetic-click layer cannot
@@ -545,8 +551,12 @@ runtime integration and are not distributed through the same release path.
   `DisplayProfileStore` are narrow domain facades over that model.
   `DesktopPlacementEngine` is the platform-independent collision and reflow
   policy.
-- `OverlayPanelController` provides consistent toggle, dismissal, placement,
-  and display-scoped overlay behavior.
+- `DesktopPanelWindowController` provides consistent toggle, dismissal, and
+  placement for desktop panels. A short-lived `DesktopPanelActivity` supplies
+  an application token after `ShellDesktopPanelHostLauncher` has confirmed its
+  fullscreen task state. Ordinary `TYPE_APPLICATION_PANEL` child windows host
+  menus, while attached dialogs use the same task and WindowManager ordering
+  domain as apps.
 - `DesktopInputController` handles shell UI input and delegates global physical
   shortcuts to the keyboard bridge.
 - `DesktopRuntimeBridge` is the weak-reference, main-thread boundary through
@@ -645,7 +655,11 @@ runtime integration and are not distributed through the same release path.
   value. It is cleared with that controller and is not process-global.
 - `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.
 - `PhoneTouchpadReconciler` keeps the requested phone touchpad visible after
-  display changes without owning desktop-session policy.
+  display changes without owning desktop-session policy. It raises an existing
+  touchpad task before starting a replacement and treats restoration as pending
+  until task observation reports the touchpad visible. Identical sampled task
+  state never repeats the repair command; a changed phone-task observation can
+  retry it without another poller.
 - `AppTaskController` and `AltTabController` coordinate task actions,
   Show Desktop, restoration, and exact-task
   switching. `AppTaskController` has one UI lifecycle for built-in and regular
@@ -1576,7 +1590,7 @@ shows the absolute path, and executes as the already-authorized UserService
 identity.
 
 `FileItemContextMenu` renders the same file/folder command model into the
-desktop overlay and the Files popup. `ItemActivationPolicy` likewise owns the
+desktop context panel and the Files popup. `ItemActivationPolicy` likewise owns the
 shared single-click/double-click decision; selection remains local to each
 surface. Desktop placement updates still use the fixed-folder API, while
 general copy/move work remains in `ShellFileSystem`, so UI integration does not
@@ -1830,7 +1844,7 @@ Physical display removal, **Close desktop**, and **Exit MagicDesk** share the
 common cleanup path:
 
 - hand HOME back to the package saved by the session lease;
-- close display-scoped overlays and stop task observation;
+- close display-scoped panel windows and stop task observation;
 - stop keyboard, mouse, and phone-display streams;
 - restore caption privacy and display geometry ownership;
 - restore vendor hardware settings changed by MagicDesk;
@@ -2105,11 +2119,9 @@ MagicDesk. Display selection, individual setting values, firmware identity,
 Diagnostics, and restoration remain in the manually opened **Device setup**
 screen.
 
-At the final start step, MagicDesk uses its already-authorized shell service to
-set `SYSTEM_ALERT_WINDOW` for the fixed MagicDesk package and verifies the
-result through `Settings.canDrawOverlays()`. No package name or operation comes
-from user input. Android's public permission screen is offered only when this
-bounded operation fails, and the failure is recorded as `OVERLAY-002`.
+Desktop panels and dialogs use ordinary application windows and require no
+display-over-other-apps permission. Their short-lived host task is excluded
+from Recents and all MagicDesk application-task policy.
 
 The boot ID marks configuration that still requires reboot. MagicDesk never
 reboots automatically and has no boot receiver. A successful audit after boot

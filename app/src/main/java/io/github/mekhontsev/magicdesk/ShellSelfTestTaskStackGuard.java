@@ -101,7 +101,7 @@ final class ShellSelfTestTaskStackGuard {
             final boolean backstop =
                     TaskAreaBackstopActivity.isBackstopComponent(component);
             final boolean infrastructure =
-                    DesktopTaskbarActivity.isTaskbarComponent(component);
+                    DesktopInfrastructureTasks.isUiComponent(component);
             final TaskAreaBackstopRole backstopRole = backstop
                     ? TaskAreaBackstopActivity.getBackstopRole(
                             HiddenTaskApi.getTaskBaseIntent(task))

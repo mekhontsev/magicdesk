@@ -7,9 +7,7 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 import android.view.View;
@@ -32,7 +30,6 @@ public final class DeviceSetupActivity extends Activity {
     private boolean mManual;
     private boolean mBusy;
     private boolean mContentCreated;
-    private boolean mAwaitingOverlayPermission;
     private DeviceSetupManager.Audit mAudit;
     private SessionProfile mSessionProfile;
     private final ShellAccess.StateListener mShellStateListener =
@@ -212,13 +209,6 @@ public final class DeviceSetupActivity extends Activity {
                         ? R.string.setup_value_available
                         : R.string.setup_value_unavailable),
                 audit.shellReady);
-        final boolean overlaysGranted = Settings.canDrawOverlays(this);
-        setStatusValue(
-                mSetupView.overlayValue(),
-                getString(overlaysGranted
-                        ? R.string.setup_value_allowed
-                        : R.string.setup_value_permission_required),
-                overlaysGranted);
         setStatusValue(mSetupView.restrictionsValue(),
                 getString(audit.restrictionsDisabled
                         ? R.string.setup_value_enabled : R.string.setup_value_disabled),
@@ -302,13 +292,6 @@ public final class DeviceSetupActivity extends Activity {
             setCloseAction();
             return;
         }
-        if (mAwaitingOverlayPermission && overlaysGranted) {
-            mAwaitingOverlayPermission = false;
-            startMagicDesk();
-            return;
-        }
-        mAwaitingOverlayPermission = false;
-
         mSetupView.summary().setText(R.string.setup_status_ready);
         mSetupView.summary().setTextColor(COLOR_CYAN);
         mSetupView.primaryAction().setText(mManual
@@ -370,37 +353,7 @@ public final class DeviceSetupActivity extends Activity {
         if (mBusy) {
             return;
         }
-        if (Settings.canDrawOverlays(this)) {
-            continueFromSetup();
-            return;
-        }
-        setBusy(true, R.string.setup_status_starting);
-        new Thread(() -> {
-            try {
-                DeviceSetupManager.ensureOverlayPermission(
-                        getApplicationContext());
-                runOnUiThread(() -> {
-                    if (isActivityUnavailable()) {
-                        return;
-                    }
-                    setBusy(false, 0);
-                    continueFromSetup();
-                });
-            } catch (IOException | RuntimeException error) {
-                Log.w(TAG, "automatic overlay provisioning failed", error);
-                runOnUiThread(() -> {
-                    if (isActivityUnavailable()) {
-                        return;
-                    }
-                    ensureSetupContent();
-                    setBusy(false, 0);
-                    if (mAudit != null) {
-                        renderAudit(mAudit);
-                    }
-                    showOverlayPermissionError(error);
-                });
-            }
-        }, "MagicDeskOverlaySetup").start();
+        continueFromSetup();
     }
 
     private void continueFromSetup() {
@@ -417,42 +370,6 @@ public final class DeviceSetupActivity extends Activity {
         } else {
             launchMagicDesk();
         }
-    }
-
-    private void openOverlayPermission() {
-        mAwaitingOverlayPermission = true;
-        final Intent intent = new Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + getPackageName()));
-        try {
-            startActivity(intent);
-        } catch (RuntimeException error) {
-            Log.w(TAG, "could not open overlay permission settings", error);
-            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
-        }
-    }
-
-    private void showOverlayPermissionError(final Throwable error) {
-        final String message = error.getMessage() == null
-                ? error.getClass().getSimpleName() : error.getMessage();
-        final String errorCode = "OVERLAY-002";
-        CompatibilityDiagnostics.record(
-                errorCode,
-                "Desktop overlay permission provisioning failed",
-                message,
-                error);
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.setup_overlay_error_title)
-                .setMessage(getString(
-                        R.string.setup_overlay_error_message,
-                        message,
-                        errorCode))
-                .setNeutralButton(R.string.action_diagnostics,
-                        (dialog, which) -> startActivity(
-                                DiagnosticsActivity.createIntent(this)))
-                .setPositiveButton(R.string.setup_action_open_settings,
-                        (dialog, which) -> openOverlayPermission())
-                .show();
     }
 
     private void requestShizukuPermission() {

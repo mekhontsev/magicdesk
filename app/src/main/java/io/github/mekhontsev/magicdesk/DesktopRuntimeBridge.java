@@ -144,19 +144,19 @@ public final class DesktopRuntimeBridge {
         return UI.invokeAppAction(target, actionId);
     }
 
-    static boolean dispatchOverlayTextInput(
+    static boolean dispatchPanelTextInput(
             final int displayId,
             final int action,
             final String text,
             final int arg1,
             final int arg2,
             final int arg3) {
-        return UI.dispatchOverlayTextInput(
+        return UI.dispatchPanelTextInput(
                 displayId, action, text, arg1, arg2, arg3);
     }
 
-    static boolean hasOverlayTextInput(final int displayId) {
-        return UI.hasOverlayTextInput(displayId);
+    static boolean hasPanelTextInput(final int displayId) {
+        return UI.hasPanelTextInput(displayId);
     }
 
     static void showTransientStatus(

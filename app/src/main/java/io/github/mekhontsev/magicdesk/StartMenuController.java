@@ -55,7 +55,7 @@ final class StartMenuController {
     @SuppressLint("ClickableViewAccessibility")
     LinearLayout create() {
         final LinearLayout menu = new LinearLayout(mActivity) {
-            // Overlay windows bypass the activity's event dispatch path.
+            // Child application windows bypass the host Activity dispatch path.
             @Override
             public boolean dispatchTouchEvent(final MotionEvent event) {
                 if (mActivity.handleDesktopMouseTouchEvent(event, true)) {
@@ -227,8 +227,8 @@ final class StartMenuController {
     }
 
     void toggle() {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays != null && overlays.isVisible(mPanel)) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels != null && panels.isRequested(mPanel)) {
             setVisible(false);
             return;
         }
@@ -236,9 +236,9 @@ final class StartMenuController {
     }
 
     void toggleTools() {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays != null
-                && overlays.isVisible(mPanel)
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels != null
+                && panels.isRequested(mPanel)
                 && (mMode == MENU_TOOLS || mMode == MENU_CAPTURE)) {
             setVisible(false);
             return;
@@ -247,15 +247,15 @@ final class StartMenuController {
     }
 
     boolean isToolsVisible() {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        return overlays != null
-                && overlays.isVisible(mPanel)
+        final DesktopPanelWindowController panels = mActivity.panels();
+        return panels != null
+                && panels.isRequested(mPanel)
                 && (mMode == MENU_TOOLS || mMode == MENU_CAPTURE);
     }
 
     boolean isVisible() {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        return overlays != null && overlays.isVisible(mPanel);
+        final DesktopPanelWindowController panels = mActivity.panels();
+        return panels != null && panels.isVisible(mPanel);
     }
 
     boolean ownsPanel(final View panel) {
@@ -286,8 +286,8 @@ final class StartMenuController {
     }
 
     void setVisible(final boolean visible, final boolean focusable) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays == null || mPanel == null) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels == null || mPanel == null) {
             return;
         }
         if (!visible) {
@@ -295,7 +295,7 @@ final class StartMenuController {
                 mSearch.setShowSoftInputOnFocus(false);
             }
             mSearchController.pause();
-            overlays.hide(mPanel);
+            panels.hide(mPanel);
             return;
         }
         mSearch.setShowSoftInputOnFocus(false);
@@ -315,11 +315,11 @@ final class StartMenuController {
                         - mActivity.getTaskbarHeight() - height);
         final boolean inputMethodTarget = mActivity.getCurrentDisplayId()
                 == Display.DEFAULT_DISPLAY;
-        if (!overlays.show(mPanel, left, top, width, height,
+        if (!panels.show(mPanel, left, top, width, height,
                 focusable, inputMethodTarget, "MagicDesk Start")) {
             mActivity.setErrorStatus(
-                    "OVERLAY-001",
-                    mActivity.getString(R.string.status_overlay_panel_unavailable));
+                    "PANEL-001",
+                    mActivity.getString(R.string.status_desktop_panel_unavailable));
             return;
         }
         if (mPanel.hasWindowFocus()) {

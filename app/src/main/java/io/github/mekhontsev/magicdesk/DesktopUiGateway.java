@@ -144,7 +144,7 @@ final class DesktopUiGateway {
         };
         final Runnable closeHost = () -> {
             try {
-                activity.releaseDesktopOverlays();
+                activity.releaseDesktopUiWindows();
                 if (!activity.isFinishing()) {
                     activity.finishAndRemoveTask();
                 }
@@ -404,7 +404,7 @@ final class DesktopUiGateway {
                 && invoked[0];
     }
 
-    boolean dispatchOverlayTextInput(
+    boolean dispatchPanelTextInput(
             final int displayId,
             final int action,
             final String text,
@@ -417,20 +417,20 @@ final class DesktopUiGateway {
                 || Looper.myLooper() != Looper.getMainLooper()) {
             return false;
         }
-        final OverlayPanelController overlays = activity.overlayPanels();
-        return overlays != null && overlays.dispatchTextInput(
+        final DesktopPanelWindowController panels = activity.panels();
+        return panels != null && panels.dispatchTextInput(
                 action, text, arg1, arg2, arg3);
     }
 
-    boolean hasOverlayTextInput(final int displayId) {
+    boolean hasPanelTextInput(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
                 || activity.getCurrentDisplayId() != displayId
                 || Looper.myLooper() != Looper.getMainLooper()) {
             return false;
         }
-        final OverlayPanelController overlays = activity.overlayPanels();
-        return overlays != null && overlays.hasTextInputTarget();
+        final DesktopPanelWindowController panels = activity.panels();
+        return panels != null && panels.hasTextInputTarget();
     }
 
     void showTransientStatus(
@@ -869,17 +869,17 @@ final class DesktopUiGateway {
                 () -> activity.syncTaskbarWithSnapshot(snapshot));
     }
 
-    private DesktopShellActivity usableDesktop(final boolean requireOverlay) {
+    private DesktopShellActivity usableDesktop(final boolean requirePanels) {
         synchronized (mHostLock) {
-            return usableDesktopLocked(requireOverlay);
+            return usableDesktopLocked(requirePanels);
         }
     }
 
     private DesktopShellActivity usableDesktopLocked(
-            final boolean requireOverlay) {
+            final boolean requirePanels) {
         final DesktopShellActivity activity = reconcileSessionHostLocked();
         if (!isUsable(activity) || !activity.isDesktopShell()
-                || (requireOverlay && activity.overlayPanels() == null)) {
+                || (requirePanels && activity.panels() == null)) {
             return null;
         }
         return activity;

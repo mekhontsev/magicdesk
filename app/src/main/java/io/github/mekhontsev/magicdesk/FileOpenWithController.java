@@ -28,7 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Resolves file handlers without opening Android's overlay-hiding resolver. */
+/** Resolves file handlers without opening Android's desktop-obscuring resolver. */
 final class FileOpenWithController {
     interface Launcher {
         void launchAndroid(Intent intent);
@@ -40,10 +40,18 @@ final class FileOpenWithController {
     }
 
     private final Activity mActivity;
+    private final DesktopDialogPresenter mDialogPresenter;
     private AlertDialog mDialog;
 
     FileOpenWithController(final Activity activity) {
+        this(activity, null);
+    }
+
+    FileOpenWithController(
+            final Activity activity,
+            final DesktopDialogPresenter dialogPresenter) {
         mActivity = activity;
+        mDialogPresenter = dialogPresenter;
     }
 
     boolean open(
@@ -74,8 +82,7 @@ final class FileOpenWithController {
             launch(source, targets.get(0), arguments, launcher);
             return true;
         }
-        showDialog(source, arguments, targets, preferred, launcher);
-        return true;
+        return showDialog(source, arguments, targets, preferred, launcher);
     }
 
     void close() {
@@ -171,69 +178,103 @@ final class FileOpenWithController {
         return null;
     }
 
-    private void showDialog(
+    private boolean showDialog(
             final Intent source,
             final DesktopLaunchArguments arguments,
             final List<Target> targets,
             final Target preferred,
             final Launcher launcher) {
         close();
+        if (mDialogPresenter != null) {
+            return mDialogPresenter.show(host -> createDialog(
+                    host,
+                    source,
+                    arguments,
+                    targets,
+                    preferred,
+                    launcher,
+                    false));
+        }
+        final AlertDialog dialog = createDialog(
+                mActivity,
+                source,
+                arguments,
+                targets,
+                preferred,
+                launcher,
+                true);
+        mDialog = dialog;
+        dialog.show();
+        return true;
+    }
+
+    private AlertDialog createDialog(
+            final Activity host,
+            final Intent source,
+            final DesktopLaunchArguments arguments,
+            final List<Target> targets,
+            final Target preferred,
+            final Launcher launcher,
+            final boolean retainLocally) {
         final int preferredIndex = preferred == null
                 ? -1 : targets.indexOf(preferred);
         final TargetAdapter adapter = new TargetAdapter(
-                targets, preferred, preferredIndex);
-        final ListView list = new ListView(mActivity);
+                host, targets, preferred, preferredIndex);
+        final ListView list = new ListView(host);
         list.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
         list.setAdapter(adapter);
-        final AlertDialog dialog = new AlertDialog.Builder(mActivity)
+        final AlertDialog dialog = new AlertDialog.Builder(host)
                 .setTitle(R.string.file_manager_open_with)
                 .setView(list)
                 .setNegativeButton(R.string.file_manager_just_once, null)
                 .setPositiveButton(R.string.file_manager_always, null)
                 .create();
-        mDialog = dialog;
-        dialog.setOnDismissListener(ignored -> {
-            if (mDialog == dialog) {
-                mDialog = null;
-            }
-        });
-        dialog.show();
-        final Button once = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
-        final Button always = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-        updateButtons(adapter, once, always);
-        list.setOnItemClickListener((parent, view, position, id) -> {
-            adapter.select(position);
+        if (retainLocally) {
+            dialog.setOnDismissListener(ignored -> {
+                if (mDialog == dialog) {
+                    mDialog = null;
+                }
+            });
+        }
+        dialog.setOnShowListener(ignored -> {
+            final Button once = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+            final Button always = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             updateButtons(adapter, once, always);
+            list.setOnItemClickListener((parent, view, position, id) -> {
+                adapter.select(position);
+                updateButtons(adapter, once, always);
+            });
+            once.setOnClickListener(view -> {
+                final Target selected = adapter.selected();
+                if (selected != null) {
+                    launch(source, selected, arguments, launcher);
+                    dialog.dismiss();
+                }
+            });
+            always.setOnClickListener(view -> {
+                final Target selected = adapter.selected();
+                if (selected == null || !selected.android()) {
+                    return;
+                }
+                try {
+                    ShellAccess.setPreferredFileHandler(
+                            source.getType(),
+                            encodedComponents(targets),
+                            selected.component.flattenToString(),
+                            bestMatch(targets));
+                    launch(source, selected, arguments, launcher);
+                    dialog.dismiss();
+                } catch (IOException error) {
+                    Toast.makeText(
+                            host,
+                            host.getString(
+                                    R.string.file_manager_default_failed,
+                                    ShellAccess.usefulMessage(error)),
+                            Toast.LENGTH_LONG).show();
+                }
+            });
         });
-        once.setOnClickListener(view -> {
-            final Target selected = adapter.selected();
-            if (selected != null) {
-                launch(source, selected, arguments, launcher);
-                dialog.dismiss();
-            }
-        });
-        always.setOnClickListener(view -> {
-            final Target selected = adapter.selected();
-            if (selected == null || !selected.android()) {
-                return;
-            }
-            try {
-                ShellAccess.setPreferredFileHandler(
-                        source.getType(),
-                        encodedComponents(targets),
-                        selected.component.flattenToString(),
-                        bestMatch(targets));
-                launch(source, selected, arguments, launcher);
-                dialog.dismiss();
-            } catch (IOException error) {
-                Toast.makeText(
-                        mActivity,
-                        mActivity.getString(
-                                R.string.file_manager_default_failed,
-                                ShellAccess.usefulMessage(error)),
-                        Toast.LENGTH_LONG).show();
-            }
-        });
+        return dialog;
     }
 
     private static void updateButtons(
@@ -302,20 +343,18 @@ final class FileOpenWithController {
         return DesktopApplicationIconResolver.resolve(mActivity, shortcut);
     }
 
-    private int dp(final int value) {
-        return Math.round(value * mActivity.getResources()
-                .getDisplayMetrics().density);
-    }
-
     private final class TargetAdapter extends BaseAdapter {
+        private final Activity mHost;
         private final List<Target> mTargets;
         private final Target mPreferred;
         private int mSelectedIndex;
 
         TargetAdapter(
+                final Activity host,
                 final List<Target> targets,
                 final Target preferred,
                 final int selectedIndex) {
+            mHost = host;
             mTargets = targets;
             mPreferred = preferred;
             mSelectedIndex = selectedIndex;
@@ -360,7 +399,7 @@ final class FileOpenWithController {
             row.icon.setImageDrawable(target.icon);
             row.label.setText(target.label);
             row.packageName.setText(target == mPreferred && target.android()
-                    ? mActivity.getString(
+                    ? mHost.getString(
                             R.string.file_manager_system_default,
                             target.details)
                     : target.details);
@@ -369,25 +408,25 @@ final class FileOpenWithController {
         }
 
         private Row createRow() {
-            final LinearLayout root = new LinearLayout(mActivity);
+            final LinearLayout root = new LinearLayout(mHost);
             root.setOrientation(LinearLayout.HORIZONTAL);
             root.setGravity(Gravity.CENTER_VERTICAL);
             root.setPadding(dp(12), dp(6), dp(12), dp(6));
             root.setMinimumHeight(dp(58));
 
-            final ImageView icon = new ImageView(mActivity);
+            final ImageView icon = new ImageView(mHost);
             icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
             root.addView(icon, new LinearLayout.LayoutParams(
                     dp(42), dp(42)));
 
-            final LinearLayout labels = new LinearLayout(mActivity);
+            final LinearLayout labels = new LinearLayout(mHost);
             labels.setOrientation(LinearLayout.VERTICAL);
             labels.setPadding(dp(12), 0, 0, 0);
-            final TextView label = new TextView(mActivity);
+            final TextView label = new TextView(mHost);
             label.setTextColor(Color.rgb(232, 238, 245));
             label.setTextSize(15f);
             label.setSingleLine(true);
-            final TextView packageName = new TextView(mActivity);
+            final TextView packageName = new TextView(mHost);
             packageName.setTextColor(Color.rgb(157, 170, 184));
             packageName.setTextSize(11f);
             packageName.setSingleLine(true);
@@ -396,7 +435,7 @@ final class FileOpenWithController {
             root.addView(labels, new LinearLayout.LayoutParams(
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-            final RadioButton selection = new RadioButton(mActivity);
+            final RadioButton selection = new RadioButton(mHost);
             selection.setClickable(false);
             selection.setFocusable(false);
             root.addView(selection, new LinearLayout.LayoutParams(
@@ -406,6 +445,11 @@ final class FileOpenWithController {
                     root, icon, label, packageName, selection);
             root.setTag(row);
             return row;
+        }
+
+        private int dp(final int value) {
+            return Math.round(value * mHost.getResources()
+                    .getDisplayMetrics().density);
         }
     }
 

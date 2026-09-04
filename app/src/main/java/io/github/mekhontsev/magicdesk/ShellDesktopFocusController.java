@@ -20,11 +20,6 @@ final class ShellDesktopFocusController implements AutoCloseable {
     private static final String TAG = "MagicDeskFocus";
     private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int ACTIVITY_TYPE_HOME = 2;
-    private static final String BACKSTOP_COMPONENT_SHORT =
-            BuildConfig.APPLICATION_ID + "/.TaskAreaBackstopActivity";
-    private static final String BACKSTOP_COMPONENT_FULL =
-            BuildConfig.APPLICATION_ID + "/" + BuildConfig.APPLICATION_ID
-                    + ".TaskAreaBackstopActivity";
     private static final long TASK_COMMIT_TIMEOUT_MILLIS = 700L;
     private static final long INPUT_FOCUS_COMMIT_TIMEOUT_MILLIS = 2_000L;
 
@@ -185,19 +180,11 @@ final class ShellDesktopFocusController implements AutoCloseable {
                     && task.visible
                     && (task.activityType == ACTIVITY_TYPE_STANDARD
                             || isDesktopHostSnapshot(task))
-                    && !isBackstopSnapshot(task)) {
+                    && !DesktopInfrastructureTasks.isTask(task)) {
                 return true;
             }
         }
         return false;
-    }
-
-    private static boolean isBackstopSnapshot(
-            final FrameworkTaskSnapshot task) {
-        return BACKSTOP_COMPONENT_SHORT.equals(task.componentName)
-                || BACKSTOP_COMPONENT_FULL.equals(task.componentName)
-                || BACKSTOP_COMPONENT_SHORT.equals(task.topActivityName)
-                || BACKSTOP_COMPONENT_FULL.equals(task.topActivityName);
     }
 
     private static boolean isDesktopHostSnapshot(

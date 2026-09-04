@@ -31,7 +31,7 @@ final class NubiaWindowingDriver implements PlatformWindowingDriver {
     @Override
     public boolean requiresTaskActivationSurfaceFence() {
         // A direct task reorder can update framework focus while leaving the
-        // previous freeform Surface above it. A fresh overlay WindowState
+        // previous freeform Surface above it. A fresh application WindowState
         // forces Nubia's compositor hierarchy to settle before the reorder.
         return true;
     }

@@ -538,12 +538,8 @@ public final class TaskRepository {
     static boolean isForegroundApplicationCandidate(
             final String componentName,
             final String topActivityName) {
-        return !DesktopTaskbarActivity.isTaskbarComponentName(componentName)
-                && !DesktopTaskbarActivity.isTaskbarComponentName(
-                        topActivityName)
-                && !TaskAreaBackstopActivity.isBackstopComponentName(
-                        componentName)
-                && !TaskAreaBackstopActivity.isBackstopComponentName(
+        return !DesktopInfrastructureTasks.isComponentName(componentName)
+                && !DesktopInfrastructureTasks.isComponentName(
                         topActivityName);
     }
 

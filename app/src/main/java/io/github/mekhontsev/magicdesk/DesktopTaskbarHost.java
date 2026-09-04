@@ -148,6 +148,12 @@ final class DesktopTaskbarHost {
                 ? new Rect(mTaskbarBounds) : new Rect(mAppliedBounds);
     }
 
+    boolean runAfterSurfaceTraversalFence(final Runnable action) {
+        final DesktopTaskbarActivity activity = currentActivity();
+        return !mReleased && activity != null
+                && activity.runAfterSurfaceTraversalFence(action);
+    }
+
     static void registerActivity(
             final int displayId,
             final DesktopTaskbarActivity activity) {
@@ -161,7 +167,7 @@ final class DesktopTaskbarHost {
         }
         if (host != null) {
             host.apply(activity);
-            MagicDeskRuntime.configureDesktopTaskbarInput(
+            MagicDeskRuntime.configureDesktopActivityInput(
                     displayId, activity.activityToken());
         }
     }

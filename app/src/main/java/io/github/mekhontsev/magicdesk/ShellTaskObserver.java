@@ -51,6 +51,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellTaskLauncher mTaskLauncher;
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
     private final ShellDesktopHostLauncher mDesktopHostLauncher;
+    private final ShellDesktopPanelHostLauncher mDesktopPanelHostLauncher;
     private final ShellDesktopTaskbarPlane mDesktopTaskbarPlane;
     private final ShellSelfTestTaskStackGuard mSelfTestTaskStackGuard;
 
@@ -117,6 +118,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 activityLauncher);
         mDesktopHostLauncher = new ShellDesktopHostLauncher(
                 mService, mDesktopOwnership);
+        mDesktopPanelHostLauncher = new ShellDesktopPanelHostLauncher(mService);
         mFullscreenTaskArea = new ShellFullscreenTaskArea(mDesktopOwnership);
         mDesktopTaskbarPlane = new ShellDesktopTaskbarPlane(mService);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
@@ -520,15 +522,19 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 displayId, bounds, visible);
     }
 
-    void configureDesktopTaskbarInput(
+    void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {
         if (displayId != mConfiguredDisplayId) {
             throw new IllegalStateException(
-                    "stale taskbar input display " + displayId
+                    "stale desktop activity display " + displayId
                             + "; configured=" + mConfiguredDisplayId);
         }
-        mDesktopTaskbarPlane.configureActivityInput(activityToken);
+        if (activityToken == null) {
+            throw new IllegalArgumentException("missing activity token");
+        }
+        FrameworkActivityInputApi.setRecordInputSinkEnabled(
+                activityToken, false);
     }
 
     void raiseDesktopTaskbarPlane(final int displayId) {
@@ -593,6 +599,25 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch desktop host: " + usefulMessage(error),
+                    error);
+        }
+    }
+
+    int launchDesktopPanelHost(final int displayId) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        if (displayId != mConfiguredDisplayId) {
+            throw new IllegalStateException(
+                    "stale panel display " + displayId
+                            + "; configured=" + mConfiguredDisplayId);
+        }
+        try {
+            return mDesktopPanelHostLauncher.launch(displayId);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot launch desktop panel host: "
+                            + usefulMessage(error),
                     error);
         }
     }
@@ -1005,13 +1030,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 || !task.visible
                 || task.activityType != ACTIVITY_TYPE_STANDARD
                 || task.taskId == mDesktopOwnership.desktopHostTaskId()
-                || DesktopTaskbarActivity.isTaskbarComponent(
+                || DesktopInfrastructureTasks.isComponent(
                         task.rootComponent)
-                || DesktopTaskbarActivity.isTaskbarComponent(
-                        task.topComponent)
-                || TaskAreaBackstopActivity.isBackstopComponent(
-                        task.rootComponent)
-                || TaskAreaBackstopActivity.isBackstopComponent(
+                || DesktopInfrastructureTasks.isComponent(
                         task.topComponent)) {
             return false;
         }
@@ -1082,25 +1103,49 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             signalChange("anchor-focus-recovered");
             return;
         }
+        final FocusedTask focusedTask = focused
+                ? resolveFocusedTask(taskId) : null;
+        if (focusedTask != null && focusedTask.infrastructure) {
+            // Infrastructure windows can legitimately own input while the
+            // user operates desktop chrome. They are not application focus
+            // targets and must not enter the application focus-repair path.
+            signalChange("infrastructure-focus-changed");
+            return;
+        }
         mFocusController.onTaskFocusChanged(taskId, focused);
-        if (focused) {
-            reportTaskFocus(taskId);
+        if (focusedTask != null) {
+            callCallback(() -> mCallback.onTaskFocusChanged(
+                    taskId, focusedTask.displayId, true));
         }
         signalChange("focus-changed");
     }
 
-    private void reportTaskFocus(final int taskId) {
+    private FocusedTask resolveFocusedTask(final int taskId) {
         try {
             final Object task = HiddenTaskApi.findTask(
                     mService, Display.INVALID_DISPLAY, taskId);
             if (task == null) {
-                return;
+                return null;
             }
-            final int displayId = HiddenTaskApi.getTaskDisplayId(task);
-            callCallback(() -> mCallback.onTaskFocusChanged(
-                    taskId, displayId, true));
+            return new FocusedTask(
+                    HiddenTaskApi.getTaskDisplayId(task),
+                    DesktopInfrastructureTasks.isComponent(
+                            HiddenTaskApi.getTaskComponent(task))
+                            || DesktopInfrastructureTasks.isComponent(
+                                    HiddenTaskApi.getTaskTopComponent(task)));
         } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.w(TAG, "could not resolve focused task", error);
+            Log.w(TAG, "could not classify focused task=" + taskId, error);
+            return null;
+        }
+    }
+
+    private static final class FocusedTask {
+        final int displayId;
+        final boolean infrastructure;
+
+        FocusedTask(final int displayId, final boolean infrastructure) {
+            this.displayId = displayId;
+            this.infrastructure = infrastructure;
         }
     }
 

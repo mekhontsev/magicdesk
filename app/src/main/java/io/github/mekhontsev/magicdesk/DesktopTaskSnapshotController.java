@@ -119,8 +119,7 @@ final class DesktopTaskSnapshotController {
         }
         for (final TaskRepository.TaskEntry task : displayTasks) {
             if (task == null || !task.visible
-                    || DesktopTaskbarActivity.isTaskbarTask(task)
-                    || TaskAreaBackstopActivity.isBackstopTask(task)) {
+                    || DesktopInfrastructureTasks.isTask(task)) {
                 continue;
             }
             if (desktopTasks == null) {
@@ -149,8 +148,7 @@ final class DesktopTaskSnapshotController {
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task == null || task.taskId == excludedTaskId
                     || !task.visible
-                    || DesktopTaskbarActivity.isTaskbarTask(task)
-                    || TaskAreaBackstopActivity.isBackstopTask(task)) {
+                    || DesktopInfrastructureTasks.isTask(task)) {
                 continue;
             }
             if (DesktopTaskController.isDesktopHostTask(task)) {
@@ -177,8 +175,7 @@ final class DesktopTaskSnapshotController {
         }
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task == null || !task.visible
-                    || DesktopTaskbarActivity.isTaskbarTask(task)
-                    || TaskAreaBackstopActivity.isBackstopTask(task)) {
+                    || DesktopInfrastructureTasks.isTask(task)) {
                 continue;
             }
             if (DesktopTaskController.isDesktopHostTask(task)) {
@@ -205,8 +202,7 @@ final class DesktopTaskSnapshotController {
         }
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task != null && task.visible
-                    && !DesktopTaskbarActivity.isTaskbarTask(task)
-                    && !TaskAreaBackstopActivity.isBackstopTask(task)) {
+                    && !DesktopInfrastructureTasks.isTask(task)) {
                 return DesktopTaskController.isDesktopHostTask(task);
             }
         }

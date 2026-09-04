@@ -21,7 +21,7 @@ final class DesktopSystemActionsController {
             DesktopOperations.captureScreenshot();
             return;
         }
-        // Give WindowManager two frames to remove overlay windows from the capture.
+        // Wait for the panel-host removal to reach the compositor before capture.
         decor.postOnAnimation(() ->
                 decor.postOnAnimation(DesktopOperations::captureScreenshot));
     }

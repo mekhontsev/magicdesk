@@ -143,15 +143,29 @@ public final class MagicDeskRuntime {
                 displayId, new Rect(bounds), visible);
     }
 
-    static void configureDesktopTaskbarInput(
+    static void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend == null || activityToken == null) {
             return;
         }
-        backend.desktopTasks().configureDesktopTaskbarInput(
+        backend.desktopTasks().configureDesktopActivityInput(
                 displayId, activityToken);
+    }
+
+    static void launchDesktopPanelHost(
+            final int displayId,
+            final TaskRepository.ActionCallback callback) {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend == null) {
+            if (callback != null) {
+                callback.onComplete(new TaskRepository.ActionResult(
+                        false, "desktop runtime is unavailable"));
+            }
+            return;
+        }
+        backend.desktopTasks().launchDesktopPanelHost(displayId, callback);
     }
 
     static void raiseDesktopTaskbarPlane(final int displayId) {

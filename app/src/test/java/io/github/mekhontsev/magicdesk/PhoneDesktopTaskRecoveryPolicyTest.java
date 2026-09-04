@@ -48,6 +48,28 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     }
 
     @Test
+    public void magicDeskInfrastructureIsNotRecoveredToPhone() {
+        assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
+                "io.github.mekhontsev.magicdesk",
+                "io.github.mekhontsev.magicdesk/.DesktopTaskbarActivity",
+                false));
+        assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
+                "io.github.mekhontsev.magicdesk",
+                "io.github.mekhontsev.magicdesk/.DesktopPanelActivity",
+                false));
+        assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
+                "io.github.mekhontsev.magicdesk",
+                "io.github.mekhontsev.magicdesk/.TaskAreaBackstopActivity",
+                false));
+        assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
+                "io.github.mekhontsev.magicdesk",
+                "io.github.mekhontsev.magicdesk/"
+                        + "io.github.mekhontsev.magicdesk."
+                        + "DesktopSelfTestPhoneGuardActivity",
+                false));
+    }
+
+    @Test
     public void homeTaskIsNotRecovered() {
         assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
                 "example.launcher", true));

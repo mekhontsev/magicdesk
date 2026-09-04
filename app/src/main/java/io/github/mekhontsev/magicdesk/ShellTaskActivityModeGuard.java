@@ -205,7 +205,9 @@ final class ShellTaskActivityModeGuard implements
             final List<ObservedTask> observedTasks = new ArrayList<>();
             for (final FrameworkTaskSnapshot observation
                     : tasks) {
-                if (!observation.visible) {
+                if (!observation.visible
+                        || DesktopInfrastructureTasks.isComponent(
+                                observation.rootComponent)) {
                     continue;
                 }
                 TaskRecord record = mTasks.get(

@@ -404,7 +404,7 @@ interface IShizukuCommandService {
         int bottom,
         boolean visible) = 109;
 
-    void configureDesktopTaskbarInput(
+    void configureDesktopActivityInput(
         ITaskObserverCallback callback,
         int displayId,
         IBinder activityToken) = 110;
@@ -421,5 +421,9 @@ interface IShizukuCommandService {
         int top,
         int right,
         int bottom) = 112;
+
+    int launchDesktopPanelHost(
+        ITaskObserverCallback callback,
+        int displayId) = 113;
 
 }

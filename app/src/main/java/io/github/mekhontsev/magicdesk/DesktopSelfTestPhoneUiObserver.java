@@ -101,7 +101,7 @@ final class DesktopSelfTestPhoneUiObserver {
             observeTaskState(
                     touchpadVisible,
                     fixtureVisible
-                            && !DesktopSelfTestPhoneGuardWindow.isVisible());
+                            && !DesktopSelfTestPhoneGuardActivity.isVisible());
         }
     }
 
@@ -133,7 +133,7 @@ final class DesktopSelfTestPhoneUiObserver {
         observeTaskState(
                 touchpadVisible,
                 fixtureVisible
-                        && !DesktopSelfTestPhoneGuardWindow.isVisible());
+                        && !DesktopSelfTestPhoneGuardActivity.isVisible());
     }
 
     static synchronized void noteTouchpadStarted(final int displayId) {

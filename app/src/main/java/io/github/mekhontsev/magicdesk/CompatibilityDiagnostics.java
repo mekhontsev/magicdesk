@@ -318,10 +318,6 @@ public final class CompatibilityDiagnostics {
                     "Desktop rounded-corner property",
                     expectedValue("false", audit.roundedCornersValue));
         }
-        appendCheck(report, "OVERLAY-001", Settings.canDrawOverlays(context),
-                "Application overlays", Settings.canDrawOverlays(context)
-                        ? "granted" : "not granted");
-
         final NotificationManager notifications =
                 context.getSystemService(NotificationManager.class);
         final boolean listenerGranted = notifications != null

@@ -91,19 +91,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         }
     }
 
-    static boolean restoreIfRequested(
-            final Context context,
-            final int displayId) {
-        if (!isRequested(displayId)) {
-            return false;
-        }
-        if (!isVisible(displayId)) {
-            open(context, displayId);
-        }
-        return true;
-    }
-
-    static boolean restoreObservedMissing(
+    static boolean startIfRequested(
             final Context context,
             final int displayId) {
         if (!isRequested(displayId)) {
@@ -130,7 +118,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 : activityManager.getAppTasks()) {
             final ActivityManager.RecentTaskInfo taskInfo =
                     appTask.getTaskInfo();
-            if (!expected.equals(taskInfo.topActivity)) {
+            if (!expected.equals(taskInfo.topActivity)
+                    && !expected.equals(taskInfo.baseActivity)) {
                 continue;
             }
             appTask.moveToFront();

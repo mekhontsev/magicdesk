@@ -28,12 +28,12 @@ final class InputMethodMenuController {
     }
 
     void toggle(final View anchor) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays == null) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels == null) {
             return;
         }
-        if (overlays.isVisible(mPanel)) {
-            overlays.hide(mPanel);
+        if (panels.isRequested(mPanel)) {
+            panels.hide(mPanel);
             return;
         }
         final InputMethodManager manager = mActivity.getSystemService(
@@ -46,7 +46,7 @@ final class InputMethodMenuController {
         }
         ensurePanel();
         populate(methods);
-        show(overlays, anchor);
+        show(panels, anchor);
     }
 
     void release() {
@@ -91,7 +91,7 @@ final class InputMethodMenuController {
     }
 
     private void show(
-            final OverlayPanelController overlays,
+            final DesktopPanelWindowController panels,
             final View anchor) {
         final int width = dp(280, 220);
         mPanel.measure(
@@ -106,7 +106,7 @@ final class InputMethodMenuController {
                 location[0] + anchor.getWidth() - width);
         final int top = Math.max(
                 mActivity.getDesktopAreaTop(), location[1] - height);
-        overlays.show(mPanel, left, top, width, height,
+        panels.show(mPanel, left, top, width, height,
                 false, "MagicDesk input methods");
     }
 

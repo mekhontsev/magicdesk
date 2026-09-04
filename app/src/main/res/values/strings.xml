@@ -426,7 +426,7 @@
     <string name="status_desktop_visible">Desktop</string>
     <string name="status_restoring_windows">Restoring windows&#8230;</string>
     <string name="status_windows_restored">Windows restored</string>
-    <string name="status_overlay_panel_unavailable">Overlay panel unavailable</string>
+    <string name="status_desktop_panel_unavailable">Desktop panel unavailable</string>
     <string name="status_taskbar_unavailable">Taskbar host unavailable</string>
     <string name="status_exiting">Stopping services and exiting&#8230;</string>
     <string name="status_exit_failed">Exit failed: %1$s</string>
@@ -566,7 +566,6 @@
     <string name="setup_item_display_target">Desktop display</string>
     <string name="setup_item_device">Device compatibility</string>
     <string name="setup_item_shizuku">Shizuku shell service</string>
-    <string name="setup_item_overlays">Display over other apps</string>
     <string name="setup_item_desktop_eligibility">Full desktop eligibility</string>
     <string name="setup_item_window_corners">Window corners</string>
     <string name="setup_item_reboot">Restart</string>
@@ -614,8 +613,6 @@
     <string name="setup_action_get_shizuku">Get official Shizuku</string>
     <string name="setup_action_open_shizuku">Open Shizuku</string>
     <string name="setup_action_open_settings">Open settings</string>
-    <string name="setup_overlay_error_title">Additional permission required</string>
-    <string name="setup_overlay_error_message">MagicDesk could not finish setup automatically: %1$s\n\nOpen Android settings and allow Display over other apps. Include [%2$s] in an issue if the problem continues.</string>
     <string name="setup_action_allow_shizuku">Allow through Shizuku</string>
     <string name="setup_action_done">Done</string>
     <string name="setup_action_exit">Exit</string>

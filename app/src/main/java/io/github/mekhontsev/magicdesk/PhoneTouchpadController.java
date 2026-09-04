@@ -46,18 +46,23 @@ final class PhoneTouchpadController {
                 && MagicDeskTouchpadActivity.isRequested(displayId)
                 && !MagicDeskTouchpadActivity.isVisible(displayId);
         final boolean restored = missing
-                && MagicDeskTouchpadActivity.restoreIfRequested(
-                        MagicDeskApplication.applicationContext(), displayId);
+                && restoreRequestedTask(displayId);
         if (callback != null) {
             callback.onComplete(missing, restored);
         }
     }
 
-    static boolean restoreObservedMissing(final int displayId) {
-        return isSupported(displayId)
-                && MagicDeskTouchpadActivity.restoreObservedMissing(
-                        MagicDeskApplication.applicationContext(),
-                        displayId);
+    static boolean restoreRequestedTask(final int displayId) {
+        if (!isSupported(displayId)
+                || !MagicDeskTouchpadActivity.isRequested(displayId)) {
+            return false;
+        }
+        if (MagicDeskTouchpadActivity.bringRequestedTaskToFront(
+                MagicDeskApplication.applicationContext(), displayId)) {
+            return true;
+        }
+        return MagicDeskTouchpadActivity.startIfRequested(
+                MagicDeskApplication.applicationContext(), displayId);
     }
 
     static boolean bringRequestedTaskToFront(final int displayId) {

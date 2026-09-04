@@ -83,7 +83,7 @@ public abstract class DesktopShellActivity extends Activity
     private FrameLayout mDesktopRoot;
     private DesktopLayoutController mDesktopLayout;
     private DesktopWallpaperController mDesktopWallpaperController;
-    private OverlayPanelController mOverlayPanelController;
+    private DesktopPanelWindowController mDesktopPanelWindowController;
     private DesktopUiFactory mUi;
     private DesktopAutomationUiRegistry mAutomationUi;
     private CalendarPanelController mCalendarController;
@@ -249,8 +249,8 @@ public abstract class DesktopShellActivity extends Activity
         mTaskbarHost = new DesktopTaskbarHost(
                 getCurrentDisplayId(),
                 bounds -> {
-                    if (mOverlayPanelController != null) {
-                        mOverlayPanelController
+                    if (mDesktopPanelWindowController != null) {
+                        mDesktopPanelWindowController
                                 .setInteractionOwnerBounds(bounds);
                     }
                 });
@@ -290,15 +290,15 @@ public abstract class DesktopShellActivity extends Activity
                 this::captureInteractionStackForPanel,
                 this::openCalendarApplication,
                 () -> setErrorStatus(
-                        "OVERLAY-001",
-                        getString(R.string.status_overlay_panel_unavailable)));
+                        "PANEL-001",
+                        getString(R.string.status_desktop_panel_unavailable)));
         mShortcutHelpController = new ShortcutHelpController(
                 this,
                 mUi,
                 this::hideAllPanels,
                 () -> setErrorStatus(
-                        "OVERLAY-001",
-                        getString(R.string.status_overlay_panel_unavailable)));
+                        "PANEL-001",
+                        getString(R.string.status_desktop_panel_unavailable)));
         mNotifications = new NotificationCenterController(this, mUi);
         mDisplayProfiles = new DisplayProfileController(this, this);
         mStartMenuController = new StartMenuController(this, mUi);
@@ -393,7 +393,7 @@ public abstract class DesktopShellActivity extends Activity
         }
     }
 
-    void releaseDesktopOverlays() {
+    void releaseDesktopUiWindows() {
         if (mTaskbarRevealController != null) {
             mTaskbarRevealController.release();
             mTaskbarRevealController = null;
@@ -405,9 +405,9 @@ public abstract class DesktopShellActivity extends Activity
             mTaskbarHost.release();
             mTaskbarHost = null;
         }
-        if (mOverlayPanelController != null) {
-            mOverlayPanelController.release();
-            mOverlayPanelController = null;
+        if (mDesktopPanelWindowController != null) {
+            mDesktopPanelWindowController.release();
+            mDesktopPanelWindowController = null;
         }
         if (mDesktopWallpaperController != null) {
             mDesktopWallpaperController.stop();
@@ -441,7 +441,7 @@ public abstract class DesktopShellActivity extends Activity
             mStartMenuController.release();
         }
         mDesktopHostReady = false;
-        releaseDesktopOverlays();
+        releaseDesktopUiWindows();
         DesktopRuntimeBridge.unregister(this);
         if (mDesktopControls != null) {
             mDesktopControls.stop();
@@ -502,12 +502,12 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     boolean hasVisiblePanel() {
-        return mOverlayPanelController != null
-                && mOverlayPanelController.hasVisiblePanel();
+        return mDesktopPanelWindowController != null
+                && mDesktopPanelWindowController.hasVisiblePanel();
     }
 
-    OverlayPanelController overlayPanels() {
-        return mOverlayPanelController;
+    DesktopPanelWindowController panels() {
+        return mDesktopPanelWindowController;
     }
 
     DesktopTaskbarHost taskbarHost() {
@@ -519,7 +519,7 @@ public abstract class DesktopShellActivity extends Activity
         updateTaskbarVisibilityHold();
     }
 
-    private void onOverlayPanelVisibilityChanged(
+    private void onPanelVisibilityChanged(
             final View panel,
             final boolean visible) {
         if (mStartMenuController == null
@@ -895,10 +895,10 @@ public abstract class DesktopShellActivity extends Activity
     private View createDesktopContentView() {
         final FrameLayout root = new FrameLayout(this);
         mDesktopRoot = root;
-        mOverlayPanelController = new OverlayPanelController(
+        mDesktopPanelWindowController = new DesktopPanelWindowController(
                 this,
                 getCurrentDisplayId(),
-                this::onOverlayPanelVisibilityChanged);
+                this::onPanelVisibilityChanged);
         root.setBackgroundColor(COLOR_BACKGROUND);
 
         final FrameLayout desktopViewport = new FrameLayout(this);
@@ -1014,7 +1014,7 @@ public abstract class DesktopShellActivity extends Activity
 
     void toggleCalendarPanel() {
         mCalendarController.toggle(
-                mOverlayPanelController,
+                mDesktopPanelWindowController,
                 mDesktopLayout.viewport().contentBounds(),
                 getTaskbarHeight());
     }
@@ -1238,8 +1238,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void showDesktopFileProperties(final ShellFileInfo file) {
-        hideAllPanels();
-        final AlertDialog dialog = new AlertDialog.Builder(this)
+        showDesktopDialog(host -> new AlertDialog.Builder(host)
                 .setTitle(file.name)
                 .setMessage(FilePropertiesFormatter.format(this, file))
                 .setNeutralButton(
@@ -1249,15 +1248,12 @@ public abstract class DesktopShellActivity extends Activity
                                     file.name, file.absolutePath, false);
                         })
                 .setPositiveButton(android.R.string.ok, null)
-                .create();
-        configureOverlayDialog(dialog);
-        dialog.show();
+                .create());
     }
 
     void showDesktopFolderShortcutProperties(
             final ShellFileInfo file,
             final DesktopFolderShortcut shortcut) {
-        hideAllPanels();
         final StringBuilder message = new StringBuilder(
                 FilePropertiesFormatter.format(this, file));
         message.append('\n').append(getString(
@@ -1267,7 +1263,7 @@ public abstract class DesktopShellActivity extends Activity
             message.append('\n').append(getString(
                     R.string.desktop_shortcut_unavailable));
         }
-        final AlertDialog dialog = new AlertDialog.Builder(this)
+        showDesktopDialog(host -> new AlertDialog.Builder(host)
                 .setTitle(shortcut.name)
                 .setMessage(message)
                 .setNeutralButton(
@@ -1279,14 +1275,11 @@ public abstract class DesktopShellActivity extends Activity
                                     false);
                         })
                 .setPositiveButton(android.R.string.ok, null)
-                .create();
-        configureOverlayDialog(dialog);
-        dialog.show();
+                .create());
     }
 
     void installDesktopApk(final DesktopFile file) {
-        hideAllPanels();
-        final AlertDialog dialog = new AlertDialog.Builder(this)
+        showDesktopDialog(host -> new AlertDialog.Builder(host)
                 .setTitle(R.string.file_manager_install_title)
                 .setMessage(getString(
                         R.string.file_manager_install_message,
@@ -1297,9 +1290,7 @@ public abstract class DesktopShellActivity extends Activity
                         (ignored, which) ->
                                 mDesktopWorkspaceController.installApk(file))
                 .setNegativeButton(android.R.string.cancel, null)
-                .create();
-        configureOverlayDialog(dialog);
-        dialog.show();
+                .create());
     }
 
     void runDesktopScript(final DesktopFile file) {
@@ -1324,30 +1315,28 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void createCommandApplication() {
-        hideAllPanels();
-        DesktopCommandApplicationDialog.show(
-                this,
+        showDesktopDialog(host -> DesktopCommandApplicationDialog.create(
+                host,
                 DesktopCommandApplicationDialog.InitialValues.empty(
                         ShellDesktopDirectory.ABSOLUTE_PATH,
                         DesktopExecBackend.SHELL),
-                created -> refreshDesktopFolder(true));
+                created -> refreshDesktopFolder(true)));
     }
 
     void createCommandApplication(final DesktopFile file) {
         if (file == null || file.directory) {
             return;
         }
-        hideAllPanels();
         final String absolutePath = ShellDesktopDirectory.ABSOLUTE_PATH
                 + "/" + file.relativePath;
-        DesktopCommandApplicationDialog.show(
-                this,
+        showDesktopDialog(host -> DesktopCommandApplicationDialog.create(
+                host,
                 DesktopCommandApplicationDialog.InitialValues.fromFile(
                         file.name,
                         file.mimeType,
                         absolutePath,
                         false),
-                created -> refreshDesktopFolder(true));
+                created -> refreshDesktopFolder(true)));
     }
 
     void renameDesktopFile(final DesktopFile file) {
@@ -1360,8 +1349,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void confirmDeleteDesktopFile(final DesktopFile file) {
-        hideAllPanels();
-        final AlertDialog dialog = new AlertDialog.Builder(this)
+        showDesktopDialog(host -> new AlertDialog.Builder(host)
                 .setTitle(R.string.delete_desktop_entry_title)
                 .setMessage(getString(
                         file.desktopEntry != null
@@ -1375,9 +1363,7 @@ public abstract class DesktopShellActivity extends Activity
                         R.string.action_delete,
                         (confirmedDialog, which) ->
                                 mDesktopWorkspaceController.deleteFile(file))
-                .create();
-        configureOverlayDialog(dialog);
-        dialog.show();
+                .create());
     }
 
     void showStartSection(final int mode) {
@@ -1389,20 +1375,13 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     void confirmForceStop(final AppItem app) {
-        hideAllPanels();
-        final AlertDialog dialog = new AlertDialog.Builder(this)
+        showDesktopDialog(host -> new AlertDialog.Builder(host)
                 .setTitle(R.string.force_stop_title)
                 .setMessage(getString(R.string.force_stop_message, app.label))
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.action_force_stop,
                         (confirmedDialog, which) -> forceStopApp(app))
-                .create();
-        final Window window = dialog.getWindow();
-        if (window != null && Settings.canDrawOverlays(this)) {
-            window.setType(
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
-        }
-        dialog.show();
+                .create());
     }
 
     TaskRepository.TaskEntry findFirstTask(final String packageName) {
@@ -1475,66 +1454,72 @@ public abstract class DesktopShellActivity extends Activity
             final String initialValue,
             final int hintResId,
             final DesktopNameAction action) {
-        hideAllPanels();
-        final EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setInputType(InputType.TYPE_CLASS_TEXT
-                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        input.setHint(hintResId);
-        input.setText(initialValue);
-        input.setSelectAllOnFocus(true);
-        final int padding = mUi.dp(20);
-        final FrameLayout container = new FrameLayout(this);
-        container.setPadding(padding, 0, padding, 0);
-        container.addView(input, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT));
-        final AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(titleResId)
-                .setView(container)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.action_create, null)
-                .create();
-        configureOverlayDialog(dialog);
-        dialog.setOnShowListener(ignored -> {
-            final Button positive = dialog.getButton(
-                    AlertDialog.BUTTON_POSITIVE);
-            positive.setText(initialValue.length() == 0
-                    ? R.string.action_create : R.string.action_rename);
-            positive.setOnClickListener(view -> {
-                final String name = input.getText().toString().trim();
-                if (name.length() == 0) {
-                    input.setError(getString(
-                            R.string.desktop_entry_name_required));
-                    return;
+        showDesktopDialog(host -> {
+            final EditText input = new EditText(host);
+            input.setSingleLine(true);
+            input.setInputType(InputType.TYPE_CLASS_TEXT
+                    | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            input.setHint(hintResId);
+            input.setText(initialValue);
+            input.setSelectAllOnFocus(true);
+            final int padding = mUi.dp(20);
+            final FrameLayout container = new FrameLayout(host);
+            container.setPadding(padding, 0, padding, 0);
+            container.addView(input, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT));
+            final AlertDialog dialog = new AlertDialog.Builder(host)
+                    .setTitle(titleResId)
+                    .setView(container)
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(R.string.action_create, null)
+                    .create();
+            dialog.setOnShowListener(ignored -> {
+                final Button positive = dialog.getButton(
+                        AlertDialog.BUTTON_POSITIVE);
+                positive.setText(initialValue.length() == 0
+                        ? R.string.action_create : R.string.action_rename);
+                positive.setOnClickListener(view -> {
+                    final String name = input.getText().toString().trim();
+                    if (name.length() == 0) {
+                        input.setError(getString(
+                                R.string.desktop_entry_name_required));
+                        return;
+                    }
+                    dialog.dismiss();
+                    action.run(name);
+                });
+                input.requestFocus();
+                final Window window = dialog.getWindow();
+                if (window != null) {
+                    window.setSoftInputMode(
+                            WindowManager.LayoutParams
+                                    .SOFT_INPUT_STATE_ALWAYS_VISIBLE);
                 }
-                dialog.dismiss();
-                action.run(name);
+                input.post(() -> {
+                    final InputMethodManager inputMethodManager =
+                            host.getSystemService(InputMethodManager.class);
+                    if (inputMethodManager != null) {
+                        inputMethodManager.showSoftInput(
+                                input, InputMethodManager.SHOW_IMPLICIT);
+                    }
+                });
             });
-            input.requestFocus();
-            final Window window = dialog.getWindow();
-            if (window != null) {
-                window.setSoftInputMode(
-                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
-            }
-            input.post(() -> {
-                final InputMethodManager inputMethodManager =
-                        getSystemService(InputMethodManager.class);
-                if (inputMethodManager != null) {
-                    inputMethodManager.showSoftInput(
-                            input, InputMethodManager.SHOW_IMPLICIT);
-                }
-            });
+            return dialog;
         });
-        dialog.show();
     }
 
-    void configureOverlayDialog(final AlertDialog dialog) {
-        final Window window = dialog.getWindow();
-        if (window != null && Settings.canDrawOverlays(this)) {
-            window.setType(
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+    boolean showDesktopDialog(
+            final DesktopDialogPresenter.Factory factory) {
+        hideAllPanels();
+        if (mDesktopPanelWindowController == null
+                || !mDesktopPanelWindowController.showDialog(factory)) {
+            setErrorStatus(
+                    "PANEL-001",
+                    getString(R.string.status_desktop_panel_unavailable));
+            return false;
         }
+        return true;
     }
 
     @FunctionalInterface
@@ -1642,8 +1627,8 @@ public abstract class DesktopShellActivity extends Activity
             mAltTabController.finish();
             return;
         }
-        final OverlayPanelController overlays = overlayPanels();
-        if (overlays == null || !overlays.runAfterSurfaceTraversalFence(
+        if (mTaskbarHost == null
+                || !mTaskbarHost.runAfterSurfaceTraversalFence(
                 mAltTabController::finish)) {
             mAltTabController.finish();
         }
@@ -1786,7 +1771,7 @@ public abstract class DesktopShellActivity extends Activity
 
     void toggleShortcutHelp() {
         mShortcutHelpController.toggle(
-                mOverlayPanelController,
+                mDesktopPanelWindowController,
                 mDesktopLayout.viewport().contentBounds(),
                 getTaskbarHeight());
     }
@@ -1795,8 +1780,8 @@ public abstract class DesktopShellActivity extends Activity
         if (mTaskOverviewController != null) {
             mTaskOverviewController.cancelPendingShow();
         }
-        if (mOverlayPanelController != null) {
-            mOverlayPanelController.hideAll();
+        if (mDesktopPanelWindowController != null) {
+            mDesktopPanelWindowController.hideAll();
         }
     }
 
@@ -1804,8 +1789,8 @@ public abstract class DesktopShellActivity extends Activity
         if (mTaskOverviewController != null) {
             mTaskOverviewController.cancelPendingShow();
         }
-        if (mOverlayPanelController != null) {
-            mOverlayPanelController.hideTop();
+        if (mDesktopPanelWindowController != null) {
+            mDesktopPanelWindowController.hideTop();
         }
     }
 
@@ -1851,7 +1836,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     DesktopUiSnapshot getAutomationUiSnapshot() {
-        final OverlayPanelController overlays = mOverlayPanelController;
+        final DesktopPanelWindowController panels = mDesktopPanelWindowController;
         return new DesktopUiSnapshot(
                 !isActivityUnavailable() && isDesktopShell(),
                 getCurrentDisplayId(),
@@ -1859,9 +1844,9 @@ public abstract class DesktopShellActivity extends Activity
                 getTaskbarBounds(),
                 mStartMenuController != null
                         && mStartMenuController.isVisible(),
-                overlays != null && overlays.hasVisiblePanel(),
-                overlays == null ? null : overlays.visibleBounds(),
-                overlays == null ? "" : overlays.visibleTitle(),
+                panels != null && panels.hasVisiblePanel(),
+                panels == null ? null : panels.visibleBounds(),
+                panels == null ? "" : panels.visibleTitle(),
                 isDesktopWallpaperRendered(),
                 isUsingFallbackDesktopWallpaper());
     }

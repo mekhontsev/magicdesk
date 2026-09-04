@@ -19,7 +19,7 @@ final class ShortcutHelpController {
     private final Context mContext;
     private final DesktopUiFactory mUi;
     private final Runnable mHidePanels;
-    private final Runnable mOverlayUnavailable;
+    private final Runnable mPanelUnavailable;
 
     private LinearLayout mPanel;
 
@@ -27,11 +27,11 @@ final class ShortcutHelpController {
             final Context context,
             final DesktopUiFactory ui,
             final Runnable hidePanels,
-            final Runnable overlayUnavailable) {
+            final Runnable panelUnavailable) {
         mContext = context;
         mUi = ui;
         mHidePanels = hidePanels;
-        mOverlayUnavailable = overlayUnavailable;
+        mPanelUnavailable = panelUnavailable;
     }
 
     LinearLayout createPanel() {
@@ -78,14 +78,14 @@ final class ShortcutHelpController {
     }
 
     void toggle(
-            final OverlayPanelController overlays,
+            final DesktopPanelWindowController panels,
             final Rect contentBounds,
             final int taskbarHeight) {
-        if (overlays == null || mPanel == null) {
+        if (panels == null || mPanel == null) {
             return;
         }
-        if (overlays.isVisible(mPanel)) {
-            overlays.hide(mPanel);
+        if (panels.isRequested(mPanel)) {
+            panels.hide(mPanel);
             return;
         }
         final int areaWidth = contentBounds.width();
@@ -97,10 +97,10 @@ final class ShortcutHelpController {
                 + Math.max(0, (areaWidth - width) / 2);
         final int top = contentBounds.top
                 + Math.max(0, (areaHeight - taskbarHeight - height) / 2);
-        if (!overlays.show(
+        if (!panels.show(
                 mPanel, left, top, width, height,
                 false, "MagicDesk keyboard shortcuts")) {
-            mOverlayUnavailable.run();
+            mPanelUnavailable.run();
         }
     }
 

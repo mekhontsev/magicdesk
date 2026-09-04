@@ -49,8 +49,8 @@ final class TaskOverviewController {
     }
 
     boolean isVisible() {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        return overlays != null && overlays.isVisible(mPanel);
+        final DesktopPanelWindowController panels = mActivity.panels();
+        return panels != null && panels.isRequested(mPanel);
     }
 
     void toggle() {
@@ -206,7 +206,7 @@ final class TaskOverviewController {
     }
 
     boolean showAltTabPanel() {
-        // Alt+Tab is driven by the global keyboard bridge. Keeping its overlay
+        // Alt+Tab is driven by the global keyboard bridge. Keeping its panel
         // non-focusable avoids activating the desktop host behind a fullscreen
         // application while still allowing the normal mouse-driven overview
         // to remain interactive.
@@ -225,8 +225,8 @@ final class TaskOverviewController {
         final int top = mActivity.getDesktopAreaTop() + Math.max(
                 0,
                 (areaHeight - mActivity.getTaskbarHeight() - height) / 2);
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays != null && overlays.show(
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels != null && panels.show(
                 mPanel,
                 left,
                 top,
@@ -237,8 +237,8 @@ final class TaskOverviewController {
             return true;
         }
         mActivity.setErrorStatus(
-                "OVERLAY-001",
-                mActivity.getString(R.string.status_overlay_panel_unavailable));
+                "PANEL-001",
+                mActivity.getString(R.string.status_desktop_panel_unavailable));
         return false;
     }
 

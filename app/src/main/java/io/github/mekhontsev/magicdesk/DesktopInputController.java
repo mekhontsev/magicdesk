@@ -164,7 +164,7 @@ final class DesktopInputController {
             return;
         }
         mContextButtonDown = false;
-        // Replacing an overlay while its button sequence is still active can
+        // Replacing a panel while its button sequence is still active can
         // route the remaining events to the desktop underneath it.
         mActivity.handleSecondaryClick(mContextClickX, mContextClickY);
     }

@@ -133,7 +133,10 @@ interface DesktopTaskRuntime {
     void updateDesktopTaskbarPresentation(
             int displayId, Rect bounds, boolean visible);
 
-    void configureDesktopTaskbarInput(int displayId, IBinder activityToken);
+    void configureDesktopActivityInput(int displayId, IBinder activityToken);
+
+    void launchDesktopPanelHost(
+            int displayId, TaskRepository.ActionCallback callback);
 
     void raiseDesktopTaskbarPlane(int displayId);
 

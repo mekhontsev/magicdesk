@@ -87,12 +87,19 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId, bounds, visible);
     }
 
-    void configureDesktopTaskbarInput(
+    void configureDesktopActivityInput(
             final ITaskObserverCallback callback,
             final int displayId,
             final IBinder activityToken) {
-        requireSession(callback).observer.configureDesktopTaskbarInput(
+        requireSession(callback).observer.configureDesktopActivityInput(
                 displayId, activityToken);
+    }
+
+    int launchDesktopPanelHost(
+            final ITaskObserverCallback callback,
+            final int displayId) {
+        return requireSession(callback).observer.launchDesktopPanelHost(
+                displayId);
     }
 
     void raiseDesktopTaskbarPlane(

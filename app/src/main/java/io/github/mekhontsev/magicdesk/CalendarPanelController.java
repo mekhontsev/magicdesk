@@ -21,7 +21,7 @@ final class CalendarPanelController {
     private final Runnable mHidePanels;
     private final Runnable mCaptureInteractionStack;
     private final Runnable mOpenCalendar;
-    private final Runnable mOverlayUnavailable;
+    private final Runnable mPanelUnavailable;
 
     private LinearLayout mPanel;
     private CalendarView mCalendarView;
@@ -32,13 +32,13 @@ final class CalendarPanelController {
             final Runnable hidePanels,
             final Runnable captureInteractionStack,
             final Runnable openCalendar,
-            final Runnable overlayUnavailable) {
+            final Runnable panelUnavailable) {
         mContext = context;
         mUi = ui;
         mHidePanels = hidePanels;
         mCaptureInteractionStack = captureInteractionStack;
         mOpenCalendar = openCalendar;
-        mOverlayUnavailable = overlayUnavailable;
+        mPanelUnavailable = panelUnavailable;
     }
 
     LinearLayout createPanel() {
@@ -98,13 +98,13 @@ final class CalendarPanelController {
     }
 
     void toggle(
-            final OverlayPanelController overlays,
+            final DesktopPanelWindowController panels,
             final Rect contentBounds,
             final int taskbarHeight) {
-        if (overlays == null || mPanel == null) {
+        if (panels == null || mPanel == null) {
             return;
         }
-        if (overlays.isVisible(mPanel)) {
+        if (panels.isRequested(mPanel)) {
             mHidePanels.run();
             return;
         }
@@ -119,10 +119,10 @@ final class CalendarPanelController {
                 + Math.max(0, areaWidth - width - dp(8));
         final int top = contentBounds.top
                 + Math.max(0, areaHeight - taskbarHeight - height);
-        if (!overlays.show(
+        if (!panels.show(
                 mPanel, left, top, width, height,
                 false, "MagicDesk calendar")) {
-            mOverlayUnavailable.run();
+            mPanelUnavailable.run();
         }
     }
 

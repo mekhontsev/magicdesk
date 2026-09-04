@@ -12,7 +12,7 @@ public interface PlatformWindowingDriver {
     /** Whether native freeform-to-fullscreen transitions leave a stale client caption inset. */
     boolean requiresNativeFullscreenCaptionRefresh();
 
-    /** Whether direct task activation needs a fresh overlay Surface traversal. */
+    /** Whether direct task activation needs a fresh application-window traversal. */
     boolean requiresTaskActivationSurfaceFence();
 
     /** Whether retained desktop tasks must be normalized before returning to phone Home. */

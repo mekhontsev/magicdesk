@@ -51,11 +51,11 @@ final class SystemPanelController {
     }
 
     void toggle() {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays == null || mPanel == null) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels == null || mPanel == null) {
             return;
         }
-        if (overlays.isVisible(mPanel)) {
+        if (panels.isRequested(mPanel)) {
             mActivity.hideAllPanels();
             return;
         }
@@ -72,7 +72,7 @@ final class SystemPanelController {
         final int left = mActivity.getDesktopAreaLeft()
                 + Math.max(0, areaWidth - width - dp(8));
         final int top = mActivity.getDesktopAreaTop() + dp(8);
-        if (!overlays.show(
+        if (!panels.show(
                 mPanel,
                 left,
                 top,
@@ -81,9 +81,9 @@ final class SystemPanelController {
                 false,
                 "MagicDesk system")) {
             mActivity.setErrorStatus(
-                    "OVERLAY-001",
+                    "PANEL-001",
                     mActivity.getString(
-                            R.string.status_overlay_panel_unavailable));
+                            R.string.status_desktop_panel_unavailable));
         }
     }
 

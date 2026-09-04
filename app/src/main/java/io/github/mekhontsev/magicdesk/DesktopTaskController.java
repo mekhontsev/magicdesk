@@ -555,7 +555,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public void configureDesktopTaskbarInput(
+    public void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {
         if (activityToken == null) {
@@ -563,9 +563,25 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         mHandler.post(() -> {
             if (mRunning && mDisplayId == displayId) {
-                mTaskWatcher.configureDesktopTaskbarInput(
+                mTaskWatcher.configureDesktopActivityInput(
                         displayId, activityToken);
             }
+        });
+    }
+
+    @Override
+    public void launchDesktopPanelHost(
+            final int displayId,
+            final TaskRepository.ActionCallback callback) {
+        mHandler.post(() -> {
+            if (!mRunning || mDisplayId != displayId || !mTaskWatcherReady) {
+                if (callback != null) {
+                    callback.onComplete(new TaskRepository.ActionResult(
+                            false, "desktop task runtime is not ready"));
+                }
+                return;
+            }
+            mTaskWatcher.launchDesktopPanelHost(displayId, callback);
         });
     }
 
@@ -1782,7 +1798,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     @Override
     public void expectTouchpadDisplacement() {
         if (mRunning) {
-            mPhoneTouchpadReconciler.expectDisplacement();
             mTaskWatcher.setPhoneTouchpadPreservation(true);
         }
     }
@@ -1791,7 +1806,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     public void finishTouchpadPreservation() {
         if (mRunning) {
             mTaskWatcher.setPhoneTouchpadPreservation(false);
-            mPhoneTouchpadReconciler.finishPreservation();
         }
     }
 

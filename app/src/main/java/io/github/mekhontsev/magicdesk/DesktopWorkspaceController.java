@@ -58,7 +58,8 @@ final class DesktopWorkspaceController {
         mItemActivation = new ItemActivationPolicy(
                 MagicDeskSettings.load().openFilesWithSingleClick,
                 ViewConfiguration.getDoubleTapTimeout());
-        mOpenWith = new FileOpenWithController(activity);
+        mOpenWith = new FileOpenWithController(
+                activity, activity::showDesktopDialog);
         mContentActions = new AndroidContentActionGateway(activity);
         mFolder = new DesktopFolderController(
                 activity,

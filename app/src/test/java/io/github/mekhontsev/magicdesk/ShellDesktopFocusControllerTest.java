@@ -77,6 +77,14 @@ public final class ShellDesktopFocusControllerTest {
                 41, Arrays.asList(front, snapshot(41, false, true))));
         assertTrue(ShellDesktopFocusController.isFocusConfirmationReady(
                 43, Arrays.asList(front, phoneHome)));
+        final FrameworkTaskSnapshot panelHost = snapshot(
+                44,
+                1,
+                BuildConfig.APPLICATION_ID + "/.DesktopPanelActivity",
+                true,
+                true);
+        assertFalse(ShellDesktopFocusController.isFocusConfirmationReady(
+                44, Arrays.asList(front, panelHost)));
     }
 
     private static FrameworkTaskSnapshot snapshot(

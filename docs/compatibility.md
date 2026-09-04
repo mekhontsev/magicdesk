@@ -143,7 +143,7 @@ The report includes:
 - on a selected vendor platform, additional non-destructive checks for its
   projection, input, hardware, launcher, and output-mode integrations;
 - a read-only check for the current static system wallpaper image;
-- overlay, notification-listener, and WMShell desktopmode probes;
+- notification-listener and WMShell desktopmode probes;
 - current displays and external input-device descriptors;
 - a one-shot input-relay snapshot with aggregate native event flow, MagicDesk
   virtual-device presence, current routing associations, and observed pointer

@@ -16,8 +16,6 @@ import java.util.Map;
 
 public final class DeviceSetupManager {
     private static final String PREFS = "magicdesk_device_setup";
-    private static final String MAGICDESK_PACKAGE =
-            "io.github.mekhontsev.magicdesk";
 
     private static final String KEY_PENDING_BOOT_ID = "pending_boot_id";
 
@@ -216,25 +214,6 @@ public final class DeviceSetupManager {
                 + " && /system/bin/wm size reset -d 0"
                 + " && /system/bin/wm density reset -d 0"
                 + " && /system/bin/wm scaling auto -d 0";
-    }
-
-    static void ensureOverlayPermission(final Context context) throws IOException {
-        if (Settings.canDrawOverlays(context)) {
-            return;
-        }
-        if (!MAGICDESK_PACKAGE.equals(context.getPackageName())) {
-            throw new IOException("unexpected MagicDesk package name");
-        }
-        ShellAccess.run(overlayPermissionCommand());
-        if (!Settings.canDrawOverlays(context)) {
-            throw new IOException(
-                    "Android did not apply the display-over-apps permission");
-        }
-    }
-
-    static String overlayPermissionCommand() {
-        return "/system/bin/cmd appops set " + MAGICDESK_PACKAGE
-                + " SYSTEM_ALERT_WINDOW allow";
     }
 
     static void activateRuntime(final Context context, final Audit audit) {

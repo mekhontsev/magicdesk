@@ -125,15 +125,6 @@ final class ShellDesktopTaskbarPlane implements AutoCloseable {
         }
     }
 
-    synchronized void configureActivityInput(final IBinder activityToken) {
-        if (mArea == null || mTaskId < 0 || activityToken == null) {
-            throw new IllegalStateException(
-                    "desktop taskbar plane is not ready for input");
-        }
-        FrameworkActivityInputApi.setRecordInputSinkEnabled(
-                activityToken, false);
-    }
-
     synchronized boolean isTaskbarTask(final Object task) {
         if (task == null || mTaskId < 0) {
             return false;

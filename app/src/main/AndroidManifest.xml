@@ -5,7 +5,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REORDER_TASKS" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
@@ -252,6 +251,17 @@
             android:taskAffinity="${applicationId}.desktop_taskbar"
             android:theme="@style/DesktopTaskbarTheme" />
 
+        <activity
+            android:name=".DesktopPanelActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:stateNotNeeded="true"
+            android:taskAffinity="${applicationId}.desktop_panels"
+            android:theme="@style/DesktopPanelTheme" />
+
         <!-- Keeps organizer-owned fullscreen slots structurally non-empty.
              The standard task is retained while its slot is reused. -->
         <activity
@@ -301,6 +311,16 @@
             android:process=":selftest"
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.selftest" />
+
+        <activity
+            android:name=".DesktopSelfTestPhoneGuardActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:resizeableActivity="false"
+            android:stateNotNeeded="true"
+            android:taskAffinity="${applicationId}.selftest_phone_guard"
+            android:theme="@style/SelfTestPhoneGuardTheme" />
 
         <activity
             android:name=".DesktopSelfTestBrowserActivity"

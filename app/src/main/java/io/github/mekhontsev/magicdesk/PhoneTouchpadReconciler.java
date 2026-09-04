@@ -10,62 +10,124 @@ final class PhoneTouchpadReconciler {
     private static final String MAGICDESK_TOUCHPAD_ACTIVITY =
             "io.github.mekhontsev.magicdesk.MagicDeskTouchpadActivity";
 
-    private Boolean mLastVisible;
-    private volatile boolean mPreservationArmed;
-    private boolean mRestorePending;
+    private boolean mRepairAwaitingVisibility;
+    private int mLastRepairForegroundTaskId = Integer.MIN_VALUE;
+    private int mLastRepairTouchpadTaskId = Integer.MIN_VALUE;
 
     void reset() {
-        mLastVisible = null;
-        mPreservationArmed = false;
-        mRestorePending = false;
-    }
-
-    void expectDisplacement() {
-        mPreservationArmed = true;
-    }
-
-    void finishPreservation() {
-        mPreservationArmed = false;
+        clearPendingRepair();
     }
 
     void reconcile(
             final int displayId,
             final List<TaskRepository.TaskEntry> phoneTasks) {
         DesktopSelfTestPhoneUiObserver.observePhoneTasks(phoneTasks);
-        final boolean visible = isTouchpadVisible(phoneTasks);
-        if (!visible
-                && (mPreservationArmed
-                        || (Boolean.TRUE.equals(mLastVisible)
-                                && PhoneTouchpadController
-                                        .shouldRemainVisible(displayId)))) {
-            mPreservationArmed = false;
-            mRestorePending = true;
-            Log.i(TAG, "phone touchpad displaced by window transition");
+        final RepairAction action = nextRepair(
+                PhoneTouchpadController.shouldRemainVisible(displayId),
+                phoneTasks);
+        if (action == RepairAction.NONE) {
+            return;
         }
-        if (mRestorePending) {
-            mRestorePending = false;
-            if (!PhoneTouchpadController.restoreObservedMissing(displayId)) {
-                Log.w(TAG,
-                        "touchpad restore skipped; request is no longer active");
-            }
+        Log.i(TAG, "phone touchpad restore requested after task displacement"
+                + " action=" + action.logName);
+        if (!PhoneTouchpadController.restoreRequestedTask(displayId)) {
+            Log.w(TAG,
+                    "touchpad restore skipped; request is no longer active");
         }
-        mLastVisible = Boolean.valueOf(visible);
     }
 
-    private static boolean isTouchpadVisible(
-            final List<TaskRepository.TaskEntry> tasks) {
-        if (tasks == null) {
-            return false;
+    RepairAction nextRepair(
+            final boolean requested,
+            final List<TaskRepository.TaskEntry> phoneTasks) {
+        final PhoneTaskState state = inspectPhoneTasks(phoneTasks);
+        if (!requested || state.touchpadVisible) {
+            clearPendingRepair();
+            return RepairAction.NONE;
         }
-        for (final TaskRepository.TaskEntry task : tasks) {
-            if (task != null
-                    && task.visible
-                    && task.componentName != null
-                    && task.componentName.endsWith(
-                            MAGICDESK_TOUCHPAD_ACTIVITY)) {
-                return true;
+
+        if (mRepairAwaitingVisibility
+                && mLastRepairForegroundTaskId == state.foregroundTaskId
+                && mLastRepairTouchpadTaskId == state.touchpadTaskId) {
+            return RepairAction.NONE;
+        }
+
+        // Command acceptance is not restoration. Keep the repair pending until
+        // the task observer confirms that the touchpad is visible again. An
+        // unchanged sampled snapshot must not repeat the command.
+        mRepairAwaitingVisibility = true;
+        mLastRepairForegroundTaskId = state.foregroundTaskId;
+        mLastRepairTouchpadTaskId = state.touchpadTaskId;
+        return state.touchpadTaskId >= 0
+                ? RepairAction.BRING_EXISTING
+                : RepairAction.START_MISSING;
+    }
+
+    private void clearPendingRepair() {
+        mRepairAwaitingVisibility = false;
+        mLastRepairForegroundTaskId = Integer.MIN_VALUE;
+        mLastRepairTouchpadTaskId = Integer.MIN_VALUE;
+    }
+
+    private static PhoneTaskState inspectPhoneTasks(
+            final List<TaskRepository.TaskEntry> tasks) {
+        int foregroundTaskId = -1;
+        int touchpadTaskId = -1;
+        boolean touchpadVisible = false;
+        if (tasks != null) {
+            for (final TaskRepository.TaskEntry task : tasks) {
+                if (task == null) {
+                    continue;
+                }
+                if (foregroundTaskId < 0 && task.visible) {
+                    foregroundTaskId = task.taskId;
+                }
+                if (isTouchpadTask(task)) {
+                    touchpadTaskId = task.taskId;
+                    touchpadVisible |= task.visible;
+                }
             }
         }
-        return false;
+        return new PhoneTaskState(
+                foregroundTaskId,
+                touchpadTaskId,
+                touchpadVisible);
+    }
+
+    private static boolean isTouchpadTask(
+            final TaskRepository.TaskEntry task) {
+        return isTouchpadComponent(task.componentName)
+                || isTouchpadComponent(task.topActivityName);
+    }
+
+    private static boolean isTouchpadComponent(final String component) {
+        return component != null
+                && component.endsWith(MAGICDESK_TOUCHPAD_ACTIVITY);
+    }
+
+    enum RepairAction {
+        NONE("none"),
+        BRING_EXISTING("bring-existing"),
+        START_MISSING("start-missing");
+
+        final String logName;
+
+        RepairAction(final String logName) {
+            this.logName = logName;
+        }
+    }
+
+    private static final class PhoneTaskState {
+        final int foregroundTaskId;
+        final int touchpadTaskId;
+        final boolean touchpadVisible;
+
+        PhoneTaskState(
+                final int foregroundTaskId,
+                final int touchpadTaskId,
+                final boolean touchpadVisible) {
+            this.foregroundTaskId = foregroundTaskId;
+            this.touchpadTaskId = touchpadTaskId;
+            this.touchpadVisible = touchpadVisible;
+        }
     }
 }

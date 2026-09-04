@@ -124,11 +124,11 @@ final class NotificationCenterController {
     }
 
     void toggle() {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays == null || mPanel == null) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels == null || mPanel == null) {
             return;
         }
-        if (overlays.isVisible(mPanel)) {
+        if (panels.isRequested(mPanel)) {
             mActivity.hideAllPanels();
             return;
         }
@@ -144,10 +144,10 @@ final class NotificationCenterController {
         final int left = mActivity.getDesktopAreaLeft()
                 + Math.max(0, areaWidth - width - dp(8));
         final int top = mActivity.getDesktopAreaTop() + dp(8);
-        if (!overlays.show(mPanel, left, top, width, height,
+        if (!panels.show(mPanel, left, top, width, height,
                 false, "MagicDesk notifications")) {
-            mActivity.setErrorStatus("OVERLAY-001", mActivity.getString(
-                    R.string.status_overlay_panel_unavailable));
+            mActivity.setErrorStatus("PANEL-001", mActivity.getString(
+                    R.string.status_desktop_panel_unavailable));
         }
     }
 
@@ -158,8 +158,8 @@ final class NotificationCenterController {
         }
         mSnapshot = snapshot;
         updateBadge();
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays != null && overlays.isVisible(mPanel)) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels != null && panels.isRequested(mPanel)) {
             render();
         }
     }
@@ -389,10 +389,10 @@ final class NotificationCenterController {
                     mActivity.isCompactDesktopPreview());
             dismiss.setPadding(dp(7), dp(7), dp(7), dp(7));
             dismiss.setOnClickListener(view -> {
-                final OverlayPanelController overlays =
-                        mActivity.overlayPanels();
-                if (popup && overlays != null) {
-                    overlays.hideTransient();
+                final DesktopPanelWindowController panels =
+                        mActivity.panels();
+                if (popup && panels != null) {
+                    panels.hideTransient();
                 }
                 DesktopNotificationListenerService.dismissNotification(
                         entry.key);
@@ -501,12 +501,12 @@ final class NotificationCenterController {
         if (mActivity.isActivityUnavailable()) {
             return;
         }
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (!mActivity.isDesktopShell() || entry == null || overlays == null
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (!mActivity.isDesktopShell() || entry == null || panels == null
                 || isDeviceLocked()) {
             return;
         }
-        if (overlays.isVisible(mPanel)) {
+        if (panels.isRequested(mPanel)) {
             DesktopNotificationListenerService.markRead(entry.key);
             return;
         }
@@ -528,10 +528,10 @@ final class NotificationCenterController {
                 dp(12),
                 areaHeight - mActivity.getTaskbarHeight()
                         - height - dp(12));
-        if (!overlays.showTransient(
+        if (!panels.showTransient(
                 popup, left, top, width, height, 7000L,
                 "MagicDesk notification")) {
-            Log.w(TAG, "notification popup overlay unavailable");
+            Log.w(TAG, "notification popup panel unavailable");
         }
     }
 

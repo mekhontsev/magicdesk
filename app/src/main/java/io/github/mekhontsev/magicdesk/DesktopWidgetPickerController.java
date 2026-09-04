@@ -36,8 +36,8 @@ final class DesktopWidgetPickerController {
     void show(
             final List<AppWidgetProviderInfo> providers,
             final Listener listener) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (overlays == null || listener == null) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (panels == null || listener == null) {
             return;
         }
         final List<WidgetChoice> choices = choices(providers);
@@ -49,14 +49,14 @@ final class DesktopWidgetPickerController {
                 dp(12),
                 DesktopUiFactory.COLOR_CYAN));
         panel.setClickable(true);
-        panel.addView(header(overlays, panel), new LinearLayout.LayoutParams(
+        panel.addView(header(panels, panel), new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
         final ScrollView scroll = new ScrollView(mActivity);
         final LinearLayout content = new LinearLayout(mActivity);
         content.setOrientation(LinearLayout.VERTICAL);
-        populate(content, choices, overlays, panel, listener);
+        populate(content, choices, panels, panel, listener);
         scroll.addView(content, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
@@ -81,13 +81,13 @@ final class DesktopWidgetPickerController {
                 + Math.max(0, (mActivity.getDesktopAreaWidth() - width) / 2);
         final int top = mActivity.getDesktopAreaTop()
                 + Math.max(0, (availableHeight - height) / 2);
-        overlays.show(
+        panels.show(
                 panel, left, top, width, height,
                 false, "MagicDesk widgets");
     }
 
     private View header(
-            final OverlayPanelController overlays,
+            final DesktopPanelWindowController panels,
             final View panel) {
         final LinearLayout header = new LinearLayout(mActivity);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -99,7 +99,7 @@ final class DesktopWidgetPickerController {
         final Button close = mUi.smallButton(
                 R.string.action_close,
                 DesktopUiFactory.COLOR_PANEL_ALT);
-        close.setOnClickListener(view -> overlays.hide(panel));
+        close.setOnClickListener(view -> panels.hide(panel));
         header.addView(close, new LinearLayout.LayoutParams(
                 dp(84), dp(34)));
         return header;
@@ -108,7 +108,7 @@ final class DesktopWidgetPickerController {
     private void populate(
             final LinearLayout content,
             final List<WidgetChoice> choices,
-            final OverlayPanelController overlays,
+            final DesktopPanelWindowController panels,
             final View panel,
             final Listener listener) {
         if (choices.isEmpty()) {
@@ -141,7 +141,7 @@ final class DesktopWidgetPickerController {
             }
             final View row = row(choice);
             row.setOnClickListener(view -> {
-                overlays.hide(panel);
+                panels.hide(panel);
                 listener.onWidgetSelected(choice.info);
             });
             final LinearLayout.LayoutParams rowParams =

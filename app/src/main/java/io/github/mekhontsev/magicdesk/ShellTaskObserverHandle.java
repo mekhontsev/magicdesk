@@ -97,14 +97,19 @@ final class ShellTaskObserverHandle implements Closeable {
                 visible));
     }
 
-    void configureDesktopTaskbarInput(
+    void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) throws IOException {
         if (activityToken == null) {
-            throw new IOException("missing desktop taskbar activity token");
+            throw new IOException("missing desktop activity token");
         }
-        callService(() -> mService.configureDesktopTaskbarInput(
+        callService(() -> mService.configureDesktopActivityInput(
                 mCallback, displayId, activityToken));
+    }
+
+    int launchDesktopPanelHost(final int displayId) throws IOException {
+        return callServiceForResult(() ->
+                mService.launchDesktopPanelHost(mCallback, displayId));
     }
 
     void raiseDesktopTaskbarPlane(final int displayId) throws IOException {

@@ -153,8 +153,8 @@ final class DesktopContextMenuController {
             populateTaskbarMenu(x, y);
             return;
         }
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        final boolean insidePanel = overlays != null && overlays.contains(x, y);
+        final DesktopPanelWindowController panels = mActivity.panels();
+        final boolean insidePanel = panels != null && panels.contains(x, y);
         ContextTarget target = findHoveredTarget(x, y, insidePanel);
         if (target == null) {
             target = findTargetAt(x, y, insidePanel);
@@ -269,12 +269,12 @@ final class DesktopContextMenuController {
     }
 
     private void populateDesktopMenu(final float x, final float y) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (mPanel == null || overlays == null) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (mPanel == null || panels == null) {
             return;
         }
         mRetainOwnerPanel = false;
-        overlays.hide(mMenuRoot);
+        panels.hide(mMenuRoot);
         mPanel.removeAllViews();
         mMenuNavigator.prepare(null);
 
@@ -395,10 +395,10 @@ final class DesktopContextMenuController {
                 || !mActivity.isPointInside(view, x, y)) {
             return false;
         }
-        final OverlayPanelController overlays = mActivity.overlayPanels();
+        final DesktopPanelWindowController panels = mActivity.panels();
         return !insidePanel
-                || (overlays != null
-                        && overlays.containsVisiblePanelView(view));
+                || (panels != null
+                        && panels.containsVisiblePanelView(view));
     }
 
     private void showForView(
@@ -407,12 +407,12 @@ final class DesktopContextMenuController {
         mRequestKeyboardFocus = true;
         final int[] location = new int[2];
         view.getLocationOnScreen(location);
-        final OverlayPanelController overlays = mActivity.overlayPanels();
+        final DesktopPanelWindowController panels = mActivity.panels();
         showTargetMenu(
                 location[0] + view.getWidth() / 2f,
                 location[1] + view.getHeight() / 2f,
                 target,
-                overlays != null && overlays.containsVisiblePanelView(view));
+                panels != null && panels.containsVisiblePanelView(view));
     }
 
     private void showTargetMenu(
@@ -435,11 +435,11 @@ final class DesktopContextMenuController {
             final float x,
             final float y,
             final DesktopFile file) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (mPanel == null || overlays == null) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (mPanel == null || panels == null) {
             return;
         }
-        overlays.hide(mMenuRoot);
+        panels.hide(mMenuRoot);
         mMenuNavigator.prepare(null);
         FileItemContextMenu.populate(
                 mActivity,
@@ -564,11 +564,11 @@ final class DesktopContextMenuController {
     }
 
     private void prepareMenuTitle(final CharSequence text) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (mPanel == null || overlays == null) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (mPanel == null || panels == null) {
             return;
         }
-        overlays.hide(mMenuRoot);
+        panels.hide(mMenuRoot);
         mPanel.removeAllViews();
         mMenuNavigator.prepare(null);
         final TextView title = mUi.menuHeader(
@@ -584,8 +584,8 @@ final class DesktopContextMenuController {
             final AppItem app,
             final TaskRepository.TaskEntry exactTask,
             final DesktopFile desktopFile) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        if (mPanel == null || overlays == null) {
+        final DesktopPanelWindowController panels = mActivity.panels();
+        if (mPanel == null || panels == null) {
             return;
         }
         final TaskRepository.TaskEntry task = exactTask != null
@@ -788,8 +788,8 @@ final class DesktopContextMenuController {
     private void prepareAppMenuTitle(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        overlays.hide(mMenuRoot);
+        final DesktopPanelWindowController panels = mActivity.panels();
+        panels.hide(mMenuRoot);
         mPanel.removeAllViews();
         mMenuNavigator.prepare(null);
 
@@ -822,8 +822,8 @@ final class DesktopContextMenuController {
     private void prepareSubmenuTitle(
             final CharSequence text,
             final View.OnClickListener backListener) {
-        final OverlayPanelController overlays = mActivity.overlayPanels();
-        overlays.hide(mMenuRoot);
+        final DesktopPanelWindowController panels = mActivity.panels();
+        panels.hide(mMenuRoot);
         mPanel.removeAllViews();
         mMenuNavigator.prepare(() -> backListener.onClick(mMenuRoot));
 
@@ -985,11 +985,11 @@ final class DesktopContextMenuController {
                 areaTop + dp(8),
                 Math.min(top, areaBottom - menuHeight - dp(8)));
 
-        final OverlayPanelController overlays = mActivity.overlayPanels();
+        final DesktopPanelWindowController panels = mActivity.panels();
         mMenuRoot.scrollTo(0, 0);
-        final boolean shown = overlays != null
+        final boolean shown = panels != null
                 && (mRetainOwnerPanel
-                        ? overlays.showChild(
+                        ? panels.showChild(
                                 mMenuRoot,
                                 left,
                                 top,
@@ -997,7 +997,7 @@ final class DesktopContextMenuController {
                                 menuHeight,
                                 "MagicDesk context menu",
                                 mActivity::handleSecondaryClick)
-                        : overlays.show(
+                        : panels.show(
                                 mMenuRoot,
                                 left,
                                 top,
@@ -1008,10 +1008,10 @@ final class DesktopContextMenuController {
                                 "MagicDesk context menu"));
         if (!shown) {
             mActivity.setErrorStatus(
-                    "OVERLAY-001",
+                    "PANEL-001",
                     mActivity.getString(
-                            R.string.status_overlay_panel_unavailable));
-        } else if (overlays.isTopPanelFocusable()) {
+                            R.string.status_desktop_panel_unavailable));
+        } else if (panels.isTopPanelFocusable()) {
             mMenuNavigator.activate(mMenuRoot);
         }
     }

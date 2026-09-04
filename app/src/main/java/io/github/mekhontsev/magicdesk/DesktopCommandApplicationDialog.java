@@ -92,6 +92,13 @@ final class DesktopCommandApplicationDialog {
             final Activity activity,
             final InitialValues initial,
             final Listener listener) {
+        create(activity, initial, listener).show();
+    }
+
+    static AlertDialog create(
+            final Activity activity,
+            final InitialValues initial,
+            final Listener listener) {
         final DesktopUiFactory ui = new DesktopUiFactory(activity);
         final LinearLayout form = new LinearLayout(activity);
         form.setOrientation(LinearLayout.VERTICAL);
@@ -136,9 +143,6 @@ final class DesktopCommandApplicationDialog {
                 .setPositiveButton(R.string.action_create, null)
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
-        if (activity instanceof DesktopShellActivity) {
-            ((DesktopShellActivity) activity).configureOverlayDialog(dialog);
-        }
         dialog.setOnShowListener(ignored -> dialog.getButton(
                 AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
                     if (name.getText().toString().trim().isEmpty()) {
@@ -190,7 +194,7 @@ final class DesktopCommandApplicationDialog {
                             .setEnabled(false);
                     create(activity, shortcut, listener, dialog);
                 }));
-        dialog.show();
+        return dialog;
     }
 
     private static void create(

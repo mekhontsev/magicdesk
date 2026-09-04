@@ -194,7 +194,7 @@ final class DesktopTaskWatcher {
         });
     }
 
-    void configureDesktopTaskbarInput(
+    void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {
         final ShellTaskObserverHandle handle = currentHandle();
@@ -203,12 +203,45 @@ final class DesktopTaskWatcher {
         }
         TaskCommandQueue.execute(() -> {
             try {
-                handle.configureDesktopTaskbarInput(
+                handle.configureDesktopActivityInput(
                         displayId, activityToken);
             } catch (IOException error) {
-                Log.w(TAG, "failed to configure desktop taskbar input", error);
+                Log.w(TAG, "failed to configure desktop activity input", error);
             }
         });
+    }
+
+    void launchDesktopPanelHost(
+            final int displayId,
+            final TaskRepository.ActionCallback callback) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            completePanelHostLaunch(
+                    callback, false, "task observer is unavailable");
+            return;
+        }
+        TaskCommandQueue.execute(() -> {
+            try {
+                final int taskId = handle.launchDesktopPanelHost(displayId);
+                completePanelHostLaunch(
+                        callback, true, "task=" + taskId);
+            } catch (IOException | RuntimeException error) {
+                Log.w(TAG, "failed to launch desktop panel host", error);
+                completePanelHostLaunch(
+                        callback, false, ShellAccess.usefulMessage(error));
+            }
+        });
+    }
+
+    private void completePanelHostLaunch(
+            final TaskRepository.ActionCallback callback,
+            final boolean success,
+            final String message) {
+        if (callback == null) {
+            return;
+        }
+        mHandler.post(() -> callback.onComplete(
+                new TaskRepository.ActionResult(success, message)));
     }
 
     void raiseDesktopTaskbarPlane(final int displayId) {

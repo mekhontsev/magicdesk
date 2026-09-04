@@ -36,15 +36,15 @@ final class DesktopSelfTestPhoneInputGuard {
         }
         final boolean started;
         try {
-            started = DesktopSelfTestPhoneGuardWindow.showAndWait(
+            started = DesktopSelfTestPhoneGuardActivity.showAndWait(
                     context, runId, LIFECYCLE_TIMEOUT_MILLIS);
         } catch (RuntimeException error) {
             cancel();
             throw new IOException("could not open phone input guard", error);
         }
-        if (!started || !DesktopSelfTestPhoneGuardWindow.isVisible()) {
+        if (!started || !DesktopSelfTestPhoneGuardActivity.isVisible()) {
             cancel();
-            final String detail = DesktopSelfTestPhoneGuardWindow.lastError();
+            final String detail = DesktopSelfTestPhoneGuardActivity.lastError();
             throw new IOException("phone input guard did not become visible"
                     + (detail.isEmpty() ? "" : ": " + detail));
         }
@@ -59,7 +59,7 @@ final class DesktopSelfTestPhoneInputGuard {
                 sClosing = true;
             }
         }
-        final boolean closed = DesktopSelfTestPhoneGuardWindow.hideAndWait(
+        final boolean closed = DesktopSelfTestPhoneGuardActivity.hideAndWait(
                 LIFECYCLE_TIMEOUT_MILLIS);
         if (!active) {
             return Observation.notObserved();
@@ -82,7 +82,7 @@ final class DesktopSelfTestPhoneInputGuard {
         synchronized (DesktopSelfTestPhoneInputGuard.class) {
             sClosing = true;
         }
-        DesktopSelfTestPhoneGuardWindow.hideAndWait(
+        DesktopSelfTestPhoneGuardActivity.hideAndWait(
                 LIFECYCLE_TIMEOUT_MILLIS);
         synchronized (DesktopSelfTestPhoneInputGuard.class) {
             reset();

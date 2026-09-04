@@ -257,7 +257,7 @@ public final class DesktopOperations {
     }
 
     static void showMagicDeskStart() {
-        Log.i(TAG, "show MagicDesk Start overlay");
+        Log.i(TAG, "show MagicDesk Start panel");
         if (!MagicDeskRuntime.showStart()) {
             Log.w(TAG, "MagicDesk desktop is unavailable for Start");
         }

@@ -26,6 +26,18 @@ public final class TaskRepositoryForegroundCandidateTest {
     }
 
     @Test
+    public void rejectsPanelHostAtEitherComponentLevel() {
+        final String panelHost = BuildConfig.APPLICATION_ID
+                + "/.DesktopPanelActivity";
+        assertFalse(TaskRepository.isForegroundApplicationCandidate(
+                panelHost,
+                "com.example/.MainActivity"));
+        assertFalse(TaskRepository.isForegroundApplicationCandidate(
+                "com.example/.MainActivity",
+                panelHost));
+    }
+
+    @Test
     public void rejectsBackstopAtEitherComponentLevel() {
         final String backstop = BuildConfig.APPLICATION_ID
                 + "/.TaskAreaBackstopActivity";
