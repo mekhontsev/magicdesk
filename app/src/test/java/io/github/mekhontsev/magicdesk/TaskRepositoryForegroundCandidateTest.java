@@ -14,27 +14,15 @@ public final class TaskRepositoryForegroundCandidateTest {
     }
 
     @Test
-    public void rejectsTaskbarAtEitherComponentLevel() {
+    public void rejectsDesktopChromeAtEitherComponentLevel() {
         final String taskbar = BuildConfig.APPLICATION_ID
-                + "/.DesktopTaskbarActivity";
+                + "/.DesktopChromeActivity";
         assertFalse(TaskRepository.isForegroundApplicationCandidate(
                 taskbar,
                 "com.example/.MainActivity"));
         assertFalse(TaskRepository.isForegroundApplicationCandidate(
                 "com.example/.MainActivity",
                 taskbar));
-    }
-
-    @Test
-    public void rejectsPanelHostAtEitherComponentLevel() {
-        final String panelHost = BuildConfig.APPLICATION_ID
-                + "/.DesktopPanelActivity";
-        assertFalse(TaskRepository.isForegroundApplicationCandidate(
-                panelHost,
-                "com.example/.MainActivity"));
-        assertFalse(TaskRepository.isForegroundApplicationCandidate(
-                "com.example/.MainActivity",
-                panelHost));
     }
 
     @Test

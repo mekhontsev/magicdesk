@@ -7,15 +7,12 @@ import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_PANEL_ALT;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_RED;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_TEXT;
 
-import android.app.ActivityOptions;
 import android.app.KeyguardManager;
 import android.app.NotificationManager;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
-import android.provider.Settings;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.util.Log;
@@ -28,6 +25,8 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+
+import org.json.JSONObject;
 
 import java.util.Date;
 
@@ -547,11 +546,23 @@ final class NotificationCenterController {
             return;
         }
         mActivity.hideAllPanels();
-        if (entry.hasContentIntent
-                && DesktopNotificationListenerService.openNotification(
-                        mActivity, entry.key, mActivity.getCurrentDisplayId())) {
+        if (entry.hasContentIntent) {
+            DesktopNotificationListenerService.openNotificationAsync(
+                    mActivity,
+                    entry.key,
+                    mActivity.getCurrentDisplayId(),
+                    success -> {
+                        if (!success) {
+                            launchNotificationApplication(entry);
+                        }
+                    });
             return;
         }
+        launchNotificationApplication(entry);
+    }
+
+    private void launchNotificationApplication(
+            final DesktopNotificationListenerService.Entry entry) {
         final AppItem app = LauncherAppRepository.find(
                 mActivity.getLauncherApps(), entry.packageName);
         if (app != null) {
@@ -568,41 +579,68 @@ final class NotificationCenterController {
             final DesktopNotificationListenerService.Entry entry,
             final DesktopNotificationListenerService.ActionEntry action) {
         mActivity.hideAllPanels();
-        if (!DesktopNotificationListenerService.invokeAction(
-                mActivity, entry.key, action.index,
-                mActivity.getCurrentDisplayId())) {
-            mActivity.setErrorStatus(
-                    "NOTIFICATIONS-004",
-                    mActivity.getString(
-                            R.string.status_notification_action_failed));
-        }
+        DesktopNotificationListenerService.invokeActionAsync(
+                mActivity,
+                entry.key,
+                action.index,
+                mActivity.getCurrentDisplayId(),
+                success -> {
+                    if (!success) {
+                        mActivity.setErrorStatus(
+                                "NOTIFICATIONS-004",
+                                mActivity.getString(
+                                        R.string.status_notification_action_failed));
+                    }
+                });
     }
 
     private void openNotificationAccessSettings() {
         mActivity.hideAllPanels();
-        final String component = DesktopNotificationListenerService
-                .getComponentName(mActivity).flattenToString();
-        final Intent intent = new Intent(
-                Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
-                .putExtra(
-                        Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
-                        component)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(mActivity.getCurrentDisplayId());
         try {
-            mActivity.startActivity(intent, options.toBundle());
-        } catch (RuntimeException detailFailure) {
-            Log.w(TAG, "notification detail settings unavailable",
-                    detailFailure);
-            final Intent fallback = new Intent(
-                    Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            try {
-                mActivity.startActivity(fallback, options.toBundle());
-            } catch (RuntimeException error) {
-                mActivity.showLaunchFailure(error);
-            }
+            final JSONObject parameters = new JSONObject()
+                    .put("listenerComponent",
+                            DesktopNotificationListenerService
+                                    .getComponentName(mActivity)
+                                    .flattenToString())
+                    .put("mode", "windowed");
+            final AndroidDesktopAction action =
+                    AndroidDesktopActionCatalog.create(
+                            "notification-access",
+                            parameters,
+                            "notification-center");
+            AndroidDesktopActionDispatcher.dispatch(
+                    mActivity,
+                    action,
+                    mActivity.getCurrentDisplayId(),
+                    result -> {
+                        if (!result.success) {
+                            openNotificationAccessFallback();
+                        }
+                    });
+        } catch (Exception error) {
+            mActivity.showLaunchFailure(error);
+        }
+    }
+
+    private void openNotificationAccessFallback() {
+        try {
+            AndroidDesktopActionDispatcher.dispatch(
+                    mActivity,
+                    AndroidDesktopActionCatalog.create(
+                            "notification-access",
+                            new JSONObject().put("mode", "windowed"),
+                            "notification-center"),
+                    mActivity.getCurrentDisplayId(),
+                    result -> {
+                        if (!result.success) {
+                            mActivity.setErrorStatus(
+                                    "NOTIFICATIONS-005",
+                                    result.message);
+                        }
+                    });
+        } catch (Exception error) {
+            Log.w(TAG, "notification access settings unavailable", error);
+            mActivity.showLaunchFailure(error);
         }
     }
 

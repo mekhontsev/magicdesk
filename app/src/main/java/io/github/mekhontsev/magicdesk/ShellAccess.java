@@ -286,6 +286,18 @@ public final class ShellAccess {
         }
     }
 
+    static void launchActivityOnDisplay(
+            final Intent intent,
+            final int displayId) throws IOException {
+        try {
+            requireService().launchActivityOnDisplay(intent, displayId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Android Activity launch failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
     static ShortcutInfo[] queryAppShortcuts(final String packageName)
             throws IOException {
         try {

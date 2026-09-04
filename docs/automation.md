@@ -256,11 +256,27 @@ require Termux, Termux:X11, the Termux external-command setting, and the
 
 ## Android Integration
 
+`list_android_actions` and `invoke_android_action` expose the same bounded
+semantic action catalog used by desktop UI and Android App Functions. It
+currently includes document open/create, application details, notification
+access, wireless settings, and sound settings. Action metadata declares
+required, optional, presentation, and Activity-result parameters rather than
+requiring a caller to reconstruct an Intent.
+
 `query_intent_handlers`, `launch_intent`, `open_uri`, `open_file`, and `share`
-enter one typed Android integration gateway. `launch_intent` accepts either
+enter that same typed Android integration gateway. `launch_intent` accepts either
 structured action, data, MIME type, target, categories, extras, and symbolic
 flags, or a raw `intentUri` as the base with structured fields applied on top.
 The raw form is a mode of the same gateway, not a separate launch path.
+
+Activity presentation has four independent inputs: `mode`, relative `bounds`,
+`instance`, and optional `preferredTaskId`. Bounds use a `0..10000` scale
+within the desktop work area and require `mode=windowed`. `instance` is exactly
+`reuse` or `new`; document-task flags are not accepted as a substitute. A
+preferred task id addresses one existing managed task and therefore requires
+`instance=reuse` plus its explicit current mode. A missing or mismatched task
+fails instead of creating another window. `bounds` cannot accompany an exact
+task id because delivery does not move or resize that task.
 
 Activity intents use the production desktop launch coordinator. Every managed
 application task is requested as `ACTIVITY_TYPE_STANDARD`; its result includes
@@ -289,7 +305,9 @@ its own exact transport identity and always receives a distinct transient task;
 it never reuses or moves an existing task belonging to the result target.
 Direct same-package intents continue to use exact-component task actions.
 `expectResult=true` returns a `requestId`;
-`get_intent_result` reads its bounded, process-local, event-driven state. Its
+`get_intent_result` reads or waits up to 60 seconds for its bounded,
+process-local, event-driven state. `consume=true` removes a terminal result and
+releases any persistable URI grants retained for it. Its
 diagnostic projection keeps only bounded scalar extras and `ClipData` URIs, so
 an external Activity cannot grow the registry or event journal without limit.
 Implicit targets are resolved by the shell-side package manager so MCP
@@ -321,6 +339,13 @@ content URI. Shell paths use MagicDesk's existing bounded file-grant provider.
 `share` supports text and one or more shell paths or content URIs. Grants are
 read-only unless `open_file` explicitly requests writable access and the
 source is writable. No file bytes are copied into an MCP cache.
+
+`get_activity_history` returns the newest actual Activity launches from the
+same bounded evidence included in compatibility diagnostics. It adds no probe,
+listener, or periodic task query and omits full content URIs and Intent extras.
+The built-in developer Activity Explorer uses the same handler query,
+authorization decision, presentation model, production launch coordinator,
+and history; it is not an automation-only execution path.
 
 `list_app_actions` reads Android's published shortcut service under the
 authorized shell identity. Static manifest metadata may enrich an action's
@@ -420,8 +445,10 @@ Read-only resources are available at `magicdesk://state`,
 ## Android App Functions
 
 On Android 16 and newer, MagicDesk publishes App Functions for reading desktop
-state, starting or closing a desktop, launching an Android application in an
-optional mode, and opening Settings.
+state, starting or closing a desktop, launching an Android application,
+opening Settings, listing and invoking semantic Android actions, and reading
+their Activity results. Action parameters and results use the same JSON
+contracts as the authenticated automation gateway.
 
 The platform protects the service with
 `android.permission.BIND_APP_FUNCTION_SERVICE`. Ordinary applications cannot

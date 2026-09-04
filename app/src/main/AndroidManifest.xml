@@ -241,26 +241,15 @@
         </activity>
 
         <activity
-            android:name=".DesktopTaskbarActivity"
+            android:name=".DesktopChromeActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
             android:excludeFromRecents="true"
             android:exported="true"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:resizeableActivity="true"
             android:stateNotNeeded="true"
-            android:taskAffinity="${applicationId}.desktop_taskbar"
-            android:theme="@style/DesktopTaskbarTheme" />
-
-        <activity
-            android:name=".DesktopPanelActivity"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
-            android:excludeFromRecents="true"
-            android:exported="true"
-            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
-            android:resizeableActivity="true"
-            android:stateNotNeeded="true"
-            android:taskAffinity="${applicationId}.desktop_panels"
-            android:theme="@style/DesktopPanelTheme" />
+            android:taskAffinity="${applicationId}.desktop_chrome"
+            android:theme="@style/DesktopChromeTheme" />
 
         <!-- Keeps organizer-owned fullscreen slots structurally non-empty.
              The standard task is retained while its slot is reused. -->
@@ -355,6 +344,15 @@
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.tasks" />
+
+        <activity
+            android:name=".ActivityExplorerActivity"
+            android:exported="true"
+            android:icon="@drawable/ic_magicdesk"
+            android:label="@string/activity_explorer_title"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.activity_explorer" />
 
         <activity
             android:name=".AppLogViewerActivity"

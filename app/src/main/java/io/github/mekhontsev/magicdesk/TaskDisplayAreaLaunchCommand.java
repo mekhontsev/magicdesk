@@ -681,6 +681,21 @@ public final class TaskDisplayAreaLaunchCommand {
         launchActivity(service, intent, options);
     }
 
+    static void launchActivityOnDisplay(
+            final Object service,
+            final Intent sourceIntent,
+            final int displayId) throws ReflectiveOperationException {
+        if (service == null || displayId < 0) {
+            throw new IllegalArgumentException(
+                    "invalid Activity display target");
+        }
+        final Intent intent = createExactAppIntent(sourceIntent)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(displayId);
+        launchActivity(service, intent, options);
+    }
+
     private static void launchActivity(
             final Object service,
             final Intent intent,

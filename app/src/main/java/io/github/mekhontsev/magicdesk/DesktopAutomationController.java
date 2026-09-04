@@ -105,6 +105,15 @@ final class DesktopAutomationController {
                 case SHARE:
                     result = mAndroid.share(args);
                     break;
+                case LIST_ANDROID_ACTIONS:
+                    result = mAndroid.listDesktopActions();
+                    break;
+                case INVOKE_ANDROID_ACTION:
+                    result = mAndroid.invokeDesktopAction(args);
+                    break;
+                case GET_ACTIVITY_HISTORY:
+                    result = mAndroid.getActivityCompatibilityHistory(args);
+                    break;
                 case SEND_BROADCAST:
                     result = mAndroid.sendBroadcast(args);
                     break;
@@ -394,8 +403,6 @@ final class DesktopAutomationController {
             throws IOException, JSONException, InterruptedException {
         final String packageName = requiredString(args, "package");
         final AppLaunchTarget target = appTarget(args);
-        final DesktopLaunchMode mode = parseLaunchMode(
-                optionalString(args, "mode", "auto"));
         final int activeDisplayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
         final int displayId = args.has("displayId")
@@ -406,13 +413,13 @@ final class DesktopAutomationController {
                     DesktopAutomationErrorCode.DISPLAY_NOT_AVAILABLE,
                     "the requested display has no active desktop host", true);
         }
-        final RelativeWindowBounds preferredBounds = readLaunchBounds(
-                args, mode, displayId);
+        final DesktopLaunchPresentation presentation =
+                AndroidIntegrationRequest.parsePresentation(
+                        args, DesktopTaskInstancePolicy.REUSE_EXISTING);
         final DesktopActivityLaunchResult result =
                 DesktopRuntimeBridge.launchApplicationObserved(
                         target,
-                        mode,
-                        preferredBounds,
+                        presentation,
                         displayId,
                         LAUNCH_OBSERVE_TIMEOUT_MILLIS);
         if (!result.succeeded()) {
@@ -433,7 +440,7 @@ final class DesktopAutomationController {
                 DesktopTaskLaunchObservation.await(
                         LaunchActivityIdentity.resolve(
                                 mContext.getPackageManager(), target),
-                        mode,
+                        presentation.mode,
                         displayId,
                         result.taskId,
                         LAUNCH_OBSERVE_TIMEOUT_MILLIS);
@@ -451,7 +458,8 @@ final class DesktopAutomationController {
         final JSONObject data = new JSONObject()
                 .put("package", packageName)
                 .put("displayId", displayId)
-                .put("mode", mode.wireName)
+                .put("mode", presentation.mode.wireName)
+                .put("instance", presentation.instancePolicy.wireName)
                 .put("taskObserved", true)
                 .put("taskId", launchedTask.taskId)
                 .put("transportTaskId", result.taskId)
@@ -832,11 +840,16 @@ final class DesktopAutomationController {
                     DesktopSelfTestRunState.snapshot().toJson());
         }
         intent.putExtra(DiagnosticsActivity.EXTRA_SELF_TEST_RUN_ID, runId);
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
         try {
-            mContext.startActivity(intent, options.toBundle());
-        } catch (RuntimeException error) {
+            if (ShellAccess.isReady()) {
+                ShellAccess.launchActivityOnDisplay(
+                        intent, Display.DEFAULT_DISPLAY);
+            } else {
+                final ActivityOptions options = ActivityOptions.makeBasic();
+                options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
+                mContext.startActivity(intent, options.toBundle());
+            }
+        } catch (IOException | RuntimeException error) {
             DesktopSelfTestRunState.complete(
                     runId,
                     false,
@@ -845,7 +858,8 @@ final class DesktopAutomationController {
                     "could not launch diagnostics: "
                             + ShellAccess.usefulMessage(error),
                     DesktopSelfTestResult.lastModifiedMillis(mContext));
-            throw error;
+            throw new IllegalStateException(
+                    "could not launch diagnostics", error);
         }
         return DesktopAutomationResult.success(
                 "self-test launch accepted",
@@ -1395,46 +1409,6 @@ final class DesktopAutomationController {
             throw new IllegalArgumentException("invalid bounds");
         }
         return bounds;
-    }
-
-    private static RelativeWindowBounds readLaunchBounds(
-            final JSONObject args,
-            final DesktopLaunchMode mode,
-            final int displayId) throws IOException {
-        if (!args.has("bounds")) {
-            return null;
-        }
-        if (mode != DesktopLaunchMode.WINDOWED) {
-            throw new IllegalArgumentException(
-                    "bounds require mode=windowed");
-        }
-        final Rect bounds = readBounds(
-                requiredObject(args, "bounds"), displayId);
-        final Rect workArea = FloatingWindowController.getWorkAreaBounds(
-                displayId);
-        if (bounds.left < workArea.left
-                || bounds.top < workArea.top
-                || bounds.right > workArea.right
-                || bounds.bottom > workArea.bottom) {
-            throw new IllegalArgumentException(
-                    "bounds must be inside the desktop work area");
-        }
-        final RelativeWindowBounds relative = RelativeWindowBounds.from(
-                bounds, workArea);
-        if (relative == null) {
-            throw new IllegalArgumentException("invalid bounds");
-        }
-        return relative;
-    }
-
-    private static DesktopLaunchMode parseLaunchMode(final String value) {
-        for (final DesktopLaunchMode mode : DesktopLaunchMode.values()) {
-            if (mode.wireName.equalsIgnoreCase(value)) {
-                return mode;
-            }
-        }
-        throw new IllegalArgumentException(
-                "mode must be auto, windowed, or fullscreen");
     }
 
     private static AppLaunchTarget appTarget(final JSONObject args) {

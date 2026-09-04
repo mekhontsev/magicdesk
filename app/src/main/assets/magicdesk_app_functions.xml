@@ -70,4 +70,57 @@
         </response>
         <functionId>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#openSettings</functionId>
     </appfunction>
+    <appfunction>
+        <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#invokeAndroidAction</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Invoke a stable semantic Android action through the managed MagicDesk Activity pipeline.</description>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>false</isNullable><type>8</type></dataTypeMetadata>
+            <id>unused</id><isRequired>true</isRequired><name>actionId</name>
+            <description>Action identifier returned by the MagicDesk Android action catalog.</description>
+        </parameters>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>true</isNullable><type>8</type></dataTypeMetadata>
+            <id>unused</id><isRequired>false</isRequired><name>parametersJson</name>
+            <description>Optional JSON object with action parameters and presentation policy.</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
+            <description>Structured MagicDesk result encoded as JSON.</description>
+        </response>
+        <functionId>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#invokeAndroidAction</functionId>
+    </appfunction>
+    <appfunction>
+        <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#listAndroidActions</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>List stable semantic Android actions exposed by MagicDesk.</description>
+        <response>
+            <id>unused</id>
+            <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
+            <description>Structured MagicDesk result encoded as JSON.</description>
+        </response>
+        <functionId>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#listAndroidActions</functionId>
+    </appfunction>
+    <appfunction>
+        <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#getAndroidActivityResult</id>
+        <enabledByDefault>true</enabledByDefault>
+        <description>Read or wait for an Activity result returned by a semantic Android action.</description>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>false</isNullable><type>8</type></dataTypeMetadata>
+            <id>unused</id><isRequired>true</isRequired><name>requestId</name>
+            <description>Result request id returned by invokeAndroidAction.</description>
+        </parameters>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>true</isNullable><type>8</type></dataTypeMetadata>
+            <id>unused</id><isRequired>false</isRequired><name>optionsJson</name>
+            <description>Optional JSON object with waitMillis up to 60000 and consume.</description>
+        </parameters>
+        <response>
+            <id>unused</id>
+            <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
+            <description>Structured MagicDesk result encoded as JSON.</description>
+        </response>
+        <functionId>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#getAndroidActivityResult</functionId>
+    </appfunction>
 </appfunctions>

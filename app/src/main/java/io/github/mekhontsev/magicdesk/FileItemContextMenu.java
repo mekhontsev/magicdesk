@@ -15,6 +15,7 @@ final class FileItemContextMenu {
     interface Actions {
         void open();
         void openWith();
+        void share();
         void install();
         void runScript();
         void createTerminalApplication();
@@ -147,6 +148,9 @@ final class FileItemContextMenu {
         addAction(panel, ui, R.string.file_manager_open_with,
                 DesktopUiFactory.COLOR_PANEL_ALT, !target.directory,
                 dismiss, actions::openWith);
+        addAction(panel, ui, R.string.file_manager_share,
+                DesktopUiFactory.COLOR_PANEL_ALT, !target.directory,
+                dismiss, actions::share);
         addAction(panel, ui, R.string.file_manager_install_apk,
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 ShellPackageInstaller.supports(

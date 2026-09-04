@@ -20,9 +20,7 @@ public final class AndroidActivityRelayActivity extends Activity {
             final String resultId) {
         return new Intent(context, AndroidActivityRelayActivity.class)
                 .putExtra(EXTRA_RELAY_ID, relayId)
-                .putExtra(EXTRA_RESULT_ID, resultId == null ? "" : resultId)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
-                        | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+                .putExtra(EXTRA_RESULT_ID, resultId == null ? "" : resultId);
     }
 
     @Override
@@ -93,7 +91,7 @@ public final class AndroidActivityRelayActivity extends Activity {
             final String resultId = getIntent().getStringExtra(EXTRA_RESULT_ID);
             if (resultId != null && !resultId.isEmpty()) {
                 AndroidActivityResultStore.complete(
-                        resultId, resultCode, data);
+                        this, resultId, resultCode, data);
                 mResultFinished = true;
             }
             finish();

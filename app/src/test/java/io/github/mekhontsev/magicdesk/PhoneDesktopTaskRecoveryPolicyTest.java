@@ -51,11 +51,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     public void magicDeskInfrastructureIsNotRecoveredToPhone() {
         assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
                 "io.github.mekhontsev.magicdesk",
-                "io.github.mekhontsev.magicdesk/.DesktopTaskbarActivity",
-                false));
-        assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
-                "io.github.mekhontsev.magicdesk",
-                "io.github.mekhontsev.magicdesk/.DesktopPanelActivity",
+                "io.github.mekhontsev.magicdesk/.DesktopChromeActivity",
                 false));
         assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
                 "io.github.mekhontsev.magicdesk",

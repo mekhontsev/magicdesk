@@ -308,7 +308,7 @@ final class DesktopSelfTestWindowSuite {
         });
         require(result,
                 "TASKBAR-003",
-                "Keep the concealed taskbar plane out of fullscreen",
+                "Keep concealed desktop chrome out of fullscreen",
                 () -> DesktopSelfTestInputSuite
                         .verifyConcealedTaskbarSurface(
                                 targetDisplayId,

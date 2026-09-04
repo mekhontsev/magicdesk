@@ -58,10 +58,8 @@ final class ShellTaskObserverHandle implements Closeable {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
-            final Rect taskbarBounds,
             final int desktopHostTaskId) throws IOException {
-        if (displayBounds == null || workAreaBounds == null
-                || taskbarBounds == null) {
+        if (displayBounds == null || workAreaBounds == null) {
             throw new IOException("missing task observer bounds");
         }
         callService(() -> mService.configureTaskObserver(
@@ -75,28 +73,7 @@ final class ShellTaskObserverHandle implements Closeable {
                 workAreaBounds.top,
                 workAreaBounds.right,
                 workAreaBounds.bottom,
-                taskbarBounds.left,
-                taskbarBounds.top,
-                taskbarBounds.right,
-                taskbarBounds.bottom,
                 desktopHostTaskId));
-    }
-
-    void updateDesktopTaskbarPresentation(
-            final int displayId,
-            final Rect bounds,
-            final boolean visible) throws IOException {
-        if (bounds == null || bounds.isEmpty()) {
-            throw new IOException("missing desktop taskbar bounds");
-        }
-        callService(() -> mService.updateDesktopTaskbarPresentation(
-                mCallback,
-                displayId,
-                bounds.left,
-                bounds.top,
-                bounds.right,
-                bounds.bottom,
-                visible));
     }
 
     void configureDesktopActivityInput(
@@ -109,13 +86,13 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, displayId, activityToken));
     }
 
-    int launchDesktopPanelHost(final int displayId) throws IOException {
+    int prepareDesktopChromeHost(final int displayId) throws IOException {
         return callServiceForResult(() ->
-                mService.launchDesktopPanelHost(mCallback, displayId));
+                mService.prepareDesktopChromeHost(mCallback, displayId));
     }
 
-    void raiseDesktopTaskbarPlane(final int displayId) throws IOException {
-        callService(() -> mService.raiseDesktopTaskbarPlane(
+    void raiseDesktopChrome(final int displayId) throws IOException {
+        callService(() -> mService.raiseDesktopChrome(
                 mCallback, displayId));
     }
 

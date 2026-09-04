@@ -105,6 +105,17 @@ final class BuiltInDesktopAppCatalog {
             false,
             true,
             new RelativeWindowBounds(5000, 5000, 6200, 7600));
+    private static final Entry ACTIVITY_EXPLORER = new Entry(
+            AppLaunchTarget.explicit(
+                    PACKAGE_NAME,
+                    ActivityExplorerActivity.class.getName(),
+                    ""),
+            R.string.activity_explorer_title,
+            false,
+            false,
+            false,
+            true,
+            new RelativeWindowBounds(5000, 5000, 6800, 8200));
     private static final List<Entry> ENTRIES = Collections.unmodifiableList(
             Arrays.asList(
                     FILES,
@@ -112,7 +123,8 @@ final class BuiltInDesktopAppCatalog {
                     CONSOLE,
                     TASK_MANAGER,
                     DIAGNOSTICS,
-                    LOG_VIEWER));
+                    LOG_VIEWER,
+                    ACTIVITY_EXPLORER));
 
     private BuiltInDesktopAppCatalog() {
     }
@@ -139,6 +151,10 @@ final class BuiltInDesktopAppCatalog {
 
     static AppLaunchTarget logViewerTarget() {
         return LOG_VIEWER.launchTarget;
+    }
+
+    static AppLaunchTarget activityExplorerTarget() {
+        return ACTIVITY_EXPLORER.launchTarget;
     }
 
     static List<Entry> launcherEntries() {

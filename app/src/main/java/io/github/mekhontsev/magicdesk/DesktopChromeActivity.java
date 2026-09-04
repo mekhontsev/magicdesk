@@ -16,10 +16,12 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 
-/** Hosts the taskbar as a fullscreen task inside its bounded desktop plane. */
-public final class DesktopTaskbarActivity extends Activity {
+/** Supplies one standard application token for all persistent desktop chrome. */
+public final class DesktopChromeActivity extends Activity {
+    private static final String EXTRA_DISPLAY_ID =
+            "magicdesk_chrome_display_id";
     private static final String CLASS_NAME =
-            BuildConfig.APPLICATION_ID + ".DesktopTaskbarActivity";
+            BuildConfig.APPLICATION_ID + ".DesktopChromeActivity";
     static final ComponentName COMPONENT = new ComponentName(
             BuildConfig.APPLICATION_ID, CLASS_NAME);
 
@@ -33,6 +35,7 @@ public final class DesktopTaskbarActivity extends Activity {
     private int mTaskbarPanelHeight;
     private int mTaskbarPanelLayoutGeneration;
     private int mTaskbarHeight = 1;
+    private int mSurfaceHeight = 1;
     private int mDisplayId = Display.INVALID_DISPLAY;
     private boolean mPresented = true;
     private boolean mEdgeHidden;
@@ -41,7 +44,8 @@ public final class DesktopTaskbarActivity extends Activity {
     static Intent createIntent(final int displayId) {
         return new Intent()
                 .setComponent(COMPONENT)
-                .setData(Uri.parse("magicdesk-desktop-taskbar:" + displayId))
+                .setData(Uri.parse("magicdesk-desktop-chrome:" + displayId))
+                .putExtra(EXTRA_DISPLAY_ID, displayId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                         | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
@@ -49,23 +53,23 @@ public final class DesktopTaskbarActivity extends Activity {
                         | Intent.FLAG_ACTIVITY_NO_ANIMATION);
     }
 
-    static boolean isTaskbarComponent(final ComponentName component) {
+    static boolean isChromeComponent(final ComponentName component) {
         return COMPONENT.equals(component);
     }
 
-    static boolean isTaskbarTask(final TaskRepository.TaskEntry task) {
+    static boolean isChromeTask(final TaskRepository.TaskEntry task) {
         if (task == null
                 || !BuildConfig.APPLICATION_ID.equals(task.packageName)) {
             return false;
         }
-        return isTaskbarComponentName(task.componentName)
-                || isTaskbarComponentName(task.topActivityName);
+        return isChromeComponentName(task.componentName)
+                || isChromeComponentName(task.topActivityName);
     }
 
-    static boolean isTaskbarComponentName(final String componentName) {
+    static boolean isChromeComponentName(final String componentName) {
         return (BuildConfig.APPLICATION_ID + "/" + CLASS_NAME)
                         .equals(componentName)
-                || (BuildConfig.APPLICATION_ID + "/.DesktopTaskbarActivity")
+                || (BuildConfig.APPLICATION_ID + "/.DesktopChromeActivity")
                         .equals(componentName);
     }
 
@@ -76,8 +80,19 @@ public final class DesktopTaskbarActivity extends Activity {
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // The taskbar plane owns both desktop chrome and any stable lower
-        // system-bar inset. Its panel must not apply those insets again.
+        final int requestedDisplayId = getIntent().getIntExtra(
+                EXTRA_DISPLAY_ID, Display.INVALID_DISPLAY);
+        final Display display = getDisplay();
+        mDisplayId = display == null
+                ? Display.INVALID_DISPLAY : display.getDisplayId();
+        if (requestedDisplayId == Display.INVALID_DISPLAY
+                || requestedDisplayId != mDisplayId) {
+            finishAndRemoveTask();
+            overridePendingTransition(0, 0);
+            return;
+        }
+        // Child application windows own all chrome input and geometry. The
+        // transparent fullscreen base must not become an input sink.
         getWindow().setDecorFitsSystemWindows(false);
         getWindow().setNavigationBarContrastEnforced(false);
         getWindow().addFlags(
@@ -96,21 +111,23 @@ public final class DesktopTaskbarActivity extends Activity {
                 new View.OnAttachStateChangeListener() {
                     @Override
                     public void onViewAttachedToWindow(final View view) {
+                        registerChromeHost(view.getWindowToken());
                         applyPresentation();
                     }
 
                     @Override
                     public void onViewDetachedFromWindow(final View view) {
+                        DesktopPanelWindowController.unregisterActivity(
+                                mDisplayId, DesktopChromeActivity.this);
                         removeTaskbarPanel();
                     }
                 });
-        mDisplayId = getDisplay() == null
-                ? Display.INVALID_DISPLAY : getDisplay().getDisplayId();
         DesktopTaskbarHost.registerActivity(mDisplayId, this);
     }
 
     @Override
     protected void onDestroy() {
+        DesktopPanelWindowController.unregisterActivity(mDisplayId, this);
         DesktopTaskbarHost.unregisterActivity(mDisplayId, this);
         removeSurfaceTraversalFence();
         detachTaskbar();
@@ -120,8 +137,22 @@ public final class DesktopTaskbarActivity extends Activity {
         super.onDestroy();
     }
 
-    void attachTaskbar(final View taskbar, final int taskbarHeight) {
+    private void registerChromeHost(final IBinder windowToken) {
+        if (mDisplayId == Display.INVALID_DISPLAY || windowToken == null) {
+            return;
+        }
+        DesktopPanelWindowController.registerActivity(
+                mDisplayId, this, mWindowManager, windowToken);
+        MagicDeskRuntime.configureDesktopActivityInput(
+                mDisplayId, activityToken());
+    }
+
+    void attachTaskbar(
+            final View taskbar,
+            final int taskbarHeight,
+            final int surfaceHeight) {
         mTaskbarHeight = Math.max(1, taskbarHeight);
+        mSurfaceHeight = Math.max(mTaskbarHeight, surfaceHeight);
         if (mRoot == null || taskbar == null) {
             applyPresentation();
             return;
@@ -230,7 +261,7 @@ public final class DesktopTaskbarActivity extends Activity {
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
         updateTaskbarPanel(resolvePanelHeight(
-                mPresented, mEdgeHidden, mEdgeHeight));
+                mPresented, mEdgeHidden, mEdgeHeight, mSurfaceHeight));
     }
 
     private void updateTaskbarLayout() {
@@ -256,13 +287,14 @@ public final class DesktopTaskbarActivity extends Activity {
     static int resolvePanelHeight(
             final boolean presented,
             final boolean edgeHidden,
-            final int edgeHeight) {
+            final int edgeHeight,
+            final int surfaceHeight) {
         if (!presented) {
             return 0;
         }
         return edgeHidden
                 ? Math.max(1, edgeHeight)
-                : WindowManager.LayoutParams.MATCH_PARENT;
+                : Math.max(1, surfaceHeight);
     }
 
     private void updateTaskbarPanel(final int height) {
@@ -315,8 +347,8 @@ public final class DesktopTaskbarActivity extends Activity {
                         PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.LEFT | Gravity.BOTTOM;
         params.token = mRoot.getWindowToken();
-        // The organizer plane already provides the complete taskbar geometry.
-        // Applying bars or IME insets again would shrink this attached window
+        // DesktopLayoutController already provides physical display geometry.
+        // Applying bars or IME insets again would move this attached window
         // whenever another focused task changes system-bar visibility.
         params.setFitInsetsTypes(0);
         params.softInputMode =
@@ -353,7 +385,7 @@ public final class DesktopTaskbarActivity extends Activity {
         private boolean mHiddenEdgeTouchSequence;
 
         TaskbarPanel() {
-            super(DesktopTaskbarActivity.this);
+            super(DesktopChromeActivity.this);
         }
 
         @Override

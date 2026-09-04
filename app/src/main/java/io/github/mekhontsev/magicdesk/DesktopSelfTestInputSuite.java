@@ -1171,32 +1171,11 @@ final class DesktopSelfTestInputSuite {
             final int displayId,
             final DisplayCaptureSource captureSource,
             final int expectedColor) throws IOException {
-        final TaskRepository.Snapshot snapshot = BoundedStateAwaiter.awaitIo(
-                BoundedStateAwaiter.Reason.TASK_VISIBILITY,
-                STEP_TIMEOUT_MILLIS,
-                POLL_MILLIS,
-                () -> TaskRepository.loadNow(displayId),
-                DesktopSelfTestInputSuite::isTaskbarTaskHidden);
-        if (!isTaskbarTaskHidden(snapshot)) {
-            throw new IOException("taskbar task remained visible");
-        }
+        waitForTaskbarVisibility(displayId, false);
         final int color = awaitFullscreenColorInTaskbarArea(
                 displayId, captureSource, expectedColor);
-        return "task=hidden, color="
+        return "chrome=concealed, color="
                 + DesktopTransitionSurfaceProbe.formatColor(color);
-    }
-
-    private static boolean isTaskbarTaskHidden(
-            final TaskRepository.Snapshot snapshot) {
-        if (snapshot == null || !snapshot.available) {
-            return false;
-        }
-        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-            if (DesktopTaskbarActivity.isTaskbarTask(task)) {
-                return !task.visible;
-            }
-        }
-        return false;
     }
 
     private static int awaitFullscreenColorInTaskbarArea(

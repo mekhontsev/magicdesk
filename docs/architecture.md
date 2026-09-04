@@ -190,15 +190,17 @@ An application overlay cannot share a task's SurfaceControl leash or transition
 atomically with WMShell. A separately drawn caption trails live movement,
 maintains a different Z-order, and can leave controls above the wrong window.
 
-MagicDesk instead keeps native WMShell captions visible. Start, context menus,
-the notification center, and desktop dialogs use ordinary application-panel
-windows from a short-lived private Activity task. The shell launches that task
-as a fullscreen standard task and only allows child panels to attach after the
-framework task snapshot confirms that state. The panel host therefore has
-display-relative coordinates and never enters the freeform caption path. It
-does not own an organizer area. Its exported component is protected by the
-framework `MANAGE_ACTIVITY_TASKS` permission, so only the authorized shell
-runtime can create it. The persistent taskbar uses its bounded Activity plane.
+MagicDesk instead keeps native WMShell captions visible. One persistent,
+transparent `DesktopChromeActivity` supplies the application token for the
+taskbar, Start, context menus, notification center, and desktop dialogs. The
+shell launches this host as a standard fullscreen root task, makes that task
+non-focusable and `alwaysOnTop`, and disables its ActivityRecord input sink.
+All visible chrome is an ordinary bounded `TYPE_APPLICATION_PANEL` child
+window, so empty parts of the fullscreen host neither draw nor consume input.
+The host never enters the freeform caption path and does not own an organizer
+area. Its exported component is protected by the framework
+`MANAGE_ACTIVITY_TASKS` permission, so only the authorized shell runtime can
+create it.
 
 The [Chrome custom-caption input investigation](chrome-custom-caption-investigation.md)
 documents why a shell-side gesture-transfer or synthetic-click layer cannot
@@ -464,6 +466,11 @@ runtime integration and are not distributed through the same release path.
   Android intents, semantic URI/file/share operations, published shortcuts,
   notification `PendingIntent` actions, Activity results, and external App
   Functions. Desktop UI and MCP adapters both enter this boundary.
+  `AndroidDesktopAction` gives each user-visible operation one semantic id and
+  source independent from the UI, MCP, or App Function surface that requested
+  it. `AndroidDesktopActionCatalog` owns the bounded set of public system
+  actions and their typed parameters. `AndroidDesktopActionDispatcher` is only
+  the asynchronous UI adapter; it does not implement a second launch policy.
   `AndroidIntegrationRequest` owns Intent parsing and validation;
   raw Intent URIs are an input form rather than a parallel executor. Direct
   launches cross the Shizuku task-launch boundary as full Parcelable Intents,
@@ -513,6 +520,30 @@ runtime integration and are not distributed through the same release path.
   exact task's typed STANDARD/display/mode topology through the existing event
   journal and one-shot repository snapshots. Resolver and chooser tasks omit
   a final component assertion because the user's selection is not yet known.
+  `DesktopLaunchPresentation` is the sole transport for mode, relative bounds,
+  explicit `reuse`/`new` instance policy, and an optional exact task id.
+  Instance policy is not inferred from raw Intent flags. Relative bounds use
+  the shared `0..10000` work-area scale and are valid only for windowed
+  launches. An exact task id always means reuse, requires its explicit current
+  mode, and lets content drops and automation deliver to an already managed
+  task without moving or resizing it. Initial bounds are invalid with an exact
+  task. A missing or mismatched exact task is a failure and never falls back to
+  creating another window.
+- `AndroidActivityResultStore` owns the bounded lifecycle of document picker
+  and other Activity results. Waiting uses `EventDrivenWaits`; there is no
+  result poller. A returned content grant is retained only while its terminal
+  result remains owned by the store. Explicit consume and bounded eviction
+  release retained grants. Files waits for the picker result, imports the
+  selected URIs through its normal typed filesystem controller, and consumes
+  the result after the copy completes. Because request ids are process-local,
+  process startup releases result grants orphaned by an earlier process death.
+- `AndroidActivityCompatibilityHistory` records at most 64 Activity launches
+  that already occurred. It keeps presentation, authorization, observed task
+  topology, outcome, and only the URI scheme; full Intent extras and content
+  URIs are excluded. The compatibility report, MCP, and developer Activity
+  Explorer read this same process-local history. Activity Explorer resolves
+  current exported handlers and launches them through the production gateway;
+  it has no private task command or vendor component list.
 - Direct Files, shell, and Terminal automation has a second independent
   setting.
   `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
@@ -567,11 +598,10 @@ runtime integration and are not distributed through the same release path.
   `DesktopPlacementEngine` is the platform-independent collision and reflow
   policy.
 - `DesktopPanelWindowController` provides consistent toggle, dismissal, and
-  placement for desktop panels. A short-lived `DesktopPanelActivity` supplies
-  an application token after `ShellDesktopPanelHostLauncher` has confirmed its
-  fullscreen task state. Ordinary `TYPE_APPLICATION_PANEL` child windows host
-  menus, while attached dialogs use the same task and WindowManager ordering
-  domain as apps.
+  placement for desktop panels. It attaches ordinary
+  `TYPE_APPLICATION_PANEL` windows and dialogs to the persistent
+  `DesktopChromeActivity` token also used by the taskbar. There is no transient
+  panel task or panel-specific organizer hierarchy.
 - `DesktopInputController` handles shell UI input and delegates global physical
   shortcuts to the keyboard bridge.
 - `DesktopRuntimeBridge` is the weak-reference, main-thread boundary through
@@ -1031,8 +1061,10 @@ Read grants travel in both `ClipData` and Intent flags, so the selected
 application receives the same content that MagicDesk classified. Clipboard
 **Open** and **Share** are explicit desktop actions and launch through the
 production Android integration path; developer MCP exposes the same operations
-without adding another executor. Ordinary state and diagnostics contain only
-counters and metadata.
+without adding another executor. Dropping content on an application or its
+taskbar instance uses the same payload and gateway; an existing task id is an
+explicit presentation target rather than an inferred package reuse. Ordinary
+state and diagnostics contain only counters and metadata.
 
 `DesktopContentReceiverActivity` is the exported **Save to MagicDesk Desktop**
 share target. Because an exported Activity can be invoked explicitly, it asks
@@ -1322,20 +1354,19 @@ reserves the status and navigation bars and places its taskbar above the stable
 navigation inset. Visibility changes do not move the desktop because geometry
 uses the bars' ignoring-visibility insets. A dedicated external display
 normally reports zero system-bar insets and fills the panel. The desktop
-viewport provides separate chrome and plane bounds for the taskbar. On the
-phone display the visible plane extends through the stable navigation inset,
+viewport provides separate control and surface bounds for the taskbar. On the
+phone display the visible surface extends through the stable navigation inset,
 so its application panel paints that inset as taskbar chrome even when a
 managed fullscreen plane covers HOME. The taskbar controls retain their
 ordinary height above the inset. On displays without a lower inset the two
 bounds are identical. The attached application panel does not apply system-bar
-or IME insets a second time. The plane geometry remains stable. When fullscreen
-policy conceals the taskbar, shell hides the complete task-display area through
-`WindowContainerTransaction` and the transparent Activity removes its panel.
-The area's surface and lower inset are therefore not retained above fullscreen
+or IME insets a second time. When fullscreen policy conceals the taskbar, the
+Activity removes the bounded panel; its transparent, non-input chrome host
+remains structurally stable without leaving a colored surface over fullscreen
 content.
 There is no separate phone implementation of the desktop.
 IME visibility may keep an
-auto-hiding taskbar logically presented, but it never moves the taskbar plane:
+auto-hiding taskbar logically presented, but it never moves the taskbar surface:
 the keyboard temporarily covers the physical bottom edge instead of relocating
 desktop chrome into the workspace.
 
@@ -1351,27 +1382,25 @@ cover the reserved status- and navigation-bar insets above the wallpaper.
 Android can therefore keep normal system-bar behavior for HOME and freeform
 tasks without exposing bright wallpaper strips around snapped windows.
 
-The taskbar is a regular fullscreen Activity inside a narrow organizer-owned
-task-display area. The area is bounded to the taskbar chrome and any stable
-lower system-bar inset. It is not
-focusable, and is an `alwaysOnTop` child of Android's default task container.
-This places it in the same WindowManager ordering domain as application and
-fullscreen planes while keeping application tasks out of the taskbar area.
-Ordering uses a standard `WindowContainerTransaction`. This gives the taskbar normal
-application-window treatment, so a foreground application that suppresses
-non-system overlays cannot suppress it. The Activity is fullscreen relative to
-its bounded parent and therefore never receives a freeform caption.
+The desktop chrome host is a regular fullscreen root task directly inside
+Android's standard task workspace. It is translucent, non-focusable,
+`alwaysOnTop`, and receives its ordering through a standard
+`WindowContainerTransaction`. This preserves normal Android root-task ordering
+instead of inserting an organizer `TaskDisplayArea` between ordinary
+application tasks. The taskbar itself is a bounded child application window,
+so a foreground application that suppresses non-system overlays cannot
+suppress it. The fullscreen host never receives a freeform caption.
 The shell disables that Activity's Android 15+ ActivityRecord input sink, so
 only the taskbar window's bounded touch region receives input and pointer events
 outside the panel continue to the desktop and application windows.
-Auto-hide keeps the parent geometry stable, makes the hidden taskbar window
+Auto-hide keeps the host geometry stable, makes the hidden taskbar window
 non-touchable, and resizes the application panel containing the taskbar View to
 its reveal edge. The same window therefore owns visible taskbar input and
 hidden-edge hover without forwarding synthetic events. It adds no polling and
-keeps the input frame aligned with the visible edge. The organizer retains its
-task-display-area token but does not retain or manually layer its surface leash.
-WindowManager's container order keeps both the visible panel and hidden reveal
-edge above application input regions.
+keeps the input frame aligned with the visible edge. WindowManager's root-task
+order keeps both the visible panel and hidden reveal edge above application
+input regions. Start, context menus, notifications, and dialogs reuse this
+same application token rather than creating another infrastructure task.
 The taskbar hides for an unrelated true-fullscreen task and returns for the
 desktop. Chrome policy reads the complete physical display snapshot before
 workspace ownership filtering, while task lists and window operations remain
@@ -1674,6 +1703,14 @@ list matches and `Exec` accepts a file or URI field code. These command
 profiles are one-time launch targets: they never enter Android's preferred
 activity record and therefore cannot be selected with **Always**.
 
+Files **Share** serializes the same `AndroidContentPayload` used by Desktop and
+clipboard actions. **Import files** launches Android's `ACTION_OPEN_DOCUMENT`
+surface as a managed STANDARD task, waits on its Activity result, and feeds the
+returned URIs into `FileManagerImportController`. Persisted picker grants are
+released when that import finishes. Dropping a file or other Android content
+onto an application shortcut or a concrete taskbar instance enters the same
+gateway and preserves the source grant until delivery completes.
+
 Incoming global Android URI drops are copied into the visible Files directory.
 Incomplete imports are removed, conflicts gain a numeric suffix, and the
 incoming drag grant is released. Cross-window import depends on the source
@@ -1926,10 +1963,11 @@ same task is idempotent; a second live task is rejected without releasing the
 registered host's taskbar, fullscreen planes, or other session resources.
 
 All phone, simulated, wired, and wireless sessions use one taskbar topology.
-Its bounded organizer area is an `alwaysOnTop` child of Android's default task
-container and does not manage a private surface layer. Freeform tasks remain
-direct children of the default task area, while the taskbar and each fullscreen
-task retain isolated organizer areas under that same ordering parent.
+Its transparent chrome host is an `alwaysOnTop`, non-focusable standard root
+task in Android's default task container and does not manage a private surface
+layer. Freeform tasks remain direct children of the default task area, while
+only managed fullscreen tasks retain isolated organizer areas under that same
+ordering parent.
 
 Task order around this host is the desktop visibility boundary. Freeform tasks
 above it are visible windows; tasks below it are minimized and follow Android's

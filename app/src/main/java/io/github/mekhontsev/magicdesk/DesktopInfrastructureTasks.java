@@ -5,8 +5,7 @@ import android.content.ComponentName;
 /** Identifies MagicDesk tasks that support the desktop but are not applications. */
 final class DesktopInfrastructureTasks {
     private static final String PACKAGE = BuildConfig.APPLICATION_ID;
-    private static final String TASKBAR = PACKAGE + ".DesktopTaskbarActivity";
-    private static final String PANELS = PACKAGE + ".DesktopPanelActivity";
+    private static final String CHROME = PACKAGE + ".DesktopChromeActivity";
     private static final String SELF_TEST_PHONE_GUARD =
             PACKAGE + ".DesktopSelfTestPhoneGuardActivity";
     private static final String BACKSTOP =
@@ -16,14 +15,12 @@ final class DesktopInfrastructureTasks {
     }
 
     static boolean isUiComponent(final ComponentName component) {
-        return isClass(component, TASKBAR)
-                || isClass(component, PANELS)
+        return isClass(component, CHROME)
                 || isClass(component, SELF_TEST_PHONE_GUARD);
     }
 
     static boolean isUiComponentName(final String componentName) {
-        return isClassName(componentName, TASKBAR)
-                || isClassName(componentName, PANELS)
+        return isClassName(componentName, CHROME)
                 || isClassName(componentName, SELF_TEST_PHONE_GUARD);
     }
 

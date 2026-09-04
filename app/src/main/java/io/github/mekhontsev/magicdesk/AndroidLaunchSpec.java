@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -11,7 +12,8 @@ import java.net.URISyntaxException;
 final class AndroidLaunchSpec {
     enum Kind {
         DEFAULT,
-        INTENT
+        INTENT,
+        PENDING_ACTIVITY
     }
 
     enum Delivery {
@@ -24,12 +26,14 @@ final class AndroidLaunchSpec {
     final Delivery delivery;
     private final Intent mIntent;
     private final String mIntentUri;
+    private final PendingIntent mPendingIntent;
 
     private AndroidLaunchSpec(
             final Kind kind,
             final AppLaunchTarget target,
             final Intent intent,
             final String intentUri,
+            final PendingIntent pendingIntent,
             final Delivery delivery) {
         if (kind == null || (kind == Kind.DEFAULT && target == null)) {
             throw new IllegalArgumentException("missing Android launch target");
@@ -39,12 +43,17 @@ final class AndroidLaunchSpec {
                 && (intentUri == null || intentUri.isEmpty())) {
             throw new IllegalArgumentException("missing Android launch Intent");
         }
+        if (kind == Kind.PENDING_ACTIVITY && pendingIntent == null) {
+            throw new IllegalArgumentException(
+                    "missing Android pending Activity");
+        }
         this.kind = kind;
         this.target = target;
         this.delivery = delivery == null
                 ? Delivery.SHELL_INTENT : delivery;
         mIntent = intent == null ? null : new Intent(intent);
         mIntentUri = intentUri == null ? "" : intentUri;
+        mPendingIntent = pendingIntent;
     }
 
     static AndroidLaunchSpec defaultLaunch(
@@ -54,6 +63,7 @@ final class AndroidLaunchSpec {
                 target,
                 null,
                 "",
+                null,
                 Delivery.SHELL_INTENT);
     }
 
@@ -67,6 +77,7 @@ final class AndroidLaunchSpec {
                 target,
                 null,
                 intentUri,
+                null,
                 Delivery.SHELL_INTENT);
     }
 
@@ -80,12 +91,27 @@ final class AndroidLaunchSpec {
             final Intent intent,
             final Delivery delivery) {
         return new AndroidLaunchSpec(
-                Kind.INTENT, target, intent, "", delivery);
+                Kind.INTENT, target, intent, "", null, delivery);
+    }
+
+    static AndroidLaunchSpec pendingActivity(
+            final AppLaunchTarget target,
+            final PendingIntent pendingIntent) {
+        return new AndroidLaunchSpec(
+                Kind.PENDING_ACTIVITY,
+                target,
+                null,
+                "",
+                pendingIntent,
+                Delivery.APP_PENDING_INTENT);
     }
 
     Intent resolve(final PackageManager packageManager) {
         if (kind == Kind.DEFAULT) {
             return target.resolve(packageManager);
+        }
+        if (kind == Kind.PENDING_ACTIVITY) {
+            return null;
         }
         final Intent intent;
         if (mIntent != null) {
@@ -123,5 +149,9 @@ final class AndroidLaunchSpec {
             }
         }
         return intent.getComponent() == null ? null : intent;
+    }
+
+    PendingIntent pendingIntent() {
+        return mPendingIntent;
     }
 }

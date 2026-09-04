@@ -142,6 +142,32 @@ public final class MagicDeskAppFunctionService
                     result = automation.execute(
                             "open_settings", new JSONObject(), false);
                     break;
+                case MagicDeskAppFunctionCatalog.INVOKE_ANDROID_ACTION:
+                    final JSONObject actionParameters = new JSONObject(
+                            optionalString(
+                                    parameters, "parametersJson", "{}"));
+                    actionParameters.put(
+                            "actionId",
+                            requiredString(parameters, "actionId"));
+                    result = automation.execute(
+                            "invoke_android_action",
+                            actionParameters,
+                            false);
+                    break;
+                case MagicDeskAppFunctionCatalog.LIST_ANDROID_ACTIONS:
+                    result = automation.execute(
+                            "list_android_actions", new JSONObject(), false);
+                    break;
+                case MagicDeskAppFunctionCatalog.GET_ANDROID_ACTIVITY_RESULT:
+                    final JSONObject resultOptions = new JSONObject(
+                            optionalString(
+                                    parameters, "optionsJson", "{}"));
+                    resultOptions.put(
+                            "requestId",
+                            requiredString(parameters, "requestId"));
+                    result = automation.execute(
+                            "get_intent_result", resultOptions, false);
+                    break;
                 default:
                     deliverError(
                             delivered,

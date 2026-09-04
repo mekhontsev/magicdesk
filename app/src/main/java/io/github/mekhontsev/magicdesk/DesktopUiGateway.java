@@ -15,7 +15,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Process-local gateway to the live desktop host Activity. */
 final class DesktopUiGateway {
     private static final String TAG = "MagicDesk";
-    private static final long APP_ACTION_COMPLETION_TIMEOUT_SECONDS = 10L;
 
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final Object mHostLock = new Object();
@@ -371,13 +370,12 @@ final class DesktopUiGateway {
 
     boolean launchApplication(
             final AppLaunchTarget target,
-            final DesktopLaunchMode mode,
-            final RelativeWindowBounds preferredBounds,
+            final DesktopLaunchPresentation presentation,
             final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
                 || target == null
-                || mode == null
+                || presentation == null
                 || activity.getCurrentDisplayId() != displayId) {
             return false;
         }
@@ -388,8 +386,8 @@ final class DesktopUiGateway {
                 final AppItem app = activity.findOrLoadApp(
                         activity.getLauncherApps(), target);
                 if (app != null) {
-                    activity.launchForMode(
-                            app, mode, preferredBounds, null);
+                    activity.launchForPresentation(
+                            app, presentation, null, null);
                     launched[0] = true;
                 }
             }
@@ -400,14 +398,13 @@ final class DesktopUiGateway {
 
     DesktopActivityLaunchResult launchApplicationObserved(
             final AppLaunchTarget target,
-            final DesktopLaunchMode mode,
-            final RelativeWindowBounds preferredBounds,
+            final DesktopLaunchPresentation presentation,
             final int displayId,
             final long timeoutMillis) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
                 || target == null
-                || mode == null
+                || presentation == null
                 || activity.getCurrentDisplayId() != displayId) {
             return DesktopActivityLaunchResult.failed(
                     "desktop host is unavailable");
@@ -432,49 +429,64 @@ final class DesktopUiGateway {
                         "application launcher is unavailable"));
                 return;
             }
-            activity.launchForMode(
+            activity.launchForPresentation(
                     app,
-                    mode,
-                    preferredBounds,
+                    presentation,
                     null,
                     completion);
         });
         return completion.await(timeoutMillis);
     }
 
-    boolean invokeAppAction(
+    DesktopActivityLaunchResult invokeAppActionObserved(
             final AppLaunchTarget target,
-            final String actionId) {
+            final String actionId,
+            final DesktopLaunchPresentation presentation,
+            final int displayId,
+            final long timeoutMillis) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null || target == null
-                || actionId == null || actionId.isEmpty()) {
-            return false;
+                || actionId == null || actionId.isEmpty()
+                || presentation == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return DesktopActivityLaunchResult.failed(
+                    "desktop host is unavailable");
         }
-        final boolean[] invoked = new boolean[1];
-        final CountDownLatch ready = new CountDownLatch(1);
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return DesktopActivityLaunchResult.failed(
+                    "observed launch cannot block the UI thread");
+        }
+        final DesktopActivityLaunchResult.Awaiter completion =
+                new DesktopActivityLaunchResult.Awaiter();
         mMainHandler.post(() -> {
-            if (isUsable(activity)) {
-                final AppItem app = activity.findOrLoadApp(
-                        activity.getLauncherApps(), target);
-                for (final AppShortcutAction action
-                        : new AppShortcutRepository(activity).loadAll(target)) {
-                    if (actionId.equals(action.id)) {
-                        activity.launchShortcut(
-                                app,
-                                action,
-                                result -> {
-                                    invoked[0] = result != null
-                                            && result.succeeded();
-                                    ready.countDown();
-                                });
-                        return;
-                    }
+            if (!isUsable(activity)
+                    || activity.getCurrentDisplayId() != displayId) {
+                completion.onComplete(DesktopActivityLaunchResult.failed(
+                        "desktop host became unavailable"));
+                return;
+            }
+            final AppItem app = activity.findOrLoadApp(
+                    activity.getLauncherApps(), target);
+            if (app == null) {
+                completion.onComplete(DesktopActivityLaunchResult.failed(
+                        "application launcher is unavailable"));
+                return;
+            }
+            for (final AppShortcutAction action
+                    : new AppShortcutRepository(activity).loadAll(target)) {
+                if (actionId.equals(action.id)) {
+                    activity.launchShortcut(
+                            app,
+                            action,
+                            presentation.mode,
+                            completion);
+                    return;
                 }
             }
-            ready.countDown();
+            completion.onComplete(DesktopActivityLaunchResult.failed(
+                    "published application shortcut is unavailable"));
         });
-        return await(ready, APP_ACTION_COMPLETION_TIMEOUT_SECONDS)
-                && invoked[0];
+        return completion.await(timeoutMillis);
     }
 
     boolean dispatchPanelTextInput(
@@ -706,6 +718,9 @@ final class DesktopUiGateway {
                 break;
             case "diagnostics":
                 action = activity::openDiagnostics;
+                break;
+            case "activity_explorer":
+                action = activity::openActivityExplorer;
                 break;
             default:
                 return false;

@@ -154,6 +154,19 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void launchActivityOnDisplay(
+            final Intent intent,
+            final int displayId) {
+        try {
+            TaskDisplayAreaLaunchCommand.launchActivityOnDisplay(
+                    HiddenTaskApi.getService(), intent, displayId);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "shell Activity launch failed", error);
+        }
+    }
+
+    @Override
     public ShortcutInfo[] queryAppShortcuts(final String packageName) {
         return ShellShortcutGateway.query(mContext, packageName);
     }
@@ -430,38 +443,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int workTop,
             final int workRight,
             final int workBottom,
-            final int taskbarLeft,
-            final int taskbarTop,
-            final int taskbarRight,
-            final int taskbarBottom,
             final int desktopHostTaskId) {
         mTaskObserverManager.configure(
                 callback,
                 displayId,
                 new Rect(displayLeft, displayTop, displayRight, displayBottom),
                 new Rect(workLeft, workTop, workRight, workBottom),
-                new Rect(
-                        taskbarLeft,
-                        taskbarTop,
-                        taskbarRight,
-                        taskbarBottom),
                 desktopHostTaskId);
-    }
-
-    @Override
-    public void updateDesktopTaskbarPresentation(
-            final ITaskObserverCallback callback,
-            final int displayId,
-            final int left,
-            final int top,
-            final int right,
-            final int bottom,
-            final boolean visible) {
-        mTaskObserverManager.updateDesktopTaskbarPresentation(
-                callback,
-                displayId,
-                new Rect(left, top, right, bottom),
-                visible);
     }
 
     @Override
@@ -474,18 +462,18 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public int launchDesktopPanelHost(
+    public int prepareDesktopChromeHost(
             final ITaskObserverCallback callback,
             final int displayId) {
-        return mTaskObserverManager.launchDesktopPanelHost(
+        return mTaskObserverManager.prepareDesktopChromeHost(
                 callback, displayId);
     }
 
     @Override
-    public void raiseDesktopTaskbarPlane(
+    public void raiseDesktopChrome(
             final ITaskObserverCallback callback,
             final int displayId) {
-        mTaskObserverManager.raiseDesktopTaskbarPlane(callback, displayId);
+        mTaskObserverManager.raiseDesktopChrome(callback, displayId);
     }
 
     @Override

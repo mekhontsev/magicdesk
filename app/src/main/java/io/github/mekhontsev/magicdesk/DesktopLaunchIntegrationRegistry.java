@@ -26,8 +26,11 @@ final class DesktopLaunchIntegrationRegistry {
                 app.label,
                 app.packageName,
                 AndroidLaunchSpec.defaultLaunch(app.launchTarget),
+                null,
                 integration.defaultExec(context),
-                DesktopLaunchMode.AUTO);
+                DesktopLaunchPresentation.automatic(),
+                DesktopLaunchArguments.empty(),
+                "");
     }
 
     static DesktopLaunchRequest prepare(

@@ -12,8 +12,6 @@ import android.graphics.drawable.Drawable;
 import android.os.Process;
 import android.util.DisplayMetrics;
 import android.util.Log;
-
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -24,9 +22,6 @@ import java.util.Set;
 final class LauncherAppRepository {
     private static final String TAG = "MagicDeskApps";
     private static final int RESIZE_MODE_UNRESIZEABLE = 0;
-
-    private static Field sResizeModeField;
-    private static boolean sResizeModeFieldResolved;
 
     private final Context mContext;
     private final PackageManager mPackageManager;
@@ -359,7 +354,8 @@ final class LauncherAppRepository {
                         & ActivityInfo.FLAG_PREFER_MINIMAL_POST_PROCESSING) != 0) {
             return AppItem.FULLSCREEN_REASON_GAME;
         }
-        final Integer resizeMode = getResizeMode(activityInfo);
+        final Integer resizeMode = FrameworkActivityInfoCompat.resizeMode(
+                activityInfo);
         if (resizeMode != null
                 && resizeMode.intValue() == RESIZE_MODE_UNRESIZEABLE) {
             return AppItem.FULLSCREEN_REASON_UNRESIZEABLE;
@@ -371,35 +367,4 @@ final class LauncherAppRepository {
         return AppItem.FULLSCREEN_REASON_NONE;
     }
 
-    private static Integer getResizeMode(final ActivityInfo activityInfo) {
-        if (activityInfo == null) {
-            return null;
-        }
-        final Field field = resolveResizeModeField();
-        if (field == null) {
-            return null;
-        }
-        try {
-            return Integer.valueOf(field.getInt(activityInfo));
-        } catch (IllegalAccessException | RuntimeException error) {
-            return null;
-        }
-    }
-
-    private static synchronized Field resolveResizeModeField() {
-        if (sResizeModeFieldResolved) {
-            return sResizeModeField;
-        }
-        sResizeModeFieldResolved = true;
-        try {
-            final Field field =
-                    ActivityInfo.class.getDeclaredField("resizeMode");
-            field.setAccessible(true);
-            sResizeModeField = field;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.w(TAG,
-                    "ActivityInfo.resizeMode unavailable; using public launch hints");
-        }
-        return sResizeModeField;
-    }
 }

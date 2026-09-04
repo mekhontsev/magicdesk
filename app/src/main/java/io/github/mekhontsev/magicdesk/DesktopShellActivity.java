@@ -1212,6 +1212,10 @@ public abstract class DesktopShellActivity extends Activity
         mDesktopWorkspaceController.openFileWith(file);
     }
 
+    void shareDesktopFile(final DesktopFile file) {
+        mDesktopWorkspaceController.shareFile(file);
+    }
+
     void copyDesktopFile(final DesktopFile file, final boolean move) {
         mDesktopWorkspaceController.copyFile(file, move);
     }
@@ -1762,6 +1766,29 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.openTaskManager();
     }
 
+    void openActivityExplorer() {
+        mSystemActions.openActivityExplorer();
+    }
+
+    void invokeDesktopAction(final String actionId) {
+        try {
+            AndroidDesktopActionDispatcher.dispatch(
+                    this,
+                    AndroidDesktopActionCatalog.create(
+                            actionId, null, "start"),
+                    getCurrentDisplayId(),
+                    result -> {
+                        if (!result.success) {
+                            setErrorStatus(
+                                    "ANDROID-ACTION-001",
+                                    result.message);
+                        }
+                    });
+        } catch (Exception error) {
+            showLaunchFailure(error);
+        }
+    }
+
     void launchInternalWindow(
             final android.content.Intent intent,
             final AppLaunchTarget target,
@@ -1984,42 +2011,13 @@ public abstract class DesktopShellActivity extends Activity
                         .show()));
     }
 
-    void launchDefault(final AppItem app, final Runnable onPrepared) {
-        mAppTasks.launchDefault(app, onPrepared);
-    }
-
-    void launchForMode(
+    void launchForPresentation(
             final AppItem app,
-            final DesktopLaunchMode mode,
-            final Runnable onPrepared) {
-        mAppTasks.launchForMode(app, mode, onPrepared);
-    }
-
-    void launchForMode(
-            final AppItem app,
-            final DesktopLaunchMode mode,
-            final RelativeWindowBounds preferredBounds,
-            final Runnable onPrepared) {
-        mAppTasks.launchForMode(
-                app, mode, preferredBounds, onPrepared);
-    }
-
-    void launchForMode(
-            final AppItem app,
-            final DesktopLaunchMode mode,
+            final DesktopLaunchPresentation presentation,
             final Runnable onPrepared,
             final DesktopActivityLaunchResult.Completion completion) {
-        mAppTasks.launchForMode(app, mode, null, onPrepared, completion);
-    }
-
-    void launchForMode(
-            final AppItem app,
-            final DesktopLaunchMode mode,
-            final RelativeWindowBounds preferredBounds,
-            final Runnable onPrepared,
-            final DesktopActivityLaunchResult.Completion completion) {
-        mAppTasks.launchForMode(
-                app, mode, preferredBounds, onPrepared, completion);
+        mAppTasks.launchForPresentation(
+                app, presentation, onPrepared, completion);
     }
 
     void launchFloating(final AppItem app) {
@@ -2081,16 +2079,7 @@ public abstract class DesktopShellActivity extends Activity
             final String name,
             final Intent intent,
             final AppLaunchTarget taskTarget,
-            final DesktopLaunchMode mode) {
-        mAppTasks.launchIntent(app, name, intent, taskTarget, mode);
-    }
-
-    void launchResolvedAndroidIntent(
-            final AppItem app,
-            final String name,
-            final Intent intent,
-            final AppLaunchTarget taskTarget,
-            final DesktopLaunchMode mode,
+            final DesktopLaunchPresentation presentation,
             final AndroidLaunchSpec.Delivery delivery,
             final DesktopActivityLaunchResult.Completion completion) {
         mAppTasks.launchIntent(
@@ -2098,8 +2087,24 @@ public abstract class DesktopShellActivity extends Activity
                 name,
                 intent,
                 taskTarget,
-                mode,
+                presentation,
                 delivery,
+                completion);
+    }
+
+    void launchResolvedPendingActivity(
+            final AppItem app,
+            final String name,
+            final android.app.PendingIntent pendingIntent,
+            final AppLaunchTarget taskTarget,
+            final DesktopLaunchPresentation presentation,
+            final DesktopActivityLaunchResult.Completion completion) {
+        mAppTasks.launchPendingActivity(
+                app,
+                name,
+                pendingIntent,
+                taskTarget,
+                presentation,
                 completion);
     }
 

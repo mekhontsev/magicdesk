@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.ActivityOptions;
 import android.appwidget.AppWidgetHostView;
 import android.content.ClipData;
 import android.content.Intent;
@@ -515,20 +514,74 @@ final class DesktopWorkspaceController {
 
     private void launchFileIntent(
             final Intent intent, final DesktopFile file) {
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(mActivity.getCurrentDisplayId());
-        try {
-            mActivity.startActivity(intent, options.toBundle());
-        } catch (RuntimeException error) {
+        final int displayId = mActivity.getCurrentDisplayId();
+        mContentWorker.execute(() -> {
+            try {
+                final AndroidIntegrationRequest request =
+                        AndroidIntegrationRequest.activity(
+                                intent,
+                                file.name,
+                                DesktopLaunchPresentation.automatic(),
+                                false,
+                                "",
+                                false);
+                final DesktopAutomationResult result =
+                        new AndroidIntegrationGateway(mActivity).execute(
+                                AndroidDesktopAction.request(
+                                        "open-file", "desktop", request),
+                                displayId);
+                if (!result.success) {
+                    showFileActionError(file, result.message, null);
+                }
+            } catch (Exception error) {
+                showFileActionError(
+                        file, ShellAccess.usefulMessage(error), error);
+            }
+        });
+    }
+
+    void shareFile(final DesktopFile file) {
+        if (file == null || file.directory) {
+            return;
+        }
+        mActivity.hideAllPanels();
+        final AndroidContentPayload content = AndroidContentPayload.uris(
+                file.name,
+                List.of(new AndroidContentPayload.UriItem(
+                        file.uri,
+                        file.mimeType == null ? "*/*" : file.mimeType)),
+                List.of(),
+                AndroidContentPayload.Origin.APPLICATION);
+        final int displayId = mActivity.getCurrentDisplayId();
+        mContentWorker.execute(() -> {
+            try {
+                final DesktopAutomationResult result =
+                        new AndroidIntegrationGateway(mActivity).shareContent(
+                                content, displayId);
+                if (!result.success) {
+                    showFileActionError(file, result.message, null);
+                }
+            } catch (Exception error) {
+                showFileActionError(
+                        file, ShellAccess.usefulMessage(error), error);
+            }
+        });
+    }
+
+    private void showFileActionError(
+            final DesktopFile file,
+            final String detail,
+            final Throwable error) {
+        mActivity.runOnUiThread(() -> {
             Log.w(TAG, "Cannot open desktop file " + file.uri, error);
             mActivity.setErrorStatus(
                     "FILES-003",
                     mActivity.getString(
                             R.string.status_desktop_file_failed,
                             file.name),
-                    "mime=" + file.mimeType,
+                    detail,
                     error);
-        }
+        });
     }
 
     void copyFile(final DesktopFile file, final boolean move) {
@@ -966,9 +1019,12 @@ final class DesktopWorkspaceController {
             final String itemId,
             final DesktopFile file,
             final DesktopApplicationShortcut shortcut) {
-        if (shortcut == null
-                || !shortcut.hasExecLaunch()
-                || !DesktopExecTemplate.acceptsArguments(shortcut.exec)) {
+        final boolean acceptsExec = shortcut != null
+                && shortcut.hasExecLaunch()
+                && DesktopExecTemplate.acceptsArguments(shortcut.exec);
+        final boolean acceptsAndroid = shortcut != null
+                && shortcut.launchTarget != null;
+        if (!acceptsExec && !acceptsAndroid) {
             return;
         }
         final float restingAlpha = view.getAlpha();
@@ -993,18 +1049,67 @@ final class DesktopWorkspaceController {
                     return true;
                 case DragEvent.ACTION_DROP:
                     target.setAlpha(restingAlpha);
-                    final DesktopLaunchArguments arguments =
-                            DesktopDragLaunchArguments.from(event);
-                    if (arguments.isEmpty()) {
+                    if (acceptsExec) {
+                        final DesktopLaunchArguments arguments =
+                                DesktopDragLaunchArguments.from(event);
+                        if (arguments.isEmpty()) {
+                            return false;
+                        }
+                        openApplicationShortcut(
+                                shortcut,
+                                desktopAbsolutePath(file),
+                                arguments);
+                        return true;
+                    }
+                    final AndroidContentPayload content =
+                            AndroidContentPayload.fromClipData(
+                                    event.getClipData(),
+                                    AndroidContentPayload.Origin.DRAG);
+                    if (content.isEmpty()) {
                         return false;
                     }
-                    openApplicationShortcut(
-                            shortcut,
-                            desktopAbsolutePath(file),
-                            arguments);
+                    final DragAndDropPermissions permissions =
+                            mActivity.requestDragAndDropPermissions(event);
+                    deliverDroppedContent(
+                            shortcut.launchTarget, content, permissions);
                     return true;
                 default:
                     return true;
+            }
+        });
+    }
+
+    private void deliverDroppedContent(
+            final AppLaunchTarget target,
+            final AndroidContentPayload content,
+            final DragAndDropPermissions permissions) {
+        final int displayId = mActivity.getCurrentDisplayId();
+        mContentWorker.execute(() -> {
+            try {
+                final DesktopAutomationResult result =
+                        new AndroidIntegrationGateway(mActivity)
+                                .deliverContent(
+                                        content,
+                                        target,
+                                        DesktopLaunchPresentation.automatic(),
+                                        displayId);
+                if (!result.success) {
+                    mActivity.runOnUiThread(() -> mActivity.setErrorStatus(
+                            "CONTENT-DROP-001",
+                            result.message,
+                            "package=" + target.packageName,
+                            null));
+                }
+            } catch (Exception error) {
+                mActivity.runOnUiThread(() -> mActivity.setErrorStatus(
+                        "CONTENT-DROP-001",
+                        ShellAccess.usefulMessage(error),
+                        "package=" + target.packageName,
+                        error));
+            } finally {
+                if (permissions != null) {
+                    permissions.release();
+                }
             }
         });
     }

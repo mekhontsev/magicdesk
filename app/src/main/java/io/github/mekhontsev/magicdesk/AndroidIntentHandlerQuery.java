@@ -109,7 +109,21 @@ final class AndroidIntentHandlerQuery {
             result.put("launchAllowed", authorization.allowed())
                     .put("launchDecision", authorization.decisionName())
                     .put("permissionGranted",
-                            authorization.permissionGranted);
+                            authorization.permissionGranted)
+                    .put("launchMode", info.activityInfo.launchMode)
+                    .put("documentLaunchMode",
+                            info.activityInfo.documentLaunchMode)
+                    .put("resizeMode", nullable(
+                            FrameworkActivityInfoCompat.resizeMode(
+                                    info.activityInfo)))
+                    .put("screenOrientation",
+                            info.activityInfo.screenOrientation)
+                    .put("supportsPictureInPicture", nullable(
+                            FrameworkActivityInfoCompat
+                                    .supportsPictureInPicture(
+                                            info.activityInfo)))
+                    .put("taskAffinity", value(
+                            info.activityInfo.taskAffinity));
         }
         return result;
     }
@@ -131,5 +145,9 @@ final class AndroidIntentHandlerQuery {
 
     private static String value(final String value) {
         return value == null ? "" : value;
+    }
+
+    private static Object nullable(final Object value) {
+        return value == null ? JSONObject.NULL : value;
     }
 }

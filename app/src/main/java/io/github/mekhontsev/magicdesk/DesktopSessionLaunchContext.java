@@ -45,7 +45,7 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
                     mActivity.launchShortcut(
                             app,
                             shortcut,
-                            request.launchMode,
+                            request.presentation.mode,
                             completion);
                     return true;
                 }
@@ -62,9 +62,9 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
             if (app == null) {
                 return false;
             }
-            mActivity.launchForMode(
+            mActivity.launchForPresentation(
                     app,
-                    request.launchMode,
+                    request.presentation,
                     onPrepared,
                     completion);
             return true;
@@ -72,6 +72,23 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
         if (onPrepared != null) {
             throw new IllegalArgumentException(
                     "Intent and Exec cannot share one launch request");
+        }
+        if (request.androidLaunch.kind
+                == AndroidLaunchSpec.Kind.PENDING_ACTIVITY) {
+            final AppLaunchTarget target = request.androidLaunch.target;
+            final AppItem app = mActivity.findOrLoadApp(
+                    mActivity.getLauncherApps(), target);
+            if (app == null || request.androidLaunch.pendingIntent() == null) {
+                return false;
+            }
+            mActivity.launchResolvedPendingActivity(
+                    app,
+                    request.name,
+                    request.androidLaunch.pendingIntent(),
+                    target,
+                    request.presentation,
+                    completion);
+            return true;
         }
         final Intent intent = request.androidLaunch.resolve(
                 mActivity.getPackageManager());
@@ -102,7 +119,7 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
                 request.name,
                 intent,
                 target,
-                request.launchMode,
+                request.presentation,
                 request.androidLaunch.delivery,
                 completion);
         return true;

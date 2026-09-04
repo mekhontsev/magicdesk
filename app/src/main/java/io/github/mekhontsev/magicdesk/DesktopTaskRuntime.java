@@ -139,15 +139,12 @@ interface DesktopTaskRuntime {
 
     void setPhoneTouchpadRequested(boolean requested);
 
-    void updateDesktopTaskbarPresentation(
-            int displayId, Rect bounds, boolean visible);
-
     void configureDesktopActivityInput(int displayId, IBinder activityToken);
 
-    void launchDesktopPanelHost(
+    void prepareDesktopChromeHost(
             int displayId, TaskRepository.ActionCallback callback);
 
-    void raiseDesktopTaskbarPlane(int displayId);
+    void raiseDesktopChrome(int displayId);
 
     void disableExternalTaskMigrationProtection();
 

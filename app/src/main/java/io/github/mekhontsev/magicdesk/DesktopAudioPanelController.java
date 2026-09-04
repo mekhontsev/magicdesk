@@ -6,7 +6,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
-import android.provider.Settings;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.GridLayout;
@@ -128,8 +127,7 @@ final class DesktopAudioPanelController {
                 R.string.audio_sound_settings);
         soundSettings.setOnClickListener(view -> {
             mActivity.hideAllPanels();
-            final Intent intent = new Intent(Settings.ACTION_SOUND_SETTINGS);
-            mActivity.startActivity(intent);
+            mActivity.invokeDesktopAction("sound-settings");
         });
         addAction(actions, soundSettings);
 

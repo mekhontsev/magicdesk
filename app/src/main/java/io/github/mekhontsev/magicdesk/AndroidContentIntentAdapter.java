@@ -57,4 +57,14 @@ final class AndroidContentIntentAdapter {
         }
         return intent;
     }
+
+    static Intent deliver(final AndroidContentPayload payload) {
+        if (payload == null || payload.isEmpty()) {
+            return null;
+        }
+        if (payload.uriItems.size() == 1 && !payload.hasText()) {
+            return open(payload);
+        }
+        return share(payload);
+    }
 }

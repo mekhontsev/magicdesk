@@ -33,8 +33,17 @@ final class FileManagerImportController {
             final String destination,
             final List<Uri> uris,
             final DragAndDropPermissions permissions) {
+        importFiles(destination, uris, permissions, null);
+    }
+
+    void importFiles(
+            final String destination,
+            final List<Uri> uris,
+            final DragAndDropPermissions permissions,
+            final Runnable completed) {
         if (!mOperations.beginImport(uris.size())) {
             release(permissions);
+            run(completed);
             return;
         }
         mWorker.execute(() -> {
@@ -75,6 +84,7 @@ final class FileManagerImportController {
                 }
             } finally {
                 release(permissions);
+                run(completed);
             }
             final int copied = imported;
             final Throwable failure = firstFailure;
@@ -164,6 +174,12 @@ final class FileManagerImportController {
             final DragAndDropPermissions permissions) {
         if (permissions != null) {
             permissions.release();
+        }
+    }
+
+    private static void run(final Runnable action) {
+        if (action != null) {
+            action.run();
         }
     }
 }

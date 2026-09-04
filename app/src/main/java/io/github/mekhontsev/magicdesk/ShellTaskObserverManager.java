@@ -70,23 +70,12 @@ final class ShellTaskObserverManager implements Closeable {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
-            final Rect taskbarBounds,
             final int desktopHostTaskId) {
         requireSession(callback).observer.configure(
                 displayId,
                 displayBounds,
                 workAreaBounds,
-                taskbarBounds,
                 desktopHostTaskId);
-    }
-
-    void updateDesktopTaskbarPresentation(
-            final ITaskObserverCallback callback,
-            final int displayId,
-            final Rect bounds,
-            final boolean visible) {
-        requireSession(callback).observer.updateDesktopTaskbarPresentation(
-                displayId, bounds, visible);
     }
 
     void configureDesktopActivityInput(
@@ -97,17 +86,17 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId, activityToken);
     }
 
-    int launchDesktopPanelHost(
+    int prepareDesktopChromeHost(
             final ITaskObserverCallback callback,
             final int displayId) {
-        return requireSession(callback).observer.launchDesktopPanelHost(
+        return requireSession(callback).observer.prepareDesktopChromeHost(
                 displayId);
     }
 
-    void raiseDesktopTaskbarPlane(
+    void raiseDesktopChrome(
             final ITaskObserverCallback callback,
             final int displayId) {
-        requireSession(callback).observer.raiseDesktopTaskbarPlane(displayId);
+        requireSession(callback).observer.raiseDesktopChrome(displayId);
     }
 
     boolean clearConfiguration(

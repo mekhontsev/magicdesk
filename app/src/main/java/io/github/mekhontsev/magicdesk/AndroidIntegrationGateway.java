@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
 import android.content.ClipData;
 import android.content.ComponentName;
 import android.content.Context;
@@ -35,6 +36,55 @@ final class AndroidIntegrationGateway {
         mPackageManager = mContext.getPackageManager();
     }
 
+    DesktopAutomationResult execute(
+            final AndroidDesktopAction action,
+            final int displayId) throws IOException, JSONException {
+        if (action == null) {
+            throw new IllegalArgumentException("Android action is required");
+        }
+        final DesktopAutomationResult result;
+        if (action.kind == AndroidDesktopAction.Kind.SHORTCUT) {
+            result = executeShortcut(action, displayId);
+        } else if (action.kind == AndroidDesktopAction.Kind.PENDING_INTENT) {
+            result = executePendingIntent(action, displayId);
+        } else if (action.request.kind
+                == AndroidIntegrationRequest.Kind.ACTIVITY) {
+            result = launchActivity(action.request, displayId);
+        } else if (action.request.kind
+                == AndroidIntegrationRequest.Kind.BROADCAST) {
+            mContext.sendBroadcast(action.request.intent);
+            result = DesktopAutomationResult.success(
+                    "broadcast sent",
+                    describeExecution(
+                            action.request.intent, action.request.kind));
+        } else {
+            final ComponentName started = action.request.foregroundService
+                    ? mContext.startForegroundService(action.request.intent)
+                    : mContext.startService(action.request.intent);
+            result = started == null
+                    ? DesktopAutomationResult.failure(
+                            "Android did not resolve the requested service")
+                    : DesktopAutomationResult.success(
+                            "service start accepted",
+                            describeExecution(
+                                    action.request.intent,
+                                    action.request.kind)
+                                    .put("component",
+                                            started.flattenToShortString())
+                                    .put("foreground",
+                                            action.request.foregroundService));
+        }
+        AndroidActivityCompatibilityHistory.record(action, result);
+        DesktopAutomationEventJournal.record(
+                "android-action",
+                action.id,
+                result.success,
+                action.source,
+                AndroidActivityCompatibilityHistory.diagnosticSummary(
+                        action, result));
+        return result;
+    }
+
     DesktopAutomationResult queryIntentHandlers(final JSONObject args)
             throws IOException, JSONException {
         if (ShellAccess.isReady()) {
@@ -53,6 +103,43 @@ final class AndroidIntegrationGateway {
                         BuildConfig.APPLICATION_ID));
     }
 
+    DesktopAutomationResult listDesktopActions() throws JSONException {
+        return DesktopAutomationResult.success(
+                "desktop actions listed",
+                new JSONObject().put(
+                        "actions", AndroidDesktopActionCatalog.describe()));
+    }
+
+    DesktopAutomationResult invokeDesktopAction(final JSONObject args)
+            throws IOException, JSONException {
+        return execute(
+                AndroidDesktopActionCatalog.create(
+                        requiredString(args, "actionId"), args, "automation"),
+                optionalDisplayId(args));
+    }
+
+    DesktopAutomationResult invokeDesktopAction(
+            final String actionId,
+            final JSONObject args,
+            final String source,
+            final int displayId) throws IOException, JSONException {
+        return execute(
+                AndroidDesktopActionCatalog.create(
+                        actionId, args, source),
+                displayId);
+    }
+
+    DesktopAutomationResult getActivityCompatibilityHistory(
+            final JSONObject args) throws JSONException {
+        final int limit = args == null ? 64
+                : Math.max(1, Math.min(64, args.optInt("limit", 64)));
+        return DesktopAutomationResult.success(
+                "Activity compatibility history read",
+                new JSONObject().put(
+                        "launches",
+                        AndroidActivityCompatibilityHistory.snapshot(limit)));
+    }
+
     DesktopAutomationResult launchIntent(final JSONObject args)
             throws IOException, JSONException {
         final AndroidIntegrationRequest request = AndroidIntegrationRequest.parse(
@@ -61,7 +148,10 @@ final class AndroidIntegrationGateway {
             throw new IllegalArgumentException(
                     "launch_intent requires kind=activity");
         }
-        return launchActivity(request, optionalDisplayId(args));
+        return execute(
+                AndroidDesktopAction.request(
+                        "launch-intent", "mcp", request),
+                optionalDisplayId(args));
     }
 
     DesktopAutomationResult openUri(final JSONObject args)
@@ -71,9 +161,13 @@ final class AndroidIntegrationGateway {
                 .put("action", Intent.ACTION_VIEW)
                 .put("dataUri", requiredString(args, "uri"));
         request.remove("uri");
-        return launchActivity(
-                AndroidIntegrationRequest.parse(
-                        request, AndroidIntegrationRequest.Kind.ACTIVITY),
+        return execute(
+                AndroidDesktopAction.request(
+                        "open-uri",
+                        "mcp",
+                        AndroidIntegrationRequest.parse(
+                                request,
+                                AndroidIntegrationRequest.Kind.ACTIVITY)),
                 optionalDisplayId(args));
     }
 
@@ -129,14 +223,23 @@ final class AndroidIntegrationGateway {
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         }
         applyTarget(intent, args);
-        return launchActivity(
-                AndroidIntegrationRequest.activity(
+        return execute(
+                AndroidDesktopAction.request(
+                        "open-file",
+                        "mcp",
+                        AndroidIntegrationRequest.activity(
                         intent,
                         optionalString(args, "name", "Open file"),
-                        parseMode(args),
+                        AndroidIntegrationRequest.parsePresentation(
+                                args,
+                                args.optBoolean("chooser", false)
+                                                || args.optBoolean(
+                                                        "expectResult", false)
+                                        ? DesktopTaskInstancePolicy.CREATE_NEW
+                                        : DesktopTaskInstancePolicy.REUSE_EXISTING),
                         args.optBoolean("chooser", false),
                         optionalString(args, "chooserTitle", ""),
-                        args.optBoolean("expectResult", false)),
+                        args.optBoolean("expectResult", false))),
                 optionalDisplayId(args));
     }
 
@@ -201,14 +304,18 @@ final class AndroidIntegrationGateway {
                 false);
         final Intent intent = AndroidContentIntentAdapter.share(content);
         applyTarget(intent, args);
-        return launchActivity(
-                AndroidIntegrationRequest.activity(
+        return execute(
+                AndroidDesktopAction.request(
+                        "share",
+                        "mcp",
+                        AndroidIntegrationRequest.activity(
                         intent,
                         optionalString(args, "name", "Share"),
-                        parseMode(args),
+                        AndroidIntegrationRequest.parsePresentation(
+                                args, DesktopTaskInstancePolicy.CREATE_NEW),
                         args.optBoolean("chooser", true),
                         optionalString(args, "chooserTitle", "Share with"),
-                        false),
+                        false)),
                 optionalDisplayId(args));
     }
 
@@ -220,15 +327,18 @@ final class AndroidIntegrationGateway {
             return DesktopAutomationResult.failure(
                     "clipboard content cannot be opened");
         }
-        return launchActivity(
-                AndroidIntegrationRequest.activity(
+        return execute(
+                AndroidDesktopAction.request(
+                        "open-content",
+                        content.origin.name().toLowerCase(),
+                        AndroidIntegrationRequest.activity(
                         intent,
                         content.label.isEmpty()
                                 ? "Clipboard content" : content.label,
-                        DesktopLaunchMode.AUTO,
+                        DesktopLaunchPresentation.automatic(),
                         false,
                         "",
-                        false),
+                        false)),
                 displayId);
     }
 
@@ -240,14 +350,50 @@ final class AndroidIntegrationGateway {
             return DesktopAutomationResult.failure(
                     "clipboard content cannot be shared");
         }
-        return launchActivity(
-                AndroidIntegrationRequest.activity(
+        return execute(
+                AndroidDesktopAction.request(
+                        "share-content",
+                        content.origin.name().toLowerCase(),
+                        AndroidIntegrationRequest.activity(
                         intent,
                         "Share clipboard content",
-                        DesktopLaunchMode.AUTO,
+                        DesktopLaunchPresentation.automatic()
+                                .withInstancePolicy(
+                                        DesktopTaskInstancePolicy.CREATE_NEW),
                         true,
                         "Share with",
-                        false),
+                        false)),
+                displayId);
+    }
+
+    DesktopAutomationResult deliverContent(
+            final AndroidContentPayload content,
+            final AppLaunchTarget target,
+            final DesktopLaunchPresentation presentation,
+            final int displayId) throws IOException, JSONException {
+        if (target == null) {
+            throw new IllegalArgumentException("content target is required");
+        }
+        final Intent intent = AndroidContentIntentAdapter.deliver(content);
+        if (intent == null) {
+            return DesktopAutomationResult.failure(
+                    "dragged content cannot be delivered");
+        }
+        intent.setPackage(target.packageName);
+        final AndroidIntegrationRequest request =
+                AndroidIntegrationRequest.activity(
+                        intent,
+                        content.label.isEmpty()
+                                ? "Deliver content" : content.label,
+                        presentation,
+                        false,
+                        "",
+                        false);
+        return execute(
+                AndroidDesktopAction.request(
+                        "deliver-content",
+                        content.origin.name().toLowerCase(),
+                        request),
                 displayId);
     }
 
@@ -259,9 +405,14 @@ final class AndroidIntegrationGateway {
             throw new IllegalArgumentException(
                     "send_broadcast requires kind=broadcast");
         }
-        mContext.sendBroadcast(request.intent);
-        return DesktopAutomationResult.success(
-                "broadcast sent", describeExecution(request.intent, request.kind));
+        try {
+            return execute(
+                    AndroidDesktopAction.request(
+                            "send-broadcast", "mcp", request),
+                    Display.DEFAULT_DISPLAY);
+        } catch (IOException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     DesktopAutomationResult startService(final JSONObject args)
@@ -272,18 +423,14 @@ final class AndroidIntegrationGateway {
             throw new IllegalArgumentException(
                     "start_service requires kind=service");
         }
-        final ComponentName started = request.foregroundService
-                ? mContext.startForegroundService(request.intent)
-                : mContext.startService(request.intent);
-        if (started == null) {
-            return DesktopAutomationResult.failure(
-                    "Android did not resolve the requested service");
+        try {
+            return execute(
+                    AndroidDesktopAction.request(
+                            "start-service", "mcp", request),
+                    Display.DEFAULT_DISPLAY);
+        } catch (IOException impossible) {
+            throw new IllegalStateException(impossible);
         }
-        return DesktopAutomationResult.success(
-                "service start accepted",
-                describeExecution(request.intent, request.kind)
-                        .put("component", started.flattenToShortString())
-                        .put("foreground", request.foregroundService));
     }
 
     DesktopAutomationResult listAppActions(final JSONObject args)
@@ -307,23 +454,16 @@ final class AndroidIntegrationGateway {
     }
 
     DesktopAutomationResult invokeAppAction(final JSONObject args)
-            throws JSONException {
+            throws IOException, JSONException {
         final AppLaunchTarget target = appTarget(args);
         final String actionId = requiredString(args, "actionId");
-        if (!DesktopRuntimeBridge.invokeAppAction(target, actionId)) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.ACTION_FAILED,
-                    "application action was not found or could not launch",
-                    false,
-                    new JSONObject()
-                            .put("package", target.packageName)
-                            .put("actionId", actionId));
-        }
-        return DesktopAutomationResult.success(
-                "application action launch completed",
-                new JSONObject()
-                        .put("package", target.packageName)
-                        .put("actionId", actionId));
+        return execute(
+                AndroidDesktopAction.shortcut(
+                        "app-shortcut",
+                        "mcp",
+                        new AndroidShortcutSpec(target, actionId),
+                        DesktopLaunchPresentation.automatic()),
+                DesktopRuntimeBridge.getActiveDesktopDisplayId());
     }
 
     DesktopAutomationResult listNotifications(final JSONObject args)
@@ -404,7 +544,11 @@ final class AndroidIntegrationGateway {
     DesktopAutomationResult getActivityResult(final JSONObject args)
             throws JSONException {
         final JSONObject result = AndroidActivityResultStore.get(
-                requiredString(args, "requestId"));
+                mContext,
+                requiredString(args, "requestId"),
+                Math.max(0L, Math.min(
+                        60_000L, args.optLong("waitMillis", 0L))),
+                args.optBoolean("consume", false));
         return DesktopAutomationResult.success(
                 "Activity result state read", result);
     }
@@ -463,6 +607,165 @@ final class AndroidIntegrationGateway {
                 60_000L, args.optLong("timeoutMillis", 20_000L)));
     }
 
+    private DesktopAutomationResult executePendingIntent(
+            final AndroidDesktopAction action,
+            final int displayId) throws JSONException {
+        final PendingIntent pendingIntent = action.pendingIntent;
+        if (!pendingIntent.isActivity()) {
+            try {
+                pendingIntent.send();
+                return DesktopAutomationResult.success(
+                        "PendingIntent sent",
+                        new JSONObject()
+                                .put("creatorPackage", value(
+                                        pendingIntent.getCreatorPackage()))
+                                .put("activity", false));
+            } catch (PendingIntent.CanceledException | RuntimeException error) {
+                return DesktopAutomationResult.failure(
+                        DesktopAutomationErrorCode.ACTION_FAILED,
+                        "PendingIntent failed: "
+                                + ShellAccess.usefulMessage(error),
+                        false);
+            }
+        }
+        if (displayId < Display.DEFAULT_DISPLAY
+                || displayId != DesktopRuntimeBridge
+                        .getActiveDesktopDisplayId()) {
+            throw new IllegalArgumentException(
+                    "the requested display has no active desktop host");
+        }
+        final String creatorPackage = value(pendingIntent.getCreatorPackage());
+        if (creatorPackage.isEmpty()) {
+            return DesktopAutomationResult.failure(
+                    "PendingIntent creator package is unavailable");
+        }
+        final AppLaunchTarget target = AppLaunchTarget.packageDefault(
+                creatorPackage);
+        final DesktopLaunchRequest request = new DesktopLaunchRequest(
+                action.id,
+                creatorPackage,
+                AndroidLaunchSpec.pendingActivity(target, pendingIntent),
+                null,
+                null,
+                action.presentation,
+                DesktopLaunchArguments.empty(),
+                "");
+        final DesktopActivityLaunchResult launch =
+                DesktopRuntimeBridge.launchAutomationRequestObserved(
+                        request,
+                        displayId,
+                        LAUNCH_OBSERVE_TIMEOUT_MILLIS);
+        if (!launch.succeeded() || !launch.hasObservedTask()) {
+            return DesktopAutomationResult.failure(
+                    launch.isDefinitiveFailure()
+                            ? DesktopAutomationErrorCode.ACTION_FAILED
+                            : DesktopAutomationErrorCode.TIMEOUT,
+                    launch.error.isEmpty()
+                            ? "Pending Activity task was not observed"
+                            : launch.error,
+                    !launch.isDefinitiveFailure());
+        }
+        final DesktopTaskLaunchObservation observation;
+        try {
+            observation = DesktopTaskLaunchObservation.awaitTopology(
+                    action.presentation.mode,
+                    displayId,
+                    launch.taskId,
+                    LAUNCH_OBSERVE_TIMEOUT_MILLIS);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.TIMEOUT,
+                    "Pending Activity observation was interrupted",
+                    true);
+        }
+        if (observation.task == null) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    observation.error,
+                    true);
+        }
+        final JSONObject data = new JSONObject()
+                .put("creatorPackage", creatorPackage)
+                .put("activity", true)
+                .put("displayId", displayId)
+                .put("mode", action.presentation.mode.wireName)
+                .put("instance", action.presentation.instancePolicy.wireName)
+                .put("taskId", observation.task.taskId)
+                .put("transportTaskId", launch.taskId)
+                .put("reused", launch.reused);
+        describeObservedTask(data, observation.task);
+        return DesktopAutomationResult.success(
+                "Pending Activity launched", data);
+    }
+
+    private DesktopAutomationResult executeShortcut(
+            final AndroidDesktopAction action,
+            final int displayId) throws JSONException {
+        if (displayId < Display.DEFAULT_DISPLAY
+                || displayId != DesktopRuntimeBridge
+                        .getActiveDesktopDisplayId()) {
+            throw new IllegalArgumentException(
+                    "the requested display has no active desktop host");
+        }
+        final AndroidShortcutSpec shortcut = action.shortcut;
+        final DesktopActivityLaunchResult launch =
+                DesktopRuntimeBridge.invokeAppActionObserved(
+                        shortcut.publisher,
+                        shortcut.shortcutId,
+                        action.presentation,
+                        displayId,
+                        LAUNCH_OBSERVE_TIMEOUT_MILLIS);
+        final JSONObject base = new JSONObject()
+                .put("package", shortcut.publisher.packageName)
+                .put("actionId", shortcut.shortcutId)
+                .put("displayId", displayId)
+                .put("mode", action.presentation.mode.wireName)
+                .put("instance", action.presentation.instancePolicy.wireName);
+        if (!launch.succeeded() || !launch.hasObservedTask()) {
+            return DesktopAutomationResult.failure(
+                    launch.isDefinitiveFailure()
+                            ? DesktopAutomationErrorCode.ACTION_FAILED
+                            : DesktopAutomationErrorCode.TIMEOUT,
+                    launch.error.isEmpty()
+                            ? "application shortcut task was not observed"
+                            : launch.error,
+                    !launch.isDefinitiveFailure(),
+                    base);
+        }
+        final DesktopTaskLaunchObservation observation;
+        try {
+            observation = DesktopTaskLaunchObservation.await(
+                    LaunchActivityIdentity.packageScoped(
+                            shortcut.publisher.packageName, null),
+                    action.presentation.mode,
+                    displayId,
+                    launch.taskId,
+                    LAUNCH_OBSERVE_TIMEOUT_MILLIS);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.TIMEOUT,
+                    "application shortcut observation was interrupted",
+                    true,
+                    base);
+        }
+        if (observation.task == null) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    observation.error,
+                    true,
+                    base.put("taskId", launch.taskId));
+        }
+        base.put("taskObserved", true)
+                .put("taskId", observation.task.taskId)
+                .put("transportTaskId", launch.taskId)
+                .put("reused", launch.reused);
+        describeObservedTask(base, observation.task);
+        return DesktopAutomationResult.success(
+                "application shortcut launched", base);
+    }
+
     private DesktopAutomationResult launchActivity(
             final AndroidIntegrationRequest request,
             final int displayId) throws IOException, JSONException {
@@ -514,7 +817,8 @@ final class AndroidIntegrationGateway {
         final String resultRequestId;
         final String relayId;
         if (request.expectResult) {
-            resultRequestId = AndroidActivityResultStore.begin(target);
+            resultRequestId = AndroidActivityResultStore.begin(
+                    mContext, target);
         } else {
             resultRequestId = "";
         }
@@ -536,10 +840,6 @@ final class AndroidIntegrationGateway {
                             request.chooserTitle.isEmpty()
                                     ? null : request.chooserTitle)
                     : target;
-            if (launchPolicy.selectionSurface) {
-                launchedIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
-                        | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-            }
             // The app authorizes the target and grants; shell later sends this
             // one-shot token with only task-placement options.
             delivery = launchPolicy.delivery
@@ -554,6 +854,12 @@ final class AndroidIntegrationGateway {
                         : resolvedComponent);
         if (component == null) {
             AndroidActivityRelayStore.discard(relayId);
+            if (!resultRequestId.isEmpty()) {
+                AndroidActivityResultStore.fail(
+                        resultRequestId,
+                        new IllegalStateException(
+                                "Activity launch surface could not be resolved"));
+            }
             return DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.ACTION_FAILED,
                     "Activity launch surface could not be resolved",
@@ -564,20 +870,24 @@ final class AndroidIntegrationGateway {
                 component.getPackageName(),
                 component.getClassName(),
                 launchedIntent.getAction());
-        final AppLaunchTarget taskTarget = launchPolicy.selectionSurface
-                && !launchPolicy.usesResultRelay()
-                        ? AppLaunchTarget.packageDefault(
-                                component.getPackageName())
-                        : transportTarget;
+        final AppLaunchTarget taskTarget = request.presentation.preferredTaskId > 0
+                || (launchPolicy.selectionSurface
+                        && !launchPolicy.usesResultRelay())
+                ? AppLaunchTarget.packageDefault(component.getPackageName())
+                : transportTarget;
         final DesktopLaunchRequest desktopRequest = new DesktopLaunchRequest(
                 request.name,
                 taskTarget.packageName,
                 AndroidLaunchSpec.intent(
                         taskTarget,
-                        launchedIntent,
+                        request.presentation.instancePolicy.applyTo(
+                                launchedIntent),
                         delivery),
                 null,
-                request.launchMode);
+                null,
+                request.presentation,
+                DesktopLaunchArguments.empty(),
+                "");
         final DesktopActivityLaunchResult result =
                 DesktopRuntimeBridge.launchAutomationRequestObserved(
                         desktopRequest,
@@ -612,7 +922,7 @@ final class AndroidIntegrationGateway {
             if (launchPolicy.selectionSurface) {
                 observation = DesktopTaskLaunchObservation
                         .awaitTopology(
-                                request.launchMode,
+                                request.presentation.mode,
                                 displayId,
                                 result.taskId,
                                 LAUNCH_OBSERVE_TIMEOUT_MILLIS);
@@ -620,7 +930,7 @@ final class AndroidIntegrationGateway {
                 observation = DesktopTaskLaunchObservation.await(
                         LaunchActivityIdentity.resolve(
                                 mPackageManager, taskTarget),
-                        request.launchMode,
+                        request.presentation.mode,
                         displayId,
                         result.taskId,
                         LAUNCH_OBSERVE_TIMEOUT_MILLIS);
@@ -643,7 +953,8 @@ final class AndroidIntegrationGateway {
         }
         final JSONObject data = describeExecution(target, request.kind)
                 .put("displayId", displayId)
-                .put("mode", request.launchMode.wireName)
+                .put("mode", request.presentation.mode.wireName)
+                .put("instance", request.presentation.instancePolicy.wireName)
                 .put("resolvedComponent",
                         resolvedComponent == null
                                 ? "" : resolvedComponent.flattenToShortString())
@@ -834,17 +1145,6 @@ final class AndroidIntegrationGateway {
         }
         return AppLaunchTarget.explicit(
                 packageName, component.getClassName(), Intent.ACTION_MAIN);
-    }
-
-    private static DesktopLaunchMode parseMode(final JSONObject args) {
-        final String value = optionalString(args, "mode", "auto");
-        for (final DesktopLaunchMode mode : DesktopLaunchMode.values()) {
-            if (mode.wireName.equalsIgnoreCase(value)) {
-                return mode;
-            }
-        }
-        throw new IllegalArgumentException(
-                "mode must be auto, windowed, or fullscreen");
     }
 
     private static int requiredInt(

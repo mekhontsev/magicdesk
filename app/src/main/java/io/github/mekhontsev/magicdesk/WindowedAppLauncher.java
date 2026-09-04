@@ -11,11 +11,6 @@ import java.io.IOException;
 final class WindowedAppLauncher {
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
-    enum TaskReusePolicy {
-        REUSE_EXISTING,
-        CREATE_NEW
-    }
-
     interface TaskReadyCallback {
         void onTaskReady();
     }
@@ -56,8 +51,8 @@ final class WindowedAppLauncher {
                 true,
                 BuiltInDesktopAppCatalog.defaultWindowBounds(launchTarget),
                 BuiltInDesktopAppCatalog.supportsMultipleWindows(launchTarget)
-                        ? TaskReusePolicy.CREATE_NEW
-                        : TaskReusePolicy.REUSE_EXISTING,
+                        ? DesktopTaskInstancePolicy.CREATE_NEW
+                        : DesktopTaskInstancePolicy.REUSE_EXISTING,
                 taskReadyCallback);
     }
 
@@ -68,7 +63,7 @@ final class WindowedAppLauncher {
             final int[] preservedTaskIds,
             final boolean explicitWindowed,
             final RelativeWindowBounds preferredBounds,
-            final TaskReusePolicy reusePolicy,
+            final DesktopTaskInstancePolicy instancePolicy,
             final TaskReadyCallback taskReadyCallback) throws IOException {
         return launch(
                 launchIntent,
@@ -77,7 +72,8 @@ final class WindowedAppLauncher {
                 preservedTaskIds,
                 explicitWindowed,
                 preferredBounds,
-                reusePolicy,
+                instancePolicy,
+                -1,
                 null,
                 taskReadyCallback);
     }
@@ -89,15 +85,12 @@ final class WindowedAppLauncher {
             final int[] preservedTaskIds,
             final boolean explicitWindowed,
             final RelativeWindowBounds preferredBounds,
-            final TaskReusePolicy reusePolicy,
+            final DesktopTaskInstancePolicy instancePolicy,
+            final int preferredTaskId,
             final ExistingTaskLauncher existingTaskLauncher,
             final TaskReadyCallback taskReadyCallback) throws IOException {
-        final boolean createNew = reusePolicy == TaskReusePolicy.CREATE_NEW;
-        if (createNew) {
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
-                    | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-        }
-        final ComponentName component = launchIntent.getComponent();
+        final Intent preparedIntent = instancePolicy.applyTo(launchIntent);
+        final ComponentName component = preparedIntent.getComponent();
         if (component == null) {
             throw new IOException("launcher activity is not explicit");
         }
@@ -109,12 +102,13 @@ final class WindowedAppLauncher {
                 preservedTaskIds,
                 explicitWindowed,
                 preferredBounds,
-                reusePolicy,
+                instancePolicy,
+                preferredTaskId,
                 taskReadyCallback,
                 launchKind,
                 (targetDisplayId, bounds) ->
                         MagicDeskRuntime.launchWindowedTask(
-                                targetDisplayId, launchIntent, bounds),
+                                targetDisplayId, preparedIntent, bounds),
                 existingTaskLauncher);
     }
 
@@ -134,7 +128,8 @@ final class WindowedAppLauncher {
                 preservedTaskIds,
                 explicitWindowed,
                 preferredBounds,
-                TaskReusePolicy.REUSE_EXISTING,
+                DesktopTaskInstancePolicy.REUSE_EXISTING,
+                -1,
                 taskReadyCallback,
                 "app-shortcut",
                 (targetDisplayId, bounds) ->
@@ -164,7 +159,8 @@ final class WindowedAppLauncher {
             final int[] preservedTaskIds,
             final boolean explicitWindowed,
             final RelativeWindowBounds preferredBounds,
-            final TaskReusePolicy reusePolicy,
+            final DesktopTaskInstancePolicy instancePolicy,
+            final int preferredTaskId,
             final TaskReadyCallback taskReadyCallback) throws IOException {
         if (pendingIntent == null || launchTarget == null) {
             throw new IOException(
@@ -176,7 +172,8 @@ final class WindowedAppLauncher {
                 preservedTaskIds,
                 explicitWindowed,
                 preferredBounds,
-                reusePolicy,
+                instancePolicy,
+                preferredTaskId,
                 taskReadyCallback,
                 "android-pending-activity",
                 (targetDisplayId, bounds) ->
@@ -203,7 +200,8 @@ final class WindowedAppLauncher {
             final int[] preservedTaskIds,
             final boolean explicitWindowed,
             final RelativeWindowBounds preferredBounds,
-            final TaskReusePolicy reusePolicy,
+            final DesktopTaskInstancePolicy instancePolicy,
+            final int preferredTaskId,
             final TaskReadyCallback taskReadyCallback,
             final String launchKind,
             final FreshTaskLauncher freshTaskLauncher,
@@ -214,7 +212,8 @@ final class WindowedAppLauncher {
         final boolean nativeDesktop =
                 !DesktopDisplayDrivers.hasActiveWorkspace(displayId)
                         && NativeDesktopController.shouldUse();
-        final boolean createNew = reusePolicy == TaskReusePolicy.CREATE_NEW;
+        final boolean createNew = instancePolicy
+                == DesktopTaskInstancePolicy.CREATE_NEW;
         if (!createNew) {
             final ExistingTaskController.ReuseResult existing = reuse(
                     nativeDesktop,
@@ -224,6 +223,7 @@ final class WindowedAppLauncher {
                     false,
                     explicitWindowed,
                     bounds,
+                    preferredTaskId,
                     null);
             if (existing.found) {
                 if (existingTaskLauncher != null) {
@@ -235,6 +235,11 @@ final class WindowedAppLauncher {
                         existing.taskId,
                         existing.originalDisplayId,
                         launchPath(launchKind, createNew, true));
+            }
+            if (preferredTaskId > 0) {
+                throw new IOException(
+                        "preferred task " + preferredTaskId
+                                + " is unavailable for the requested target");
             }
         }
         try (WindowedTaskLaunchLease launchLease =
@@ -281,7 +286,7 @@ final class WindowedAppLauncher {
             final String kind,
             final boolean createNew,
             final boolean reused) {
-        return kind + (createNew ? "-new-document"
+        return kind + (createNew ? "-new-instance"
                 : reused ? "-reuse" : "-new");
     }
 
@@ -293,6 +298,7 @@ final class WindowedAppLauncher {
             final boolean waitForTask,
             final boolean explicitWindowed,
             final Rect targetBounds,
+            final int preferredTaskId,
             final WindowedTaskLaunchLease launchLease) throws IOException {
         return nativeDesktop
                 ? ExistingTaskController.reuseNativeDesktopIfExists(
@@ -302,6 +308,7 @@ final class WindowedAppLauncher {
                         waitForTask,
                         explicitWindowed,
                         targetBounds,
+                        preferredTaskId,
                         launchLease)
                 : ExistingTaskController.reuseFreeformIfExists(
                         launchTarget,
@@ -310,6 +317,7 @@ final class WindowedAppLauncher {
                         waitForTask,
                         explicitWindowed,
                         targetBounds,
+                        preferredTaskId,
                         launchLease);
     }
 

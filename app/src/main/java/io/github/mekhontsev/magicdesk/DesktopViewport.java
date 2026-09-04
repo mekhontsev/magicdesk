@@ -123,7 +123,7 @@ final class DesktopViewport {
                 mContentBottom);
     }
 
-    Rect taskbarPlaneBounds(final int requestedHeight) {
+    Rect taskbarSurfaceBounds(final int requestedHeight) {
         final Rect bounds = taskbarBounds(requestedHeight);
         bounds.bottom = mDisplayBottom;
         return bounds;

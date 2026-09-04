@@ -62,10 +62,6 @@ interface IShizukuCommandService {
         int workTop,
         int workRight,
         int workBottom,
-        int taskbarLeft,
-        int taskbarTop,
-        int taskbarRight,
-        int taskbarBottom,
         int desktopHostTaskId) = 12;
 
     void focusTaskStack(
@@ -397,21 +393,12 @@ interface IShizukuCommandService {
         int bottom,
         int existingTaskId) = 108;
 
-    void updateDesktopTaskbarPresentation(
-        ITaskObserverCallback callback,
-        int displayId,
-        int left,
-        int top,
-        int right,
-        int bottom,
-        boolean visible) = 109;
-
     void configureDesktopActivityInput(
         ITaskObserverCallback callback,
         int displayId,
         IBinder activityToken) = 110;
 
-    void raiseDesktopTaskbarPlane(
+    void raiseDesktopChrome(
         ITaskObserverCallback callback,
         int displayId) = 111;
 
@@ -424,7 +411,7 @@ interface IShizukuCommandService {
         int right,
         int bottom) = 112;
 
-    int launchDesktopPanelHost(
+    int prepareDesktopChromeHost(
         ITaskObserverCallback callback,
         int displayId) = 113;
 
@@ -440,5 +427,7 @@ interface IShizukuCommandService {
         int right,
         int bottom,
         int existingTaskId) = 114;
+
+    void launchActivityOnDisplay(in Intent intent, int displayId) = 115;
 
 }

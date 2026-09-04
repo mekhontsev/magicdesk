@@ -51,8 +51,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellTaskLauncher mTaskLauncher;
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
     private final ShellDesktopHostLauncher mDesktopHostLauncher;
-    private final ShellDesktopPanelHostLauncher mDesktopPanelHostLauncher;
-    private final ShellDesktopTaskbarPlane mDesktopTaskbarPlane;
+    private final ShellDesktopChromeHost mDesktopChromeHost;
     private final ShellSelfTestTaskStackGuard mSelfTestTaskStackGuard;
 
     private volatile boolean mClosed;
@@ -118,9 +117,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 activityLauncher);
         mDesktopHostLauncher = new ShellDesktopHostLauncher(
                 mService, mDesktopOwnership);
-        mDesktopPanelHostLauncher = new ShellDesktopPanelHostLauncher(mService);
         mFullscreenTaskArea = new ShellFullscreenTaskArea(mDesktopOwnership);
-        mDesktopTaskbarPlane = new ShellDesktopTaskbarPlane(mService);
+        mDesktopChromeHost = new ShellDesktopChromeHost(mService);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mWindowing = windowing;
         mSystemDialogTracker = new ShellSystemDialogTracker(
@@ -354,7 +352,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
-            final Rect taskbarBounds,
             final int desktopHostTaskId) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
@@ -378,7 +375,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mTaskObservations.clearConfiguration();
-            mDesktopTaskbarPlane.close();
+            mDesktopChromeHost.close();
             mFullscreenTaskArea.configure(Display.INVALID_DISPLAY);
             mDesktopOwnership.configure(Display.INVALID_DISPLAY);
             reportDesktopTaskOwnership();
@@ -402,7 +399,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mDesktopOwnership.markDesktopHost(desktopHostTaskId);
         }
         mFullscreenTaskArea.configure(displayId);
-        mDesktopTaskbarPlane.configure(displayId, taskbarBounds);
+        mDesktopChromeHost.configure(displayId);
         mConfiguredDisplayId = displayId;
         mPhoneWallpaperPolicy.configure(displayId);
         clearPendingPostRemovalFocus();
@@ -434,7 +431,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         configure(
                 Display.INVALID_DISPLAY,
-                new Rect(),
                 new Rect(),
                 new Rect(),
                 -1);
@@ -497,29 +493,16 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         final ShellDesktopWorkspaceCoordinator.Result result =
                 mWorkspaceCoordinator.execute(command);
         if (result.success) {
-            mDesktopTaskbarPlane.raise();
+            mDesktopChromeHost.raise();
         }
         return result;
     }
 
     private boolean finishDesktopTransition(final boolean completed) {
         if (completed) {
-            mDesktopTaskbarPlane.raise();
+            mDesktopChromeHost.raise();
         }
         return completed;
-    }
-
-    void updateDesktopTaskbarPresentation(
-            final int displayId,
-            final Rect bounds,
-            final boolean visible) {
-        if (displayId != mConfiguredDisplayId) {
-            throw new IllegalStateException(
-                    "stale taskbar display " + displayId
-                            + "; configured=" + mConfiguredDisplayId);
-        }
-        mDesktopTaskbarPlane.updatePresentation(
-                displayId, bounds, visible);
     }
 
     void configureDesktopActivityInput(
@@ -537,13 +520,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 activityToken, false);
     }
 
-    void raiseDesktopTaskbarPlane(final int displayId) {
+    void raiseDesktopChrome(final int displayId) {
         if (displayId != mConfiguredDisplayId) {
             throw new IllegalStateException(
                     "stale taskbar display " + displayId
                             + "; configured=" + mConfiguredDisplayId);
         }
-        mDesktopTaskbarPlane.raise();
+        mDesktopChromeHost.raise();
     }
 
     TaskWindowSnapshot inspectTaskWindow(
@@ -603,7 +586,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
-    int launchDesktopPanelHost(final int displayId) {
+    int prepareDesktopChromeHost(final int displayId) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
@@ -613,10 +596,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             + "; configured=" + mConfiguredDisplayId);
         }
         try {
-            return mDesktopPanelHostLauncher.launch(displayId);
-        } catch (ReflectiveOperationException | RuntimeException error) {
+            return mDesktopChromeHost.prepare(displayId);
+        } catch (RuntimeException error) {
             throw new IllegalStateException(
-                    "cannot launch desktop panel host: "
+                    "cannot prepare desktop chrome host: "
                             + usefulMessage(error),
                     error);
         }
@@ -1131,11 +1114,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 preservePhoneTouchpad();
             }
             if (displayId == mConfiguredDisplayId
-                    && !mDesktopTaskbarPlane.isTaskbarTask(taskInfo)) {
+                    && !mDesktopChromeHost.isChromeTask(taskInfo)) {
                 try {
-                    mDesktopTaskbarPlane.raise();
+                    mDesktopChromeHost.raise();
                 } catch (RuntimeException error) {
-                    Log.w(TAG, "could not preserve desktop taskbar order",
+                    Log.w(TAG, "could not preserve desktop chrome order",
                             error);
                 }
             }
@@ -1266,7 +1249,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         closeSafely("migration guard", mMigrationGuard::close);
         closeSafely("freeform cleanup", mFreeformCleanup::close);
         closeSafely("framework task observations", mTaskObservations::close);
-        closeSafely("desktop taskbar plane", mDesktopTaskbarPlane::close);
+        closeSafely("desktop chrome host", mDesktopChromeHost::close);
         closeSafely("fullscreen task area", mFullscreenTaskArea::close);
         closeSafely("self-test task stack guard",
                 mSelfTestTaskStackGuard::close);

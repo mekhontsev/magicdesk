@@ -3,6 +3,8 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Intent;
 import android.os.BatteryManager;
 import android.provider.Settings;
+import android.view.DragAndDropPermissions;
+import android.view.DragEvent;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -683,6 +685,7 @@ final class TaskbarController {
         item.setContentDescription(description);
         item.setTooltipText(description);
         item.setOnClickListener(view -> activate(taskbarItem));
+        enableContentDrop(item, app, task);
         mActivity.registerContextTarget(item, app, task);
         mActivity.registerAutomationUiElement(
                 item,
@@ -696,6 +699,87 @@ final class TaskbarController {
                 app.packageName,
                 task == null ? -1 : task.taskId);
         return item;
+    }
+
+    private void enableContentDrop(
+            final View item,
+            final AppItem app,
+            final TaskRepository.TaskEntry task) {
+        final float restingAlpha = item.getAlpha();
+        item.setOnDragListener((target, event) -> {
+            switch (event.getAction()) {
+                case DragEvent.ACTION_DRAG_STARTED:
+                    return !(event.getLocalState()
+                                    instanceof DesktopGridLayout.DragToken)
+                            && event.getClipDescription() != null;
+                case DragEvent.ACTION_DRAG_ENTERED:
+                    target.setAlpha(0.72f);
+                    return true;
+                case DragEvent.ACTION_DRAG_EXITED:
+                case DragEvent.ACTION_DRAG_ENDED:
+                    target.setAlpha(restingAlpha);
+                    return true;
+                case DragEvent.ACTION_DROP:
+                    target.setAlpha(restingAlpha);
+                    final AndroidContentPayload content =
+                            AndroidContentPayload.fromClipData(
+                                    event.getClipData(),
+                                    AndroidContentPayload.Origin.DRAG);
+                    if (content.isEmpty()) {
+                        return false;
+                    }
+                    final DragAndDropPermissions permissions =
+                            mActivity.requestDragAndDropPermissions(event);
+                    deliverContent(app, task, content, permissions);
+                    return true;
+                default:
+                    return true;
+            }
+        });
+    }
+
+    private void deliverContent(
+            final AppItem app,
+            final TaskRepository.TaskEntry task,
+            final AndroidContentPayload content,
+            final DragAndDropPermissions permissions) {
+        final int displayId = mActivity.getCurrentDisplayId();
+        if (task != null && !task.isFreeform() && !task.isFullscreen()) {
+            if (permissions != null) {
+                permissions.release();
+            }
+            mActivity.setErrorStatus(
+                    "CONTENT-DROP-001",
+                    "target task has no supported desktop window mode",
+                    "package=" + app.packageName,
+                    null);
+            return;
+        }
+        final DesktopLaunchPresentation presentation = task == null
+                ? DesktopLaunchPresentation.automatic()
+                : DesktopLaunchPresentation.forMode(
+                        task.isFreeform()
+                                ? DesktopLaunchMode.WINDOWED
+                                : DesktopLaunchMode.FULLSCREEN)
+                        .withPreferredTask(task.taskId);
+        AndroidDesktopActionDispatcher.deliverContent(
+                mActivity,
+                content,
+                app.launchTarget,
+                presentation,
+                displayId,
+                result -> {
+                    if (!result.success) {
+                        mActivity.setErrorStatus(
+                                "CONTENT-DROP-001",
+                                result.message,
+                                "package=" + app.packageName,
+                                null);
+                    }
+                    if (permissions != null) {
+                        permissions.release();
+                    }
+                });
     }
 
     private void addOverflowButton(

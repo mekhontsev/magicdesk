@@ -20,4 +20,16 @@
         <function_id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#openSettings</function_id>
         <enabled_by_default>true</enabled_by_default>
     </appfunction>
+    <appfunction>
+        <function_id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#invokeAndroidAction</function_id>
+        <enabled_by_default>true</enabled_by_default>
+    </appfunction>
+    <appfunction>
+        <function_id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#listAndroidActions</function_id>
+        <enabled_by_default>true</enabled_by_default>
+    </appfunction>
+    <appfunction>
+        <function_id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#getAndroidActivityResult</function_id>
+        <enabled_by_default>true</enabled_by_default>
+    </appfunction>
 </appfunctions>

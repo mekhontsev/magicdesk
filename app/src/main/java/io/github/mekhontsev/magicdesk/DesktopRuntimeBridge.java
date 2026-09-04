@@ -139,31 +139,36 @@ public final class DesktopRuntimeBridge {
 
     static boolean launchApplication(
             final AppLaunchTarget target,
-            final DesktopLaunchMode mode,
-            final RelativeWindowBounds preferredBounds,
+            final DesktopLaunchPresentation presentation,
             final int displayId) {
         return UI.launchApplication(
-                target, mode, preferredBounds, displayId);
+                target, presentation, displayId);
     }
 
     static DesktopActivityLaunchResult launchApplicationObserved(
             final AppLaunchTarget target,
-            final DesktopLaunchMode mode,
-            final RelativeWindowBounds preferredBounds,
+            final DesktopLaunchPresentation presentation,
             final int displayId,
             final long timeoutMillis) {
         return UI.launchApplicationObserved(
                 target,
-                mode,
-                preferredBounds,
+                presentation,
                 displayId,
                 timeoutMillis);
     }
 
-    static boolean invokeAppAction(
+    static DesktopActivityLaunchResult invokeAppActionObserved(
             final AppLaunchTarget target,
-            final String actionId) {
-        return UI.invokeAppAction(target, actionId);
+            final String actionId,
+            final DesktopLaunchPresentation presentation,
+            final int displayId,
+            final long timeoutMillis) {
+        return UI.invokeAppActionObserved(
+                target,
+                actionId,
+                presentation,
+                displayId,
+                timeoutMillis);
     }
 
     static boolean dispatchPanelTextInput(

@@ -21,14 +21,14 @@ public final class DesktopPanelArchitectureTest {
     }
 
     @Test
-    public void panelHostIsShellProtectedShortLivedInfrastructure()
+    public void chromeHostIsShellProtectedPersistentInfrastructure()
             throws IOException {
         final String manifest = read("src/main/AndroidManifest.xml");
         final int activity = manifest.indexOf(
-                "android:name=\".DesktopPanelActivity\"");
-        assertTrue("DesktopPanelActivity is declared", activity >= 0);
+                "android:name=\".DesktopChromeActivity\"");
+        assertTrue("DesktopChromeActivity is declared", activity >= 0);
         final int end = manifest.indexOf("/>", activity);
-        assertTrue("DesktopPanelActivity declaration is complete",
+        assertTrue("DesktopChromeActivity declaration is complete",
                 end > activity);
         final String declaration = manifest.substring(activity, end);
 
@@ -37,7 +37,9 @@ public final class DesktopPanelArchitectureTest {
                 "android:permission=\"android.permission.MANAGE_ACTIVITY_TASKS\""));
         assertTrue(declaration.contains("android:excludeFromRecents=\"true\""));
         assertTrue(declaration.contains(
-                "android:taskAffinity=\"${applicationId}.desktop_panels\""));
+                "android:taskAffinity=\"${applicationId}.desktop_chrome\""));
+        assertFalse(manifest.contains(".DesktopPanelActivity"));
+        assertFalse(manifest.contains(".DesktopTaskbarActivity"));
     }
 
     @Test
@@ -51,27 +53,23 @@ public final class DesktopPanelArchitectureTest {
     }
 
     @Test
-    public void panelHostUsesStandardFullscreenTaskWithoutOrganizerPlane()
+    public void chromeHostUsesStandardFullscreenTaskWithoutOrganizerPlane()
             throws IOException {
         final String controller = read(
                 "src/main/java/io/github/mekhontsev/magicdesk/"
                         + "DesktopPanelWindowController.java");
-        final String launcher = read(
+        final String host = read(
                 "src/main/java/io/github/mekhontsev/magicdesk/"
-                        + "ShellDesktopPanelHostLauncher.java");
+                        + "ShellDesktopChromeHost.java");
         final String styles = read("src/main/res/values/styles.xml");
 
-        assertTrue(controller.contains("launchDesktopPanelHost"));
+        assertTrue(controller.contains("prepareDesktopChromeHost"));
         assertFalse(controller.contains("startActivity("));
-        assertTrue(launcher.contains("launchFullscreenTask"));
-        assertFalse(launcher.contains("launchFullscreenTaskBehind"));
-        assertTrue(launcher.contains("awaitFullscreen"));
-        assertFalse(launcher.contains("TaskDisplayAreaHandle"));
-        assertFalse(launcher.contains("TaskCaptionInsetsCommand"));
-        assertFalse(launcher.contains("newTransaction"));
-        assertFalse(launcher.contains("setWindowingMode"));
-        assertFalse(launcher.contains("setForceTranslucent"));
-        assertTrue(styles.contains("<style name=\"DesktopPanelTheme\""));
+        assertTrue(host.contains("launchFullscreenTaskBehind"));
+        assertFalse(host.contains("TaskDisplayAreaHandle"));
+        assertTrue(host.contains("setAlwaysOnTop"));
+        assertTrue(host.contains("setFocusable"));
+        assertTrue(styles.contains("<style name=\"DesktopChromeTheme\""));
         assertTrue(styles.contains(
                 "<item name=\"android:windowIsTranslucent\">true</item>"));
     }

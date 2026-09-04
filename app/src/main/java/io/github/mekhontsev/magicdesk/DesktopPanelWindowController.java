@@ -24,11 +24,13 @@ import android.widget.FrameLayout;
 import java.util.HashMap;
 import java.util.Map;
 
-/** Hosts desktop panels as ordinary windows in a short-lived application task. */
+/** Hosts desktop panels as child windows of the persistent desktop chrome task. */
 final class DesktopPanelWindowController {
     private static final String TAG = "MagicDeskPanels";
     private static final Object REGISTRY_LOCK = new Object();
     private static final Map<Integer, DesktopPanelWindowController> CONTROLLERS =
+            new HashMap<>();
+    private static final Map<Integer, HostRegistration> HOSTS =
             new HashMap<>();
 
     interface ChildInputListener {
@@ -46,11 +48,10 @@ final class DesktopPanelWindowController {
     private final Rect mChildBounds = new Rect();
     private final Rect mInteractionOwnerBounds = new Rect();
 
-    private DesktopPanelActivity mHostActivity;
+    private DesktopChromeActivity mHostActivity;
     private WindowManager mWindowManager;
     private IBinder mWindowToken;
     private boolean mHostLaunchRequested;
-    private boolean mHostPrepared;
     private boolean mReleased;
 
     private View mVisiblePanel;
@@ -99,58 +100,50 @@ final class DesktopPanelWindowController {
             mReleased = true;
             return;
         }
+        final HostRegistration host;
         synchronized (REGISTRY_LOCK) {
             CONTROLLERS.put(Integer.valueOf(displayId), this);
+            host = HOSTS.get(Integer.valueOf(displayId));
+        }
+        if (host != null) {
+            attachHost(host.activity, host.windowManager, host.windowToken);
         }
     }
 
     static void registerActivity(
             final int displayId,
-            final DesktopPanelActivity activity,
+            final DesktopChromeActivity activity,
             final WindowManager windowManager,
             final IBinder windowToken) {
-        final DesktopPanelWindowController controller;
-        synchronized (REGISTRY_LOCK) {
-            controller = CONTROLLERS.get(Integer.valueOf(displayId));
-        }
-        if (controller == null || windowManager == null || windowToken == null) {
-            activity.finishFromController();
+        if (displayId == Display.INVALID_DISPLAY || activity == null
+                || windowManager == null || windowToken == null) {
             return;
         }
-        controller.attachHost(activity, windowManager, windowToken);
+        final DesktopPanelWindowController controller;
+        synchronized (REGISTRY_LOCK) {
+            HOSTS.put(Integer.valueOf(displayId), new HostRegistration(
+                    activity, windowManager, windowToken));
+            controller = CONTROLLERS.get(Integer.valueOf(displayId));
+        }
+        if (controller != null) {
+            controller.attachHost(activity, windowManager, windowToken);
+        }
     }
 
     static void unregisterActivity(
             final int displayId,
-            final DesktopPanelActivity activity) {
+            final DesktopChromeActivity activity) {
         final DesktopPanelWindowController controller;
         synchronized (REGISTRY_LOCK) {
+            final HostRegistration host = HOSTS.get(Integer.valueOf(displayId));
+            if (host != null && host.activity == activity) {
+                HOSTS.remove(Integer.valueOf(displayId));
+            }
             controller = CONTROLLERS.get(Integer.valueOf(displayId));
         }
         if (controller != null) {
             controller.detachHost(activity);
         }
-    }
-
-    static void rejectActivity(
-            final int requestedDisplayId,
-            final int actualDisplayId,
-            final DesktopPanelActivity activity) {
-        final DesktopPanelWindowController controller;
-        synchronized (REGISTRY_LOCK) {
-            controller = CONTROLLERS.get(Integer.valueOf(requestedDisplayId));
-        }
-        if (controller != null) {
-            controller.failHostLaunch(
-                    "requested=" + requestedDisplayId
-                            + " actual=" + actualDisplayId);
-        } else {
-            CompatibilityDiagnostics.record(
-                    "PANEL-004", "A desktop panel could not be shown",
-                    "requested=" + requestedDisplayId
-                            + " actual=" + actualDisplayId);
-        }
-        activity.finishFromController();
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -170,8 +163,8 @@ final class DesktopPanelWindowController {
         }
         final boolean replacingSamePanel = mVisibleRequested
                 && mVisiblePanel == panel;
-        hideAll(replacingSamePanel, false);
-        dismissDialog(false);
+        hideAll(replacingSamePanel);
+        dismissDialog();
 
         int flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
@@ -231,7 +224,7 @@ final class DesktopPanelWindowController {
         }
         final View ownerFocus = mChildRequested
                 ? mOwnerFocusBeforeChild : mVisiblePanel.findFocus();
-        hideChild(false, false);
+        hideChild(false);
         mOwnerFocusBeforeChild = ownerFocus;
         if (mVisibleFocusable) {
             clearTextInputConnection();
@@ -301,7 +294,7 @@ final class DesktopPanelWindowController {
         if (mReleased || view == null || width <= 0 || height <= 0) {
             return false;
         }
-        hideTransient(false);
+        hideTransient();
         final int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
@@ -323,8 +316,8 @@ final class DesktopPanelWindowController {
         if (mReleased || factory == null) {
             return false;
         }
-        hideAll(false, false);
-        dismissDialog(false);
+        hideAll(false);
+        dismissDialog();
         mDialogFactory = factory;
         if (!ensureHostAndAttach()) {
             mDialogFactory = null;
@@ -334,10 +327,6 @@ final class DesktopPanelWindowController {
     }
 
     void hideTransient() {
-        hideTransient(true);
-    }
-
-    private void hideTransient(final boolean finishHost) {
         mMainHandler.removeCallbacks(mTransientTimeout);
         final View view = mTransientView;
         if (mTransientAdded && view != null && mWindowManager != null) {
@@ -347,9 +336,6 @@ final class DesktopPanelWindowController {
             view.setVisibility(View.GONE);
         }
         clearTransientRequest();
-        if (finishHost) {
-            finishHostIfIdle();
-        }
     }
 
     void hide(final View panel) {
@@ -371,16 +357,13 @@ final class DesktopPanelWindowController {
     }
 
     void hideAll() {
-        hideAll(false, false);
-        dismissDialog(false);
-        finishHostIfIdle();
+        hideAll(false);
+        dismissDialog();
     }
 
-    private void hideAll(
-            final boolean preservePanelVisibility,
-            final boolean finishHost) {
-        hideChild(false, false);
-        hideTransient(false);
+    private void hideAll(final boolean preservePanelVisibility) {
+        hideChild(false);
+        hideTransient();
         clearTextInputConnection();
         final View panel = mVisiblePanel;
         final boolean wasRequested = mVisibleRequested && panel != null;
@@ -395,18 +378,13 @@ final class DesktopPanelWindowController {
         if (wasRequested && !preservePanelVisibility) {
             notifyPanelVisibilityChanged(panel, false);
         }
-        if (finishHost) {
-            finishHostIfIdle();
-        }
     }
 
     private void hideChild() {
-        hideChild(true, true);
+        hideChild(true);
     }
 
-    private void hideChild(
-            final boolean restoreOwnerFocus,
-            final boolean finishHost) {
+    private void hideChild(final boolean restoreOwnerFocus) {
         final View panel = mChildPanel;
         final FrameLayout host = mChildHost;
         final View ownerFocus = mOwnerFocusBeforeChild;
@@ -425,9 +403,6 @@ final class DesktopPanelWindowController {
         if (restoreOwnerFocus && wasFocusable) {
             restoreOwnerFocus(ownerFocus);
         }
-        if (finishHost) {
-            finishHostIfIdle();
-        }
     }
 
     void release() {
@@ -440,14 +415,10 @@ final class DesktopPanelWindowController {
                 CONTROLLERS.remove(Integer.valueOf(mDisplayId));
             }
         }
-        hideAll(false, false);
-        dismissDialog(false);
+        hideAll(false);
+        dismissDialog();
         mInteractionOwnerBounds.setEmpty();
-        final DesktopPanelActivity activity = mHostActivity;
         clearHost();
-        if (activity != null) {
-            activity.finishFromController();
-        }
     }
 
     void setInteractionOwnerBounds(final Rect bounds) {
@@ -560,32 +531,26 @@ final class DesktopPanelWindowController {
     }
 
     private void attachHost(
-            final DesktopPanelActivity activity,
+            final DesktopChromeActivity activity,
             final WindowManager windowManager,
             final IBinder windowToken) {
         if (mReleased) {
-            activity.finishFromController();
             return;
         }
-        final DesktopPanelActivity previous = mHostActivity;
+        final DesktopChromeActivity previous = mHostActivity;
         if (previous != null && previous != activity) {
-            Log.w(TAG, "rejecting duplicate desktop panel host display="
+            Log.w(TAG, "rejecting duplicate desktop chrome host display="
                     + mDisplayId);
-            activity.finishFromController();
             return;
         }
         mHostActivity = activity;
         mWindowManager = windowManager;
         mWindowToken = windowToken;
-        if (mHostPrepared) {
-            attachRequestedWindows();
-        }
-        if (mHostPrepared && isIdle()) {
-            finishHostIfIdle();
-        }
+        mHostLaunchRequested = false;
+        attachRequestedWindows();
     }
 
-    private void detachHost(final DesktopPanelActivity activity) {
+    private void detachHost(final DesktopChromeActivity activity) {
         if (mHostActivity != activity) {
             return;
         }
@@ -606,7 +571,7 @@ final class DesktopPanelWindowController {
         if (visibleAdded) {
             recordPanelState(false, mVisibleTitle, mBounds);
         }
-        hideAll(false, false);
+        hideAll(false);
         mDialogFactory = null;
         if (dialog != null) {
             dialog.dismiss();
@@ -618,16 +583,11 @@ final class DesktopPanelWindowController {
             return;
         }
         mHostLaunchRequested = false;
-        mHostPrepared = false;
         CompatibilityDiagnostics.record(
                 "PANEL-004", "A desktop panel could not be shown", detail);
-        hideAll(false, false);
-        dismissDialog(false);
-        final DesktopPanelActivity activity = mHostActivity;
+        hideAll(false);
+        dismissDialog();
         clearHost();
-        if (activity != null) {
-            activity.finishFromController();
-        }
     }
 
     private void clearHost() {
@@ -635,7 +595,6 @@ final class DesktopPanelWindowController {
         mWindowManager = null;
         mWindowToken = null;
         mHostLaunchRequested = false;
-        mHostPrepared = false;
     }
 
     private boolean ensureHostAndAttach() {
@@ -643,18 +602,14 @@ final class DesktopPanelWindowController {
             return false;
         }
         if (mHostActivity != null && mWindowManager != null
-                && mWindowToken != null && mHostPrepared) {
-            final boolean attached = attachRequestedWindows();
-            if (isIdle()) {
-                finishHostIfIdle();
-            }
-            return attached;
+                && mWindowToken != null) {
+            return attachRequestedWindows();
         }
         if (mHostLaunchRequested) {
             return true;
         }
         mHostLaunchRequested = true;
-        MagicDeskRuntime.launchDesktopPanelHost(
+        MagicDeskRuntime.prepareDesktopChromeHost(
                 mDisplayId,
                 result -> {
                     if (mReleased) {
@@ -663,18 +618,14 @@ final class DesktopPanelWindowController {
                     mHostLaunchRequested = false;
                     if (result == null || !result.success) {
                         failHostLaunch(result == null
-                                ? "desktop panel host launch returned no result"
+                                ? "desktop chrome host returned no result"
                                 : result.message);
                         return;
                     }
-                    mHostPrepared = true;
                     if (mHostActivity != null
                             && mWindowManager != null
                             && mWindowToken != null) {
                         attachRequestedWindows();
-                    }
-                    if (isIdle()) {
-                        finishHostIfIdle();
                     }
                 });
         return true;
@@ -740,7 +691,7 @@ final class DesktopPanelWindowController {
 
     private boolean createDialog() {
         final DesktopDialogPresenter.Factory factory = mDialogFactory;
-        final DesktopPanelActivity activity = mHostActivity;
+        final DesktopChromeActivity activity = mHostActivity;
         if (factory == null || activity == null) {
             return false;
         }
@@ -755,7 +706,6 @@ final class DesktopPanelWindowController {
                 if (mDialog == dialog) {
                     mDialog = null;
                     mDialogFactory = null;
-                    finishHostIfIdle();
                 }
             });
             dialog.show();
@@ -841,7 +791,7 @@ final class DesktopPanelWindowController {
         }
     }
 
-    private void dismissDialog(final boolean finishHost) {
+    private void dismissDialog() {
         final AlertDialog dialog = mDialog;
         mDialog = null;
         mDialogFactory = null;
@@ -849,32 +799,6 @@ final class DesktopPanelWindowController {
             dialog.setOnDismissListener(null);
             dialog.dismiss();
         }
-        if (finishHost) {
-            finishHostIfIdle();
-        }
-    }
-
-    private void finishHostIfIdle() {
-        if (!isIdle()) {
-            return;
-        }
-        final DesktopPanelActivity activity = mHostActivity;
-        if (activity == null) {
-            // A launch already accepted by ActivityTaskManager may still be
-            // pending. Keep that ownership until its Activity callback arrives;
-            // otherwise a quick show-hide-show sequence can create two hosts.
-            return;
-        }
-        clearHost();
-        activity.finishFromController();
-    }
-
-    private boolean isIdle() {
-        return !mVisibleRequested
-                && !mChildRequested
-                && !mTransientRequested
-                && mDialogFactory == null
-                && mDialog == null;
     }
 
     private void clearVisibleRequest(final boolean notifyHidden) {
@@ -997,7 +921,7 @@ final class DesktopPanelWindowController {
                 final float x = mSecondaryX;
                 final float y = mSecondaryY;
                 post(() -> {
-                    hideChild(false, false);
+                    hideChild(false);
                     if (mInputListener != null) {
                         mInputListener.onSecondaryClick(x, y);
                     }
@@ -1066,6 +990,21 @@ final class DesktopPanelWindowController {
 
     private static String safeTitle(final String title) {
         return title == null ? "" : title;
+    }
+
+    private static final class HostRegistration {
+        final DesktopChromeActivity activity;
+        final WindowManager windowManager;
+        final IBinder windowToken;
+
+        HostRegistration(
+                final DesktopChromeActivity activity,
+                final WindowManager windowManager,
+                final IBinder windowToken) {
+            this.activity = activity;
+            this.windowManager = windowManager;
+            this.windowToken = windowToken;
+        }
     }
 
     private void recordPanelState(

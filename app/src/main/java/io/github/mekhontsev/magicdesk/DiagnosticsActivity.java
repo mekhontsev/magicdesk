@@ -832,6 +832,25 @@ public final class DiagnosticsActivity extends Activity {
                 List.of(),
                 List.of("text/plain"),
                 false);
+        final int activeDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final int displayId = getDisplay() == null
+                ? Display.DEFAULT_DISPLAY : getDisplay().getDisplayId();
+        if (displayId == activeDisplayId) {
+            AndroidDesktopActionDispatcher.shareContent(
+                    this,
+                    content,
+                    displayId,
+                    result -> {
+                        if (!result.success) {
+                            Toast.makeText(
+                                    this,
+                                    result.message,
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+            return;
+        }
         final Intent share = AndroidContentIntentAdapter.share(content);
         startActivity(Intent.createChooser(share, getString(R.string.diagnostics_share)));
     }

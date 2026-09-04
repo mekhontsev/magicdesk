@@ -9,9 +9,7 @@ public final class DesktopInfrastructureTasksTest {
     @Test
     public void classifiesDesktopChromeAndBackstop() {
         assertTrue(DesktopInfrastructureTasks.isComponentName(
-                componentName("DesktopTaskbarActivity")));
-        assertTrue(DesktopInfrastructureTasks.isComponentName(
-                componentName("DesktopPanelActivity")));
+                componentName("DesktopChromeActivity")));
         assertTrue(DesktopInfrastructureTasks.isComponentName(
                 componentName("DesktopSelfTestPhoneGuardActivity")));
         assertTrue(DesktopInfrastructureTasks.isComponentName(

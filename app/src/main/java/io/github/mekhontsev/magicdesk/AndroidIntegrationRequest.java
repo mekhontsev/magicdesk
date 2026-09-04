@@ -45,7 +45,7 @@ final class AndroidIntegrationRequest {
     final Kind kind;
     final Intent intent;
     final String name;
-    final DesktopLaunchMode launchMode;
+    final DesktopLaunchPresentation presentation;
     final boolean chooser;
     final String chooserTitle;
     final boolean expectResult;
@@ -55,7 +55,7 @@ final class AndroidIntegrationRequest {
             final Kind kind,
             final Intent intent,
             final String name,
-            final DesktopLaunchMode launchMode,
+            final DesktopLaunchPresentation presentation,
             final boolean chooser,
             final String chooserTitle,
             final boolean expectResult,
@@ -66,12 +66,18 @@ final class AndroidIntegrationRequest {
         this.kind = kind;
         this.intent = new Intent(intent);
         this.name = clean(name, "Android action");
-        this.launchMode = launchMode == null
-                ? DesktopLaunchMode.AUTO : launchMode;
+        this.presentation = presentation == null
+                ? DesktopLaunchPresentation.automatic() : presentation;
         this.chooser = chooser;
         this.chooserTitle = clean(chooserTitle, "");
         this.expectResult = expectResult;
         this.foregroundService = foregroundService;
+        if ((chooser || expectResult)
+                && this.presentation.instancePolicy
+                        != DesktopTaskInstancePolicy.CREATE_NEW) {
+            throw new IllegalArgumentException(
+                    "chooser and Activity results require instance=new");
+        }
     }
 
     static AndroidIntegrationRequest parse(
@@ -147,19 +153,22 @@ final class AndroidIntegrationRequest {
 
         final String name = optionalString(source, "name",
                 packageName.isEmpty() ? "Android action" : packageName);
-        final DesktopLaunchMode mode = parseLaunchMode(
-                optionalString(source, "mode", "auto"));
         final boolean chooser = source.optBoolean("chooser", false);
         final boolean expectResult = source.optBoolean("expectResult", false);
         if (kind != Kind.ACTIVITY && (chooser || expectResult)) {
             throw new IllegalArgumentException(
                     "chooser and expectResult are only valid for activities");
         }
+        final DesktopTaskInstancePolicy defaultInstance = chooser || expectResult
+                ? DesktopTaskInstancePolicy.CREATE_NEW
+                : DesktopTaskInstancePolicy.REUSE_EXISTING;
+        final DesktopLaunchPresentation presentation = parsePresentation(
+                source, defaultInstance);
         return new AndroidIntegrationRequest(
                 kind,
                 intent,
                 name,
-                mode,
+                presentation,
                 chooser,
                 optionalString(source, "chooserTitle", ""),
                 expectResult,
@@ -169,7 +178,7 @@ final class AndroidIntegrationRequest {
     static AndroidIntegrationRequest activity(
             final Intent intent,
             final String name,
-            final DesktopLaunchMode mode,
+            final DesktopLaunchPresentation presentation,
             final boolean chooser,
             final String chooserTitle,
             final boolean expectResult) {
@@ -177,11 +186,48 @@ final class AndroidIntegrationRequest {
                 Kind.ACTIVITY,
                 intent,
                 name,
-                mode,
+                presentation,
                 chooser,
                 chooserTitle,
                 expectResult,
                 false);
+    }
+
+    static DesktopLaunchPresentation parsePresentation(
+            final JSONObject source,
+            final DesktopTaskInstancePolicy defaultInstance)
+            throws JSONException {
+        final JSONObject value = source == null ? new JSONObject() : source;
+        return new DesktopLaunchPresentation(
+                parseLaunchMode(optionalString(value, "mode", "auto")),
+                parseBounds(value.optJSONObject("bounds")),
+                DesktopTaskInstancePolicy.parse(optionalString(
+                        value,
+                        "instance",
+                        (defaultInstance == null
+                                ? DesktopTaskInstancePolicy.REUSE_EXISTING
+                                : defaultInstance).wireName)),
+                value.has("preferredTaskId")
+                        ? requiredInt(value, "preferredTaskId") : -1);
+    }
+
+    private static RelativeWindowBounds parseBounds(final JSONObject value)
+            throws JSONException {
+        if (value == null) {
+            return null;
+        }
+        final int x = requiredInt(value, "x");
+        final int y = requiredInt(value, "y");
+        final int width = requiredInt(value, "width");
+        final int height = requiredInt(value, "height");
+        if (x < 0 || x > RelativeWindowBounds.SCALE
+                || y < 0 || y > RelativeWindowBounds.SCALE
+                || width < 1 || width > RelativeWindowBounds.SCALE
+                || height < 1 || height > RelativeWindowBounds.SCALE) {
+            throw new IllegalArgumentException(
+                    "bounds values must use the 0..10000 relative scale");
+        }
+        return new RelativeWindowBounds(x, y, width, height);
     }
 
     private static Intent parseBaseIntent(final String intentUri) {
@@ -342,10 +388,6 @@ final class AndroidIntegrationRequest {
                 return Intent.FLAG_ACTIVITY_CLEAR_TOP;
             case "single_top":
                 return Intent.FLAG_ACTIVITY_SINGLE_TOP;
-            case "new_document":
-                return Intent.FLAG_ACTIVITY_NEW_DOCUMENT;
-            case "multiple_task":
-                return Intent.FLAG_ACTIVITY_MULTIPLE_TASK;
             case "reorder_to_front":
                 return Intent.FLAG_ACTIVITY_REORDER_TO_FRONT;
             case "clear_task":

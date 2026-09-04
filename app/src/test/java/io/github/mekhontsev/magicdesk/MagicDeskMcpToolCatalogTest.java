@@ -304,6 +304,38 @@ public final class MagicDeskMcpToolCatalogTest {
     }
 
     @Test
+    public void AndroidActivityToolsExposePresentationAndResults()
+            throws Exception {
+        final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
+        final JSONObject launch = tool(tools, "launch_intent")
+                .getJSONObject("inputSchema")
+                .getJSONObject("properties");
+        assertTrue(launch.has("instance"));
+        assertTrue(launch.has("preferredTaskId"));
+        assertTrue(launch.has("bounds"));
+
+        final JSONObject result = tool(tools, "get_intent_result")
+                .getJSONObject("inputSchema")
+                .getJSONObject("properties");
+        assertTrue(result.has("waitMillis"));
+        assertTrue(result.has("consume"));
+
+        final JSONObject actions = tool(tools, "list_android_actions")
+                .getJSONObject("outputSchema")
+                .getJSONObject("properties")
+                .getJSONObject("data")
+                .getJSONObject("properties");
+        assertTrue(actions.has("actions"));
+
+        final JSONObject history = tool(tools, "get_activity_history")
+                .getJSONObject("outputSchema")
+                .getJSONObject("properties")
+                .getJSONObject("data")
+                .getJSONObject("properties");
+        assertTrue(history.has("launches"));
+    }
+
+    @Test
     public void rawAndManagedFullscreenPathsAreExplicit() throws Exception {
         final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
         final JSONObject raw = tool(tools, "set_window_mode");

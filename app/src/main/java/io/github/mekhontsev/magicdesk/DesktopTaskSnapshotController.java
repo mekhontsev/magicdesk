@@ -47,7 +47,7 @@ final class DesktopTaskSnapshotController {
                 findActiveTask(snapshot.tasks);
         final boolean taskbarAvailable = isDesktopChromeAvailable(
                 snapshot.tasks, desktopSnapshot.tasks);
-        // The taskbar plane remains available for edge reveal throughout an
+        // The desktop chrome host remains available for edge reveal during an
         // active session. Policy visibility instead follows the physical
         // workspace: treating session foreground as HOME foreground would
         // keep the taskbar pinned over a selected fullscreen task.

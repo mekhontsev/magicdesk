@@ -22,8 +22,15 @@ final class ExistingTaskController {
     static ReuseResult reuseIfExists(final AppLaunchTarget target,
             final int targetDisplayId,
             final boolean targetFreeform) throws IOException {
+        return reuseIfExists(target, targetDisplayId, targetFreeform, -1);
+    }
+
+    static ReuseResult reuseIfExists(final AppLaunchTarget target,
+            final int targetDisplayId,
+            final boolean targetFreeform,
+            final int preferredTaskId) throws IOException {
         return reuseIfExists(target, targetDisplayId, targetFreeform,
-                null, false, false, false, null, null);
+                null, false, false, false, null, preferredTaskId, null);
     }
 
     static ReuseResult reuseNativeDesktopIfExists(
@@ -32,10 +39,11 @@ final class ExistingTaskController {
             final boolean waitForTask,
             final boolean explicitWindowed,
             final Rect targetBounds,
+            final int preferredTaskId,
             final WindowedTaskLaunchLease launchLease) throws IOException {
         return reuseIfExists(target, targetDisplayId, true,
                 preservedTopFirstTaskIds, true, waitForTask,
-                explicitWindowed, targetBounds, launchLease);
+                explicitWindowed, targetBounds, preferredTaskId, launchLease);
     }
 
     static ReuseResult reuseFreeformIfExists(
@@ -44,10 +52,11 @@ final class ExistingTaskController {
             final boolean waitForTask,
             final boolean explicitWindowed,
             final Rect targetBounds,
+            final int preferredTaskId,
             final WindowedTaskLaunchLease launchLease) throws IOException {
         return reuseIfExists(target, targetDisplayId, true,
                 preservedTopFirstTaskIds, false, waitForTask,
-                explicitWindowed, targetBounds, launchLease);
+                explicitWindowed, targetBounds, preferredTaskId, launchLease);
     }
 
     static boolean taskExists(final String packageName, final int targetDisplayId)
@@ -69,13 +78,25 @@ final class ExistingTaskController {
             final boolean waitForTask,
             final boolean explicitWindowed,
             final Rect targetBounds,
+            final int preferredTaskId,
             final WindowedTaskLaunchLease outerLaunchLease) throws IOException {
-        TaskInfo task = waitForTask
-                ? waitForBestTask(target, targetDisplayId, targetFreeform)
-                : findBestTask(target, targetDisplayId, targetFreeform);
+        TaskInfo task = preferredTaskId > 0
+                ? findMatchingTask(target, preferredTaskId)
+                : waitForTask
+                        ? waitForBestTask(
+                                target, targetDisplayId, targetFreeform)
+                        : findBestTask(
+                                target, targetDisplayId, targetFreeform);
         if (task == null) {
             Log.i(TAG, "no existing task package=" + target.packageName);
             return ReuseResult.notFound();
+        }
+        if (preferredTaskId > 0
+                && (task.displayId != targetDisplayId
+                        || !matchesWindowingMode(task, targetFreeform))) {
+            throw new IOException(
+                    "preferred task " + preferredTaskId
+                            + " is not in the requested desktop topology");
         }
         final int originalDisplayId = task.displayId;
 
@@ -278,6 +299,17 @@ final class ExistingTaskController {
             }
         }
         return tasks.get(0);
+    }
+
+    private static TaskInfo findMatchingTask(
+            final AppLaunchTarget target,
+            final int taskId) throws IOException {
+        for (final TaskInfo task : findTasks(target)) {
+            if (task.taskId == taskId) {
+                return task;
+            }
+        }
+        return null;
     }
 
     private static List<TaskInfo> findTasks(final AppLaunchTarget target)

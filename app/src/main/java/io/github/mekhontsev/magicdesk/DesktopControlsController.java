@@ -200,6 +200,22 @@ final class DesktopControlsController {
                 mActivity.openTaskManager());
         addActionButton(actionGrid, taskManager);
 
+        final Button activityExplorer = mUi.actionButton(
+                R.string.activity_explorer_title,
+                DesktopUiFactory.COLOR_CYAN);
+        activityExplorer.setOnClickListener(view ->
+                mActivity.openActivityExplorer());
+        addActionButton(actionGrid, activityExplorer);
+
+        final Button wirelessSettings = mUi.actionButton(
+                R.string.action_wireless_settings,
+                DesktopUiFactory.COLOR_CYAN);
+        wirelessSettings.setOnClickListener(view -> {
+            mActivity.hideAllPanels();
+            mActivity.invokeDesktopAction("wireless-settings");
+        });
+        addActionButton(actionGrid, wirelessSettings);
+
         final Button settings = mUi.actionButton(
                 R.string.action_settings,
                 DesktopUiFactory.COLOR_CYAN);

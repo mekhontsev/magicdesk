@@ -129,6 +129,22 @@ final class DesktopSystemActionsController {
         }
     }
 
+    void openActivityExplorer() {
+        mActivity.hideAllPanels();
+        try {
+            mActivity.launchInternalWindow(
+                    ActivityExplorerActivity.createIntent(mActivity),
+                    ActivityExplorerActivity.launchTarget(),
+                    mActivity.getString(R.string.activity_explorer_title));
+        } catch (RuntimeException error) {
+            mActivity.setErrorStatus(
+                    "ACTIVITY-EXPLORER-001",
+                    "Cannot open Activity Explorer",
+                    "display=" + mActivity.getCurrentDisplayId(),
+                    error);
+        }
+    }
+
     void openSettings() {
         mActivity.hideAllPanels();
         try {

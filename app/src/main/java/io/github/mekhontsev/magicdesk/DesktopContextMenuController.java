@@ -458,6 +458,11 @@ final class DesktopContextMenuController {
                     }
 
                     @Override
+                    public void share() {
+                        mActivity.shareDesktopFile(file);
+                    }
+
+                    @Override
                     public void install() {
                         mActivity.installDesktopApk(file);
                     }

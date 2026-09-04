@@ -132,18 +132,6 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static void updateDesktopTaskbarPresentation(
-            final int displayId,
-            final Rect bounds,
-            final boolean visible) {
-        final MagicDeskRuntimeBackend backend = backend();
-        if (backend == null || bounds == null || bounds.isEmpty()) {
-            return;
-        }
-        backend.desktopTasks().updateDesktopTaskbarPresentation(
-                displayId, new Rect(bounds), visible);
-    }
-
     static void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {
@@ -155,7 +143,7 @@ public final class MagicDeskRuntime {
                 displayId, activityToken);
     }
 
-    static void launchDesktopPanelHost(
+    static void prepareDesktopChromeHost(
             final int displayId,
             final TaskRepository.ActionCallback callback) {
         final MagicDeskRuntimeBackend backend = backend();
@@ -166,15 +154,15 @@ public final class MagicDeskRuntime {
             }
             return;
         }
-        backend.desktopTasks().launchDesktopPanelHost(displayId, callback);
+        backend.desktopTasks().prepareDesktopChromeHost(displayId, callback);
     }
 
-    static void raiseDesktopTaskbarPlane(final int displayId) {
+    static void raiseDesktopChrome(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend == null) {
             return;
         }
-        backend.desktopTasks().raiseDesktopTaskbarPlane(displayId);
+        backend.desktopTasks().raiseDesktopChrome(displayId);
     }
 
     public static void refreshPlatformState() {

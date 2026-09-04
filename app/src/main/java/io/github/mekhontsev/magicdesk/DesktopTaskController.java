@@ -539,23 +539,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public void updateDesktopTaskbarPresentation(
-            final int displayId,
-            final Rect bounds,
-            final boolean visible) {
-        if (bounds == null || bounds.isEmpty()) {
-            return;
-        }
-        final Rect requestedBounds = new Rect(bounds);
-        mHandler.post(() -> {
-            if (mRunning && mDisplayId == displayId && mTaskWatcherReady) {
-                mTaskWatcher.updateDesktopTaskbarPresentation(
-                        displayId, requestedBounds, visible);
-            }
-        });
-    }
-
-    @Override
     public void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {
@@ -571,7 +554,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public void launchDesktopPanelHost(
+    public void prepareDesktopChromeHost(
             final int displayId,
             final TaskRepository.ActionCallback callback) {
         mHandler.post(() -> {
@@ -582,15 +565,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 }
                 return;
             }
-            mTaskWatcher.launchDesktopPanelHost(displayId, callback);
+            mTaskWatcher.prepareDesktopChromeHost(displayId, callback);
         });
     }
 
     @Override
-    public void raiseDesktopTaskbarPlane(final int displayId) {
+    public void raiseDesktopChrome(final int displayId) {
         mHandler.post(() -> {
             if (mRunning && mDisplayId == displayId && mTaskWatcherReady) {
-                mTaskWatcher.raiseDesktopTaskbarPlane(displayId);
+                mTaskWatcher.raiseDesktopChrome(displayId);
             }
         });
     }
@@ -2117,20 +2100,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         final Rect displayBounds = mNativeWindowBounds.getFullscreenBounds();
         final Rect workAreaBounds =
                 mNativeWindowBounds.getTaskbarMaximizedBounds();
-        Rect taskbarBounds = DesktopRuntimeBridge
-                .getDesktopTaskbarBounds(mDisplayId);
-        if (taskbarBounds == null || taskbarBounds.isEmpty()) {
-            final int fallbackHeight = Math.max(
-                    1,
-                    Math.round(64f * mWindowContext.getResources()
-                            .getDisplayMetrics().density));
-            taskbarBounds = new Rect(
-                    displayBounds.left,
-                    Math.max(displayBounds.top,
-                            displayBounds.bottom - fallbackHeight),
-                    displayBounds.right,
-                    displayBounds.bottom);
-        }
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
         final int desktopHostTaskId = session.activeDisplayId() == mDisplayId
@@ -2139,7 +2108,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 mDisplayId,
                 displayBounds,
                 workAreaBounds,
-                taskbarBounds,
                 desktopHostTaskId);
         mTaskWatcher.setExternalTaskMigrationProtection(
                 shouldProtectExternalSession());

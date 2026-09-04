@@ -127,10 +127,15 @@ final class MagicDeskMcpToolCatalog {
                                         .put("mode", enumProperty(
                                                 "Launch mode.", "auto",
                                                 "windowed", "fullscreen"))
+                                        .put("instance", enumProperty(
+                                                "Task instance policy.",
+                                                "reuse", "new"))
+                                        .put("preferredTaskId", integerProperty(
+                                                "Existing task to activate when instance is reuse."))
                                         .put("displayId", integerProperty(
                                                 "Active desktop display id."))
-                                        .put("bounds", boundsProperty(
-                                                "Initial bounds for a newly launched windowed task.")),
+                                        .put("bounds", relativeBoundsProperty(
+                                                "Initial bounds within the desktop work area.")),
                                 "package")))
                 .put(actionTool(
                         "focus_task",
@@ -236,13 +241,13 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "open_builtin",
                         "Open built-in window",
-                        "Open a MagicDesk Files, Console, Task Manager, Settings, or Diagnostics window.",
+                        "Open a MagicDesk Files, Console, Task Manager, Settings, Diagnostics, or Activity Explorer window.",
                         objectSchema(new JSONObject().put(
                                 "builtin", enumProperty(
                                         "Built-in window.",
                                         "files", "console",
                                         "task_manager", "settings",
-                                        "diagnostics")),
+                                        "diagnostics", "activity_explorer")),
                                 "builtin")))
                 .put(actionTool(
                         "arrange_task",
@@ -282,6 +287,23 @@ final class MagicDeskMcpToolCatalog {
                         "Share text and shell files through Android with bounded temporary URI grants.",
                         shareSchema()))
                 .put(readTool(
+                        "list_android_actions",
+                        "List Android actions",
+                        "List stable semantic Android actions shared by MagicDesk UI, MCP, and App Functions.",
+                        emptySchema()))
+                .put(actionTool(
+                        "invoke_android_action",
+                        "Invoke Android action",
+                        "Invoke a stable semantic Android action through the managed desktop Activity pipeline.",
+                        androidActionSchema()))
+                .put(readTool(
+                        "get_activity_history",
+                        "Get Activity history",
+                        "Read bounded compatibility evidence from Activity launches that already occurred.",
+                        objectSchema(new JSONObject().put(
+                                "limit", integerProperty(
+                                        "Maximum launches, up to 64.")))))
+                .put(readTool(
                         "list_app_actions",
                         "List application actions",
                         "List dynamic, pinned, cached, and manifest application shortcuts visible to MagicDesk.",
@@ -307,9 +329,13 @@ final class MagicDeskMcpToolCatalog {
                         "get_intent_result",
                         "Get Activity result",
                         "Read an event-driven Activity result requested by launch_intent or open_file.",
-                        objectSchema(new JSONObject().put(
-                                "requestId", stringProperty(
-                                        "Result request id returned by the launch tool.")),
+                        objectSchema(new JSONObject()
+                                .put("requestId", stringProperty(
+                                        "Result request id returned by the launch tool."))
+                                .put("waitMillis", integerProperty(
+                                        "Optional event-driven wait, up to 60000 ms."))
+                                .put("consume", booleanProperty(
+                                        "Remove a terminal result and release its persisted URI grants after reading it.")),
                                 "requestId")))
                 .put(readTool(
                         "search_app_functions",
@@ -731,6 +757,12 @@ final class MagicDeskMcpToolCatalog {
                 .put("mode", enumProperty(
                         "Activity launch mode.",
                         "auto", "windowed", "fullscreen"))
+                .put("instance", enumProperty(
+                        "Task instance policy.", "reuse", "new"))
+                .put("preferredTaskId", integerProperty(
+                        "Existing task to receive the action when instance is reuse."))
+                .put("bounds", relativeBoundsProperty(
+                        "Initial bounds within the desktop work area."))
                 .put("displayId", integerProperty(
                         "Optional active desktop display id."))
                 .put("chooser", booleanProperty(
@@ -760,6 +792,12 @@ final class MagicDeskMcpToolCatalog {
                                 "Optional flattened Activity component."))
                         .put("mode", enumProperty(
                                 "Launch mode.", "auto", "windowed", "fullscreen"))
+                        .put("instance", enumProperty(
+                                "Task instance policy.", "reuse", "new"))
+                        .put("preferredTaskId", integerProperty(
+                                "Existing task to receive the action."))
+                        .put("bounds", relativeBoundsProperty(
+                                "Initial bounds within the desktop work area."))
                         .put("displayId", integerProperty(
                                 "Optional active desktop display id."))
                         .put("chooser", booleanProperty("Show Android chooser."))
@@ -785,6 +823,12 @@ final class MagicDeskMcpToolCatalog {
                         "Optional flattened Activity component."))
                 .put("mode", enumProperty(
                         "Launch mode.", "auto", "windowed", "fullscreen"))
+                .put("instance", enumProperty(
+                        "Task instance policy.", "reuse", "new"))
+                .put("preferredTaskId", integerProperty(
+                        "Existing task to receive the action."))
+                .put("bounds", relativeBoundsProperty(
+                        "Initial bounds within the desktop work area."))
                 .put("chooser", booleanProperty("Show Android chooser."))
                 .put("chooserTitle", stringProperty("Chooser title."))
                 .put("expectResult", booleanProperty(
@@ -807,6 +851,12 @@ final class MagicDeskMcpToolCatalog {
                         "Optional flattened Activity component."))
                 .put("mode", enumProperty(
                         "Launch mode.", "auto", "windowed", "fullscreen"))
+                .put("instance", enumProperty(
+                        "Task instance policy.", "reuse", "new"))
+                .put("preferredTaskId", integerProperty(
+                        "Existing task to receive the action."))
+                .put("bounds", relativeBoundsProperty(
+                        "Initial bounds within the desktop work area."))
                 .put("displayId", integerProperty(
                         "Optional active desktop display id."))
                 .put("chooser", booleanProperty("Show Android chooser."))
@@ -814,6 +864,49 @@ final class MagicDeskMcpToolCatalog {
         return schema.put("anyOf", new JSONArray()
                 .put(requiredOnly("text"))
                 .put(requiredOnly("files")));
+    }
+
+    private static JSONObject androidActionSchema() throws JSONException {
+        return objectSchema(new JSONObject()
+                        .put("actionId", enumProperty(
+                                "Stable Android action id.",
+                                AndroidDesktopActionCatalog.ids()))
+                        .put("displayId", integerProperty(
+                                "Optional active desktop display id."))
+                        .put("mimeType", stringProperty(
+                                "Document MIME type."))
+                        .put("multiple", booleanProperty(
+                                "Allow multiple documents."))
+                        .put("suggestedName", stringProperty(
+                                "Suggested created document name."))
+                        .put("package", stringProperty(
+                                "Package for app-details."))
+                        .put("listenerComponent", stringProperty(
+                                "Notification listener component."))
+                        .put("mode", enumProperty(
+                                "Launch mode.", "auto", "windowed", "fullscreen"))
+                        .put("instance", enumProperty(
+                                "Task instance policy.", "reuse", "new"))
+                        .put("preferredTaskId", integerProperty(
+                                "Existing task to receive the action."))
+                        .put("bounds", relativeBoundsProperty(
+                                "Initial bounds within the desktop work area.")),
+                "actionId");
+    }
+
+    private static JSONObject relativeBoundsProperty(
+            final String description) throws JSONException {
+        return objectSchema(new JSONObject()
+                        .put("x", integerProperty(
+                                "Horizontal position on a 0..10000 scale."))
+                        .put("y", integerProperty(
+                                "Vertical position on a 0..10000 scale."))
+                        .put("width", integerProperty(
+                                "Width on a 1..10000 scale."))
+                        .put("height", integerProperty(
+                                "Height on a 1..10000 scale.")),
+                "x", "y", "width", "height")
+                .put("description", description);
     }
 
     private static JSONObject notificationActionSchema() throws JSONException {
@@ -1078,9 +1171,25 @@ final class MagicDeskMcpToolCatalog {
             case "share":
                 activityLaunchResultProperties(properties);
                 break;
+            case "list_android_actions":
+                properties.put("actions", arrayProperty(
+                        "Stable semantic Android actions.",
+                        openObjectProperty("Android action.")));
+                break;
+            case "invoke_android_action":
+                activityLaunchResultProperties(properties);
+                break;
+            case "get_activity_history":
+                properties.put("launches", arrayProperty(
+                        "Bounded observed Activity launch history.",
+                        openObjectProperty("Activity launch evidence.")));
+                break;
             case "invoke_app_action":
                 properties.put("package", stringProperty("Package."))
-                        .put("actionId", stringProperty("Application action id."));
+                        .put("actionId", stringProperty("Application action id."))
+                        .put("instance", stringProperty(
+                                "Requested task instance policy."));
+                taskLaunchResultProperties(properties);
                 break;
             case "list_notifications":
                 properties.put("connected", booleanProperty(
@@ -1108,6 +1217,11 @@ final class MagicDeskMcpToolCatalog {
                                 "Last result-state timestamp."))
                         .put("resultCode", integerProperty(
                                 "Android Activity result code when completed."))
+                        .put("consumed", booleanProperty(
+                                "Whether this read removed the terminal result."))
+                        .put("releasedPersistedUris", arrayProperty(
+                                "Persisted URI grants released by consume=true.",
+                                stringProperty("Released content URI.")))
                         .put("data", openObjectProperty(
                                 "Sanitized result Intent data."));
                 break;

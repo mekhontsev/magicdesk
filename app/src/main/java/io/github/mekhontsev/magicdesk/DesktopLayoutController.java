@@ -12,7 +12,7 @@ import android.view.WindowMetrics;
 import android.widget.FrameLayout;
 
 /**
- * Owns desktop viewport policy and keeps the taskbar plane aligned with the
+ * Owns desktop viewport policy and keeps taskbar chrome aligned with the
  * current display geometry.
  */
 final class DesktopLayoutController {
@@ -89,7 +89,7 @@ final class DesktopLayoutController {
         return taskbarHost.attachTaskbar(
                 taskbar,
                 taskbarBounds(),
-                taskbarPlaneBounds());
+                taskbarSurfaceBounds());
     }
 
     DesktopViewport viewport() {
@@ -100,8 +100,8 @@ final class DesktopLayoutController {
         return mViewport.taskbarBounds(mRuntimeState.taskbarHeight());
     }
 
-    private Rect taskbarPlaneBounds() {
-        return mViewport.taskbarPlaneBounds(
+    private Rect taskbarSurfaceBounds() {
+        return mViewport.taskbarSurfaceBounds(
                 mRuntimeState.taskbarHeight());
     }
 
@@ -177,7 +177,7 @@ final class DesktopLayoutController {
         if (mTaskbar == null || mTaskbarHost == null || mViewport == null) {
             return;
         }
-        mTaskbarHost.updateBounds(taskbarBounds(), taskbarPlaneBounds());
+        mTaskbarHost.updateBounds(taskbarBounds(), taskbarSurfaceBounds());
     }
 
     private void updateSystemBarBackdrops() {

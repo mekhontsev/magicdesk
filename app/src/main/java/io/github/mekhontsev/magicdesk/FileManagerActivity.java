@@ -655,6 +655,11 @@ public final class FileManagerActivity extends Activity
                     }
 
                     @Override
+                    public void importFiles() {
+                        openImportPicker();
+                    }
+
+                    @Override
                     public void paste() {
                         onPaste();
                     }
@@ -689,6 +694,11 @@ public final class FileManagerActivity extends Activity
             @Override
             public void openWith() {
                 onItemOpenWith(file);
+            }
+
+            @Override
+            public void share() {
+                shareFile(file);
             }
 
             @Override
@@ -846,7 +856,7 @@ public final class FileManagerActivity extends Activity
                         null,
                         true,
                         null,
-                        WindowedAppLauncher.TaskReusePolicy.CREATE_NEW,
+                        DesktopTaskInstancePolicy.CREATE_NEW,
                         null);
                 runOnUiThread(() -> {
                     if (!mDestroyed) {
@@ -1748,13 +1758,176 @@ public final class FileManagerActivity extends Activity
     }
 
     private void launchFileIntent(final Intent intent) {
-        try {
-            startOnCurrentDisplay(intent);
-        } catch (RuntimeException error) {
-            mView.setStatus(getString(
-                    R.string.file_manager_open_failed,
-                    ShellAccess.usefulMessage(error)));
+        final int displayId = currentDisplayId();
+        mWorker.execute(() -> executeAndroidActivity(
+                "open-file",
+                intent,
+                DesktopLaunchPresentation.automatic(),
+                displayId));
+    }
+
+    private void shareFile(final ShellFileInfo file) {
+        if (file == null || file.directory) {
+            return;
         }
+        final int displayId = currentDisplayId();
+        mWorker.execute(() -> {
+            try {
+                final Uri uri = ShellFileGrantStore.create(
+                        this, file, false);
+                final AndroidContentPayload content = AndroidContentPayload.uris(
+                        file.name,
+                        List.of(new AndroidContentPayload.UriItem(
+                                uri, file.mimeType)),
+                        List.of(),
+                        AndroidContentPayload.Origin.APPLICATION);
+                final DesktopAutomationResult result =
+                        new AndroidIntegrationGateway(this).shareContent(
+                                content, displayId);
+                showAndroidResult(result);
+            } catch (IOException | org.json.JSONException
+                    | RuntimeException error) {
+                showAndroidError(error);
+            }
+        });
+    }
+
+    private void openImportPicker() {
+        final int displayId = currentDisplayId();
+        final String destination = mCurrentPath;
+        mWorker.execute(() -> {
+            try {
+                final org.json.JSONObject parameters = new org.json.JSONObject()
+                        .put("mimeType", "*/*")
+                        .put("multiple", true)
+                        .put("mode", DesktopLaunchMode.WINDOWED.wireName)
+                        .put("instance",
+                                DesktopTaskInstancePolicy.CREATE_NEW.wireName);
+                final DesktopAutomationResult launched =
+                        new AndroidIntegrationGateway(this)
+                                .invokeDesktopAction(
+                                        "open-document",
+                                        parameters,
+                                        "files",
+                                displayId);
+                if (!launched.success) {
+                    showAndroidResult(launched);
+                    return;
+                }
+                final String requestId = launched.data.optString(
+                        "requestId", "");
+                final org.json.JSONObject result =
+                        AndroidActivityResultStore.get(
+                                this, requestId, 600_000L, false);
+                final String state = result.optString("state");
+                if ("completed".equals(state)
+                        && result.optInt("resultCode") != RESULT_OK) {
+                    consumeActivityResult(requestId);
+                    return;
+                }
+                if (!"completed".equals(state)) {
+                    consumeActivityResult(requestId);
+                    showAndroidError(new IllegalStateException(
+                            result.optString(
+                                    "error",
+                                    "file selection did not complete")));
+                    return;
+                }
+                final List<Uri> uris = resultUris(
+                        result.optJSONObject("data"));
+                if (uris.isEmpty()) {
+                    consumeActivityResult(requestId);
+                    showAndroidError(new IllegalStateException(
+                            "file picker returned no content URI"));
+                    return;
+                }
+                runOnUiThread(() -> mImporter.importFiles(
+                        destination,
+                        uris,
+                        null,
+                        () -> consumeActivityResult(requestId)));
+            } catch (IOException | org.json.JSONException
+                    | RuntimeException error) {
+                showAndroidError(error);
+            }
+        });
+    }
+
+    private void executeAndroidActivity(
+            final String id,
+            final Intent intent,
+            final DesktopLaunchPresentation presentation,
+            final int displayId) {
+        try {
+            final AndroidIntegrationRequest request =
+                    AndroidIntegrationRequest.activity(
+                            intent,
+                            intent.getComponent() == null
+                                    ? id : intent.getComponent()
+                                            .getPackageName(),
+                            presentation,
+                            false,
+                            "",
+                            false);
+            showAndroidResult(new AndroidIntegrationGateway(this).execute(
+                    AndroidDesktopAction.request(id, "files", request),
+                    displayId));
+        } catch (IOException | org.json.JSONException
+                | RuntimeException error) {
+            showAndroidError(error);
+        }
+    }
+
+    private List<Uri> resultUris(final org.json.JSONObject data) {
+        final List<Uri> uris = new ArrayList<>();
+        if (data == null) {
+            return uris;
+        }
+        final String primary = data.optString("dataUri", "");
+        if (!primary.isEmpty()) {
+            uris.add(Uri.parse(primary));
+        }
+        final org.json.JSONArray clip = data.optJSONArray("clipUris");
+        if (clip != null) {
+            for (int index = 0; index < clip.length(); index++) {
+                final Uri uri = Uri.parse(clip.optString(index, ""));
+                if (!Uri.EMPTY.equals(uri) && !uris.contains(uri)) {
+                    uris.add(uri);
+                }
+            }
+        }
+        return uris;
+    }
+
+    private void consumeActivityResult(final String requestId) {
+        try {
+            AndroidActivityResultStore.get(this, requestId, 0L, true);
+        } catch (org.json.JSONException ignored) {
+            // The import has finished; result metadata is best-effort cleanup.
+        }
+    }
+
+    private int currentDisplayId() {
+        return getDisplay() == null
+                ? DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                : getDisplay().getDisplayId();
+    }
+
+    private void showAndroidResult(final DesktopAutomationResult result) {
+        if (result == null || result.success || mDestroyed) {
+            return;
+        }
+        runOnUiThread(() -> mView.setStatus(getString(
+                R.string.file_manager_open_failed, result.message)));
+    }
+
+    private void showAndroidError(final Throwable error) {
+        if (mDestroyed) {
+            return;
+        }
+        runOnUiThread(() -> mView.setStatus(getString(
+                R.string.file_manager_open_failed,
+                ShellAccess.usefulMessage(error))));
     }
 
     private void startFileDrag(
@@ -1842,14 +2015,6 @@ public final class FileManagerActivity extends Activity
                 () -> mView.setStatus(getString(
                         R.string.file_manager_install_complete,
                         file.name)));
-    }
-
-    private void startOnCurrentDisplay(final Intent intent) {
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        if (getDisplay() != null) {
-            options.setLaunchDisplayId(getDisplay().getDisplayId());
-        }
-        startActivity(intent, options.toBundle());
     }
 
     private void startConsoleWindow(final Intent intent) {

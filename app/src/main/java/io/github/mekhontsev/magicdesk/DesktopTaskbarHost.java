@@ -8,7 +8,7 @@ import android.view.View;
 import java.util.HashMap;
 import java.util.Map;
 
-/** Connects desktop-owned taskbar UI to its shell-owned taskbar plane. */
+/** Connects desktop-owned taskbar UI to the shared desktop chrome task. */
 final class DesktopTaskbarHost {
     interface BoundsListener {
         void onBoundsChanged(Rect bounds);
@@ -21,17 +21,14 @@ final class DesktopTaskbarHost {
     private static final Object REGISTRY_LOCK = new Object();
     private static final Map<Integer, DesktopTaskbarHost> HOSTS =
             new HashMap<>();
-    private static final Map<Integer, DesktopTaskbarActivity> ACTIVITIES =
+    private static final Map<Integer, DesktopChromeActivity> ACTIVITIES =
             new HashMap<>();
 
     private final int mDisplayId;
     private final BoundsListener mBoundsListener;
     private final Rect mTaskbarBounds = new Rect();
-    private final Rect mPlaneBounds = new Rect();
+    private final Rect mSurfaceBounds = new Rect();
     private final Rect mAppliedBounds = new Rect();
-    private final Rect mAppliedPlaneBounds = new Rect();
-    private boolean mAppliedPlaneVisible;
-    private boolean mPlanePresentationApplied;
 
     private View mTaskbar;
     private boolean mPresented = true;
@@ -54,41 +51,41 @@ final class DesktopTaskbarHost {
     boolean attachTaskbar(
             final View taskbar,
             final Rect taskbarBounds,
-            final Rect planeBounds) {
+            final Rect surfaceBounds) {
         if (mReleased || taskbar == null
                 || taskbarBounds == null || taskbarBounds.isEmpty()
-                || planeBounds == null || planeBounds.isEmpty()
-                || !planeBounds.contains(taskbarBounds)) {
+                || surfaceBounds == null || surfaceBounds.isEmpty()
+                || !surfaceBounds.contains(taskbarBounds)) {
             return false;
         }
         mTaskbar = taskbar;
         mTaskbarBounds.set(taskbarBounds);
-        mPlaneBounds.set(planeBounds);
-        final DesktopTaskbarActivity activity;
+        mSurfaceBounds.set(surfaceBounds);
+        final DesktopChromeActivity activity;
         synchronized (REGISTRY_LOCK) {
             HOSTS.put(Integer.valueOf(mDisplayId), this);
             activity = ACTIVITIES.get(Integer.valueOf(mDisplayId));
         }
         apply(activity);
-        updatePlanePresentation();
+        updateAppliedBounds();
         return true;
     }
 
     void updateBounds(
             final Rect taskbarBounds,
-            final Rect planeBounds) {
+            final Rect surfaceBounds) {
         if (mReleased
                 || taskbarBounds == null || taskbarBounds.isEmpty()
-                || planeBounds == null || planeBounds.isEmpty()
-                || !planeBounds.contains(taskbarBounds)
+                || surfaceBounds == null || surfaceBounds.isEmpty()
+                || !surfaceBounds.contains(taskbarBounds)
                 || (mTaskbarBounds.equals(taskbarBounds)
-                        && mPlaneBounds.equals(planeBounds))) {
+                        && mSurfaceBounds.equals(surfaceBounds))) {
             return;
         }
         mTaskbarBounds.set(taskbarBounds);
-        mPlaneBounds.set(planeBounds);
+        mSurfaceBounds.set(surfaceBounds);
         apply(currentActivity());
-        updatePlanePresentation();
+        updateAppliedBounds();
     }
 
     void setPresented(final boolean presented) {
@@ -97,7 +94,6 @@ final class DesktopTaskbarHost {
         }
         mPresented = presented;
         apply(currentActivity());
-        updatePlanePresentation();
     }
 
     void setEdgeHidden(final boolean hidden, final int edgeHeight) {
@@ -124,7 +120,7 @@ final class DesktopTaskbarHost {
             return;
         }
         mReleased = true;
-        final DesktopTaskbarActivity activity;
+        final DesktopChromeActivity activity;
         synchronized (REGISTRY_LOCK) {
             if (HOSTS.get(Integer.valueOf(mDisplayId)) == this) {
                 HOSTS.remove(Integer.valueOf(mDisplayId));
@@ -137,10 +133,8 @@ final class DesktopTaskbarHost {
         mTaskbar = null;
         mEdgeInputListener = null;
         mTaskbarBounds.setEmpty();
-        mPlaneBounds.setEmpty();
+        mSurfaceBounds.setEmpty();
         mAppliedBounds.setEmpty();
-        mAppliedPlaneBounds.setEmpty();
-        mPlanePresentationApplied = false;
     }
 
     Rect appliedBounds() {
@@ -149,14 +143,14 @@ final class DesktopTaskbarHost {
     }
 
     boolean runAfterSurfaceTraversalFence(final Runnable action) {
-        final DesktopTaskbarActivity activity = currentActivity();
+        final DesktopChromeActivity activity = currentActivity();
         return !mReleased && activity != null
                 && activity.runAfterSurfaceTraversalFence(action);
     }
 
     static void registerActivity(
             final int displayId,
-            final DesktopTaskbarActivity activity) {
+            final DesktopChromeActivity activity) {
         if (displayId == Display.INVALID_DISPLAY || activity == null) {
             return;
         }
@@ -167,14 +161,12 @@ final class DesktopTaskbarHost {
         }
         if (host != null) {
             host.apply(activity);
-            MagicDeskRuntime.configureDesktopActivityInput(
-                    displayId, activity.activityToken());
         }
     }
 
     static void unregisterActivity(
             final int displayId,
-            final DesktopTaskbarActivity activity) {
+            final DesktopChromeActivity activity) {
         synchronized (REGISTRY_LOCK) {
             if (ACTIVITIES.get(Integer.valueOf(displayId)) == activity) {
                 ACTIVITIES.remove(Integer.valueOf(displayId));
@@ -196,7 +188,7 @@ final class DesktopTaskbarHost {
 
     static void notifyPanelLayoutCommitted(
             final int displayId,
-            final DesktopTaskbarActivity activity) {
+            final DesktopChromeActivity activity) {
         final DesktopTaskbarHost host;
         synchronized (REGISTRY_LOCK) {
             if (ACTIVITIES.get(Integer.valueOf(displayId)) != activity) {
@@ -209,7 +201,7 @@ final class DesktopTaskbarHost {
         }
     }
 
-    private DesktopTaskbarActivity currentActivity() {
+    private DesktopChromeActivity currentActivity() {
         synchronized (REGISTRY_LOCK) {
             return ACTIVITIES.get(Integer.valueOf(mDisplayId));
         }
@@ -224,20 +216,23 @@ final class DesktopTaskbarHost {
 
     private void onPanelLayoutCommitted() {
         if (!mReleased && mPresented) {
-            MagicDeskRuntime.raiseDesktopTaskbarPlane(mDisplayId);
+            MagicDeskRuntime.raiseDesktopChrome(mDisplayId);
         }
     }
 
-    private void apply(final DesktopTaskbarActivity activity) {
+    private void apply(final DesktopChromeActivity activity) {
         if (activity == null || mReleased || mTaskbar == null) {
             return;
         }
-        activity.attachTaskbar(mTaskbar, mTaskbarBounds.height());
+        activity.attachTaskbar(
+                mTaskbar,
+                mTaskbarBounds.height(),
+                mSurfaceBounds.height());
         activity.setPresentation(mPresented, mEdgeHidden, mEdgeHeight);
     }
 
-    private void updatePlanePresentation() {
-        if (mReleased || mTaskbarBounds.isEmpty() || mPlaneBounds.isEmpty()) {
+    private void updateAppliedBounds() {
+        if (mReleased || mTaskbarBounds.isEmpty() || mSurfaceBounds.isEmpty()) {
             return;
         }
         if (!mAppliedBounds.equals(mTaskbarBounds)) {
@@ -246,15 +241,6 @@ final class DesktopTaskbarHost {
                 mBoundsListener.onBoundsChanged(
                         new Rect(mTaskbarBounds));
             }
-        }
-        if (!mPlanePresentationApplied
-                || !mAppliedPlaneBounds.equals(mPlaneBounds)
-                || mAppliedPlaneVisible != mPresented) {
-            mAppliedPlaneBounds.set(mPlaneBounds);
-            mAppliedPlaneVisible = mPresented;
-            mPlanePresentationApplied = true;
-            MagicDeskRuntime.updateDesktopTaskbarPresentation(
-                    mDisplayId, new Rect(mPlaneBounds), mPresented);
         }
     }
 }

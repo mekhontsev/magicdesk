@@ -7,7 +7,7 @@ final class DesktopLaunchRequest {
     final AndroidLaunchSpec androidLaunch;
     final AndroidShortcutSpec androidShortcut;
     final DesktopExecSpec exec;
-    final DesktopLaunchMode launchMode;
+    final DesktopLaunchPresentation presentation;
     final DesktopLaunchArguments arguments;
     final String desktopFilePath;
 
@@ -15,45 +15,9 @@ final class DesktopLaunchRequest {
             final String name,
             final String icon,
             final AndroidLaunchSpec androidLaunch,
-            final DesktopExecSpec exec,
-            final DesktopLaunchMode launchMode) {
-        this(
-                name,
-                icon,
-                androidLaunch,
-                null,
-                exec,
-                launchMode,
-                DesktopLaunchArguments.empty(),
-                "");
-    }
-
-    DesktopLaunchRequest(
-            final String name,
-            final String icon,
-            final AndroidLaunchSpec androidLaunch,
-            final DesktopExecSpec exec,
-            final DesktopLaunchMode launchMode,
-            final DesktopLaunchArguments arguments,
-            final String desktopFilePath) {
-        this(
-                name,
-                icon,
-                androidLaunch,
-                null,
-                exec,
-                launchMode,
-                arguments,
-                desktopFilePath);
-    }
-
-    DesktopLaunchRequest(
-            final String name,
-            final String icon,
-            final AndroidLaunchSpec androidLaunch,
             final AndroidShortcutSpec androidShortcut,
             final DesktopExecSpec exec,
-            final DesktopLaunchMode launchMode,
+            final DesktopLaunchPresentation presentation,
             final DesktopLaunchArguments arguments,
             final String desktopFilePath) {
         if (name == null || name.trim().isEmpty()) {
@@ -71,8 +35,8 @@ final class DesktopLaunchRequest {
         this.androidLaunch = androidLaunch;
         this.androidShortcut = androidShortcut;
         this.exec = exec;
-        this.launchMode = launchMode == null
-                ? DesktopLaunchMode.AUTO : launchMode;
+        this.presentation = presentation == null
+                ? DesktopLaunchPresentation.automatic() : presentation;
         this.arguments = arguments == null
                 ? DesktopLaunchArguments.empty() : arguments;
         this.desktopFilePath = desktopFilePath == null
@@ -127,7 +91,7 @@ final class DesktopLaunchRequest {
                 androidLaunch,
                 androidShortcut,
                 exec,
-                shortcut.launchMode,
+                DesktopLaunchPresentation.forMode(shortcut.launchMode),
                 arguments,
                 desktopFilePath);
     }
@@ -139,7 +103,7 @@ final class DesktopLaunchRequest {
                 androidLaunch,
                 androidShortcut,
                 value,
-                launchMode,
+                presentation,
                 arguments,
                 desktopFilePath);
     }
@@ -152,7 +116,7 @@ final class DesktopLaunchRequest {
                 value,
                 null,
                 exec,
-                launchMode,
+                presentation,
                 arguments,
                 desktopFilePath);
     }

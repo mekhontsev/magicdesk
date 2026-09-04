@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.ActivityOptions;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -27,6 +26,9 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
 public final class DesktopNotificationListenerService extends NotificationListenerService {
+    interface OperationCallback {
+        void onComplete(boolean success);
+    }
     private static final String TAG = "MagicDeskNotifications";
     private static final int MAX_NOTIFICATIONS = 100;
     private static final long REBIND_RECOVERY_DELAY_MS = 2_000L;
@@ -371,7 +373,10 @@ public final class DesktopNotificationListenerService extends NotificationListen
             return false;
         }
         final boolean sent = sendPendingIntent(
-                context, notification.contentIntent, displayId);
+                context,
+                "notification-open",
+                notification.contentIntent,
+                displayId);
         if (sent) {
             markRead(key);
             if ((notification.flags & Notification.FLAG_AUTO_CANCEL) != 0) {
@@ -379,6 +384,33 @@ public final class DesktopNotificationListenerService extends NotificationListen
             }
         }
         return sent;
+    }
+
+    static void openNotificationAsync(
+            final Context context,
+            final String key,
+            final int displayId,
+            final OperationCallback callback) {
+        final Notification notification = findEntryNotification(key);
+        if (notification == null || notification.contentIntent == null) {
+            callback.onComplete(false);
+            return;
+        }
+        dispatchPendingIntent(
+                context,
+                "notification-open",
+                notification.contentIntent,
+                displayId,
+                success -> {
+                    if (success) {
+                        markRead(key);
+                        if ((notification.flags
+                                & Notification.FLAG_AUTO_CANCEL) != 0) {
+                            dismissNotification(key);
+                        }
+                    }
+                    callback.onComplete(success);
+                });
     }
 
     static boolean invokeAction(final Context context, final String key,
@@ -392,11 +424,46 @@ public final class DesktopNotificationListenerService extends NotificationListen
         if (action == null || action.actionIntent == null) {
             return false;
         }
-        final boolean sent = sendPendingIntent(context, action.actionIntent, displayId);
+        final boolean sent = sendPendingIntent(
+                context,
+                "notification-action-" + actionIndex,
+                action.actionIntent,
+                displayId);
         if (sent) {
             markRead(key);
         }
         return sent;
+    }
+
+    static void invokeActionAsync(
+            final Context context,
+            final String key,
+            final int actionIndex,
+            final int displayId,
+            final OperationCallback callback) {
+        final Notification notification = findEntryNotification(key);
+        if (notification == null || notification.actions == null
+                || actionIndex < 0
+                || actionIndex >= notification.actions.length) {
+            callback.onComplete(false);
+            return;
+        }
+        final Notification.Action action = notification.actions[actionIndex];
+        if (action == null || action.actionIntent == null) {
+            callback.onComplete(false);
+            return;
+        }
+        dispatchPendingIntent(
+                context,
+                "notification-action-" + actionIndex,
+                action.actionIntent,
+                displayId,
+                success -> {
+                    if (success) {
+                        markRead(key);
+                    }
+                    callback.onComplete(success);
+                });
     }
 
     static boolean dismissNotification(final String key) {
@@ -499,21 +566,40 @@ public final class DesktopNotificationListenerService extends NotificationListen
                                 & Notification.FLAG_ONLY_ALERT_ONCE) == 0);
     }
 
-    private static boolean sendPendingIntent(final Context context,
-            final PendingIntent pendingIntent, final int displayId) {
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        if (displayId >= 0) {
-            options.setLaunchDisplayId(displayId);
-        }
-        options.setPendingIntentBackgroundActivityStartMode(
-                ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+    private static boolean sendPendingIntent(
+            final Context context,
+            final String id,
+            final PendingIntent pendingIntent,
+            final int displayId) {
         try {
-            pendingIntent.send(context, 0, null, null, null, null, options.toBundle());
-            return true;
-        } catch (PendingIntent.CanceledException | RuntimeException e) {
+            return new AndroidIntegrationGateway(context).execute(
+                    AndroidDesktopAction.pendingIntent(
+                            id,
+                            "notification",
+                            pendingIntent,
+                            DesktopLaunchPresentation.automatic()),
+                    displayId).success;
+        } catch (Exception e) {
             Log.w(TAG, "notification pending intent failed", e);
             return false;
         }
+    }
+
+    private static void dispatchPendingIntent(
+            final Context context,
+            final String id,
+            final PendingIntent pendingIntent,
+            final int displayId,
+            final OperationCallback callback) {
+        AndroidDesktopActionDispatcher.dispatch(
+                context,
+                AndroidDesktopAction.pendingIntent(
+                        id,
+                        "notification",
+                        pendingIntent,
+                        DesktopLaunchPresentation.automatic()),
+                displayId,
+                result -> callback.onComplete(result.success));
     }
 
     private static Notification findEntryNotification(final String key) {

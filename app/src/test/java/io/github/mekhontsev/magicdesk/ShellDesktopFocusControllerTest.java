@@ -80,7 +80,7 @@ public final class ShellDesktopFocusControllerTest {
         final FrameworkTaskSnapshot panelHost = snapshot(
                 44,
                 1,
-                BuildConfig.APPLICATION_ID + "/.DesktopPanelActivity",
+                BuildConfig.APPLICATION_ID + "/.DesktopChromeActivity",
                 true,
                 true);
         assertFalse(ShellDesktopFocusController.isFocusConfirmationReady(

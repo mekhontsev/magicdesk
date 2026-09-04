@@ -173,6 +173,7 @@ public final class CompatibilityDiagnostics {
         appendDisplays(report, appContext);
         appendInputDevices(report);
         VendorDiscoveryReport.appendSaved(report, appContext);
+        report.append(AndroidActivityCompatibilityHistory.report());
         appendAutomationEvents(report);
         appendEvents(report, appContext);
         appendMagicDeskLogcat(report);

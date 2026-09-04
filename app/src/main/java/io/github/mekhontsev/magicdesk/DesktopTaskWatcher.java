@@ -140,7 +140,6 @@ final class DesktopTaskWatcher {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
-            final Rect taskbarBounds,
             final int desktopHostTaskId) {
         final ShellTaskObserverHandle handle;
         final LatestOperationSerializer.Ticket ticket;
@@ -160,7 +159,6 @@ final class DesktopTaskWatcher {
                             displayId,
                             displayBounds,
                             workAreaBounds,
-                            taskbarBounds,
                             desktopHostTaskId));
         } catch (IOException error) {
             Log.w(TAG, "failed to configure task observer", error);
@@ -171,27 +169,6 @@ final class DesktopTaskWatcher {
                     error);
             return false;
         }
-    }
-
-    void updateDesktopTaskbarPresentation(
-            final int displayId,
-            final Rect bounds,
-            final boolean visible) {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null || bounds == null || bounds.isEmpty()) {
-            return;
-        }
-        final Rect requestedBounds = new Rect(bounds);
-        TaskCommandQueue.execute(() -> {
-            try {
-                handle.updateDesktopTaskbarPresentation(
-                        displayId, requestedBounds, visible);
-            } catch (IOException error) {
-                Log.w(TAG,
-                        "failed to update desktop taskbar presentation",
-                        error);
-            }
-        });
     }
 
     void configureDesktopActivityInput(
@@ -211,29 +188,29 @@ final class DesktopTaskWatcher {
         });
     }
 
-    void launchDesktopPanelHost(
+    void prepareDesktopChromeHost(
             final int displayId,
             final TaskRepository.ActionCallback callback) {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null) {
-            completePanelHostLaunch(
+            completeChromeHostPreparation(
                     callback, false, "task observer is unavailable");
             return;
         }
         TaskCommandQueue.execute(() -> {
             try {
-                final int taskId = handle.launchDesktopPanelHost(displayId);
-                completePanelHostLaunch(
+                final int taskId = handle.prepareDesktopChromeHost(displayId);
+                completeChromeHostPreparation(
                         callback, true, "task=" + taskId);
             } catch (IOException | RuntimeException error) {
-                Log.w(TAG, "failed to launch desktop panel host", error);
-                completePanelHostLaunch(
+                Log.w(TAG, "failed to prepare desktop chrome host", error);
+                completeChromeHostPreparation(
                         callback, false, ShellAccess.usefulMessage(error));
             }
         });
     }
 
-    private void completePanelHostLaunch(
+    private void completeChromeHostPreparation(
             final TaskRepository.ActionCallback callback,
             final boolean success,
             final String message) {
@@ -244,16 +221,16 @@ final class DesktopTaskWatcher {
                 new TaskRepository.ActionResult(success, message)));
     }
 
-    void raiseDesktopTaskbarPlane(final int displayId) {
+    void raiseDesktopChrome(final int displayId) {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null) {
             return;
         }
         TaskCommandQueue.execute(() -> {
             try {
-                handle.raiseDesktopTaskbarPlane(displayId);
+                handle.raiseDesktopChrome(displayId);
             } catch (IOException error) {
-                Log.w(TAG, "failed to raise desktop taskbar plane", error);
+                Log.w(TAG, "failed to raise desktop chrome", error);
             }
         });
     }
