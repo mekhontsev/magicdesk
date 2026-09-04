@@ -373,7 +373,8 @@ public final class CompatibilityDiagnostics {
                                         + ", target=" + homeLease.targetKind
                                         + ", display=" + homeLease.displayId
                                         + ", previous="
-                                        + homeLease.previousPackage);
+                                        + describeHomeSelection(
+                                                homeLease.previousHome));
         final PhoneTaskNormalizationDiagnostics.Snapshot phoneTasks =
                 PhoneTaskNormalizationDiagnostics.snapshot();
         report.append("Phone task normalization: ")
@@ -491,6 +492,20 @@ public final class CompatibilityDiagnostics {
         appendPlatformDetails(
                 report, context, audit.platform);
         report.append('\n');
+    }
+
+    private static String describeHomeSelection(
+            final AndroidHomeSelection selection) {
+        if (selection == null
+                || selection.availability
+                        == AndroidHomeSelection.Availability.NONE) {
+            return "none";
+        }
+        return (selection.componentName.isEmpty()
+                        ? selection.packageName : selection.componentName)
+                + ", activity=" + selection.availabilityName()
+                + ", version=" + (selection.packageVersionCode < 0
+                        ? "unknown" : selection.packageVersionCode);
     }
 
     static String desktopTaskRuntimeDetail() {

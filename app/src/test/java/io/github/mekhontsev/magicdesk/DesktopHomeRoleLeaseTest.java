@@ -43,7 +43,14 @@ public final class DesktopHomeRoleLeaseTest {
 
         assertTrue(result.created);
         assertEquals(MAGICDESK, mBackend.homePackage);
-        assertEquals(LAUNCHER, mStorage.state.previousPackage);
+        assertEquals(LAUNCHER, mStorage.state.previousHome.packageName);
+        assertEquals(
+                LAUNCHER + "/.Launcher",
+                mStorage.state.previousHome.componentName);
+        assertEquals(
+                AndroidHomeSelection.Availability.DECLARED,
+                mStorage.state.previousHome.availability);
+        assertEquals(42, mStorage.state.previousHome.packageVersionCode);
         assertEquals(DesktopHomeRoleLease.Phase.ACTIVE, mStorage.state.phase);
         assertTrue(DesktopHomeRoleLease.isPhoneOverviewRoutingActive());
         assertTrue(mBackend.stateWasPreparedBeforeSet);
@@ -130,7 +137,7 @@ public final class DesktopHomeRoleLeaseTest {
             throws Exception {
         mStorage.state = new DesktopHomeRoleLease.State(
                 0,
-                LAUNCHER,
+                homeSelection(LAUNCHER),
                 DesktopDisplayTarget.simulated(7),
                 DesktopSessionPolicy.USER,
                 DesktopHomeRoleLease.Phase.PREPARED);
@@ -228,7 +235,10 @@ public final class DesktopHomeRoleLeaseTest {
                         DesktopDisplayTarget.phone());
 
         assertTrue(result.created);
-        assertEquals("", result.state.previousPackage);
+        assertEquals("", result.state.previousHome.packageName);
+        assertEquals(
+                AndroidHomeSelection.Availability.NONE,
+                result.state.previousHome.availability);
         assertEquals(MAGICDESK, mBackend.homePackage);
 
         assertTrue(DesktopHomeRoleLease.release(
@@ -400,6 +410,24 @@ public final class DesktopHomeRoleLeaseTest {
         assertNull(mStorage.state);
     }
 
+    @Test
+    public void unavailableHomeMetadataDoesNotBlockLeaseAcquisition()
+            throws Exception {
+        mBackend.failHomeResolution = true;
+
+        final DesktopHomeRoleLease.AcquireResult result =
+                DesktopHomeRoleLease.acquire(
+                        DesktopDisplayTarget.simulated(7));
+
+        assertTrue(result.created);
+        assertEquals(MAGICDESK, mBackend.homePackage);
+        assertEquals(LAUNCHER, result.state.previousHome.packageName);
+        assertEquals("", result.state.previousHome.componentName);
+        assertEquals(
+                AndroidHomeSelection.Availability.UNRESOLVED,
+                result.state.previousHome.availability);
+    }
+
     private final class FakeBackend implements DesktopHomeRoleLease.Backend {
         String homePackage;
         int setCalls;
@@ -408,6 +436,7 @@ public final class DesktopHomeRoleLeaseTest {
         boolean primaryHomePresented;
         boolean failHomeSurfaceDisable;
         boolean failHomeSurfaceRestore;
+        boolean failHomeResolution;
         int presentedUserId = -1;
         String presentedHomePackage;
         DesktopHomeSurfaceRouter.Surface homeSurface;
@@ -427,6 +456,16 @@ public final class DesktopHomeRoleLeaseTest {
         @Override
         public String getHomePackage(final int userId) {
             return homePackage;
+        }
+
+        @Override
+        public AndroidHomeSelection resolveHomeSelection(
+                final int userId,
+                final String packageName) throws IOException {
+            if (failHomeResolution) {
+                throw new IOException("HOME resolution unavailable");
+            }
+            return homeSelection(packageName);
         }
 
         @Override
@@ -521,5 +560,14 @@ public final class DesktopHomeRoleLeaseTest {
         public void clear() {
             state = null;
         }
+    }
+
+    private static AndroidHomeSelection homeSelection(
+            final String packageName) {
+        return AndroidHomeSelection.restore(
+                packageName,
+                packageName + "/.Launcher",
+                42,
+                AndroidHomeSelection.Availability.DECLARED.name());
     }
 }

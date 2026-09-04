@@ -39,7 +39,7 @@ final class DesktopHomeRoleLease {
 
     static final class State {
         final int userId;
-        final String previousPackage;
+        final AndroidHomeSelection previousHome;
         final DesktopDisplayTarget.Kind targetKind;
         final int displayId;
         final int profileDisplayId;
@@ -50,15 +50,16 @@ final class DesktopHomeRoleLease {
 
         State(
                 final int userId,
-                final String previousPackage,
+                final AndroidHomeSelection previousHome,
                 final DesktopDisplayTarget target,
                 final DesktopSessionPolicy policy,
                 final Phase phase) {
-            if (target == null) {
-                throw new IllegalArgumentException("HOME lease target is required");
+            if (target == null || previousHome == null) {
+                throw new IllegalArgumentException(
+                        "HOME lease target and previous selection are required");
             }
             this.userId = userId;
-            this.previousPackage = previousPackage;
+            this.previousHome = previousHome;
             this.targetKind = target.kind;
             this.displayId = target.displayId;
             this.profileDisplayId = target.profileDisplayId;
@@ -72,7 +73,7 @@ final class DesktopHomeRoleLease {
         State withPhase(final Phase newPhase) {
             return new State(
                     userId,
-                    previousPackage,
+                    previousHome,
                     target(),
                     policy,
                     newPhase);
@@ -129,6 +130,10 @@ final class DesktopHomeRoleLease {
 
         String getHomePackage(int userId) throws IOException;
 
+        AndroidHomeSelection resolveHomeSelection(
+                int userId,
+                String packageName) throws IOException;
+
         void selectHomeSurface(DesktopHomeSurfaceRouter.Surface surface)
                 throws IOException;
 
@@ -177,7 +182,7 @@ final class DesktopHomeRoleLease {
                     return new AcquireResult(false, active);
                 }
                 if (existing.phase == Phase.PREPARED
-                        && existing.previousPackage.equals(holder)) {
+                        && existing.previousHome.packageName.equals(holder)) {
                     try {
                         return activatePrepared(existing);
                     } catch (IOException error) {
@@ -200,9 +205,11 @@ final class DesktopHomeRoleLease {
                 throw new IOException(
                         "current HOME package is unavailable: " + previousPackage);
             }
+            final AndroidHomeSelection previousHome = resolvePreviousHome(
+                    userId, previousPackage);
             final State prepared = new State(
                     userId,
-                    previousPackage,
+                    previousHome,
                     target,
                     policy,
                     Phase.PREPARED);
@@ -438,7 +445,7 @@ final class DesktopHomeRoleLease {
         sPhoneOverviewRoutingActive = false;
         try {
             final String holder = sBackend.getHomePackage(state.userId);
-            if (!state.previousPackage.equals(holder)) {
+            if (!state.previousHome.packageName.equals(holder)) {
                 restorePreviousHolder(state);
             }
             sBackend.restoreHomeSurface();
@@ -461,12 +468,32 @@ final class DesktopHomeRoleLease {
 
     private static void restorePreviousHolder(final State state)
             throws IOException {
-        if (state.previousPackage.isEmpty()) {
+        if (state.previousHome.packageName.isEmpty()) {
             sBackend.clearHomePackage(state.userId, MAGICDESK_PACKAGE);
         } else {
-            sBackend.setHomePackage(state.userId, state.previousPackage);
+            sBackend.setHomePackage(
+                    state.userId, state.previousHome.packageName);
         }
-        requireHolder(state.userId, state.previousPackage);
+        requireHolder(state.userId, state.previousHome.packageName);
+    }
+
+    private static AndroidHomeSelection resolvePreviousHome(
+            final int userId,
+            final String packageName) {
+        if (packageName.isEmpty()) {
+            return AndroidHomeSelection.none();
+        }
+        try {
+            final AndroidHomeSelection selection =
+                    sBackend.resolveHomeSelection(userId, packageName);
+            return selection != null
+                            && packageName.equals(selection.packageName)
+                    ? selection : AndroidHomeSelection.unresolved(packageName);
+        } catch (IOException | RuntimeException error) {
+            // Static metadata is optional. Role ownership and recovery must
+            // not depend on whether PackageManager can describe the launcher.
+            return AndroidHomeSelection.unresolved(packageName);
+        }
     }
 
     private static final class ShellBackend implements Backend {
@@ -494,6 +521,23 @@ final class DesktopHomeRoleLease {
                                 + packages.size());
             }
             return packages.isEmpty() ? "" : packages.get(0);
+        }
+
+        @Override
+        public AndroidHomeSelection resolveHomeSelection(
+                final int userId,
+                final String packageName) throws IOException {
+            if (userId != currentUserId()
+                    || !PackageNameValidator.isSafe(packageName)) {
+                throw new IOException("invalid HOME selection request");
+            }
+            final Intent intent = new Intent(Intent.ACTION_MAIN)
+                    .addCategory(Intent.CATEGORY_HOME)
+                    .addCategory(Intent.CATEGORY_DEFAULT)
+                    .setPackage(packageName);
+            return AndroidHomeSelection.fromResolution(
+                    packageName,
+                    ShellAccess.resolveActivity(intent));
         }
 
         @Override
@@ -564,6 +608,11 @@ final class DesktopHomeRoleLease {
                 "magicdesk_desktop_home_lease";
         private static final String USER_ID = "user_id";
         private static final String PREVIOUS_PACKAGE = "previous_package";
+        private static final String PREVIOUS_COMPONENT = "previous_component";
+        private static final String PREVIOUS_VERSION_CODE =
+                "previous_version_code";
+        private static final String PREVIOUS_AVAILABILITY =
+                "previous_availability";
         private static final String TARGET_KIND = "target_kind";
         private static final String DISPLAY_ID = "display_id";
         private static final String PROFILE_DISPLAY_ID = "profile_display_id";
@@ -587,9 +636,18 @@ final class DesktopHomeRoleLease {
                 return null;
             }
             try {
+                final AndroidHomeSelection previousHome =
+                        AndroidHomeSelection.restore(
+                                previousPackage,
+                                preferences.getString(
+                                        PREVIOUS_COMPONENT, ""),
+                                preferences.getLong(
+                                        PREVIOUS_VERSION_CODE, -1),
+                                preferences.getString(
+                                        PREVIOUS_AVAILABILITY, ""));
                 return new State(
                         preferences.getInt(USER_ID, 0),
-                        previousPackage,
+                        previousHome,
                         DesktopDisplayTarget.restore(
                                 DesktopDisplayTarget.Kind.valueOf(targetKind),
                                 preferences.getInt(DISPLAY_ID, -1),
@@ -621,7 +679,16 @@ final class DesktopHomeRoleLease {
                             .putInt(USER_ID, state.userId)
                             .putString(
                                     PREVIOUS_PACKAGE,
-                                    state.previousPackage)
+                                    state.previousHome.packageName)
+                            .putString(
+                                    PREVIOUS_COMPONENT,
+                                    state.previousHome.componentName)
+                            .putLong(
+                                    PREVIOUS_VERSION_CODE,
+                                    state.previousHome.packageVersionCode)
+                            .putString(
+                                    PREVIOUS_AVAILABILITY,
+                                    state.previousHome.availability.name())
                             .putString(TARGET_KIND, state.targetKind.name())
                             .putInt(DISPLAY_ID, state.displayId)
                             .putInt(

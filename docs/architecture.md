@@ -1896,7 +1896,13 @@ MagicDesk windows instead.
 
 Before any normal teardown mutation, `DesktopHomeRoleLease` restores and
 verifies the exact HOME role state from session start: either the previous
-holder or no explicit holder.
+holder or no explicit holder. Before transferring the role, the lease also
+resolves that user-selected HOME package to a concrete `MAIN`/`HOME` Activity
+through the shell PackageManager and persists its component, package version,
+and static availability. This is a one-shot capability snapshot rather than a
+launcher invocation or runtime compatibility probe. An unresolved or
+unavailable Activity does not block HOME ownership or restoration, which
+continues to use the role-holder package as its authoritative identity.
 The lease enters `RELEASING` before that handoff so startup recovery can finish
 an interrupted release without treating it as an active desktop. If MagicDesk
 still owns HOME after process loss, the pre-Shizuku startup guard instead

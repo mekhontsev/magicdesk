@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Parcel;
@@ -34,16 +35,19 @@ public final class AndroidActivityResolution implements Parcelable {
     public final ComponentName component;
     public final int handlerCount;
     public final AndroidActivityAuthorization authorization;
+    public final long packageVersionCode;
 
     private AndroidActivityResolution(
             final int state,
             final ComponentName component,
             final int handlerCount,
-            final AndroidActivityAuthorization authorization) {
+            final AndroidActivityAuthorization authorization,
+            final long packageVersionCode) {
         this.state = state;
         this.component = component;
         this.handlerCount = Math.max(0, handlerCount);
         this.authorization = authorization;
+        this.packageVersionCode = packageVersionCode;
         validate();
     }
 
@@ -53,6 +57,7 @@ public final class AndroidActivityResolution implements Parcelable {
         handlerCount = source.readInt();
         authorization = source.readTypedObject(
                 AndroidActivityAuthorization.CREATOR);
+        packageVersionCode = source.readLong();
         validate();
     }
 
@@ -78,16 +83,20 @@ public final class AndroidActivityResolution implements Parcelable {
                         AndroidActivityAuthorization.inspect(
                                 packageManager,
                                 activity,
-                                requestingPackage));
+                                requestingPackage),
+                        packageVersionCode(
+                                packageManager,
+                                intent.getComponent().getPackageName()));
             } catch (PackageManager.NameNotFoundException error) {
-                return new AndroidActivityResolution(NONE, null, 0, null);
+                return new AndroidActivityResolution(
+                        NONE, null, 0, null, -1);
             }
         }
         final List<ResolveInfo> handlers = packageManager.queryIntentActivities(
                 intent, PackageManager.MATCH_DEFAULT_ONLY);
         final int handlerCount = handlers == null ? 0 : handlers.size();
         if (handlerCount == 0) {
-            return new AndroidActivityResolution(NONE, null, 0, null);
+            return new AndroidActivityResolution(NONE, null, 0, null, -1);
         }
         final ResolveInfo resolved = packageManager.resolveActivity(
                 intent, PackageManager.MATCH_DEFAULT_ONLY);
@@ -100,13 +109,16 @@ public final class AndroidActivityResolution implements Parcelable {
                     AndroidActivityAuthorization.inspect(
                             packageManager,
                             resolved.activityInfo,
-                            requestingPackage));
+                            requestingPackage),
+                    packageVersionCode(
+                            packageManager,
+                            resolvedComponent.getPackageName()));
         }
         // PackageManager returns an internal ResolverActivity when the user
         // must choose. It is not one of the actual handlers and must remain an
         // implicit app-owned launch rather than an explicit shell target.
         return new AndroidActivityResolution(
-                RESOLVER, null, handlerCount, null);
+                RESOLVER, null, handlerCount, null, -1);
     }
 
     boolean requiresResolver() {
@@ -146,11 +158,26 @@ public final class AndroidActivityResolution implements Parcelable {
                 activityInfo.packageName, activityInfo.name);
     }
 
+    private static long packageVersionCode(
+            final PackageManager packageManager,
+            final String packageName) {
+        try {
+            final PackageInfo packageInfo = packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0));
+            return packageInfo.getLongVersionCode();
+        } catch (PackageManager.NameNotFoundException error) {
+            return -1;
+        }
+    }
+
     private void validate() {
         if (state < NONE || state > RESOLVER || handlerCount < 0
                 || (state == CONCRETE) != (component != null)
                 || (state == CONCRETE) != (authorization != null)
-                || (state == NONE && handlerCount != 0)) {
+                || (state == NONE && handlerCount != 0)
+                || packageVersionCode < -1
+                || (state != CONCRETE && packageVersionCode != -1)) {
             throw new IllegalArgumentException(
                     "invalid Android Activity resolution");
         }
@@ -167,5 +194,6 @@ public final class AndroidActivityResolution implements Parcelable {
         destination.writeTypedObject(component, flags);
         destination.writeInt(handlerCount);
         destination.writeTypedObject(authorization, flags);
+        destination.writeLong(packageVersionCode);
     }
 }

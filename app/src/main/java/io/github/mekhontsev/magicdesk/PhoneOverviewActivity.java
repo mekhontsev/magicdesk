@@ -190,7 +190,7 @@ public final class PhoneOverviewActivity extends Activity {
                 PhoneOverviewTaskPolicy.select(
                         snapshot.tasks,
                         BuildConfig.APPLICATION_ID,
-                        lease.previousPackage,
+                        lease.previousHome.packageName,
                         desktopTasks),
                 ui);
     }
