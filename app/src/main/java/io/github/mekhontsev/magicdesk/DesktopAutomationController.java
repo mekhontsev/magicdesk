@@ -344,8 +344,7 @@ final class DesktopAutomationController {
                 DesktopOperations.showMagicDesk();
                 break;
             case "phone":
-                mContext.startActivity(
-                        ControlActivity.createOpenDesktopIntent(mContext));
+                DesktopOperations.showDesktop(DesktopDisplayTarget.phone());
                 break;
             case "simulated":
                 SimulatedDesktopDisplayController.show();
