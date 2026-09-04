@@ -89,19 +89,6 @@ final class DesktopDisplayTarget {
             final Kind kind,
             final int displayId,
             final int profileDisplayId,
-            final String profileKey) {
-        return restore(
-                kind,
-                displayId,
-                profileDisplayId,
-                profileKey,
-                defaultActivationSource(kind));
-    }
-
-    static DesktopDisplayTarget restore(
-            final Kind kind,
-            final int displayId,
-            final int profileDisplayId,
             final String profileKey,
             final ActivationSource activationSource) {
         final DesktopDisplayTarget target = new DesktopDisplayTarget(
@@ -109,8 +96,7 @@ final class DesktopDisplayTarget {
                 displayId,
                 displayId,
                 "",
-                activationSource == null
-                        ? ActivationSource.UNKNOWN : activationSource);
+                activationSource);
         return kind != Kind.PHONE
                         && profileDisplayId > 0
                         && profileKey != null
@@ -153,12 +139,4 @@ final class DesktopDisplayTarget {
         return profileDisplayId > 0 && !profileKey.isEmpty();
     }
 
-    private static ActivationSource defaultActivationSource(final Kind kind) {
-        if (kind == Kind.WIRED || kind == Kind.WIRELESS) {
-            return ActivationSource.ADOPTED_EXISTING;
-        }
-        return kind == null
-                ? ActivationSource.UNKNOWN
-                : ActivationSource.MAGICDESK_REQUESTED;
-    }
 }

@@ -20,7 +20,7 @@ enum DesktopSessionPolicy {
             try {
                 return valueOf(value);
             } catch (IllegalArgumentException ignored) {
-                // Unknown values from an older/newer build use user behavior.
+                // Unknown launch values use normal user-session behavior.
             }
         }
         return USER;

@@ -596,6 +596,8 @@ runtime integration and are not distributed through the same release path.
   profiles. `DesktopLayoutStore`, `AppWindowStateStore`,
   `AppPresentationProfileStore`, `DesktopPreferences`, and
   `DisplayProfileStore` are narrow domain facades over that model.
+  Its persisted schema accepts only the current format; an unsupported format
+  starts from defaults instead of running an in-process data migration.
   `DesktopPlacementEngine` is the platform-independent collision and reflow
   policy.
 - `DesktopPanelWindowController` provides consistent toggle, dismissal, and
@@ -1975,6 +1977,9 @@ MagicDesk temporarily owns Android's HOME role for the desktop session. The
 selected component makes `PhoneHomeActivity` the phone navigation surface for
 an external session or makes `PhoneDesktopHomeActivity` primary HOME for a
 phone session.
+The crash-recovery lease is an exact, versioned snapshot. An incomplete or
+unsupported lease is discarded by startup recovery rather than interpreted as
+state from an older MagicDesk build.
 For an external session, `DesktopActivity` is launched and verified as the root
 secondary HOME task on the selected desktop display. The desktop host is an
 opaque, display-sized fullscreen Activity; it

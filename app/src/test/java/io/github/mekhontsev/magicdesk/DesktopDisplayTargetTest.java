@@ -61,6 +61,10 @@ public final class DesktopDisplayTargetTest {
     @Test(expected = IllegalArgumentException.class)
     public void phoneTargetRejectsSecondaryDisplay() {
         DesktopDisplayTarget.restore(
-                DesktopDisplayTarget.Kind.PHONE, 7, 7, "ignored");
+                DesktopDisplayTarget.Kind.PHONE,
+                7,
+                7,
+                "ignored",
+                DesktopDisplayTarget.ActivationSource.MAGICDESK_REQUESTED);
     }
 }

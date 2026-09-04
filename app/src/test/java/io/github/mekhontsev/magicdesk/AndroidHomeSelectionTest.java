@@ -10,11 +10,12 @@ public final class AndroidHomeSelectionTest {
 
     @Test
     public void restoresDeclaredSelection() {
-        final AndroidHomeSelection selection = AndroidHomeSelection.restore(
-                PACKAGE,
-                COMPONENT,
-                42,
-                AndroidHomeSelection.Availability.DECLARED.name());
+        final AndroidHomeSelection selection =
+                AndroidHomeSelection.fromPersisted(
+                        PACKAGE,
+                        COMPONENT,
+                        42,
+                        AndroidHomeSelection.Availability.DECLARED.name());
 
         assertEquals(PACKAGE, selection.packageName);
         assertEquals(COMPONENT, selection.componentName);
@@ -24,38 +25,27 @@ public final class AndroidHomeSelectionTest {
                 selection.availability);
     }
 
-    @Test
-    public void invalidComponentDegradesToUnresolvedSelection() {
-        final AndroidHomeSelection selection = AndroidHomeSelection.restore(
+    @Test(expected = IllegalArgumentException.class)
+    public void invalidPersistedComponentIsRejected() {
+        AndroidHomeSelection.fromPersisted(
                 PACKAGE,
                 "com.example.other/.Launcher",
                 42,
                 AndroidHomeSelection.Availability.DECLARED.name());
-
-        assertEquals(PACKAGE, selection.packageName);
-        assertEquals("", selection.componentName);
-        assertEquals(-1, selection.packageVersionCode);
-        assertEquals(
-                AndroidHomeSelection.Availability.UNRESOLVED,
-                selection.availability);
     }
 
-    @Test
-    public void missingMetadataDegradesToUnresolvedSelection() {
-        final AndroidHomeSelection selection = AndroidHomeSelection.restore(
+    @Test(expected = IllegalArgumentException.class)
+    public void incompletePersistedMetadataIsRejected() {
+        AndroidHomeSelection.fromPersisted(
                 PACKAGE, "", -1, "");
-
-        assertEquals(PACKAGE, selection.packageName);
-        assertEquals(
-                AndroidHomeSelection.Availability.UNRESOLVED,
-                selection.availability);
     }
 
     @Test
     public void emptyRoleHolderRestoresAsNone() {
-        final AndroidHomeSelection selection = AndroidHomeSelection.restore(
-                "", "", -1,
-                AndroidHomeSelection.Availability.DECLARED.name());
+        final AndroidHomeSelection selection =
+                AndroidHomeSelection.fromPersisted(
+                        "", "", -1,
+                        AndroidHomeSelection.Availability.NONE.name());
 
         assertEquals(AndroidHomeSelection.Availability.NONE,
                 selection.availability);

@@ -58,30 +58,16 @@ final class AndroidHomeSelection {
                 availability);
     }
 
-    static AndroidHomeSelection restore(
+    static AndroidHomeSelection fromPersisted(
             final String packageName,
             final String flattenedComponent,
             final long packageVersionCode,
             final String availabilityName) {
-        final String safePackage = value(packageName);
-        if (safePackage.isEmpty()) {
-            return none();
-        }
-        final Availability availability;
-        try {
-            availability = Availability.valueOf(value(availabilityName));
-        } catch (IllegalArgumentException error) {
-            return unresolved(safePackage);
-        }
-        try {
-            return new AndroidHomeSelection(
-                    safePackage,
-                    flattenedComponent,
-                    packageVersionCode,
-                    availability);
-        } catch (IllegalArgumentException error) {
-            return unresolved(safePackage);
-        }
+        return new AndroidHomeSelection(
+                packageName,
+                flattenedComponent,
+                packageVersionCode,
+                Availability.valueOf(value(availabilityName)));
     }
 
     String availabilityName() {

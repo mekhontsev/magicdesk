@@ -34,7 +34,7 @@ enum DesktopSelfTestFixtureAppearance {
             try {
                 return valueOf(name);
             } catch (IllegalArgumentException ignored) {
-                // Older or malformed debug intents retain the primary color.
+                // Malformed debug intents retain the primary color.
             }
         }
         return PRIMARY;

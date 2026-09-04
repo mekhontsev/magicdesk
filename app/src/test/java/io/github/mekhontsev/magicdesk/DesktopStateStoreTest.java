@@ -98,7 +98,7 @@ public final class DesktopStateStoreTest {
     @Test
     public void invalidEntriesAreIgnored() throws Exception {
         final DesktopStateStore.State decoded = DesktopStateStore.decode(
-                "{\"format\":1,"
+                "{\"format\":" + DesktopStateStore.FORMAT + ","
                         + "\"taskbar\":[\"\",\"bad package\"],"
                         + "\"desktopPlacements\":{"
                         + "\"bad\":[-1,0,1,1]},"
@@ -126,33 +126,9 @@ public final class DesktopStateStoreTest {
                 decoded.settings.termuxX11StartupCommand);
     }
 
-    @Test
-    public void obsoleteAppShortcutsAndPlacementsAreIgnored()
-            throws Exception {
-        final DesktopStateStore.State decoded = DesktopStateStore.decode(
-                "{\"format\":1,"
-                        + "\"shortcuts\":[{\"package\":"
-                        + "\"example.application\"}],"
-                        + "\"desktopPlacements\":{"
-                        + "\"app:example.application\":[1,2,1,1],"
-                        + "\"file:Example.desktop\":[3,4,1,1]}}" );
-
-        final String encoded = DesktopStateStore.encode(decoded);
-        assertFalse(encoded.contains("shortcuts"));
-        assertFalse(decoded.desktopPlacements.containsKey(
-                "app:example.application"));
-        assertTrue(decoded.desktopPlacements.containsKey(
-                "file:Example.desktop"));
-    }
-
-    @Test
-    public void obsoleteWorkspaceTargetIsIgnored() throws Exception {
-        final DesktopStateStore.State decoded = DesktopStateStore.decode(
-                "{\"format\":1,\"workspaceTarget\":{"
-                        + "\"package\":\"example.workspace\"}}");
-
-        assertFalse(DesktopStateStore.encode(decoded)
-                .contains("workspaceTarget"));
+    @Test(expected = org.json.JSONException.class)
+    public void previousFormatIsRejected() throws Exception {
+        DesktopStateStore.decode("{\"format\":1}");
     }
 
     @Test

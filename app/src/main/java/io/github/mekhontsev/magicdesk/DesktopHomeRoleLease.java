@@ -54,9 +54,13 @@ final class DesktopHomeRoleLease {
                 final DesktopDisplayTarget target,
                 final DesktopSessionPolicy policy,
                 final Phase phase) {
-            if (target == null || previousHome == null) {
+            if (userId < 0
+                    || target == null
+                    || previousHome == null
+                    || policy == null
+                    || phase == null) {
                 throw new IllegalArgumentException(
-                        "HOME lease target and previous selection are required");
+                        "complete HOME lease state is required");
             }
             this.userId = userId;
             this.previousHome = previousHome;
@@ -65,8 +69,7 @@ final class DesktopHomeRoleLease {
             this.profileDisplayId = target.profileDisplayId;
             this.profileKey = target.profileKey;
             this.activationSource = target.activationSource;
-            this.policy = policy == null
-                    ? DesktopSessionPolicy.USER : policy;
+            this.policy = policy;
             this.phase = phase;
         }
 
@@ -604,8 +607,10 @@ final class DesktopHomeRoleLease {
     }
 
     private static final class PreferencesStorage implements Storage {
+        private static final int STORAGE_FORMAT = 1;
         private static final String PREFERENCES =
                 "magicdesk_desktop_home_lease";
+        private static final String FORMAT = "format";
         private static final String USER_ID = "user_id";
         private static final String PREVIOUS_PACKAGE = "previous_package";
         private static final String PREVIOUS_COMPONENT = "previous_component";
@@ -624,49 +629,41 @@ final class DesktopHomeRoleLease {
         @Override
         public State read() {
             final SharedPreferences preferences = preferences();
-            final String previousPackage = preferences.getString(
-                    PREVIOUS_PACKAGE, "");
-            final String targetKind = preferences.getString(TARGET_KIND, "");
-            final String phase = preferences.getString(PHASE, "");
-            if (previousPackage == null
-                    || (!previousPackage.isEmpty()
-                            && !PackageNameValidator.isSafe(previousPackage))
-                    || targetKind == null || targetKind.isEmpty()
-                    || phase == null || phase.isEmpty()) {
+            if (!hasCurrentFormat(preferences)) {
                 return null;
             }
             try {
                 final AndroidHomeSelection previousHome =
-                        AndroidHomeSelection.restore(
-                                previousPackage,
-                                preferences.getString(
-                                        PREVIOUS_COMPONENT, ""),
+                        AndroidHomeSelection.fromPersisted(
+                                requiredString(
+                                        preferences, PREVIOUS_PACKAGE),
+                                requiredString(
+                                        preferences, PREVIOUS_COMPONENT),
                                 preferences.getLong(
                                         PREVIOUS_VERSION_CODE, -1),
-                                preferences.getString(
-                                        PREVIOUS_AVAILABILITY, ""));
+                                requiredString(
+                                        preferences,
+                                        PREVIOUS_AVAILABILITY));
                 return new State(
-                        preferences.getInt(USER_ID, 0),
+                        preferences.getInt(USER_ID, -1),
                         previousHome,
                         DesktopDisplayTarget.restore(
-                                DesktopDisplayTarget.Kind.valueOf(targetKind),
+                                DesktopDisplayTarget.Kind.valueOf(
+                                        requiredString(
+                                                preferences, TARGET_KIND)),
                                 preferences.getInt(DISPLAY_ID, -1),
                                 preferences.getInt(
-                                        PROFILE_DISPLAY_ID,
-                                        preferences.getInt(DISPLAY_ID, -1)),
-                                preferences.getString(PROFILE_KEY, ""),
+                                        PROFILE_DISPLAY_ID, -1),
+                                requiredString(preferences, PROFILE_KEY),
                                 DesktopDisplayTarget.ActivationSource.valueOf(
-                                        preferences.getString(
-                                                ACTIVATION_SOURCE,
-                                                DesktopDisplayTarget
-                                                        .ActivationSource
-                                                        .UNKNOWN.name()))),
-                        DesktopSessionPolicy.parse(
-                                preferences.getString(
-                                        SESSION_POLICY,
-                                        DesktopSessionPolicy.USER.name())),
-                        Phase.valueOf(phase));
-            } catch (IllegalArgumentException error) {
+                                        requiredString(
+                                                preferences,
+                                                ACTIVATION_SOURCE))),
+                        DesktopSessionPolicy.valueOf(
+                                requiredString(
+                                        preferences, SESSION_POLICY)),
+                        Phase.valueOf(requiredString(preferences, PHASE)));
+            } catch (ClassCastException | IllegalArgumentException error) {
                 return null;
             }
         }
@@ -676,6 +673,7 @@ final class DesktopHomeRoleLease {
         public void write(final State state) throws IOException {
             if (state == null
                     || !preferences().edit()
+                            .putInt(FORMAT, STORAGE_FORMAT)
                             .putInt(USER_ID, state.userId)
                             .putString(
                                     PREVIOUS_PACKAGE,
@@ -711,6 +709,38 @@ final class DesktopHomeRoleLease {
             if (!preferences().edit().clear().commit()) {
                 throw new IOException("could not clear desktop HOME lease");
             }
+        }
+
+        private static boolean hasCurrentFormat(
+                final SharedPreferences preferences) {
+            try {
+                return preferences.getInt(FORMAT, -1) == STORAGE_FORMAT
+                        && preferences.contains(USER_ID)
+                        && preferences.contains(PREVIOUS_PACKAGE)
+                        && preferences.contains(PREVIOUS_COMPONENT)
+                        && preferences.contains(PREVIOUS_VERSION_CODE)
+                        && preferences.contains(PREVIOUS_AVAILABILITY)
+                        && preferences.contains(TARGET_KIND)
+                        && preferences.contains(DISPLAY_ID)
+                        && preferences.contains(PROFILE_DISPLAY_ID)
+                        && preferences.contains(PROFILE_KEY)
+                        && preferences.contains(ACTIVATION_SOURCE)
+                        && preferences.contains(SESSION_POLICY)
+                        && preferences.contains(PHASE);
+            } catch (ClassCastException error) {
+                return false;
+            }
+        }
+
+        private static String requiredString(
+                final SharedPreferences preferences,
+                final String key) {
+            final String value = preferences.getString(key, null);
+            if (value == null) {
+                throw new IllegalArgumentException(
+                        "missing HOME lease field " + key);
+            }
+            return value;
         }
 
         private static SharedPreferences preferences() {

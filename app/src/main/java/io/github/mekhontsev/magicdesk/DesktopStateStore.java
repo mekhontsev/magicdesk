@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 
 final class DesktopStateStore {
-    static final int FORMAT = 1;
+    static final int FORMAT = 2;
 
     private static final String TAG = "MagicDeskState";
     private static final Object LOCK = new Object();
@@ -155,8 +155,6 @@ final class DesktopStateStore {
         readDesktopPlacements(
                 root.optJSONObject("desktopPlacements"),
                 state.desktopPlacements);
-        state.desktopPlacements.keySet().removeIf(
-                key -> key.startsWith("app:"));
         readAppWindows(
                 root.optJSONObject("appWindows"), state.appWindows);
         readAppPresentations(

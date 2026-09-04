@@ -128,19 +128,6 @@ final class DesktopPreferences {
                         .getLaunchIntentForPackage(appKey) != null;
     }
 
-    private static List<String> decodePackages(final String encoded) {
-        final List<String> packages = new ArrayList<>();
-        if (encoded != null && encoded.length() > 0) {
-            for (final String packageName : encoded.split("\\n")) {
-                if (PackageNameValidator.isSafe(packageName)
-                        && !packages.contains(packageName)) {
-                    packages.add(packageName);
-                }
-            }
-        }
-        return packages;
-    }
-
     private static SharedPreferences preferences(final Context context) {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }

@@ -564,7 +564,7 @@ public final class DesktopHomeRoleLeaseTest {
 
     private static AndroidHomeSelection homeSelection(
             final String packageName) {
-        return AndroidHomeSelection.restore(
+        return AndroidHomeSelection.fromPersisted(
                 packageName,
                 packageName + "/.Launcher",
                 42,
