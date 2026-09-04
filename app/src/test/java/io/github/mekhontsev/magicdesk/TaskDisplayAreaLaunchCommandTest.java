@@ -7,6 +7,8 @@ import static org.junit.Assert.assertTrue;
 import android.content.Intent;
 import org.junit.Test;
 
+import java.util.Set;
+
 public final class TaskDisplayAreaLaunchCommandTest {
     @Test
     public void preservesIndependentDocumentLaunch() {
@@ -62,11 +64,11 @@ public final class TaskDisplayAreaLaunchCommandTest {
                     "20", "30", "800", "900"
                 }));
         assertEquals(
-                "operation=move-root-observed, task=42, rootTask=17, "
+                "operation=move-observed, task=42, "
                         + "sourceDisplay=0, targetDisplay=6, "
                         + "bounds=[20,30][800,900]",
                 TaskDisplayAreaLaunchCommand.transitionContext(new String[]{
-                    "move-root-observed", "42", "17", "0", "6",
+                    "move-observed", "42", "0", "6",
                     "20", "30", "800", "900",
                     "6", "100", "200", "ff112233"
                 }));
@@ -84,5 +86,17 @@ public final class TaskDisplayAreaLaunchCommandTest {
                         + " -> java.lang.IllegalArgumentException: "
                         + "invalid transaction",
                 TaskDisplayAreaLaunchCommand.causeChain(outer));
+    }
+
+    @Test
+    public void taskResultMustBeFreshForThisLaunch() {
+        assertTrue(TaskDisplayAreaLaunchCommand.isFreshTaskId(
+                42, Set.of(10, 20)));
+        assertFalse(TaskDisplayAreaLaunchCommand.isFreshTaskId(
+                20, Set.of(10, 20)));
+        assertFalse(TaskDisplayAreaLaunchCommand.isFreshTaskId(
+                -1, Set.of()));
+        assertFalse(TaskDisplayAreaLaunchCommand.isFreshTaskId(
+                42, null));
     }
 }

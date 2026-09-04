@@ -46,7 +46,6 @@ final class FrameworkTaskObservationSource implements Closeable {
         void onError(String error);
     }
 
-    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private final Object mService;
     private final FrameworkWindowingCompat mFrameworkCompat;
@@ -464,7 +463,7 @@ final class FrameworkTaskObservationSource implements Closeable {
         final Map<Integer, FreeformBoundsState> freeformBounds =
                 collectFreeformBounds(states);
         for (final FrameworkTaskSnapshot state : states) {
-            if (state.activityType != ACTIVITY_TYPE_STANDARD
+            if (state.activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
                     || !PackageNameValidator.isSafe(state.packageName)
                     || (state.topPackage != null
                             && !state.packageName.equals(state.topPackage))) {
@@ -599,7 +598,7 @@ final class FrameworkTaskObservationSource implements Closeable {
         }
         for (final FrameworkTaskSnapshot state : states) {
             if (state == null
-                    || state.activityType != ACTIVITY_TYPE_STANDARD
+                    || state.activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
                     || state.windowingMode != WINDOWING_MODE_FREEFORM
                     || !state.visible
                     || state.bounds.right <= state.bounds.left

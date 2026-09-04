@@ -5,7 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 
-/** App-identity relay for chooser and Activity-result launches requested by MCP. */
+/** App lifecycle owner for Android Activity-result requests from MCP. */
 public final class AndroidActivityRelayActivity extends Activity {
     private static final String EXTRA_RELAY_ID = "relay_id";
     private static final String EXTRA_RESULT_ID = "result_id";

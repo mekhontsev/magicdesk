@@ -19,7 +19,6 @@ final class ShellFreeformTaskCleanup implements Closeable {
     private static final String TAG = "MagicDeskTasks";
     private static final String MAGICDESK_PACKAGE =
             "io.github.mekhontsev.magicdesk";
-    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private final Object mService;
@@ -108,8 +107,10 @@ final class ShellFreeformTaskCleanup implements Closeable {
         }
         for (final Object task : tasks) {
             if (HiddenTaskApi.getTaskDisplayId(task) != displayId
-                    || HiddenTaskApi.getTaskActivityType(task) != ACTIVITY_TYPE_STANDARD
-                    || HiddenTaskApi.getTaskWindowingMode(task) != WINDOWING_MODE_FREEFORM) {
+                    || HiddenTaskApi.getTaskActivityType(task)
+                            != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
+                    || HiddenTaskApi.getTaskWindowingMode(task)
+                            != WINDOWING_MODE_FREEFORM) {
                 continue;
             }
             final String packageName = HiddenTaskApi.getTaskPackage(task);

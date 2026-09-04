@@ -19,6 +19,8 @@ final class DesktopSelfTestPhoneInputGuard {
     private static boolean sClosing;
     private static boolean sSeen;
     private static boolean sLost;
+    private static boolean sDisplacementExpected;
+    private static boolean sDisplacementObserved;
     private static long sStartedAt;
     private static int sTouchCount;
     private static int sKeyCount;
@@ -65,6 +67,10 @@ final class DesktopSelfTestPhoneInputGuard {
             return Observation.notObserved();
         }
         synchronized (DesktopSelfTestPhoneInputGuard.class) {
+            if (sDisplacementExpected) {
+                sLost = true;
+                addEvent("guard displacement did not complete");
+            }
             final Observation observation = new Observation(
                     true,
                     sSeen,
@@ -89,6 +95,59 @@ final class DesktopSelfTestPhoneInputGuard {
         }
     }
 
+    static synchronized void expectWindowDisplacement(final String reason)
+            throws IOException {
+        if (!sActive || sClosing) {
+            throw new IOException("phone input guard is not active");
+        }
+        if (sDisplacementExpected) {
+            throw new IOException(
+                    "phone input guard displacement is already expected");
+        }
+        sDisplacementExpected = true;
+        sDisplacementObserved = false;
+        addEvent("guard displacement expected reason=" + reason);
+    }
+
+    static void restoreAfterExpectedDisplacement(
+            final Context context,
+            final long runId) throws IOException {
+        synchronized (DesktopSelfTestPhoneInputGuard.class) {
+            if (!sActive || !sDisplacementExpected) {
+                throw new IOException(
+                        "phone input guard displacement was not expected");
+            }
+        }
+        final boolean restored;
+        try {
+            restored = DesktopSelfTestPhoneGuardActivity.showAndWait(
+                    context, runId, LIFECYCLE_TIMEOUT_MILLIS);
+        } catch (RuntimeException error) {
+            markRestoreFailed();
+            throw new IOException("could not restore phone input guard", error);
+        }
+        synchronized (DesktopSelfTestPhoneInputGuard.class) {
+            final boolean visible =
+                    DesktopSelfTestPhoneGuardActivity.isVisible();
+            if (!restored || !visible) {
+                sLost = true;
+                sDisplacementExpected = false;
+                sDisplacementObserved = false;
+                final String detail =
+                        DesktopSelfTestPhoneGuardActivity.lastError();
+                addEvent("guard restore failed"
+                        + (detail.isEmpty() ? "" : " error=" + detail));
+                throw new IOException("phone input guard did not return"
+                        + (detail.isEmpty() ? "" : ": " + detail));
+            }
+            addEvent(sDisplacementObserved
+                    ? "guard restored after expected displacement"
+                    : "guard remained visible during expected displacement");
+            sDisplacementExpected = false;
+            sDisplacementObserved = false;
+        }
+    }
+
     static synchronized void noteWindowShown() {
         if (!sActive) {
             return;
@@ -99,6 +158,12 @@ final class DesktopSelfTestPhoneInputGuard {
 
     static synchronized void noteWindowHidden() {
         if (!sActive || sClosing) {
+            return;
+        }
+        if (sDisplacementExpected) {
+            sDisplacementObserved = true;
+            addEvent("guard displaced stage="
+                    + DesktopSelfTestHostObserver.currentStage());
             return;
         }
         sLost = true;
@@ -142,11 +207,20 @@ final class DesktopSelfTestPhoneInputGuard {
                 + "ms " + event);
     }
 
+    private static synchronized void markRestoreFailed() {
+        sLost = true;
+        sDisplacementExpected = false;
+        sDisplacementObserved = false;
+        addEvent("guard restore failed");
+    }
+
     private static void reset() {
         sActive = false;
         sClosing = false;
         sSeen = false;
         sLost = false;
+        sDisplacementExpected = false;
+        sDisplacementObserved = false;
         sStartedAt = 0L;
         sTouchCount = 0;
         sKeyCount = 0;

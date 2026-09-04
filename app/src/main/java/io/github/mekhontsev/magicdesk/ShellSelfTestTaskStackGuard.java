@@ -8,8 +8,6 @@ import java.util.List;
 
 /** Captures task state synchronously from TaskStackListener callbacks. */
 final class ShellSelfTestTaskStackGuard {
-    private static final int ACTIVITY_TYPE_HOME = 2;
-
     private final Object mService;
 
     private SelfTestTaskStackInvariantAnalyzer mAnalyzer;
@@ -121,7 +119,7 @@ final class ShellSelfTestTaskStackGuard {
                     visible,
                     taskVisibilityKnown,
                     fixture,
-                    activityType == ACTIVITY_TYPE_HOME,
+                    activityType == FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME,
                     displayAreaFeatureId,
                     backstop,
                     backstopRole,

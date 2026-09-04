@@ -25,7 +25,8 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
     @Override
     public boolean launchAndroid(
             final DesktopLaunchRequest request,
-            final Runnable onPrepared) {
+            final Runnable onPrepared,
+            final DesktopActivityLaunchResult.Completion completion) {
         if (request.androidShortcut != null) {
             if (onPrepared != null) {
                 throw new IllegalArgumentException(
@@ -42,7 +43,10 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
                             .loadAll(request.androidShortcut.publisher)) {
                 if (request.androidShortcut.shortcutId.equals(shortcut.id)) {
                     mActivity.launchShortcut(
-                            app, shortcut, request.launchMode);
+                            app,
+                            shortcut,
+                            request.launchMode,
+                            completion);
                     return true;
                 }
             }
@@ -58,7 +62,11 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
             if (app == null) {
                 return false;
             }
-            mActivity.launchForMode(app, request.launchMode, onPrepared);
+            mActivity.launchForMode(
+                    app,
+                    request.launchMode,
+                    onPrepared,
+                    completion);
             return true;
         }
         if (onPrepared != null) {
@@ -67,16 +75,23 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
         }
         final Intent intent = request.androidLaunch.resolve(
                 mActivity.getPackageManager());
-        if (intent == null || intent.getComponent() == null) {
+        if (intent == null) {
             return false;
         }
         final ComponentName component = intent.getComponent();
         final AppLaunchTarget target = request.androidLaunch.target == null
+                && component != null
                 ? AppLaunchTarget.explicit(
                         component.getPackageName(),
                         component.getClassName(),
                         intent.getAction())
                 : request.androidLaunch.target;
+        if (target == null
+                || (request.androidLaunch.delivery
+                        == AndroidLaunchSpec.Delivery.SHELL_INTENT
+                        && component == null)) {
+            return false;
+        }
         final AppItem app = mActivity.findOrLoadApp(
                 mActivity.getLauncherApps(), target);
         if (app == null) {
@@ -87,7 +102,9 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
                 request.name,
                 intent,
                 target,
-                request.launchMode);
+                request.launchMode,
+                request.androidLaunch.delivery,
+                completion);
         return true;
     }
 

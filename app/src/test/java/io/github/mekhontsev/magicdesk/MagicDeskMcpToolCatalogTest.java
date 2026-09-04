@@ -108,6 +108,20 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(handlerOutput.has("handlers"));
         assertTrue(handlerOutput.has("truncated"));
 
+        final JSONObject launchOutput = dataProperties(
+                publicTools, "launch_intent");
+        assertTrue(launchOutput.has("authorization"));
+        assertTrue(launchOutput.has("taskObserved"));
+        assertTrue(launchOutput.has("taskId"));
+        assertTrue(launchOutput.has("observedActivityType"));
+        assertTrue(launchOutput.has("bounds"));
+
+        final JSONObject appLaunchOutput = dataProperties(
+                publicTools, "launch_app");
+        assertTrue(appLaunchOutput.has("taskObserved"));
+        assertTrue(appLaunchOutput.has("reused"));
+        assertTrue(appLaunchOutput.has("observedMode"));
+
         final JSONObject resultOutput = dataProperties(
                 publicTools, "get_intent_result");
         assertTrue(resultOutput.has("requestId"));
@@ -154,6 +168,8 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(readOutput.has("sensitive"));
         assertTrue(open.getJSONObject("properties").has("displayId"));
         assertTrue(shareOutput.has("resolvedComponent"));
+        assertTrue(shareOutput.has("launchIdentity"));
+        assertTrue(shareOutput.has("delivery"));
         assertTrue(shareOutput.has("relay"));
     }
 

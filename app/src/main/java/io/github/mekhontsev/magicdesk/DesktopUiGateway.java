@@ -331,6 +331,34 @@ final class DesktopUiGateway {
         return await(ready) && launched[0];
     }
 
+    DesktopActivityLaunchResult launchAutomationRequestObserved(
+            final DesktopLaunchRequest request,
+            final int displayId,
+            final long timeoutMillis) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null || request == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return DesktopActivityLaunchResult.failed(
+                    "desktop host is unavailable");
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return DesktopActivityLaunchResult.failed(
+                    "observed launch cannot block the UI thread");
+        }
+        final DesktopActivityLaunchResult.Awaiter completion =
+                new DesktopActivityLaunchResult.Awaiter();
+        mMainHandler.post(() -> {
+            if (!isUsable(activity)
+                    || activity.getCurrentDisplayId() != displayId) {
+                completion.onComplete(DesktopActivityLaunchResult.failed(
+                        "desktop host became unavailable"));
+                return;
+            }
+            activity.launchAutomationRequest(request, completion);
+        });
+        return completion.await(timeoutMillis);
+    }
+
     boolean openFilesAt(final String path, final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null || path == null
@@ -370,6 +398,50 @@ final class DesktopUiGateway {
         return await(ready) && launched[0];
     }
 
+    DesktopActivityLaunchResult launchApplicationObserved(
+            final AppLaunchTarget target,
+            final DesktopLaunchMode mode,
+            final RelativeWindowBounds preferredBounds,
+            final int displayId,
+            final long timeoutMillis) {
+        final DesktopShellActivity activity = usableDesktop(false);
+        if (activity == null
+                || target == null
+                || mode == null
+                || activity.getCurrentDisplayId() != displayId) {
+            return DesktopActivityLaunchResult.failed(
+                    "desktop host is unavailable");
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return DesktopActivityLaunchResult.failed(
+                    "observed launch cannot block the UI thread");
+        }
+        final DesktopActivityLaunchResult.Awaiter completion =
+                new DesktopActivityLaunchResult.Awaiter();
+        mMainHandler.post(() -> {
+            if (!isUsable(activity)
+                    || activity.getCurrentDisplayId() != displayId) {
+                completion.onComplete(DesktopActivityLaunchResult.failed(
+                        "desktop host became unavailable"));
+                return;
+            }
+            final AppItem app = activity.findOrLoadApp(
+                    activity.getLauncherApps(), target);
+            if (app == null) {
+                completion.onComplete(DesktopActivityLaunchResult.failed(
+                        "application launcher is unavailable"));
+                return;
+            }
+            activity.launchForMode(
+                    app,
+                    mode,
+                    preferredBounds,
+                    null,
+                    completion);
+        });
+        return completion.await(timeoutMillis);
+    }
+
     boolean invokeAppAction(
             final AppLaunchTarget target,
             final String actionId) {
@@ -390,8 +462,9 @@ final class DesktopUiGateway {
                         activity.launchShortcut(
                                 app,
                                 action,
-                                success -> {
-                                    invoked[0] = success;
+                                result -> {
+                                    invoked[0] = result != null
+                                            && result.succeeded();
                                     ready.countDown();
                                 });
                         return;

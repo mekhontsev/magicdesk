@@ -9,6 +9,8 @@ import android.os.Parcelable;
 public final class FrameworkTaskSnapshot implements Parcelable {
     public static final int WINDOWING_MODE_FULLSCREEN = 1;
     public static final int WINDOWING_MODE_FREEFORM = 5;
+    public static final int ACTIVITY_TYPE_UNDEFINED = 0;
+    public static final int ACTIVITY_TYPE_STANDARD = 1;
     public static final int ACTIVITY_TYPE_HOME = 2;
 
     public static final Creator<FrameworkTaskSnapshot> CREATOR =

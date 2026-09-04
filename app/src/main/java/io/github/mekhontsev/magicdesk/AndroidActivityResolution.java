@@ -33,14 +33,17 @@ public final class AndroidActivityResolution implements Parcelable {
     public final int state;
     public final ComponentName component;
     public final int handlerCount;
+    public final AndroidActivityAuthorization authorization;
 
     private AndroidActivityResolution(
             final int state,
             final ComponentName component,
-            final int handlerCount) {
+            final int handlerCount,
+            final AndroidActivityAuthorization authorization) {
         this.state = state;
         this.component = component;
         this.handlerCount = Math.max(0, handlerCount);
+        this.authorization = authorization;
         validate();
     }
 
@@ -48,33 +51,62 @@ public final class AndroidActivityResolution implements Parcelable {
         state = source.readInt();
         component = source.readTypedObject(ComponentName.CREATOR);
         handlerCount = source.readInt();
+        authorization = source.readTypedObject(
+                AndroidActivityAuthorization.CREATOR);
         validate();
     }
 
     static AndroidActivityResolution resolve(
             final PackageManager packageManager,
-            final Intent intent) {
-        if (packageManager == null || intent == null) {
+            final Intent intent,
+            final String requestingPackage) {
+        if (packageManager == null || intent == null
+                || requestingPackage == null || requestingPackage.isEmpty()) {
             throw new IllegalArgumentException(
-                    "PackageManager and Intent are required");
+                    "PackageManager, Intent, and requester are required");
+        }
+        if (intent.getComponent() != null) {
+            try {
+                final ActivityInfo activity = packageManager.getActivityInfo(
+                                intent.getComponent(),
+                                PackageManager.ComponentInfoFlags.of(
+                                        PackageManager.MATCH_DISABLED_COMPONENTS));
+                return new AndroidActivityResolution(
+                        CONCRETE,
+                        intent.getComponent(),
+                        1,
+                        AndroidActivityAuthorization.inspect(
+                                packageManager,
+                                activity,
+                                requestingPackage));
+            } catch (PackageManager.NameNotFoundException error) {
+                return new AndroidActivityResolution(NONE, null, 0, null);
+            }
         }
         final List<ResolveInfo> handlers = packageManager.queryIntentActivities(
                 intent, PackageManager.MATCH_DEFAULT_ONLY);
         final int handlerCount = handlers == null ? 0 : handlers.size();
         if (handlerCount == 0) {
-            return new AndroidActivityResolution(NONE, null, 0);
+            return new AndroidActivityResolution(NONE, null, 0, null);
         }
         final ResolveInfo resolved = packageManager.resolveActivity(
                 intent, PackageManager.MATCH_DEFAULT_ONLY);
         final ComponentName resolvedComponent = componentOf(resolved);
         if (resolvedComponent != null && contains(handlers, resolvedComponent)) {
             return new AndroidActivityResolution(
-                    CONCRETE, resolvedComponent, handlerCount);
+                    CONCRETE,
+                    resolvedComponent,
+                    handlerCount,
+                    AndroidActivityAuthorization.inspect(
+                            packageManager,
+                            resolved.activityInfo,
+                            requestingPackage));
         }
         // PackageManager returns an internal ResolverActivity when the user
         // must choose. It is not one of the actual handlers and must remain an
         // implicit app-owned launch rather than an explicit shell target.
-        return new AndroidActivityResolution(RESOLVER, null, handlerCount);
+        return new AndroidActivityResolution(
+                RESOLVER, null, handlerCount, null);
     }
 
     boolean requiresResolver() {
@@ -117,6 +149,7 @@ public final class AndroidActivityResolution implements Parcelable {
     private void validate() {
         if (state < NONE || state > RESOLVER || handlerCount < 0
                 || (state == CONCRETE) != (component != null)
+                || (state == CONCRETE) != (authorization != null)
                 || (state == NONE && handlerCount != 0)) {
             throw new IllegalArgumentException(
                     "invalid Android Activity resolution");
@@ -133,5 +166,6 @@ public final class AndroidActivityResolution implements Parcelable {
         destination.writeInt(state);
         destination.writeTypedObject(component, flags);
         destination.writeInt(handlerCount);
+        destination.writeTypedObject(authorization, flags);
     }
 }

@@ -361,6 +361,26 @@ final class DesktopTaskWatcher {
                 existingTaskId);
     }
 
+    int launchPendingActivity(
+            final int displayId,
+            final AppLaunchTarget target,
+            final PendingIntent pendingIntent,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) throws IOException {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null || pendingIntent == null) {
+            throw new IOException("desktop task observer is unavailable");
+        }
+        return handle.launchPendingActivity(
+                displayId,
+                target,
+                pendingIntent,
+                windowingMode,
+                bounds,
+                existingTaskId);
+    }
+
     void launchTaskAction(
             final int displayId,
             final int taskId,

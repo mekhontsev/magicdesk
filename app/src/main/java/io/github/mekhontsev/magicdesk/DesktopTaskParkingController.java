@@ -379,15 +379,19 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 ? null
                 : FloatingWindowController.getWindowBounds(
                         target.displayId, parked.bounds);
-        DesktopTaskTransfer.move(
-                live.taskId,
-                live.rootTaskId,
-                live.displayId,
-                target.displayId,
-                parked.fullscreen
-                        ? DesktopTaskTransfer.Mode.FULLSCREEN
-                        : DesktopTaskTransfer.Mode.FREEFORM,
-                bounds);
+        if (parked.fullscreen) {
+            DesktopTaskTransfer.moveFullscreen(
+                    live.taskId,
+                    live.rootTaskId,
+                    live.displayId,
+                    target.displayId);
+        } else {
+            DesktopTaskTransfer.moveFreeform(
+                    live.taskId,
+                    live.displayId,
+                    target.displayId,
+                    bounds);
+        }
     }
 
     private static void restoreTask(

@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.graphics.Rect;
@@ -151,6 +152,46 @@ final class WindowedAppLauncher {
                                 shortcut.packageName,
                                 shortcut.id,
                                 shortcut.user,
+                                WINDOWING_MODE_FREEFORM,
+                                bounds,
+                                taskId));
+    }
+
+    static LaunchResult launchPendingActivity(
+            final PendingIntent pendingIntent,
+            final AppLaunchTarget launchTarget,
+            final int displayId,
+            final int[] preservedTaskIds,
+            final boolean explicitWindowed,
+            final RelativeWindowBounds preferredBounds,
+            final TaskReusePolicy reusePolicy,
+            final TaskReadyCallback taskReadyCallback) throws IOException {
+        if (pendingIntent == null || launchTarget == null) {
+            throw new IOException(
+                    "pending Activity launch target is required");
+        }
+        return launch(
+                launchTarget,
+                displayId,
+                preservedTaskIds,
+                explicitWindowed,
+                preferredBounds,
+                reusePolicy,
+                taskReadyCallback,
+                "android-pending-activity",
+                (targetDisplayId, bounds) ->
+                        MagicDeskRuntime.launchPendingActivity(
+                                targetDisplayId,
+                                launchTarget,
+                                pendingIntent,
+                                WINDOWING_MODE_FREEFORM,
+                                bounds,
+                                -1),
+                (targetDisplayId, taskId, bounds) ->
+                        MagicDeskRuntime.launchPendingActivity(
+                                targetDisplayId,
+                                launchTarget,
+                                pendingIntent,
                                 WINDOWING_MODE_FREEFORM,
                                 bounds,
                                 taskId));

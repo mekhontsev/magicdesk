@@ -11,7 +11,6 @@ final class ShellDesktopHostLauncher {
     private static final String HOST_PACKAGE = BuildConfig.APPLICATION_ID;
     private static final String HOST_CLASS =
             DesktopHostComponents.EXTERNAL_HOME_CLASS;
-    private static final int ACTIVITY_TYPE_HOME = 2;
 
     private final Object mService;
     private final ShellDesktopTaskOwnership mOwnership;
@@ -44,10 +43,11 @@ final class ShellDesktopHostLauncher {
                 intent,
                 HOST_PACKAGE,
                 null,
-                ACTIVITY_TYPE_HOME);
+                FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME);
         final Object task = HiddenTaskApi.requireTask(
                 mService, displayId, taskId);
-        if (HiddenTaskApi.getTaskActivityType(task) != ACTIVITY_TYPE_HOME) {
+        if (HiddenTaskApi.getTaskActivityType(task)
+                != FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME) {
             TaskControlCommand.removeTask(mService, taskId);
             throw new IllegalStateException(
                     "desktop host did not become a HOME task");

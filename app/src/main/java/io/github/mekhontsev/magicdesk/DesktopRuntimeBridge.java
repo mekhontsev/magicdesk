@@ -125,6 +125,14 @@ public final class DesktopRuntimeBridge {
         return UI.launchAutomationRequest(request, displayId);
     }
 
+    static DesktopActivityLaunchResult launchAutomationRequestObserved(
+            final DesktopLaunchRequest request,
+            final int displayId,
+            final long timeoutMillis) {
+        return UI.launchAutomationRequestObserved(
+                request, displayId, timeoutMillis);
+    }
+
     static boolean openFilesAt(final String path, final int displayId) {
         return UI.openFilesAt(path, displayId);
     }
@@ -136,6 +144,20 @@ public final class DesktopRuntimeBridge {
             final int displayId) {
         return UI.launchApplication(
                 target, mode, preferredBounds, displayId);
+    }
+
+    static DesktopActivityLaunchResult launchApplicationObserved(
+            final AppLaunchTarget target,
+            final DesktopLaunchMode mode,
+            final RelativeWindowBounds preferredBounds,
+            final int displayId,
+            final long timeoutMillis) {
+        return UI.launchApplicationObserved(
+                target,
+                mode,
+                preferredBounds,
+                displayId,
+                timeoutMillis);
     }
 
     static boolean invokeAppAction(

@@ -11,7 +11,6 @@ import java.util.Set;
 /** Tracks session-wide desktop ownership independently of display drivers. */
 final class ShellDesktopTaskOwnership {
     private static final String TAG = "MagicDeskTasks";
-    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final String SYSTEM_UI_PACKAGE = "com.android.systemui";
@@ -212,7 +211,7 @@ final class ShellDesktopTaskOwnership {
         }
         try {
             return HiddenTaskApi.getTaskActivityType(task)
-                            == ACTIVITY_TYPE_STANDARD
+                            == FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
                     && !DesktopInfrastructureTasks.isComponent(
                             HiddenTaskApi.getTaskComponent(task));
         } catch (ReflectiveOperationException | RuntimeException error) {

@@ -58,6 +58,20 @@ final class LaunchActivityIdentity {
                 false);
     }
 
+    static LaunchActivityIdentity resolve(
+            final PackageManager packageManager,
+            final AppLaunchTarget target) {
+        if (packageManager == null || target == null) {
+            throw new IllegalArgumentException(
+                    "package manager and launch target are required");
+        }
+        if (target.activityClassName.isEmpty()) {
+            return packageScoped(target.packageName, null);
+        }
+        return resolve(packageManager, new ComponentName(
+                target.packageName, target.activityClassName));
+    }
+
     static LaunchActivityIdentity packageScoped(
             final String packageName,
             final ComponentName publishedComponent) {
@@ -90,6 +104,51 @@ final class LaunchActivityIdentity {
 
     boolean matchesPackage(final String observedPackageName) {
         return matchesPackage(mPackageName, observedPackageName);
+    }
+
+    boolean matchesTask(final TaskRepository.TaskEntry task) {
+        if (task == null || !matchesPackage(task.packageName)) {
+            return false;
+        }
+        return mPackageScoped
+                || matchesFlattened(task.componentName)
+                || matchesFlattened(task.topActivityName);
+    }
+
+    boolean matchesTask(final FrameworkTaskSnapshot task) {
+        if (task == null) {
+            return false;
+        }
+        if (mPackageScoped) {
+            return matchesPackage(task.rootComponent)
+                    || matchesPackage(task.topComponent)
+                    || matchesPackage(task.packageName)
+                    || matchesPackage(task.topPackage);
+        }
+        return matches(task.rootComponent)
+                || matches(task.topComponent)
+                || matchesFlattened(task.componentName)
+                || matchesFlattened(task.topActivityName);
+    }
+
+    private boolean matchesFlattened(final String flattened) {
+        if (flattened == null) {
+            return false;
+        }
+        final int separator = flattened.indexOf('/');
+        if (separator <= 0 || separator == flattened.length() - 1) {
+            return false;
+        }
+        final String packageName = flattened.substring(0, separator);
+        final String rawClassName = flattened.substring(separator + 1);
+        final String className = rawClassName.startsWith(".")
+                ? packageName + rawClassName : rawClassName;
+        return matches(
+                mPackageName,
+                mRequestedComponent.getClassName(),
+                mResolvedComponent.getClassName(),
+                packageName,
+                className);
     }
 
     static boolean matchesPackage(

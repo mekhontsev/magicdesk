@@ -14,8 +14,14 @@ final class AndroidLaunchSpec {
         INTENT
     }
 
+    enum Delivery {
+        SHELL_INTENT,
+        APP_PENDING_INTENT
+    }
+
     final Kind kind;
     final AppLaunchTarget target;
+    final Delivery delivery;
     private final Intent mIntent;
     private final String mIntentUri;
 
@@ -23,7 +29,8 @@ final class AndroidLaunchSpec {
             final Kind kind,
             final AppLaunchTarget target,
             final Intent intent,
-            final String intentUri) {
+            final String intentUri,
+            final Delivery delivery) {
         if (kind == null || (kind == Kind.DEFAULT && target == null)) {
             throw new IllegalArgumentException("missing Android launch target");
         }
@@ -34,13 +41,20 @@ final class AndroidLaunchSpec {
         }
         this.kind = kind;
         this.target = target;
+        this.delivery = delivery == null
+                ? Delivery.SHELL_INTENT : delivery;
         mIntent = intent == null ? null : new Intent(intent);
         mIntentUri = intentUri == null ? "" : intentUri;
     }
 
     static AndroidLaunchSpec defaultLaunch(
             final AppLaunchTarget target) {
-        return new AndroidLaunchSpec(Kind.DEFAULT, target, null, "");
+        return new AndroidLaunchSpec(
+                Kind.DEFAULT,
+                target,
+                null,
+                "",
+                Delivery.SHELL_INTENT);
     }
 
     static AndroidLaunchSpec intent(
@@ -49,12 +63,24 @@ final class AndroidLaunchSpec {
             throw new IllegalArgumentException("missing Android launch Intent");
         }
         return new AndroidLaunchSpec(
-                Kind.INTENT, target, null, intentUri);
+                Kind.INTENT,
+                target,
+                null,
+                intentUri,
+                Delivery.SHELL_INTENT);
     }
 
     static AndroidLaunchSpec intent(
             final AppLaunchTarget target, final Intent intent) {
-        return new AndroidLaunchSpec(Kind.INTENT, target, intent, "");
+        return intent(target, intent, Delivery.SHELL_INTENT);
+    }
+
+    static AndroidLaunchSpec intent(
+            final AppLaunchTarget target,
+            final Intent intent,
+            final Delivery delivery) {
+        return new AndroidLaunchSpec(
+                Kind.INTENT, target, intent, "", delivery);
     }
 
     Intent resolve(final PackageManager packageManager) {
@@ -72,12 +98,18 @@ final class AndroidLaunchSpec {
                 return null;
             }
         }
+        if (intent.getComponent() == null
+                && target != null
+                && !target.activityClassName.isEmpty()) {
+            intent.setClassName(
+                    target.packageName,
+                    target.activityClassName);
+        }
+        if (delivery == Delivery.APP_PENDING_INTENT) {
+            return intent;
+        }
         if (intent.getComponent() == null && target != null) {
-            if (!target.activityClassName.isEmpty()) {
-                intent.setClassName(
-                        target.packageName,
-                        target.activityClassName);
-            } else if (intent.getPackage() == null) {
+            if (intent.getPackage() == null) {
                 intent.setPackage(target.packageName);
             }
         }

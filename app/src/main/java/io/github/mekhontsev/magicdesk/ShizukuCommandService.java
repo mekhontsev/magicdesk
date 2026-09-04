@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
@@ -661,6 +663,30 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 packageName,
                 shortcutId,
                 user,
+                windowingMode,
+                new Rect(left, top, right, bottom),
+                existingTaskId);
+    }
+
+    @Override
+    public int launchPendingActivity(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String expectedPackage,
+            final ComponentName expectedComponent,
+            final PendingIntent pendingIntent,
+            final int windowingMode,
+            final int left,
+            final int top,
+            final int right,
+            final int bottom,
+            final int existingTaskId) {
+        return mTaskObserverManager.launchPendingActivity(
+                callback,
+                displayId,
+                expectedPackage,
+                expectedComponent,
+                pendingIntent,
                 windowingMode,
                 new Rect(left, top, right, bottom),
                 existingTaskId);

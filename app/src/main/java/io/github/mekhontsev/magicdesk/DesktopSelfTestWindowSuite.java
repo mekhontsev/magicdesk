@@ -209,13 +209,20 @@ final class DesktopSelfTestWindowSuite {
                     "Preserve desktop surface during task transfer",
                     "an external display was not selected");
         } else {
+            final SurfaceReferenceResult transferSurfaceReference =
+                    captureSurfaceReferenceOutsideWindow(
+                            captureSource, settledGeometry, windowBounds);
             require(result,
                     "WINDOW-009",
                     "Move existing task to phone fullscreen",
-                    () -> preservePhoneTouchpad(() -> reopenTask(
-                            Display.DEFAULT_DISPLAY,
-                            targetFixtureTaskId,
-                            null)));
+                    () -> withPhoneGuardDisplacement(
+                            appContext,
+                            result.runId(),
+                            "WINDOW-009",
+                            () -> preservePhoneTouchpad(() -> reopenTask(
+                                    Display.DEFAULT_DISPLAY,
+                                    targetFixtureTaskId,
+                                    null))));
             samplePhoneUiBestEffort();
             final TaskTransferObservation taskTransfer = require(result,
                     "WINDOW-008",
@@ -225,7 +232,7 @@ final class DesktopSelfTestWindowSuite {
                             targetFixtureTaskId,
                             desktopTask.taskId,
                             windowBounds,
-                            surfaceReference)));
+                            transferSurfaceReference)));
             samplePhoneUiBestEffort();
             if (!taskTransfer.probeError.isEmpty()) {
                 result.add(DesktopSelfTestResult.State.NOT_TESTED,
@@ -233,20 +240,16 @@ final class DesktopSelfTestWindowSuite {
                         "Preserve desktop surface during task transfer",
                         taskTransfer.probeError);
             } else {
-                final boolean hiddenRootTransferPreparation =
-                        taskTransfer.hiddenRootTransferPreparation;
                 final boolean directFreeformFront =
-                        !hiddenRootTransferPreparation
-                                && taskTransfer.firstFront.windowingMode
-                                        == WINDOWING_MODE_FREEFORM
+                        taskTransfer.firstFront.windowingMode
+                                == WINDOWING_MODE_FREEFORM
                                 && taskTransfer.firstFront.displayId
                                         == targetDisplayId
                                 && equalsObservationBounds(
                                         taskTransfer.firstFront,
                                         windowBounds);
                 result.add(!taskTransfer.surfaceChanged
-                            && (hiddenRootTransferPreparation
-                                    || directFreeformFront)
+                            && directFreeformFront
                             ? DesktopSelfTestResult.State.PASS
                             : DesktopSelfTestResult.State.FAIL,
                     "WINDOW-014",
@@ -1369,6 +1372,34 @@ final class DesktopSelfTestWindowSuite {
         }
     }
 
+    private static <T> T withPhoneGuardDisplacement(
+            final Context context,
+            final long runId,
+            final String reason,
+            final CheckedSupplier<T> operation) throws Exception {
+        DesktopSelfTestPhoneInputGuard.expectWindowDisplacement(reason);
+        T value = null;
+        Exception operationError = null;
+        try {
+            value = operation.run();
+        } catch (Exception error) {
+            operationError = error;
+        }
+        try {
+            DesktopSelfTestPhoneInputGuard.restoreAfterExpectedDisplacement(
+                    context, runId);
+        } catch (IOException restoreError) {
+            if (operationError == null) {
+                throw restoreError;
+            }
+            operationError.addSuppressed(restoreError);
+        }
+        if (operationError != null) {
+            throw operationError;
+        }
+        return value;
+    }
+
     private static DesktopSelfTestGeometry verifyDesktopViewport(
             final Context context,
             final int displayId,
@@ -1553,66 +1584,7 @@ final class DesktopSelfTestWindowSuite {
                 displayId,
                 Collections.singletonList(Integer.valueOf(desktopTaskId))));
         waitForWindowFocus(displayId, true);
-        if (DesktopTaskTransfer.usesDirectRoot(displayId)) {
-            return reopenRootTask(
-                    displayId, taskId, bounds, surfaceReference);
-        }
         return reopenTask(displayId, taskId, bounds, surfaceReference);
-    }
-
-    private static TaskTransferObservation reopenRootTask(
-            final int displayId,
-            final int taskId,
-            final Rect bounds,
-            final SurfaceReferenceResult surfaceReference) throws IOException {
-        final ComponentName component =
-                new ComponentName(PACKAGE_NAME, FIXTURE_CLASS);
-        final TaskStackParser.Entry currentTask = findTaskOnAnyDisplay(
-                ShellAccess.run("/system/bin/cmd activity stack list"),
-                FIXTURE_CLASS);
-        if (currentTask == null || currentTask.taskId != taskId) {
-            throw new IOException("task " + taskId + " is unavailable");
-        }
-        try (DesktopTaskLaunchProbe probe =
-                     DesktopTaskLaunchProbe.open(
-                             taskId, component, displayId)) {
-            final String output = ShellAccess.run(
-                    DesktopTaskTransfer.createDirectRootCommand(
-                            taskId,
-                            currentTask.rootTaskId,
-                            currentTask.displayId,
-                            displayId,
-                            DesktopTaskTransfer.Mode.FREEFORM,
-                            bounds,
-                            surfaceReference.reference));
-            if (!output.contains("task-freeform-move=" + taskId)) {
-                throw new IOException(output.trim());
-            }
-            if (!output.contains("source-prepared-visible=false")) {
-                throw new IOException(
-                        "source task preparation was not hidden");
-            }
-            if (!output.contains("target-prepared-visible=false")) {
-                throw new IOException(
-                        "target task preparation was not hidden");
-            }
-            final DesktopTaskLaunchProbe.Observation firstFront =
-                    probe.awaitObservation();
-            waitForTask(
-                    displayId,
-                    FIXTURE_CLASS,
-                    entry -> entry.taskId == taskId
-                            && "freeform".equals(entry.windowingMode));
-            final TaskTransferObservation observation =
-                    buildTaskTransferObservation(
-                            firstFront, surfaceReference, output);
-            return new TaskTransferObservation(
-                    observation.firstFront,
-                    observation.surfaceChanged,
-                    observation.pixelSamples,
-                    observation.probeError,
-                    true);
-        }
     }
 
     private static DesktopTaskLaunchProbe.Observation reopenTask(
@@ -1643,13 +1615,11 @@ final class DesktopSelfTestWindowSuite {
         }
         if (!freeform) {
             if (currentTask.displayId != displayId) {
-                final String output = DesktopTaskTransfer.move(
+                final String output = DesktopTaskTransfer.moveFullscreen(
                         taskId,
                         currentTask.rootTaskId,
                         currentTask.displayId,
-                        displayId,
-                        DesktopTaskTransfer.Mode.FULLSCREEN,
-                        null);
+                        displayId);
                 if (!output.contains("task-fullscreen-move=" + taskId)) {
                     throw new IOException(output.trim());
                 }
@@ -1683,14 +1653,14 @@ final class DesktopSelfTestWindowSuite {
                     "");
         }
         try (DesktopTaskLaunchProbe probe =
-                     DesktopTaskLaunchProbe.open(taskId, component)) {
-            final String output = DesktopTaskTransfer.move(
+                     DesktopTaskLaunchProbe.open(
+                             taskId, component, displayId)) {
+            final String output = DesktopTaskTransfer.moveFreeform(
                     taskId,
-                    currentTask.rootTaskId,
                     currentTask.displayId,
                     displayId,
-                    DesktopTaskTransfer.Mode.FREEFORM,
-                    bounds);
+                    bounds,
+                    surfaceReference.reference);
             final String expectedOutput =
                     "task-freeform-move=" + taskId;
             if (!output.contains(expectedOutput)) {
@@ -1761,35 +1731,21 @@ final class DesktopSelfTestWindowSuite {
         final boolean surfaceChanged;
         final String pixelSamples;
         final String probeError;
-        final boolean hiddenRootTransferPreparation;
 
         TaskTransferObservation(
                 final DesktopTaskLaunchProbe.Observation firstFront,
                 final boolean surfaceChanged,
                 final String pixelSamples,
                 final String probeError) {
-            this(firstFront, surfaceChanged, pixelSamples, probeError, false);
-        }
-
-        TaskTransferObservation(
-                final DesktopTaskLaunchProbe.Observation firstFront,
-                final boolean surfaceChanged,
-                final String pixelSamples,
-                final String probeError,
-                final boolean hiddenRootTransferPreparation) {
             this.firstFront = firstFront;
             this.surfaceChanged = surfaceChanged;
             this.pixelSamples = pixelSamples == null ? "" : pixelSamples;
             this.probeError = probeError == null ? "" : probeError;
-            this.hiddenRootTransferPreparation =
-                    hiddenRootTransferPreparation;
         }
 
         @Override
         public String toString() {
             return firstFront + ", pixels=" + pixelSamples
-                    + (hiddenRootTransferPreparation
-                            ? ", source+target-prepared=hidden" : "")
                     + (probeError.isEmpty()
                             ? "" : ", probe-error=" + probeError);
         }

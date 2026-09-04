@@ -133,10 +133,13 @@ crop in place.
 
 A cold fullscreen launch has no existing surface to migrate. MagicDesk reserves
 an anchored plane before starting the Activity and passes that plane through
-`ActivityOptions.setLaunchTaskDisplayArea` together with fullscreen mode. The
-first task callback therefore exposes the final parent and mode; there is no
-intermediate freeform root and no post-launch reparent. Intent and shortcut
-launches share this path.
+`ActivityOptions.setLaunchTaskDisplayArea` together with fullscreen mode and
+`ACTIVITY_TYPE_STANDARD`. The first task callback therefore exposes the final
+parent, type, and mode; there is no intermediate freeform root and no
+post-launch reparent. Intent and shortcut launches share this path. If the
+observed topology violates that launch contract, rollback can remove only a
+task confirmed by the task-created callback and absent from the global
+pre-launch task snapshot; an existing or moved task is preserved.
 
 The desktop session owns viewport orientation. Every fullscreen plane ignores
 child orientation requests, allowing Android to rotate or letterbox application
@@ -237,11 +240,11 @@ task, so its structural `OPEN` cannot race the application's fullscreen entry
 or steal focus. Session teardown removes all owned planes and anchors; if
 display removal has already migrated an anchor to display 0, ownership is
 verified by both saved task ID and component before that task is removed. A
-phone task follows the same direct-root restore. An explicit fullscreen close
-hands focus to a surviving fullscreen sibling before removing the old task; an
-ordinary freeform close follows Android's task lifecycle. Its restore changes
-only mode, bounds, and order. These paths preserve the Activity instance and
-avoid a display-0 trampoline.
+phone task follows the same standard-workspace restore. An explicit fullscreen
+close hands focus to a surviving fullscreen sibling before removing the old
+task; an ordinary freeform close follows Android's task lifecycle. Its restore
+changes only mode, bounds, and order. These paths preserve the Activity
+instance and avoid a display-0 trampoline.
 
 `ShellPreparedTaskTransition` separately owns hidden preparation and reveal
 for running-task display moves and freeform decoration repair outside the

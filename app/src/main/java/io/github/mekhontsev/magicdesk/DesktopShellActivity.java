@@ -2004,6 +2004,24 @@ public abstract class DesktopShellActivity extends Activity
                 app, mode, preferredBounds, onPrepared);
     }
 
+    void launchForMode(
+            final AppItem app,
+            final DesktopLaunchMode mode,
+            final Runnable onPrepared,
+            final DesktopActivityLaunchResult.Completion completion) {
+        mAppTasks.launchForMode(app, mode, null, onPrepared, completion);
+    }
+
+    void launchForMode(
+            final AppItem app,
+            final DesktopLaunchMode mode,
+            final RelativeWindowBounds preferredBounds,
+            final Runnable onPrepared,
+            final DesktopActivityLaunchResult.Completion completion) {
+        mAppTasks.launchForMode(
+                app, mode, preferredBounds, onPrepared, completion);
+    }
+
     void launchFloating(final AppItem app) {
         mAppTasks.launchFloating(app);
     }
@@ -2032,7 +2050,15 @@ public abstract class DesktopShellActivity extends Activity
     void launchShortcut(
             final AppItem app,
             final AppShortcutAction shortcut,
-            final AppTaskController.LaunchCompletion completion) {
+            final DesktopLaunchMode launchMode,
+            final DesktopActivityLaunchResult.Completion completion) {
+        mAppTasks.launchShortcut(app, shortcut, launchMode, completion);
+    }
+
+    void launchShortcut(
+            final AppItem app,
+            final AppShortcutAction shortcut,
+            final DesktopActivityLaunchResult.Completion completion) {
         mAppTasks.launchShortcut(
                 app, shortcut, DesktopLaunchMode.AUTO, completion);
     }
@@ -2057,6 +2083,24 @@ public abstract class DesktopShellActivity extends Activity
             final AppLaunchTarget taskTarget,
             final DesktopLaunchMode mode) {
         mAppTasks.launchIntent(app, name, intent, taskTarget, mode);
+    }
+
+    void launchResolvedAndroidIntent(
+            final AppItem app,
+            final String name,
+            final Intent intent,
+            final AppLaunchTarget taskTarget,
+            final DesktopLaunchMode mode,
+            final AndroidLaunchSpec.Delivery delivery,
+            final DesktopActivityLaunchResult.Completion completion) {
+        mAppTasks.launchIntent(
+                app,
+                name,
+                intent,
+                taskTarget,
+                mode,
+                delivery,
+                completion);
     }
 
     boolean launchDesktopWebShortcut(final DesktopWebShortcut shortcut) {
@@ -2085,6 +2129,12 @@ public abstract class DesktopShellActivity extends Activity
 
     boolean launchAutomationRequest(final DesktopLaunchRequest request) {
         return mLaunchCoordinator.launch(request);
+    }
+
+    boolean launchAutomationRequest(
+            final DesktopLaunchRequest request,
+            final DesktopActivityLaunchResult.Completion completion) {
+        return mLaunchCoordinator.launch(request, completion);
     }
 
     void openFilesAt(final String path) {

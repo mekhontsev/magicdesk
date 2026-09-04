@@ -5,6 +5,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.view.Display;
 
@@ -21,6 +22,7 @@ import java.util.List;
 final class AndroidIntegrationGateway {
     private static final int MAX_SHARED_FILES = 64;
     private static final int MAX_APP_FUNCTION_PARAMETERS_CHARS = 262_144;
+    private static final long LAUNCH_OBSERVE_TIMEOUT_MILLIS = 10_000L;
 
     private final Context mContext;
     private final PackageManager mPackageManager;
@@ -47,7 +49,8 @@ final class AndroidIntegrationGateway {
                         mPackageManager,
                         request,
                         args.optInt("limit", 100),
-                        "application"));
+                        "application",
+                        BuildConfig.APPLICATION_ID));
     }
 
     DesktopAutomationResult launchIntent(final JSONObject args)
@@ -466,7 +469,10 @@ final class AndroidIntegrationGateway {
         final Intent target = new Intent(request.intent);
         final AndroidActivityResolution resolution = ShellAccess.isReady()
                 ? ShellAccess.resolveActivity(target)
-                : AndroidActivityResolution.resolve(mPackageManager, target);
+                : AndroidActivityResolution.resolve(
+                        mPackageManager,
+                        target,
+                        BuildConfig.APPLICATION_ID);
         final ComponentName resolvedComponent = resolution.component;
         if (!resolution.hasHandlers()) {
             return DesktopAutomationResult.failure(
@@ -475,9 +481,30 @@ final class AndroidIntegrationGateway {
                     false,
                     describeExecution(target, request.kind));
         }
-        final boolean useRelay = request.chooser || request.expectResult
-                || resolution.requiresResolver();
-        if (!useRelay) {
+        if (resolution.authorization != null
+                && !resolution.authorization.allowed()) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    "Activity launch denied: "
+                            + resolution.authorization.decisionName(),
+                    false,
+                    describeExecution(target, request.kind)
+                            .put("resolvedComponent",
+                                    resolution.component
+                                            .flattenToShortString())
+                            .put("authorization",
+                                    describeAuthorization(
+                                            resolution.authorization)));
+        }
+        final AndroidActivityLaunchPolicy launchPolicy =
+                AndroidActivityLaunchPolicy.select(
+                        request.chooser,
+                        request.expectResult,
+                        resolution.requiresResolver(),
+                        resolution.authorization != null
+                                && resolution.authorization
+                                        .requiresAppIdentity());
+        if (!launchPolicy.selectionSurface) {
             target.setComponent(resolvedComponent);
         }
         // Direct desktop launches are executed by shell. Issue grants from the
@@ -491,47 +518,128 @@ final class AndroidIntegrationGateway {
         } else {
             resultRequestId = "";
         }
-        if (useRelay) {
-            // Keep nested intents in the app process. Passing them through the
-            // shell drops the creator identity required by Android 16 redirect
-            // hardening even though the outer Intent itself is Parcelable.
+        final AndroidLaunchSpec.Delivery delivery;
+        if (launchPolicy.usesResultRelay()) {
+            // Result delivery needs a real Activity lifecycle owner. Shell
+            // places only this app-owned host; its nested target never crosses
+            // the Binder boundary.
             relayId = AndroidActivityRelayStore.put(
                     target, request.chooser, request.chooserTitle);
             launchedIntent = AndroidActivityRelayActivity.createIntent(
                     mContext, relayId, resultRequestId);
+            delivery = AndroidLaunchSpec.Delivery.SHELL_INTENT;
         } else {
             relayId = "";
-            launchedIntent = target;
+            launchedIntent = request.chooser
+                    ? Intent.createChooser(
+                            target,
+                            request.chooserTitle.isEmpty()
+                                    ? null : request.chooserTitle)
+                    : target;
+            if (launchPolicy.selectionSurface) {
+                launchedIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT
+                        | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+            }
+            // The app authorizes the target and grants; shell later sends this
+            // one-shot token with only task-placement options.
+            delivery = launchPolicy.delivery
+                    == AndroidActivityLaunchPolicy.Delivery.APP_PENDING_INTENT
+                            ? AndroidLaunchSpec.Delivery.APP_PENDING_INTENT
+                            : AndroidLaunchSpec.Delivery.SHELL_INTENT;
         }
-        final ComponentName component = launchedIntent.getComponent();
+        final ComponentName component = launchComponent(
+                launchedIntent,
+                launchPolicy.usesResultRelay()
+                        ? launchedIntent.getComponent()
+                        : resolvedComponent);
+        if (component == null) {
+            AndroidActivityRelayStore.discard(relayId);
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    "Activity launch surface could not be resolved",
+                    false,
+                    describeExecution(target, request.kind));
+        }
         final AppLaunchTarget transportTarget = AppLaunchTarget.explicit(
                 component.getPackageName(),
                 component.getClassName(),
                 launchedIntent.getAction());
-        final AppLaunchTarget taskTarget = useRelay
-                && resolvedComponent != null
-                ? AppLaunchTarget.packageDefault(
-                        resolvedComponent.getPackageName())
-                : transportTarget;
+        final AppLaunchTarget taskTarget = launchPolicy.selectionSurface
+                && !launchPolicy.usesResultRelay()
+                        ? AppLaunchTarget.packageDefault(
+                                component.getPackageName())
+                        : transportTarget;
         final DesktopLaunchRequest desktopRequest = new DesktopLaunchRequest(
                 request.name,
                 taskTarget.packageName,
                 AndroidLaunchSpec.intent(
                         taskTarget,
-                        launchedIntent),
+                        launchedIntent,
+                        delivery),
                 null,
                 request.launchMode);
-        if (!DesktopRuntimeBridge.launchAutomationRequest(
-                desktopRequest, displayId)) {
-            AndroidActivityRelayStore.discard(relayId);
-            if (!resultRequestId.isEmpty()) {
-                AndroidActivityResultStore.fail(
-                        resultRequestId,
-                        new IllegalStateException("desktop host is unavailable"));
+        final DesktopActivityLaunchResult result =
+                DesktopRuntimeBridge.launchAutomationRequestObserved(
+                        desktopRequest,
+                        displayId,
+                        LAUNCH_OBSERVE_TIMEOUT_MILLIS);
+        if (!result.succeeded()) {
+            if (result.isDefinitiveFailure()) {
+                AndroidActivityRelayStore.discard(relayId);
+                if (!resultRequestId.isEmpty()) {
+                    AndroidActivityResultStore.fail(
+                            resultRequestId,
+                            new IllegalStateException(result.error));
+                }
             }
             return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.HOST_UNAVAILABLE,
-                    "desktop launch request was not accepted", true);
+                    result.isDefinitiveFailure()
+                            ? DesktopAutomationErrorCode.ACTION_FAILED
+                            : DesktopAutomationErrorCode.TIMEOUT,
+                    result.error,
+                    !result.isDefinitiveFailure(),
+                    describeExecution(target, request.kind));
+        }
+        if (!result.hasObservedTask()) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    "desktop launch was accepted but no task was observed",
+                    true,
+                    describeExecution(target, request.kind));
+        }
+        final DesktopTaskLaunchObservation observation;
+        try {
+            if (launchPolicy.selectionSurface) {
+                observation = DesktopTaskLaunchObservation
+                        .awaitTopology(
+                                request.launchMode,
+                                displayId,
+                                result.taskId,
+                                LAUNCH_OBSERVE_TIMEOUT_MILLIS);
+            } else {
+                observation = DesktopTaskLaunchObservation.await(
+                        LaunchActivityIdentity.resolve(
+                                mPackageManager, taskTarget),
+                        request.launchMode,
+                        displayId,
+                        result.taskId,
+                        LAUNCH_OBSERVE_TIMEOUT_MILLIS);
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.TIMEOUT,
+                    "Activity launch observation was interrupted",
+                    true,
+                    describeExecution(target, request.kind));
+        }
+        if (observation.task == null) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    observation.error,
+                    true,
+                    describeExecution(target, request.kind)
+                            .put("taskId", result.taskId));
         }
         final JSONObject data = describeExecution(target, request.kind)
                 .put("displayId", displayId)
@@ -541,13 +649,38 @@ final class AndroidIntegrationGateway {
                                 ? "" : resolvedComponent.flattenToShortString())
                 .put("resolution", resolution.stateName())
                 .put("handlerCount", resolution.handlerCount)
-                .put("relay", useRelay)
-                .put("resultExpected", request.expectResult);
+                .put("authorization",
+                        describeAuthorization(resolution.authorization))
+                .put("launchIdentity", launchPolicy.identityName())
+                .put("delivery", launchPolicy.deliveryName())
+                .put("relay", launchPolicy.usesResultRelay())
+                .put("resultExpected", request.expectResult)
+                .put("taskObserved", true)
+                .put("taskId", observation.task.taskId)
+                .put("transportTaskId", result.taskId)
+                .put("reused", result.reused);
+        describeObservedTask(data, observation.task);
         if (!resultRequestId.isEmpty()) {
             data.put("requestId", resultRequestId);
         }
         return DesktopAutomationResult.success(
-                "Android Activity launch accepted", data);
+                "Android Activity launched", data);
+    }
+
+    private ComponentName launchComponent(
+            final Intent intent,
+            final ComponentName fallback) {
+        if (intent.getComponent() != null) {
+            return intent.getComponent();
+        }
+        final ResolveInfo resolved = mPackageManager.resolveActivity(
+                intent, PackageManager.MATCH_DEFAULT_ONLY);
+        if (resolved != null && resolved.activityInfo != null) {
+            return new ComponentName(
+                    resolved.activityInfo.packageName,
+                    resolved.activityInfo.name);
+        }
+        return fallback;
     }
 
     private int optionalDisplayId(final JSONObject args) {
@@ -572,6 +705,37 @@ final class AndroidIntegrationGateway {
                 .put("package", value(intent.getPackage()))
                 .put("component", intent.getComponent() == null
                         ? "" : intent.getComponent().flattenToShortString());
+    }
+
+    private static JSONObject describeAuthorization(
+            final AndroidActivityAuthorization authorization)
+            throws JSONException {
+        if (authorization == null) {
+            return new JSONObject().put("decision", "system-resolver");
+        }
+        return new JSONObject()
+                .put("decision", authorization.decisionName())
+                .put("exported", authorization.exported)
+                .put("enabled", authorization.enabled)
+                .put("requiredPermission", authorization.requiredPermission)
+                .put("permissionGranted", authorization.permissionGranted)
+                .put("samePackage", authorization.samePackage);
+    }
+
+    private static void describeObservedTask(
+            final JSONObject data,
+            final TaskRepository.TaskEntry task) throws JSONException {
+        data.put("observedComponent", task.componentName)
+                .put("observedTopActivity", task.topActivityName)
+                .put("observedActivityType", task.activityType)
+                .put("observedMode", DesktopLaunchMode.semanticWindowingMode(
+                        task.windowingMode))
+                .put("nativeWindowingMode", task.windowingMode)
+                .put("bounds", new JSONObject()
+                        .put("left", task.bounds.left)
+                        .put("top", task.bounds.top)
+                        .put("right", task.bounds.right)
+                        .put("bottom", task.bounds.bottom));
     }
 
     private void grantKnownTarget(

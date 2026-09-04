@@ -13,7 +13,6 @@ public final class TaskControlCommand {
             DesktopHostComponents.PACKAGE_NAME;
     private static final String SHELL_PACKAGE_NAME = "com.android.shell";
     private static final int SHELL_UID = 2000;
-    private static final int ACTIVITY_TYPE_HOME = 2;
     private TaskControlCommand() {
     }
 
@@ -146,7 +145,7 @@ public final class TaskControlCommand {
             }
             final int activityType =
                     HiddenTaskApi.getTaskActivityType(task);
-            if (activityType != ACTIVITY_TYPE_HOME) {
+            if (activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME) {
                 return true;
             }
         }

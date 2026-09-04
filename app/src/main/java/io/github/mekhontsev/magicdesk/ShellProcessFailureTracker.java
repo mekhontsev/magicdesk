@@ -23,8 +23,6 @@ final class ShellProcessFailureTracker implements
                 String reason);
     }
 
-    private static final int ACTIVITY_TYPE_STANDARD = 1;
-
     private final Listener mListener;
     private final List<TaskContext> mTasks = new ArrayList<>();
     private final Map<ProcessIdentity, PendingAnr> mPendingAnrs =
@@ -56,7 +54,7 @@ final class ShellProcessFailureTracker implements
             return;
         }
         for (final FrameworkTaskSnapshot task : tasks) {
-            if (task.activityType != ACTIVITY_TYPE_STANDARD
+            if (task.activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
                     || (task.packageName == null
                             && task.topPackage == null)) {
                 continue;

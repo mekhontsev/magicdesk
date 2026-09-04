@@ -9,7 +9,9 @@ interface DesktopLaunchContext {
     void hideTransientUi();
 
     boolean launchAndroid(
-            DesktopLaunchRequest request, Runnable onPrepared);
+            DesktopLaunchRequest request,
+            Runnable onPrepared,
+            DesktopActivityLaunchResult.Completion completion);
 
     void launchConsole(DesktopLaunchRequest request);
 

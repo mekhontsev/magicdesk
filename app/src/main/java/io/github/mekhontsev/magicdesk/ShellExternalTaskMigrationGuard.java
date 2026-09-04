@@ -25,7 +25,6 @@ final class ShellExternalTaskMigrationGuard implements
     private static final String TAG = "MagicDeskTasks";
     private static final String MAGICDESK_PACKAGE =
             "io.github.mekhontsev.magicdesk";
-    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final int MAGICDESK_LAUNCH_FLAGS =
             Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -186,7 +185,8 @@ final class ShellExternalTaskMigrationGuard implements
 
     private static TaskState createTaskState(final Object task)
             throws ReflectiveOperationException {
-        if (HiddenTaskApi.getTaskActivityType(task) != ACTIVITY_TYPE_STANDARD
+        if (HiddenTaskApi.getTaskActivityType(task)
+                != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
                 || MAGICDESK_PACKAGE.equals(
                         HiddenTaskApi.getTaskPackage(task))) {
             return null;

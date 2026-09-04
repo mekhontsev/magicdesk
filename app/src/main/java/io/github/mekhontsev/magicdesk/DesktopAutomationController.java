@@ -408,35 +408,69 @@ final class DesktopAutomationController {
         }
         final RelativeWindowBounds preferredBounds = readLaunchBounds(
                 args, mode, displayId);
-        if (!DesktopRuntimeBridge.launchApplication(
-                target, mode, preferredBounds, displayId)) {
+        final DesktopActivityLaunchResult result =
+                DesktopRuntimeBridge.launchApplicationObserved(
+                        target,
+                        mode,
+                        preferredBounds,
+                        displayId,
+                        LAUNCH_OBSERVE_TIMEOUT_MILLIS);
+        if (!result.succeeded()) {
             return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.HOST_UNAVAILABLE,
-                    "desktop host is unavailable", true);
+                    result.isDefinitiveFailure()
+                            ? DesktopAutomationErrorCode.ACTION_FAILED
+                            : DesktopAutomationErrorCode.TIMEOUT,
+                    result.error,
+                    true);
         }
-        final TaskRepository.TaskEntry launchedTask =
-                waitForLaunchedTask(target, displayId);
+        if (!result.hasObservedTask()) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    "application launch completed without an observed task",
+                    true);
+        }
+        final DesktopTaskLaunchObservation observation =
+                DesktopTaskLaunchObservation.await(
+                        LaunchActivityIdentity.resolve(
+                                mContext.getPackageManager(), target),
+                        mode,
+                        displayId,
+                        result.taskId,
+                        LAUNCH_OBSERVE_TIMEOUT_MILLIS);
+        if (observation.task == null) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.ACTION_FAILED,
+                    observation.error,
+                    true,
+                    new JSONObject()
+                            .put("package", packageName)
+                            .put("displayId", displayId)
+                            .put("taskId", result.taskId));
+        }
+        final TaskRepository.TaskEntry launchedTask = observation.task;
         final JSONObject data = new JSONObject()
                 .put("package", packageName)
                 .put("displayId", displayId)
                 .put("mode", mode.wireName)
-                .put("taskObserved", launchedTask != null);
+                .put("taskObserved", true)
+                .put("taskId", launchedTask.taskId)
+                .put("transportTaskId", result.taskId)
+                .put("reused", result.reused)
+                .put("observedComponent", launchedTask.componentName)
+                .put("observedTopActivity", launchedTask.topActivityName)
+                .put("observedActivityType", launchedTask.activityType)
+                .put("observedMode", DesktopLaunchMode
+                        .semanticWindowingMode(launchedTask.windowingMode))
+                .put("nativeWindowingMode", launchedTask.windowingMode)
+                .put("bounds", rectJson(launchedTask.bounds));
         if (args.has("bounds")) {
             data.put("requestedBounds", args.getJSONObject("bounds"));
         }
-        if (launchedTask != null) {
-            data.put("taskId", launchedTask.taskId)
-                    .put("observedMode", DesktopLaunchMode
-                            .semanticWindowingMode(
-                                    launchedTask.windowingMode))
-                    .put("nativeWindowingMode",
-                            launchedTask.windowingMode);
-            data.put("health", DesktopWindowObservation.capture()
-                    .health(launchedTask)
-                    .toJson());
-        }
+        data.put("health", DesktopWindowObservation.capture()
+                .health(launchedTask)
+                .toJson());
         return DesktopAutomationResult.success(
-                "application launch accepted",
+                "application launched",
                 data);
     }
 
@@ -1279,45 +1313,6 @@ final class DesktopAutomationController {
             }
         }
         return null;
-    }
-
-    private TaskRepository.TaskEntry waitForLaunchedTask(
-            final AppLaunchTarget target,
-            final int displayId) throws InterruptedException {
-        final long deadline = SystemClock.uptimeMillis()
-                + LAUNCH_OBSERVE_TIMEOUT_MILLIS;
-        long observedEventId = DesktopAutomationEventJournal.latestId();
-        TaskRepository.TaskEntry candidate = null;
-        while (true) {
-            candidate = null;
-            final TaskRepository.Snapshot snapshot =
-                    TaskRepository.loadAllNow();
-            if (snapshot.available) {
-                for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-                    if (task.displayId != displayId
-                            || !target.matchesTask(task)) {
-                        continue;
-                    }
-                    if (candidate == null || task.active
-                            || (!candidate.visible && task.visible)) {
-                        candidate = task;
-                    }
-                    if (task.active) {
-                        return task;
-                    }
-                }
-                if (candidate != null && candidate.visible) {
-                    return candidate;
-                }
-            }
-            final long remaining = deadline - SystemClock.uptimeMillis();
-            if (remaining <= 0L) {
-                break;
-            }
-            observedEventId = DesktopAutomationEventJournal.awaitChange(
-                    observedEventId, remaining);
-        }
-        return candidate;
     }
 
     private DesktopAutomationResult awaitTaskAction(

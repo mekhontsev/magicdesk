@@ -333,7 +333,7 @@ component.
 | Component | Path or package | Responsibility |
 | --- | --- | --- |
 | Main application | `io.github.mekhontsev.magicdesk` | Phone control, desktop shell, taskbar, setup, diagnostics, and runtime service |
-| Task transfer boundary | `DesktopTaskTransfer` | Moves running tasks directly between display root workspaces |
+| Task transfer boundary | `DesktopTaskTransfer` | Applies the freeform or fullscreen cross-display protocol for a running task |
 | Phone desktop wallpaper policy | `ShellPhoneDesktopWallpaperPolicy` | Keeps the MagicDesk HOME surface visible below standard freeform tasks |
 | Fullscreen topology | `ShellFullscreenTaskArea` | Owns per-task fullscreen planes on every desktop target |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
@@ -471,26 +471,34 @@ runtime integration and are not distributed through the same release path.
   Function framework calls have shell-side adapters, but desktop placement and
   task reuse still enter the production launch coordinator.
   `AndroidActivityResolution` distinguishes a real handler from Android's
-  synthetic resolver without relying on an internal class name. Concrete
-  handlers take the direct shell path unless chooser or result semantics need
-  the app-identity relay; unresolved choices stay implicit and use that relay.
-  Chooser and result requests retain nested targets in
-  `AndroidActivityRelayStore`; shell receives
-  only an opaque id and the app-identity relay satisfies Android 16 redirect
-  hardening without serializing away grants or typed extras. Relay ids use an
-  atomic `ready -> claimed` lifecycle: Android task handoff may instantiate the
-  relay Activity twice, but only the first instance can execute the payload.
-  Claimed tokens remain in the same bounded store without retaining their
-  Intent payload. The exported
+  synthetic resolver without relying on an internal class name. Its typed
+  `AndroidActivityAuthorization` independently evaluates enabled/exported
+  state, same-package access, and permissions granted to the MagicDesk app.
+  Shell is only a placement authority: denied app-identity access never crosses
+  that boundary. Public handlers without a required permission take the direct
+  shell path. Choosers, system resolvers, and allowed handlers requiring app
+  identity use an immutable one-shot `PendingIntent` created by the app and
+  sent by shell with the requested display, activity type, mode, and bounds.
+  The token preserves app authorization and URI grants; shell contributes no
+  target authority. A focused compatibility adapter owns the Android 15 and 16
+  background-start option semantics for both creator and sender.
+  Activity-result requests require an app Activity lifecycle. They retain the
+  nested target in `AndroidActivityRelayStore`; shell receives only an opaque
+  id and places the relay Activity. Relay ids use an atomic `ready -> claimed`
+  lifecycle: Android task handoff may instantiate the relay Activity twice, but
+  only the first instance can execute the payload. Claimed tokens remain in the
+  same bounded store without retaining their Intent payload. The exported
   relay Activity requires `MANAGE_ACTIVITY_TASKS`, so only the same privileged
   task-launch boundary can consume those one-shot ids. Broadcast and service
   starts are developer-only because they have no visible UI.
 - `AndroidLaunchSpec` keeps the task's semantic target separate from the
-  explicit Activity used to execute a launch. `AppTaskController` derives task
-  reuse identity from the concrete component for direct Intent launches.
-  Relayed concrete handlers use package-scoped task identity, so an existing
-  application task is normalized before the separate relay delivers its
-  action; the relay component never becomes the target task identity.
+  Activity used to execute a launch. `AppTaskController` derives task reuse
+  identity from the concrete component for direct Intent launches. System
+  selection surfaces use package-scoped identity because their published
+  launcher component may hand off to another Activity in the same package.
+  Result relays always create a distinct transient task under the relay's own
+  identity; they never normalize, move, or reuse an existing task belonging to
+  the result target.
   Published shortcuts follow the same separation:
   Android may redirect their metadata Activity to another Activity in the same
   app, so both fresh-task observation and task reuse are package-scoped while
@@ -498,6 +506,13 @@ runtime integration and are not distributed through the same release path.
   created task, rather than the optional published metadata component, becomes
   the mode-guard identity. Direct fresh Intent tasks receive the concrete
   Intent; an exact reused Intent task receives it as a task action.
+  `DesktopActivityLaunchResult` carries one closed outcome through the
+  UI-thread boundary: an observed managed task, an explicitly unmanaged
+  acceptance, or a definitive/indeterminate failure. MCP and Android
+  integration callers then use `DesktopTaskLaunchObservation` to confirm that
+  exact task's typed STANDARD/display/mode topology through the existing event
+  journal and one-shot repository snapshots. Resolver and chooser tasks omit
+  a final component assertion because the user's selection is not yet known.
 - Direct Files, shell, and Terminal automation has a second independent
   setting.
   `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
@@ -679,6 +694,15 @@ runtime integration and are not distributed through the same release path.
   single `WindowedTaskLaunchLease` spans each operation so startup-window
   protection and phone-touchpad preservation cannot be entered twice by the
   launcher and reuse path.
+  `ShellTaskLauncher` explicitly requests `ACTIVITY_TYPE_STANDARD` for ordinary
+  application launches. Direct and app-created PendingIntent launches retain
+  their exact component identity through the shell boundary; selection
+  surfaces and published shortcuts deliberately use package identity. The
+  launcher snapshots task ids across every display before the start and may
+  roll back an invalid identity or topology only for an id both reported
+  by the framework's task-created callback and absent from that snapshot. An
+  existing task moved from another display can therefore never be mistaken for
+  a newly created task and removed.
 - `ShellFullscreenTaskArea` gives each fullscreen task one stable,
   independently ordered plane until it restores or closes.
   A cold fullscreen launch reserves an anchored plane first and supplies its
@@ -1211,13 +1235,15 @@ references to tasks that the test already destroyed. The phone navigation
 guard is released even when task reconciliation reports a failure; the pending
 marker remains for a later recovery attempt.
 
-Task placement has one direct-root policy rather than separate launch, reuse,
-parking, or self-test routes. A running task is hidden and prepared as
-fullscreen, its root crosses the display boundary, and a target-local freeform
-transition reveals the final bounds. This gives WMShell an authoritative mode
-boundary on the destination so caption surfaces and input windows acquire the
-correct display. The simulated driver deliberately uses this same path to model
-external-display behavior without connected hardware.
+Task placement has one shared policy rather than separate launch, reuse,
+parking, or self-test routes. A running task is hidden and normalized as
+fullscreen on its source display. One WMShell `CHANGE` transaction then combines
+the existing-task launch on the destination with its freeform mode, final
+bounds, caption policy, and reveal. The source therefore never contains a
+freeform transfer state, while the first visible destination state already has
+the final geometry and native caption/input surfaces. The simulated driver
+deliberately uses this same path to model external-display behavior without
+connected hardware.
 
 `PhoneDesktopHomeActivity` is primary HOME in Android's default task area.
 Freeform applications remain standard root-workspace tasks above that HOME.
@@ -1229,8 +1255,10 @@ visibility follows fullscreen and auto-hide policy directly.
 
 A cold freeform launch is staged behind the desktop host until Android assigns
 the task ID, then one complete WMShell `OPEN` reveals its final mode, bounds,
-and front order. A running cross-display task uses the same direct-root
-transfer. Reusing a fullscreen task on the desktop display claims its exact
+and front order. The launch options explicitly classify the application task
+as STANDARD, and the returned task must retain that type on the requested
+display. A running cross-display task uses the same prepared transfer protocol.
+Reusing a fullscreen task on the desktop display claims its exact
 task ID in shell-owned desktop topology before the freeform transaction, so
 display-0 phone-task normalization cannot reverse the requested transition.
 A direct fullscreen launch is attached to its independent plane
@@ -2214,9 +2242,9 @@ These constraints define the supported implementation paths:
 - A custom caption overlay cannot stay atomically attached to a task leash.
 - Public freeform launch from an ordinary app UID is normalized to fullscreen
   on the verified firmware.
-- Every configured desktop uses direct-root freeform tasks and independent
-  per-task fullscreen planes. Session cleanup drains every owned plane and its
-  structural anchor.
+- Every configured desktop uses standard-workspace freeform tasks and
+  independent per-task fullscreen planes. Session cleanup drains every owned
+  plane and its structural anchor.
 - Every desktop target hosts the taskbar in one non-focusable, always-on-top
   organizer area under the default task container; application tasks never
   enter that area.

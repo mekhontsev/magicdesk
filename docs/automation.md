@@ -262,22 +262,32 @@ structured action, data, MIME type, target, categories, extras, and symbolic
 flags, or a raw `intentUri` as the base with structured fields applied on top.
 The raw form is a mode of the same gateway, not a separate launch path.
 
-Activity intents use the production desktop launch coordinator. Direct
-intents retain their full Parcelable form through the Shizuku boundary, which
-preserves `ClipData`, URI grants, and typed extras. Chooser and Activity-result
-requests keep their nested target in a bounded app-process store and send only
-an opaque relay id through shell; the app-identity relay avoids Android 16
-Intent redirect-hardening failures. Claiming an id is atomic and idempotent,
-because Android may create the short-lived relay Activity twice during task
-handoff. The first instance owns the payload and a duplicate exits without
-executing it again.
+Activity intents use the production desktop launch coordinator. Every managed
+application task is requested as `ACTIVITY_TYPE_STANDARD`; its result includes
+the exact observed task id, display, activity type, mode, bounds, and reuse
+state. Observation reuses the existing task event journal and one-shot typed
+task snapshots, so Android integration adds no periodic task query. Public
+direct intents retain their full Parcelable form through the Shizuku boundary,
+which preserves `ClipData`, URI grants, and typed extras. Choosers, required
+system resolvers, and allowed targets requiring the MagicDesk app identity use
+an immutable one-shot `PendingIntent` created by the app. Shell sends that
+creator-authorized token with the requested display, STANDARD activity type,
+mode, and bounds. Android therefore evaluates target access and URI grants as
+the app while privileged task placement remains shell-owned. A focused adapter
+selects the compatible creator and sender background-start modes for Android 15
+and 16.
 
-Desktop placement treats the relay component and the resulting application
-task as separate identities. A concrete relayed handler uses the target
-package for task reuse and mode preparation, while the relay remains only the
-execution transport. An existing target task is normalized before the relay
-delivers the action; a fresh target keeps the prepared task lifecycle. Direct
-same-package intents continue to use exact-component task actions.
+Only Activity-result requests need a relay lifecycle. They keep their nested
+target in a bounded app-process store and send an opaque relay id through shell.
+Claiming an id is atomic and idempotent because Android may create the
+short-lived relay Activity twice during task handoff. The first instance owns
+the payload and a duplicate exits without executing it again.
+
+System selection surfaces use package-scoped task identity because Android may
+replace their published launcher component during handoff. A result relay uses
+its own exact transport identity and always receives a distinct transient task;
+it never reuses or moves an existing task belonging to the result target.
+Direct same-package intents continue to use exact-component task actions.
 `expectResult=true` returns a `requestId`;
 `get_intent_result` reads its bounded, process-local, event-driven state. Its
 diagnostic projection keeps only bounded scalar extras and `ClipData` URIs, so
@@ -285,11 +295,26 @@ an external Activity cannot grow the registry or event journal without limit.
 Implicit targets are resolved by the shell-side package manager so MCP
 discovery and execution use the same package-visibility scope. Resolution is
 typed as one concrete handler, a required system resolver, or no handler. A
-concrete target uses the direct shell path unless chooser or result semantics
-require the relay. A required resolver keeps the Intent implicit and routes it
-through the same app-identity relay as choosers.
+separate authorization result checks component enabled/exported state and any
+required permission against the MagicDesk application identity before shell
+receives placement work. Shell authority never converts a denied application
+launch into an allowed one. A public concrete target with no required
+permission uses the direct shell path; a permitted target that requires the app
+identity uses the app-created token. MagicDesk can likewise authorize its own
+non-exported Activity, while an external non-exported component remains denied.
+A required resolver and chooser remain implicit inside the same app-created
+token rather than exposing an internal resolver component to shell.
 When a direct shell launch carries content URIs, MagicDesk grants the resolved
 package from its app identity before handing the Parcelable Intent to shell.
+
+Concrete launches confirm the identity and topology of the exact task reported
+by the production launch path. Choosers and required resolvers confirm that
+same task's STANDARD/display/mode topology without guessing which final target
+the user will select. A topology failure removes a task only when its id was
+reported by the framework's task-created callback and was absent from the
+global pre-launch task snapshot; reused or moved tasks are never removed by
+launch rollback. An indeterminate outer timeout is reported as retryable and
+does not trigger an unsafe task deletion.
 
 `open_file` accepts either one shell-visible absolute path or an existing
 content URI. Shell paths use MagicDesk's existing bounded file-grant provider.

@@ -19,7 +19,6 @@ import java.util.concurrent.TimeUnit;
 /** Keeps fullscreen tasks on stable, independently reordered planes. */
 final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private static final String TAG = "MagicDeskFullscreenPlanes";
-    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
     private static final long SURFACE_COMMIT_TIMEOUT_SECONDS = 2L;
@@ -302,7 +301,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                                             + plane.featureId()),
                             BuildConfig.APPLICATION_ID,
                             plane.token(),
-                            ACTIVITY_TYPE_STANDARD);
+                            FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD);
             final Object anchor = HiddenTaskApi.requireTask(
                     service, displayId, anchorTaskId);
             if (!isStandardBackstop(anchor)) {
@@ -377,7 +376,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         return task != null
                 && TaskAreaBackstopActivity.isBackstopComponent(
                         HiddenTaskApi.getTaskComponent(task))
-                && HiddenTaskApi.getTaskActivityType(task) == ACTIVITY_TYPE_STANDARD;
+                && HiddenTaskApi.getTaskActivityType(task)
+                        == FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD;
     }
 
     private static void waitForTaskInsidePlane(

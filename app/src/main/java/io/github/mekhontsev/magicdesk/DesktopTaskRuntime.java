@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.os.IBinder;
@@ -32,6 +33,14 @@ interface DesktopTaskRuntime {
             String packageName,
             String shortcutId,
             UserHandle user,
+            int windowingMode,
+            Rect bounds,
+            int existingTaskId) throws IOException;
+
+    int launchPendingActivity(
+            int displayId,
+            AppLaunchTarget target,
+            PendingIntent pendingIntent,
             int windowingMode,
             Rect bounds,
             int existingTaskId) throws IOException;

@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
 import android.os.IBinder;
@@ -425,5 +427,18 @@ interface IShizukuCommandService {
     int launchDesktopPanelHost(
         ITaskObserverCallback callback,
         int displayId) = 113;
+
+    int launchPendingActivity(
+        ITaskObserverCallback callback,
+        int displayId,
+        String expectedPackage,
+        in ComponentName expectedComponent,
+        in PendingIntent pendingIntent,
+        int windowingMode,
+        int left,
+        int top,
+        int right,
+        int bottom,
+        int existingTaskId) = 114;
 
 }

@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Point;
@@ -505,6 +506,26 @@ public final class MagicDeskRuntime {
                 packageName,
                 shortcutId,
                 user,
+                windowingMode,
+                bounds,
+                existingTaskId);
+    }
+
+    static int launchPendingActivity(
+            final int displayId,
+            final AppLaunchTarget target,
+            final PendingIntent pendingIntent,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) throws IOException {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            throw new IOException("desktop task runtime unavailable");
+        }
+        return tasks.launchPendingActivity(
+                displayId,
+                target,
+                pendingIntent,
                 windowingMode,
                 bounds,
                 existingTaskId);

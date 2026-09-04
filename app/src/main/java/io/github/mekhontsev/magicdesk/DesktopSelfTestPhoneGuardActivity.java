@@ -114,6 +114,8 @@ public final class DesktopSelfTestPhoneGuardActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
+        mGuardView = new GuardView(this, mRunId);
+        setContentView(mGuardView);
         final WindowInsetsController insets = getWindow().getInsetsController();
         if (insets != null) {
             insets.setSystemBarsBehavior(
@@ -121,8 +123,6 @@ public final class DesktopSelfTestPhoneGuardActivity extends Activity {
                             .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
             insets.hide(WindowInsets.Type.systemBars());
         }
-        mGuardView = new GuardView(this, mRunId);
-        setContentView(mGuardView);
         synchronized (STATE_LOCK) {
             sActivity = new WeakReference<>(this);
         }
@@ -144,6 +144,22 @@ public final class DesktopSelfTestPhoneGuardActivity extends Activity {
             DesktopSelfTestPhoneInputGuard.noteWindowShown();
         }
         completeShow(mRunId, true);
+    }
+
+    @Override
+    protected void onNewIntent(final Intent intent) {
+        super.onNewIntent(intent);
+        final long runId = intent == null ? 0L
+                : intent.getLongExtra(EXTRA_RUN_ID, 0L);
+        if (runId <= 0L || runId != requestedRunId()) {
+            recordError("stale phone guard relaunch");
+            completeShow(runId, false);
+            finishFromGuard();
+            return;
+        }
+        setIntent(intent);
+        mRunId = runId;
+        mAccepted = true;
     }
 
     @Override
@@ -201,7 +217,8 @@ public final class DesktopSelfTestPhoneGuardActivity extends Activity {
                 .setData(Uri.parse("magicdesk-self-test-guard:" + runId))
                 .putExtra(EXTRA_RUN_ID, runId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                        | Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
                         | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
                         | Intent.FLAG_ACTIVITY_NO_ANIMATION);
         final ActivityOptions options = ActivityOptions.makeBasic();

@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Rect;
@@ -2202,6 +2203,24 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 packageName,
                 shortcutId,
                 user,
+                windowingMode,
+                bounds,
+                existingTaskId);
+    }
+
+    @Override
+    public int launchPendingActivity(
+            final int displayId,
+            final AppLaunchTarget target,
+            final PendingIntent pendingIntent,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) throws IOException {
+        requireTaskObserver(displayId);
+        return mTaskWatcher.launchPendingActivity(
+                displayId,
+                target,
+                pendingIntent,
                 windowingMode,
                 bounds,
                 existingTaskId);

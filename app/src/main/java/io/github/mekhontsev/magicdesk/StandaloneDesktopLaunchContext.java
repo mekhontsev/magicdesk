@@ -30,7 +30,8 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
     @Override
     public boolean launchAndroid(
             final DesktopLaunchRequest request,
-            final Runnable onPrepared) {
+            final Runnable onPrepared,
+            final DesktopActivityLaunchResult.Completion completion) {
         if (request.androidLaunch == null) {
             return false;
         }
@@ -43,6 +44,10 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
         mActivity.startActivity(intent, options().toBundle());
         if (onPrepared != null) {
             onPrepared.run();
+        }
+        if (completion != null) {
+            completion.onComplete(
+                    DesktopActivityLaunchResult.unmanagedAccepted(displayId()));
         }
         return true;
     }

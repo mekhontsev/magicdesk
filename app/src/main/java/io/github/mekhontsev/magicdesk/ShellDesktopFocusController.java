@@ -18,8 +18,6 @@ final class ShellDesktopFocusController implements AutoCloseable {
     }
 
     private static final String TAG = "MagicDeskFocus";
-    private static final int ACTIVITY_TYPE_STANDARD = 1;
-    private static final int ACTIVITY_TYPE_HOME = 2;
     private static final long TASK_COMMIT_TIMEOUT_MILLIS = 700L;
     private static final long INPUT_FOCUS_COMMIT_TIMEOUT_MILLIS = 2_000L;
 
@@ -178,7 +176,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
         for (final FrameworkTaskSnapshot task : tasks) {
             if (task.taskId == confirmationTaskId
                     && task.visible
-                    && (task.activityType == ACTIVITY_TYPE_STANDARD
+                    && (task.activityType == FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
                             || isDesktopHostSnapshot(task))
                     && !DesktopInfrastructureTasks.isTask(task)) {
                 return true;
@@ -189,7 +187,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
 
     private static boolean isDesktopHostSnapshot(
             final FrameworkTaskSnapshot task) {
-        return task.activityType == ACTIVITY_TYPE_HOME
+        return task.activityType == FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME
                 && (BuildConfig.APPLICATION_ID.equals(task.topPackage)
                         || BuildConfig.APPLICATION_ID.equals(
                                 task.packageName))
@@ -628,7 +626,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
             final int activityType,
             final String packageName,
             final String className) {
-        return activityType == ACTIVITY_TYPE_HOME
+        return activityType == FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME
                 && BuildConfig.APPLICATION_ID.equals(packageName)
                 && DesktopHostComponents.isHostClassName(className);
     }

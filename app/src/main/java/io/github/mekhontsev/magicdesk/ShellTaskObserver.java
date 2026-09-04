@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
 import android.annotation.SuppressLint;
 import android.app.ActivityManager;
 import android.app.TaskStackListener;
@@ -20,7 +21,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private static final String TAG = "MagicDeskTasks";
-    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final ComponentName PHONE_TOUCHPAD_ACTIVITY =
             new ComponentName(
@@ -841,6 +841,72 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
     }
 
+    int launchPendingActivity(
+            final int displayId,
+            final String expectedPackage,
+            final ComponentName expectedComponent,
+            final PendingIntent pendingIntent,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) {
+        if (mClosed) {
+            throw new IllegalStateException("task observer is closed");
+        }
+        if (displayId != mConfiguredDisplayId) {
+            throw new IllegalArgumentException(
+                    "display is not configured: " + displayId);
+        }
+        try {
+            final int taskId;
+            if (existingTaskId >= 0) {
+                mTaskLauncher.launchPendingActivityInTask(
+                        displayId,
+                        existingTaskId,
+                        expectedPackage,
+                        expectedComponent,
+                        pendingIntent);
+                taskId = existingTaskId;
+            } else if (windowingMode
+                    == FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM) {
+                if (bounds == null || bounds.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "windowed pending Activity requires bounds");
+                }
+                taskId = mTaskLauncher.launchPendingActivityWindowed(
+                        displayId,
+                        expectedPackage,
+                        expectedComponent,
+                        pendingIntent,
+                        bounds,
+                        null,
+                        true);
+            } else if (windowingMode
+                    == FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN) {
+                taskId = mFullscreenTaskArea.launchFullscreen(
+                        mService,
+                        displayId,
+                        taskAreaToken -> mTaskLauncher
+                                .launchPendingActivityFullscreen(
+                                        displayId,
+                                        expectedPackage,
+                                        expectedComponent,
+                                        pendingIntent,
+                                        taskAreaToken));
+            } else {
+                throw new IllegalArgumentException(
+                        "unsupported pending Activity windowing mode: "
+                                + windowingMode);
+            }
+            reportDesktopTaskOwnership();
+            return taskId;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot launch pending Activity: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
     void launchTaskAction(
             final int displayId,
             final int taskId,
@@ -1028,7 +1094,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (task == null
                 || task.displayId != displayId
                 || !task.visible
-                || task.activityType != ACTIVITY_TYPE_STANDARD
+                || task.activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
                 || task.taskId == mDesktopOwnership.desktopHostTaskId()
                 || DesktopInfrastructureTasks.isComponent(
                         task.rootComponent)

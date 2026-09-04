@@ -1068,25 +1068,15 @@ final class MagicDeskMcpToolCatalog {
                                 "Resolved Android handlers.",
                                 openObjectProperty("Handler.")));
                 break;
+            case "launch_app":
+                properties.put("package", stringProperty("Target package."));
+                taskLaunchResultProperties(properties);
+                break;
             case "launch_intent":
             case "open_uri":
             case "open_file":
             case "share":
-                properties.put("displayId", integerProperty("Display id."))
-                        .put("mode", stringProperty("Requested launch mode."))
-                        .put("resolvedComponent", stringProperty(
-                                "Resolved target Activity."))
-                        .put("resolution", enumProperty(
-                                "Activity resolution state.",
-                                "concrete", "resolver", "none"))
-                        .put("handlerCount", integerProperty(
-                                "Number of matching Activity handlers."))
-                        .put("relay", booleanProperty(
-                                "Whether an app-identity relay owns the launch."))
-                        .put("resultExpected", booleanProperty(
-                                "Whether an Activity result is pending."))
-                        .put("requestId", stringProperty(
-                                "Optional Activity result request id."));
+                activityLaunchResultProperties(properties);
                 break;
             case "invoke_app_action":
                 properties.put("package", stringProperty("Package."))
@@ -1161,18 +1151,7 @@ final class MagicDeskMcpToolCatalog {
                 break;
             case "clipboard.open":
             case "clipboard.share":
-                properties.put("kind", stringProperty(
-                                "Android component kind."))
-                        .put("action", stringProperty(
-                                "Android Intent action."))
-                        .put("displayId", integerProperty(
-                                "Desktop display id."))
-                        .put("resolvedComponent", stringProperty(
-                                "Resolved Android Activity component."))
-                        .put("resolution", stringProperty(
-                                "Android handler resolution state."))
-                        .put("relay", booleanProperty(
-                                "Whether launch uses the app-identity relay."));
+                activityLaunchResultProperties(properties);
                 break;
             case "send_broadcast":
             case "start_service":
@@ -1325,6 +1304,67 @@ final class MagicDeskMcpToolCatalog {
                 .put("title", toolName + " data")
                 .put("properties", properties)
                 .put("additionalProperties", true);
+    }
+
+    private static void activityLaunchResultProperties(
+            final JSONObject properties) throws JSONException {
+        properties.put("kind", stringProperty(
+                        "Android component kind."))
+                .put("action", stringProperty("Android Intent action."))
+                .put("dataUri", stringProperty("Android Intent data URI."))
+                .put("mimeType", stringProperty("Android Intent MIME type."))
+                .put("package", stringProperty("Requested target package."))
+                .put("component", stringProperty(
+                        "Requested target component."))
+                .put("resolvedComponent", stringProperty(
+                        "Resolved target Activity."))
+                .put("resolution", enumProperty(
+                        "Activity resolution state.",
+                        "concrete", "resolver", "none"))
+                .put("handlerCount", integerProperty(
+                        "Number of matching Activity handlers."))
+                .put("authorization", openObjectProperty(
+                        "App-identity Activity authorization decision."))
+                .put("launchIdentity", enumProperty(
+                        "Identity authorized to initiate the Activity.",
+                        "application", "shell"))
+                .put("delivery", enumProperty(
+                        "Activity delivery mechanism.",
+                        "direct-intent",
+                        "pending-intent",
+                        "activity-result-relay"))
+                .put("relay", booleanProperty(
+                        "Whether an Activity-result relay owns the launch."))
+                .put("resultExpected", booleanProperty(
+                        "Whether an Activity result is pending."))
+                .put("requestId", stringProperty(
+                        "Optional Activity result request id."));
+        taskLaunchResultProperties(properties);
+    }
+
+    private static void taskLaunchResultProperties(
+            final JSONObject properties) throws JSONException {
+        properties.put("displayId", integerProperty("Display id."))
+                .put("mode", stringProperty("Requested launch mode."))
+                .put("taskObserved", booleanProperty(
+                        "Whether the production launch identified a task."))
+                .put("taskId", integerProperty("Observed final task id."))
+                .put("transportTaskId", integerProperty(
+                        "Task id first identified by the launch transport."))
+                .put("reused", booleanProperty(
+                        "Whether an existing task was reused."))
+                .put("observedComponent", stringProperty(
+                        "Observed root Activity component."))
+                .put("observedTopActivity", stringProperty(
+                        "Observed top Activity component."))
+                .put("observedActivityType", integerProperty(
+                        "Observed Android activity type."))
+                .put("observedMode", stringProperty(
+                        "Observed semantic windowing mode."))
+                .put("nativeWindowingMode", stringProperty(
+                        "Observed framework windowing mode."))
+                .put("bounds", openObjectProperty(
+                        "Observed task bounds."));
     }
 
     private static void selfTestStateProperties(

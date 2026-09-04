@@ -24,7 +24,8 @@ final class AndroidIntentHandlerQuery {
             final PackageManager packageManager,
             final AndroidIntegrationRequest request,
             final int requestedLimit,
-            final String visibilityScope) throws JSONException {
+            final String visibilityScope,
+            final String requestingPackage) throws JSONException {
         final List<ResolveInfo> resolved;
         switch (request.kind) {
             case ACTIVITY:
@@ -52,7 +53,10 @@ final class AndroidIntentHandlerQuery {
                 index < sorted.size() && index < limit;
                 index++) {
             handlers.put(describeHandler(
-                    packageManager, sorted.get(index), request.kind));
+                    packageManager,
+                    sorted.get(index),
+                    request.kind,
+                    requestingPackage));
         }
         return new JSONObject()
                 .put("kind", request.kind.wireName)
@@ -65,7 +69,8 @@ final class AndroidIntentHandlerQuery {
     private static JSONObject describeHandler(
             final PackageManager packageManager,
             final ResolveInfo info,
-            final AndroidIntegrationRequest.Kind kind) throws JSONException {
+            final AndroidIntegrationRequest.Kind kind,
+            final String requestingPackage) throws JSONException {
         final String packageName;
         final boolean exported;
         final boolean enabled;
@@ -84,7 +89,7 @@ final class AndroidIntentHandlerQuery {
             permission = activity == null ? "" : value(activity.permission);
         }
         final CharSequence label = info.loadLabel(packageManager);
-        return new JSONObject()
+        final JSONObject result = new JSONObject()
                 .put("component", componentName(info, kind))
                 .put("package", packageName)
                 .put("label", label == null ? "" : label.toString())
@@ -94,6 +99,19 @@ final class AndroidIntentHandlerQuery {
                 .put("priority", info.priority)
                 .put("preferredOrder", info.preferredOrder)
                 .put("isDefault", info.isDefault);
+        if (kind == AndroidIntegrationRequest.Kind.ACTIVITY
+                && info.activityInfo != null) {
+            final AndroidActivityAuthorization authorization =
+                    AndroidActivityAuthorization.inspect(
+                            packageManager,
+                            info.activityInfo,
+                            requestingPackage);
+            result.put("launchAllowed", authorization.allowed())
+                    .put("launchDecision", authorization.decisionName())
+                    .put("permissionGranted",
+                            authorization.permissionGranted);
+        }
+        return result;
     }
 
     private static String componentName(

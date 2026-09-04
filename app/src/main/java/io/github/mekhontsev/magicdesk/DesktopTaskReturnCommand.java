@@ -13,7 +13,6 @@ import java.util.Set;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 public final class DesktopTaskReturnCommand {
     private static final int PHONE_DISPLAY_ID = 0;
-    private static final int ACTIVITY_TYPE_STANDARD = 1;
     private DesktopTaskReturnCommand() {
     }
 
@@ -79,7 +78,7 @@ public final class DesktopTaskReturnCommand {
         final List<Integer> taskIds = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
             final int taskId = HiddenTaskApi.getTaskId(task);
-            if (getActivityType(task) == ACTIVITY_TYPE_STANDARD
+            if (getActivityType(task) == FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
                     && requestedTaskIds.contains(Integer.valueOf(taskId))) {
                 taskIds.add(Integer.valueOf(taskId));
             }
@@ -92,7 +91,7 @@ public final class DesktopTaskReturnCommand {
         final List<Integer> taskIds = new ArrayList<>();
         for (final Object task :
                 HiddenTaskApi.getTasks(service, displayId)) {
-            if (getActivityType(task) != ACTIVITY_TYPE_STANDARD
+            if (getActivityType(task) != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
                     || isMagicDeskTask(task)) {
                 continue;
             }

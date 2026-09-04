@@ -110,16 +110,17 @@ final class ExistingTaskController {
                 final Rect bounds = targetFreeform
                         ? resolveTargetBounds(targetDisplayId, targetBounds)
                         : null;
-                final DesktopTaskTransfer.Mode transferMode = targetFreeform
-                        ? DesktopTaskTransfer.Mode.FREEFORM
-                        : DesktopTaskTransfer.Mode.FULLSCREEN;
-                final String output = DesktopTaskTransfer.move(
-                        task.taskId,
-                        task.rootTaskId,
-                        task.displayId,
-                        targetDisplayId,
-                        transferMode,
-                        bounds);
+                final String output = targetFreeform
+                        ? DesktopTaskTransfer.moveFreeform(
+                                task.taskId,
+                                task.displayId,
+                                targetDisplayId,
+                                bounds)
+                        : DesktopTaskTransfer.moveFullscreen(
+                                task.taskId,
+                                task.rootTaskId,
+                                task.displayId,
+                                targetDisplayId);
                 movedAsFreeform = targetFreeform;
                 if (movedAsFreeform
                         && !output.contains(

@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Rect;
@@ -252,6 +254,25 @@ final class ShellTaskObserverManager implements Closeable {
                 packageName,
                 shortcutId,
                 user,
+                windowingMode,
+                bounds,
+                existingTaskId);
+    }
+
+    int launchPendingActivity(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final String expectedPackage,
+            final ComponentName expectedComponent,
+            final PendingIntent pendingIntent,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) {
+        return requireSession(callback).observer.launchPendingActivity(
+                displayId,
+                expectedPackage,
+                expectedComponent,
+                pendingIntent,
                 windowingMode,
                 bounds,
                 existingTaskId);

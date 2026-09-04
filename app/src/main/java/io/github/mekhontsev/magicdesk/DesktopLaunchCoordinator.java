@@ -42,7 +42,15 @@ final class DesktopLaunchCoordinator {
     }
 
     boolean launch(final DesktopLaunchRequest source) {
+        return launch(source, null);
+    }
+
+    boolean launch(
+            final DesktopLaunchRequest source,
+            final DesktopActivityLaunchResult.Completion completion) {
         if (source == null) {
+            complete(completion, DesktopActivityLaunchResult.failed(
+                    "desktop launch request is required"));
             return false;
         }
         final DesktopLaunchRequest request;
@@ -51,6 +59,7 @@ final class DesktopLaunchCoordinator {
                     mContext.activity(), source.prepareExec());
         } catch (IllegalArgumentException error) {
             mContext.onFailure(source, error);
+            complete(completion, DesktopActivityLaunchResult.failed(error));
             return true;
         }
         mContext.hideTransientUi();
@@ -62,6 +71,8 @@ final class DesktopLaunchCoordinator {
                     || (!request.exec.workingDirectory.isEmpty()
                             && !capabilities.workingDirectory)) {
                 mContext.onUnavailable(request);
+                complete(completion, DesktopActivityLaunchResult.failed(
+                        "desktop launch backend is unavailable"));
                 return true;
             }
             final DesktopExecRunner.StartResult availability =
@@ -69,10 +80,14 @@ final class DesktopLaunchCoordinator {
                             mContext.activity(), request.exec.backend);
             if (availability == DesktopExecRunner.StartResult.UNAVAILABLE) {
                 mContext.onUnavailable(request);
+                complete(completion, DesktopActivityLaunchResult.failed(
+                        "desktop launch backend is unavailable"));
                 return true;
             }
             if (availability
                     == DesktopExecRunner.StartResult.PERMISSION_REQUESTED) {
+                complete(completion, DesktopActivityLaunchResult.failed(
+                        "desktop launch requires user permission"));
                 return true;
             }
         }
@@ -85,21 +100,39 @@ final class DesktopLaunchCoordinator {
         if (prepared.androidLaunch != null
                 || prepared.androidShortcut != null) {
             try {
-                if (!mContext.launchAndroid(prepared, execute)) {
+                if (!mContext.launchAndroid(
+                        prepared, execute, completion)) {
                     DesktopExecSessionTracker.failed(sessionId);
                     mContext.onUnavailable(prepared);
+                    complete(completion, DesktopActivityLaunchResult.failed(
+                            "Android Activity is unavailable"));
                 }
             } catch (RuntimeException error) {
                 DesktopExecSessionTracker.failed(sessionId);
                 mContext.onFailure(prepared, error);
+                complete(completion, DesktopActivityLaunchResult.failed(error));
             }
             return true;
         }
         if (execute != null) {
+            if (completion != null) {
+                complete(completion, DesktopActivityLaunchResult.failed(
+                        "launch request has no Android Activity"));
+            }
             execute.run();
             return true;
         }
+        complete(completion, DesktopActivityLaunchResult.failed(
+                "launch request has no executable target"));
         return false;
+    }
+
+    private static void complete(
+            final DesktopActivityLaunchResult.Completion completion,
+            final DesktopActivityLaunchResult result) {
+        if (completion != null) {
+            completion.onComplete(result);
+        }
     }
 
     private void execute(

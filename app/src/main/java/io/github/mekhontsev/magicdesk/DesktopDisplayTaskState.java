@@ -89,6 +89,7 @@ final class DesktopDisplayTaskState {
                     task.topActivityName,
                     task.windowingMode,
                     task.bounds,
+                    task.activityType,
                     task.home,
                     task.visible,
                     task.active));

@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.PendingIntent;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.os.IBinder;
@@ -267,6 +269,34 @@ final class ShellTaskObserverHandle implements Closeable {
                 packageName,
                 shortcutId,
                 user,
+                windowingMode,
+                bounds.left,
+                bounds.top,
+                bounds.right,
+                bounds.bottom,
+                existingTaskId));
+    }
+
+    int launchPendingActivity(
+            final int displayId,
+            final AppLaunchTarget target,
+            final PendingIntent pendingIntent,
+            final int windowingMode,
+            final Rect bounds,
+            final int existingTaskId) throws IOException {
+        if (target == null || bounds == null) {
+            throw new IllegalArgumentException(
+                    "pending Activity target and bounds are required");
+        }
+        final ComponentName expectedComponent = target.activityClassName.isEmpty()
+                ? null : ComponentName.createRelative(
+                        target.packageName, target.activityClassName);
+        return callServiceForResult(() -> mService.launchPendingActivity(
+                mCallback,
+                displayId,
+                target.packageName,
+                expectedComponent,
+                pendingIntent,
                 windowingMode,
                 bounds.left,
                 bounds.top,

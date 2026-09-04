@@ -31,7 +31,8 @@ final class ShellAndroidIntegrationGateway {
                             packageManager,
                             request,
                             args.optInt("limit", 100),
-                            "shell"))
+                            "shell",
+                            BuildConfig.APPLICATION_ID))
                     .toString();
         } catch (JSONException | PackageManager.NameNotFoundException
                 | RuntimeException error) {
@@ -54,7 +55,9 @@ final class ShellAndroidIntegrationGateway {
             throw new IllegalArgumentException("Intent is required");
         }
         return AndroidActivityResolution.resolve(
-                ShellIdentityContext.create(context).getPackageManager(), intent);
+                ShellIdentityContext.create(context).getPackageManager(),
+                intent,
+                BuildConfig.APPLICATION_ID);
     }
 
 }

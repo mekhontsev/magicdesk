@@ -8,6 +8,7 @@ public final class EventDrivenWaits {
         FRAMEWORK_OBSERVER_ACTIVATION,
         FRAMEWORK_OBSERVER_RESAMPLE,
         TASK_CREATION,
+        ACTIVITY_LAUNCH_RESULT,
         PTY_RESPONSE,
         AUTOMATION_EVENT,
         INPUT_WINDOW_COMMIT,
