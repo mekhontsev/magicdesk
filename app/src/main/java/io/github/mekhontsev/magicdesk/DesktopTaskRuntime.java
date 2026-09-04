@@ -153,8 +153,6 @@ interface DesktopTaskRuntime {
     void prepareDesktopChromeHost(
             int displayId, TaskRepository.ActionCallback callback);
 
-    void raiseDesktopChrome(int displayId);
-
     void disableExternalTaskMigrationProtection();
 
     void restoreExternalTaskMigrationProtection();

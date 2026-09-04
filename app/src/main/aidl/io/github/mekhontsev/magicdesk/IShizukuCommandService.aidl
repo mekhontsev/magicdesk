@@ -64,12 +64,6 @@ interface IShizukuCommandService {
         int workBottom,
         int desktopHostTaskId) = 12;
 
-    void focusTaskStack(
-        ITaskObserverCallback callback,
-        long sequence,
-        int displayId,
-        in int[] taskIds) = 13;
-
     void stopTaskObserver(ITaskObserverCallback callback) = 14;
 
     boolean injectPointerClick(int displayId, int button) = 17;
@@ -403,10 +397,6 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int displayId,
         IBinder activityToken) = 110;
-
-    void raiseDesktopChrome(
-        ITaskObserverCallback callback,
-        int displayId) = 111;
 
     boolean beginWindowedTask(
         ITaskObserverCallback callback,

@@ -33,7 +33,6 @@ public final class DesktopChromeActivity extends Activity {
     private boolean mSurfaceTraversalFenceAdded;
     private boolean mTaskbarPanelAdded;
     private int mTaskbarPanelHeight;
-    private int mTaskbarPanelLayoutGeneration;
     private int mTaskbarHeight = 1;
     private int mSurfaceHeight = 1;
     private int mDisplayId = Display.INVALID_DISPLAY;
@@ -55,15 +54,6 @@ public final class DesktopChromeActivity extends Activity {
 
     static boolean isChromeComponent(final ComponentName component) {
         return COMPONENT.equals(component);
-    }
-
-    static boolean isChromeTask(final TaskRepository.TaskEntry task) {
-        if (task == null
-                || !BuildConfig.APPLICATION_ID.equals(task.packageName)) {
-            return false;
-        }
-        return isChromeComponentName(task.componentName)
-                || isChromeComponentName(task.topActivityName);
     }
 
     static boolean isChromeComponentName(final String componentName) {
@@ -318,22 +308,6 @@ public final class DesktopChromeActivity extends Activity {
             mTaskbarPanelAdded = true;
         }
         mTaskbarPanelHeight = height;
-        awaitPanelLayoutCommit(mTaskbarPanel);
-    }
-
-    private void awaitPanelLayoutCommit(final TaskbarPanel panel) {
-        final int generation = ++mTaskbarPanelLayoutGeneration;
-        panel.getViewTreeObserver().registerFrameCommitCallback(() ->
-                panel.post(() -> {
-                    if (generation != mTaskbarPanelLayoutGeneration
-                            || !mTaskbarPanelAdded
-                            || mTaskbarPanel != panel) {
-                        return;
-                    }
-                    DesktopTaskbarHost.notifyPanelLayoutCommitted(
-                            mDisplayId, this);
-                }));
-        panel.invalidate();
     }
 
     private WindowManager.LayoutParams createPanelParams(final int height) {
@@ -358,7 +332,6 @@ public final class DesktopChromeActivity extends Activity {
     }
 
     private void removeTaskbarPanel() {
-        mTaskbarPanelLayoutGeneration++;
         if (mTaskbarPanelAdded && mTaskbarPanel != null
                 && mWindowManager != null) {
             mWindowManager.removeViewImmediate(mTaskbarPanel);

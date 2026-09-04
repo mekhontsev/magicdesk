@@ -14,9 +14,6 @@ oneway interface ITaskObserverCallback {
         int previousCaptionSourceId,
         boolean backgroundAppFullscreenReleased) = 4;
 
-    void onFocusStackResult(
-        long sequence, boolean success, int taskCount, String error) = 5;
-
     void onObserverError(String error) = 6;
 
     void onFreeformBoundsChanged(

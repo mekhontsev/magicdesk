@@ -470,28 +470,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public void raiseDesktopChrome(
-            final ITaskObserverCallback callback,
-            final int displayId) {
-        mTaskObserverManager.raiseDesktopChrome(callback, displayId);
-    }
-
-    @Override
     public boolean clearTaskObserverConfiguration(
             final ITaskObserverCallback callback,
             final int expectedDisplayId) {
         return mTaskObserverManager.clearConfiguration(
                 callback, expectedDisplayId);
-    }
-
-    @Override
-    public void focusTaskStack(
-            final ITaskObserverCallback callback,
-            final long sequence,
-            final int displayId,
-            final int[] taskIds) {
-        mTaskObserverManager.focusStack(
-                callback, sequence, displayId, taskIds);
     }
 
     @Override

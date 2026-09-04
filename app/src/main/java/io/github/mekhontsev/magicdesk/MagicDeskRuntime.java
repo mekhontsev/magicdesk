@@ -157,14 +157,6 @@ public final class MagicDeskRuntime {
         backend.desktopTasks().prepareDesktopChromeHost(displayId, callback);
     }
 
-    static void raiseDesktopChrome(final int displayId) {
-        final MagicDeskRuntimeBackend backend = backend();
-        if (backend == null) {
-            return;
-        }
-        backend.desktopTasks().raiseDesktopChrome(displayId);
-    }
-
     public static void refreshPlatformState() {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend != null) {

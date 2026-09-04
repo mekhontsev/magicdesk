@@ -91,24 +91,11 @@ final class ShellTaskObserverHandle implements Closeable {
                 mService.prepareDesktopChromeHost(mCallback, displayId));
     }
 
-    void raiseDesktopChrome(final int displayId) throws IOException {
-        callService(() -> mService.raiseDesktopChrome(
-                mCallback, displayId));
-    }
-
     boolean clearConfiguration(final int expectedDisplayId)
             throws IOException {
         return callServiceForResult(() ->
                 mService.clearTaskObserverConfiguration(
                         mCallback, expectedDisplayId));
-    }
-
-    void focusStack(
-            final long sequence,
-            final int displayId,
-            final int[] taskIds) throws IOException {
-        callService(() -> mService.focusTaskStack(
-                mCallback, sequence, displayId, taskIds));
     }
 
     void executeWorkspaceCommand(

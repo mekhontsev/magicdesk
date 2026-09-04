@@ -66,10 +66,10 @@ final class DesktopTaskWatcher {
             Executors.newSingleThreadExecutor();
     private final LatestOperationSerializer mConfigurationOperations =
             new LatestOperationSerializer();
-    private final Map<Long, TaskRepository.ActionCallback> mFocusCallbacks =
+    private final Map<Long, TaskRepository.ActionCallback> mWorkspaceCallbacks =
             new HashMap<>();
 
-    private long mNextFocusSequence;
+    private long mNextWorkspaceSequence;
     private long mLifecycleGeneration;
     private ShellTaskObserverHandle mHandle;
     private TaskObserverCallback mCallback;
@@ -101,10 +101,10 @@ final class DesktopTaskWatcher {
         synchronized (this) {
             mLifecycleGeneration++;
             mConfigurationOperations.invalidate();
-            callbacks = drainPendingFocusCallbacksLocked();
+            callbacks = drainPendingWorkspaceCallbacksLocked();
             handle = detachHandleLocked();
         }
-        completeFocusCallbacks(
+        completeActionCallbacks(
                 callbacks, false, "task observer stopped");
         try {
             mExecutor.execute(() -> {
@@ -219,20 +219,6 @@ final class DesktopTaskWatcher {
         }
         mHandler.post(() -> callback.onComplete(
                 new TaskRepository.ActionResult(success, message)));
-    }
-
-    void raiseDesktopChrome(final int displayId) {
-        final ShellTaskObserverHandle handle = currentHandle();
-        if (handle == null) {
-            return;
-        }
-        TaskCommandQueue.execute(() -> {
-            try {
-                handle.raiseDesktopChrome(displayId);
-            } catch (IOException error) {
-                Log.w(TAG, "failed to raise desktop chrome", error);
-            }
-        });
     }
 
     void clearConfiguration(final int expectedDisplayId) {
@@ -383,27 +369,6 @@ final class DesktopTaskWatcher {
                 intent);
     }
 
-    void sendFocusStack(
-            final int displayId,
-            final List<Integer> taskIds,
-            final TaskRepository.ActionCallback callback) {
-        if (taskIds == null || taskIds.isEmpty()) {
-            completeFocusCallback(callback, false, "no tasks");
-            return;
-        }
-        final int[] taskIdArray = new int[taskIds.size()];
-        for (int index = 0; index < taskIds.size(); index++) {
-            taskIdArray[index] = taskIds.get(index).intValue();
-        }
-        sendWorkspaceCommand(
-                DesktopWorkspaceCommand.create(
-                        DesktopWorkspaceCommand.ACTIVATE,
-                        displayId,
-                        taskIdArray[taskIdArray.length - 1],
-                        taskIdArray),
-                callback);
-    }
-
     void sendWorkspaceCommand(
             final DesktopWorkspaceCommand command,
             final TaskRepository.ActionCallback callback) {
@@ -414,14 +379,14 @@ final class DesktopTaskWatcher {
             if (handle == null) {
                 sequence = -1L;
             } else {
-                sequence = ++mNextFocusSequence;
+                sequence = ++mNextWorkspaceSequence;
                 if (callback != null) {
-                    mFocusCallbacks.put(Long.valueOf(sequence), callback);
+                    mWorkspaceCallbacks.put(Long.valueOf(sequence), callback);
                 }
             }
         }
         if (handle == null) {
-            completeFocusCallback(
+            completeActionCallback(
                     callback, false, "task observer unavailable");
             return;
         }
@@ -461,10 +426,10 @@ final class DesktopTaskWatcher {
             final Exception error) {
         final TaskRepository.ActionCallback failedCallback;
         synchronized (this) {
-            failedCallback = mFocusCallbacks.remove(
+            failedCallback = mWorkspaceCallbacks.remove(
                     Long.valueOf(sequence));
         }
-        completeFocusCallback(
+        completeActionCallback(
                 failedCallback, false, "workspace command failed");
         Log.w(TAG, "failed to execute workspace command", error);
         recordFailure(
@@ -626,7 +591,7 @@ final class DesktopTaskWatcher {
             final TaskRepository.ActionCallback callback,
             final boolean success,
             final String message) {
-        mHandler.post(() -> completeFocusCallback(
+        mHandler.post(() -> completeActionCallback(
                 callback, success, message));
     }
 
@@ -841,7 +806,7 @@ final class DesktopTaskWatcher {
             if (!mListener.isActive(generation)) {
                 return;
             }
-            failPendingFocusCallbacks("task observer disconnected");
+            failPendingWorkspaceCallbacks("task observer disconnected");
             mListener.onDisconnected(generation);
         });
     }
@@ -924,7 +889,7 @@ final class DesktopTaskWatcher {
                         snapshot));
     }
 
-    private void onFocusStackResult(
+    private void onWorkspaceCommandResult(
             final int generation,
             final long sequence,
             final boolean success,
@@ -933,17 +898,18 @@ final class DesktopTaskWatcher {
         postIfActive(generation, () -> {
             final TaskRepository.ActionCallback callback;
             synchronized (DesktopTaskWatcher.this) {
-                callback = mFocusCallbacks.remove(Long.valueOf(sequence));
+                callback = mWorkspaceCallbacks.remove(Long.valueOf(sequence));
             }
             final String message;
             if (success) {
-                message = "focused " + taskCount + " tasks";
+                message = "workspace command applied to "
+                        + taskCount + " tasks";
             } else if (error == null || error.isEmpty()) {
-                message = "task stack focus failed";
+                message = "workspace command failed";
             } else {
                 message = error;
             }
-            completeFocusCallback(callback, success, message);
+            completeActionCallback(callback, success, message);
         });
     }
 
@@ -1096,35 +1062,35 @@ final class DesktopTaskWatcher {
         });
     }
 
-    private void failPendingFocusCallbacks(final String message) {
+    private void failPendingWorkspaceCallbacks(final String message) {
         final List<TaskRepository.ActionCallback> callbacks;
         synchronized (this) {
-            callbacks = drainPendingFocusCallbacksLocked();
+            callbacks = drainPendingWorkspaceCallbacksLocked();
         }
-        completeFocusCallbacks(callbacks, false, message);
+        completeActionCallbacks(callbacks, false, message);
     }
 
     private List<TaskRepository.ActionCallback>
-            drainPendingFocusCallbacksLocked() {
-        if (mFocusCallbacks.isEmpty()) {
+            drainPendingWorkspaceCallbacksLocked() {
+        if (mWorkspaceCallbacks.isEmpty()) {
             return Collections.emptyList();
         }
         final List<TaskRepository.ActionCallback> callbacks =
-                new ArrayList<>(mFocusCallbacks.values());
-        mFocusCallbacks.clear();
+                new ArrayList<>(mWorkspaceCallbacks.values());
+        mWorkspaceCallbacks.clear();
         return callbacks;
     }
 
-    private static void completeFocusCallbacks(
+    private static void completeActionCallbacks(
             final List<TaskRepository.ActionCallback> callbacks,
             final boolean success,
             final String message) {
         for (final TaskRepository.ActionCallback callback : callbacks) {
-            completeFocusCallback(callback, success, message);
+            completeActionCallback(callback, success, message);
         }
     }
 
-    private static void completeFocusCallback(
+    private static void completeActionCallback(
             final TaskRepository.ActionCallback callback,
             final boolean success,
             final String message) {
@@ -1196,22 +1162,12 @@ final class DesktopTaskWatcher {
         }
 
         @Override
-        public void onFocusStackResult(
-                final long sequence,
-                final boolean success,
-                final int taskCount,
-                final String error) throws RemoteException {
-            mOwner.onFocusStackResult(
-                    mGeneration, sequence, success, taskCount, error);
-        }
-
-        @Override
         public void onDesktopWorkspaceCommandResult(
                 final long sequence,
                 final boolean success,
                 final int taskCount,
                 final String error) throws RemoteException {
-            mOwner.onFocusStackResult(
+            mOwner.onWorkspaceCommandResult(
                     mGeneration, sequence, success, taskCount, error);
         }
 

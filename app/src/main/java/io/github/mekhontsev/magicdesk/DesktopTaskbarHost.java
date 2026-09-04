@@ -186,21 +186,6 @@ final class DesktopTaskbarHost {
         }
     }
 
-    static void notifyPanelLayoutCommitted(
-            final int displayId,
-            final DesktopChromeActivity activity) {
-        final DesktopTaskbarHost host;
-        synchronized (REGISTRY_LOCK) {
-            if (ACTIVITIES.get(Integer.valueOf(displayId)) != activity) {
-                return;
-            }
-            host = HOSTS.get(Integer.valueOf(displayId));
-        }
-        if (host != null) {
-            host.onPanelLayoutCommitted();
-        }
-    }
-
     private DesktopChromeActivity currentActivity() {
         synchronized (REGISTRY_LOCK) {
             return ACTIVITIES.get(Integer.valueOf(mDisplayId));
@@ -211,12 +196,6 @@ final class DesktopTaskbarHost {
         final EdgeInputListener listener = mEdgeInputListener;
         if (!mReleased && listener != null && event != null) {
             listener.onEdgeInput(event);
-        }
-    }
-
-    private void onPanelLayoutCommitted() {
-        if (!mReleased && mPresented) {
-            MagicDeskRuntime.raiseDesktopChrome(mDisplayId);
         }
     }
 

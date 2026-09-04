@@ -309,7 +309,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService,
                 mFullscreenTaskArea,
                 mFocusController,
-                mTaskObservations::requestSample);
+                mTaskObservations::requestSample,
+                () -> restoreDesktopChromeSurfaceOrder(mConfiguredDisplayId));
     }
 
     void refreshTaskCaption(
@@ -442,27 +443,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mMigrationGuard.configure(mConfiguredDisplayId, enabled);
     }
 
-    void focusStack(
-            final long sequence,
-            final int displayId,
-            final int[] taskIds) {
-        ShellDesktopWorkspaceCoordinator.Result result;
-        try {
-            final int targetTaskId = taskIds == null || taskIds.length == 0
-                    ? -1 : taskIds[taskIds.length - 1];
-            result = executeWorkspaceCommand(DesktopWorkspaceCommand.create(
-                    DesktopWorkspaceCommand.ACTIVATE,
-                    displayId,
-                    targetTaskId,
-                    taskIds));
-        } catch (RuntimeException error) {
-            result = ShellDesktopWorkspaceCoordinator.Result.failure(
-                    0, usefulMessage(error));
-        }
-        signalFocusStackResult(
-                sequence, result.success, result.taskCount, result.error);
-    }
-
     void executeWorkspaceCommand(
             final long sequence,
             final DesktopWorkspaceCommand command) {
@@ -491,19 +471,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     0, "stale workspace display " + command.displayId
                             + "; configured=" + mConfiguredDisplayId);
         }
-        final ShellDesktopWorkspaceCoordinator.Result result =
-                mWorkspaceCoordinator.execute(command);
-        if (result.success) {
-            mDesktopChromeHost.raise();
-        }
-        return result;
-    }
-
-    private boolean finishDesktopTransition(final boolean completed) {
-        if (completed) {
-            mDesktopChromeHost.raise();
-        }
-        return completed;
+        return mWorkspaceCoordinator.execute(command);
     }
 
     void configureDesktopActivityInput(
@@ -519,15 +487,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         FrameworkActivityInputApi.setRecordInputSinkEnabled(
                 activityToken, false);
-    }
-
-    void raiseDesktopChrome(final int displayId) {
-        if (displayId != mConfiguredDisplayId) {
-            throw new IllegalStateException(
-                    "stale taskbar display " + displayId
-                            + "; configured=" + mConfiguredDisplayId);
-        }
-        mDesktopChromeHost.raise();
     }
 
     TaskWindowSnapshot inspectTaskWindow(
@@ -607,9 +566,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     }
 
     boolean concealFullscreenTaskPlanes(final int displayId) {
-        final boolean concealed = displayId == mConfiguredDisplayId
+        return displayId == mConfiguredDisplayId
                 && mFullscreenTaskArea.concealForShowDesktop(displayId);
-        return finishDesktopTransition(concealed);
     }
 
     boolean restoreFullscreenTask(
@@ -620,8 +578,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        return finishDesktopTransition(mFullscreenTaskArea.restoreTask(
-                mService, displayId, taskId, bounds, densityDpi));
+        return mFullscreenTaskArea.restoreTask(
+                mService, displayId, taskId, bounds, densityDpi);
     }
 
     boolean beginAppFullscreenTask(
@@ -640,7 +598,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 restoreBounds,
                 densityDpi);
         reportDesktopTaskOwnership();
-        return finishDesktopTransition(entered);
+        return entered;
     }
 
     boolean beginFullscreenTask(
@@ -658,7 +616,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mWindowing.requiresNativeFullscreenCaptionRefresh(),
                 densityDpi);
         reportDesktopTaskOwnership();
-        return finishDesktopTransition(entered);
+        return entered;
     }
 
     boolean beginWindowedTask(
@@ -683,7 +641,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     new Rect(bounds),
                     densityDpi);
             reportDesktopTaskOwnership();
-            return finishDesktopTransition(true);
+            return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot attach windowed task: "
@@ -722,8 +680,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         final ShellFullscreenTaskArea.CloseResult result =
                 mFullscreenTaskArea.closeTask(
                         mService, displayId, taskId, focusTaskId);
-        return finishDesktopTransition(
-                result == ShellFullscreenTaskArea.CloseResult.SUCCEEDED);
+        return result == ShellFullscreenTaskArea.CloseResult.SUCCEEDED;
     }
 
     int launchWindowedTask(
@@ -741,8 +698,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         try {
             final int taskId = mTaskLauncher.launchWindowed(
                     displayId, intent, bounds, null, true, densityDpi);
-            reportDesktopTaskOwnership();
-            return taskId;
+            return finishTaskLaunch(displayId, taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch windowed task: "
@@ -769,8 +725,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     taskAreaToken -> mTaskLauncher.launchFullscreen(
                             displayId, intent, taskAreaToken),
                     densityDpi);
-            reportDesktopTaskOwnership();
-            return taskId;
+            return finishTaskLaunch(displayId, taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch fullscreen task: "
@@ -836,8 +791,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 throw new IllegalArgumentException(
                         "unsupported shortcut windowing mode: " + windowingMode);
             }
-            reportDesktopTaskOwnership();
-            return taskId;
+            return finishTaskLaunch(displayId, taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch app shortcut: " + usefulMessage(error), error);
@@ -903,12 +857,26 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         "unsupported pending Activity windowing mode: "
                                 + windowingMode);
             }
-            reportDesktopTaskOwnership();
-            return taskId;
+            return finishTaskLaunch(displayId, taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot launch pending Activity: "
                             + usefulMessage(error),
+                    error);
+        }
+    }
+
+    private int finishTaskLaunch(final int displayId, final int taskId) {
+        reportDesktopTaskOwnership();
+        restoreDesktopChromeSurfaceOrder(displayId);
+        return taskId;
+    }
+
+    private void restoreDesktopChromeSurfaceOrder(final int displayId) {
+        try {
+            mDesktopChromeHost.restoreSurfaceOrder(displayId);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not restore desktop chrome surface order",
                     error);
         }
     }
@@ -1223,15 +1191,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             } else if (displayId == Display.DEFAULT_DISPLAY) {
                 preservePhoneTouchpad();
             }
-            if (displayId == mConfiguredDisplayId
-                    && !mDesktopChromeHost.isChromeTask(taskInfo)) {
-                try {
-                    mDesktopChromeHost.raise();
-                } catch (RuntimeException error) {
-                    Log.w(TAG, "could not preserve desktop chrome order",
-                            error);
-                }
-            }
         }
         signalChange("task-front");
     }
@@ -1510,15 +1469,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mTaskObservations.requestSample();
             callCallback(mCallback::onTasksChanged);
         }
-    }
-
-    private void signalFocusStackResult(
-            final long sequence,
-            final boolean success,
-            final int taskCount,
-            final String error) {
-        callCallback(() -> mCallback.onFocusStackResult(
-                sequence, success, taskCount, error));
     }
 
     private void signalDesktopWorkspaceCommandResult(

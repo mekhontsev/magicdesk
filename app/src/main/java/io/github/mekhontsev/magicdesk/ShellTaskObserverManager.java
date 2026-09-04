@@ -93,26 +93,11 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId);
     }
 
-    void raiseDesktopChrome(
-            final ITaskObserverCallback callback,
-            final int displayId) {
-        requireSession(callback).observer.raiseDesktopChrome(displayId);
-    }
-
     boolean clearConfiguration(
             final ITaskObserverCallback callback,
             final int expectedDisplayId) {
         return requireSession(callback).observer.clearConfiguration(
                 expectedDisplayId);
-    }
-
-    void focusStack(
-            final ITaskObserverCallback callback,
-            final long sequence,
-            final int displayId,
-            final int[] taskIds) {
-        requireSession(callback).observer.focusStack(
-                sequence, displayId, taskIds);
     }
 
     void executeWorkspaceCommand(

@@ -63,15 +63,15 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         mService = service;
         final List<Integer> fullscreenTaskIds = desktopFullscreenTasks(
                 service, displayId, ownership);
+        if (fullscreenTaskIds.isEmpty() && mPlanes.isEmpty()) {
+            return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
+        }
         final int targetTaskId =
                 requestedTaskIds[requestedTaskIds.length - 1];
         if (ownership.isDesktopHostTask(targetTaskId)) {
             focusDesktopHost(
                     service, displayId, targetTaskId, requestedTaskIds);
             return ShellFullscreenTaskArea.FocusResult.WORKSPACE_FOREGROUND;
-        }
-        if (fullscreenTaskIds.isEmpty() && mPlanes.isEmpty()) {
-            return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
         }
         final MixedStackOrder mixedOrder = mixedStackOrder(
                 service,

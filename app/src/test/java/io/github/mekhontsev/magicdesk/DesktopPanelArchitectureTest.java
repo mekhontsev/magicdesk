@@ -53,7 +53,7 @@ public final class DesktopPanelArchitectureTest {
     }
 
     @Test
-    public void chromeHostUsesStandardFullscreenTaskWithoutOrganizerPlane()
+    public void chromeHostUsesSurfaceOrderedWorkspaceArea()
             throws IOException {
         final String controller = read(
                 "src/main/java/io/github/mekhontsev/magicdesk/"
@@ -66,9 +66,18 @@ public final class DesktopPanelArchitectureTest {
         assertTrue(controller.contains("prepareDesktopChromeHost"));
         assertFalse(controller.contains("startActivity("));
         assertTrue(host.contains("launchFullscreenTaskBehind"));
-        assertFalse(host.contains("TaskDisplayAreaHandle"));
-        assertTrue(host.contains("setAlwaysOnTop"));
+        assertTrue(host.contains("createSurfaceOrdered"));
+        assertTrue(host.contains(
+                "TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER"));
+        assertFalse(host.contains("TaskDisplayAreaHandle.Parent.ROOT"));
+        assertTrue(host.contains("setSurfaceLayer"));
+        assertTrue(host.contains("restoreSurfaceOrder"));
         assertTrue(host.contains("setFocusable"));
+        assertFalse(host.contains("setAlwaysOnTop(transaction, mArea.token()"));
+        assertFalse(host.contains("reorder(transaction, mArea.token()"));
+        assertFalse(host.contains("setFocusable(transaction, mArea.token()"));
+        assertFalse(host.contains("setWindowingMode(transaction, mArea.token()"));
+        assertFalse(host.contains("void raise("));
         assertTrue(styles.contains("<style name=\"DesktopChromeTheme\""));
         assertTrue(styles.contains(
                 "<item name=\"android:windowIsTranslucent\">true</item>"));
