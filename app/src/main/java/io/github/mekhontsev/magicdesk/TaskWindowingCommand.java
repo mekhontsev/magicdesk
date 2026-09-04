@@ -143,6 +143,28 @@ public final class TaskWindowingCommand {
         focusTasks(service, displayId, taskIds, transactionClass, transaction);
     }
 
+    static void focusTasksWithSurfaceCommit(
+            final Object service,
+            final int displayId,
+            final int[] taskIds) throws ReflectiveOperationException {
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        addFocusTasks(
+                service,
+                displayId,
+                taskIds,
+                transactionClass,
+                transaction);
+        // Some WindowManager implementations publish the new hierarchy before
+        // committing the matching freeform task leash order. Apply the surface
+        // transaction returned by the framework sync callback before reporting
+        // the selected visible task as foreground.
+        ShellWindowTransitionExecutor.applySynchronized(
+                service, transactionClass, transaction);
+    }
+
     static void focusTasks(
             final Object service,
             final int displayId,

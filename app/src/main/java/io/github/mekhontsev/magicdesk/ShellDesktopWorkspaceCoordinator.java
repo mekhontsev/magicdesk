@@ -30,7 +30,6 @@ final class ShellDesktopWorkspaceCoordinator {
     }
 
     private static final String TAG = "MagicDeskWorkspace";
-    private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     private final Object mService;
@@ -147,13 +146,16 @@ final class ShellDesktopWorkspaceCoordinator {
         if (focusResult == ShellFullscreenTaskArea.FocusResult.NOT_HANDLED) {
             final Object targetTask = HiddenTaskApi.requireTask(
                     mService, command.displayId, targetTaskId);
-            final int[] fallbackTaskIds =
-                    HiddenTaskApi.getTaskWindowingMode(targetTask)
-                            == WINDOWING_MODE_FULLSCREEN
-                                    ? new int[]{targetTaskId}
-                                    : physicalOrder;
-            TaskWindowingCommand.focusTasks(
-                    mService, command.displayId, fallbackTaskIds);
+            if (HiddenTaskApi.getTaskWindowingMode(targetTask)
+                    == WINDOWING_MODE_FREEFORM) {
+                TaskWindowingCommand.focusTasksWithSurfaceCommit(
+                        mService, command.displayId, physicalOrder);
+            } else {
+                TaskWindowingCommand.focusTasks(
+                        mService,
+                        command.displayId,
+                        new int[]{targetTaskId});
+            }
         }
         if (command.presentsDesktop()
                 && !mFullscreenTaskArea.concealForShowDesktop(

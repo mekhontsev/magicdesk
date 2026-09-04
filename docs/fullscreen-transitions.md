@@ -81,8 +81,13 @@ desktop workspace share one physical display.
 Once a task has entered fullscreen, activation raises that task and its
 existing ordering plane in one atomic WCT and does not change any task's mode,
 bounds, parent, or hidden state. Freeform tasks and the HOME host remain in the
-ordinary root workspace on every target. The focus WCT does not request BLAST draw
-synchronization and is not repeated through `TRANSIT_TO_FRONT`.
+ordinary root workspace on every target. Selecting a visible ordinary freeform
+task completes its hierarchy WCT through the framework synchronization callback
+and applies the returned surface transaction. This keeps the task-leash order
+consistent with the task hierarchy on implementations that publish hierarchy
+focus before committing the corresponding surface order. Fullscreen-plane
+selection remains an atomic WCT and neither path is repeated through
+`TRANSIT_TO_FRONT`.
 
 The coordinator captures typed task and SurfaceFlinger input-window event
 generations before commit, requests one framework task sample, and waits for
@@ -102,9 +107,10 @@ usable input focus have converged.
 - Keeping one task in the display parent and another in an organizer area can
   make a particular two-task order fast, but the accidental asymmetry does not
   provide stable ordering identities for an arbitrary number of tasks.
-- Using BLAST draw synchronization or a second `TRANSIT_TO_FRONT` for ordinary
-  focus adds an unnecessary app-visible handoff; a stopped target can also
-  leave the sync waiting for a surface that is not expected to draw.
+- Using BLAST draw synchronization for fullscreen-plane selection or stopped
+  targets adds an unnecessary app-visible handoff and can leave the sync
+  waiting for a surface that is not expected to draw. Surface synchronization
+  is restricted to selecting a visible ordinary freeform workspace task.
 - Following an atomic reorder with `moveTaskToFront`, `setFocusedTask`, or
   `setFocusedRootTask` creates a second selection path and still does not
   reliably repair an input window left on a peer task.
@@ -114,11 +120,13 @@ usable input focus have converged.
 
 ## Window transition ownership
 
-Shell-side WCT submission has one owner. Ordinary focus and reorder changes
-use an atomic WCT without `startNewTransition`. A cold freeform launch starts
-behind the desktop host so its framework default state is never exposed. Once
-the task ID is known, one complete WMShell `OPEN` establishes mode, bounds, and
-front order. No raw opening token crosses that launch boundary. This avoids a
+Shell-side WCT submission has one owner. Ordinary freeform focus commits the
+framework-provided synchronized surface transaction; other steady-state
+reorders use an atomic WCT. Neither path uses `startNewTransition`. A cold
+freeform launch starts behind the desktop host so its framework default state
+is never exposed. Once the task ID is known, one complete WMShell `OPEN`
+establishes mode, bounds, and front order. No raw opening token crosses that
+launch boundary. This avoids a
 race where the framework finishes its launch transition before MagicDesk tries
 to append another transaction.
 
