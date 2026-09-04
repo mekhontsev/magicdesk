@@ -2,6 +2,11 @@
 
 ## Device Support Work
 
+MagicDesk development targets Android 15 / API 35 and newer. Android 15 is the
+minimum framework compatibility baseline: changes developed on newer releases
+must preserve the Android 15 path unless the project baseline is explicitly
+raised.
+
 Before changing platform, display, window, input, launcher, or cleanup behavior,
 read `CONTRIBUTING.md`, `docs/ai-assisted-device-porting.md`, and the relevant
 sections of `docs/architecture.md`, `docs/compatibility.md`, and
@@ -61,17 +66,19 @@ commands or restart a healthy service.
 The MagicDesk MCP connection is already configured in `~/.codex/config.toml`.
 Do not add a duplicate server or replace its endpoint or token unless the user
 has reset the MCP token or application data. The server lives in the MagicDesk
-process. After a reboot, open MagicDesk once from its launcher before the first
-Codex `resume`; the process exposes MCP even before Shizuku becomes ready and
-promotes the same runtime after Shizuku starts. If MCP tools are absent, first
-search the complete tool catalog for the deferred `mcp__magicdesk__` tools;
-they may be omitted from the short tool declaration shown in the session. If
-the complete catalog contains them, MCP is available immediately: call those
-tools directly and do not request another `resume`. Only if that search is
-empty, verify that MagicDesk is open and **Local MCP
-automation server** remains enabled, then request one `resume` so Codex can
-discover the server. Reopening MagicDesk after an APK reinstall reuses the
-existing MCP configuration.
+process. After a reboot, open MagicDesk once from its launcher; the process
+exposes MCP even before Shizuku becomes ready and promotes the same runtime
+after Shizuku starts. If MCP tools are absent, first search the complete tool
+catalog for the deferred `mcp__magicdesk__` tools; they may be omitted from the
+short tool declaration shown in the session. If the complete catalog contains
+them, MCP is available immediately: call those tools directly. If that search
+is empty, verify that MagicDesk is open and **Local MCP automation server**
+remains enabled, then ask the user to run `/mcp reload` when the current Codex
+client supports it. Slash commands are user-side TUI actions and cannot be
+invoked by the agent. After the user confirms the reload, search the catalog
+again. Request one `resume` only when live reload is unavailable or the
+refreshed catalog still omits MagicDesk. Reopening MagicDesk after an APK
+reinstall reuses the existing MCP configuration.
 
 ## Fullscreen and Focus Work
 

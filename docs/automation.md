@@ -57,8 +57,9 @@ An automation client can therefore connect first and bring up Shizuku later;
 the same MagicDesk process then promotes to the full runtime after the normal
 audit succeeds, without replacing the MCP connection.
 
-For Codex on the phone, open MagicDesk once before the first `resume` after a
-reboot. No automatic boot receiver is installed.
+For Codex on the phone, open MagicDesk once after a reboot. A client with live
+MCP reloading can then use `/mcp reload`; otherwise restart or resume the client
+once so it discovers the server. No automatic boot receiver is installed.
 
 ## Access Levels
 
