@@ -438,43 +438,50 @@ public final class MagicDeskRuntime {
     static int launchWindowedTask(
             final int displayId,
             final Intent intent,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final int densityDpi) throws IOException {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
-        return tasks.launchWindowedTask(displayId, intent, bounds);
+        return tasks.launchWindowedTask(
+                displayId, intent, bounds, densityDpi);
     }
 
     static int launchFullscreenTask(
             final int displayId,
-            final Intent intent) throws IOException {
+            final Intent intent,
+            final int densityDpi) throws IOException {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
-        return tasks.launchFullscreenTask(displayId, intent);
+        return tasks.launchFullscreenTask(displayId, intent, densityDpi);
     }
 
     static boolean attachWindowedTask(
             final int displayId,
             final int taskId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final int densityDpi) throws IOException {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
-        return tasks.attachWindowedTask(displayId, taskId, bounds);
+        return tasks.attachWindowedTask(
+                displayId, taskId, bounds, densityDpi);
     }
 
     static boolean attachFullscreenTask(
             final int displayId,
-            final int taskId) throws IOException {
+            final int taskId,
+            final int densityDpi) throws IOException {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
-        return tasks.attachFullscreenTask(displayId, taskId);
+        return tasks.attachFullscreenTask(
+                displayId, taskId, densityDpi);
     }
 
     static int launchAppShortcut(
@@ -484,6 +491,7 @@ public final class MagicDeskRuntime {
             final UserHandle user,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) throws IOException {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks == null) {
@@ -496,6 +504,7 @@ public final class MagicDeskRuntime {
                 user,
                 windowingMode,
                 bounds,
+                densityDpi,
                 existingTaskId);
     }
 
@@ -505,6 +514,7 @@ public final class MagicDeskRuntime {
             final PendingIntent pendingIntent,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) throws IOException {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks == null) {
@@ -516,7 +526,25 @@ public final class MagicDeskRuntime {
                 pendingIntent,
                 windowingMode,
                 bounds,
+                densityDpi,
                 existingTaskId);
+    }
+
+    static boolean applyAppPresentation(
+            final String packageName,
+            final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopSessionSnapshot session =
+                DesktopRuntimeBridge.getSessionSnapshot();
+        if (tasks == null || !session.hasHost()
+                || !PackageNameValidator.isSafe(packageName)) {
+            return false;
+        }
+        final int densityDpi =
+                DesktopTaskPresentationPolicy.resolveDensityDpi(
+                        packageName, session.activeDisplayId());
+        return tasks.applyAppPresentation(
+                packageName, densityDpi, callback);
     }
 
     static void noteTaskLaunchFocus(

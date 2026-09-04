@@ -379,18 +379,23 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 ? null
                 : FloatingWindowController.getWindowBounds(
                         target.displayId, parked.bounds);
+        final int densityDpi =
+                DesktopTaskPresentationPolicy.resolveDensityDpi(
+                        parked.packageName, target.displayId);
         if (parked.fullscreen) {
             DesktopTaskTransfer.moveFullscreen(
                     live.taskId,
                     live.rootTaskId,
                     live.displayId,
-                    target.displayId);
+                    target.displayId,
+                    densityDpi);
         } else {
             DesktopTaskTransfer.moveFreeform(
                     live.taskId,
                     live.displayId,
                     target.displayId,
-                    bounds);
+                    bounds,
+                    densityDpi);
         }
     }
 
@@ -405,7 +410,10 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         }
         if (parked.fullscreen
                 && !MagicDeskRuntime.attachFullscreenTask(
-                        target.displayId, parked.taskId)) {
+                        target.displayId,
+                        parked.taskId,
+                        DesktopTaskPresentationPolicy.resolveDensityDpi(
+                                parked.packageName, target.displayId))) {
             throw new IOException(
                     "could not attach restored fullscreen task="
                             + parked.taskId);
@@ -424,7 +432,11 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             final Rect bounds = FloatingWindowController.getWindowBounds(
                     target.displayId, parked.bounds);
             if (!MagicDeskRuntime.attachWindowedTask(
-                    target.displayId, task.taskId, bounds)) {
+                    target.displayId,
+                    task.taskId,
+                    bounds,
+                    DesktopTaskPresentationPolicy.resolveDensityDpi(
+                            parked.packageName, target.displayId))) {
                 throw new IOException(
                         "could not attach restored windowed task="
                                 + task.taskId);

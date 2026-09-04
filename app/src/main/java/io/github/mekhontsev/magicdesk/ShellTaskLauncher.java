@@ -70,7 +70,8 @@ final class ShellTaskLauncher {
                 intent,
                 bounds,
                 taskAreaToken,
-                taskAreaToken == null);
+                taskAreaToken == null,
+                DesktopTaskDensity.UNCHANGED);
     }
 
     synchronized int launchWindowed(
@@ -78,7 +79,8 @@ final class ShellTaskLauncher {
             final Intent sourceIntent,
             final Rect bounds,
             final Object taskAreaToken,
-            final boolean stagedReveal) throws ReflectiveOperationException {
+            final boolean stagedReveal,
+            final int densityDpi) throws ReflectiveOperationException {
         if (displayId < 0 || bounds == null || bounds.isEmpty()) {
             throw new IllegalArgumentException(
                     "windowed launch requires a display and bounds");
@@ -90,6 +92,7 @@ final class ShellTaskLauncher {
                 bounds,
                 WINDOWING_MODE_FREEFORM,
                 stagedReveal,
+                densityDpi,
                 taskIdSource -> TaskDisplayAreaLaunchCommand.launchTask(
                         mService,
                         displayId,
@@ -114,7 +117,8 @@ final class ShellTaskLauncher {
             final UserHandle user,
             final Rect bounds,
             final Object taskAreaToken,
-            final boolean stagedReveal) throws ReflectiveOperationException {
+            final boolean stagedReveal,
+            final int densityDpi) throws ReflectiveOperationException {
         if (displayId < 0 || bounds == null || bounds.isEmpty()) {
             throw new IllegalArgumentException(
                     "windowed shortcut launch requires a display and bounds");
@@ -134,6 +138,7 @@ final class ShellTaskLauncher {
                 bounds,
                 taskAreaToken,
                 stagedReveal,
+                densityDpi,
                 false);
     }
 
@@ -144,7 +149,8 @@ final class ShellTaskLauncher {
             final PendingIntent pendingIntent,
             final Rect bounds,
             final Object taskAreaToken,
-            final boolean stagedReveal) throws ReflectiveOperationException {
+            final boolean stagedReveal,
+            final int densityDpi) throws ReflectiveOperationException {
         return launchPendingActivityWindowed(
                 pendingActivityIdentity(
                         expectedPackage, expectedComponent),
@@ -154,6 +160,7 @@ final class ShellTaskLauncher {
                 bounds,
                 taskAreaToken,
                 stagedReveal,
+                densityDpi,
                 true);
     }
 
@@ -165,6 +172,7 @@ final class ShellTaskLauncher {
             final Rect bounds,
             final Object taskAreaToken,
             final boolean stagedReveal,
+            final int densityDpi,
             final boolean creatorAuthorized)
             throws ReflectiveOperationException {
         if (displayId < 0 || expectedPackage == null
@@ -179,6 +187,7 @@ final class ShellTaskLauncher {
                 bounds,
                 WINDOWING_MODE_FREEFORM,
                 stagedReveal,
+                densityDpi,
                 taskIdSource -> creatorAuthorized
                         ? TaskDisplayAreaLaunchCommand
                                 .launchCreatorAuthorizedPendingIntentTask(
@@ -263,6 +272,7 @@ final class ShellTaskLauncher {
                 new Rect(),
                 WINDOWING_MODE_FULLSCREEN,
                 false,
+                DesktopTaskDensity.UNCHANGED,
                 taskIdSource -> creatorAuthorized
                         ? TaskDisplayAreaLaunchCommand
                                 .launchFullscreenCreatorAuthorizedPendingIntentTask(
@@ -360,6 +370,7 @@ final class ShellTaskLauncher {
                 new Rect(),
                 WINDOWING_MODE_FULLSCREEN,
                 false,
+                DesktopTaskDensity.UNCHANGED,
                 taskIdSource -> TaskDisplayAreaLaunchCommand
                         .launchFullscreenTask(
                             mService,
@@ -394,6 +405,7 @@ final class ShellTaskLauncher {
             final Rect bounds,
             final int windowingMode,
             final boolean stagedReveal,
+            final int densityDpi,
             final TaskStarter starter) throws ReflectiveOperationException {
         return launchPreparedTask(
                 LaunchActivityIdentity.resolve(mPackageManager, component),
@@ -401,6 +413,7 @@ final class ShellTaskLauncher {
                 bounds,
                 windowingMode,
                 stagedReveal,
+                densityDpi,
                 starter);
     }
 
@@ -410,6 +423,7 @@ final class ShellTaskLauncher {
             final Rect bounds,
             final int windowingMode,
             final boolean stagedReveal,
+            final int densityDpi,
             final TaskStarter starter) throws ReflectiveOperationException {
         final PendingLaunch pending = beginLaunch(
                 identity, displayId, bounds, windowingMode);
@@ -421,7 +435,11 @@ final class ShellTaskLauncher {
             if (stagedReveal) {
                 // A new task has no stable token until the start callback.
                 ShellPreparedTaskTransition.revealFreeform(
-                        mService, displayId, taskId, bounds);
+                        mService,
+                        displayId,
+                        taskId,
+                        bounds,
+                        densityDpi);
             }
             // WindowManager may adjust bounds for minimum-size constraints,
             // but the requested mode is part of the launch contract.

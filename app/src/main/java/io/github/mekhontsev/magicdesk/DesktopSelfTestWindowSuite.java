@@ -1619,7 +1619,8 @@ final class DesktopSelfTestWindowSuite {
                         taskId,
                         currentTask.rootTaskId,
                         currentTask.displayId,
-                        displayId);
+                        displayId,
+                        DesktopTaskDensity.UNCHANGED);
                 if (!output.contains("task-fullscreen-move=" + taskId)) {
                     throw new IOException(output.trim());
                 }
@@ -1660,7 +1661,8 @@ final class DesktopSelfTestWindowSuite {
                     currentTask.displayId,
                     displayId,
                     bounds,
-                    surfaceReference.reference);
+                    surfaceReference.reference,
+                    DesktopTaskDensity.UNCHANGED);
             final String expectedOutput =
                     "task-freeform-move=" + taskId;
             if (!output.contains(expectedOutput)) {

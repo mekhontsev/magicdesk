@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import android.graphics.Rect;
@@ -41,6 +42,37 @@ public final class FrameworkWindowingApiTest {
 
         assertFalse(api.available());
         assertFalse(api.error().isEmpty());
+    }
+
+    @Test
+    public void optionalDensityPrimitiveIsCapabilityGated() throws Exception {
+        final FrameworkWindowingApi unavailable =
+                FrameworkWindowingApi.inspect(
+                        FakeToken.class, FakeTransaction.class);
+        final FakeToken token = new FakeToken();
+
+        assertFalse(unavailable.supportsDensityOverride());
+        DesktopTaskDensity.apply(
+                unavailable,
+                new FakeTransaction(),
+                token,
+                DesktopTaskDensity.INHERIT);
+        assertThrows(
+                NoSuchMethodException.class,
+                () -> DesktopTaskDensity.apply(
+                        unavailable,
+                        new FakeTransaction(),
+                        token,
+                        200));
+
+        final FrameworkWindowingApi available =
+                FrameworkWindowingApi.inspect(
+                        FakeToken.class, DensityTransaction.class);
+        final DensityTransaction transaction = new DensityTransaction();
+        DesktopTaskDensity.apply(available, transaction, token, 200);
+
+        assertTrue(available.supportsDensityOverride());
+        assertEquals(200, transaction.densityDpi);
     }
 
     public static final class FakeToken {
@@ -113,6 +145,17 @@ public final class FrameworkWindowingApiTest {
 
         public void startTask(final int taskId, final Bundle options) {
             mode = taskId;
+        }
+    }
+
+    public static final class DensityTransaction extends FakeTransaction {
+        int densityDpi;
+
+        public void setDensityDpi(
+                final FakeToken value,
+                final int density) {
+            token = value;
+            densityDpi = density;
         }
     }
 

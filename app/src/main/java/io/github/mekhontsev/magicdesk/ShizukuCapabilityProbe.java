@@ -323,6 +323,12 @@ public final class ShizukuCapabilityProbe {
                         ? "runtime capability detection"
                         : "debug emulation override");
         append(report,
+                "framework.task_density_override",
+                FrameworkRuntime.current().windowing()
+                                .supportsDensityOverride()
+                        ? "available" : "unavailable",
+                "WindowContainerTransaction#setDensityDpi");
+        append(report,
                 "framework.task_requested_visible_types",
                 capabilities.requestedVisibleTypesEnabled
                         ? "available" : "unavailable",

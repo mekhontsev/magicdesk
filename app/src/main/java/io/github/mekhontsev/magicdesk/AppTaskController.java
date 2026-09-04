@@ -39,8 +39,9 @@ final class AppTaskController {
         AppLaunchTarget launchTarget();
         DesktopTaskInstancePolicy instancePolicy();
         int preferredTaskId();
-        int launchFresh(int displayId) throws IOException;
-        void activateExisting(int displayId, int taskId) throws IOException;
+        int launchFresh(int displayId, int densityDpi) throws IOException;
+        void activateExisting(int displayId, int taskId, int densityDpi)
+                throws IOException;
         String diagnosticKind();
     }
 
@@ -418,7 +419,11 @@ final class AppTaskController {
                                 MagicDeskRuntime.launchWindowedTask(
                                         displayId,
                                         new Intent(intent),
-                                        bounds)
+                                        bounds,
+                                        DesktopTaskPresentationPolicy
+                                                .resolveDensityDpi(
+                                                        intentTarget.packageName,
+                                                        displayId))
                         : null,
                 (displayId, taskId, reused) -> {
                     if (reused && !indirectLaunch) {
@@ -1059,10 +1064,17 @@ final class AppTaskController {
                 R.string.status_launching_fullscreen, label));
         TaskCommandQueue.execute(() -> {
             try {
+                final int densityDpi =
+                        DesktopTaskPresentationPolicy.resolveDensityDpi(
+                                app.packageName, displayId);
                 MagicDeskRuntime.beginFullscreenTransition(
                         displayId, visibleTasks, excludedTaskId);
                 final PreparedFullscreenTask prepared =
-                        prepareFullscreenTask(app, displayId, taskSource);
+                        prepareFullscreenTask(
+                                app,
+                                displayId,
+                                taskSource,
+                                densityDpi);
                 final int taskId = prepared.taskId;
                 if (!MagicDeskRuntime.protectExplicitFullscreenTask(
                         displayId, taskId)) {
@@ -1120,7 +1132,8 @@ final class AppTaskController {
     private PreparedFullscreenTask prepareFullscreenTask(
             final AppItem app,
             final int displayId,
-            final FullscreenTaskSource taskSource) throws IOException {
+            final FullscreenTaskSource taskSource,
+            final int densityDpi) throws IOException {
         if (ShellAccess.isReady()
                 && taskSource.instancePolicy()
                         == DesktopTaskInstancePolicy.REUSE_EXISTING) {
@@ -1129,16 +1142,17 @@ final class AppTaskController {
                             taskSource.launchTarget(),
                             displayId,
                             false,
-                            taskSource.preferredTaskId());
+                            taskSource.preferredTaskId(),
+                            densityDpi);
             if (reuseResult.found) {
                 if (!MagicDeskRuntime.attachFullscreenTask(
-                        displayId, reuseResult.taskId)) {
+                        displayId, reuseResult.taskId, densityDpi)) {
                     throw new IOException(
                             "could not attach reused fullscreen task"
                                     + " to its plane");
                 }
                 taskSource.activateExisting(
-                        displayId, reuseResult.taskId);
+                        displayId, reuseResult.taskId, densityDpi);
                 DesktopTaskLaunchDiagnostics.note(
                         reuseResult.taskId,
                         reuseResult.originalDisplayId,
@@ -1156,7 +1170,7 @@ final class AppTaskController {
         }
 
         Log.i(TAG, "fresh fullscreen launch package=" + app.packageName);
-        final int taskId = taskSource.launchFresh(displayId);
+        final int taskId = taskSource.launchFresh(displayId, densityDpi);
         DesktopTaskLaunchDiagnostics.note(
                 taskId,
                 displayId,
@@ -1211,20 +1225,24 @@ final class AppTaskController {
             }
 
             @Override
-            public int launchFresh(final int displayId) throws IOException {
+            public int launchFresh(
+                    final int displayId,
+                    final int densityDpi) throws IOException {
                 return launchFreshFullscreenIntent(
                         app,
                         sourceIntent,
                         launchTarget,
                         pendingIntent,
                         instancePolicy,
-                        displayId);
+                        displayId,
+                        densityDpi);
             }
 
             @Override
             public void activateExisting(
                     final int displayId,
-                    final int taskId) throws IOException {
+                    final int taskId,
+                    final int densityDpi) throws IOException {
                 if (pendingIntent != null) {
                     MagicDeskRuntime.launchPendingActivity(
                             displayId,
@@ -1232,6 +1250,7 @@ final class AppTaskController {
                             pendingIntent,
                             WINDOWING_MODE_FULLSCREEN,
                             new Rect(),
+                            densityDpi,
                             taskId);
                 } else if (sourceIntent != null && indirectLaunch) {
                     launchFreshFullscreenIntent(
@@ -1240,7 +1259,8 @@ final class AppTaskController {
                             launchTarget,
                             null,
                             DesktopTaskInstancePolicy.REUSE_EXISTING,
-                            displayId);
+                            displayId,
+                            densityDpi);
                 } else if (sourceIntent != null) {
                     MagicDeskRuntime.launchTaskAction(
                             displayId, taskId, sourceIntent);
@@ -1260,7 +1280,8 @@ final class AppTaskController {
             final AppLaunchTarget launchTarget,
             final PendingIntent pendingIntent,
             final DesktopTaskInstancePolicy instancePolicy,
-            final int displayId) throws IOException {
+            final int displayId,
+            final int densityDpi) throws IOException {
         if (pendingIntent != null) {
             return MagicDeskRuntime.launchPendingActivity(
                     displayId,
@@ -1268,6 +1289,7 @@ final class AppTaskController {
                     pendingIntent,
                     WINDOWING_MODE_FULLSCREEN,
                     new Rect(),
+                    densityDpi,
                     -1);
         }
         final Intent unresolvedIntent = sourceIntent == null
@@ -1281,7 +1303,8 @@ final class AppTaskController {
                 == DesktopTaskInstancePolicy.CREATE_NEW
                         ? Intent.FLAG_ACTIVITY_NEW_TASK
                         : getFullscreenLaunchFlags());
-        return MagicDeskRuntime.launchFullscreenTask(displayId, launchIntent);
+        return MagicDeskRuntime.launchFullscreenTask(
+                displayId, launchIntent, densityDpi);
     }
 
     private static FullscreenTaskSource shortcutFullscreenTaskSource(
@@ -1303,7 +1326,9 @@ final class AppTaskController {
             }
 
             @Override
-            public int launchFresh(final int displayId) throws IOException {
+            public int launchFresh(
+                    final int displayId,
+                    final int densityDpi) throws IOException {
                 return MagicDeskRuntime.launchAppShortcut(
                         displayId,
                         shortcut.packageName,
@@ -1311,13 +1336,15 @@ final class AppTaskController {
                         shortcut.user,
                         WINDOWING_MODE_FULLSCREEN,
                         new Rect(),
+                        densityDpi,
                         -1);
             }
 
             @Override
             public void activateExisting(
                     final int displayId,
-                    final int taskId) throws IOException {
+                    final int taskId,
+                    final int densityDpi) throws IOException {
                 MagicDeskRuntime.launchAppShortcut(
                         displayId,
                         shortcut.packageName,
@@ -1325,6 +1352,7 @@ final class AppTaskController {
                         shortcut.user,
                         WINDOWING_MODE_FULLSCREEN,
                         new Rect(),
+                        densityDpi,
                         taskId);
             }
 

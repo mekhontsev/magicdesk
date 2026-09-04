@@ -26,13 +26,15 @@ final class DesktopTaskConfigurationReport {
                     .append("\n\n");
             return;
         }
+        final int activeDesktopDisplayId =
+                DesktopRuntimeBridge.getActiveDesktopDisplayId();
         int reported = 0;
         for (final FrameworkTaskSnapshot task : tasks) {
             if (task == null || task.isHome()
                     || task.packageName.isEmpty()) {
                 continue;
             }
-            appendTask(report, task);
+            appendTask(report, task, activeDesktopDisplayId);
             reported++;
         }
         if (reported == 0) {
@@ -43,10 +45,13 @@ final class DesktopTaskConfigurationReport {
 
     private static void appendTask(
             final StringBuilder report,
-            final FrameworkTaskSnapshot task) {
+            final FrameworkTaskSnapshot task,
+            final int activeDesktopDisplayId) {
         final String stateKey = BuiltInDesktopAppCatalog.appIdentityKey(
                 task.packageName, task.componentName);
         final AppWindowState saved = AppWindowStateStore.load(stateKey);
+        final AppPresentationProfile presentation =
+                AppPresentationProfileStore.load(task.packageName);
         final DesktopTaskLaunchDiagnostics.Entry launch =
                 DesktopTaskLaunchDiagnostics.find(task.taskId);
         report.append("- task=").append(task.taskId)
@@ -61,8 +66,13 @@ final class DesktopTaskConfigurationReport {
                 .append(" focused=").append(task.focused)
                 .append(" config=").append(configurationLabel(task))
                 .append(" saved=").append(savedStateLabel(saved))
+                .append(" presentation=")
+                .append(presentationLabel(
+                        task, presentation, activeDesktopDisplayId))
                 .append(" modeMatch=")
-                .append(modeMatchLabel(saved, task.windowingMode));
+                .append(modeMatchLabel(
+                        saved, task.windowingMode,
+                        task.displayId == activeDesktopDisplayId));
         if (launch == null) {
             report.append(" launch=unknown");
         } else {
@@ -92,7 +102,11 @@ final class DesktopTaskConfigurationReport {
 
     private static String modeMatchLabel(
             final AppWindowState saved,
-            final int actualMode) {
+            final int actualMode,
+            final boolean onActiveDesktop) {
+        if (!onActiveDesktop) {
+            return "not-applicable";
+        }
         if (saved == null || saved.mode == null) {
             return "unknown";
         }
@@ -111,6 +125,35 @@ final class DesktopTaskConfigurationReport {
                 + ",widthDp:" + task.screenWidthDp
                 + ",heightDp:" + task.screenHeightDp
                 + ",smallestWidthDp:" + task.smallestScreenWidthDp;
+    }
+
+    static String presentationLabel(
+            final FrameworkTaskSnapshot task,
+            final AppPresentationProfile profile,
+            final int activeDesktopDisplayId) {
+        final String mode = profile == null
+                ? "system"
+                : "custom/scale=" + profile.scalePercent + '%';
+        if (task.displayId != activeDesktopDisplayId) {
+            return mode + "/applies=false/densityMatch=not-applicable";
+        }
+        final int displayDensity;
+        try {
+            displayDensity = DesktopTaskPresentationPolicy
+                    .displayDensityDpi(task.displayId);
+        } catch (IllegalArgumentException | IllegalStateException error) {
+            return mode + "/expectedDpi=unknown/densityMatch=unknown";
+        }
+        final int expectedDensity =
+                DesktopTaskPresentationPolicy.expectedDensityDpi(
+                        profile, displayDensity);
+        final String matches = task.taskConfigurationKnown
+                ? Boolean.toString(task.densityDpi == expectedDensity)
+                : "unknown";
+        return mode
+                + "/displayDpi=" + displayDensity
+                + "/expectedDpi=" + expectedDensity
+                + "/densityMatch=" + matches;
     }
 
     private static String rectLabel(final Rect bounds) {

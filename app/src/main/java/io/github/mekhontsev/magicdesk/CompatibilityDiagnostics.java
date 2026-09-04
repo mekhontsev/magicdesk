@@ -36,6 +36,7 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 
@@ -52,6 +53,7 @@ public final class CompatibilityDiagnostics {
     private static final int MAX_AUTOMATION_EVENT_COUNT = 64;
     private static final int MAX_AUTOMATION_EVENT_CHARS = 24_000;
     private static final int MAX_RECORDED_EVENT_SIGNATURES = 256;
+    private static final int MAX_REPORTED_APP_PRESENTATION_PROFILES = 100;
     private static volatile Context sApplicationContext;
     private static final Set<String> RECORDED_EVENT_SIGNATURES =
             new LinkedHashSet<>();
@@ -407,6 +409,7 @@ public final class CompatibilityDiagnostics {
                 .append(", openItemsWithSingleClick=")
                 .append(settings.openFilesWithSingleClick)
                 .append('\n');
+        appendApplicationPresentationProfiles(report);
         report.append("Termux:X11 integration: ")
                 .append(TermuxX11Integration.diagnostics(context))
                 .append('\n');
@@ -782,6 +785,36 @@ public final class CompatibilityDiagnostics {
         if (!output.endsWith("\n")) {
             report.append('\n');
         }
+    }
+
+    private static void appendApplicationPresentationProfiles(
+            final StringBuilder report) {
+        final Map<String, AppPresentationProfile> profiles =
+                AppPresentationProfileStore.loadAll();
+        final List<String> packages = new ArrayList<>(profiles.keySet());
+        Collections.sort(packages);
+        report.append("Application presentation profiles: count=")
+                .append(packages.size());
+        if (!packages.isEmpty()) {
+            report.append(", values=");
+            final int limit = Math.min(
+                    packages.size(),
+                    MAX_REPORTED_APP_PRESENTATION_PROFILES);
+            for (int index = 0; index < limit; index++) {
+                if (index > 0) {
+                    report.append(',');
+                }
+                final String packageName = packages.get(index);
+                report.append(packageName)
+                        .append('=')
+                        .append(profiles.get(packageName).scalePercent)
+                        .append('%');
+            }
+            if (limit < packages.size()) {
+                report.append(",...");
+            }
+        }
+        report.append('\n');
     }
 
     public static void appendCheck(final StringBuilder report, final String code,

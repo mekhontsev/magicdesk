@@ -12,11 +12,31 @@ public final class DesktopTaskTransferTest {
     public void freeformTransferUsesAtomicTaskCommand() {
         final Rect bounds = bounds(20, 30, 800, 900);
         final String command = DesktopTaskTransfer.createFreeformCommand(
-                42, 0, 3, bounds, null);
+                42,
+                0,
+                3,
+                bounds,
+                null,
+                DesktopTaskDensity.UNCHANGED);
 
         assertTrue(command.contains(
                 "TaskDisplayAreaLaunchCommand move 42 0 3 "
-                        + "20 30 800 900"));
+                        + "20 30 800 900 -1"));
+    }
+
+    @Test
+    public void freeformTransferCarriesResolvedDensity() {
+        final String command = DesktopTaskTransfer.createFreeformCommand(
+                42,
+                0,
+                3,
+                bounds(20, 30, 800, 900),
+                null,
+                200);
+
+        assertTrue(command.contains(
+                "TaskDisplayAreaLaunchCommand move 42 0 3 "
+                        + "20 30 800 900 200"));
     }
 
     @Test
@@ -24,7 +44,12 @@ public final class DesktopTaskTransferTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DesktopTaskTransfer.createFreeformCommand(
-                        42, 3, 3, bounds(20, 30, 800, 900), null));
+                        42,
+                        3,
+                        3,
+                        bounds(20, 30, 800, 900),
+                        null,
+                        DesktopTaskDensity.UNCHANGED));
     }
 
     private static Rect bounds(

@@ -276,13 +276,18 @@ public final class TaskRepository {
                         targetDisplayId == Display.DEFAULT_DISPLAY
                                 && !DesktopDisplayDrivers
                                         .hasActiveWorkspace(targetDisplayId);
+                final int densityDpi = targetPhoneWithoutDesktop
+                        ? DesktopTaskDensity.INHERIT
+                        : DesktopTaskPresentationPolicy.resolveDensityDpi(
+                                task.packageName, targetDisplayId);
                 final String output;
                 if (targetPhoneWithoutDesktop) {
                     output = DesktopTaskTransfer.moveFullscreen(
                             task.taskId,
                             task.rootTaskId,
                             task.displayId,
-                            targetDisplayId);
+                            targetDisplayId,
+                            densityDpi);
                 } else {
                     final Rect bounds = FloatingWindowController
                             .getWindowBounds(
@@ -291,7 +296,8 @@ public final class TaskRepository {
                             task.taskId,
                             task.displayId,
                             targetDisplayId,
-                            bounds);
+                            bounds,
+                            densityDpi);
                 }
                 if (callback != null) {
                     callback.onComplete(new ActionResult(true, output.trim()));
@@ -532,6 +538,7 @@ public final class TaskRepository {
                     snapshot.windowingModeName(),
                     snapshot.bounds,
                     snapshot.activityType,
+                    snapshot.densityDpi,
                     home,
                     snapshot.visible,
                     active));
@@ -609,6 +616,7 @@ public final class TaskRepository {
         public final String windowingMode;
         public final Rect bounds;
         public final int activityType;
+        public final int densityDpi;
         public final boolean home;
         public final boolean visible;
         public final boolean active;
@@ -628,6 +636,7 @@ public final class TaskRepository {
                     windowingMode,
                     bounds,
                     ACTIVITY_TYPE_UNKNOWN,
+                    -1,
                     home,
                     visible,
                     active);
@@ -639,6 +648,29 @@ public final class TaskRepository {
                 final Rect bounds, final int activityType,
                 final boolean home, final boolean visible,
                 final boolean active) {
+            this(
+                    rootTaskId,
+                    taskId,
+                    displayId,
+                    packageName,
+                    componentName,
+                    topActivityName,
+                    windowingMode,
+                    bounds,
+                    activityType,
+                    -1,
+                    home,
+                    visible,
+                    active);
+        }
+
+        public TaskEntry(final int rootTaskId, final int taskId, final int displayId,
+                final String packageName, final String componentName,
+                final String topActivityName, final String windowingMode,
+                final Rect bounds, final int activityType,
+                final int densityDpi,
+                final boolean home, final boolean visible,
+                final boolean active) {
             this.rootTaskId = rootTaskId;
             this.taskId = taskId;
             this.displayId = displayId;
@@ -648,6 +680,7 @@ public final class TaskRepository {
             this.windowingMode = windowingMode;
             this.bounds = bounds == null ? new Rect() : new Rect(bounds);
             this.activityType = activityType;
+            this.densityDpi = densityDpi;
             this.home = home;
             this.visible = visible;
             this.active = active;

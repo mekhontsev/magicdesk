@@ -592,8 +592,9 @@ runtime integration and are not distributed through the same release path.
   the connected UserService identity; this broader contract is not reused by
   desktop metadata or automatic background work.
 - `DesktopStateStore` is the single typed model for taskbar pins, global
-  layout, application window state, settings, and display profiles.
-  `DesktopLayoutStore`, `AppWindowStateStore`, `DesktopPreferences`, and
+  layout, application window and presentation state, settings, and display
+  profiles. `DesktopLayoutStore`, `AppWindowStateStore`,
+  `AppPresentationProfileStore`, `DesktopPreferences`, and
   `DisplayProfileStore` are narrow domain facades over that model.
   `DesktopPlacementEngine` is the platform-independent collision and reflow
   policy.
@@ -1946,6 +1947,24 @@ completed move or resize into one state write. This adds no polling loop.
 Bounds are resolved against the active desktop work area when a task is
 launched, restored, or moved to another display.
 
+`AppPresentationProfileStore` independently keeps an optional interface-scale
+percentage per application package. An absent profile means System: the task
+inherits its display density. A custom profile, including an explicit 100%, is
+resolved from the active display density when a task is launched, moved,
+restored, or changes window mode. The resulting exact task density is carried
+by the same semantic command and applied in the same WCT as mode, bounds, and
+parent changes. Fullscreen tasks apply the same value to their retained plane,
+so moving between windowed and fullscreen does not change application scale.
+
+`AppPresentationRuntimeController` applies profile edits to already running
+tasks and reconciles a newly observed task once. It consumes the existing
+typed 150 ms task snapshot and display context; it neither reads task state nor
+starts a timer of its own. Attempts are keyed by task, package, and resolved
+density, so an unsupported or rejected override cannot become a retry loop.
+Observer reconnection, a profile edit, or a display-density change creates a
+new bounded attempt. When a task leaves the desktop or the session closes,
+MagicDesk clears its task and plane overrides to Android's inherited density.
+
 MagicDesk temporarily owns Android's HOME role for the desktop session. The
 selected component makes `PhoneHomeActivity` the phone navigation surface for
 an external session or makes `PhoneDesktopHomeActivity` primary HOME for a
@@ -1994,7 +2013,7 @@ pass through the prepared-state mechanism.
 
 Above that executor, `DesktopWindowTransitionRequest` defines the semantic
 operation (`enter-fullscreen`, application fullscreen, or freeform restore),
-exact task, display, and required geometry. The
+exact task, display, required geometry, and resolved presentation density. The
 `DesktopWindowTransitionGateway` maps it to the active observer without
 exposing observer methods to policy code. This boundary is platform-neutral:
 firmware extensions may influence capabilities and preparation policy, but do

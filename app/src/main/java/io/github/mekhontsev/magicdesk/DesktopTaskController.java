@@ -56,6 +56,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private final NativeWindowBoundsController mNativeWindowBounds;
     private final DesktopWindowTransitionController mWindowTransitions;
     private final AppWindowStateTracker mAppWindowStates;
+    private final AppPresentationRuntimeController mAppPresentations;
     private final DesktopAutomationTaskEventTracker mAutomationEvents =
             new DesktopAutomationTaskEventTracker();
     private final Runnable mRefreshRunnable = this::runScheduledRefresh;
@@ -221,6 +222,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     @Override
                     public void onReady(final int generation) {
                         mTaskWatcherReady = true;
+                        mAppPresentations.resetAttempts();
                         if (mRunning) {
                             configureTaskWatcher();
                             scheduleRefresh(EVENT_DEBOUNCE_MILLIS);
@@ -275,6 +277,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         if (mRunning) {
                             clearTrackedFocus(taskId);
                             mWindowTransitions.forgetTaskState(taskId);
+                            mAppPresentations.forgetTask(taskId);
                         }
                     }
 
@@ -428,6 +431,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     @Override
                     public void onDisconnected(final int generation) {
                         mTaskWatcherReady = false;
+                        mAppPresentations.resetAttempts();
                         clearDesktopOwnership();
                         if (mRunning) {
                             DesktopRuntimeBridge.setSystemDialogVisible(
@@ -443,6 +447,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         }, WATCHER_RESTART_MILLIS);
                     }
                 });
+        mAppPresentations = new AppPresentationRuntimeController(
+                (taskIds, densityDpi, callback) ->
+                        mTaskWatcher.setDesktopTaskDensity(
+                                mDisplayId,
+                                taskIds,
+                                densityDpi,
+                                callback),
+                () -> scheduleRefresh(0));
     }
 
     void start(final int displayId) {
@@ -467,6 +479,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             return;
         }
         mGeneration++;
+        mAppPresentations.start();
         if (mTaskWatcherReady) {
             configureTaskWatcher();
         }
@@ -499,6 +512,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         mDisplayTaskState.clear();
         mTaskRuntimeStates.clear();
         mAutomationEvents.reset();
+        mAppPresentations.stop();
     }
 
     void destroy() {
@@ -756,18 +770,21 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 return mTaskWatcher.beginFullscreenTask(
                         request.displayId,
                         request.taskId,
+                        request.densityDpi,
                         scopedCallback);
             case ENTER_APP_FULLSCREEN:
                 return mTaskWatcher.beginAppFullscreenTask(
                         request.displayId,
                         request.taskId,
                         request.bounds(),
+                        request.densityDpi,
                         scopedCallback);
             case RESTORE_FREEFORM:
                 return mTaskWatcher.restoreFullscreenTask(
                         request.displayId,
                         request.taskId,
                         request.bounds(),
+                        request.densityDpi,
                         scopedCallback);
             default:
                 return false;
@@ -2126,35 +2143,42 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     public int launchWindowedTask(
             final int displayId,
             final Intent intent,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final int densityDpi) throws IOException {
         requireTaskObserver(displayId);
         return mTaskWatcher.launchWindowedTask(
-                displayId, intent, bounds);
+                displayId, intent, bounds, densityDpi);
     }
 
     @Override
     public int launchFullscreenTask(
             final int displayId,
-            final Intent intent) throws IOException {
+            final Intent intent,
+            final int densityDpi) throws IOException {
         requireTaskObserver(displayId);
-        return mTaskWatcher.launchFullscreenTask(displayId, intent);
+        return mTaskWatcher.launchFullscreenTask(
+                displayId, intent, densityDpi);
     }
 
     @Override
     public boolean attachWindowedTask(
             final int displayId,
             final int taskId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final int densityDpi) throws IOException {
         requireTaskObserver(displayId);
-        return mTaskWatcher.attachWindowedTask(displayId, taskId, bounds);
+        return mTaskWatcher.attachWindowedTask(
+                displayId, taskId, bounds, densityDpi);
     }
 
     @Override
     public boolean attachFullscreenTask(
             final int displayId,
-            final int taskId) throws IOException {
+            final int taskId,
+            final int densityDpi) throws IOException {
         requireTaskObserver(displayId);
-        return mTaskWatcher.attachFullscreenTask(displayId, taskId);
+        return mTaskWatcher.attachFullscreenTask(
+                displayId, taskId, densityDpi);
     }
 
     @Override
@@ -2165,6 +2189,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final UserHandle user,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) throws IOException {
         return mTaskWatcher.launchAppShortcut(
                 displayId,
@@ -2173,6 +2198,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 user,
                 windowingMode,
                 bounds,
+                densityDpi,
                 existingTaskId);
     }
 
@@ -2183,6 +2209,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final PendingIntent pendingIntent,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) throws IOException {
         requireTaskObserver(displayId);
         return mTaskWatcher.launchPendingActivity(
@@ -2191,7 +2218,24 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 pendingIntent,
                 windowingMode,
                 bounds,
+                densityDpi,
                 existingTaskId);
+    }
+
+    @Override
+    public boolean applyAppPresentation(
+            final String packageName,
+            final int densityDpi,
+            final TaskRepository.ActionCallback callback) {
+        if (!mRunning || !mTaskWatcherReady
+                || !PackageNameValidator.isSafe(packageName)) {
+            return false;
+        }
+        return mAppPresentations.applyStoredPackage(
+                packageName,
+                densityDpi,
+                mLatestTasks,
+                callback);
     }
 
     @Override
@@ -2255,6 +2299,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         mLatestTasks = Collections.unmodifiableList(
                 new ArrayList<>(workspace.tasks));
+        mAppPresentations.observe(
+                workspace.tasks,
+                DesktopTaskPresentationPolicy.displayDensityDpi(
+                        mWindowContext));
         reconcileTaskbarConcealment(workspace.tasks);
         mNativeWindowBounds.reconcile(workspace.tasks);
         // Workspace operations remain ownership-scoped, but shell chrome must

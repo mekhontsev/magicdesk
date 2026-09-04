@@ -208,7 +208,8 @@ interface IShizukuCommandService {
         int left,
         int top,
         int right,
-        int bottom) = 61;
+        int bottom,
+        int densityDpi) = 61;
 
     void startSelfTestTaskStackGuard(
         ITaskObserverCallback callback,
@@ -252,7 +253,8 @@ interface IShizukuCommandService {
         int restoreLeft,
         int restoreTop,
         int restoreRight,
-        int restoreBottom) = 72;
+        int restoreBottom,
+        int densityDpi) = 72;
 
     int launchWindowedTask(
         ITaskObserverCallback callback,
@@ -261,7 +263,8 @@ interface IShizukuCommandService {
         int left,
         int top,
         int right,
-        int bottom) = 73;
+        int bottom,
+        int densityDpi) = 73;
 
     int launchDesktopHost(int displayId, String intentUri) = 75;
 
@@ -280,7 +283,8 @@ interface IShizukuCommandService {
     boolean beginFullscreenTask(
         ITaskObserverCallback callback,
         int displayId,
-        int taskId) = 79;
+        int taskId,
+        int densityDpi) = 79;
 
     ParcelFileDescriptor openDisplayCapture(
         String captureSource,
@@ -313,7 +317,8 @@ interface IShizukuCommandService {
     int launchFullscreenTask(
         ITaskObserverCallback callback,
         int displayId,
-        in Intent intent) = 88;
+        in Intent intent,
+        int densityDpi) = 88;
 
     TaskWindowSnapshot inspectTaskWindow(
         ITaskObserverCallback callback,
@@ -391,6 +396,7 @@ interface IShizukuCommandService {
         int top,
         int right,
         int bottom,
+        int densityDpi,
         int existingTaskId) = 108;
 
     void configureDesktopActivityInput(
@@ -409,7 +415,8 @@ interface IShizukuCommandService {
         int left,
         int top,
         int right,
-        int bottom) = 112;
+        int bottom,
+        int densityDpi) = 112;
 
     int prepareDesktopChromeHost(
         ITaskObserverCallback callback,
@@ -426,8 +433,15 @@ interface IShizukuCommandService {
         int top,
         int right,
         int bottom,
+        int densityDpi,
         int existingTaskId) = 114;
 
     void launchActivityOnDisplay(in Intent intent, int displayId) = 115;
+
+    boolean setDesktopTaskDensity(
+        ITaskObserverCallback callback,
+        int displayId,
+        in int[] taskIds,
+        int densityDpi) = 116;
 
 }

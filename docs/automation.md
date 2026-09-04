@@ -110,6 +110,8 @@ Normal read tools include:
   normalized window modes, rendered-window state, process health, and blocking
   system dialogs;
 - `magicdesk.list_apps`: launchable Android activities;
+- `magicdesk.get_app_presentation`: saved System or Custom interface scale and
+  the density resolved for the active desktop display;
 - `magicdesk.list_ui_elements`: live MagicDesk controls with stable semantic
   ids, roles, labels, state, supported actions, and display-coordinate bounds;
 - `magicdesk.get_events`, `magicdesk.get_diagnostics`, and
@@ -149,6 +151,8 @@ Normal commands include:
 
 - start or close a desktop session;
 - launch, focus, close, or resize a task;
+- set or reset an application's interface scale and apply the resolved density
+  to its live desktop tasks;
 - change a task's managed window mode through the production transition
   gateway, including stable per-task fullscreen-plane ownership where the
   selected desktop policy provides it;
@@ -156,7 +160,8 @@ Normal commands include:
   creating or preserving MagicDesk fullscreen-plane ownership;
 - arrange a task left, right, maximized, or restored through the same window
   transition path used by MagicDesk shortcuts;
-- show Start or the desktop and open Files, Console, Task Manager, or Settings;
+- show Start or the desktop and open Files, Console, Task Manager, Settings,
+  Application Profiles, or Diagnostics;
 - inspect and invoke live desktop controls semantically;
 - discover Android Activity, receiver, and service handlers without executing
   them;
@@ -169,6 +174,13 @@ Normal commands include:
 - start, stop, and inspect screen recording.
 
 Use `tools/list` as the authoritative command and argument catalog.
+
+`magicdesk.set_app_presentation` accepts an Android package and a scale from
+50 through 200 percent. The percentage is display-independent; MagicDesk
+resolves it against the active target's density on every launch or move.
+`magicdesk.reset_app_presentation` restores System mode (`densityDpi=0`,
+inherit) for saved and running tasks. Responses include the saved mode,
+resolved density, and active display when one exists.
 
 `magicdesk.arrange_task` with `maximize` or `restore` is the normal managed
 fullscreen/windowed command. It shares the production transition path with

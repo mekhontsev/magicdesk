@@ -429,6 +429,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     + " configuredDisplay=" + mConfiguredDisplayId);
             return false;
         }
+        resetDesktopTaskDensities();
         configure(
                 Display.INVALID_DISPLAY,
                 new Rect(),
@@ -614,31 +615,38 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     boolean restoreFullscreenTask(
             final int displayId,
             final int taskId,
-            final Rect bounds) {
+            final Rect bounds,
+            final int densityDpi) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
         return finishDesktopTransition(mFullscreenTaskArea.restoreTask(
-                mService, displayId, taskId, bounds));
+                mService, displayId, taskId, bounds, densityDpi));
     }
 
     boolean beginAppFullscreenTask(
             final int displayId,
             final int taskId,
-            final Rect restoreBounds) {
+            final Rect restoreBounds,
+            final int densityDpi) {
         if (mClosed || displayId != mConfiguredDisplayId) {
             return false;
         }
         mDesktopOwnership.markDesktop(taskId);
         final boolean entered = mFullscreenTaskArea.beginAppFullscreen(
-                mService, displayId, taskId, restoreBounds);
+                mService,
+                displayId,
+                taskId,
+                restoreBounds,
+                densityDpi);
         reportDesktopTaskOwnership();
         return finishDesktopTransition(entered);
     }
 
     boolean beginFullscreenTask(
             final int displayId,
-            final int taskId) {
+            final int taskId,
+            final int densityDpi) {
         if (mClosed || displayId != mConfiguredDisplayId) {
             return false;
         }
@@ -647,7 +655,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService,
                 displayId,
                 taskId,
-                mWindowing.requiresNativeFullscreenCaptionRefresh());
+                mWindowing.requiresNativeFullscreenCaptionRefresh(),
+                densityDpi);
         reportDesktopTaskOwnership();
         return finishDesktopTransition(entered);
     }
@@ -655,7 +664,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     boolean beginWindowedTask(
             final int displayId,
             final int taskId,
-            final Rect bounds) {
+            final Rect bounds,
+            final int densityDpi) {
         if (mClosed || displayId != mConfiguredDisplayId
                 || taskId < 0 || bounds == null || bounds.isEmpty()) {
             return false;
@@ -667,7 +677,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             // an accidental WMShell migration and immediately restores it.
             mDesktopOwnership.markDesktop(taskId);
             ShellPreparedTaskTransition.applyFreeform(
-                    mService, displayId, taskId, new Rect(bounds));
+                    mService,
+                    displayId,
+                    taskId,
+                    new Rect(bounds),
+                    densityDpi);
             reportDesktopTaskOwnership();
             return finishDesktopTransition(true);
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -715,7 +729,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     int launchWindowedTask(
             final int displayId,
             final Intent intent,
-            final Rect bounds) {
+            final Rect bounds,
+            final int densityDpi) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
@@ -725,7 +740,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         try {
             final int taskId = mTaskLauncher.launchWindowed(
-                    displayId, intent, bounds, null);
+                    displayId, intent, bounds, null, true, densityDpi);
             reportDesktopTaskOwnership();
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -738,7 +753,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     int launchFullscreenTask(
             final int displayId,
-            final Intent intent) {
+            final Intent intent,
+            final int densityDpi) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
@@ -751,7 +767,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     mService,
                     displayId,
                     taskAreaToken -> mTaskLauncher.launchFullscreen(
-                            displayId, intent, taskAreaToken));
+                            displayId, intent, taskAreaToken),
+                    densityDpi);
             reportDesktopTaskOwnership();
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -769,6 +786,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final UserHandle user,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
@@ -799,7 +817,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         user,
                         bounds,
                         null,
-                        true);
+                        true,
+                        densityDpi);
             } else if (windowingMode
                     == FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN) {
                 taskId = mFullscreenTaskArea.launchFullscreen(
@@ -811,7 +830,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                         packageName,
                                         shortcutId,
                                         user,
-                                        taskAreaToken));
+                                        taskAreaToken),
+                        densityDpi);
             } else {
                 throw new IllegalArgumentException(
                         "unsupported shortcut windowing mode: " + windowingMode);
@@ -831,6 +851,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final PendingIntent pendingIntent,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
@@ -862,7 +883,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         pendingIntent,
                         bounds,
                         null,
-                        true);
+                        true,
+                        densityDpi);
             } else if (windowingMode
                     == FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN) {
                 taskId = mFullscreenTaskArea.launchFullscreen(
@@ -874,7 +896,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                         expectedPackage,
                                         expectedComponent,
                                         pendingIntent,
-                                        taskAreaToken));
+                                        taskAreaToken),
+                        densityDpi);
             } else {
                 throw new IllegalArgumentException(
                         "unsupported pending Activity windowing mode: "
@@ -887,6 +910,93 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     "cannot launch pending Activity: "
                             + usefulMessage(error),
                     error);
+        }
+    }
+
+    boolean setDesktopTaskDensity(
+            final int displayId,
+            final int[] taskIds,
+            final int densityDpi) {
+        if (mClosed || displayId != mConfiguredDisplayId
+                || taskIds == null || taskIds.length == 0
+                || densityDpi == DesktopTaskDensity.UNCHANGED) {
+            return false;
+        }
+        try {
+            final FrameworkWindowingApi windowing =
+                    FrameworkRuntime.current().windowing();
+            final Class<?> transactionClass = windowing.transactionClass();
+            final Object transaction = windowing.newTransaction();
+            int applied = 0;
+            for (final int taskId : taskIds) {
+                final Object task = HiddenTaskApi.requireTask(
+                        mService, displayId, taskId);
+                if (mDesktopOwnership.isDesktopHostTask(taskId)
+                        || !mDesktopOwnership.isDesktopTask(task)) {
+                    throw new IllegalArgumentException(
+                            "task is outside the desktop workspace: "
+                                    + taskId);
+                }
+                DesktopTaskDensity.apply(
+                        windowing,
+                        transaction,
+                        HiddenTaskApi.getTaskToken(task),
+                        densityDpi);
+                mFullscreenTaskArea.addDensityOperation(
+                        windowing, transaction, taskId, densityDpi);
+                applied++;
+            }
+            if (applied == 0) {
+                return false;
+            }
+            ShellWindowTransitionExecutor.applyAtomic(
+                    mService, transactionClass, transaction);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException(
+                    "cannot apply desktop task density: "
+                            + usefulMessage(error),
+                    error);
+        }
+    }
+
+    private void resetDesktopTaskDensities() {
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        if (!windowing.supportsDensityOverride()) {
+            return;
+        }
+        try {
+            final Class<?> transactionClass = windowing.transactionClass();
+            final Object transaction = windowing.newTransaction();
+            int resetCount = 0;
+            for (final int taskId : mDesktopOwnership.desktopTaskIds()) {
+                if (mDesktopOwnership.isDesktopHostTask(taskId)) {
+                    continue;
+                }
+                final Object task = HiddenTaskApi.findTask(
+                        mService, Display.INVALID_DISPLAY, taskId);
+                if (task == null) {
+                    continue;
+                }
+                DesktopTaskDensity.apply(
+                        windowing,
+                        transaction,
+                        HiddenTaskApi.getTaskToken(task),
+                        DesktopTaskDensity.INHERIT);
+                mFullscreenTaskArea.addDensityOperation(
+                        windowing,
+                        transaction,
+                        taskId,
+                        DesktopTaskDensity.INHERIT);
+                resetCount++;
+            }
+            if (resetCount > 0) {
+                ShellWindowTransitionExecutor.applyAtomic(
+                        mService, transactionClass, transaction);
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not reset desktop task densities", error);
         }
     }
 
@@ -1136,10 +1246,48 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     public void onTaskDisplayChanged(
             final int taskId,
             final int newDisplayId) {
+        resetDepartedTaskDensity(taskId, newDisplayId);
         mFullscreenTaskArea.onTaskDisplayChanged(taskId, newDisplayId);
         mTaskActivityModeGuard.onTaskDisplayChanged(taskId, newDisplayId);
         mMigrationGuard.onTaskDisplayChanged(taskId, newDisplayId);
         signalChange("display-changed");
+    }
+
+    private void resetDepartedTaskDensity(
+            final int taskId,
+            final int newDisplayId) {
+        if (mConfiguredDisplayId < 0
+                || newDisplayId == mConfiguredDisplayId
+                || !mDesktopOwnership.isRememberedDesktopTask(taskId)
+                || mDesktopOwnership.isDesktopHostTask(taskId)) {
+            return;
+        }
+        // Task density belongs to its desktop-display residency. Clear it at
+        // the framework move callback before the task resumes elsewhere.
+        try {
+            final FrameworkWindowingApi windowing =
+                    FrameworkRuntime.current().windowing();
+            if (!windowing.supportsDensityOverride()) {
+                return;
+            }
+            final Object task = HiddenTaskApi.findTask(
+                    mService, Display.INVALID_DISPLAY, taskId);
+            if (task == null) {
+                return;
+            }
+            final Class<?> transactionClass = windowing.transactionClass();
+            final Object transaction = windowing.newTransaction();
+            DesktopTaskDensity.apply(
+                    windowing,
+                    transaction,
+                    HiddenTaskApi.getTaskToken(task),
+                    DesktopTaskDensity.INHERIT);
+            ShellWindowTransitionExecutor.applyAtomic(
+                    mService, transactionClass, transaction);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not reset density for departed task="
+                    + taskId, error);
+        }
     }
 
     @Override

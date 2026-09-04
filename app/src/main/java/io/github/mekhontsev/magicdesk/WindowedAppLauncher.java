@@ -96,6 +96,9 @@ final class WindowedAppLauncher {
         }
         final String launchKind = BuiltInDesktopAppCatalog.find(launchTarget)
                 == null ? "desktop-window" : "built-in-window";
+        final int densityDpi =
+                DesktopTaskPresentationPolicy.resolveDensityDpi(
+                        launchTarget.packageName, displayId);
         return launch(
                 launchTarget,
                 displayId,
@@ -106,9 +109,13 @@ final class WindowedAppLauncher {
                 preferredTaskId,
                 taskReadyCallback,
                 launchKind,
+                densityDpi,
                 (targetDisplayId, bounds) ->
                         MagicDeskRuntime.launchWindowedTask(
-                                targetDisplayId, preparedIntent, bounds),
+                                targetDisplayId,
+                                preparedIntent,
+                                bounds,
+                                densityDpi),
                 existingTaskLauncher);
     }
 
@@ -122,6 +129,9 @@ final class WindowedAppLauncher {
         if (shortcut == null) {
             throw new IOException("app shortcut is required");
         }
+        final int densityDpi =
+                DesktopTaskPresentationPolicy.resolveDensityDpi(
+                        shortcut.packageName, displayId);
         return launch(
                 shortcut.taskTarget(),
                 displayId,
@@ -132,6 +142,7 @@ final class WindowedAppLauncher {
                 -1,
                 taskReadyCallback,
                 "app-shortcut",
+                densityDpi,
                 (targetDisplayId, bounds) ->
                         MagicDeskRuntime.launchAppShortcut(
                                 targetDisplayId,
@@ -140,6 +151,7 @@ final class WindowedAppLauncher {
                                 shortcut.user,
                                 WINDOWING_MODE_FREEFORM,
                                 bounds,
+                                densityDpi,
                                 -1),
                 (targetDisplayId, taskId, bounds) ->
                         MagicDeskRuntime.launchAppShortcut(
@@ -149,6 +161,7 @@ final class WindowedAppLauncher {
                                 shortcut.user,
                                 WINDOWING_MODE_FREEFORM,
                                 bounds,
+                                densityDpi,
                                 taskId));
     }
 
@@ -166,6 +179,9 @@ final class WindowedAppLauncher {
             throw new IOException(
                     "pending Activity launch target is required");
         }
+        final int densityDpi =
+                DesktopTaskPresentationPolicy.resolveDensityDpi(
+                        launchTarget.packageName, displayId);
         return launch(
                 launchTarget,
                 displayId,
@@ -176,6 +192,7 @@ final class WindowedAppLauncher {
                 preferredTaskId,
                 taskReadyCallback,
                 "android-pending-activity",
+                densityDpi,
                 (targetDisplayId, bounds) ->
                         MagicDeskRuntime.launchPendingActivity(
                                 targetDisplayId,
@@ -183,6 +200,7 @@ final class WindowedAppLauncher {
                                 pendingIntent,
                                 WINDOWING_MODE_FREEFORM,
                                 bounds,
+                                densityDpi,
                                 -1),
                 (targetDisplayId, taskId, bounds) ->
                         MagicDeskRuntime.launchPendingActivity(
@@ -191,6 +209,7 @@ final class WindowedAppLauncher {
                                 pendingIntent,
                                 WINDOWING_MODE_FREEFORM,
                                 bounds,
+                                densityDpi,
                                 taskId));
     }
 
@@ -204,6 +223,7 @@ final class WindowedAppLauncher {
             final int preferredTaskId,
             final TaskReadyCallback taskReadyCallback,
             final String launchKind,
+            final int densityDpi,
             final FreshTaskLauncher freshTaskLauncher,
             final ExistingTaskLauncher existingTaskLauncher)
             throws IOException {
@@ -224,7 +244,8 @@ final class WindowedAppLauncher {
                     explicitWindowed,
                     bounds,
                     preferredTaskId,
-                    null);
+                    null,
+                    densityDpi);
             if (existing.found) {
                 if (existingTaskLauncher != null) {
                     existingTaskLauncher.launch(
@@ -299,7 +320,8 @@ final class WindowedAppLauncher {
             final boolean explicitWindowed,
             final Rect targetBounds,
             final int preferredTaskId,
-            final WindowedTaskLaunchLease launchLease) throws IOException {
+            final WindowedTaskLaunchLease launchLease,
+            final int densityDpi) throws IOException {
         return nativeDesktop
                 ? ExistingTaskController.reuseNativeDesktopIfExists(
                         launchTarget,
@@ -309,7 +331,8 @@ final class WindowedAppLauncher {
                         explicitWindowed,
                         targetBounds,
                         preferredTaskId,
-                        launchLease)
+                        launchLease,
+                        densityDpi)
                 : ExistingTaskController.reuseFreeformIfExists(
                         launchTarget,
                         displayId,
@@ -318,7 +341,8 @@ final class WindowedAppLauncher {
                         explicitWindowed,
                         targetBounds,
                         preferredTaskId,
-                        launchLease);
+                        launchLease,
+                        densityDpi);
     }
 
 }

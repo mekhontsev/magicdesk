@@ -67,6 +67,14 @@ final class MagicDeskMcpToolCatalog {
                                 .put("cursor", stringProperty(
                                         "Opaque cursor from the previous page.")))))
                 .put(readTool(
+                        "get_app_presentation",
+                        "Get application presentation",
+                        "Read the saved interface scale and resolved task density for an Android application.",
+                        objectSchema(new JSONObject().put(
+                                "package", stringProperty(
+                                        "Android package name.")),
+                                "package")))
+                .put(readTool(
                         "list_ui_elements",
                         "List desktop UI elements",
                         "List semantic controls from the live MagicDesk desktop UI with stable ids, state, actions, and display bounds.",
@@ -136,6 +144,28 @@ final class MagicDeskMcpToolCatalog {
                                                 "Active desktop display id."))
                                         .put("bounds", relativeBoundsProperty(
                                                 "Initial bounds within the desktop work area.")),
+                                "package")))
+                .put(actionTool(
+                        "set_app_presentation",
+                        "Set application presentation",
+                        "Set an application interface scale and apply it to its live desktop tasks in one window transaction.",
+                        objectSchema(new JSONObject()
+                                        .put("package", stringProperty(
+                                                "Android package name."))
+                                        .put("scalePercent", integerRangeProperty(
+                                                "Interface scale from 50 to 200 percent.",
+                                                AppPresentationProfile
+                                                        .MIN_SCALE_PERCENT,
+                                                AppPresentationProfile
+                                                        .MAX_SCALE_PERCENT)),
+                                "package", "scalePercent")))
+                .put(actionTool(
+                        "reset_app_presentation",
+                        "Reset application presentation",
+                        "Restore Android's inherited display density for an application and its live desktop tasks.",
+                        objectSchema(new JSONObject().put(
+                                "package", stringProperty(
+                                        "Android package name.")),
                                 "package")))
                 .put(actionTool(
                         "focus_task",
@@ -241,12 +271,13 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "open_builtin",
                         "Open built-in window",
-                        "Open a MagicDesk Files, Console, Task Manager, Settings, Diagnostics, or Activity Explorer window.",
+                        "Open a MagicDesk Files, Console, Task Manager, Settings, Application Profiles, Diagnostics, or Activity Explorer window.",
                         objectSchema(new JSONObject().put(
                                 "builtin", enumProperty(
                                         "Built-in window.",
                                         "files", "console",
                                         "task_manager", "settings",
+                                        "app_profiles",
                                         "diagnostics", "activity_explorer")),
                                 "builtin")))
                 .put(actionTool(
@@ -1086,6 +1117,25 @@ final class MagicDeskMcpToolCatalog {
                         .put("nextCursor", nullableStringProperty(
                                 "Next page cursor."));
                 break;
+            case "get_app_presentation":
+            case "set_app_presentation":
+            case "reset_app_presentation":
+                properties.put("package", stringProperty(
+                                "Android package name."))
+                        .put("mode", enumProperty(
+                                "Presentation profile mode.",
+                                "system", "custom"))
+                        .put("scalePercent", nullableIntegerProperty(
+                                "Saved custom interface scale."))
+                        .put("activeDisplayId", nullableIntegerProperty(
+                                "Active desktop display id."))
+                        .put("displayDensityDpi", nullableIntegerProperty(
+                                "Active display density."))
+                        .put("expectedDensityDpi", nullableIntegerProperty(
+                                "Expected effective task density."))
+                        .put("overrideDensityDpi", nullableIntegerProperty(
+                                "Density override sent to Android; zero inherits."));
+                break;
             case "list_ui_elements":
                 properties.put("available", booleanProperty(
                                 "Live desktop UI is available."))
@@ -1569,6 +1619,15 @@ final class MagicDeskMcpToolCatalog {
         return new JSONObject()
                 .put("type", "integer")
                 .put("description", description);
+    }
+
+    private static JSONObject integerRangeProperty(
+            final String description,
+            final int minimum,
+            final int maximum) throws JSONException {
+        return integerProperty(description)
+                .put("minimum", minimum)
+                .put("maximum", maximum);
     }
 
     private static JSONObject booleanProperty(final String description)

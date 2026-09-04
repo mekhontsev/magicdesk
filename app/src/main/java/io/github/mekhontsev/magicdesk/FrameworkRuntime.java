@@ -38,6 +38,9 @@ final class FrameworkRuntime {
         return "profile=" + capabilities.profile
                 + ", wct=" + (mWindowingApi.available()
                         ? "available" : "unavailable")
+                + ", taskDensity="
+                + (mWindowingApi.supportsDensityOverride()
+                        ? "available" : "unavailable")
                 + ", caption=" + capabilities.captionStrategy()
                 + ", taskSource=typed-binder-root-hierarchy+listener"
                 + ", taskObservation=" + tasks.strategy

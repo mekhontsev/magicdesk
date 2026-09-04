@@ -246,7 +246,10 @@ final class DesktopSelfTestTasks {
         try (DesktopTaskLaunchProbe probe =
                      DesktopTaskLaunchProbe.open(-1, component)) {
             final int launchedTaskId = MagicDeskRuntime.launchWindowedTask(
-                    displayId, launchIntent, bounds);
+                    displayId,
+                    launchIntent,
+                    bounds,
+                    DesktopTaskDensity.INHERIT);
             final DesktopTaskLaunchProbe.Observation observation =
                     probe.awaitObservation();
             if (observation.displayId != displayId

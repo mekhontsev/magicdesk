@@ -14,13 +14,15 @@ final class DesktopTaskTransfer {
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId,
-            final Rect freeformBounds) throws IOException {
+            final Rect freeformBounds,
+            final int densityDpi) throws IOException {
         return moveFreeform(
                 taskId,
                 sourceDisplayId,
                 targetDisplayId,
                 freeformBounds,
-                null);
+                null,
+                densityDpi);
     }
 
     static String moveFreeform(
@@ -28,7 +30,8 @@ final class DesktopTaskTransfer {
             final int sourceDisplayId,
             final int targetDisplayId,
             final Rect freeformBounds,
-            final DesktopTransitionSurfaceProbe.Reference surfaceReference)
+            final DesktopTransitionSurfaceProbe.Reference surfaceReference,
+            final int densityDpi)
             throws IOException {
         requireTransfer(taskId, sourceDisplayId, targetDisplayId);
         requireDesktopTarget(targetDisplayId);
@@ -38,21 +41,27 @@ final class DesktopTaskTransfer {
                 sourceDisplayId,
                 targetDisplayId,
                 freeformBounds,
-                surfaceReference));
+                surfaceReference,
+                densityDpi));
     }
 
     static String moveFullscreen(
             final int taskId,
             final int rootTaskId,
             final int sourceDisplayId,
-            final int targetDisplayId) throws IOException {
+            final int targetDisplayId,
+            final int densityDpi) throws IOException {
         requireTransfer(taskId, sourceDisplayId, targetDisplayId);
         if (rootTaskId < 0) {
             throw new IllegalArgumentException("invalid root task id");
         }
         requireDesktopTarget(targetDisplayId);
         return ShellAccess.run(TaskFullscreenMoveCommand.createMoveCommand(
-                taskId, rootTaskId, sourceDisplayId, targetDisplayId));
+                taskId,
+                rootTaskId,
+                sourceDisplayId,
+                targetDisplayId,
+                densityDpi));
     }
 
     static String createFreeformCommand(
@@ -60,7 +69,8 @@ final class DesktopTaskTransfer {
             final int sourceDisplayId,
             final int targetDisplayId,
             final Rect freeformBounds,
-            final DesktopTransitionSurfaceProbe.Reference surfaceReference) {
+            final DesktopTransitionSurfaceProbe.Reference surfaceReference,
+            final int densityDpi) {
         requireTransfer(taskId, sourceDisplayId, targetDisplayId);
         requireFreeformBounds(freeformBounds);
         return surfaceReference == null
@@ -68,13 +78,15 @@ final class DesktopTaskTransfer {
                         taskId,
                         sourceDisplayId,
                         targetDisplayId,
-                        freeformBounds)
+                        freeformBounds,
+                        densityDpi)
                 : TaskDisplayAreaLaunchCommand.createObservedMoveCommand(
                         taskId,
                         sourceDisplayId,
                         targetDisplayId,
                         freeformBounds,
-                        surfaceReference);
+                        surfaceReference,
+                        densityDpi);
     }
 
     private static void requireTransfer(

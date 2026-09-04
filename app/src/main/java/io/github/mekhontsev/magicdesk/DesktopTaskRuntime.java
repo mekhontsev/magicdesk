@@ -17,16 +17,18 @@ interface DesktopTaskRuntime {
             int displayId, TaskRepository.Snapshot snapshot);
 
     int launchWindowedTask(
-            int displayId, Intent intent, Rect bounds) throws IOException;
+            int displayId, Intent intent, Rect bounds, int densityDpi)
+            throws IOException;
 
     int launchFullscreenTask(
-            int displayId, Intent intent) throws IOException;
+            int displayId, Intent intent, int densityDpi) throws IOException;
 
     boolean attachWindowedTask(
-            int displayId, int taskId, Rect bounds) throws IOException;
+            int displayId, int taskId, Rect bounds, int densityDpi)
+            throws IOException;
 
     boolean attachFullscreenTask(
-            int displayId, int taskId) throws IOException;
+            int displayId, int taskId, int densityDpi) throws IOException;
 
     int launchAppShortcut(
             int displayId,
@@ -35,6 +37,7 @@ interface DesktopTaskRuntime {
             UserHandle user,
             int windowingMode,
             Rect bounds,
+            int densityDpi,
             int existingTaskId) throws IOException;
 
     int launchPendingActivity(
@@ -43,7 +46,13 @@ interface DesktopTaskRuntime {
             PendingIntent pendingIntent,
             int windowingMode,
             Rect bounds,
+            int densityDpi,
             int existingTaskId) throws IOException;
+
+    boolean applyAppPresentation(
+            String packageName,
+            int densityDpi,
+            TaskRepository.ActionCallback callback);
 
     void noteTaskLaunchFocus(int displayId, int taskId);
 

@@ -1443,7 +1443,7 @@ final class DesktopSelfTestInputSuite {
                             false,
                             DesktopSelfTestFixtureAppearance.TRANSITION);
             taskId = MagicDeskRuntime.launchFullscreenTask(
-                    displayId, intent);
+                    displayId, intent, DesktopTaskDensity.INHERIT);
             waitForTask(
                     displayId,
                     FIXTURE_CLASS,

@@ -37,6 +37,9 @@ public final class DesktopStateStoreTest {
                 new AppWindowState(
                         null,
                         new RelativeWindowBounds(1000, 2000, 3000, 4000)));
+        source.appPresentations.put(
+                "example.application",
+                new AppPresentationProfile(125));
         source.settings.taskbarAutoHide = true;
         source.settings.keepDesktopAwake = true;
         source.settings.disableAdaptiveBrightnessOnExternalDesktop = true;
@@ -71,6 +74,10 @@ public final class DesktopStateStoreTest {
                         null,
                         new RelativeWindowBounds(1000, 2000, 3000, 4000)),
                 decoded.appWindows.get("example.bounds"));
+        assertEquals(
+                125,
+                decoded.appPresentations.get(
+                        "example.application").scalePercent);
         assertTrue(decoded.settings.taskbarAutoHide);
         assertTrue(decoded.settings.keepDesktopAwake);
         assertTrue(decoded.settings.disableAdaptiveBrightnessOnExternalDesktop);
@@ -97,12 +104,18 @@ public final class DesktopStateStoreTest {
                         + "\"bad\":[-1,0,1,1]},"
                         + "\"appWindows\":{"
                         + "\"bad package\":{\"mode\":\"windowed\"}},"
+                        + "\"appPresentations\":{"
+                        + "\"bad package\":100,"
+                        + "\"" + BuildConfig.APPLICATION_ID + "\":100,"
+                        + "\"example.too.small\":49,"
+                        + "\"example.too.large\":201},"
                         + "\"displayProfiles\":{\"wrong-key\":{"
                         + "\"key\":\"display:primary\"}}}" );
 
         assertTrue(decoded.taskbarPackages.isEmpty());
         assertTrue(decoded.desktopPlacements.isEmpty());
         assertTrue(decoded.appWindows.isEmpty());
+        assertTrue(decoded.appPresentations.isEmpty());
         assertFalse(decoded.displayProfiles.containsKey("wrong-key"));
         assertTrue(decoded.settings.openTouchpadAutomatically);
         assertFalse(

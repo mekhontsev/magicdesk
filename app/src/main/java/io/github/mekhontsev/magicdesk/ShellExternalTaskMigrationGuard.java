@@ -294,7 +294,8 @@ final class ShellExternalTaskMigrationGuard implements
                     state.taskId,
                     state.taskId,
                     sourceDisplayId,
-                    Display.DEFAULT_DISPLAY);
+                    Display.DEFAULT_DISPLAY,
+                    DesktopTaskDensity.INHERIT);
             migrated = true;
             Log.i(TAG, "migrated launcher task to phone task="
                     + state.taskId);

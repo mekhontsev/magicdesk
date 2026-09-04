@@ -292,6 +292,46 @@ final class DesktopAutomationStateReader {
                         ? Integer.toString(end) : JSONObject.NULL);
     }
 
+    JSONObject appPresentation(final JSONObject arguments)
+            throws JSONException {
+        final String packageName = arguments == null
+                ? "" : arguments.optString("package", "").trim();
+        return appPresentation(packageName);
+    }
+
+    JSONObject appPresentation(final String packageName)
+            throws JSONException {
+        AppPresentationProfileManager.requireUserApplication(packageName);
+        final AppPresentationProfile profile =
+                AppPresentationProfileStore.load(packageName);
+        final int displayId = DesktopRuntimeBridge
+                .getActiveDesktopDisplayId();
+        final JSONObject result = new JSONObject()
+                .put("package", packageName)
+                .put("mode", profile == null ? "system" : "custom")
+                .put("scalePercent", profile == null
+                        ? JSONObject.NULL : profile.scalePercent)
+                .put("activeDisplayId", displayId >= Display.DEFAULT_DISPLAY
+                        ? displayId : JSONObject.NULL)
+                .put("overrideDensityDpi", JSONObject.NULL);
+        if (displayId >= Display.DEFAULT_DISPLAY) {
+            final int displayDensity =
+                    DesktopTaskPresentationPolicy.displayDensityDpi(displayId);
+            result.put("displayDensityDpi", displayDensity)
+                    .put("expectedDensityDpi",
+                            DesktopTaskPresentationPolicy.expectedDensityDpi(
+                                    profile, displayDensity))
+                    .put("overrideDensityDpi", profile == null
+                            ? DesktopTaskDensity.INHERIT
+                            : DesktopTaskPresentationPolicy.resolveDensityDpi(
+                                    profile, displayDensity));
+        } else {
+            result.put("displayDensityDpi", JSONObject.NULL)
+                    .put("expectedDensityDpi", JSONObject.NULL);
+        }
+        return result;
+    }
+
     JSONObject events(final long afterId, final int limit)
             throws JSONException {
         return new JSONObject()

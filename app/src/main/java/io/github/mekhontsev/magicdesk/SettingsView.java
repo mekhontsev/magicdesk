@@ -39,6 +39,8 @@ final class SettingsView {
 
         void openDeviceSetup();
 
+        void openApplicationSettings();
+
         void openDiagnostics();
 
         void showAbout();
@@ -99,6 +101,11 @@ final class SettingsView {
                         mActions.setOpenFilesWithSingleClick(checked);
                     }
                 });
+        addAction(
+                content,
+                android.R.drawable.ic_menu_manage,
+                R.string.app_presentation_profiles_title,
+                mActions::openApplicationSettings);
 
         addSection(content, R.string.settings_section_session, 14);
         mOpenTouchpadAutomatically = addSwitch(

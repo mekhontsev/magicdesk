@@ -5,6 +5,8 @@ enum DesktopAutomationAction {
     START_DESKTOP("start_desktop", false),
     CLOSE_DESKTOP("close_desktop", false),
     LAUNCH_APP("launch_app", false),
+    SET_APP_PRESENTATION("set_app_presentation", false),
+    RESET_APP_PRESENTATION("reset_app_presentation", false),
     QUERY_INTENT_HANDLERS("query_intent_handlers", false),
     LAUNCH_INTENT("launch_intent", false),
     OPEN_URI("open_uri", false),

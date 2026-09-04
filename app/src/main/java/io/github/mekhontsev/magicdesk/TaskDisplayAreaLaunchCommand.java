@@ -95,9 +95,15 @@ public final class TaskDisplayAreaLaunchCommand {
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId,
-            final Rect bounds) {
+            final Rect bounds,
+            final int densityDpi) {
         return createMoveCommand(
-                taskId, sourceDisplayId, targetDisplayId, bounds, null);
+                taskId,
+                sourceDisplayId,
+                targetDisplayId,
+                bounds,
+                null,
+                densityDpi);
     }
 
     static String createObservedMoveCommand(
@@ -105,7 +111,8 @@ public final class TaskDisplayAreaLaunchCommand {
             final int sourceDisplayId,
             final int targetDisplayId,
             final Rect bounds,
-            final DesktopTransitionSurfaceProbe.Reference reference) {
+            final DesktopTransitionSurfaceProbe.Reference reference,
+            final int densityDpi) {
         if (reference == null) {
             throw new IllegalArgumentException("surface reference is required");
         }
@@ -114,7 +121,8 @@ public final class TaskDisplayAreaLaunchCommand {
                 sourceDisplayId,
                 targetDisplayId,
                 bounds,
-                reference);
+                reference,
+                densityDpi);
     }
 
     private static String createMoveCommand(
@@ -122,7 +130,8 @@ public final class TaskDisplayAreaLaunchCommand {
             final int sourceDisplayId,
             final int targetDisplayId,
             final Rect bounds,
-            final DesktopTransitionSurfaceProbe.Reference reference) {
+            final DesktopTransitionSurfaceProbe.Reference reference,
+            final int densityDpi) {
         if (taskId < 0 || sourceDisplayId < 0 || targetDisplayId < 0
                 || !hasExplicitBounds(bounds)) {
             throw new IllegalArgumentException("invalid task move");
@@ -133,14 +142,15 @@ public final class TaskDisplayAreaLaunchCommand {
                         + " " + sourceDisplayId
                         + " " + targetDisplayId
                         + formatBounds(bounds)
+                        + " " + densityDpi
                         + (reference == null
                                 ? "" : " " + reference.commandArguments()));
     }
 
     public static void main(final String[] args) {
         final boolean app = args.length == 7 && "app".equals(args[0]);
-        final boolean move = args.length == 8 && "move".equals(args[0]);
-        final boolean observedMove = args.length == 12
+        final boolean move = args.length == 9 && "move".equals(args[0]);
+        final boolean observedMove = args.length == 13
                 && "move-observed".equals(args[0]);
         final boolean taskMove = move || observedMove;
         if (!app && !taskMove) {
@@ -149,6 +159,7 @@ public final class TaskDisplayAreaLaunchCommand {
                     + "<left> <top> <right> <bottom> | "
                     + "move|move-observed <task-id> <source-display-id> "
                     + "<target-display-id> <left> <top> <right> <bottom>"
+                    + " <density-dpi>"
                     + " [<capture-display-id> <x> <y> <baseline-color>]");
             System.exit(64);
             return;
@@ -164,10 +175,16 @@ public final class TaskDisplayAreaLaunchCommand {
                     args[taskMove ? 3 : 1], "display id");
             final Rect bounds = parseBounds(
                     args, taskMove ? 4 : 3);
+            final int densityDpi = taskMove
+                    ? Integer.parseInt(args[8])
+                    : DesktopTaskDensity.UNCHANGED;
+            if (!DesktopTaskDensity.isValid(densityDpi)) {
+                throw new IllegalArgumentException("invalid task density");
+            }
             final DesktopTransitionSurfaceProbe.Reference surfaceReference =
                     observedMove
                             ? DesktopTransitionSurfaceProbe.Reference
-                                    .parse(args, 8)
+                                    .parse(args, 9)
                             : null;
             final Object service = HiddenTaskApi.getService();
             final int taskId;
@@ -198,7 +215,8 @@ public final class TaskDisplayAreaLaunchCommand {
                         sourceDisplayId,
                         displayId,
                         bounds,
-                        surfaceReference);
+                        surfaceReference,
+                        densityDpi);
                 taskId = taskIdArgument;
             }
             if (transitionObservation != null) {
@@ -975,7 +993,8 @@ public final class TaskDisplayAreaLaunchCommand {
             final int sourceDisplayId,
             final int targetDisplayId,
             final Rect bounds,
-            final DesktopTransitionSurfaceProbe.Reference reference)
+            final DesktopTransitionSurfaceProbe.Reference reference,
+            final int densityDpi)
             throws ReflectiveOperationException {
         final Object originalTask = HiddenTaskApi.requireTask(
                 service, sourceDisplayId, taskId);
@@ -1016,7 +1035,8 @@ public final class TaskDisplayAreaLaunchCommand {
                     taskId,
                     sourceDisplayId,
                     targetDisplayId,
-                    bounds);
+                    bounds,
+                    densityDpi);
             waitForTaskFreeformBounds(
                     service, targetDisplayId, taskId, bounds);
             waitForTaskVisibility(
@@ -1049,7 +1069,8 @@ public final class TaskDisplayAreaLaunchCommand {
             final int taskId,
             final int sourceDisplayId,
             final int targetDisplayId,
-            final Rect bounds) throws ReflectiveOperationException {
+            final Rect bounds,
+            final int densityDpi) throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, sourceDisplayId, taskId);
         final ActivityOptions options = ActivityOptions.makeBasic();
@@ -1071,6 +1092,8 @@ public final class TaskDisplayAreaLaunchCommand {
         windowing.setWindowingMode(
                 transaction, taskToken, WINDOWING_MODE_FREEFORM);
         windowing.setBounds(transaction, taskToken, bounds);
+        DesktopTaskDensity.apply(
+                windowing, transaction, taskToken, densityDpi);
         windowing.setForceTranslucent(transaction, taskToken, false);
         windowing.setHidden(transaction, taskToken, false);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
@@ -1113,7 +1136,8 @@ public final class TaskDisplayAreaLaunchCommand {
                     taskId,
                     currentDisplayId,
                     sourceDisplayId,
-                    originalBounds);
+                    originalBounds,
+                    DesktopTaskDensity.INHERIT);
             waitForTaskFreeformBounds(
                     service, sourceDisplayId, taskId, originalBounds);
         } else if (originalWindowingMode == WINDOWING_MODE_FULLSCREEN) {

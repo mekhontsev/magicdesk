@@ -273,7 +273,8 @@ final class DesktopTaskWatcher {
     int launchWindowedTask(
             final int displayId,
             final Intent intent,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final int densityDpi) throws IOException {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null || intent == null) {
             throw new IOException("desktop task observer is unavailable");
@@ -281,39 +282,45 @@ final class DesktopTaskWatcher {
         return handle.launchWindowedTask(
                 displayId,
                 intent,
-                bounds);
+                bounds,
+                densityDpi);
     }
 
     int launchFullscreenTask(
             final int displayId,
-            final Intent intent) throws IOException {
+            final Intent intent,
+            final int densityDpi) throws IOException {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null || intent == null) {
             throw new IOException("desktop task observer is unavailable");
         }
         return handle.launchFullscreenTask(
-                displayId, intent);
+                displayId, intent, densityDpi);
     }
 
     boolean attachWindowedTask(
             final int displayId,
             final int taskId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final int densityDpi) throws IOException {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null) {
             throw new IOException("desktop task observer is unavailable");
         }
-        return handle.beginWindowedTask(displayId, taskId, bounds);
+        return handle.beginWindowedTask(
+                displayId, taskId, bounds, densityDpi);
     }
 
     boolean attachFullscreenTask(
             final int displayId,
-            final int taskId) throws IOException {
+            final int taskId,
+            final int densityDpi) throws IOException {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null) {
             throw new IOException("desktop task observer is unavailable");
         }
-        return handle.beginFullscreenTask(displayId, taskId);
+        return handle.beginFullscreenTask(
+                displayId, taskId, densityDpi);
     }
 
     int launchAppShortcut(
@@ -323,6 +330,7 @@ final class DesktopTaskWatcher {
             final UserHandle user,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) throws IOException {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null) {
@@ -335,6 +343,7 @@ final class DesktopTaskWatcher {
                 user,
                 windowingMode,
                 bounds,
+                densityDpi,
                 existingTaskId);
     }
 
@@ -344,6 +353,7 @@ final class DesktopTaskWatcher {
             final PendingIntent pendingIntent,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) throws IOException {
         final ShellTaskObserverHandle handle = currentHandle();
         if (handle == null || pendingIntent == null) {
@@ -355,6 +365,7 @@ final class DesktopTaskWatcher {
                 pendingIntent,
                 windowingMode,
                 bounds,
+                densityDpi,
                 existingTaskId);
     }
 
@@ -467,13 +478,17 @@ final class DesktopTaskWatcher {
             final int displayId,
             final int taskId,
             final Rect bounds,
+            final int densityDpi,
             final TaskRepository.ActionCallback callback) {
         final Rect requestedBounds = bounds == null ? null : new Rect(bounds);
         return submitTaskMutation(
                 "restore fullscreen task",
                 taskId,
                 handle -> handle.restoreFullscreenTask(
-                        displayId, taskId, requestedBounds),
+                        displayId,
+                        taskId,
+                        requestedBounds,
+                        densityDpi),
                 callback);
     }
 
@@ -491,6 +506,7 @@ final class DesktopTaskWatcher {
             final int displayId,
             final int taskId,
             final Rect restoreBounds,
+            final int densityDpi,
             final TaskRepository.ActionCallback callback) {
         final Rect requestedRestoreBounds = restoreBounds == null
                 ? null : new Rect(restoreBounds);
@@ -498,18 +514,36 @@ final class DesktopTaskWatcher {
                 "begin app fullscreen task",
                 taskId,
                 handle -> handle.beginAppFullscreenTask(
-                        displayId, taskId, requestedRestoreBounds),
+                        displayId,
+                        taskId,
+                        requestedRestoreBounds,
+                        densityDpi),
                 callback);
     }
 
     boolean beginFullscreenTask(
             final int displayId,
             final int taskId,
+            final int densityDpi,
             final TaskRepository.ActionCallback callback) {
         return submitTaskMutation(
                 "begin fullscreen task",
                 taskId,
-                handle -> handle.beginFullscreenTask(displayId, taskId),
+                handle -> handle.beginFullscreenTask(
+                        displayId, taskId, densityDpi),
+                callback);
+    }
+
+    boolean setDesktopTaskDensity(
+            final int displayId,
+            final int[] taskIds,
+            final int densityDpi,
+            final TaskRepository.ActionCallback callback) {
+        return submitTaskMutation(
+                "set desktop task density",
+                -1,
+                handle -> handle.setDesktopTaskDensity(
+                        displayId, taskIds, densityDpi),
                 callback);
     }
 

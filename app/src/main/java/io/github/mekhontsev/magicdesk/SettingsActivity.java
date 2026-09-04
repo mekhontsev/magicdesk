@@ -175,6 +175,15 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void openApplicationSettings() {
+        if (DesktopRuntimeBridge.openApplicationSettings(null)) {
+            return;
+        }
+        startActivityOnCurrentDisplay(
+                AppPresentationSettingsActivity.createIntent(this));
+    }
+
+    @Override
     public void openDiagnostics() {
         final android.view.Display display = getDisplay();
         final int displayId = display == null

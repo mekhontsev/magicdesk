@@ -159,6 +159,9 @@ final class DesktopStateStore {
                 key -> key.startsWith("app:"));
         readAppWindows(
                 root.optJSONObject("appWindows"), state.appWindows);
+        readAppPresentations(
+                root.optJSONObject("appPresentations"),
+                state.appPresentations);
         state.settings = MagicDeskSettings.Values.fromJson(
                 root.optJSONObject("settings"));
 
@@ -215,6 +218,7 @@ final class DesktopStateStore {
         snapshot.taskbarPackages.addAll(sState.taskbarPackages);
         snapshot.desktopPlacements.putAll(sState.desktopPlacements);
         snapshot.appWindows.putAll(sState.appWindows);
+        snapshot.appPresentations.putAll(sState.appPresentations);
         snapshot.settings = sState.settings.copy();
         for (final Map.Entry<String, DisplayProfileStore.Profile> entry
                 : sState.displayProfiles.entrySet()) {
@@ -240,6 +244,9 @@ final class DesktopStateStore {
                 "desktopPlacements",
                 desktopPlacementsToJson(state.desktopPlacements));
         root.put("appWindows", appWindowsToJson(state.appWindows));
+        root.put(
+                "appPresentations",
+                appPresentationsToJson(state.appPresentations));
         root.put("settings", state.settings.toJson());
 
         final JSONObject profiles = new JSONObject();
@@ -441,6 +448,41 @@ final class DesktopStateStore {
         }
     }
 
+    private static JSONObject appPresentationsToJson(
+            final Map<String, AppPresentationProfile> profiles)
+            throws JSONException {
+        final JSONObject json = new JSONObject();
+        for (final Map.Entry<String, AppPresentationProfile> entry
+                : profiles.entrySet()) {
+            final AppPresentationProfile profile = entry.getValue();
+            if (AppPresentationProfile.supportsPackage(entry.getKey())
+                    && profile != null) {
+                json.put(entry.getKey(), profile.scalePercent);
+            }
+        }
+        return json;
+    }
+
+    private static void readAppPresentations(
+            final JSONObject json,
+            final Map<String, AppPresentationProfile> destination) {
+        if (json == null) {
+            return;
+        }
+        final java.util.Iterator<String> keys = json.keys();
+        while (keys.hasNext()) {
+            final String packageName = keys.next();
+            final int scalePercent = json.optInt(packageName, -1);
+            if (!AppPresentationProfile.supportsPackage(packageName)
+                    || !AppPresentationProfile.isValidScale(scalePercent)) {
+                continue;
+            }
+            destination.put(
+                    packageName,
+                    new AppPresentationProfile(scalePercent));
+        }
+    }
+
     private static boolean isRelativeValue(
             final int value,
             final boolean positive) {
@@ -472,6 +514,8 @@ final class DesktopStateStore {
         final Map<String, GlobalDesktopPlacement> desktopPlacements =
                 new LinkedHashMap<>();
         final Map<String, AppWindowState> appWindows =
+                new LinkedHashMap<>();
+        final Map<String, AppPresentationProfile> appPresentations =
                 new LinkedHashMap<>();
         final Map<String, DisplayProfileStore.Profile> displayProfiles =
                 new LinkedHashMap<>();

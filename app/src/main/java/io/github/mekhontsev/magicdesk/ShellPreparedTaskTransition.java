@@ -44,7 +44,22 @@ final class ShellPreparedTaskTransition {
                 displayId,
                 taskId,
                 bounds,
-                FreeformApplication.TRANSITION);
+                DesktopTaskDensity.UNCHANGED);
+    }
+
+    static void applyFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final int densityDpi) throws ReflectiveOperationException {
+        applyFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                FreeformApplication.TRANSITION,
+                densityDpi);
     }
 
     static void revealFreeform(
@@ -52,12 +67,27 @@ final class ShellPreparedTaskTransition {
             final int displayId,
             final int taskId,
             final Rect bounds) throws ReflectiveOperationException {
+        revealFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                DesktopTaskDensity.UNCHANGED);
+    }
+
+    static void revealFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final int densityDpi) throws ReflectiveOperationException {
         applyFreeform(
                 service,
                 displayId,
                 taskId,
                 bounds,
-                FreeformApplication.OPEN_TRANSITION);
+                FreeformApplication.OPEN_TRANSITION,
+                densityDpi);
     }
 
     static void prepareFreeform(
@@ -70,7 +100,8 @@ final class ShellPreparedTaskTransition {
                 displayId,
                 taskId,
                 bounds,
-                FreeformApplication.HIDE_SYNC);
+                FreeformApplication.HIDE_SYNC,
+                DesktopTaskDensity.UNCHANGED);
     }
 
     static void showPreparedFreeform(
@@ -83,7 +114,8 @@ final class ShellPreparedTaskTransition {
                 displayId,
                 taskId,
                 bounds,
-                FreeformApplication.SHOW_TRANSITION);
+                FreeformApplication.SHOW_TRANSITION,
+                DesktopTaskDensity.UNCHANGED);
     }
 
     static void detachAndShowFreeform(
@@ -118,12 +150,32 @@ final class ShellPreparedTaskTransition {
             final Object sourceParentToken,
             final Object targetParentToken)
             throws ReflectiveOperationException {
+        detachAndShowFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                sourceParentToken,
+                targetParentToken,
+                DesktopTaskDensity.UNCHANGED);
+    }
+
+    static void detachAndShowFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final Object sourceParentToken,
+            final Object targetParentToken,
+            final int densityDpi)
+            throws ReflectiveOperationException {
         applyFreeform(
                 service,
                 displayId,
                 taskId,
                 bounds,
                 FreeformApplication.DETACH_AND_SHOW_TRANSITION,
+                densityDpi,
                 sourceParentToken,
                 targetParentToken);
     }
@@ -192,6 +244,18 @@ final class ShellPreparedTaskTransition {
             final Object service,
             final int displayId,
             final int taskId) throws ReflectiveOperationException {
+        showMovedFullscreen(
+                service,
+                displayId,
+                taskId,
+                DesktopTaskDensity.UNCHANGED);
+    }
+
+    static void showMovedFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final int densityDpi) throws ReflectiveOperationException {
         // The display move already committed the hidden task's hierarchy.
         // Reveal that state synchronously before a normal focus transition;
         // an independent asynchronous reveal can be dropped while WMShell is
@@ -200,7 +264,9 @@ final class ShellPreparedTaskTransition {
                 service,
                 displayId,
                 taskId,
-                FullscreenApplication.SHOW_SYNC);
+                FullscreenApplication.SHOW_SYNC,
+                null,
+                densityDpi);
         TaskWindowingCommand.focusTasks(
                 service, displayId, new int[]{taskId});
     }
@@ -263,6 +329,24 @@ final class ShellPreparedTaskTransition {
                 taskId,
                 bounds,
                 application,
+                DesktopTaskDensity.UNCHANGED);
+    }
+
+    private static void applyFreeform(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds,
+            final FreeformApplication application,
+            final int densityDpi)
+            throws ReflectiveOperationException {
+        applyFreeform(
+                service,
+                displayId,
+                taskId,
+                bounds,
+                application,
+                densityDpi,
                 null,
                 null);
     }
@@ -273,6 +357,7 @@ final class ShellPreparedTaskTransition {
             final int taskId,
             final Rect bounds,
             final FreeformApplication application,
+            final int densityDpi,
             final Object sourceParentToken,
             final Object targetParentToken)
             throws ReflectiveOperationException {
@@ -285,6 +370,8 @@ final class ShellPreparedTaskTransition {
         windowing.setWindowingMode(
                 transaction, taskToken, WINDOWING_MODE_FREEFORM);
         windowing.setBounds(transaction, taskToken, bounds);
+        DesktopTaskDensity.apply(
+                windowing, transaction, taskToken, densityDpi);
         windowing.setForceTranslucent(transaction, taskToken, false);
         if (application == FreeformApplication.HIDE_SYNC
                 || application == FreeformApplication.SHOW_TRANSITION
@@ -344,7 +431,12 @@ final class ShellPreparedTaskTransition {
             final FullscreenApplication application)
             throws ReflectiveOperationException {
         applyPreparedFullscreen(
-                service, displayId, taskId, application, null);
+                service,
+                displayId,
+                taskId,
+                application,
+                null,
+                DesktopTaskDensity.UNCHANGED);
     }
 
     private static void applyPreparedFullscreen(
@@ -353,6 +445,23 @@ final class ShellPreparedTaskTransition {
             final int taskId,
             final FullscreenApplication application,
             final Object targetParentToken)
+            throws ReflectiveOperationException {
+        applyPreparedFullscreen(
+                service,
+                displayId,
+                taskId,
+                application,
+                targetParentToken,
+                DesktopTaskDensity.UNCHANGED);
+    }
+
+    private static void applyPreparedFullscreen(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final FullscreenApplication application,
+            final Object targetParentToken,
+            final int densityDpi)
             throws ReflectiveOperationException {
         final boolean hidden = application == FullscreenApplication.HIDE_SYNC
                 || application == FullscreenApplication.DETACH_HIDE_SYNC;
@@ -368,11 +477,12 @@ final class ShellPreparedTaskTransition {
         windowing.setWindowingMode(
                 transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
         windowing.setBounds(transaction, taskToken, new Rect());
+        DesktopTaskDensity.apply(
+                windowing, transaction, taskToken, densityDpi);
         if (!detachFromParent) {
-            // Cross-display fullscreen moves normalize task overrides. An app
-            // fullscreen restore must preserve the existing client density and
-            // translucency while only rebuilding its window hierarchy.
-            windowing.setDensityDpi(transaction, taskToken, 0);
+            // Fullscreen topology does not own presentation policy. Density
+            // is preserved unless the caller supplies an explicit override in
+            // the same semantic transition that changes the task mode.
             windowing.setForceTranslucent(transaction, taskToken, false);
         }
         windowing.setHidden(transaction, taskToken, hidden);

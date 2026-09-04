@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityOptions;
+import android.content.Intent;
 import android.view.View;
 
 final class DesktopSystemActionsController {
@@ -156,6 +157,27 @@ final class DesktopSystemActionsController {
             mActivity.setErrorStatus(
                     "SETTINGS-001",
                     "Cannot open MagicDesk settings",
+                    "display=" + mActivity.getCurrentDisplayId(),
+                    error);
+        }
+    }
+
+    void openApplicationSettings(final String packageName) {
+        mActivity.hideAllPanels();
+        try {
+            final Intent intent = packageName == null
+                    ? AppPresentationSettingsActivity.createIntent(mActivity)
+                    : AppPresentationSettingsActivity.createIntent(
+                            mActivity, packageName);
+            mActivity.launchInternalWindow(
+                    intent,
+                    AppPresentationSettingsActivity.launchTarget(),
+                    mActivity.getString(
+                            R.string.app_presentation_profiles_title));
+        } catch (RuntimeException error) {
+            mActivity.setErrorStatus(
+                    "APP-PRESENTATION-001",
+                    "Cannot open application settings",
                     "display=" + mActivity.getCurrentDisplayId(),
                     error);
         }

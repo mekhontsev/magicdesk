@@ -90,6 +90,12 @@ final class DesktopAutomationController {
                 case LAUNCH_APP:
                     result = launchApp(args);
                     break;
+                case SET_APP_PRESENTATION:
+                    result = setAppPresentation(args);
+                    break;
+                case RESET_APP_PRESENTATION:
+                    result = resetAppPresentation(args);
+                    break;
                 case QUERY_INTENT_HANDLERS:
                     result = mAndroid.queryIntentHandlers(args);
                     break;
@@ -480,6 +486,44 @@ final class DesktopAutomationController {
         return DesktopAutomationResult.success(
                 "application launched",
                 data);
+    }
+
+    private DesktopAutomationResult setAppPresentation(final JSONObject args)
+            throws InterruptedException, JSONException {
+        final String packageName = requiredString(args, "package");
+        final int scalePercent = requiredInt(args, "scalePercent");
+        AppPresentationProfileManager.requireUserApplication(packageName);
+        if (!AppPresentationProfile.isValidScale(scalePercent)) {
+            throw new IllegalArgumentException(
+                    "scalePercent must be between "
+                            + AppPresentationProfile.MIN_SCALE_PERCENT
+                            + " and "
+                            + AppPresentationProfile.MAX_SCALE_PERCENT);
+        }
+        final DesktopAutomationResult applied = awaitTaskAction(callback ->
+                AppPresentationProfileManager.setScale(
+                        packageName, scalePercent, callback));
+        return withAppPresentation(applied, packageName);
+    }
+
+    private DesktopAutomationResult resetAppPresentation(
+            final JSONObject args) throws InterruptedException, JSONException {
+        final String packageName = requiredString(args, "package");
+        AppPresentationProfileManager.requireUserApplication(packageName);
+        final DesktopAutomationResult applied = awaitTaskAction(callback ->
+                AppPresentationProfileManager.reset(packageName, callback));
+        return withAppPresentation(applied, packageName);
+    }
+
+    private DesktopAutomationResult withAppPresentation(
+            final DesktopAutomationResult result,
+            final String packageName) throws JSONException {
+        if (!result.success) {
+            return result;
+        }
+        return DesktopAutomationResult.success(
+                result.message,
+                mState.appPresentation(packageName));
     }
 
     private DesktopAutomationResult launchDesktopEntry(final JSONObject args)

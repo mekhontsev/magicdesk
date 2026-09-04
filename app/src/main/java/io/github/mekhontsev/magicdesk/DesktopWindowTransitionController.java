@@ -429,6 +429,7 @@ final class DesktopWindowTransitionController {
                         mRuntimeState.displayId(),
                         taskId,
                         targetBounds,
+                        densityFor(task),
                         "native-window-snap-shortcut");
         submitRequired(request, callback);
     }
@@ -556,10 +557,12 @@ final class DesktopWindowTransitionController {
                         displayId,
                         taskId,
                         task.bounds,
+                        densityFor(task),
                         "application-immersive-reconciliation")
                 : DesktopWindowTransitionRequest.enterFullscreen(
                         displayId,
                         taskId,
+                        densityFor(task),
                         "native-window-fullscreen-shortcut");
         submitRequired(request, callback);
     }
@@ -603,10 +606,16 @@ final class DesktopWindowTransitionController {
                         mRuntimeState.displayId(),
                         taskId,
                         targetBounds,
+                        densityFor(task),
                         userRequested
                                 ? "native-window-restore-shortcut"
                                 : "application-immersive-reconciliation");
         submitRequired(request, callback);
+    }
+
+    private int densityFor(final TaskRepository.TaskEntry task) {
+        return DesktopTaskPresentationPolicy.resolveDensityDpi(
+                task.packageName, mRuntimeState.displayId());
     }
 
     private boolean submit(

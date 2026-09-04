@@ -30,8 +30,10 @@ The empty replacement updates that client entry to `[0,0][0,0]`. Synchronizing
 the replacement and removal separately prevents Nubia from coalescing both
 operations before the client observes the empty state.
 
-This preserves the process, task, Activity instance, display, pixel bounds,
-and density. The WindowManager dump is read only for an explicit fullscreen
+This preserves the process, task, Activity instance, display, and pixel
+bounds. Caption repair does not modify density; the enclosing semantic
+transition may carry an explicit application presentation density as described
+below. The WindowManager dump is read only for an explicit fullscreen
 transition, has strict time and output bounds, and is not part of a background
 poller. If a firmware has no task-local caption source, the normal fullscreen
 transition proceeds without the refresh.
@@ -119,6 +121,16 @@ the task ID is known, one complete WMShell `OPEN` establishes mode, bounds, and
 front order. No raw opening token crosses that launch boundary. This avoids a
 race where the framework finishes its launch transition before MagicDesk tries
 to append another transaction.
+
+Application presentation uses the same WCT owner. Every surface-producing or
+geometry transition carries one of three typed density states: unchanged,
+inherit from the display, or an exact density resolved from the application's
+saved scale and the target display density. A custom density is applied to the
+task and, for fullscreen, its retained ordering plane in the same transition
+that establishes mode, bounds, and parent. Focus and reorder commands use
+unchanged. Moving a task away from the desktop and closing the session reset
+owned overrides to inherit, so presentation state cannot leak into ordinary
+phone use.
 
 A live task entering an independent fullscreen plane is a surface-producing
 boundary: MagicDesk first prepares the plane order, then uses

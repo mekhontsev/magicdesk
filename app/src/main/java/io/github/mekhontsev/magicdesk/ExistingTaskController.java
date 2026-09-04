@@ -29,8 +29,23 @@ final class ExistingTaskController {
             final int targetDisplayId,
             final boolean targetFreeform,
             final int preferredTaskId) throws IOException {
+        return reuseIfExists(
+                target,
+                targetDisplayId,
+                targetFreeform,
+                preferredTaskId,
+                DesktopTaskPresentationPolicy.resolveDensityDpi(
+                        target.packageName, targetDisplayId));
+    }
+
+    static ReuseResult reuseIfExists(final AppLaunchTarget target,
+            final int targetDisplayId,
+            final boolean targetFreeform,
+            final int preferredTaskId,
+            final int densityDpi) throws IOException {
         return reuseIfExists(target, targetDisplayId, targetFreeform,
-                null, false, false, false, null, preferredTaskId, null);
+                null, false, false, false, null, preferredTaskId, null,
+                densityDpi);
     }
 
     static ReuseResult reuseNativeDesktopIfExists(
@@ -40,10 +55,12 @@ final class ExistingTaskController {
             final boolean explicitWindowed,
             final Rect targetBounds,
             final int preferredTaskId,
-            final WindowedTaskLaunchLease launchLease) throws IOException {
+            final WindowedTaskLaunchLease launchLease,
+            final int densityDpi) throws IOException {
         return reuseIfExists(target, targetDisplayId, true,
                 preservedTopFirstTaskIds, true, waitForTask,
-                explicitWindowed, targetBounds, preferredTaskId, launchLease);
+                explicitWindowed, targetBounds, preferredTaskId, launchLease,
+                densityDpi);
     }
 
     static ReuseResult reuseFreeformIfExists(
@@ -53,10 +70,12 @@ final class ExistingTaskController {
             final boolean explicitWindowed,
             final Rect targetBounds,
             final int preferredTaskId,
-            final WindowedTaskLaunchLease launchLease) throws IOException {
+            final WindowedTaskLaunchLease launchLease,
+            final int densityDpi) throws IOException {
         return reuseIfExists(target, targetDisplayId, true,
                 preservedTopFirstTaskIds, false, waitForTask,
-                explicitWindowed, targetBounds, preferredTaskId, launchLease);
+                explicitWindowed, targetBounds, preferredTaskId, launchLease,
+                densityDpi);
     }
 
     static boolean taskExists(final String packageName, final int targetDisplayId)
@@ -79,7 +98,8 @@ final class ExistingTaskController {
             final boolean explicitWindowed,
             final Rect targetBounds,
             final int preferredTaskId,
-            final WindowedTaskLaunchLease outerLaunchLease) throws IOException {
+            final WindowedTaskLaunchLease outerLaunchLease,
+            final int densityDpi) throws IOException {
         TaskInfo task = preferredTaskId > 0
                 ? findMatchingTask(target, preferredTaskId)
                 : waitForTask
@@ -136,12 +156,14 @@ final class ExistingTaskController {
                                 task.taskId,
                                 task.displayId,
                                 targetDisplayId,
-                                bounds)
+                                bounds,
+                                densityDpi)
                         : DesktopTaskTransfer.moveFullscreen(
                                 task.taskId,
                                 task.rootTaskId,
                                 task.displayId,
-                                targetDisplayId);
+                                targetDisplayId,
+                                densityDpi);
                 movedAsFreeform = targetFreeform;
                 if (movedAsFreeform
                         && !output.contains(
@@ -178,7 +200,11 @@ final class ExistingTaskController {
                     && taskIsFullscreen
                     && !movedAsFreeform) {
                 Log.i(TAG, "convert fullscreen to freeform task=" + task.taskId);
-                setFreeform(task.taskId, targetDisplayId, targetBounds);
+                setFreeform(
+                        task.taskId,
+                        targetDisplayId,
+                        targetBounds,
+                        densityDpi);
                 waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
             }
 
@@ -241,11 +267,12 @@ final class ExistingTaskController {
     private static void setFreeform(
             final int taskId,
             final int displayId,
-            final Rect targetBounds)
+            final Rect targetBounds,
+            final int densityDpi)
             throws IOException {
         final Rect bounds = resolveTargetBounds(displayId, targetBounds);
         if (!MagicDeskRuntime.attachWindowedTask(
-                displayId, taskId, bounds)) {
+                displayId, taskId, bounds, densityDpi)) {
             throw new IOException(
                     "could not attach task " + taskId
                             + " as a desktop window on display " + displayId);

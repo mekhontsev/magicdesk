@@ -697,6 +697,16 @@ final class DesktopUiGateway {
         return true;
     }
 
+    boolean openApplicationSettings(final String packageName) {
+        final DesktopShellActivity activity = usableDesktop(true);
+        if (activity == null) {
+            return false;
+        }
+        activity.runOnUiThread(() ->
+                activity.openApplicationSettings(packageName));
+        return true;
+    }
+
     boolean openBuiltin(final String builtin) {
         final DesktopShellActivity activity = usableDesktop(true);
         if (activity == null || builtin == null) {
@@ -715,6 +725,9 @@ final class DesktopUiGateway {
                 break;
             case "settings":
                 action = activity::openSettings;
+                break;
+            case "app_profiles":
+                action = () -> activity.openApplicationSettings(null);
                 break;
             case "diagnostics":
                 action = activity::openDiagnostics;

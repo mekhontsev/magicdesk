@@ -292,6 +292,15 @@
             android:taskAffinity="${applicationId}.settings" />
 
         <activity
+            android:name=".AppPresentationSettingsActivity"
+            android:exported="true"
+            android:label="@string/app_presentation_profiles_title"
+            android:launchMode="singleTop"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.app_presentation_settings" />
+
+        <activity
             android:name=".DesktopSelfTestActivity"
             android:excludeFromRecents="true"
             android:exported="true"

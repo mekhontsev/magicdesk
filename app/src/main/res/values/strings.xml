@@ -576,6 +576,17 @@
     <string name="settings_mcp_status_waiting">Enabled; waiting for the MagicDesk runtime at %1$s</string>
     <string name="settings_mcp_status_disabled">Disabled; endpoint %1$s</string>
     <string name="settings_save_failed">Could not save MagicDesk settings</string>
+    <string name="action_app_presentation_settings">Application settings</string>
+    <string name="app_presentation_title">Application settings</string>
+    <string name="app_presentation_profiles_title">Application profiles</string>
+    <string name="app_presentation_profiles_empty">No custom application profiles</string>
+    <string name="app_presentation_scale_section">Display</string>
+    <string name="app_presentation_system">System</string>
+    <string name="app_presentation_custom">Custom</string>
+    <string name="app_presentation_scale">Interface scale</string>
+    <string name="app_presentation_scale_value">%1$d%%</string>
+    <string name="app_presentation_decrease">Decrease application scale</string>
+    <string name="app_presentation_increase">Increase application scale</string>
     <string name="setup_title">Device setup</string>
     <string name="setup_title_onboarding">Set up MagicDesk</string>
     <string name="setup_item_display_target">Desktop display</string>

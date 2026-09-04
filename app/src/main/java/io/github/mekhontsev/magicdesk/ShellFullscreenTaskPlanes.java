@@ -87,6 +87,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 requestedTaskIds,
                 -1,
                 false,
+                DesktopTaskDensity.UNCHANGED,
                 mixedOrder);
         return mPlanes.containsKey(Integer.valueOf(targetTaskId))
                 ? ShellFullscreenTaskArea.FocusResult.FULLSCREEN_FOREGROUND
@@ -137,6 +138,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final int displayId,
             final int taskId,
             final boolean refreshCaption,
+            final int densityDpi,
             final ShellDesktopTaskOwnership ownership) {
         if (displayId != mDisplayId || taskId < 0) {
             return false;
@@ -163,6 +165,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     new int[]{taskId},
                     taskId,
                     true,
+                    densityDpi,
                     null);
             TaskFullscreenTransitionCommand.refreshCaptionIfRequested(
                     service,
@@ -181,6 +184,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final Object service,
             final int displayId,
             final ShellFullscreenTaskArea.FullscreenTaskStarter starter,
+            final int densityDpi,
             final ShellDesktopTaskOwnership ownership)
             throws ReflectiveOperationException {
         if (displayId != mDisplayId || starter == null) {
@@ -192,6 +196,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         final TaskDisplayAreaHandle plane = acquirePlane(service, displayId);
         int taskId = -1;
         try {
+            applyPlaneDensity(service, plane, densityDpi);
             // Supplying the parent in ActivityOptions makes the first observable
             // task state the final state; no freeform root is exposed first.
             taskId = starter.start(plane.token());
@@ -227,6 +232,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     new int[]{taskId},
                     -1,
                     false,
+                    DesktopTaskDensity.UNCHANGED,
                     null);
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -239,7 +245,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final Object service,
             final int displayId,
             final int taskId,
-            final Rect bounds) {
+            final Rect bounds,
+            final int densityDpi) {
         if (displayId != mDisplayId || bounds == null || bounds.isEmpty()) {
             return false;
         }
@@ -259,7 +266,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     taskId,
                     bounds,
                     plane.token(),
-                    null);
+                    null,
+                    densityDpi);
             TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
                     service, displayId, taskId, bounds);
             waitForTaskOutsidePlane(
@@ -552,7 +560,12 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     .getMethod("getBounds")
                     .invoke(windowConfiguration));
             if (!bounds.isEmpty()) {
-                restoreFreeform(mService, displayId, taskId, bounds);
+                restoreFreeform(
+                        mService,
+                        displayId,
+                        taskId,
+                        bounds,
+                        DesktopTaskDensity.UNCHANGED);
             }
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not release freeform plane task="
@@ -579,6 +592,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final int[] requestedTaskIds,
             final int enteringTaskId,
             final boolean forceEnteringFullscreen,
+            final int densityDpi,
             final MixedStackOrder mixedOrder)
             throws ReflectiveOperationException {
         discardStalePlaneRecords(service, displayId);
@@ -611,6 +625,14 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 windowing.setFocusable(transaction, planeToken, true);
                 windowing.setWindowingMode(
                         transaction, planeToken, WINDOWING_MODE_FULLSCREEN);
+                if (forceEnteringFullscreen
+                        && entry.getKey().intValue() == enteringTaskId) {
+                    DesktopTaskDensity.apply(
+                            windowing,
+                            transaction,
+                            planeToken,
+                            densityDpi);
+                }
                 if (launchEnteringTask
                         && entry.getKey().intValue() == enteringTaskId) {
                     continue;
@@ -650,6 +672,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 windowing.setWindowingMode(
                         transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
                 windowing.setBounds(transaction, taskToken, new Rect());
+                DesktopTaskDensity.apply(
+                        windowing, transaction, taskToken, densityDpi);
                 TaskCaptionInsetsCommand.addCaptionInsetOperation(
                         transaction,
                         taskToken,
@@ -764,6 +788,36 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             }
             throw error;
         }
+    }
+
+    synchronized void addDensityOperation(
+            final FrameworkWindowingApi windowing,
+            final Object transaction,
+            final int taskId,
+            final int densityDpi) throws ReflectiveOperationException {
+        final TaskDisplayAreaHandle plane =
+                mPlanes.get(Integer.valueOf(taskId));
+        if (plane != null) {
+            DesktopTaskDensity.apply(
+                    windowing,
+                    transaction,
+                    plane.token(),
+                    densityDpi);
+        }
+    }
+
+    private static void applyPlaneDensity(
+            final Object service,
+            final TaskDisplayAreaHandle plane,
+            final int densityDpi) throws ReflectiveOperationException {
+        final FrameworkWindowingApi windowing =
+                FrameworkRuntime.current().windowing();
+        final Class<?> transactionClass = windowing.transactionClass();
+        final Object transaction = windowing.newTransaction();
+        DesktopTaskDensity.apply(
+                windowing, transaction, plane.token(), densityDpi);
+        ShellWindowTransitionExecutor.applyAtomic(
+                service, transactionClass, transaction);
     }
 
     static int[] completeStableOrder(

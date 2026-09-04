@@ -36,7 +36,11 @@ public final class DesktopWindowTransitionControllerTest {
         final Rect source = new Rect(10, 20, 800, 600);
         final DesktopWindowTransitionRequest request =
                 DesktopWindowTransitionRequest.restoreFreeform(
-                        3, 42, source);
+                        3,
+                        42,
+                        source,
+                        DesktopTaskDensity.INHERIT,
+                        "test");
 
         final Rect first = request.bounds();
         final Rect second = request.bounds();
@@ -53,11 +57,25 @@ public final class DesktopWindowTransitionControllerTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DesktopWindowTransitionRequest.restoreFreeform(
-                        3, 42, null));
+                        3,
+                        42,
+                        null,
+                        DesktopTaskDensity.INHERIT,
+                        "test"));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DesktopWindowTransitionRequest.enterFullscreen(
-                        -1, 42));
+                        -1,
+                        42,
+                        DesktopTaskDensity.INHERIT,
+                        "test"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DesktopWindowTransitionRequest.enterFullscreen(
+                        3,
+                        42,
+                        DesktopTaskDensity.UNCHANGED,
+                        "test"));
     }
 
     @Test

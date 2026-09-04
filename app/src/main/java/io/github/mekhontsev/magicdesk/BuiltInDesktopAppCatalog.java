@@ -61,6 +61,17 @@ final class BuiltInDesktopAppCatalog {
             false,
             true,
             new RelativeWindowBounds(5000, 5000, 4500, 8000));
+    private static final Entry APP_PRESENTATION_SETTINGS = new Entry(
+            AppLaunchTarget.explicit(
+                    PACKAGE_NAME,
+                    AppPresentationSettingsActivity.class.getName(),
+                    ""),
+            R.string.app_presentation_profiles_title,
+            false,
+            false,
+            false,
+            true,
+            new RelativeWindowBounds(5000, 5000, 4500, 7000));
     private static final Entry CONSOLE = new Entry(
             AppLaunchTarget.explicit(
                     PACKAGE_NAME,
@@ -120,6 +131,7 @@ final class BuiltInDesktopAppCatalog {
             Arrays.asList(
                     FILES,
                     SETTINGS,
+                    APP_PRESENTATION_SETTINGS,
                     CONSOLE,
                     TASK_MANAGER,
                     DIAGNOSTICS,
@@ -135,6 +147,10 @@ final class BuiltInDesktopAppCatalog {
 
     static AppLaunchTarget settingsTarget() {
         return SETTINGS.launchTarget;
+    }
+
+    static AppLaunchTarget appPresentationSettingsTarget() {
+        return APP_PRESENTATION_SETTINGS.launchTarget;
     }
 
     static AppLaunchTarget consoleTarget() {

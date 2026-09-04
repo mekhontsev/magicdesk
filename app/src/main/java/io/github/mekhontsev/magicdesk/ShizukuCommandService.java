@@ -535,12 +535,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int left,
             final int top,
             final int right,
-            final int bottom) {
+            final int bottom,
+            final int densityDpi) {
         return mTaskObserverManager.restoreFullscreenTask(
                 callback,
                 displayId,
                 taskId,
-                new Rect(left, top, right, bottom));
+                new Rect(left, top, right, bottom),
+                densityDpi);
     }
 
     @Override
@@ -551,7 +553,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int restoreLeft,
             final int restoreTop,
             final int restoreRight,
-            final int restoreBottom) {
+            final int restoreBottom,
+            final int densityDpi) {
         return mTaskObserverManager.beginAppFullscreenTask(
                 callback,
                 displayId,
@@ -560,16 +563,18 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                         restoreLeft,
                         restoreTop,
                         restoreRight,
-                        restoreBottom));
+                        restoreBottom),
+                densityDpi);
     }
 
     @Override
     public boolean beginFullscreenTask(
             final ITaskObserverCallback callback,
             final int displayId,
-            final int taskId) {
+            final int taskId,
+            final int densityDpi) {
         return mTaskObserverManager.beginFullscreenTask(
-                callback, displayId, taskId);
+                callback, displayId, taskId, densityDpi);
     }
 
     @Override
@@ -580,12 +585,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int left,
             final int top,
             final int right,
-            final int bottom) {
+            final int bottom,
+            final int densityDpi) {
         return mTaskObserverManager.beginWindowedTask(
                 callback,
                 displayId,
                 taskId,
-                new Rect(left, top, right, bottom));
+                new Rect(left, top, right, bottom),
+                densityDpi);
     }
 
     @Override
@@ -615,21 +622,24 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int left,
             final int top,
             final int right,
-            final int bottom) {
+            final int bottom,
+            final int densityDpi) {
         return mTaskObserverManager.launchWindowedTask(
                 callback,
                 displayId,
                 intent,
-                new Rect(left, top, right, bottom));
+                new Rect(left, top, right, bottom),
+                densityDpi);
     }
 
     @Override
     public int launchFullscreenTask(
             final ITaskObserverCallback callback,
             final int displayId,
-            final Intent intent) {
+            final Intent intent,
+            final int densityDpi) {
         return mTaskObserverManager.launchFullscreenTask(
-                callback, displayId, intent);
+                callback, displayId, intent, densityDpi);
     }
 
     @Override
@@ -644,6 +654,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int top,
             final int right,
             final int bottom,
+            final int densityDpi,
             final int existingTaskId) {
         return mTaskObserverManager.launchAppShortcut(
                 callback,
@@ -653,6 +664,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 user,
                 windowingMode,
                 new Rect(left, top, right, bottom),
+                densityDpi,
                 existingTaskId);
     }
 
@@ -668,6 +680,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int top,
             final int right,
             final int bottom,
+            final int densityDpi,
             final int existingTaskId) {
         return mTaskObserverManager.launchPendingActivity(
                 callback,
@@ -677,7 +690,18 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 pendingIntent,
                 windowingMode,
                 new Rect(left, top, right, bottom),
+                densityDpi,
                 existingTaskId);
+    }
+
+    @Override
+    public boolean setDesktopTaskDensity(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int[] taskIds,
+            final int densityDpi) {
+        return mTaskObserverManager.setDesktopTaskDensity(
+                callback, displayId, taskIds, densityDpi);
     }
 
     @Override

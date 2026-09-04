@@ -164,35 +164,39 @@ final class ShellTaskObserverManager implements Closeable {
             final ITaskObserverCallback callback,
             final int displayId,
             final int taskId,
-            final Rect bounds) {
+            final Rect bounds,
+            final int densityDpi) {
         return requireSession(callback).observer.restoreFullscreenTask(
-                displayId, taskId, bounds);
+                displayId, taskId, bounds, densityDpi);
     }
 
     boolean beginAppFullscreenTask(
             final ITaskObserverCallback callback,
             final int displayId,
             final int taskId,
-            final Rect restoreBounds) {
+            final Rect restoreBounds,
+            final int densityDpi) {
         return requireSession(callback).observer.beginAppFullscreenTask(
-                displayId, taskId, restoreBounds);
+                displayId, taskId, restoreBounds, densityDpi);
     }
 
     boolean beginFullscreenTask(
             final ITaskObserverCallback callback,
             final int displayId,
-            final int taskId) {
+            final int taskId,
+            final int densityDpi) {
         return requireSession(callback).observer.beginFullscreenTask(
-                displayId, taskId);
+                displayId, taskId, densityDpi);
     }
 
     boolean beginWindowedTask(
             final ITaskObserverCallback callback,
             final int displayId,
             final int taskId,
-            final Rect bounds) {
+            final Rect bounds,
+            final int densityDpi) {
         return requireSession(callback).observer.beginWindowedTask(
-                displayId, taskId, bounds);
+                displayId, taskId, bounds, densityDpi);
     }
 
     boolean protectExplicitFullscreenTask(
@@ -216,17 +220,19 @@ final class ShellTaskObserverManager implements Closeable {
             final ITaskObserverCallback callback,
             final int displayId,
             final Intent intent,
-            final Rect bounds) {
+            final Rect bounds,
+            final int densityDpi) {
         return requireSession(callback).observer.launchWindowedTask(
-                displayId, intent, bounds);
+                displayId, intent, bounds, densityDpi);
     }
 
     int launchFullscreenTask(
             final ITaskObserverCallback callback,
             final int displayId,
-            final Intent intent) {
+            final Intent intent,
+            final int densityDpi) {
         return requireSession(callback).observer.launchFullscreenTask(
-                displayId, intent);
+                displayId, intent, densityDpi);
     }
 
     int launchAppShortcut(
@@ -237,6 +243,7 @@ final class ShellTaskObserverManager implements Closeable {
             final UserHandle user,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) {
         return requireSession(callback).observer.launchAppShortcut(
                 displayId,
@@ -245,6 +252,7 @@ final class ShellTaskObserverManager implements Closeable {
                 user,
                 windowingMode,
                 bounds,
+                densityDpi,
                 existingTaskId);
     }
 
@@ -256,6 +264,7 @@ final class ShellTaskObserverManager implements Closeable {
             final PendingIntent pendingIntent,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) {
         return requireSession(callback).observer.launchPendingActivity(
                 displayId,
@@ -264,7 +273,17 @@ final class ShellTaskObserverManager implements Closeable {
                 pendingIntent,
                 windowingMode,
                 bounds,
+                densityDpi,
                 existingTaskId);
+    }
+
+    boolean setDesktopTaskDensity(
+            final ITaskObserverCallback callback,
+            final int displayId,
+            final int[] taskIds,
+            final int densityDpi) {
+        return requireSession(callback).observer.setDesktopTaskDensity(
+                displayId, taskIds, densityDpi);
     }
 
     void launchTaskAction(

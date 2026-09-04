@@ -685,6 +685,14 @@ final class DesktopContextMenuController {
                     view -> mActivity.addDesktopWidgets(
                             state.app.packageName));
         }
+        if (!BuildConfig.APPLICATION_ID.equals(state.app.packageName)) {
+            addAction(
+                    R.string.action_app_presentation_settings,
+                    DesktopUiFactory.COLOR_PANEL_ALT,
+                    true,
+                    view -> mActivity.openApplicationSettings(
+                            state.app.packageName));
+        }
         addAction(
                 R.string.action_app_info,
                 DesktopUiFactory.COLOR_PANEL_ALT,

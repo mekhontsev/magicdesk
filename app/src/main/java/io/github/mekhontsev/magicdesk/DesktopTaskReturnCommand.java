@@ -47,7 +47,8 @@ public final class DesktopTaskReturnCommand {
                             taskId,
                             taskId,
                             sourceDisplayId,
-                            PHONE_DISPLAY_ID);
+                            PHONE_DISPLAY_ID,
+                            DesktopTaskDensity.INHERIT);
                     System.out.println("task-returned=" + taskId);
                     moved++;
                 } catch (ReflectiveOperationException | RuntimeException error) {

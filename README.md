@@ -144,8 +144,8 @@ See [Workstation tools](docs/workstation-tools.md) and
 - Capture the selected display and record video with automatic internal-audio,
   microphone, or no-audio selection according to detected capabilities.
 - Control media volume and connected audio output from the taskbar.
-- Select per-monitor DPI and, where supported, output resolution, refresh rate,
-  and Fill display.
+- Select per-monitor DPI, set an application-specific interface scale, and,
+  where supported, choose output resolution, refresh rate, and Fill display.
 - Use optional platform features such as managed projection, phone-screen
   control, absolute pointer positioning, charging separation, cooling, and
   temperature readings without making them requirements for other devices.

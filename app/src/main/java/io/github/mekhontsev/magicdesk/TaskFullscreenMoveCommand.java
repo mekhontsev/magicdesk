@@ -18,20 +18,22 @@ public final class TaskFullscreenMoveCommand {
             final int taskId,
             final int rootTaskId,
             final int sourceDisplayId,
-            final int targetDisplayId) {
+            final int targetDisplayId,
+            final int densityDpi) {
         validate(taskId, rootTaskId, sourceDisplayId, targetDisplayId);
         return AppProcessCommand.run(
                 TaskFullscreenMoveCommand.class.getName(),
                 taskId + " " + rootTaskId
                         + " " + sourceDisplayId
-                        + " " + targetDisplayId);
+                        + " " + targetDisplayId
+                        + " " + densityDpi);
     }
 
     public static void main(final String[] args) {
-        if (args.length != 4) {
+        if (args.length != 5) {
             System.err.println("usage: TaskFullscreenMoveCommand "
                     + "<task-id> <root-task-id> "
-                    + "<source-display-id> <target-display-id>");
+                    + "<source-display-id> <target-display-id> <density-dpi>");
             System.exit(64);
             return;
         }
@@ -42,12 +44,14 @@ public final class TaskFullscreenMoveCommand {
                     args[2], "source display id");
             final int targetDisplayId = parseNonNegative(
                     args[3], "target display id");
+            final int densityDpi = Integer.parseInt(args[4]);
             moveTask(
                     HiddenTaskApi.getService(),
                     taskId,
                     rootTaskId,
                     sourceDisplayId,
-                    targetDisplayId);
+                    targetDisplayId,
+                    densityDpi);
             System.out.println("task-fullscreen-move=" + taskId);
         } catch (ReflectiveOperationException | RuntimeException error) {
             System.err.println("fullscreen task move failed: "
@@ -61,8 +65,12 @@ public final class TaskFullscreenMoveCommand {
             final int taskId,
             final int rootTaskId,
             final int sourceDisplayId,
-            final int targetDisplayId) throws ReflectiveOperationException {
+            final int targetDisplayId,
+            final int densityDpi) throws ReflectiveOperationException {
         validate(taskId, rootTaskId, sourceDisplayId, targetDisplayId);
+        if (!DesktopTaskDensity.isValid(densityDpi)) {
+            throw new IllegalArgumentException("invalid task density");
+        }
         final Object originalTask = HiddenTaskApi.requireTask(
                 service, sourceDisplayId, taskId);
         final int originalWindowingMode =
@@ -99,7 +107,7 @@ public final class TaskFullscreenMoveCommand {
                     WINDOWING_MODE_FULLSCREEN,
                     false);
             ShellPreparedTaskTransition.showMovedFullscreen(
-                    service, targetDisplayId, taskId);
+                    service, targetDisplayId, taskId, densityDpi);
             waitForTaskState(
                     service,
                     targetDisplayId,

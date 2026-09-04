@@ -1733,6 +1733,10 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.openSettings();
     }
 
+    void openApplicationSettings(final String packageName) {
+        mSystemActions.openApplicationSettings(packageName);
+    }
+
     void openFiles() {
         mSystemActions.openFiles();
     }

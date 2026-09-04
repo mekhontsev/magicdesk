@@ -261,6 +261,10 @@ public final class DesktopRuntimeBridge {
         return UI.openSettings();
     }
 
+    static boolean openApplicationSettings(final String packageName) {
+        return UI.openApplicationSettings(packageName);
+    }
+
     static boolean openBuiltin(final String builtin) {
         return UI.openBuiltin(builtin);
     }

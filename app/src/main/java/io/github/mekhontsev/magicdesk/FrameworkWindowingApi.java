@@ -78,6 +78,10 @@ final class FrameworkWindowingApi {
         return mError.isEmpty();
     }
 
+    boolean supportsDensityOverride() {
+        return available() && mMethods.containsKey("setDensityDpi");
+    }
+
     String error() {
         return mError;
     }

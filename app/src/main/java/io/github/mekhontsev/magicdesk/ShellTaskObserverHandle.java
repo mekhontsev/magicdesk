@@ -134,7 +134,8 @@ final class ShellTaskObserverHandle implements Closeable {
     boolean restoreFullscreenTask(
             final int displayId,
             final int taskId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final int densityDpi) throws IOException {
         if (bounds == null || bounds.isEmpty()) {
             return false;
         }
@@ -145,13 +146,15 @@ final class ShellTaskObserverHandle implements Closeable {
                 bounds.left,
                 bounds.top,
                 bounds.right,
-                bounds.bottom));
+                bounds.bottom,
+                densityDpi));
     }
 
     boolean beginAppFullscreenTask(
             final int displayId,
             final int taskId,
-            final Rect restoreBounds) throws IOException {
+            final Rect restoreBounds,
+            final int densityDpi) throws IOException {
         if (restoreBounds == null || restoreBounds.isEmpty()) {
             return false;
         }
@@ -162,20 +165,23 @@ final class ShellTaskObserverHandle implements Closeable {
                 restoreBounds.left,
                 restoreBounds.top,
                 restoreBounds.right,
-                restoreBounds.bottom));
+                restoreBounds.bottom,
+                densityDpi));
     }
 
     boolean beginFullscreenTask(
             final int displayId,
-            final int taskId) throws IOException {
+            final int taskId,
+            final int densityDpi) throws IOException {
         return callServiceForResult(() -> mService.beginFullscreenTask(
-                mCallback, displayId, taskId));
+                mCallback, displayId, taskId, densityDpi));
     }
 
     boolean beginWindowedTask(
             final int displayId,
             final int taskId,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final int densityDpi) throws IOException {
         if (bounds == null || bounds.isEmpty()) {
             return false;
         }
@@ -186,7 +192,8 @@ final class ShellTaskObserverHandle implements Closeable {
                 bounds.left,
                 bounds.top,
                 bounds.right,
-                bounds.bottom));
+                bounds.bottom,
+                densityDpi));
     }
 
     boolean protectExplicitFullscreenTask(
@@ -208,7 +215,8 @@ final class ShellTaskObserverHandle implements Closeable {
     int launchWindowedTask(
             final int displayId,
             final Intent intent,
-            final Rect bounds) throws IOException {
+            final Rect bounds,
+            final int densityDpi) throws IOException {
         if (bounds == null || bounds.isEmpty()) {
             throw new IOException("invalid desktop task bounds");
         }
@@ -219,14 +227,16 @@ final class ShellTaskObserverHandle implements Closeable {
                 bounds.left,
                 bounds.top,
                 bounds.right,
-                bounds.bottom));
+                bounds.bottom,
+                densityDpi));
     }
 
     int launchFullscreenTask(
             final int displayId,
-            final Intent intent) throws IOException {
+            final Intent intent,
+            final int densityDpi) throws IOException {
         return callServiceForResult(() -> mService.launchFullscreenTask(
-                mCallback, displayId, intent));
+                mCallback, displayId, intent, densityDpi));
     }
 
     int launchAppShortcut(
@@ -236,6 +246,7 @@ final class ShellTaskObserverHandle implements Closeable {
             final UserHandle user,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) throws IOException {
         if (bounds == null) {
             throw new IllegalArgumentException("shortcut bounds are required");
@@ -251,6 +262,7 @@ final class ShellTaskObserverHandle implements Closeable {
                 bounds.top,
                 bounds.right,
                 bounds.bottom,
+                densityDpi,
                 existingTaskId));
     }
 
@@ -260,6 +272,7 @@ final class ShellTaskObserverHandle implements Closeable {
             final PendingIntent pendingIntent,
             final int windowingMode,
             final Rect bounds,
+            final int densityDpi,
             final int existingTaskId) throws IOException {
         if (target == null || bounds == null) {
             throw new IllegalArgumentException(
@@ -279,7 +292,16 @@ final class ShellTaskObserverHandle implements Closeable {
                 bounds.top,
                 bounds.right,
                 bounds.bottom,
+                densityDpi,
                 existingTaskId));
+    }
+
+    boolean setDesktopTaskDensity(
+            final int displayId,
+            final int[] taskIds,
+            final int densityDpi) throws IOException {
+        return callServiceForResult(() -> mService.setDesktopTaskDensity(
+                mCallback, displayId, taskIds, densityDpi));
     }
 
     void launchTaskAction(

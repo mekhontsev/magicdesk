@@ -97,13 +97,19 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final Object service,
             final int displayId,
             final int taskId,
-            final Rect restoreBounds) {
+            final Rect restoreBounds,
+            final int densityDpi) {
         if (displayId != mDisplayId || restoreBounds == null
                 || restoreBounds.isEmpty()) {
             return false;
         }
         final boolean entered = mPlanes.beginFullscreen(
-                service, displayId, taskId, false, mOwnership);
+                service,
+                displayId,
+                taskId,
+                false,
+                densityDpi,
+                mOwnership);
         if (entered) {
             mAppRestoreBounds.put(
                     Integer.valueOf(taskId), new Rect(restoreBounds));
@@ -115,34 +121,38 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             final Object service,
             final int displayId,
             final int taskId,
-            final boolean refreshCaption) {
+            final boolean refreshCaption,
+            final int densityDpi) {
         return displayId == mDisplayId
                 && mPlanes.beginFullscreen(
                         service,
                         displayId,
                         taskId,
                         refreshCaption,
+                        densityDpi,
                         mOwnership);
     }
 
     synchronized int launchFullscreen(
             final Object service,
             final int displayId,
-            final FullscreenTaskStarter starter)
+            final FullscreenTaskStarter starter,
+            final int densityDpi)
             throws ReflectiveOperationException {
         if (displayId != mDisplayId) {
             throw new IllegalArgumentException(
                     "display is not configured: " + displayId);
         }
         return mPlanes.launchFullscreen(
-                service, displayId, starter, mOwnership);
+                service, displayId, starter, densityDpi, mOwnership);
     }
 
     synchronized boolean restoreTask(
             final Object service,
             final int displayId,
             final int taskId,
-            final Rect bounds) {
+            final Rect bounds,
+            final int densityDpi) {
         if (displayId != mDisplayId) {
             return false;
         }
@@ -153,7 +163,11 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
             return false;
         }
         final boolean restored = mPlanes.restoreFreeform(
-                service, displayId, taskId, restoreBounds);
+                service,
+                displayId,
+                taskId,
+                restoreBounds,
+                densityDpi);
         if (restored) {
             mAppRestoreBounds.remove(taskKey);
         }
@@ -215,6 +229,15 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     synchronized void onTaskRemoved(final int taskId) {
         mPlanes.onTaskRemoved(taskId);
         mAppRestoreBounds.remove(Integer.valueOf(taskId));
+    }
+
+    synchronized void addDensityOperation(
+            final FrameworkWindowingApi windowing,
+            final Object transaction,
+            final int taskId,
+            final int densityDpi) throws ReflectiveOperationException {
+        mPlanes.addDensityOperation(
+                windowing, transaction, taskId, densityDpi);
     }
 
     synchronized void onTaskDisplayChanged(

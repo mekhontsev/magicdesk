@@ -28,6 +28,9 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(publicNames.contains("end_trace"));
         assertTrue(publicNames.contains("get_termux_x11_status"));
         assertTrue(publicNames.contains("reconnect_termux_x11"));
+        assertTrue(publicNames.contains("get_app_presentation"));
+        assertTrue(publicNames.contains("set_app_presentation"));
+        assertTrue(publicNames.contains("reset_app_presentation"));
         assertFalse(publicNames.contains("run_self_test"));
         assertFalse(publicNames.contains("cancel_self_test"));
         assertFalse(publicNames.contains("clipboard.read_text"));
@@ -190,6 +193,37 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(output.has("positionAvailable"));
         assertTrue(output.has("x"));
         assertTrue(output.has("y"));
+    }
+
+    @Test
+    public void applicationPresentationToolsExposePortableScale()
+            throws Exception {
+        final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
+        final JSONArray builtins = tool(tools, "open_builtin")
+                .getJSONObject("inputSchema")
+                .getJSONObject("properties")
+                .getJSONObject("builtin")
+                .getJSONArray("enum");
+        final JSONObject setInput = tool(
+                tools, "set_app_presentation")
+                .getJSONObject("inputSchema");
+        final JSONObject output = dataProperties(
+                tools, "get_app_presentation");
+
+        assertEquals(2, setInput.getJSONArray("required").length());
+        assertEquals(
+                50,
+                setInput.getJSONObject("properties")
+                        .getJSONObject("scalePercent").getInt("minimum"));
+        assertEquals(
+                200,
+                setInput.getJSONObject("properties")
+                        .getJSONObject("scalePercent").getInt("maximum"));
+        assertTrue(output.has("mode"));
+        assertTrue(output.has("scalePercent"));
+        assertTrue(output.has("displayDensityDpi"));
+        assertTrue(output.has("expectedDensityDpi"));
+        assertTrue(contains(builtins, "app_profiles"));
     }
 
     @Test

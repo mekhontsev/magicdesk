@@ -26,6 +26,7 @@ public final class DesktopWindowTransitionProvenanceTest {
                         3,
                         42,
                         new Rect(1, 2, 300, 400),
+                        DesktopTaskDensity.INHERIT,
                         "native-window-restore-shortcut"));
 
         final DesktopWindowTransitionProvenance.Observation observation =
