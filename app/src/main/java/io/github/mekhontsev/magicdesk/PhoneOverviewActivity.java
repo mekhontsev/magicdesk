@@ -356,7 +356,7 @@ public final class PhoneOverviewActivity extends Activity {
         mCloseDesktop.setText(R.string.status_desktop_closing);
         DesktopOperations.closeDesktop(
                 lease.target(),
-                false,
+                DesktopCloseMode.HOME,
                 success -> runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) {
                         return;

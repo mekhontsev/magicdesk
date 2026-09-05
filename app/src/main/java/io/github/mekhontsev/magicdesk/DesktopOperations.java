@@ -142,11 +142,11 @@ public final class DesktopOperations {
 
     static void closeDesktop(
             final DesktopDisplayTarget target,
-            final boolean restorePhonePanel,
+            final DesktopCloseMode mode,
             final ResultCallback callback) {
         TRANSITIONS.closeDesktop(
                 target,
-                restorePhonePanel,
+                mode,
                 callback == null ? null : callback::onComplete);
     }
 

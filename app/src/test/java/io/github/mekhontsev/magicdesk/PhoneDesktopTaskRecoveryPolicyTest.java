@@ -182,6 +182,93 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     }
 
     @Test
+    public void ordinaryCloseReconcilesPhoneTaskIndexedUnderExternalDisplay() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.freeform = false;
+        environment.repositoryContainsTask = false;
+        environment.removedRepositoryContainsTask = true;
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverForTest(
+                        () -> true, environment);
+
+        assertTrue(result.success);
+        assertTrue(environment.hasMoveToDeskCommand());
+        assertTrue(environment.hasFullscreenTransition());
+        assertFalse(environment.removedRepositoryContainsTask);
+    }
+
+    @Test
+    public void ordinaryCloseDoesNotReviveTasksFromOtherDisplays() {
+        final FakeEnvironment environment = new FakeEnvironment(false);
+        environment.repositoryContainsTask = false;
+        environment.removedRepositoryContainsTask = true;
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverForTest(
+                        () -> true, environment);
+
+        assertTrue(result.success);
+        assertFalse(environment.hasReviveCommand());
+        assertFalse(environment.hasMoveToDeskCommand());
+        assertFalse(environment.hasFullscreenTransition());
+        assertTrue(environment.removedRepositoryContainsTask);
+    }
+
+    @Test
+    public void ordinaryCloseDoesNotTouchLiveExternalTasks() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.taskDisplayId = 95;
+        environment.repositoryContainsTask = false;
+        environment.removedRepositoryContainsTask = true;
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverForTest(
+                        () -> true, environment);
+
+        assertTrue(result.success);
+        assertFalse(environment.hasReviveCommand());
+        assertFalse(environment.hasMoveToDeskCommand());
+        assertFalse(environment.hasFullscreenTransition());
+        assertTrue(environment.removedRepositoryContainsTask);
+    }
+
+    @Test
+    public void ordinaryCloseExcludesInfrastructureFromExternalRepository() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.freeform = false;
+        environment.repositoryContainsTask = false;
+        environment.removedRepositoryContainsTask = true;
+        environment.packageName = "io.github.mekhontsev.magicdesk";
+        environment.componentName = ".TaskAreaBackstopActivity";
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverForTest(
+                        () -> true, environment);
+
+        assertTrue(result.success);
+        assertFalse(environment.hasMoveToDeskCommand());
+        assertFalse(environment.hasFullscreenTransition());
+    }
+
+    @Test
+    public void externalRepositoryStillRetainingPhoneTaskDoesNotReportSuccess() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.freeform = false;
+        environment.repositoryContainsTask = false;
+        environment.removedRepositoryContainsTask = true;
+        environment.retainExternalRepository = true;
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverForTest(
+                        () -> environment.stackReads < 5, environment);
+
+        assertTrue(result.cancelled);
+        assertTrue(environment.hasFullscreenTransition());
+        assertTrue(environment.removedRepositoryContainsTask);
+    }
+
+    @Test
     public void resumesAfterLateTaskMigrationFromRemovedDisplay() {
         final FakeEnvironment environment = new FakeEnvironment(false);
         environment.freeform = false;
@@ -299,11 +386,13 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
         boolean phoneRepositoryContainsSecondTask;
         boolean removedRepositoryContainsTask;
         boolean removedRepositoryContainsSecondTask;
+        boolean retainExternalRepository;
         boolean reviveMissingTask = true;
         String desktopMoveAction = "moveTaskToDesk";
         String packageName = "net.sf.golly";
         String componentName = ".MainActivity";
         String topActivityComponent;
+        int taskDisplayId;
         int stackReads;
         int taskAppearsAfterStackReads = -1;
 
@@ -352,7 +441,9 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                     "TaskClientPreservingFullscreenTransitionCommand")) {
                 freeform = false;
                 repositoryContainsTask = false;
-                removedRepositoryContainsTask = false;
+                if (!retainExternalRepository) {
+                    removedRepositoryContainsTask = false;
+                }
                 return PhoneDesktopTaskRecovery.CommandResult.success("");
             }
             if (command.contains(
@@ -414,7 +505,8 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                     componentName,
                     topActivityComponent == null
                             ? packageName + "/" + componentName
-                            : topActivityComponent);
+                            : topActivityComponent)
+                    .replace("displayId=0", "displayId=" + taskDisplayId);
         }
 
         private static String stackOutput(final boolean freeform) {

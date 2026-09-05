@@ -387,7 +387,7 @@ final class DesktopAutomationController {
         }
         final CountDownLatch completed = new CountDownLatch(1);
         final boolean[] success = new boolean[1];
-        DesktopOperations.closeDesktop(target, true, value -> {
+        DesktopOperations.closeDesktop(target, DesktopCloseMode.CONTROL_PANEL, value -> {
             success[0] = value;
             completed.countDown();
         });

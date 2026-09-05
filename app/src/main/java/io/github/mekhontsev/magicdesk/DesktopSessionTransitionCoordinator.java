@@ -73,9 +73,9 @@ final class DesktopSessionTransitionCoordinator {
 
     void closeDesktop(
             final DesktopDisplayTarget target,
-            final boolean restorePhonePanel,
+            final DesktopCloseMode mode,
             final CompletionCallback callback) {
-        if (target == null) {
+        if (target == null || mode == null) {
             complete(callback, false);
             return;
         }
@@ -85,7 +85,7 @@ final class DesktopSessionTransitionCoordinator {
             return;
         }
         mOperations.execute(() -> beginDesktopClose(
-                target, restorePhonePanel, callback));
+                target, mode, callback));
     }
 
     private void finishDesktopClose(
@@ -112,7 +112,7 @@ final class DesktopSessionTransitionCoordinator {
 
     private void beginDesktopClose(
             final DesktopDisplayTarget target,
-            final boolean restorePhonePanel,
+            final DesktopCloseMode mode,
             final CompletionCallback callback) {
         // HOME ownership is the outer session lease. Release it before any
         // task, input, or display teardown so a partial close cannot trap the
@@ -132,9 +132,9 @@ final class DesktopSessionTransitionCoordinator {
             return;
         }
         MagicDeskRuntime.disableExternalTaskMigrationProtection();
-        if (!restorePhonePanel) {
+        if (!mode.parkTasks) {
             finishDesktopSessionClose(
-                    target, false, homePresentation, callback);
+                    target, mode, homePresentation, callback);
             return;
         }
         MagicDeskRuntime.parkDesktopTasks(target, parked -> {
@@ -143,13 +143,13 @@ final class DesktopSessionTransitionCoordinator {
                         "Desktop close continues after partial task parking");
             }
             mOperations.execute(() -> finishDesktopSessionClose(
-                    target, true, homePresentation, callback));
+                    target, mode, homePresentation, callback));
         });
     }
 
     private void finishDesktopSessionClose(
             final DesktopDisplayTarget target,
-            final boolean restorePhonePanel,
+            final DesktopCloseMode mode,
             final DesktopHomeRoleLease.RestoredHomePresentation
                     homePresentation,
             final CompletionCallback callback) {
@@ -167,6 +167,22 @@ final class DesktopSessionTransitionCoordinator {
             finishDesktopClose(callback, false);
             return;
         }
+        if (success && mode.parkTasks
+                && target.displayId > Display.DEFAULT_DISPLAY) {
+            // A wired display can stay connected after Close. Reconcile its
+            // returned phone tasks now, without relying on display removal.
+            final PhoneDesktopTaskRecovery.Result recovery =
+                    PhoneDesktopTaskRecovery.recoverBlocking(
+                            () -> !DesktopRuntimeBridge
+                                    .isLocalDesktopActiveOrStarting());
+            if (!recovery.success || recovery.cancelled) {
+                success = false;
+                CompatibilityDiagnostics.record(
+                        "PHONE-TASK-005",
+                        "Could not reconcile phone tasks after desktop close",
+                        recovery.message);
+            }
+        }
         try {
             DesktopHomeRoleLease.presentRestoredHome(homePresentation);
         } catch (java.io.IOException error) {
@@ -179,7 +195,7 @@ final class DesktopSessionTransitionCoordinator {
                     error);
         }
         if (shouldOpenPhonePanel(
-                restorePhonePanel,
+                mode,
                 ControlActivity.isControlPanelVisible())) {
             PhoneControlPanelLauncher.openOnPhoneWithShell();
         }
@@ -240,9 +256,9 @@ final class DesktopSessionTransitionCoordinator {
     }
 
     static boolean shouldOpenPhonePanel(
-            final boolean restorePhonePanel,
+            final DesktopCloseMode mode,
             final boolean panelVisible) {
-        return restorePhonePanel && !panelVisible;
+        return mode.showControlPanel && !panelVisible;
     }
 
     private void showPreferredDesktopNow() {

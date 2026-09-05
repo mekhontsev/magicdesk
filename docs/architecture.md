@@ -1482,7 +1482,12 @@ separate invariant: no application task may remain freeform on display 0 after
 migration or teardown. `ShellExternalTaskMigrationGuard` normalizes
 system-driven moves during an external session, and
 `PhoneDesktopTaskRecovery` reconciles live tasks with WMShell's retained desktop
-repository after phone-desktop close or external-display loss.
+repository after desktop close or external-display loss. Already migrated
+phone tasks can still be indexed under the external display, so recovery
+checks all repository groups against the live display-0 task snapshot. It does
+not move tasks that remain on another display or revive unrelated external
+entries. External Close runs this reconciliation before presenting restored
+HOME, including when the physical monitor remains connected.
 
 The Nubia Overview router may remain registered while task teardown is still
 finishing, but it cancels the firmware Recents launch only after the app-side
@@ -1927,6 +1932,13 @@ closed. The same record is captured from the latest observed task snapshot when
 a display disappears or a desktop host is replaced before an explicit close can
 query it. An explicit **Exit MagicDesk** clears this record and closes built-in
 MagicDesk windows instead.
+
+`DesktopCloseMode` distinguishes Close to the control panel, Close to the
+restored HOME (including the phone HOME and Recent screens), and full Exit.
+Both Close destinations park tasks before releasing the desktop host; showing
+the phone control panel is only a presentation choice. Exit skips parking
+because its preceding return-tasks step has already moved applications home
+and the saved workspace has been cleared.
 
 Before any normal teardown mutation, `DesktopHomeRoleLease` restores and
 verifies the exact HOME role state from session start: either the previous

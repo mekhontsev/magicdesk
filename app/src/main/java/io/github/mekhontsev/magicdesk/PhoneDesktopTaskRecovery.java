@@ -282,15 +282,7 @@ final class PhoneDesktopTaskRecovery {
         final Set<Integer> taskIds = new LinkedHashSet<>(
                 phoneRepositoryTaskIds);
         taskIds.retainAll(liveTasks.keySet());
-        if (removedDisplayId > 0) {
-            final Set<Integer> removedDisplayTaskIds = new LinkedHashSet<>(
-                    SystemUiDesktopRepositoryParser.parseTaskIds(
-                            repository.output, removedDisplayId));
-            removedDisplayTaskIds.retainAll(liveTasks.keySet());
-            excludeNonRecoverableTasks(
-                    removedDisplayTaskIds, liveTasks);
-            taskIds.addAll(removedDisplayTaskIds);
-        }
+        taskIds.addAll(retainedPhoneTasks(repository.output, liveTasks));
         for (final PhoneTask task : liveTasks.values()) {
             if (task.freeform && isRecoverable(task)) {
                 taskIds.add(Integer.valueOf(task.taskId));
@@ -402,6 +394,8 @@ final class PhoneDesktopTaskRecovery {
             unavailablePhoneTaskIds.addAll(unavailablePhoneTaskIdsNow);
             unavailablePhoneTaskIds.removeAll(currentTasks.keySet());
             remaining.retainAll(currentTasks.keySet());
+            remaining.addAll(retainedPhoneTasks(
+                    currentRepository.output, currentTasks));
             final Set<Integer> unavailableRemovedTaskIdsNow =
                     new LinkedHashSet<>();
             if (removedDisplayId > 0) {
@@ -600,6 +594,24 @@ final class PhoneDesktopTaskRecovery {
             final PhoneTask task = liveTasks.get(taskId);
             return task != null && !isRecoverable(task);
         });
+    }
+
+    private static Set<Integer> retainedPhoneTasks(
+            final String repositoryOutput,
+            final Map<Integer, PhoneTask> phoneTasks) {
+        final Set<Integer> result = new LinkedHashSet<>();
+        // WM can finish moving a task home while WMShell still indexes it
+        // under its old display. Inspect every group, but mutate only tasks
+        // whose current framework snapshot proves they are on the phone.
+        for (final Set<Integer> taskIds : SystemUiDesktopRepositoryParser
+                .parseTaskIdsByDisplay(repositoryOutput).values()) {
+            for (final Integer taskId : taskIds) {
+                if (isRecoverable(phoneTasks.get(taskId))) {
+                    result.add(taskId);
+                }
+            }
+        }
+        return result;
     }
 
     static boolean isRecoverable(

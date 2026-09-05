@@ -166,7 +166,7 @@ final class MagicDeskSessionController {
         }
         DesktopOperations.closeDesktop(
                 target,
-                true,
+                DesktopCloseMode.CONTROL_PANEL,
                 success -> {
                     mOperationInProgress = false;
                     finishCloseDesktop(
@@ -185,7 +185,7 @@ final class MagicDeskSessionController {
         }
         DesktopOperations.closeDesktop(
                 target,
-                false,
+                DesktopCloseMode.EXIT,
                 callback::onComplete);
     }
 
