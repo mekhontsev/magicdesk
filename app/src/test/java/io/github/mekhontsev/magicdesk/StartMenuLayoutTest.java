@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
 
 import org.junit.Test;
 
@@ -32,10 +31,4 @@ public final class StartMenuLayoutTest {
         assertEquals(1, StartMenuLayout.rows(0));
     }
 
-    @Test
-    public void phoneHistoryCannotOverwriteDesktopHistory() {
-        assertNotEquals(StartMenuScope.PHONE.historyKey, StartMenuScope.DESKTOP.historyKey);
-        assertEquals("recent_packages", StartMenuScope.DESKTOP.historyKey);
-        assertEquals("phone_recent_packages", StartMenuScope.PHONE.historyKey);
-    }
 }

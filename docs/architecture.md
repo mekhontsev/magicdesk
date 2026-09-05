@@ -746,7 +746,7 @@ runtime integration and are not distributed through the same release path.
   touchpad task before starting a replacement and treats restoration as pending
   until task observation reports the touchpad visible. Identical sampled task
   state never repeats the repair command; a changed phone-task observation can
-  retry it without another poller. Phone apps, Overview and the self-test phone
+  retry it without another poller. Phone apps, controls and the self-test phone
   guard all retain their foreground through this same task-visibility rule.
 - `AppTaskController` and `AltTabController` coordinate task actions,
   Show Desktop, restoration, and exact-task
@@ -1520,9 +1520,16 @@ HOME, including when the physical monitor remains connected.
 
 `PhoneHomeActivity` embeds `StartMenuContent`, the same contents used by the
 desktop `StartMenuController` popup. Each host owns its own view, query, page,
-selection and focus; both Starts can be visible at once. The phone uses its
-own recent-launch history and only application search, without constructing
-the desktop file-search worker. The application catalog reuses
+selection and focus; both Starts can be visible at once. Phone Recent is
+derived from ordinary display-0 tasks through `PhoneRecentApps`, not from
+desktop history or only the applications launched by Start. It includes
+launchable phone applications opened from notifications, filters HOME and
+shell surfaces, and deduplicates application identities in snapshot order.
+The external Start retains its independent desktop launch history. Phone HOME
+requests a typed task snapshot only when resumed or when Recent is selected;
+stopped instances discard pending results. An unavailable snapshot is an error,
+not a fabricated empty history. The phone uses only application search, without
+constructing the desktop file-search worker. The application catalog reuses
 `LauncherAppRepository`; phone loading is asynchronous and invalidated by
 `LauncherApps.Callback`, not by a timer. Grid capacity follows each panel's
 measured viewport, including keyboard resizing.
@@ -1555,12 +1562,13 @@ has already changed.
 An isolated self-test restores and verifies the role but does not present the
 restored launcher, because returning foreground ownership belongs to the test
 harness rather than desktop-session cleanup.
-During either an external or phone-desktop session, that request opens the same
-`PhoneOverviewActivity` on display 0. It lists only ordinary phone tasks outside
-the active desktop ownership set. Managed freeform and fullscreen tasks remain
-available through the desktop taskbar and task overview instead. The firmware
-gesture therefore retains normal phone Recents semantics without enabling
-Quickstep or mixing the two task sets.
+The routed request launches an ordinary, package-scoped HOME Intent on display
+0. During an external session it selects Recent within the existing phone
+Start; during a phone-desktop session Android selects the desktop HOME and its
+normal workspace presentation. There is no separate phone Overview Activity.
+Managed tasks remain available through the desktop taskbar, task overview and
+Alt+Tab. Platforms with working system Recents retain their native gesture;
+the redirection is declared only by the phone UI provider that requires it.
 
 Returning to an already active desktop is display-scoped and does not restart
 the session. `PRESENT_WORKSPACE` orders every managed fullscreen plane below
@@ -1983,7 +1991,7 @@ query it. An explicit **Exit MagicDesk** clears this record and closes built-in
 MagicDesk windows instead.
 
 `DesktopCloseMode` distinguishes Close to the control panel, Close to the
-restored HOME (including the phone HOME and Recent screens), and full Exit.
+restored HOME (including the phone HOME surface), and full Exit.
 Both Close destinations park tasks before releasing the desktop host; showing
 the phone control panel is only a presentation choice. Exit skips parking
 because its preceding return-tasks step has already moved applications home

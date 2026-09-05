@@ -220,8 +220,7 @@
     <string name="action_phone_screen_off">Turn phone screen off</string>
     <string name="action_phone_screen_on">Wake phone screen</string>
     <string name="action_close_desktop">Close desktop</string>
-    <string name="phone_overview_title">Overview</string>
-    <string name="phone_overview_unavailable">Recent apps are unavailable: %1$s</string>
+    <string name="phone_recent_unavailable">Recent apps are unavailable: %1$s</string>
     <string name="action_start_external_desktop">Start external desktop</string>
     <string name="action_connect_wireless_display">Wireless</string>
     <string name="action_show_external_desktop">Show external desktop</string>

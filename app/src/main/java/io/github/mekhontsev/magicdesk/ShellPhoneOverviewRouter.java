@@ -116,7 +116,7 @@ final class ShellPhoneOverviewRouter implements
             mLaunchScheduled = true;
         }
         try {
-            mLaunchExecutor.execute(this::presentOverview);
+            mLaunchExecutor.execute(this::presentHome);
             Log.i(TAG, "routed system Overview to MagicDesk HOME component="
                     + component.flattenToShortString());
             return false;
@@ -130,16 +130,16 @@ final class ShellPhoneOverviewRouter implements
         }
     }
 
-    private void presentOverview() {
+    private void presentHome() {
         try {
             synchronized (this) {
                 if (!mEnabled || mClosed) {
                     return;
                 }
             }
-            mActivityLauncher.presentPhoneOverview();
+            mActivityLauncher.presentHomeFromRecents();
         } catch (RemoteException | RuntimeException error) {
-            report("could not present phone Overview: "
+            report("could not present HOME from Recents: "
                     + usefulMessage(error));
         } finally {
             synchronized (this) {

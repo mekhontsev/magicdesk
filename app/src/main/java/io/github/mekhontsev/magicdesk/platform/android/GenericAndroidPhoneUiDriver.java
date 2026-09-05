@@ -13,7 +13,7 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     }
 
     @Override
-    public boolean requiresLauncherOwnedOverview() {
+    public boolean requiresRecentsRedirectToHome() {
         return false;
     }
 

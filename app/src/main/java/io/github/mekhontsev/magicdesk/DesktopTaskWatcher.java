@@ -1308,7 +1308,7 @@ final class DesktopTaskWatcher {
         }
 
         @Override
-        public void presentPhoneOverview() throws RemoteException {
+        public void presentHomeFromRecents() throws RemoteException {
             final DesktopHomeRoleLease.State lease =
                     DesktopHomeRoleLease.snapshot();
             if (!mOwner.mListener.isActive(mGeneration)
@@ -1322,15 +1322,19 @@ final class DesktopTaskWatcher {
                         MagicDeskApplication.applicationContext();
                 final ActivityOptions options = ActivityOptions.makeBasic();
                 options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
-                DesktopShellActivity.setLaunchWindowingMode(
-                        options,
-                        FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN);
+                // Let Android resolve the active primary HOME surface. A phone
+                // desktop owns a different HOME from an external session.
                 context.startActivity(
-                        PhoneOverviewActivity.createLaunchIntent(context),
+                        new Intent(Intent.ACTION_MAIN)
+                                .addCategory(Intent.CATEGORY_HOME)
+                                .setPackage(context.getPackageName())
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                                        | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                                .putExtra(PhoneHomeActivity.EXTRA_SHOW_RECENT, true),
                         options.toBundle());
             } catch (RuntimeException error) {
                 final RemoteException remote = new RemoteException(
-                        "phone Overview launch failed: "
+                        "HOME launch from Recents failed: "
                                 + ShellAccess.usefulMessage(error));
                 remote.initCause(error);
                 throw remote;

@@ -8,7 +8,7 @@ interface IActivityLaunchCallback {
         in PendingIntent pendingIntent,
         in Bundle options) = 1;
 
-    void presentPhoneOverview() = 2;
+    void presentHomeFromRecents() = 2;
 
     boolean isPhoneOverviewRoutingActive() = 3;
 }

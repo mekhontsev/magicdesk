@@ -30,6 +30,8 @@ final class StartMenuContent {
             return java.util.Collections.emptyList();
         }
         List<String> recentApps();
+        default String recentAppsError() { return ""; }
+        default void onSectionShown(int section) { }
         DesktopAutomationUiRegistry automation();
         void open(StartSearchController.Result result);
         void dismiss();
@@ -275,6 +277,7 @@ final class StartMenuContent {
             mSearch.setText("");
         }
         prepare(mFocusable);
+        mHost.onSectionShown(mode);
     }
 
     boolean isUtilityVisible() {
@@ -318,11 +321,12 @@ final class StartMenuContent {
         }
 
         final List<MenuApplication> menuApps = getMenuApps();
-        if (menuApps.isEmpty()) {
+        final String recentError = mMode == MENU_RECENT ? mHost.recentAppsError() : "";
+        if (menuApps.isEmpty() || !recentError.isEmpty()) {
             final TextView empty = new TextView(mActivity);
-            empty.setText(mMode == MENU_RECENT
+            empty.setText(recentError.isEmpty() ? mActivity.getString(mMode == MENU_RECENT
                     ? R.string.recent_apps_empty
-                    : R.string.status_no_apps);
+                    : R.string.status_no_apps) : recentError);
             empty.setTextColor(DesktopUiFactory.COLOR_MUTED);
             empty.setTextSize(14);
             empty.setGravity(Gravity.CENTER);

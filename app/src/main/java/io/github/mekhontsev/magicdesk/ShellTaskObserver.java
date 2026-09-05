@@ -181,7 +181,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mPhoneOverviewRouter = new ShellPhoneOverviewRouter(
                 context,
                 mService,
-                phoneUi.requiresLauncherOwnedOverview(),
+                phoneUi.requiresRecentsRedirectToHome(),
                 activityLauncher,
                 error -> callCallback(() -> mCallback.onObserverError(error)));
         mPhoneWallpaperPolicy = new ShellPhoneDesktopWallpaperPolicy(

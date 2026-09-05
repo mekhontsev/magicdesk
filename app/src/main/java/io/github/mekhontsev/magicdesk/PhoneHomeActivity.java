@@ -24,6 +24,8 @@ import java.util.concurrent.Executors;
 
 /** Phone-side HOME surface used while an external desktop owns HOME. */
 public final class PhoneHomeActivity extends Activity implements StartMenuContent.Host {
+    static final String EXTRA_SHOW_RECENT =
+            BuildConfig.APPLICATION_ID + ".extra.SHOW_PHONE_RECENT";
 
     private FrameLayout mRoot;
     private ImageButton mCloseDesktop;
@@ -32,6 +34,10 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
     private StartMenuContent mStart;
     private final DesktopAutomationUiRegistry mAutomation = new DesktopAutomationUiRegistry();
     private List<AppItem> mApps = Collections.emptyList();
+    private List<TaskRepository.TaskEntry> mRecentTasks = Collections.emptyList();
+    private String mRecentError = "";
+    private boolean mRecentLoading;
+    private int mRecentGeneration;
     private LauncherApps mLauncherApps;
     private boolean mStarted;
     private boolean mAppsDirty = true;
@@ -80,6 +86,7 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT));
         showHome();
+        applyHomeIntent(true);
         mLauncherApps = getSystemService(LauncherApps.class);
         if (mLauncherApps != null) {
             mLauncherApps.registerCallback(
@@ -96,13 +103,7 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
             return;
         }
         setIntent(intent);
-        // An explicit HOME launch is phone navigation, not accidental touchpad
-        // displacement. Clear its request through the existing release path.
-        final DesktopHomeRoleLease.State lease = activeLease();
-        if (lease != null) {
-            PhoneTouchpadController.release(lease.target().displayId);
-        }
-        // Keep this HOME's search/page state independent of the desktop popup.
+        applyHomeIntent(false);
         refreshCloseAction();
     }
 
@@ -119,6 +120,8 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
     @Override
     protected void onStop() {
         mStarted = false;
+        ++mRecentGeneration;
+        mRecentLoading = false;
         DesktopRuntimeBridge.unregisterPhoneHome(this);
         if (mStart != null) {
             mStart.pause();
@@ -136,6 +139,7 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
         refreshCloseAction();
         if (mStart != null) {
             mStart.prepare(true);
+            loadRecents();
         }
     }
 
@@ -252,7 +256,15 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
 
     @Override public List<AppItem> apps() { return mApps; }
     @Override public List<String> recentApps() {
-        return DesktopPreferences.recentAppKeys(this, StartMenuScope.PHONE);
+        final DesktopHomeRoleLease.State lease = activeLease();
+        return lease == null ? Collections.emptyList()
+                : PhoneRecentApps.select(mRecentTasks, mApps, lease.previousHome.packageName);
+    }
+    @Override public String recentAppsError() { return mRecentError; }
+    @Override public void onSectionShown(final int section) {
+        if (section == StartMenuContent.MENU_RECENT) {
+            loadRecents();
+        }
     }
     @Override public DesktopAutomationUiRegistry automation() { return mAutomation; }
     @Override public void dismiss() { mStart.showSection(StartMenuContent.MENU_APPS); }
@@ -276,12 +288,7 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
                     }
                     return valid;
                 },
-                () -> {
-                    mLaunching = false;
-                    DesktopPreferences.recordRecentApp(this,
-                            BuiltInDesktopAppCatalog.appIdentityKey(result.app.launchTarget),
-                            StartMenuScope.PHONE);
-                }, error -> {
+                () -> mLaunching = false, error -> {
                     mLaunching = false;
                     CompatibilityDiagnostics.record("PHONE-APP-LAUNCH-001",
                             "Could not launch phone application",
@@ -289,6 +296,52 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
                     Toast.makeText(this, getString(R.string.status_desktop_launch_unavailable,
                             result.app.label), Toast.LENGTH_LONG).show();
                 });
+    }
+
+    private void applyHomeIntent(final boolean initialLaunch) {
+        final Intent intent = getIntent();
+        final boolean showRecent = intent != null
+                && intent.getBooleanExtra(EXTRA_SHOW_RECENT, false);
+        // Initial session HOME permits automatic touchpad startup. Explicit
+        // HOME/Recents navigation, including a cold Recents launch, retires it.
+        if (!initialLaunch || showRecent) {
+            final DesktopHomeRoleLease.State lease = activeLease();
+            if (lease != null) {
+                PhoneTouchpadController.release(lease.target().displayId);
+            }
+        }
+        if (showRecent) {
+            intent.removeExtra(EXTRA_SHOW_RECENT);
+            mStart.showSection(StartMenuContent.MENU_RECENT);
+        }
+    }
+
+    private void loadRecents() {
+        final DesktopHomeRoleLease.State lease = activeLease();
+        if (!mStarted || mRecentLoading || lease == null || !hasActivePhoneHomeLease()) {
+            return;
+        }
+        final int generation = ++mRecentGeneration;
+        mRecentLoading = true;
+        // One snapshot per HOME resume or explicit Recent selection also sees
+        // phone applications opened from notifications and other launchers.
+        TaskRepository.load(android.view.Display.DEFAULT_DISPLAY,
+                snapshot -> runOnUiThread(() -> {
+                    if (generation != mRecentGeneration || !mStarted
+                            || isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    mRecentLoading = false;
+                    final DesktopHomeRoleLease.State current = activeLease();
+                    if (current == null || !current.matches(lease.target())
+                            || !hasActivePhoneHomeLease()) {
+                        return;
+                    }
+                    mRecentTasks = snapshot.available ? snapshot.tasks : Collections.emptyList();
+                    mRecentError = snapshot.available ? ""
+                            : getString(R.string.phone_recent_unavailable, snapshot.error);
+                    mStart.prepare(true);
+                }));
     }
 
     private void closeDesktop() {
