@@ -29,14 +29,6 @@ final class NubiaWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
-    public boolean requiresTaskActivationSurfaceFence() {
-        // A direct task reorder can update framework focus while leaving the
-        // previous freeform Surface above it. A fresh application WindowState
-        // forces Nubia's compositor hierarchy to settle before the reorder.
-        return true;
-    }
-
-    @Override
     public boolean requiresPhoneTaskRecovery() {
         // Nubia can retain moved or removed tasks in WMShell's desktop
         // repository, which destabilizes Quickstep after returning to Home.

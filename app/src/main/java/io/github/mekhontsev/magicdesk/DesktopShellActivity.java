@@ -1625,19 +1625,6 @@ public abstract class DesktopShellActivity extends Activity
         mAltTabController.finish();
     }
 
-    void finishTaskbarActivation() {
-        if (!PlatformDrivers.current().windowing()
-                .requiresTaskActivationSurfaceFence()) {
-            mAltTabController.finish();
-            return;
-        }
-        if (mTaskbarHost == null
-                || !mTaskbarHost.runAfterSurfaceTraversalFence(
-                mAltTabController::finish)) {
-            mAltTabController.finish();
-        }
-    }
-
     void cancelAltTabFromRuntime() {
         resetAltTabState();
         if (mTaskOverviewController.isVisible()) {

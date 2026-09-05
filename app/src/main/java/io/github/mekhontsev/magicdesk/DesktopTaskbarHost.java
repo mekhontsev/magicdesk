@@ -142,12 +142,6 @@ final class DesktopTaskbarHost {
                 ? new Rect(mTaskbarBounds) : new Rect(mAppliedBounds);
     }
 
-    boolean runAfterSurfaceTraversalFence(final Runnable action) {
-        final DesktopChromeActivity activity = currentActivity();
-        return !mReleased && activity != null
-                && activity.runAfterSurfaceTraversalFence(action);
-    }
-
     static void registerActivity(
             final int displayId,
             final DesktopChromeActivity activity) {

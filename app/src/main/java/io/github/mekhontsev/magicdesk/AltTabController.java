@@ -149,7 +149,9 @@ final class AltTabController {
                     }
                     mPendingOffset = 0;
                     if (mTaskbarActivation) {
-                        mActivity.finishTaskbarActivation();
+                        // Direct selection uses the same gateway as Alt release;
+                        // the shell owns surface ordering and commit completion.
+                        finish();
                         return;
                     }
                     mActivity.populateTaskOverview(desktopSnapshot);

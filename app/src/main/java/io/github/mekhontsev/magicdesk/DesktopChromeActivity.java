@@ -29,8 +29,6 @@ public final class DesktopChromeActivity extends Activity {
     private View mTaskbar;
     private WindowManager mWindowManager;
     private TaskbarPanel mTaskbarPanel;
-    private View mSurfaceTraversalFence;
-    private boolean mSurfaceTraversalFenceAdded;
     private boolean mTaskbarPanelAdded;
     private int mTaskbarPanelHeight;
     private int mTaskbarHeight = 1;
@@ -119,7 +117,6 @@ public final class DesktopChromeActivity extends Activity {
     protected void onDestroy() {
         DesktopPanelWindowController.unregisterActivity(mDisplayId, this);
         DesktopTaskbarHost.unregisterActivity(mDisplayId, this);
-        removeSurfaceTraversalFence();
         detachTaskbar();
         removeTaskbarPanel();
         mWindowManager = null;
@@ -193,54 +190,6 @@ public final class DesktopChromeActivity extends Activity {
         mEdgeHidden = edgeHidden;
         mEdgeHeight = Math.max(1, edgeHeight);
         applyPresentation();
-    }
-
-    boolean runAfterSurfaceTraversalFence(final Runnable action) {
-        if (action == null || mWindowManager == null || mRoot == null
-                || mRoot.getWindowToken() == null) {
-            return false;
-        }
-        removeSurfaceTraversalFence();
-        final View fence = new View(this);
-        fence.setBackgroundColor(Color.TRANSPARENT);
-        final WindowManager.LayoutParams params =
-                new WindowManager.LayoutParams(
-                        1,
-                        1,
-                        WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-                        PixelFormat.TRANSLUCENT);
-        params.gravity = Gravity.TOP | Gravity.START;
-        params.token = mRoot.getWindowToken();
-        params.setFitInsetsTypes(0);
-        params.setTitle("MagicDesk task activation fence");
-        try {
-            mWindowManager.addView(fence, params);
-            mSurfaceTraversalFence = fence;
-            mSurfaceTraversalFenceAdded = true;
-            fence.postOnAnimation(() -> {
-                if (!mSurfaceTraversalFenceAdded
-                        || mSurfaceTraversalFence != fence) {
-                    return;
-                }
-                try {
-                    action.run();
-                } finally {
-                    fence.postOnAnimation(() -> {
-                        if (mSurfaceTraversalFence == fence) {
-                            removeSurfaceTraversalFence();
-                        }
-                    });
-                }
-            });
-            return true;
-        } catch (RuntimeException error) {
-            mSurfaceTraversalFence = null;
-            mSurfaceTraversalFenceAdded = false;
-            return false;
-        }
     }
 
     private void applyPresentation() {
@@ -338,20 +287,6 @@ public final class DesktopChromeActivity extends Activity {
         }
         mTaskbarPanelAdded = false;
         mTaskbarPanelHeight = 0;
-    }
-
-    private void removeSurfaceTraversalFence() {
-        final View fence = mSurfaceTraversalFence;
-        if (mSurfaceTraversalFenceAdded && fence != null
-                && mWindowManager != null) {
-            try {
-                mWindowManager.removeViewImmediate(fence);
-            } catch (RuntimeException ignored) {
-                // The activity teardown may already have removed the window.
-            }
-        }
-        mSurfaceTraversalFence = null;
-        mSurfaceTraversalFenceAdded = false;
     }
 
     private final class TaskbarPanel extends FrameLayout {

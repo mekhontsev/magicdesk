@@ -86,8 +86,11 @@ the taskbar, the child window collapses to its reveal edge. An unrelated
 foreground task removes it entirely. The transparent chrome host remains
 structurally stable without covering fullscreen content.
 
-Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. The app
-process emits a typed `DesktopWorkspaceCommand`: `ACTIVATE`, `DEMOTE`,
+Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway.
+Direct taskbar selection completes through the same controller action as
+Alt release. Surface synchronization belongs to the shell transaction owner,
+not to auxiliary UI windows or application-frame callbacks.
+The app process emits a typed `DesktopWorkspaceCommand`: `ACTIVATE`, `DEMOTE`,
 `PRESENT_DESKTOP`, `RESTORE_WORKSPACE`, or `RESTORE_SESSION`. `ACTIVATE` accepts
 exactly one task; other operations carry an explicit back-to-front plan.
 `ShellDesktopWorkspaceCoordinator` serializes those
