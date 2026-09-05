@@ -499,3 +499,8 @@ It checks the child's first frame, unchanged task identity/mode/bounds, the
 result returned by system Back, input delivered to the parent, and continuous
 taskbar visibility. This catches hierarchy failures in Android's nested
 Activity launch path that independent new-window tests do not cover.
+Its task-stack guard separates parent preparation (`ACTIVITY-RESULT-PREPARE-001`),
+the stable parent task during the child/result exchange (`ACTIVITY-RESULT-001`),
+and parent removal (`ACTIVITY-RESULT-CLEANUP-001`). Launch and cleanup remain
+observed as separate one-way transitions; an unexpected task or mode change
+during the child/result exchange still fails `WINDOW-STACK-001`.

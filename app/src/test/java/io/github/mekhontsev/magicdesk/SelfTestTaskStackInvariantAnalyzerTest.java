@@ -288,6 +288,63 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void rejectsUnsplitFixtureLifetime() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("ACTIVITY-RESULT-001", hostOnly(0, true));
+        analyzer.sample("task-created", fullscreen(1, false, true), true);
+        analyzer.sample("parent-ready", windowed(2, true), true);
+        analyzer.sample("child-result", windowed(3, true), true);
+        analyzer.sample("task-removed", hostOnly(4, true), true);
+
+        assertContains(analyzer.finish(hostOnly(5, true)),
+                "expected=absent -> absent observed=display2/mode1");
+    }
+
+    @Test
+    public void acceptsActivityResultWithSeparateFixtureLifecycleStages() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("ACTIVITY-RESULT-PREPARE-001", hostOnly(0, true));
+        analyzer.sample("task-created", fullscreen(1, false, true), true);
+        analyzer.changeStage("ACTIVITY-RESULT-001", windowed(2, true));
+        analyzer.sample("child-first-frame", windowed(3, true), true);
+        analyzer.sample("child-result", windowed(4, true), true);
+        analyzer.changeStage("ACTIVITY-RESULT-CLEANUP-001", windowed(5, true));
+        analyzer.sample("task-removed", hostOnly(6, true), true);
+
+        final SelfTestTaskStackReport report = analyzer.finish(hostOnly(7, true));
+        assertEquals(3, report.stageCount);
+        assertEquals(0, report.anomalies.length);
+    }
+
+    @Test
+    public void rejectsModeChangeDuringActivityResultStage() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("ACTIVITY-RESULT-PREPARE-001", hostOnly(0, true));
+        analyzer.changeStage("ACTIVITY-RESULT-001", windowed(1, true));
+        analyzer.sample("child-first-frame", fullscreen(2, true, false), true);
+        analyzer.changeStage("ACTIVITY-RESULT-CLEANUP-001", windowed(3, true));
+
+        assertContains(analyzer.finish(hostOnly(4, true)),
+                "expected=display2/mode5 -> display2/mode5 observed=display2/mode1");
+    }
+
+    @Test
+    public void rejectsUnexpectedTaskDuringActivityResultStage() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("ACTIVITY-RESULT-PREPARE-001", hostOnly(0, true));
+        analyzer.changeStage("ACTIVITY-RESULT-001", windowed(1, true));
+        analyzer.sample("task-created", snapshot(2,
+                task(HOST_TASK_ID, DISPLAY_ID, 1, true, false, false),
+                task(FIXTURE_TASK_ID, DISPLAY_ID, 5, true, true, false),
+                task(SECOND_FIXTURE_TASK_ID, DISPLAY_ID, 5, true, true, false)), true);
+        analyzer.changeStage("ACTIVITY-RESULT-CLEANUP-001", windowed(3, true));
+
+        assertContains(analyzer.finish(hostOnly(4, true)),
+                "task=" + SECOND_FIXTURE_TASK_ID
+                        + " expected=absent -> absent observed=display2/mode5");
+    }
+
+    @Test
     public void rejectsVisibleDefaultModeDuringTaskCreation() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         final SelfTestTaskStackInvariantAnalyzer.Snapshot absent = snapshot(

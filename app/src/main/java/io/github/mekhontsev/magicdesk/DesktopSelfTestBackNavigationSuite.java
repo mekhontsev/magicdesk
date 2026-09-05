@@ -109,9 +109,13 @@ final class DesktopSelfTestBackNavigationSuite {
     private static String verifyActivityResult(
             final Context context, final int displayId,
             final int hostTaskId, final Rect bounds) throws IOException {
+        // Each guard stage describes one task transition. Keep the parent's
+        // launch and removal outside the child Activity's stable-task check.
+        DesktopSelfTestHostObserver.stage("ACTIVITY-RESULT-PREPARE-001");
         try {
             final Fixture parent = launchFixture(context, displayId, bounds,
                     DesktopSelfTestFixtureAppearance.PRIMARY);
+            DesktopSelfTestHostObserver.stage("ACTIVITY-RESULT-001");
             final String childToken = parent.token + "-child";
             DesktopSelfTestFixtureState.clearLaunchMarkers(context);
             DesktopSelfTestFixtureState.clearChildResult(context);
@@ -142,6 +146,7 @@ final class DesktopSelfTestBackNavigationSuite {
                             && DesktopSelfTestGeometry.matches(task.bounds, bounds));
             verifySurvivorInput(context, displayId, parent);
             requireTaskbarStayedVisible(taskbarGeneration);
+            DesktopSelfTestHostObserver.stage("ACTIVITY-RESULT-CLEANUP-001");
             sendSystemBack(displayId);
             waitForTaskAbsent(parent.taskId);
             waitForReadyDesktopHost(displayId, hostTaskId);
@@ -149,6 +154,7 @@ final class DesktopSelfTestBackNavigationSuite {
                     + ", child=result-ok, mode=freeform, bounds=unchanged"
                     + ", parent-input=received, taskbar-hidden-events=0";
         } finally {
+            DesktopSelfTestHostObserver.stage("ACTIVITY-RESULT-CLEANUP-001");
             cleanupFixturesBestEffort();
         }
     }
