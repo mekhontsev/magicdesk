@@ -90,6 +90,12 @@ Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway.
 Direct taskbar selection completes through the same controller action as
 Alt release. Surface synchronization belongs to the shell transaction owner,
 not to auxiliary UI windows or application-frame callbacks.
+Releasing Alt commits the selected target and dismisses the picker before
+submitting activation. The picker does not wait for the workspace acknowledgement;
+a slow transition must neither keep the old picker visible nor dismiss a new
+one opened during that transition. Releasing Alt while its snapshot is still
+loading commits after the load without showing the picker. Activation retains
+the same serialized command and input-focus confirmation as other entry points.
 The app process emits a typed `DesktopWorkspaceCommand`: `ACTIVATE`, `DEMOTE`,
 `PRESENT_DESKTOP`, `RESTORE_WORKSPACE`, or `RESTORE_SESSION`. `ACTIVATE` accepts
 exactly one task; other operations carry an explicit back-to-front plan.

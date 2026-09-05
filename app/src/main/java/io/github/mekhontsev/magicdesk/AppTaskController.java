@@ -1408,19 +1408,7 @@ final class AppTaskController {
     void focusTask(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
-        focusTask(app, task, null);
-    }
-
-    void focusTask(
-            final AppItem app,
-            final TaskRepository.TaskEntry task,
-            final Runnable completion) {
-        focusTaskWithResult(
-                app,
-                task,
-                completion == null
-                        ? null
-                        : success -> completion.run());
+        focusTaskWithResult(app, task, null);
     }
 
     private void focusTaskOnSuccess(

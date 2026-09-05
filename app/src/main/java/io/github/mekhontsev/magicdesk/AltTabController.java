@@ -185,18 +185,17 @@ final class AltTabController {
         final AppItem app = mActivity.findOrLoadApp(
                 mActivity.getLauncherApps(), target);
         reset();
+        // Alt release commits the selection UI, not the asynchronous window
+        // transition. Its acknowledgement must not dismiss a later panel.
+        mActivity.hideAllPanels();
         if (app == null) {
-            mActivity.hideAllPanels();
             mActivity.clearInteractionVisibleTasks();
             mActivity.setStatus(mActivity.getString(
                     R.string.status_switch_failed,
                     target.packageName));
             return;
         }
-        mActivity.focusTask(
-                app,
-                target,
-                mActivity::hideAllPanels);
+        mActivity.focusTask(app, target);
     }
 
     void reset() {
