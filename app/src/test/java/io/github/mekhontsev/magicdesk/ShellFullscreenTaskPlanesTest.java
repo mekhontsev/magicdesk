@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 
 import org.junit.Test;
 
@@ -257,14 +256,18 @@ public final class ShellFullscreenTaskPlanesTest {
 
     @Test
     public void lowersDemotedFreeformWorkspaceBelowFullscreenPeer() {
-        assertNull(ShellFullscreenTaskPlanes.buildMixedStackOrder(
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
                 11,
                 99,
                 new int[]{20, 99, 11},
                 planeIds(10, 11),
                 Arrays.asList(20),
                 10,
-                false));
+                false);
+        assertNotNull(order);
+        assertArrayEquals(new int[]{20}, order.freeformTaskIds);
+        assertEquals(true, order.fullscreenForeground);
     }
 
     @Test
@@ -279,8 +282,31 @@ public final class ShellFullscreenTaskPlanesTest {
                         10,
                         false);
         assertNotNull(order);
-        assertArrayEquals(new int[]{21}, order.freeformTaskIds);
+        assertArrayEquals(new int[]{20, 21}, order.freeformTaskIds);
         assertEquals(true, order.fullscreenForeground);
+    }
+
+    @Test
+    public void demotionRetainsCoveredBlockerBeforeActivatingAnotherFreeform() {
+        // Demoting Golly must lower its root, not only raise Firefox's plane.
+        // Files is selected next and must not expose that old Golly surface.
+        final ShellFullscreenTaskPlanes.MixedStackOrder demotion =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        10, 99, new int[]{20, 99, 10}, planeIds(10),
+                        Collections.emptyList(), 10, false);
+        assertNotNull(demotion);
+        assertArrayEquals(new int[]{20}, demotion.freeformTaskIds);
+        assertEquals(true, demotion.fullscreenForeground);
+
+        final ShellFullscreenTaskPlanes.ForegroundWorkspace foreground =
+                ShellFullscreenTaskPlanes.foregroundWorkspace(Arrays.asList(
+                        task(10, 1), task(99, 1), task(20, 5), task(21, 5)), 99);
+        final ShellFullscreenTaskPlanes.MixedStackOrder activation =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        21, 99, new int[]{21}, planeIds(10),
+                        foreground.freeformTaskIds, foreground.fullscreenTaskId, true);
+        assertArrayEquals(new int[]{21}, activation.freeformTaskIds);
+        assertEquals(10, activation.fullscreenTaskId);
     }
 
     @Test

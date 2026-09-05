@@ -714,18 +714,26 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 windowing.reorder(
                         transaction, enteringTaskToken, true, true);
             }
-            // Applying the hierarchy directly avoids creating a transition
-            // token unknown to WMShell, which could outlive a removed display.
-            ShellWindowTransitionExecutor.applyAtomic(
-                    service, transactionClass, transaction);
+            if (!forceEnteringFullscreen && acquiredPlanes.isEmpty()) {
+                final Object target = HiddenTaskApi.requireTask(service, displayId,
+                        requestedTaskIds[requestedTaskIds.length - 1]);
+                ShellWindowTransitionExecutor.applySelection(
+                        service, displayId, transactionClass, transaction,
+                        HiddenTaskApi.getTaskWindowingMode(target));
+            } else {
+                // Plane establishment is not an ordinary task selection and
+                // must not wait for a new or stopped application to draw.
+                ShellWindowTransitionExecutor.applyAtomic(
+                        service, transactionClass, transaction);
+            }
             if (mConcealedForShowDesktop) {
                 setPlaneSurfacesVisible(true);
                 mConcealedForShowDesktop = false;
             }
-            // Keep the organizer leashes in the same mixed order as the WCT.
-            // The explicit layers make plane swaps immediate; retaining the
-            // workspace placeholders prevents either commit order from putting
-            // a focused task above a stale surface.
+            // This is the final surface phase of the same workspace command.
+            // applySelection settles native freeform transitions first: WM
+            // places HOME below normal roots when assigning finish layers, so
+            // a plane demoted below HOME needs our composition after that.
             if (mixedOrder != null && mixedOrder.fullscreenTaskId < 0) {
                 applySurfaceLayers(surfaceLayers(
                         committedOrder, effectivePlanes.keySet(), true), effectivePlanes);
@@ -918,7 +926,10 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             return null;
         }
         if (hostIndex >= 0) {
-            for (int index = hostIndex + 1;
+            // A fullscreen target must lower every explicit freeform blocker,
+            // including those before HOME. Dropping that prefix turns demotion
+            // into a plane-only raise and leaves the old root/input surface up.
+            for (int index = targetIsFreeform ? hostIndex + 1 : 0;
                     index < requestedTaskIds.length;
                     index++) {
                 final int taskId = requestedTaskIds[index];

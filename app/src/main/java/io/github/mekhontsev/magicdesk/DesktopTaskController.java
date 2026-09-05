@@ -12,7 +12,6 @@ import android.util.Log;
 import android.view.Display;
 
 import java.io.IOException;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -49,6 +48,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private final Runnable mTaskStackChanged;
     private final SnapshotListener mSnapshotListener;
     private final DesktopTaskWatcher mTaskWatcher;
+    private final DesktopWorkspaceQueue mWorkspaceQueue;
     private final PhoneTouchpadReconciler mPhoneTouchpadReconciler;
     private final PlatformWindowingDriver mWindowing;
     private final DesktopDisplayTaskState mDisplayTaskState;
@@ -80,25 +80,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private List<Integer> mShowDesktopRestoreOrder = Collections.emptyList();
     private Set<Integer> mShowDesktopNewlyConcealedTaskIds =
             Collections.emptySet();
-    private final ArrayDeque<ShowDesktopToggleRequest>
-            mShowDesktopToggleRequests = new ArrayDeque<>();
-    private boolean mShowDesktopToggleRunning;
-
-    private static final class ShowDesktopToggleRequest {
-        final int displayId;
-        final int desktopHostTaskId;
-        final TaskRepository.ActionCallback callback;
-        boolean completed;
-
-        ShowDesktopToggleRequest(
-                final int displayId,
-                final int desktopHostTaskId,
-                final TaskRepository.ActionCallback callback) {
-            this.displayId = displayId;
-            this.desktopHostTaskId = desktopHostTaskId;
-            this.callback = callback;
-        }
-    }
 
     DesktopTaskController(
             final Context context,
@@ -108,6 +89,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final PlatformWindowingDriver windowing) {
         mApplicationContext = context.getApplicationContext();
         mHandler = handler;
+        mWorkspaceQueue = new DesktopWorkspaceQueue(handler::post);
         mTaskStackChanged = taskStackChanged;
         mSnapshotListener = snapshotListener;
         mWindowing = windowing;
@@ -180,12 +162,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             return;
                         }
                         if (mTaskWatcherReady) {
-                            sendWorkspaceCommand(
-                                    DesktopWorkspaceCommand.ACTIVATE,
-                                    mDisplayId,
-                                    Collections.singletonList(
-                                            Integer.valueOf(taskId)),
-                                    null);
+                            focusDesktopTask(mDisplayId, taskId, null);
                         }
                     }
 
@@ -248,7 +225,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         if (mRunning) {
                             if (!requesting
                                     && !initialSample
-                                    && foreground) {
+                                    && foreground
+                                    && !mWorkspaceQueue.isRunning()) {
                                 confirmTrackedFocus(taskId);
                             }
                             mWindowTransitions.handleImmersiveRequest(
@@ -379,13 +357,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         // with the framework callback before input repair runs.
                         DesktopRuntimeBridge.prepareTaskFocus(
                                 displayId, taskId);
-                        if (mFocusingTaskId >= 0
+                        if (!mWorkspaceQueue.isRunning() && mFocusingTaskId >= 0
                                 && mFocusingTaskId != taskId) {
                             mFocusingTaskId = -1;
                         }
                         restoreTaskbarTask(taskId);
                         mActiveTaskId = taskId;
-                        confirmTrackedFocus(taskId);
+                        if (!mWorkspaceQueue.isRunning()) {
+                            confirmTrackedFocus(taskId);
+                        }
                         recordFocusEvent(
                                 "focus_observed",
                                 displayId,
@@ -490,7 +470,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     void stop() {
         mRunning = false;
         mGeneration++;
-        cancelShowDesktopToggleRequests("desktop task runtime stopped");
+        mWorkspaceQueue.cancelAll("desktop task runtime stopped");
         mHandler.removeCallbacks(mRefreshRunnable);
         mRefreshDueUptimeMillis = -1;
         mTaskWatcher.setPhoneTouchpadRequested(false);
@@ -869,6 +849,55 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
     }
 
+    private interface WorkspaceOperation {
+        void run(TaskRepository.Snapshot workspace,
+                TaskRepository.ActionCallback completion);
+    }
+
+    private void enqueueWorkspaceOperation(
+            final int displayId,
+            final TaskRepository.ActionCallback callback,
+            final WorkspaceOperation operation) {
+        final int generation = mGeneration;
+        mHandler.post(() -> mWorkspaceQueue.enqueue(completion -> {
+            if (!isWorkspaceRequestCurrent(displayId, generation)) {
+                completeActionCallback(completion, false,
+                        "desktop task runtime unavailable");
+                return;
+            }
+            // Read only when this intent reaches the front. A snapshot captured
+            // at click time can precede another command's hierarchy/input commit.
+            TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
+                if (!completion.isCurrent()) {
+                    return;
+                }
+                if (!isWorkspaceRequestCurrent(displayId, generation)) {
+                    completeActionCallback(completion, false,
+                            "desktop task runtime unavailable");
+                    return;
+                }
+                final TaskRepository.Snapshot workspace =
+                        desktopWorkspaceSnapshot(snapshot);
+                if (!workspace.available) {
+                    completeActionCallback(completion, false, workspace.error);
+                    return;
+                }
+                try {
+                    operation.run(workspace, completion);
+                } catch (RuntimeException error) {
+                    completeActionCallback(completion, false,
+                            error.getMessage() == null
+                                    ? error.getClass().getSimpleName() : error.getMessage());
+                }
+            }));
+        }, callback));
+    }
+
+    private boolean isWorkspaceRequestCurrent(final int displayId, final int generation) {
+        return mRunning && mTaskWatcherReady
+                && mDisplayId == displayId && mGeneration == generation;
+    }
+
     @Override
     public void focusDesktopTask(
             final int displayId,
@@ -888,32 +917,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
             return;
         }
-        final int generation = mGeneration;
-        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
-            if (!mRunning || generation != mGeneration
-                    || mDisplayId != displayId || !mTaskWatcherReady) {
-                completeActionCallback(
-                        callback, false, "desktop task runtime unavailable");
+        enqueueWorkspaceOperation(displayId, callback, (workspace, completion) -> {
+            final TaskRepository.TaskEntry task = findTask(workspace.tasks, taskId);
+            if (task == null || !isFocusableTask(task)) {
+                completeActionCallback(completion, false, "task unavailable");
                 return;
             }
-            if (!snapshot.available) {
-                completeActionCallback(callback, false, snapshot.error);
-                return;
-            }
-            final TaskRepository.Snapshot workspace =
-                    desktopWorkspaceSnapshot(snapshot);
-            if (!workspace.available) {
-                completeActionCallback(callback, false, workspace.error);
-                return;
-            }
-            final TaskRepository.TaskEntry focusedTask = findTask(
-                    workspace.tasks, taskId);
-            if (focusedTask == null || !isFocusableTask(focusedTask)) {
-                completeActionCallback(callback, false, "task unavailable");
-                return;
-            }
-            activateThroughGateway(taskId, callback);
-        }));
+            activateThroughGateway(taskId, completion);
+        });
     }
 
     @Override
@@ -921,84 +932,57 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final int displayId,
             final int desktopHostTaskId,
             final TaskRepository.ActionCallback callback) {
-        if (displayId < 0 || desktopHostTaskId < 0) {
-            completeActionCallback(callback, false, "invalid desktop host");
-            return;
-        }
+        enqueueWorkspaceOperation(displayId, callback, (workspace, completion) ->
+                showDesktopNow(workspace, desktopHostTaskId, completion));
+    }
+
+    private void showDesktopNow(
+            final TaskRepository.Snapshot workspace,
+            final int desktopHostTaskId,
+            final TaskRepository.ActionCallback callback) {
+        final Set<Integer> concealedTaskIds;
         synchronized (mTaskbarConcealedTaskIds) {
             mShowDesktopRestoreOrder = Collections.emptyList();
             mShowDesktopNewlyConcealedTaskIds = Collections.emptySet();
+            concealedTaskIds = new LinkedHashSet<>(mTaskbarConcealedTaskIds);
         }
-        final int generation = mGeneration;
-        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
-            if (!mRunning || generation != mGeneration
-                    || mDisplayId != displayId || !mTaskWatcherReady) {
-                completeActionCallback(
-                        callback, false, "desktop task runtime unavailable");
-                return;
-            }
-            if (!snapshot.available) {
-                completeActionCallback(callback, false, snapshot.error);
-                return;
-            }
-            final TaskRepository.Snapshot workspace =
-                    desktopWorkspaceSnapshot(snapshot);
-            if (!workspace.available) {
-                completeActionCallback(callback, false, workspace.error);
-                return;
-            }
-            final Set<Integer> concealedTaskIds;
-            synchronized (mTaskbarConcealedTaskIds) {
-                concealedTaskIds = new LinkedHashSet<>(
-                        mTaskbarConcealedTaskIds);
-            }
-            final TaskbarTaskOrder.DesktopPresentation presentation =
-                    TaskbarTaskOrder.presentDesktop(
-                            workspace,
-                            mDisplayTaskState.lastVisibleTasks(),
-                            concealedTaskIds,
-                            desktopHostTaskId);
-            if (presentation == null
-                    || presentation.physicalOrder.isEmpty()
-                    || presentation.physicalOrder.get(
-                            presentation.physicalOrder.size() - 1)
-                            .intValue() != desktopHostTaskId) {
-                completeActionCallback(
-                        callback, false, "desktop host unavailable");
-                return;
-            }
-            synchronized (mTaskbarConcealedTaskIds) {
-                mTaskbarConcealedTaskIds.addAll(
-                        presentation.newlyConcealedTaskIds);
-            }
-            sendWorkspaceCommand(
-                    DesktopWorkspaceCommand.PRESENT_DESKTOP,
-                    displayId,
-                    presentation.physicalOrder,
-                    result -> {
-                        synchronized (mTaskbarConcealedTaskIds) {
-                            if (result.success) {
-                                mShowDesktopRestoreOrder = new ArrayList<>(
-                                        presentation.restoreOrder);
-                                mShowDesktopNewlyConcealedTaskIds =
-                                        new LinkedHashSet<>(
-                                                presentation
-                                                        .newlyConcealedTaskIds);
-                            } else {
-                                mTaskbarConcealedTaskIds.removeAll(
-                                        presentation
-                                                .newlyConcealedTaskIds);
-                            }
+        final TaskbarTaskOrder.DesktopPresentation presentation =
+                TaskbarTaskOrder.presentDesktop(
+                        workspace,
+                        mDisplayTaskState.lastVisibleTasks(),
+                        concealedTaskIds,
+                        desktopHostTaskId);
+        if (presentation == null
+                || presentation.physicalOrder.isEmpty()
+                || presentation.physicalOrder.get(
+                        presentation.physicalOrder.size() - 1)
+                        .intValue() != desktopHostTaskId) {
+            completeActionCallback(callback, false, "desktop host unavailable");
+            return;
+        }
+        synchronized (mTaskbarConcealedTaskIds) {
+            mTaskbarConcealedTaskIds.addAll(presentation.newlyConcealedTaskIds);
+        }
+        sendWorkspaceCommand(
+                DesktopWorkspaceCommand.PRESENT_DESKTOP,
+                mDisplayId,
+                presentation.physicalOrder,
+                result -> {
+                    synchronized (mTaskbarConcealedTaskIds) {
+                        if (result.success) {
+                            mShowDesktopRestoreOrder = new ArrayList<>(
+                                    presentation.restoreOrder);
+                            mShowDesktopNewlyConcealedTaskIds = new LinkedHashSet<>(
+                                    presentation.newlyConcealedTaskIds);
+                        } else {
+                            mTaskbarConcealedTaskIds.removeAll(
+                                    presentation.newlyConcealedTaskIds);
                         }
-                        scheduleRefresh(0);
-                        completeActionCallback(
-                                callback,
-                                result.success,
-                                result.success
-                                        ? "desktop shown"
-                                        : result.message);
-                    });
-        }));
+                    }
+                    scheduleRefresh(0);
+                    completeActionCallback(callback, result.success,
+                            result.success ? "desktop shown" : result.message);
+                });
     }
 
     @Override
@@ -1006,37 +990,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final int displayId,
             final int desktopHostTaskId,
             final TaskRepository.ActionCallback callback) {
-        if (displayId < 0 || desktopHostTaskId < 0) {
-            completeActionCallback(callback, false, "invalid desktop host");
-            return;
-        }
-        final int generation = mGeneration;
-        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
-            if (!mRunning || generation != mGeneration
-                    || mDisplayId != displayId || !mTaskWatcherReady) {
-                completeActionCallback(
-                        callback, false, "desktop task runtime unavailable");
-                return;
-            }
-            if (!snapshot.available) {
-                completeActionCallback(callback, false, snapshot.error);
-                return;
-            }
-            final TaskRepository.Snapshot workspace =
-                    desktopWorkspaceSnapshot(snapshot);
-            if (!workspace.available) {
-                completeActionCallback(callback, false, workspace.error);
-                return;
-            }
+        enqueueWorkspaceOperation(displayId, callback, (workspace, completion) -> {
             final TaskbarTaskOrder.WorkspacePresentation presentation =
                     TaskbarTaskOrder.presentWorkspace(
                             workspace,
                             mDisplayTaskState.lastVisibleTasks(),
                             desktopHostTaskId);
-            if (presentation == null
-                    || presentation.physicalOrder.isEmpty()) {
-                completeActionCallback(
-                        callback, false, "desktop host unavailable");
+            if (presentation == null || presentation.physicalOrder.isEmpty()) {
+                completeActionCallback(completion, false, "desktop host unavailable");
                 return;
             }
             final int targetTaskId = presentation.physicalOrder.get(
@@ -1052,17 +1013,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                                         presentation.freeformTaskIds);
                                 mTaskbarConcealedTaskIds.addAll(
                                         presentation.fullscreenTaskIds);
-                                mShowDesktopRestoreOrder =
-                                        Collections.emptyList();
-                                mShowDesktopNewlyConcealedTaskIds =
-                                        Collections.emptySet();
+                                mShowDesktopRestoreOrder = Collections.emptyList();
+                                mShowDesktopNewlyConcealedTaskIds = Collections.emptySet();
                             }
                             scheduleRefresh(0);
                         }
-                        completeActionCallback(
-                                callback, result.success, result.message);
+                        completeActionCallback(completion, result.success, result.message);
                     }));
-        }));
+        });
     }
 
     @Override
@@ -1070,68 +1028,46 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final int displayId,
             final int desktopHostTaskId,
             final TaskRepository.ActionCallback callback) {
-        if (displayId < 0 || desktopHostTaskId < 0) {
-            completeActionCallback(callback, false, "invalid desktop host");
+        enqueueWorkspaceOperation(displayId, callback, (workspace, completion) ->
+                restoreShowDesktopWorkspaceNow(workspace, completion));
+    }
+
+    private void restoreShowDesktopWorkspaceNow(
+            final TaskRepository.Snapshot workspace,
+            final TaskRepository.ActionCallback callback) {
+        final List<Integer> savedOrder;
+        final Set<Integer> savedConcealedTaskIds;
+        synchronized (mTaskbarConcealedTaskIds) {
+            savedOrder = new ArrayList<>(mShowDesktopRestoreOrder);
+            savedConcealedTaskIds = new LinkedHashSet<>(
+                    mShowDesktopNewlyConcealedTaskIds);
+        }
+        final List<Integer> liveOrder = liveTaskOrder(
+                workspace.tasks, mDisplayId, savedOrder);
+        if (liveOrder.isEmpty()) {
+            completeActionCallback(callback, true, "no saved workspace");
             return;
         }
-        final int generation = mGeneration;
-        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
-            if (!mRunning || generation != mGeneration
-                    || mDisplayId != displayId || !mTaskWatcherReady) {
-                completeActionCallback(
-                        callback, false, "desktop task runtime unavailable");
-                return;
-            }
-            if (!snapshot.available) {
-                completeActionCallback(callback, false, snapshot.error);
-                return;
-            }
-            final TaskRepository.Snapshot workspace =
-                    desktopWorkspaceSnapshot(snapshot);
-            if (!workspace.available) {
-                completeActionCallback(callback, false, workspace.error);
-                return;
-            }
-            final List<Integer> savedOrder;
-            final Set<Integer> savedConcealedTaskIds;
-            synchronized (mTaskbarConcealedTaskIds) {
-                savedOrder = new ArrayList<>(mShowDesktopRestoreOrder);
-                savedConcealedTaskIds = new LinkedHashSet<>(
-                        mShowDesktopNewlyConcealedTaskIds);
-            }
-            final List<Integer> liveOrder = liveTaskOrder(
-                    workspace.tasks, displayId, savedOrder);
-            if (liveOrder.isEmpty()) {
-                completeActionCallback(
-                        callback, true, "no saved workspace");
-                return;
-            }
-            synchronized (mTaskbarConcealedTaskIds) {
-                mTaskbarConcealedTaskIds.removeAll(savedConcealedTaskIds);
-            }
-            final int targetTaskId = liveOrder.get(
-                    liveOrder.size() - 1).intValue();
-            focusThroughGateway(
-                    DesktopWorkspaceCommand.RESTORE_WORKSPACE,
-                    liveOrder,
-                    targetTaskId,
-                    result -> {
-                        synchronized (mTaskbarConcealedTaskIds) {
-                            if (result.success) {
-                                mShowDesktopRestoreOrder =
-                                        Collections.emptyList();
-                                mShowDesktopNewlyConcealedTaskIds =
-                                        Collections.emptySet();
-                            } else {
-                                mTaskbarConcealedTaskIds.addAll(
-                                        savedConcealedTaskIds);
-                            }
+        synchronized (mTaskbarConcealedTaskIds) {
+            mTaskbarConcealedTaskIds.removeAll(savedConcealedTaskIds);
+        }
+        final int targetTaskId = liveOrder.get(liveOrder.size() - 1).intValue();
+        focusThroughGateway(
+                DesktopWorkspaceCommand.RESTORE_WORKSPACE,
+                liveOrder,
+                targetTaskId,
+                result -> {
+                    synchronized (mTaskbarConcealedTaskIds) {
+                        if (result.success) {
+                            mShowDesktopRestoreOrder = Collections.emptyList();
+                            mShowDesktopNewlyConcealedTaskIds = Collections.emptySet();
+                        } else {
+                            mTaskbarConcealedTaskIds.addAll(savedConcealedTaskIds);
                         }
-                        scheduleRefresh(0);
-                        completeActionCallback(
-                                callback, result.success, result.message);
-                    });
-        }));
+                    }
+                    scheduleRefresh(0);
+                    completeActionCallback(callback, result.success, result.message);
+                });
     }
 
     @Override
@@ -1139,79 +1075,17 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final int displayId,
             final int desktopHostTaskId,
             final TaskRepository.ActionCallback callback) {
-        if (displayId < 0 || desktopHostTaskId < 0) {
-            completeActionCallback(callback, false, "invalid desktop host");
-            return;
-        }
-        mHandler.post(() -> {
-            if (!mRunning || !mTaskWatcherReady || mDisplayId != displayId) {
-                completeActionCallback(
-                        callback, false, "desktop task runtime unavailable");
-                return;
+        enqueueWorkspaceOperation(displayId, callback, (workspace, completion) -> {
+            final boolean restore;
+            synchronized (mTaskbarConcealedTaskIds) {
+                restore = !mShowDesktopRestoreOrder.isEmpty();
             }
-            mShowDesktopToggleRequests.addLast(
-                    new ShowDesktopToggleRequest(
-                            displayId, desktopHostTaskId, callback));
-            runNextShowDesktopToggle();
+            if (restore) {
+                restoreShowDesktopWorkspaceNow(workspace, completion);
+            } else {
+                showDesktopNow(workspace, desktopHostTaskId, completion);
+            }
         });
-    }
-
-    private void runNextShowDesktopToggle() {
-        if (mShowDesktopToggleRunning) {
-            return;
-        }
-        final ShowDesktopToggleRequest request =
-                mShowDesktopToggleRequests.peekFirst();
-        if (request == null) {
-            return;
-        }
-        mShowDesktopToggleRunning = true;
-        final boolean restore;
-        synchronized (mTaskbarConcealedTaskIds) {
-            restore = !mShowDesktopRestoreOrder.isEmpty();
-        }
-        final TaskRepository.ActionCallback completion = result ->
-                mHandler.post(() -> finishShowDesktopToggle(request, result));
-        if (restore) {
-            restoreShowDesktopWorkspace(
-                    request.displayId,
-                    request.desktopHostTaskId,
-                    completion);
-        } else {
-            showDesktop(
-                    request.displayId,
-                    request.desktopHostTaskId,
-                    completion);
-        }
-    }
-
-    private void finishShowDesktopToggle(
-            final ShowDesktopToggleRequest request,
-            final TaskRepository.ActionResult result) {
-        if (request.completed) {
-            return;
-        }
-        request.completed = true;
-        mShowDesktopToggleRequests.remove(request);
-        mShowDesktopToggleRunning = false;
-        completeActionCallback(
-                request.callback,
-                result != null && result.success,
-                result == null ? "desktop workspace command failed"
-                        : result.message);
-        runNextShowDesktopToggle();
-    }
-
-    private void cancelShowDesktopToggleRequests(final String message) {
-        while (!mShowDesktopToggleRequests.isEmpty()) {
-            final ShowDesktopToggleRequest request =
-                    mShowDesktopToggleRequests.removeFirst();
-            if (!request.completed) {
-                request.completed = true;
-                completeActionCallback(request.callback, false, message);
-            }
-        }
-        mShowDesktopToggleRunning = false;
     }
 
     @Override
@@ -1224,38 +1098,20 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             completeActionCallback(callback, false, "invalid session workspace");
             return;
         }
-        final int generation = mGeneration;
-        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
-            if (!mRunning || generation != mGeneration
-                    || mDisplayId != displayId || !mTaskWatcherReady) {
-                completeActionCallback(
-                        callback, false, "desktop task observer unavailable");
-                return;
-            }
-            if (!snapshot.available) {
-                completeActionCallback(callback, false, snapshot.error);
-                return;
-            }
-            final TaskRepository.Snapshot workspace =
-                    desktopWorkspaceSnapshot(snapshot);
-            if (!workspace.available) {
-                completeActionCallback(callback, false, workspace.error);
-                return;
-            }
+        final List<Integer> requestedOrder = new ArrayList<>(backToFrontTaskIds);
+        enqueueWorkspaceOperation(displayId, callback, (workspace, completion) -> {
             final List<Integer> liveOrder = liveTaskOrder(
-                    workspace.tasks, displayId, backToFrontTaskIds);
+                    workspace.tasks, displayId, requestedOrder);
             if (liveOrder.isEmpty()) {
-                completeActionCallback(callback, false, "session tasks unavailable");
+                completeActionCallback(completion, false, "session tasks unavailable");
                 return;
             }
-            final int targetTaskId = liveOrder.get(
-                    liveOrder.size() - 1).intValue();
             focusThroughGateway(
                     DesktopWorkspaceCommand.RESTORE_SESSION,
                     liveOrder,
-                    targetTaskId,
-                    callback);
-        }));
+                    liveOrder.get(liveOrder.size() - 1).intValue(),
+                    completion);
+        });
     }
 
     @Override
@@ -1263,96 +1119,45 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final int displayId,
             final int taskId,
             final TaskRepository.ActionCallback callback) {
-        if (displayId < 0 || taskId < 0) {
-            completeActionCallback(callback, false, "invalid task");
-            return;
-        }
-        final int generation = mGeneration;
-        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
-            if (!mRunning || generation != mGeneration
-                    || mDisplayId != displayId || !mTaskWatcherReady) {
-                completeActionCallback(
-                        callback, false, "desktop task runtime unavailable");
-                return;
-            }
-            if (!snapshot.available) {
-                completeActionCallback(callback, false, snapshot.error);
-                return;
-            }
-            final TaskRepository.Snapshot workspace =
-                    desktopWorkspaceSnapshot(snapshot);
-            if (!workspace.available) {
-                completeActionCallback(callback, false, workspace.error);
-                return;
-            }
-            final TaskRepository.TaskEntry task = findTask(
-                    workspace.tasks, taskId);
+        enqueueWorkspaceOperation(displayId, callback, (workspace, completion) -> {
+            final TaskRepository.TaskEntry task = findTask(workspace.tasks, taskId);
             if (task == null || !isFocusableTask(task)) {
-                completeActionCallback(callback, false, "task unavailable");
+                completeActionCallback(completion, false, "task unavailable");
                 return;
             }
-            final Set<Integer> effectiveConcealedTaskIds;
+            final Set<Integer> concealedTaskIds;
             synchronized (mTaskbarConcealedTaskIds) {
-                effectiveConcealedTaskIds = new LinkedHashSet<>(
-                        mTaskbarConcealedTaskIds);
+                concealedTaskIds = new LinkedHashSet<>(mTaskbarConcealedTaskIds);
             }
             if (EffectiveTaskStack.shouldActivateTaskbarTarget(
-                    workspace,
-                    task,
-                    effectiveConcealedTaskIds,
-                    mActiveTaskId)) {
-                activateThroughGateway(taskId, callback);
-                return;
+                    workspace, task, concealedTaskIds, mActiveTaskId)) {
+                activateThroughGateway(taskId, completion);
+            } else {
+                demoteTask(workspace, taskId, completion);
             }
-
-            demoteTask(workspace, taskId, callback);
-        }));
+        });
     }
 
     private void requestTaskDemotion(
             final int taskId,
             final TaskRepository.ActionCallback callback) {
-        final int displayId = mDisplayId;
-        final int generation = mGeneration;
-        TaskRepository.load(displayId, snapshot -> mHandler.post(() -> {
-            if (!mRunning || generation != mGeneration
-                    || mDisplayId != displayId || !mTaskWatcherReady) {
-                completeActionCallback(
-                        callback, false, "desktop task runtime unavailable");
-                return;
-            }
-            if (!snapshot.available) {
-                completeActionCallback(callback, false, snapshot.error);
-                return;
-            }
-            final TaskRepository.Snapshot workspace =
-                    desktopWorkspaceSnapshot(snapshot);
-            if (!workspace.available) {
-                completeActionCallback(callback, false, workspace.error);
-                return;
-            }
-            final TaskRepository.TaskEntry task = findTask(
-                    workspace.tasks, taskId);
+        enqueueWorkspaceOperation(mDisplayId, callback, (workspace, completion) -> {
+            final TaskRepository.TaskEntry task = findTask(workspace.tasks, taskId);
             if (task == null || !isFocusableTask(task)) {
-                completeActionCallback(callback, false, "task unavailable");
+                completeActionCallback(completion, false, "task unavailable");
                 return;
             }
             final Set<Integer> concealedTaskIds;
             synchronized (mTaskbarConcealedTaskIds) {
-                concealedTaskIds = new LinkedHashSet<>(
-                        mTaskbarConcealedTaskIds);
+                concealedTaskIds = new LinkedHashSet<>(mTaskbarConcealedTaskIds);
             }
             if (EffectiveTaskStack.shouldActivateTaskbarTarget(
-                    workspace,
-                    task,
-                    concealedTaskIds,
-                    mActiveTaskId)) {
-                completeActionCallback(
-                        callback, false, "task is not foreground");
+                    workspace, task, concealedTaskIds, mActiveTaskId)) {
+                completeActionCallback(completion, false, "task is not foreground");
                 return;
             }
-            demoteTask(workspace, taskId, callback);
-        }));
+            demoteTask(workspace, taskId, completion);
+        });
     }
 
     private void demoteTask(
@@ -1471,11 +1276,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final TaskRepository.ActionCallback callback) {
         final int displayId = mDisplayId;
         mFocusingTaskId = taskId;
-        mActiveTaskId = taskId;
+        // Requested focus is not observed focus. Keep it pending until the
+        // shell confirms both the task order and its actual input window.
         recordFocusEvent(
                 "focus_requested", displayId, taskId, true, "requested");
         return result -> {
-            if (!result.success) {
+            if (result.success) {
+                confirmTrackedFocus(taskId);
+            } else {
                 clearTrackedFocus(taskId);
                 recordFocusEvent(
                         "focus_request_failed",
@@ -1531,17 +1339,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final int displayId,
             final List<Integer> taskIds,
             final TaskRepository.ActionCallback callback) {
+        final int generation = mGeneration;
         mHandler.post(() -> {
-            if (!mRunning || !mTaskWatcherReady || mDisplayId != displayId) {
-                if (isActiveDesktopDisplay(displayId)) {
-                    completeActionCallback(
-                            callback,
-                            false,
-                            "desktop task observer unavailable");
-                } else {
-                    TaskRepository.runFocusAction(
-                            displayId, taskIds, callback);
-                }
+            if (generation != mGeneration) {
+                return;
+            }
+            if (!isWorkspaceRequestCurrent(displayId, generation)) {
+                completeActionCallback(callback, false,
+                        "desktop task runtime unavailable");
                 return;
             }
             final int focusedTaskId = taskIds.get(
@@ -1563,6 +1368,11 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             focusedTaskId,
                             physicalOrder);
             mTaskWatcher.sendWorkspaceCommand(command, result -> {
+                // A late Binder acknowledgement must not restore concealment
+                // or focus state belonging to a closed desktop session.
+                if (generation != mGeneration) {
+                    return;
+                }
                 recordWorkspaceCommandEvent(command, result);
                 completeActionCallback(
                         callback, result.success, result.message);
@@ -2166,8 +1976,9 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             if (!mRunning || mDisplayId != displayId) {
                 return;
             }
-            mFocusingTaskId = taskId;
-            mActiveTaskId = taskId;
+            if (!mWorkspaceQueue.isRunning()) {
+                mFocusingTaskId = taskId;
+            }
             recordFocusEvent(
                     "launch_focus_expected",
                     displayId,
@@ -2256,7 +2067,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     findTask(workspace.tasks, focusingTaskId);
             if (focusingTask == null) {
                 clearTrackedFocus(focusingTaskId);
-            } else if (focusingTask.active) {
+            } else if (focusingTask.active && !mWorkspaceQueue.isRunning()) {
                 confirmTrackedFocus(focusingTaskId);
             }
         } else {

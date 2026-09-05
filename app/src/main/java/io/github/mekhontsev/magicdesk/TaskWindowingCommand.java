@@ -157,12 +157,11 @@ public final class TaskWindowingCommand {
                 taskIds,
                 transactionClass,
                 transaction);
-        // Some WindowManager implementations publish the new hierarchy before
-        // committing the matching freeform task leash order. Apply the surface
-        // transaction returned by the framework sync callback before reporting
-        // the selected visible task as foreground.
-        ShellWindowTransitionExecutor.applySynchronized(
-                service, transactionClass, transaction);
+        final Object target = HiddenTaskApi.requireTask(
+                service, displayId, taskIds[taskIds.length - 1]);
+        ShellWindowTransitionExecutor.applySelection(
+                service, displayId, transactionClass, transaction,
+                HiddenTaskApi.getTaskWindowingMode(target));
     }
 
     static void focusTasks(

@@ -69,6 +69,16 @@ application-plane surface transactions. Launches, mode transitions, and
 workspace commands do not append a second chrome-only commit. A failed plane
 surface commit is not reported as a successful window operation. This adds no
 task polling or independent input repair.
+Before the first window or organizer-surface submission in a shell process,
+`ShellWindowTransitionExecutor` connects to WindowManager's SurfaceFlinger
+transaction queue through `WindowOrganizer.shareTransactionQueue`, matching
+Android 15+ WMShell initialization. Framework-returned sync transactions and
+explicit plane/chrome commits therefore share WM's apply token instead of an
+independent process queue. Initialization is retained for the process lifetime;
+failure rejects the operation rather than silently continuing with independent
+ordering. Diagnostics reports `surfaceTransactionQueue=shared_with_wm` after
+successful initialization. This does not replace hierarchy or input-focus
+confirmation and does not add a worker, timer, or transaction retry.
 On the phone display the taskbar child window also covers the stable lower
 system-bar inset. It paints that portion with the taskbar background, while the
 taskbar controls remain above the inset. When managed fullscreen policy conceals
@@ -83,6 +93,13 @@ exactly one task; other operations carry an explicit back-to-front plan.
 `ShellDesktopWorkspaceCoordinator` serializes those
 commands for the configured display, completes the live fullscreen and mixed
 workspace order from shell-owned topology, and applies the existing WCT path.
+The app-side `DesktopWorkspaceQueue` serializes the entire user operation:
+read the live snapshot, resolve activate/demote or Show/Restore, prepare host
+input, submit, and acknowledge the committed result. It runs on the existing
+controller Handler, with no worker or timer. Taskbar, Alt+Tab, overview, MCP,
+and desktop presentation share it; Win+D has no separate queue. Pending focus
+does not become observed focus when an operation is enqueued. Session stop
+cancels pending callbacks and ignores acknowledgements from the old session.
 The app-side order is built only from the shell-published desktop ownership
 snapshot, and the shell rejects a target outside that ownership before any raw
 focus fallback. This is significant on display 0, where phone tasks and the
@@ -91,13 +108,38 @@ desktop workspace share one physical display.
 Once a task has entered fullscreen, activation raises that task and its
 existing ordering plane in one atomic WCT and does not change any task's mode,
 bounds, parent, or hidden state. Freeform tasks and the HOME host remain in the
-ordinary root workspace on every target. Selecting a visible ordinary freeform
-task completes its hierarchy WCT through the framework synchronization callback
-and applies the returned surface transaction. This keeps the task-leash order
-consistent with the task hierarchy on implementations that publish hierarchy
-focus before committing the corresponding surface order. Fullscreen-plane
-selection remains an atomic WCT and neither path is repeated through
-`TRANSIT_TO_FRONT`.
+ordinary root workspace on every target. Selecting an ordinary freeform task,
+including one above a retained fullscreen plane, submits its complete ordering
+WCT once as a system-played `TO_FRONT`. WMCore's transition assigns root surface
+layers at the start and finish boundaries. A plain WCT synchronization callback
+does not require that assignment: a wired reproduction confirmed Files first in
+the task hierarchy and focused while its surface still remained below Golly.
+The same policy applies to covered freeform tasks, whose surfaces must be
+brought forward even when the previous snapshot says invisible.
+Fullscreen-plane selection remains an atomic WCT with explicit plane surface
+composition; newly established planes retain their launch boundary. Selection
+policy lives in `ShellWindowTransitionExecutor` for ordinary and mixed
+workspaces. The system transition replaces the freeform sync submission; it is
+not a second focus/raise after applying the same WCT.
+
+The native phase ends at `FrameworkWindowCommitBarrier`, using Android 15+'s
+`IWindowManager.syncInputTransactions(true)` before returning to the topology
+owner. WM waits for pending transitions/animations and input-window publication
+using its own bounded event waits. The existing plane/chrome surface commit
+then publishes the final workspace order, followed by input-focus confirmation.
+This order matters because native finish-layer assignment places HOME below
+normal roots, even when our hierarchy explicitly demotes a fullscreen plane
+below HOME. Publishing that plane's negative layer before native finish lets
+WM overwrite it and leaves the demoted application visible behind freeforms.
+
+The barrier is global, not display- or token-specific, and Android can return
+at its internal deadline without a timeout result. It is not exposed as proof
+that a particular transition succeeded: the existing surface acknowledgement
+and input-focus checks remain required. Binder/API failure rejects the command
+without another WCT fallback. Diagnostics records its mechanism, calls,
+failures, and last duration separately as `windowCommitBarrier`; its reason is
+`WINDOW_TRANSITION_COMMIT`. There is no new worker, poller, repeated plane
+raise, or fixed post-transition sleep. No barrier runs during idle observation.
 
 The coordinator captures typed task and SurfaceFlinger input-window event
 generations before commit, requests one framework task sample, and waits for
@@ -119,8 +161,9 @@ usable input focus have converged.
   provide stable ordering identities for an arbitrary number of tasks.
 - Using BLAST draw synchronization for fullscreen-plane selection or stopped
   targets adds an unnecessary app-visible handoff and can leave the sync
-  waiting for a surface that is not expected to draw. Surface synchronization
-  is restricted to selecting a visible ordinary freeform workspace task.
+  waiting for a surface that is not expected to draw. For ordinary freeform
+  selection, merely applying the returned sync transaction also does not force
+  root layer assignment. Use the native transition's surface lifecycle instead.
 - Following an atomic reorder with `moveTaskToFront`, `setFocusedTask`, or
   `setFocusedRootTask` creates a second selection path and still does not
   reliably repair an input window left on a peer task.
@@ -130,9 +173,9 @@ usable input focus have converged.
 
 ## Window transition ownership
 
-Shell-side WCT submission has one owner. Ordinary freeform focus commits the
-framework-provided synchronized surface transaction; other steady-state
-reorders use an atomic WCT. Neither path uses `startNewTransition`. A cold
+Shell-side WCT submission has one owner. Ordinary freeform focus submits one
+system `TO_FRONT` through `startForShellAdoption`; fullscreen-plane selection
+uses an atomic WCT. Neither path appends another task-focus submission. A cold
 freeform launch starts behind the desktop host so its framework default state
 is never exposed. Once the task ID is known, one complete WMShell `OPEN`
 establishes mode, bounds, and front order. No raw opening token crosses that
@@ -176,7 +219,8 @@ content without rotating the plane, desktop host, or taskbar.
 A synchronously hidden prepared task is revealed through a system-played
 transition rather than a plain WCT. This is a surface-producing boundary:
 WMShell must rebuild the task leash, native caption, and caption input window.
-Steady-state activation and geometry changes never use this route.
+Freeform selection uses the same submission boundary with an ordering-only WCT;
+it does not hide or reveal tasks through `setHidden`.
 
 MagicDesk currently starts this narrow class of transitions directly in
 WMCore through `WindowOrganizer.startNewTransition`. Because the call does not
@@ -227,6 +271,10 @@ Single-task selection never restores a captured panel or application stack.
 Ownership adapters preserve the requested plan; they do not insert HOME as an
 implicit separator. HOME appears in the plan only for an explicit workspace
 operation, otherwise the live hierarchy determines the current background.
+When demotion selects a fullscreen successor, freeform tasks before that HOME
+separator are explicit blockers to lower in the same WCT, not entries to
+discard. Raising only the fullscreen plane leaves their root/input surfaces
+behind and can expose them again on the next single-task activation.
 The shell retains only freeform tasks above the first opaque application or
 HOME in the typed root hierarchy, even when covered tasks still report
 `visible=true`. Selecting one covered freeform task raises that task, not its

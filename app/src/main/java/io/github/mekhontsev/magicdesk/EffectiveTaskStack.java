@@ -28,8 +28,8 @@ final class EffectiveTaskStack {
             return true;
         }
         // Organizer-owned fullscreen planes can retain a synthetic active
-        // flag while a freeform task already owns framework focus. Pending
-        // focus is also newer than the asynchronously loaded task snapshot.
+        // flag while a freeform task already owns framework focus. The caller
+        // supplies observed focus, never a queued activation target.
         if (focusedTaskId >= 0) {
             return target.taskId != focusedTaskId;
         }

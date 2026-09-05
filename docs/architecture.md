@@ -280,6 +280,12 @@ demote, bare-desktop presentation, desktop-workspace presentation, workspace
 restore, and session restore operations. Activation carries exactly one target
 task; workspace operations carry a named back-to-front plan. A multi-task
 activation is rejected, not interpreted as a workspace restore.
+`DesktopWorkspaceQueue` orders complete user intents on the controller Handler,
+including their live snapshot, toggle decision, host-input preparation, and
+shell acknowledgement. It replaces the separate Show/Restore queue. Requested
+focus is kept separate from observed focus; the next click cannot use the
+uncommitted target of its predecessor. Stop cancels the session's outstanding
+intents without admitting late acknowledgements into the next session.
 `ShellDesktopWorkspaceCoordinator` serializes the commands for the configured
 display and is the sole adapter from logical workspace intent to
 `ShellFullscreenTaskArea` and ordinary task ordering. The application retains
@@ -665,6 +671,18 @@ runtime integration and are not distributed through the same release path.
 - `DesktopTaskController` orchestrates native task transitions as an instance
   owned exclusively by `RuntimeDesktopTaskCoordinator`. It contains no static
   active-controller reference; pure task classification helpers remain static.
+  Its workspace queue covers activation, taskbar demotion, Alt+Tab, MCP focus,
+  Show/Restore, and session workspace restoration, without a separate thread.
+  Ordinary and mixed-workspace freeform selection submit one native `TO_FRONT`
+  through `ShellWindowTransitionExecutor`, so WM assigns task surface layers
+  together with the hierarchy. A plain WCT sync callback did not guarantee that
+  layer assignment. Fullscreen-plane selection retains its atomic WCT and
+  explicit organizer-surface composition; no second focus or raise is appended.
+  Before the final plane/chrome composition, the native freeform phase passes
+  the framework-owned transition/input barrier in `FrameworkWindowCommitBarrier`.
+  This prevents its finish transaction from overwriting a plane demoted below
+  HOME. The barrier is global and internally bounded, with duration diagnostics;
+  command acknowledgement still requires the surface and input-focus checks.
   Ordinary task close uses Android's task lifecycle through `TaskRepository`.
   A topology-owned fullscreen plane close first commits survivor focus and then
   removes the background task, while package force-stop first commits the

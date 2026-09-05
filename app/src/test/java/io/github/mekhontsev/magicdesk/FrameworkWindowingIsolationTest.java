@@ -33,6 +33,8 @@ public final class FrameworkWindowingIsolationTest {
             "io/github/mekhontsev/magicdesk/RuntimeDelays.java";
     private static final String EVENT_WAITS_SOURCE =
             "io/github/mekhontsev/magicdesk/EventDrivenWaits.java";
+    private static final String WINDOW_COMMIT_SOURCE =
+            "io/github/mekhontsev/magicdesk/FrameworkWindowCommitBarrier.java";
     private static final String[] HIDDEN_API_NAMES = {
         "\"requestedVisibleTypes\"",
         "\"setExcludeImeInsets\"",
@@ -106,6 +108,14 @@ public final class FrameworkWindowingIsolationTest {
                 List.of(INPUT_OBSERVATION_SOURCE),
                 "WindowInfosListener",
                 "InputWindowHandle");
+    }
+
+    @Test
+    public void frameworkCommitBarrierHasOneOwner() throws IOException {
+        assertNoSourceTokensOutside(
+                "Framework window barrier outside commit adapter",
+                List.of(WINDOW_COMMIT_SOURCE),
+                "\"syncInputTransactions\"");
     }
 
     @Test

@@ -768,6 +768,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public String getFrameworkRuntimeDiagnostics() {
         return FrameworkRuntime.current().diagnosticDetail()
+                + "; surfaceTransactionQueue="
+                + ShellWindowTransitionExecutor.surfaceTransactionQueueState()
+                + "; windowCommitBarrier={"
+                + FrameworkWindowCommitBarrier.diagnostics() + "}"
                 + "; boundedWaits={" + BoundedStateAwaiter.diagnostics() + "}"
                 + "; eventWaits={" + EventDrivenWaits.diagnostics() + "}"
                 + "; inputWindowEvents={"

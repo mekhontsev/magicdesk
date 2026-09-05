@@ -2,7 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Classified monitor waits that wake from an explicit runtime signal. */
+/** Classified event waits, including barriers whose monitor is owned by Android. */
 public final class EventDrivenWaits {
     public enum Reason {
         FRAMEWORK_OBSERVER_ACTIVATION,
@@ -12,6 +12,7 @@ public final class EventDrivenWaits {
         PTY_RESPONSE,
         AUTOMATION_EVENT,
         INPUT_WINDOW_COMMIT,
+        WINDOW_TRANSITION_COMMIT,
         INPUT_FOCUS_RELAYOUT,
         INPUT_WORKER_STOP,
         INPUT_CAPTURE_RELEASE,
@@ -49,6 +50,13 @@ public final class EventDrivenWaits {
 
     static String diagnostics() {
         return "waits=" + WAITS.get() + ", lastReason=" + sLastReason;
+    }
+
+    static void noteFrameworkWait(final Reason reason) {
+        if (reason == null) {
+            throw new IllegalArgumentException("framework wait reason is required");
+        }
+        record(reason);
     }
 
     private static void validate(

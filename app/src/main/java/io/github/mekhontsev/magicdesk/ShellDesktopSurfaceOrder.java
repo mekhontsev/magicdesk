@@ -87,6 +87,7 @@ final class ShellDesktopSurfaceOrder {
     private static void applyCommitted(
             final Class<?> transactionClass, final Object transaction)
             throws ReflectiveOperationException {
+        ShellWindowTransitionExecutor.prepareSurfaceTransactions();
         final Class<?> listenerClass = Class.forName(
                 "android.view.SurfaceControl$TransactionCommittedListener");
         final CountDownLatch committed = new CountDownLatch(1);

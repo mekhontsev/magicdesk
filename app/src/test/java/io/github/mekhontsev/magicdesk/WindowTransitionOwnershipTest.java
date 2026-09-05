@@ -53,6 +53,24 @@ public final class WindowTransitionOwnershipTest {
     }
 
     @Test
+    public void onlyTransitionExecutorOwnsSurfaceQueueInitialization()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        for (final Path source : productionSources()) {
+            if (EXECUTOR.equals(source.getFileName().toString())) {
+                continue;
+            }
+            final String contents = read(source);
+            if (contents.contains("\"shareTransactionQueue\"")
+                    || contents.contains("\"setDefaultApplyToken\"")) {
+                violations.add(source.toString());
+            }
+        }
+        assertTrue("Surface queue initialization outside executor: "
+                + violations, violations.isEmpty());
+    }
+
+    @Test
     public void desktopRuntimeDoesNotInvokeRawWindowModeCommands()
             throws IOException {
         final List<String> violations = new ArrayList<>();
