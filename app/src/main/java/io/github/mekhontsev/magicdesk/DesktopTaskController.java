@@ -870,58 +870,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public void focusStack(final List<TaskRepository.TaskEntry> topFirstTasks,
-            final TaskRepository.TaskEntry topTask,
-            final TaskRepository.ActionCallback callback) {
-        if (!mRunning || !mTaskWatcherReady) {
-            final int requestedDisplayId = requestedDisplayId(
-                    topFirstTasks, topTask);
-            if (isActiveDesktopDisplay(requestedDisplayId)) {
-                completeActionCallback(
-                        callback, false, "desktop task observer unavailable");
-            } else {
-                TaskRepository.bringStackToFront(
-                        topFirstTasks, topTask, callback);
-            }
-            return;
-        }
-        final Set<Integer> orderedTaskIds = new LinkedHashSet<>();
-        if (topFirstTasks != null) {
-            for (int index = topFirstTasks.size() - 1; index >= 0; index--) {
-                final TaskRepository.TaskEntry task = topFirstTasks.get(index);
-                if (isFocusableTask(task)
-                        && isDesktopOwnedTask(task.taskId)) {
-                    orderedTaskIds.add(Integer.valueOf(task.taskId));
-                }
-            }
-        }
-        if (isFocusableTask(topTask)
-                && isDesktopOwnedTask(topTask.taskId)) {
-            orderedTaskIds.remove(Integer.valueOf(topTask.taskId));
-            orderedTaskIds.add(Integer.valueOf(topTask.taskId));
-        }
-        if (orderedTaskIds.isEmpty()) {
-            mFocusingTaskId = -1;
-            completeActionCallback(callback, true, "no tasks");
-            return;
-        }
-        final List<Integer> orderedTaskIdList =
-                new ArrayList<>(orderedTaskIds);
-        final int focusedTaskId = orderedTaskIdList.get(
-                orderedTaskIdList.size() - 1).intValue();
-        focusThroughGateway(
-                orderedTaskIdList,
-                focusedTaskId,
-                callback);
-    }
-
-    @Override
-    public void focusDesktopTasks(
+    public void focusDesktopTask(
             final int displayId,
-            final List<Integer> taskIds,
+            final int taskId,
             final TaskRepository.ActionCallback callback) {
-        if (taskIds == null || taskIds.isEmpty()) {
-            completeActionCallback(callback, false, "no tasks");
+        if (displayId < 0 || taskId < 0) {
+            completeActionCallback(callback, false, "invalid task");
             return;
         }
         if (!mRunning || !mTaskWatcherReady || mDisplayId != displayId) {
@@ -929,7 +883,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(
                         callback, false, "desktop task observer unavailable");
             } else {
-                TaskRepository.runFocusAction(displayId, taskIds, callback);
+                TaskRepository.runFocusAction(displayId,
+                        Collections.singletonList(Integer.valueOf(taskId)), callback);
             }
             return;
         }
@@ -951,26 +906,13 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 completeActionCallback(callback, false, workspace.error);
                 return;
             }
-            final int focusedTaskId = taskIds.get(
-                    taskIds.size() - 1).intValue();
             final TaskRepository.TaskEntry focusedTask = findTask(
-                    workspace.tasks, focusedTaskId);
+                    workspace.tasks, taskId);
             if (focusedTask == null || !isFocusableTask(focusedTask)) {
                 completeActionCallback(callback, false, "task unavailable");
                 return;
             }
-            final List<Integer> liveOrder = liveTaskOrder(
-                    workspace.tasks, displayId, taskIds);
-            if (liveOrder.isEmpty()
-                    || liveOrder.get(liveOrder.size() - 1).intValue()
-                            != focusedTaskId) {
-                completeActionCallback(callback, false, "task unavailable");
-                return;
-            }
-            focusThroughGateway(
-                    liveOrder,
-                    focusedTaskId,
-                    callback);
+            activateThroughGateway(taskId, callback);
         }));
     }
 
@@ -1359,10 +1301,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     task,
                     effectiveConcealedTaskIds,
                     mActiveTaskId)) {
-                focusThroughGateway(
-                        Collections.singletonList(Integer.valueOf(taskId)),
-                        taskId,
-                        callback);
+                activateThroughGateway(taskId, callback);
                 return;
             }
 
@@ -1460,13 +1399,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     /** Common focus route for taskbar, Alt+Tab, overview, and automation. */
-    private void focusThroughGateway(
-            final List<Integer> requestedTaskIds,
+    private void activateThroughGateway(
             final int focusedTaskId,
             final TaskRepository.ActionCallback callback) {
         focusThroughGateway(
                 DesktopWorkspaceCommand.ACTIVATE,
-                requestedTaskIds,
+                Collections.singletonList(Integer.valueOf(focusedTaskId)),
                 focusedTaskId,
                 callback);
     }
@@ -1638,26 +1576,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                         .activeDisplayId() == displayId;
     }
 
-    private static int requestedDisplayId(
-            final List<TaskRepository.TaskEntry> tasks,
-            final TaskRepository.TaskEntry target) {
-        if (target != null && target.displayId >= 0) {
-            return target.displayId;
-        }
-        if (tasks != null) {
-            for (final TaskRepository.TaskEntry task : tasks) {
-                if (task != null && task.displayId >= 0) {
-                    return task.displayId;
-                }
-            }
-        }
-        return -1;
-    }
-
     private static void recordWorkspaceCommandEvent(
             final DesktopWorkspaceCommand command,
             final TaskRepository.ActionResult result) {
         try {
+            final org.json.JSONArray order = new org.json.JSONArray();
+            for (final int taskId : command.backToFrontTaskIds) {
+                order.put(taskId);
+            }
             DesktopAutomationEventJournal.record(
                     "workspace",
                     "command_completed",
@@ -1667,6 +1593,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                             .put("operation", command.operationName())
                             .put("displayId", command.displayId)
                             .put("targetTaskId", command.targetTaskId)
+                            .put("backToFrontTaskIds", order)
                             .put("taskCount",
                                     command.backToFrontTaskIds.length)
                             .put("focusConverged", result.success));

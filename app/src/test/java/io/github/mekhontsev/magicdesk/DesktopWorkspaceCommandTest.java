@@ -62,6 +62,21 @@ public final class DesktopWorkspaceCommandTest {
     }
 
     @Test(expected = IllegalArgumentException.class)
+    public void activationCannotRestoreAnImplicitWorkspace() {
+        DesktopWorkspaceCommand.create(
+                DesktopWorkspaceCommand.ACTIVATE,
+                4, 20, new int[]{10, 20});
+    }
+
+    @Test
+    public void workspaceRestoreCanRaiseSeveralExplicitTasks() {
+        final DesktopWorkspaceCommand command = DesktopWorkspaceCommand.create(
+                DesktopWorkspaceCommand.RESTORE_WORKSPACE,
+                4, 20, new int[]{10, 20});
+        assertArrayEquals(new int[]{10, 20}, command.backToFrontTaskIds);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
     public void rejectsPlanWhoseTargetIsNotFrontmost() {
         DesktopWorkspaceCommand.create(
                 DesktopWorkspaceCommand.ACTIVATE,

@@ -5,6 +5,7 @@ import android.graphics.Rect;
 import android.util.Log;
 import android.view.Display;
 
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -67,7 +68,7 @@ final class ShellDesktopChromeHost implements AutoCloseable {
             }
             configureTask(task);
             mSurfaceOrder.attachChrome(mArea);
-            mSurfaceOrder.restore();
+            mSurfaceOrder.applyLayers(Collections.emptyMap());
             Log.i(TAG, "created display=" + displayId
                     + " feature=" + mArea.featureId()
                     + " task=" + mTaskId);

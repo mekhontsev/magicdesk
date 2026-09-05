@@ -86,14 +86,9 @@ interface DesktopTaskRuntime {
 
     void forgetVisibleFreeformTasks(int displayId);
 
-    void focusStack(
-            List<TaskRepository.TaskEntry> topFirstTasks,
-            TaskRepository.TaskEntry topTask,
-            TaskRepository.ActionCallback callback);
-
-    void focusDesktopTasks(
+    void focusDesktopTask(
             int displayId,
-            List<Integer> taskIds,
+            int taskId,
             TaskRepository.ActionCallback callback);
 
     void showDesktop(

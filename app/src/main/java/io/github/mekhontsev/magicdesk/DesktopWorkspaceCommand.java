@@ -7,7 +7,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
-/** Semantic workspace intent plus the requested application stack order. */
+/** Single-task activation or an explicit workspace ordering operation. */
 public final class DesktopWorkspaceCommand implements Parcelable {
     public static final int ACTIVATE = 1;
     public static final int DEMOTE = 2;
@@ -69,6 +69,7 @@ public final class DesktopWorkspaceCommand implements Parcelable {
     void validate() {
         if (!isKnownOperation(operation) || displayId < 0
                 || targetTaskId < 0 || backToFrontTaskIds.length == 0
+                || (operation == ACTIVATE && backToFrontTaskIds.length != 1)
                 || backToFrontTaskIds[backToFrontTaskIds.length - 1]
                         != targetTaskId) {
             throw new IllegalArgumentException(

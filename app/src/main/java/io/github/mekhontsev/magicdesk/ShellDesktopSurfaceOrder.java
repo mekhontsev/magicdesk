@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import java.lang.reflect.Proxy;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -24,24 +23,6 @@ final class ShellDesktopSurfaceOrder {
     synchronized void detachChrome(final TaskDisplayAreaHandle chrome) {
         if (mChrome == chrome) {
             mChrome = null;
-        }
-    }
-
-    /** Completes a semantic window operation before reporting its result. */
-    <T> T complete(final T result) {
-        restore();
-        return result;
-    }
-
-    synchronized void restore() {
-        if (mChrome == null) {
-            return;
-        }
-        try {
-            applyLayers(Collections.emptyMap());
-        } catch (ReflectiveOperationException error) {
-            throw new IllegalStateException(
-                    "cannot commit desktop surface order", error);
         }
     }
 

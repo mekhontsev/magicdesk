@@ -1814,15 +1814,15 @@ final class DesktopSelfTestInputSuite {
                         && !entry.bounds.isEmpty());
     }
 
-    private static void focusTasksThroughDesktop(
+    private static void commitTaskFocusThroughDesktop(
             final int displayId,
-            final List<Integer> taskIds) throws IOException {
+            final int taskId) throws IOException {
         final CountDownLatch complete = new CountDownLatch(1);
         final AtomicBoolean success = new AtomicBoolean();
         final StringBuilder message = new StringBuilder();
-        MagicDeskRuntime.focusDesktopTasks(
+        MagicDeskRuntime.focusDesktopTask(
                 displayId,
-                taskIds,
+                taskId,
                 action -> {
                     success.set(action.success);
                     message.append(action.message);
@@ -2518,13 +2518,7 @@ final class DesktopSelfTestInputSuite {
         if (targetTask == null) {
             throw new IOException("desktop task " + taskId + " is unavailable");
         }
-        // The fixture shares MagicDesk's package, which focusStack excludes
-        // along with the desktop host. Exercise the same display-targeted
-        // focus transaction without the user-app filter.
-        focusTasksThroughDesktop(
-                displayId,
-                Collections.singletonList(
-                        Integer.valueOf(targetTask.taskId)));
+        commitTaskFocusThroughDesktop(displayId, targetTask.taskId);
     }
 
     private static void sendTestKey(

@@ -119,41 +119,6 @@ public final class TaskRepository {
                 displayId, taskIds), callback);
     }
 
-    static void bringStackToFront(final List<TaskEntry> topFirstTasks,
-            final TaskEntry topTask, final ActionCallback callback) {
-        int displayId = isRestorableTask(topTask) ? topTask.displayId : -1;
-        if (displayId < 0 && topFirstTasks != null) {
-            for (final TaskEntry task : topFirstTasks) {
-                if (isRestorableTask(task)) {
-                    displayId = task.displayId;
-                    break;
-                }
-            }
-        }
-        final Set<Integer> orderedTaskIds = new LinkedHashSet<>();
-        if (topFirstTasks != null) {
-            for (int index = topFirstTasks.size() - 1; index >= 0; index--) {
-                final TaskEntry task = topFirstTasks.get(index);
-                if (isRestorableTask(task) && task.displayId == displayId) {
-                    orderedTaskIds.add(Integer.valueOf(task.taskId));
-                }
-            }
-        }
-        if (isRestorableTask(topTask) && topTask.displayId == displayId) {
-            orderedTaskIds.remove(Integer.valueOf(topTask.taskId));
-            orderedTaskIds.add(Integer.valueOf(topTask.taskId));
-        }
-        if (orderedTaskIds.isEmpty()) {
-            complete(callback, true, "no tasks");
-            return;
-        }
-
-        runAction(
-                TaskFocusCommands.createShellCommand(
-                        displayId, orderedTaskIds),
-                callback);
-    }
-
     static void restoreFreeformStack(final int displayId,
             final List<TaskEntry> savedTopFirstTasks, final ActionCallback callback) {
         if (displayId < 0 || savedTopFirstTasks == null || savedTopFirstTasks.isEmpty()) {

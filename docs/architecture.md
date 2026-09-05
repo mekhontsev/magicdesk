@@ -277,9 +277,9 @@ transition sequence.
 
 The process boundary is `DesktopWorkspaceCommand`, with distinct activate,
 demote, bare-desktop presentation, desktop-workspace presentation, workspace
-restore, and session restore operations. The command carries a named
-back-to-front plan; it is never interpreted as an operation merely from the
-shape of an integer list.
+restore, and session restore operations. Activation carries exactly one target
+task; workspace operations carry a named back-to-front plan. A multi-task
+activation is rejected, not interpreted as a workspace restore.
 `ShellDesktopWorkspaceCoordinator` serializes the commands for the configured
 display and is the sole adapter from logical workspace intent to
 `ShellFullscreenTaskArea` and ordinary task ordering. The application retains
@@ -303,7 +303,12 @@ Occlusion is not minimization. A fullscreen task covered by another fullscreen
 task or a freeform window remains fullscreen. Activating it moves the blockers
 below its stable plane while preserving their mutual order; demoting it reveals
 that previous stack without a repair transition. Activating a freeform task
-places it above the current fullscreen plane. Neither operation changes task
+places it above the current fullscreen plane without raising peers covered by
+that plane. The shell derives exposed freeforms from typed root hierarchy
+order, stopping at the first fullscreen application or HOME rather than using
+task-local `visible` flags across independent areas. UI panels send only the
+selected task ID; their captured launch context never becomes a focus plan.
+Neither operation changes task
 mode, bounds, parent, or hidden state.
 
 `ShellFullscreenTaskArea` and
@@ -1406,10 +1411,11 @@ bounded window therefore owns visible taskbar input and
 hidden-edge hover without forwarding synthetic events. It adds no polling and
 keeps the input frame aligned with the visible edge. `ShellDesktopSurfaceOrder`
 includes chrome above application planes in the same committed surface
-transaction. Launch, mode changes, and workspace activation also complete
-through this shared owner, before reporting success. This keeps both the visible
-panel and hidden reveal edge above application input regions; taskbar clicks,
-Alt+Tab, overview, and MCP do not implement separate layer fixes.
+transaction. Chrome's framework priority handles later window relayout;
+launches, mode changes, and workspace activation do not append a separate
+chrome-only surface transaction or wait. Both the visible panel and hidden
+reveal edge share this ordering policy rather than separate layer fixes in
+taskbar clicks, Alt+Tab, overview, or MCP.
 Start, context menus, notifications, and dialogs reuse this
 same application token rather than creating another infrastructure task.
 The taskbar hides for an unrelated true-fullscreen task and returns for the

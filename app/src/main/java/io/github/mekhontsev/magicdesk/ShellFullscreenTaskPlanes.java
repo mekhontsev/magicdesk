@@ -677,6 +677,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     knownOrder,
                     requestedTaskIds,
                     effectivePlanes.keySet());
+            final int[] committedOrder = mixedOrder == null ? stableOrder
+                    : mixedSurfaceOrder(stableOrder, mixedOrder);
             if (mixedOrder == null) {
                 addOrderOperations(
                         service,
@@ -699,6 +701,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                         service,
                         displayId,
                         mixedOrder,
+                        committedOrder,
                         windowing,
                         transaction,
                         effectivePlanes);
@@ -723,11 +726,12 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             // The explicit layers make plane swaps immediate; retaining the
             // workspace placeholders prevents either commit order from putting
             // a focused task above a stale surface.
-            applySurfaceOrder(
-                    mixedOrder == null
-                            ? stableOrder
-                            : mixedSurfaceOrder(stableOrder, mixedOrder),
-                    effectivePlanes);
+            if (mixedOrder != null && mixedOrder.fullscreenTaskId < 0) {
+                applySurfaceLayers(surfaceLayers(
+                        committedOrder, effectivePlanes.keySet(), true), effectivePlanes);
+            } else {
+                applySurfaceOrder(committedOrder, effectivePlanes);
+            }
             if (launchEnteringTask) {
                 final TaskDisplayAreaHandle enteringPlane = acquiredPlanes.get(
                         Integer.valueOf(enteringTaskId));
@@ -753,14 +757,14 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             }
             mPlanes.putAll(acquiredPlanes);
             mPlaneOrder.clear();
-            for (final int taskId : stableOrder) {
+            for (final int taskId : committedOrder) {
                 if (effectivePlanes.containsKey(Integer.valueOf(taskId))) {
                     mPlaneOrder.add(Integer.valueOf(taskId));
                 }
             }
             Log.i(TAG, "fullscreen planes display=" + displayId
                     + " tasks=" + mPlanes.keySet()
-                    + " order=" + java.util.Arrays.toString(stableOrder)
+                    + " order=" + java.util.Arrays.toString(committedOrder)
                     + " target="
                     + requestedTaskIds[requestedTaskIds.length - 1]);
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -889,12 +893,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 || planeTaskIds == null || planeTaskIds.isEmpty()) {
             return null;
         }
-        final int fullscreenTaskId = planeTaskIds.contains(
-                Integer.valueOf(targetTaskId))
-                        ? targetTaskId : currentFullscreenTaskId;
-        if (!planeTaskIds.contains(Integer.valueOf(fullscreenTaskId))) {
-            return null;
-        }
         final LinkedHashSet<Integer> retainedFreeforms =
                 new LinkedHashSet<>();
         int hostIndex = -1;
@@ -905,6 +903,19 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     break;
                 }
             }
+        }
+        int fullscreenTaskId = hostIndex >= 0 ? -1 : currentFullscreenTaskId;
+        if (requestedTaskIds != null) {
+            for (int index = hostIndex + 1; index < requestedTaskIds.length;
+                    index++) {
+                if (planeTaskIds.contains(Integer.valueOf(requestedTaskIds[index]))) {
+                    fullscreenTaskId = requestedTaskIds[index];
+                }
+            }
+        }
+        if (!targetIsFreeform
+                && !planeTaskIds.contains(Integer.valueOf(fullscreenTaskId))) {
+            return null;
         }
         if (hostIndex >= 0) {
             for (int index = hostIndex + 1;
@@ -929,8 +940,20 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     }
                 }
             }
-        } else if (visibleFreeformTaskIds != null) {
-            retainedFreeforms.addAll(visibleFreeformTaskIds);
+        } else {
+            if (visibleFreeformTaskIds != null) {
+                retainedFreeforms.addAll(visibleFreeformTaskIds);
+            }
+            // Only an explicit workspace restore may add covered peers.
+            // ACTIVATE is validated as a single-task command at the boundary.
+            if (requestedTaskIds != null) {
+                for (final int taskId : requestedTaskIds) {
+                    if (!planeTaskIds.contains(Integer.valueOf(taskId))) {
+                        retainedFreeforms.remove(Integer.valueOf(taskId));
+                        retainedFreeforms.add(Integer.valueOf(taskId));
+                    }
+                }
+            }
         }
         if (targetIsFreeform) {
             retainedFreeforms.remove(Integer.valueOf(targetTaskId));
@@ -971,6 +994,10 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         order.remove(Integer.valueOf(mixedOrder.targetTaskId));
         for (final int taskId : mixedOrder.freeformTaskIds) {
             order.remove(Integer.valueOf(taskId));
+        }
+        if (!mixedOrder.fullscreenForeground && mixedOrder.fullscreenTaskId >= 0) {
+            order.remove(Integer.valueOf(mixedOrder.fullscreenTaskId));
+            order.add(Integer.valueOf(mixedOrder.fullscreenTaskId));
         }
         for (final int taskId : mixedOrder.freeformTaskIds) {
             order.add(Integer.valueOf(taskId));
@@ -1018,18 +1045,16 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         final Set<Integer> planeTaskIds = new LinkedHashSet<>(
                 fullscreenTaskIds);
         planeTaskIds.addAll(mPlanes.keySet());
-        int currentFullscreenTaskId = -1;
-        for (int index = mPlaneOrder.size() - 1; index >= 0; index--) {
-            final int taskId = mPlaneOrder.get(index).intValue();
-            if (planeTaskIds.contains(Integer.valueOf(taskId))) {
-                currentFullscreenTaskId = taskId;
-                break;
+        final List<FrameworkTaskSnapshot> workspace = new ArrayList<>();
+        for (final FrameworkTaskSnapshot task
+                : FrameworkTaskSnapshotSource.readWindowState(service, displayId, 100)) {
+            if (ownership.isDesktopHostTask(task.taskId)
+                    || ownership.isDesktopTask(task.task)) {
+                workspace.add(task);
             }
         }
-        if (currentFullscreenTaskId < 0 && !fullscreenTaskIds.isEmpty()) {
-            currentFullscreenTaskId = fullscreenTaskIds.get(
-                    fullscreenTaskIds.size() - 1).intValue();
-        }
+        final ForegroundWorkspace foreground = foregroundWorkspace(
+                workspace, ownership.desktopHostTaskId());
         final Object targetTask = HiddenTaskApi.requireTask(
                 service, displayId, targetTaskId);
         final boolean targetIsFreeform =
@@ -1040,9 +1065,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 ownership.desktopHostTaskId(),
                 requestedTaskIds,
                 planeTaskIds,
-                visibleFreeformTaskIds(
-                        service, displayId, -1, ownership),
-                currentFullscreenTaskId,
+                foreground.freeformTaskIds,
+                foreground.fullscreenTaskId,
                 targetIsFreeform);
     }
 
@@ -1132,13 +1156,14 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final Object service,
             final int displayId,
             final MixedStackOrder order,
+            final int[] committedOrder,
             final FrameworkWindowingApi windowing,
             final Object transaction,
             final Map<Integer, TaskDisplayAreaHandle> planes)
             throws ReflectiveOperationException {
         final TaskDisplayAreaHandle fullscreenPlane = planes.get(
                 Integer.valueOf(order.fullscreenTaskId));
-        if (fullscreenPlane == null) {
+        if (fullscreenPlane == null && order.fullscreenTaskId >= 0) {
             throw new IllegalStateException(
                     "mixed stack lost fullscreen plane task="
                             + order.fullscreenTaskId);
@@ -1146,6 +1171,15 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         final Object hostToken = HiddenTaskApi.requireTaskToken(
                 service, displayId, order.desktopHostTaskId);
         windowing.reorder(transaction, hostToken, true, false);
+        if (fullscreenPlane == null) {
+            // Activating one window from HOME must not restore an old
+            // fullscreen background that the user has already left behind.
+            for (final int taskId : planeBottomReorderOrder(
+                    committedOrder, planes.keySet())) {
+                windowing.reorder(transaction,
+                        planes.get(Integer.valueOf(taskId)).token(), false);
+            }
+        }
         if (order.fullscreenForeground) {
             // Native root tasks can cross the desktop host in Z-order without
             // changing parent or windowing mode. Keep every explicit blocker
@@ -1167,7 +1201,9 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     transaction, fullscreenTaskToken, true, true);
             return;
         }
-        windowing.reorder(transaction, fullscreenPlane.token(), true);
+        if (fullscreenPlane != null) {
+            windowing.reorder(transaction, fullscreenPlane.token(), true);
+        }
         for (final int taskId : order.freeformTaskIds) {
             // Freeform roots follow the normal AOSP ordering path. The target
             // is last in this back-to-front list, so the same atomic reorder
@@ -1437,30 +1473,41 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         return taskIds;
     }
 
-    private static List<Integer> visibleFreeformTaskIds(
-            final Object service,
-            final int displayId,
-            final int excludedTaskId,
-            final ShellDesktopTaskOwnership ownership)
-            throws ReflectiveOperationException {
+    static ForegroundWorkspace foregroundWorkspace(
+            final List<FrameworkTaskSnapshot> ownedTopFirstTasks,
+            final int desktopHostTaskId) {
         final List<Integer> topFirst = new ArrayList<>();
-        for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
-            final int taskId = HiddenTaskApi.getTaskId(task);
-            if (taskId == excludedTaskId
-                    || ownership.isDesktopHostTask(taskId)
-                    || TaskAreaBackstopActivity.isBackstopComponent(
-                            HiddenTaskApi.getTaskComponent(task))
-                    || !ownership.isDesktopTask(task)
-                    || HiddenTaskApi.getTaskWindowingMode(task)
-                            != WINDOWING_MODE_FREEFORM) {
+        int fullscreenTaskId = -1;
+        // isVisible is local to a task area. The hierarchy's first opaque
+        // application or HOME bounds the workspace that is actually exposed.
+        for (final FrameworkTaskSnapshot task : ownedTopFirstTasks) {
+            if (!task.visible) {
                 continue;
             }
-            if (HiddenTaskApi.isTaskVisible(task)) {
-                topFirst.add(Integer.valueOf(taskId));
+            if (task.taskId == desktopHostTaskId) {
+                break;
+            }
+            if (task.windowingMode == WINDOWING_MODE_FULLSCREEN) {
+                fullscreenTaskId = task.taskId;
+                break;
+            }
+            if (task.windowingMode == WINDOWING_MODE_FREEFORM) {
+                topFirst.add(Integer.valueOf(task.taskId));
             }
         }
         Collections.reverse(topFirst);
-        return topFirst;
+        return new ForegroundWorkspace(fullscreenTaskId, topFirst);
+    }
+
+    static final class ForegroundWorkspace {
+        final int fullscreenTaskId;
+        final List<Integer> freeformTaskIds;
+
+        ForegroundWorkspace(final int fullscreenTaskId,
+                final List<Integer> freeformTaskIds) {
+            this.fullscreenTaskId = fullscreenTaskId;
+            this.freeformTaskIds = freeformTaskIds;
+        }
     }
 
     private static boolean isDesktopFocusTarget(

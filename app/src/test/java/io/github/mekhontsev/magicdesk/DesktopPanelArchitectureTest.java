@@ -110,6 +110,23 @@ public final class DesktopPanelArchitectureTest {
         assertFalse(host.contains("setAlwaysOnTop(transaction, mArea.token()"));
     }
 
+    @Test
+    public void windowOperationsDoNotAppendChromeOnlyCommits() throws IOException {
+        final String coordinator = read(
+                "src/main/java/io/github/mekhontsev/magicdesk/"
+                        + "ShellDesktopWorkspaceCoordinator.java");
+        final String observer = read(
+                "src/main/java/io/github/mekhontsev/magicdesk/ShellTaskObserver.java");
+        final String surfaces = read(
+                "src/main/java/io/github/mekhontsev/magicdesk/"
+                        + "ShellDesktopSurfaceOrder.java");
+
+        assertFalse(coordinator.contains("mSurfaceOrder"));
+        assertFalse(observer.contains("mSurfaceOrder.complete("));
+        assertFalse(surfaces.contains("void restore()"));
+        assertTrue(surfaces.contains("composeLayers(layers, mChrome)"));
+    }
+
     private static String read(final String path) throws IOException {
         return Files.readString(Path.of(path), StandardCharsets.UTF_8);
     }

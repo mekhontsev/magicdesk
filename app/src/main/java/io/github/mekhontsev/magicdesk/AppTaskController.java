@@ -956,8 +956,6 @@ final class AppTaskController {
             } catch (IOException | RuntimeException error) {
                 runIfPresent(onFailure, error);
                 complete(completion, DesktopActivityLaunchResult.failed(error));
-                MagicDeskRuntime.focusStack(
-                        visibleTasks, null, null);
                 mActivity.runOnUiThread(() -> {
                     if (!mActivity.isActivityUnavailable()) {
                         mActivity.showLaunchFailure(error);
@@ -1377,9 +1375,7 @@ final class AppTaskController {
     }
 
     private void showMissingLauncher(final AppItem app) {
-        final List<TaskRepository.TaskEntry> visibleTasks =
-                takeInteractionVisibleTasks();
-        MagicDeskRuntime.focusStack(visibleTasks, null, null);
+        clearInteractionStack();
         mActivity.setErrorStatus(
                 "APP-LAUNCH-002",
                 mActivity.getString(
@@ -1447,74 +1443,26 @@ final class AppTaskController {
             final TaskFocusCompletion completion) {
         mActivity.setStatus(mActivity.getString(
                 R.string.status_switching_to, app.label));
-        final List<TaskRepository.TaskEntry> visibleTasks =
-                takeInteractionVisibleTasks();
+        clearInteractionStack();
         final int displayId = mActivity.getCurrentDisplayId();
-        TaskRepository.load(displayId, snapshot ->
-                mActivity.runOnUiThread(() -> {
-                    if (mActivity.isActivityUnavailable()) {
+        // The runtime resolves live ownership and focus. A panel snapshot is
+        // neither an activation plan nor authority to restore covered peers.
+        MagicDeskRuntime.focusDesktopTask(
+                displayId,
+                task.taskId,
+                result -> mActivity.runOnUiThread(() -> {
+                    if (mActivity.isActivityUnavailable()
+                            || displayId != mActivity.getCurrentDisplayId()) {
                         runFocusCompletion(completion, false);
                         return;
                     }
-                    if (displayId != mActivity.getCurrentDisplayId()) {
-                        runFocusCompletion(completion, false);
-                        return;
-                    }
-                    if (!snapshot.available) {
+                    if (!result.success) {
                         mActivity.setStatus(mActivity.getString(
                                 R.string.status_switch_failed,
-                                snapshot.error.length() == 0
-                                        ? app.label
-                                        : snapshot.error));
-                        runFocusCompletion(completion, false);
-                        return;
+                                result.message.isEmpty() ? app.label : result.message));
                     }
-                    final TaskRepository.Snapshot desktopSnapshot =
-                            mActivity.setTaskSnapshot(snapshot);
-                    if (!desktopSnapshot.available) {
-                        mActivity.setStatus(mActivity.getString(
-                                R.string.status_switch_failed,
-                                desktopSnapshot.error));
-                        runFocusCompletion(completion, false);
-                        return;
-                    }
-                    final TaskRepository.TaskEntry currentTask =
-                            DesktopShellActivity.findTask(
-                                    desktopSnapshot, task.taskId);
-                    if (currentTask == null) {
-                        mActivity.setStatus(mActivity.getString(
-                                R.string.status_switch_failed,
-                                app.label));
-                        mActivity.refreshTaskSnapshot();
-                        runFocusCompletion(completion, false);
-                        return;
-                    }
-                    MagicDeskRuntime.focusStack(
-                            visibleTasks,
-                            currentTask,
-                            result -> mActivity.runOnUiThread(() -> {
-                                if (mActivity.isActivityUnavailable()) {
-                                    runFocusCompletion(completion, false);
-                                    return;
-                                }
-                                if (!result.success) {
-                                    mActivity.setStatus(
-                                            mActivity.getString(
-                                                    R.string.status_switch_failed,
-                                                    result.message.length() == 0
-                                                            ? app.label
-                                                            : result.message));
-                                    runFocusCompletion(completion, false);
-                                    return;
-                                }
-                                // The pre-command interaction snapshot no
-                                // longer describes the visible stack after a
-                                // cross-area focus commit. Let the snapshot
-                                // controller apply the single taskbar policy
-                                // from the resulting hierarchy.
-                                mActivity.refreshTaskSnapshot();
-                                runFocusCompletion(completion, true);
-                            }));
+                    mActivity.refreshTaskSnapshot();
+                    runFocusCompletion(completion, result.success);
                 }));
     }
 

@@ -263,7 +263,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         mPlanes.configure(displayId);
     }
 
-    private int[] desktopFocusTasks(
+    int[] desktopFocusTasks(
             final Object service,
             final int displayId,
             final int[] taskIds) throws ReflectiveOperationException {
@@ -280,32 +280,9 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         for (int index = 0; index < output.size(); index++) {
             result[index] = output.get(index).intValue();
         }
-        return withDesktopHostBoundary(
-                result, mOwnership.desktopHostTaskId());
-    }
-
-    static int[] withDesktopHostBoundary(
-            final int[] requestedTaskIds,
-            final int desktopHostTaskId) {
-        if (requestedTaskIds == null || requestedTaskIds.length == 0
-                || desktopHostTaskId < 0) {
-            throw new IllegalArgumentException(
-                    "desktop stack and host are required");
-        }
-        for (final int taskId : requestedTaskIds) {
-            if (taskId == desktopHostTaskId) {
-                return requestedTaskIds;
-            }
-        }
-        final int[] physicalOrder = new int[requestedTaskIds.length + 1];
-        physicalOrder[0] = desktopHostTaskId;
-        System.arraycopy(
-                requestedTaskIds,
-                0,
-                physicalOrder,
-                1,
-                requestedTaskIds.length);
-        return physicalOrder;
+        // HOME partitions an explicit workspace plan. Injecting it here would
+        // turn a single-task activation into replacement of its background.
+        return result;
     }
 
     @Override

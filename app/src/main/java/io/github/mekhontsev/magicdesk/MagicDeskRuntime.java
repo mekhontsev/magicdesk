@@ -623,53 +623,24 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static void focusStack(
-            final List<TaskRepository.TaskEntry> topFirstTasks,
-            final TaskRepository.TaskEntry topTask,
-            final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
-        if (tasks != null) {
-            tasks.focusStack(topFirstTasks, topTask, callback);
-        } else {
-            final int displayId = focusDisplayId(topFirstTasks, topTask);
-            if (DesktopRuntimeBridge.getSessionSnapshot()
-                    .activeDisplayId() == displayId) {
-                completeTaskAction(
-                        callback, false, "desktop task runtime unavailable");
-            } else {
-                TaskRepository.bringStackToFront(
-                        topFirstTasks, topTask, callback);
-            }
-        }
-    }
-
     static void focusDesktopTask(
             final int displayId,
             final int taskId,
             final TaskRepository.ActionCallback callback) {
-        focusDesktopTasks(
-                displayId,
-                Collections.singletonList(Integer.valueOf(taskId)),
-                callback);
-    }
-
-    static void focusDesktopTasks(
-            final int displayId,
-            final List<Integer> taskIds,
-            final TaskRepository.ActionCallback callback) {
-        if (taskIds == null || taskIds.isEmpty()) {
-            completeTaskAction(callback, false, "no tasks");
+        if (displayId < 0 || taskId < 0) {
+            completeTaskAction(callback, false, "invalid task");
             return;
         }
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks != null) {
-            tasks.focusDesktopTasks(displayId, taskIds, callback);
+            tasks.focusDesktopTask(displayId, taskId, callback);
         } else if (DesktopRuntimeBridge.getSessionSnapshot()
                 .activeDisplayId() == displayId) {
             completeTaskAction(
                     callback, false, "desktop task runtime unavailable");
         } else {
-            TaskRepository.runFocusAction(displayId, taskIds, callback);
+            TaskRepository.runFocusAction(displayId,
+                    Collections.singletonList(Integer.valueOf(taskId)), callback);
         }
     }
 
@@ -744,22 +715,6 @@ public final class MagicDeskRuntime {
             completeTaskAction(
                     callback, false, "desktop task runtime unavailable");
         }
-    }
-
-    private static int focusDisplayId(
-            final List<TaskRepository.TaskEntry> tasks,
-            final TaskRepository.TaskEntry target) {
-        if (target != null && target.displayId >= 0) {
-            return target.displayId;
-        }
-        if (tasks != null) {
-            for (final TaskRepository.TaskEntry task : tasks) {
-                if (task != null && task.displayId >= 0) {
-                    return task.displayId;
-                }
-            }
-        }
-        return -1;
     }
 
     static void toggleTaskbarTask(

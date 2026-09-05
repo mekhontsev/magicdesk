@@ -8,6 +8,7 @@ import static org.junit.Assert.assertNull;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -131,6 +132,90 @@ public final class ShellFullscreenTaskPlanesTest {
                 ShellFullscreenTaskPlanes.crossesFullscreenPlaneBoundary(
                         new int[]{10, 11},
                         planeIds(10, 11)));
+    }
+
+    @Test
+    public void activatingCoveredFreeformDoesNotRaiseItsCoveredPeer() {
+        // Firefox covers both Files and Golly even when all three report visible.
+        final ShellFullscreenTaskPlanes.ForegroundWorkspace foreground =
+                ShellFullscreenTaskPlanes.foregroundWorkspace(Arrays.asList(
+                        task(10, 1), task(21, 5), task(20, 5), task(99, 1)), 99);
+        assertEquals(10, foreground.fullscreenTaskId);
+        assertEquals(Collections.emptyList(), foreground.freeformTaskIds);
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        20, 99, new int[]{20}, planeIds(10),
+                        foreground.freeformTaskIds, foreground.fullscreenTaskId, true);
+        assertArrayEquals(new int[]{20}, order.freeformTaskIds);
+        assertEquals(10, order.fullscreenTaskId);
+    }
+
+    @Test
+    public void activationKeepsExposedPeersWithoutRestoringCoveredPeers() {
+        final ShellFullscreenTaskPlanes.ForegroundWorkspace foreground =
+                ShellFullscreenTaskPlanes.foregroundWorkspace(Arrays.asList(
+                        task(23, 5), task(22, 5), task(10, 1), task(21, 5),
+                        task(20, 5), task(99, 1)), 99);
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        20, 99, new int[]{20}, planeIds(10),
+                        foreground.freeformTaskIds, foreground.fullscreenTaskId, true);
+        assertArrayEquals(new int[]{22, 23, 20}, order.freeformTaskIds);
+    }
+
+    @Test
+    public void activationFromHomeDoesNotResurrectFullscreenBackground() {
+        final ShellFullscreenTaskPlanes.ForegroundWorkspace foreground =
+                ShellFullscreenTaskPlanes.foregroundWorkspace(Arrays.asList(
+                        task(99, 1), task(10, 1), task(21, 5), task(20, 5)), 99);
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        20, 99, new int[]{20}, planeIds(10),
+                        foreground.freeformTaskIds, foreground.fullscreenTaskId, true);
+        assertNotNull(order);
+        assertEquals(-1, order.fullscreenTaskId);
+        assertArrayEquals(new int[]{20}, order.freeformTaskIds);
+    }
+
+    @Test
+    public void explicitRestoreCanRecoverCoveredPeersAndFullscreenBackground() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        20, 99, new int[]{10, 21, 20}, planeIds(10),
+                        Collections.emptyList(), -1, true);
+        assertArrayEquals(new int[]{21, 20}, order.freeformTaskIds);
+        assertEquals(10, order.fullscreenTaskId);
+    }
+
+    @Test
+    public void explicitRestoreOrdersItsFullscreenBackgroundInHierarchyAndSurfaces() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        20, 99, new int[]{10, 21, 20}, planeIds(10, 11),
+                        Collections.emptyList(), -1, true);
+        assertArrayEquals(new int[]{11, 10, 21, 20},
+                ShellFullscreenTaskPlanes.mixedSurfaceOrder(
+                        new int[]{10, 11, 21, 20}, order));
+    }
+
+    @Test
+    public void presentWorkspaceKeepsFullscreenBelowHome() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        20, 99, new int[]{10, 99, 21, 20}, planeIds(10),
+                        Arrays.asList(22), 10, true);
+        assertEquals(-1, order.fullscreenTaskId);
+        assertArrayEquals(new int[]{21, 20}, order.freeformTaskIds);
+    }
+
+    @Test
+    public void demotionDoesNotReintroduceTheConcealedWindow() {
+        final ShellFullscreenTaskPlanes.MixedStackOrder order =
+                ShellFullscreenTaskPlanes.buildMixedStackOrder(
+                        21, 99, new int[]{20, 99, 10, 21}, planeIds(10),
+                        Arrays.asList(21, 20), 10, true);
+        assertArrayEquals(new int[]{21}, order.freeformTaskIds);
+        assertEquals(10, order.fullscreenTaskId);
     }
 
     @Test
@@ -265,6 +350,12 @@ public final class ShellFullscreenTaskPlanesTest {
                         false);
 
         assertEquals(false, order.selectsFreeformTask(20));
+    }
+
+    private static FrameworkTaskSnapshot task(final int taskId, final int mode) {
+        return new FrameworkTaskSnapshot(null, taskId, taskId, 4, 1, mode,
+                FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD,
+                null, null, "", "", "", "", -1, "", null, true, false, null);
     }
 
     private static java.util.List<Integer> asList(final int[] values) {

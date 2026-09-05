@@ -64,9 +64,11 @@ application windows draw or receive input.
 `ShellDesktopSurfaceOrder` owns surface composition for fullscreen planes and
 chrome together; each plane-order commit includes the chrome layer above the
 applications. WCT task primitives still target tasks, never the chrome area.
-Launches, mode transitions, and workspace commands finish through the same
-surface-order owner. A failed surface commit is not reported as a successful
-window operation. This adds no task polling or independent input repair.
+Chrome priority is established at host creation and included in explicit
+application-plane surface transactions. Launches, mode transitions, and
+workspace commands do not append a second chrome-only commit. A failed plane
+surface commit is not reported as a successful window operation. This adds no
+task polling or independent input repair.
 On the phone display the taskbar child window also covers the stable lower
 system-bar inset. It paints that portion with the taskbar background, while the
 taskbar controls remain above the inset. When managed fullscreen policy conceals
@@ -76,9 +78,9 @@ structurally stable without covering fullscreen content.
 
 Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. The app
 process emits a typed `DesktopWorkspaceCommand`: `ACTIVATE`, `DEMOTE`,
-`PRESENT_DESKTOP`, `RESTORE_WORKSPACE`, or `RESTORE_SESSION`. Its task IDs are
-an explicit back-to-front physical plan, not an overloaded indication of the
-requested behavior. `ShellDesktopWorkspaceCoordinator` serializes those
+`PRESENT_DESKTOP`, `RESTORE_WORKSPACE`, or `RESTORE_SESSION`. `ACTIVATE` accepts
+exactly one task; other operations carry an explicit back-to-front plan.
+`ShellDesktopWorkspaceCoordinator` serializes those
 commands for the configured display, completes the live fullscreen and mixed
 workspace order from shell-owned topology, and applies the existing WCT path.
 The app-side order is built only from the shell-published desktop ownership
@@ -220,6 +222,18 @@ the previous stack without a restore transition. Activating a freeform task
 places it above the current fullscreen plane and other freeform peers. The
 concrete parent hierarchy follows workspace ownership, but callers use the
 same semantics and focus gateway.
+
+Single-task selection never restores a captured panel or application stack.
+Ownership adapters preserve the requested plan; they do not insert HOME as an
+implicit separator. HOME appears in the plan only for an explicit workspace
+operation, otherwise the live hierarchy determines the current background.
+The shell retains only freeform tasks above the first opaque application or
+HOME in the typed root hierarchy, even when covered tasks still report
+`visible=true`. Selecting one covered freeform task raises that task, not its
+covered peers. An explicit workspace restore can request multiple tasks and
+their fullscreen background. Selecting a task from HOME leaves previously
+covered fullscreen planes below HOME. These decisions use the command's
+one-shot framework snapshot, not a new background observer.
 
 `demote` is deliberately distinct from `show desktop`. The latter presents a
 saved workspace as a user command; it does not define the behavior of clicking

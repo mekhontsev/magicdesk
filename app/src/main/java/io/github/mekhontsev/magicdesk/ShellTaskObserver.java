@@ -312,8 +312,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService,
                 mFullscreenTaskArea,
                 mFocusController,
-                mTaskObservations::requestSample,
-                mSurfaceOrder);
+                mTaskObservations::requestSample);
     }
 
     void refreshTaskCaption(
@@ -581,8 +580,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        return mSurfaceOrder.complete(mFullscreenTaskArea.restoreTask(
-                mService, displayId, taskId, bounds, densityDpi));
+        return mFullscreenTaskArea.restoreTask(
+                mService, displayId, taskId, bounds, densityDpi);
     }
 
     boolean beginAppFullscreenTask(
@@ -601,7 +600,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 restoreBounds,
                 densityDpi);
         reportDesktopTaskOwnership();
-        return mSurfaceOrder.complete(entered);
+        return entered;
     }
 
     boolean beginFullscreenTask(
@@ -619,7 +618,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mWindowing.requiresNativeFullscreenCaptionRefresh(),
                 densityDpi);
         reportDesktopTaskOwnership();
-        return mSurfaceOrder.complete(entered);
+        return entered;
     }
 
     boolean beginWindowedTask(
@@ -644,7 +643,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     new Rect(bounds),
                     densityDpi);
             reportDesktopTaskOwnership();
-            return mSurfaceOrder.complete(true);
+            return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot attach windowed task: "
@@ -683,8 +682,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         final ShellFullscreenTaskArea.CloseResult result =
                 mFullscreenTaskArea.closeTask(
                         mService, displayId, taskId, focusTaskId);
-        return mSurfaceOrder.complete(
-                result == ShellFullscreenTaskArea.CloseResult.SUCCEEDED);
+        return result == ShellFullscreenTaskArea.CloseResult.SUCCEEDED;
     }
 
     int launchWindowedTask(
@@ -872,7 +870,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     private int finishTaskLaunch(final int displayId, final int taskId) {
         reportDesktopTaskOwnership();
-        return mSurfaceOrder.complete(taskId);
+        return taskId;
     }
 
     boolean setDesktopTaskDensity(
