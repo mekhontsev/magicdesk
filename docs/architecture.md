@@ -669,7 +669,12 @@ runtime integration and are not distributed through the same release path.
   stack traces and ANR process dumps do not cross into application diagnostics.
 - `ShellDesktopFocusController` handles a Nubia secondary-display defect where
   task focus changes but the InputDispatcher window remains stale. It reports
-  only confirmed mismatches. The UI process then relayouts the existing,
+  only confirmed mismatches on the current input display. A remembered
+  desktop task without a focused window is normal while the phone owns input;
+  neither late task callbacks nor post-command repair may reclaim that focus.
+  An unknown input display does not authorize repair. The existing one-shot
+  input snapshot supplies this check without another poll or gesture monitor.
+  The UI process then relayouts the existing,
   non-focusable desktop host across a committed frame, which makes WMS
   recompute its focused window without moving tasks or synthesizing input.
 - `ShellFreeformTaskCleanup` remembers freeform application tasks observed

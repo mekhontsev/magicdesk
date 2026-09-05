@@ -12,6 +12,8 @@ import java.util.regex.Pattern;
 final class TaskInputWindowParser {
     private static final Pattern FRAME_PATTERN = Pattern.compile(
             "\\[(-?\\d+),\\s*(-?\\d+)]\\[(-?\\d+),\\s*(-?\\d+)]");
+    private static final Pattern FOCUSED_DISPLAY_PATTERN = Pattern.compile(
+            "(?m)^[ \\t]*FocusedDisplayId:[ \\t]*(-?\\d+)[ \\t]*$");
     private static final Pattern FOCUSED_APPLICATION_PATTERN = Pattern.compile(
             "(?m)^\\s*displayId=(\\d+), name='ActivityRecord\\{[^\\n]*\\st(\\d+)\\}'");
     private static final Pattern FOCUSED_WINDOW_PATTERN = Pattern.compile(
@@ -94,6 +96,16 @@ final class TaskInputWindowParser {
                 displayId);
     }
 
+    static int findFocusedDisplayId(final String dump) {
+        if (dump != null && dump.contains(
+                "[MagicDesk: command output truncated]")) {
+            return -1;
+        }
+        final Matcher matcher = FOCUSED_DISPLAY_PATTERN.matcher(
+                currentDispatcherState(dump));
+        return matcher.find() ? parseInteger(matcher.group(1), -1) : -1;
+    }
+
     static String describeFocus(final String dump, final int displayId) {
         final String dispatcher = currentDispatcherState(dump);
         if (dispatcher.isEmpty()) {
@@ -106,7 +118,8 @@ final class TaskInputWindowParser {
                 findFocusedApplicationTaskId(applications, displayId);
         final String windows = section(
                 dispatcher, "FocusedWindows:", "FocusRequests:");
-        return "applicationTask=" + applicationTaskId
+        return "focusedDisplay=" + findFocusedDisplayId(dump)
+                + ", applicationTask=" + applicationTaskId
                 + ", windowTask=" + findFocusedWindowTaskId(
                         dispatcher, windows, displayId)
                 + ", focusedWindow=" + hasFocusedWindow(windows, displayId)

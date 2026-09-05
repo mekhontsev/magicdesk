@@ -33,17 +33,39 @@ public final class ShellDesktopFocusControllerTest {
     @Test
     public void refreshesMissingOrStaleLiveInputFocus() {
         assertTrue(ShellDesktopFocusController.requiresInputFocusRefresh(
-                42, -1, false));
+                50, 50, 42, -1, false));
         assertTrue(ShellDesktopFocusController.requiresInputFocusRefresh(
-                42, 41, true));
+                50, 50, 42, 41, true));
     }
 
     @Test
     public void ignoresCurrentOrDeadInputFocus() {
         assertFalse(ShellDesktopFocusController.requiresInputFocusRefresh(
-                42, 42, true));
+                50, 50, 42, 42, true));
         assertFalse(ShellDesktopFocusController.requiresInputFocusRefresh(
-                42, 41, false));
+                50, 50, 42, 41, false));
+    }
+
+    @Test
+    public void phoneNavigationIsNotMissingDesktopInput() {
+        assertFalse(ShellDesktopFocusController.requiresInputFocusRefresh(
+                50, 0, 42, -1, false));
+        assertFalse(ShellDesktopFocusController.requiresInputFocusRefresh(
+                50, 0, 42, 41, true));
+        assertFalse(ShellDesktopFocusController.requiresInputFocusRefresh(
+                50, -1, 42, -1, false));
+        assertFalse(ShellDesktopFocusController.requiresInputFocusRefresh(
+                -1, -1, 42, -1, false));
+    }
+
+    @Test
+    public void repairsOnlyTheActiveDisplayOnEveryTarget() {
+        assertTrue(ShellDesktopFocusController.requiresInputFocusRefresh(
+                0, 0, 42, -1, false));
+        assertFalse(ShellDesktopFocusController.requiresInputFocusRefresh(
+                0, 50, 42, -1, false));
+        assertFalse(ShellDesktopFocusController.requiresInputFocusRefresh(
+                50, 51, 42, -1, false));
     }
 
     @Test

@@ -184,7 +184,10 @@ The coordinator captures typed task and SurfaceFlinger input-window event
 generations before commit, requests one framework task sample, and waits for
 both generations to advance. It then reads InputDispatcher once. A missing
 input target receives the ownership-appropriate one-shot repair and one more
-event-driven commit confirmation. `WindowInfosListener` is the primary commit
+event-driven commit confirmation only while that display still owns input.
+If the user has moved to another display, or the active input display is
+unknown, reconciliation must not turn the missing desktop window into a
+focus-stealing reorder or host relayout. `WindowInfosListener` is the primary commit
 signal; the 150 ms framework task snapshot remains the separately documented
 fallback for task facts that Android does not publish through callbacks. There
 is no periodic input poll, and command success means both hierarchy order and

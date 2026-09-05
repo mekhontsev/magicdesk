@@ -308,9 +308,19 @@ final class ShellDesktopFocusController implements AutoCloseable {
             if (focusedTask == null) {
                 return;
             }
-            taskObserved = true;
             final String inputState =
                     FrameworkInputSnapshotSource.readLocal();
+            final int focusedDisplayId =
+                    TaskInputWindowParser.findFocusedDisplayId(inputState);
+            // A task-focus callback can outlive a switch to the phone. Missing
+            // desktop input is then legitimate, not a request to reclaim it.
+            if (focusedDisplayId != displayId) {
+                Log.d(TAG, "skipped desktop input repair display=" + displayId
+                        + " focusedDisplay=" + focusedDisplayId
+                        + " task=" + focusedTaskId);
+                return;
+            }
+            taskObserved = true;
             if (TaskInputWindowParser.isTaskFocused(
                     inputState, displayId, focusedTaskId)) {
                 synchronized (mPendingLock) {
@@ -326,6 +336,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 }
             }
             if (!requiresInputFocusRefresh(
+                    displayId, focusedDisplayId,
                     focusedTaskId, inputTaskId,
                     inputTaskId >= 0 && HiddenTaskApi.findTask(
                             mTaskService, displayId, inputTaskId) != null)) {
@@ -594,6 +605,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 && HiddenTaskApi.findTask(
                         mTaskService, displayId, inputTaskId) != null;
         if (!requiresInputFocusRefresh(
+                displayId, TaskInputWindowParser.findFocusedDisplayId(inputState),
                 taskId, inputTaskId, inputTaskExists)) {
             return false;
         }
@@ -632,10 +644,13 @@ final class ShellDesktopFocusController implements AutoCloseable {
     }
 
     static boolean requiresInputFocusRefresh(
+            final int displayId,
+            final int focusedDisplayId,
             final int focusedTaskId,
             final int inputTaskId,
             final boolean inputTaskExists) {
-        if (focusedTaskId < 0 || inputTaskId == focusedTaskId) {
+        if (displayId < 0 || focusedDisplayId != displayId
+                || focusedTaskId < 0 || inputTaskId == focusedTaskId) {
             return false;
         }
         // A missing focused window is the other stale-focus state observed on

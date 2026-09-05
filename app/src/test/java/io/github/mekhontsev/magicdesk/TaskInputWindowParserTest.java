@@ -163,6 +163,30 @@ public final class TaskInputWindowParserTest {
     }
 
     @Test
+    public void readsFocusedDisplayWithoutConfusingRememberedApplications() {
+        final String dump = "Input Dispatcher State:\n"
+                + "  FocusedDisplayId: 0\n"
+                + "  FocusedApplications:\n"
+                + "    displayId=50, name='ActivityRecord{123 u0 example/.App t42}'\n"
+                + "  FocusedWindows:\n"
+                + "    displayId=0, name='abc example/.Phone'\n"
+                + "  FocusRequests:\n"
+                + "Input Dispatcher State at time of last ANR:\n"
+                + "  FocusedDisplayId: 50\n";
+
+        assertEquals(0, TaskInputWindowParser.findFocusedDisplayId(dump));
+        assertEquals(50, TaskInputWindowParser.findFocusedDisplayId(
+                dump.replace("FocusedDisplayId: 0", "FocusedDisplayId: 50")));
+        assertEquals(-1, TaskInputWindowParser.findFocusedDisplayId(
+                dump.replace("  FocusedDisplayId: 0\n", "")));
+        assertEquals(-1, TaskInputWindowParser.findFocusedDisplayId(
+                dump.replace("FocusedDisplayId: 0", "FocusedDisplayId: bad")));
+        assertEquals(-1, TaskInputWindowParser.findFocusedDisplayId(
+                dump + "[MagicDesk: command output truncated]"));
+        assertEquals(-1, TaskInputWindowParser.findFocusedDisplayId(null));
+    }
+
+    @Test
     public void usesFocusedWindowTaskWhenFocusedApplicationIsStale() {
         final String focusDump =
                 "Input Dispatcher State:\n"
@@ -191,7 +215,7 @@ public final class TaskInputWindowParserTest {
         assertEquals(-1,
                 TaskInputWindowParser.findFocusedTaskId(focusDump, 0));
         assertEquals(
-                "applicationTask=12, windowTask=6362, focusedWindow=true, "
+                "focusedDisplay=-1, applicationTask=12, windowTask=6362, focusedWindow=true, "
                         + "bytes=" + focusDump.length()
                         + ", truncated=false",
                 TaskInputWindowParser.describeFocus(focusDump, 155));
