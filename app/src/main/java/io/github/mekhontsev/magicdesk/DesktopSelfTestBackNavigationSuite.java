@@ -15,7 +15,7 @@ import android.graphics.Rect;
 
 import java.io.IOException;
 
-/** Exercises system Back at each freeform desktop stack depth. */
+/** Exercises app-owned child results and system Back at each stack depth. */
 final class DesktopSelfTestBackNavigationSuite {
     private static final String FIXTURE_CLASS =
             DesktopSelfTestComponents.FIXTURE_CLASS;
@@ -41,6 +41,12 @@ final class DesktopSelfTestBackNavigationSuite {
                 "BACK-NAVIGATION-001",
                 "Ignore system Back on an empty desktop",
                 () -> verifyEmptyDesktopBack(displayId, hostTaskId));
+
+        check(result,
+                "ACTIVITY-RESULT-001",
+                "Launch a child Activity and return its result within freeform",
+                () -> verifyActivityResult(context, displayId, hostTaskId,
+                        geometry.primaryWindow()));
 
         final boolean singleWindowPassed = runSingleWindowBack(
                 context,
@@ -98,6 +104,53 @@ final class DesktopSelfTestBackNavigationSuite {
         final String host = waitForReadyDesktopHost(displayId, hostTaskId);
         requireTaskbarStayedVisible(taskbarGeneration);
         return host;
+    }
+
+    private static String verifyActivityResult(
+            final Context context, final int displayId,
+            final int hostTaskId, final Rect bounds) throws IOException {
+        try {
+            final Fixture parent = launchFixture(context, displayId, bounds,
+                    DesktopSelfTestFixtureAppearance.PRIMARY);
+            final String childToken = parent.token + "-child";
+            DesktopSelfTestFixtureState.clearLaunchMarkers(context);
+            DesktopSelfTestFixtureState.clearChildResult(context);
+            final int taskbarGeneration =
+                    DesktopSelfTestHostObserver.taskbarHiddenGeneration();
+            ShellAccess.run("/system/bin/am broadcast --user 0 -a "
+                    + ShellCommandLine.quote(DesktopSelfTestActivity.ACTION_LAUNCH_CHILD)
+                    + " -p " + ShellCommandLine.quote(BuildConfig.APPLICATION_ID)
+                    + " --es " + ShellCommandLine.quote(
+                            DesktopSelfTestActivity.EXTRA_TARGET_TOKEN)
+                    + " " + ShellCommandLine.quote(parent.token)
+                    + " --es " + ShellCommandLine.quote(
+                            DesktopSelfTestActivity.EXTRA_CHILD_TOKEN)
+                    + " " + ShellCommandLine.quote(childToken));
+            DesktopSelfTestFixtureState.awaitFirstFrame(
+                    context, childToken, displayId);
+            waitForTask(displayId, FIXTURE_CLASS,
+                    task -> task.taskId == parent.taskId && task.visible
+                            && "freeform".equals(task.windowingMode)
+                            && DesktopSelfTestGeometry.matches(task.bounds, bounds));
+            waitForFrontTask(displayId, parent.taskId);
+            sendSystemBack(displayId);
+            DesktopSelfTestFixtureState.awaitChildResult(
+                    context, parent.token, childToken, displayId);
+            waitForTask(displayId, FIXTURE_CLASS,
+                    task -> task.taskId == parent.taskId && task.visible
+                            && "freeform".equals(task.windowingMode)
+                            && DesktopSelfTestGeometry.matches(task.bounds, bounds));
+            verifySurvivorInput(context, displayId, parent);
+            requireTaskbarStayedVisible(taskbarGeneration);
+            sendSystemBack(displayId);
+            waitForTaskAbsent(parent.taskId);
+            waitForReadyDesktopHost(displayId, hostTaskId);
+            return "task=" + parent.taskId
+                    + ", child=result-ok, mode=freeform, bounds=unchanged"
+                    + ", parent-input=received, taskbar-hidden-events=0";
+        } finally {
+            cleanupFixturesBestEffort();
+        }
     }
 
     private static boolean runSingleWindowBack(
@@ -283,6 +336,9 @@ final class DesktopSelfTestBackNavigationSuite {
     private static void addUnavailableResults(
             final DesktopSelfTestResult result,
             final String reason) {
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "ACTIVITY-RESULT-001",
+                "Launch a child Activity and return its result within freeform", reason);
         result.add(DesktopSelfTestResult.State.NOT_TESTED,
                 "BACK-NAVIGATION-001",
                 "Ignore system Back on an empty desktop", reason);

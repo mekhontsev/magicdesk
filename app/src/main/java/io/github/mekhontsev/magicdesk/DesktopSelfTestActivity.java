@@ -33,9 +33,12 @@ public class DesktopSelfTestActivity extends Activity {
     static final String EXTRA_ALLOW_DISPLAY_MOVE = "self_test_allow_display_move";
     static final String ACTION_SET_IMMERSIVE =
             BuildConfig.APPLICATION_ID + ".action.SELF_TEST_SET_IMMERSIVE";
+    static final String ACTION_LAUNCH_CHILD =
+            BuildConfig.APPLICATION_ID + ".action.SELF_TEST_LAUNCH_CHILD";
+    static final String EXTRA_CHILD_TOKEN = "self_test_child_token";
+    private static final int CHILD_REQUEST_CODE = 1;
     static final String EXTRA_IMMERSIVE = "self_test_immersive";
-    static final String EXTRA_IMMERSIVE_TOKEN =
-            "self_test_immersive_token";
+    static final String EXTRA_TARGET_TOKEN = "self_test_target_token";
     private static final String MANAGE_ACTIVITY_TASKS_PERMISSION =
             "android.permission.MANAGE_ACTIVITY_TASKS";
     static final String FIRST_FRAME_MARKER_FILE =
@@ -47,28 +50,39 @@ public class DesktopSelfTestActivity extends Activity {
             "desktop-self-test-immersive-surface.txt";
     static final String WINDOW_MODE_MARKER_FILE =
             "desktop-self-test-window-mode.txt";
+    static final String CHILD_RESULT_MARKER_FILE =
+            "desktop-self-test-child-result.txt";
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
     private String mToken = "";
     private boolean mAllowDisplayMove;
-    private boolean mImmersiveReceiverRegistered;
+    private boolean mCommandReceiverRegistered;
     private boolean mImmersiveEnabled;
     private DesktopSelfTestFixtureAppearance mAppearance =
             DesktopSelfTestFixtureAppearance.PRIMARY;
-    private final BroadcastReceiver mImmersiveReceiver =
+    private final BroadcastReceiver mCommandReceiver =
             new BroadcastReceiver() {
                 @Override
                 public void onReceive(
                         final Context context,
                         final Intent intent) {
-                    if (intent != null
-                            && ACTION_SET_IMMERSIVE.equals(
-                                    intent.getAction())
-                            && mToken.equals(intent.getStringExtra(
-                                    EXTRA_IMMERSIVE_TOKEN))) {
+                    if (intent == null || !mToken.equals(
+                            intent.getStringExtra(EXTRA_TARGET_TOKEN))) {
+                        return;
+                    }
+                    if (ACTION_SET_IMMERSIVE.equals(intent.getAction())) {
                         final boolean enabled = intent.getBooleanExtra(
                                 EXTRA_IMMERSIVE, false);
                         applyImmersive(enabled);
                         recordImmersiveFrame(enabled);
+                    } else if (ACTION_LAUNCH_CHILD.equals(intent.getAction())) {
+                        // Exercise the app-owned ActivityStarter/result path,
+                        // not MagicDesk's new-task launch gateway.
+                        startActivityForResult(new Intent(
+                                DesktopSelfTestActivity.this,
+                                DesktopSelfTestActivity.class)
+                                .putExtra(EXTRA_DISPLAY_ID, displayId())
+                                .putExtra(EXTRA_TOKEN, intent.getStringExtra(
+                                        EXTRA_CHILD_TOKEN)), CHILD_REQUEST_CODE);
                     }
                 }
             };
@@ -87,25 +101,28 @@ public class DesktopSelfTestActivity extends Activity {
         if (mToken == null) {
             mToken = "";
         }
+        setResult(RESULT_OK, new Intent().putExtra(EXTRA_TOKEN, mToken));
 
         final FrameLayout content = createContent();
         recordFirstFrame(content);
         setContentView(content);
+        final IntentFilter commands = new IntentFilter(ACTION_SET_IMMERSIVE);
+        commands.addAction(ACTION_LAUNCH_CHILD);
         registerReceiver(
-                mImmersiveReceiver,
-                new IntentFilter(ACTION_SET_IMMERSIVE),
+                mCommandReceiver,
+                commands,
                 MANAGE_ACTIVITY_TASKS_PERMISSION,
                 null,
                 Context.RECEIVER_EXPORTED);
-        mImmersiveReceiverRegistered = true;
+        mCommandReceiverRegistered = true;
         finishIfMoved();
     }
 
     @Override
     protected void onDestroy() {
-        if (mImmersiveReceiverRegistered) {
-            unregisterReceiver(mImmersiveReceiver);
-            mImmersiveReceiverRegistered = false;
+        if (mCommandReceiverRegistered) {
+            unregisterReceiver(mCommandReceiver);
+            mCommandReceiverRegistered = false;
         }
         super.onDestroy();
     }
@@ -114,6 +131,17 @@ public class DesktopSelfTestActivity extends Activity {
     protected void onResume() {
         super.onResume();
         finishIfMoved();
+    }
+
+    @Override
+    protected void onActivityResult(
+            final int requestCode, final int resultCode, final Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == CHILD_REQUEST_CODE) {
+            writeMarker(CHILD_RESULT_MARKER_FILE,
+                    mToken + "|" + displayId() + "|" + resultCode + "|"
+                            + (data == null ? "" : data.getStringExtra(EXTRA_TOKEN)));
+        }
     }
 
     private void finishIfMoved() {

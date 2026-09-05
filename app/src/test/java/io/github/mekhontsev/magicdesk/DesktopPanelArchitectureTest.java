@@ -53,7 +53,7 @@ public final class DesktopPanelArchitectureTest {
     }
 
     @Test
-    public void chromeHostUsesSurfaceOrderedWorkspaceArea()
+    public void chromeHostIsOutsideApplicationRootTaskSiblings()
             throws IOException {
         final String controller = read(
                 "src/main/java/io/github/mekhontsev/magicdesk/"
@@ -66,12 +66,12 @@ public final class DesktopPanelArchitectureTest {
         assertTrue(controller.contains("prepareDesktopChromeHost"));
         assertFalse(controller.contains("startActivity("));
         assertTrue(host.contains("launchFullscreenTaskBehind"));
-        assertTrue(host.contains("createSurfaceOrdered"));
+        assertTrue(host.contains("TaskDisplayAreaHandle.create("));
         assertTrue(host.contains(
-                "TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER"));
-        assertFalse(host.contains("TaskDisplayAreaHandle.Parent.ROOT"));
-        assertTrue(host.contains("mSurfaceOrder.attachChrome(mArea)"));
-        assertTrue(host.contains("mSurfaceOrder.detachChrome(area)"));
+                "TaskDisplayAreaHandle.Parent.ROOT"));
+        assertFalse(host.contains("TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER"));
+        assertFalse(host.contains("createSurfaceOrdered"));
+        assertFalse(host.contains("mSurfaceOrder"));
         assertFalse(host.contains("setSurfaceLayer"));
         final String planes = read(
                 "src/main/java/io/github/mekhontsev/magicdesk/"
@@ -80,10 +80,8 @@ public final class DesktopPanelArchitectureTest {
         assertTrue(planes.contains("mSurfaceOrder.setVisible"));
         assertFalse(planes.contains("android.view.SurfaceControl"));
         assertTrue(host.contains("setFocusable"));
-        assertFalse(host.contains("setAlwaysOnTop(transaction, mArea.token()"));
         assertFalse(host.contains("reorder(transaction, mArea.token()"));
         assertFalse(host.contains("setFocusable(transaction, mArea.token()"));
-        assertFalse(host.contains("setWindowingMode(transaction, mArea.token()"));
         assertFalse(host.contains("void raise("));
         assertTrue(styles.contains("<style name=\"DesktopChromeTheme\""));
         assertTrue(styles.contains(
@@ -98,8 +96,14 @@ public final class DesktopPanelArchitectureTest {
                         + "ShellDesktopChromeHost.java");
 
         // WindowConfiguration.isAlwaysOnTop() ignores this flag in fullscreen.
-        // TaskDisplayArea assigns a nested area's layer from its top root task.
+        // The root-level area must own effective priority, not just its task.
         assertTrue(host.contains("WINDOWING_MODE_MULTI_WINDOW = 6"));
+        assertTrue(host.contains(
+                "transaction, mArea.token(), WINDOWING_MODE_MULTI_WINDOW"));
+        assertTrue(host.contains(
+                "setAlwaysOnTop(transaction, mArea.token(), true)"));
+        assertTrue(host.contains(
+                "setIgnoreOrientationRequest(transaction, mArea.token(), true)"));
         assertTrue(host.contains(
                 "transaction, taskToken, WINDOWING_MODE_MULTI_WINDOW"));
         assertTrue(host.contains(
@@ -107,7 +111,6 @@ public final class DesktopPanelArchitectureTest {
         assertTrue(host.contains("setFocusable(transaction, taskToken, false)"));
         assertTrue(host.contains("setBounds(transaction, taskToken, new Rect())"));
         assertFalse(host.contains("WINDOWING_MODE_FREEFORM"));
-        assertFalse(host.contains("setAlwaysOnTop(transaction, mArea.token()"));
     }
 
     @Test
@@ -124,7 +127,8 @@ public final class DesktopPanelArchitectureTest {
         assertFalse(coordinator.contains("mSurfaceOrder"));
         assertFalse(observer.contains("mSurfaceOrder.complete("));
         assertFalse(surfaces.contains("void restore()"));
-        assertTrue(surfaces.contains("composeLayers(layers, mChrome)"));
+        assertFalse(surfaces.contains("mChrome"));
+        assertFalse(surfaces.contains("Integer.MAX_VALUE"));
     }
 
     private static String read(final String path) throws IOException {

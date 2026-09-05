@@ -1427,15 +1427,15 @@ Android can therefore keep normal system-bar behavior for HOME and freeform
 tasks without exposing bright wallpaper strips around snapped windows.
 
 The desktop chrome host is a translucent, non-focusable `MULTI_WINDOW` task in its
-own organizer area under Android's standard task workspace. Its organizer leash
-shares the ordering parent with application tasks and fullscreen planes. The
+own root-level organizer area beside Android's standard task workspace. The
 taskbar itself is a bounded child application window,
 so a foreground application that suppresses non-system overlays cannot
 suppress it. Empty task bounds fill the area without a freeform caption.
-The host task is `alwaysOnTop`: Android 15+ honors this flag for `MULTI_WINDOW`
-but ignores it for fullscreen tasks. Framework layer assignment places the
-containing area according to its top root task's priority, so child-panel
-relayout does not discard chrome's position above ordinary application tasks.
+Both the area and host task are `alwaysOnTop` in `MULTI_WINDOW` mode:
+Android 15+ ignores this flag in fullscreen mode. Native DisplayArea ordering
+keeps chrome above the application workspace and below system windows and IME.
+Keeping chrome outside the workspace also avoids the root-task sibling cast
+in `ActivityStarter` during app-owned child/result launches.
 The shell disables that Activity's Android 15+ ActivityRecord input sink, so
 only the taskbar window's bounded touch region receives input and pointer events
 outside the panel continue to the desktop and application windows.
@@ -1444,10 +1444,10 @@ application panel containing the taskbar View to its reveal edge. The same
 bounded window therefore owns visible taskbar input and
 hidden-edge hover without forwarding synthetic events. It adds no polling and
 keeps the input frame aligned with the visible edge. `ShellDesktopSurfaceOrder`
-includes chrome above application planes in the same committed surface
-transaction. Chrome's framework priority handles later window relayout;
-launches, mode changes, and workspace activation do not append a separate
-chrome-only surface transaction or wait. Both the visible panel and hidden
+only orders fullscreen planes within the application workspace. Chrome's
+framework priority handles window relayout without retaining its organizer
+leash, manually setting a surface layer, or appending a transaction or wait to
+application operations. Both the visible panel and hidden
 reveal edge share this ordering policy rather than separate layer fixes in
 taskbar clicks, Alt+Tab, overview, or MCP.
 Start, context menus, notifications, and dialogs reuse this
@@ -2074,11 +2074,12 @@ registered host's taskbar, fullscreen planes, or other session resources.
 
 All phone, simulated, wired, and wireless sessions use one taskbar topology.
 Its transparent chrome host is an `alwaysOnTop`, non-focusable `MULTI_WINDOW`
-task in a dedicated organizer area under Android's default task container.
+task in a dedicated root-level organizer area beside Android's default task
+container. The area itself also uses `MULTI_WINDOW` and `alwaysOnTop`.
 Freeform tasks remain direct children of the default task area, while managed
 fullscreen tasks retain separate organizer areas under that same ordering
-parent. `ShellDesktopSurfaceOrder` composes fullscreen planes and chrome in one
-transaction; the chrome task's framework priority also survives later relayout.
+parent. `ShellDesktopSurfaceOrder` composes fullscreen planes; native DisplayArea
+priority keeps the separate chrome area above the workspace across relayout.
 
 Task order around this host is the desktop visibility boundary. Freeform tasks
 above it are visible windows; tasks below it are minimized and follow Android's

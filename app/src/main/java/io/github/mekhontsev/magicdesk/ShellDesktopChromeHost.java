@@ -5,7 +5,6 @@ import android.graphics.Rect;
 import android.util.Log;
 import android.view.Display;
 
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -17,16 +16,13 @@ final class ShellDesktopChromeHost implements AutoCloseable {
     private static final long TASK_REMOVAL_POLL_MILLIS = 25L;
 
     private final Object mService;
-    private final ShellDesktopSurfaceOrder mSurfaceOrder;
 
     private TaskDisplayAreaHandle mArea;
     private int mDisplayId = Display.INVALID_DISPLAY;
     private int mTaskId = -1;
 
-    ShellDesktopChromeHost(
-            final Object service, final ShellDesktopSurfaceOrder surfaceOrder) {
+    ShellDesktopChromeHost(final Object service) {
         mService = service;
-        mSurfaceOrder = surfaceOrder;
     }
 
     synchronized void configure(final int displayId) {
@@ -45,11 +41,11 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         }
         mDisplayId = displayId;
         try {
-            mArea = TaskDisplayAreaHandle.createSurfaceOrdered(
+            mArea = TaskDisplayAreaHandle.create(
                     displayId,
-                    // The organizer leash and application tasks must share one
-                    // ordering parent for the fixed layer to be meaningful.
-                    TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER,
+                    // ActivityStarter assumes the next sibling of a root Task
+                    // is also a Task. Keep chrome outside that sibling list.
+                    TaskDisplayAreaHandle.Parent.ROOT,
                     "MagicDesk desktop chrome");
             mTaskId = TaskDisplayAreaLaunchCommand.launchFullscreenTaskBehind(
                     mService,
@@ -67,8 +63,6 @@ final class ShellDesktopChromeHost implements AutoCloseable {
                         "desktop chrome host resolved outside its display area");
             }
             configureTask(task);
-            mSurfaceOrder.attachChrome(mArea);
-            mSurfaceOrder.applyLayers(Collections.emptyMap());
             Log.i(TAG, "created display=" + displayId
                     + " feature=" + mArea.featureId()
                     + " task=" + mTaskId);
@@ -101,7 +95,6 @@ final class ShellDesktopChromeHost implements AutoCloseable {
     @Override
     public synchronized void close() {
         final TaskDisplayAreaHandle area = mArea;
-        mSurfaceOrder.detachChrome(area);
         final Set<Integer> taskIds = findOwnedTaskIds();
         try {
             for (final Integer taskId : taskIds) {
@@ -142,10 +135,13 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         final Class<?> transactionClass = windowing.transactionClass();
         final Object transaction = windowing.newTransaction();
         final Object taskToken = HiddenTaskApi.getTaskToken(task);
-        // Android 15+ ignores always-on-top for fullscreen tasks. A non-floating
-        // multi-window host fills its area without a freeform caption, and its
-        // priority keeps the containing area above normal tasks on every WM
-        // traversal, including child-panel add/remove and input-focus relayout.
+        // A root-level area owns its priority independently of application
+        // tasks. MULTI_WINDOW makes always-on-top effective on Android 15+;
+        // DisplayArea ordering still keeps it below system windows and IME.
+        windowing.setWindowingMode(
+                transaction, mArea.token(), WINDOWING_MODE_MULTI_WINDOW);
+        windowing.setAlwaysOnTop(transaction, mArea.token(), true);
+        windowing.setIgnoreOrientationRequest(transaction, mArea.token(), true);
         windowing.setWindowingMode(
                 transaction, taskToken, WINDOWING_MODE_MULTI_WINDOW);
         windowing.setBounds(transaction, taskToken, new Rect());

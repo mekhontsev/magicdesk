@@ -492,3 +492,10 @@ the saved user window stack nor persists test window state. The phone rotation
 is locked at its current value for the run and restored exactly afterward. If
 the tested desktop session closes, its existing lifecycle event cancels the run
 and cleanup begins; no background session polling is added.
+
+`ACTIVITY-RESULT-001` exercises an ordinary app-owned `startActivityForResult`
+within a freeform task, rather than launching another task through MagicDesk.
+It checks the child's first frame, unchanged task identity/mode/bounds, the
+result returned by system Back, input delivered to the parent, and continuous
+taskbar visibility. This catches hierarchy failures in Android's nested
+Activity launch path that independent new-window tests do not cover.

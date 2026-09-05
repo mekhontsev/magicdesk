@@ -1265,7 +1265,7 @@ final class DesktopSelfTestWindowSuite {
                 + " " + enabled
                 + " --es "
                 + ShellCommandLine.quote(
-                        DesktopSelfTestActivity.EXTRA_IMMERSIVE_TOKEN)
+                        DesktopSelfTestActivity.EXTRA_TARGET_TOKEN)
                 + " " + ShellCommandLine.quote(token));
     }
 

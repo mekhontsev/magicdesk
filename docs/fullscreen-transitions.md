@@ -54,26 +54,35 @@ The same topology is used on phone, simulated, wired, and wireless targets.
 `PhoneDesktopHomeActivity` remains primary HOME in Android's default task area;
 ordinary freeform tasks share the standard root workspace, while fullscreen
 tasks use independent planes under that workspace. Display chrome uses one
-transparent, non-focusable `MULTI_WINDOW` task in its own organizer area under
-that workspace. Empty bounds fill the area without making the task floating.
-The chrome task is `alwaysOnTop`; Android 15+ ignores that flag in fullscreen
-mode but honors it in `MULTI_WINDOW`. Framework layer assignment uses the top
-root task's priority for its containing area, preserving chrome order when
-panel or input-window relayout recomputes layers. Only bounded child
+transparent, non-focusable `MULTI_WINDOW` task in a root-level organizer area,
+a sibling of the standard task workspace. Both the area and its task use
+`MULTI_WINDOW` and `alwaysOnTop`: Android 15+ ignores the flag in fullscreen
+mode. Empty task bounds fill the area without making the task floating.
+Native DisplayArea ordering preserves chrome priority across application
+launches and panel relayout, below system windows and IME. Only bounded child
 application windows draw or receive input.
-`ShellDesktopSurfaceOrder` owns surface composition for fullscreen planes and
-chrome together; each plane-order commit includes the chrome layer above the
-applications. WCT task primitives still target tasks, never the chrome area.
-Chrome priority is established at host creation and included in explicit
-application-plane surface transactions. Launches, mode transitions, and
-workspace commands do not append a second chrome-only commit. A failed plane
+
+Chrome must not be nested among application root tasks. Android 15+
+`ActivityStarter` calls `TaskDisplayArea.getRootTaskAbove`, which casts the
+next sibling to `Task`. A chrome area there can abort a child Activity/result
+launch after the framework has already changed the caller's configuration.
+The root-level chrome area avoids that sibling list. Its effective native
+priority requires the area's own `MULTI_WINDOW` mode; setting only its flag
+while it inherits fullscreen is insufficient.
+
+`ShellDesktopSurfaceOrder` owns only fullscreen-plane surfaces inside the
+standard workspace. Chrome retains no organizer leash and requires no manual
+layer assignment. Area-capable WCT operations configure its mode, priority,
+and orientation policy once; task-only operations still target the host task.
+Launches, mode transitions, and workspace commands do not append a chrome
+commit. A failed plane
 surface commit is not reported as a successful window operation. This adds no
 task polling or independent input repair.
 Before the first window or organizer-surface submission in a shell process,
 `ShellWindowTransitionExecutor` connects to WindowManager's SurfaceFlinger
 transaction queue through `WindowOrganizer.shareTransactionQueue`, matching
 Android 15+ WMShell initialization. Framework-returned sync transactions and
-explicit plane/chrome commits therefore share WM's apply token instead of an
+explicit plane commits therefore share WM's apply token instead of an
 independent process queue. Initialization is retained for the process lifetime;
 failure rejects the operation rather than silently continuing with independent
 ordering. Diagnostics reports `surfaceTransactionQueue=shared_with_wm` after

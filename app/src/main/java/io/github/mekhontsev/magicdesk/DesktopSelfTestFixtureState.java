@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.POLL_MILLIS;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_MILLIS;
 
+import android.app.Activity;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.SystemClock;
@@ -36,6 +37,18 @@ final class DesktopSelfTestFixtureState {
 
     static void clearWindowModeTransitions(final Context context) {
         clear(context, DesktopSelfTestActivity.WINDOW_MODE_MARKER_FILE);
+    }
+
+    static void clearChildResult(final Context context) {
+        clear(context, DesktopSelfTestActivity.CHILD_RESULT_MARKER_FILE);
+    }
+
+    static void awaitChildResult(
+            final Context context, final String parentToken,
+            final String childToken, final int displayId) throws IOException {
+        await(context, DesktopSelfTestActivity.CHILD_RESULT_MARKER_FILE,
+                parentToken + "|" + displayId + "|" + Activity.RESULT_OK
+                        + "|" + childToken, displayId);
     }
 
     static void assertNoWindowModeTransition(

@@ -121,7 +121,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService, mDesktopOwnership);
         mFullscreenTaskArea = new ShellFullscreenTaskArea(
                 mDesktopOwnership, mSurfaceOrder);
-        mDesktopChromeHost = new ShellDesktopChromeHost(mService, mSurfaceOrder);
+        mDesktopChromeHost = new ShellDesktopChromeHost(mService);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mWindowing = windowing;
         mSystemDialogTracker = new ShellSystemDialogTracker(

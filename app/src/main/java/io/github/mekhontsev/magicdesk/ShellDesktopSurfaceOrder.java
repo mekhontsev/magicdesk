@@ -2,36 +2,19 @@ package io.github.mekhontsev.magicdesk;
 
 import java.lang.reflect.Proxy;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
-/** Commits organizer surface order for one desktop, including its chrome. */
+/** Commits fullscreen-plane surfaces inside the standard task workspace. */
 final class ShellDesktopSurfaceOrder {
     private static final long COMMIT_TIMEOUT_SECONDS = 2L;
-    private TaskDisplayAreaHandle mChrome;
-
-    synchronized void attachChrome(final TaskDisplayAreaHandle chrome) {
-        if (mChrome != null && mChrome != chrome) {
-            throw new IllegalStateException("desktop chrome is already attached");
-        }
-        mChrome = chrome;
-    }
-
-    synchronized void detachChrome(final TaskDisplayAreaHandle chrome) {
-        if (mChrome == chrome) {
-            mChrome = null;
-        }
-    }
 
     synchronized void applyLayers(
             final Map<TaskDisplayAreaHandle, Integer> layers)
             throws ReflectiveOperationException {
-        final Map<TaskDisplayAreaHandle, Integer> composed =
-                composeLayers(layers, mChrome);
-        if (composed.isEmpty()) {
+        if (layers.isEmpty()) {
             return;
         }
         final Class<?> surfaceClass = Class.forName("android.view.SurfaceControl");
@@ -40,7 +23,7 @@ final class ShellDesktopSurfaceOrder {
         final Object transaction = transactionClass.getConstructor().newInstance();
         try {
             for (final Map.Entry<TaskDisplayAreaHandle, Integer> entry
-                    : composed.entrySet()) {
+                    : layers.entrySet()) {
                 transactionClass.getMethod("setLayer", surfaceClass, Integer.TYPE)
                         .invoke(transaction, entry.getKey().surfaceLeash(),
                                 entry.getValue());
@@ -54,6 +37,9 @@ final class ShellDesktopSurfaceOrder {
     synchronized void setVisible(
             final Collection<TaskDisplayAreaHandle> planes,
             final boolean visible) throws ReflectiveOperationException {
+        if (planes.isEmpty()) {
+            return;
+        }
         final Class<?> surfaceClass = Class.forName("android.view.SurfaceControl");
         final Class<?> transactionClass = Class.forName(
                 "android.view.SurfaceControl$Transaction");
@@ -63,25 +49,10 @@ final class ShellDesktopSurfaceOrder {
                 transactionClass.getMethod(visible ? "show" : "hide", surfaceClass)
                         .invoke(transaction, plane.surfaceLeash());
             }
-            if (mChrome != null) {
-                transactionClass.getMethod("setLayer", surfaceClass, Integer.TYPE)
-                        .invoke(transaction, mChrome.surfaceLeash(), Integer.MAX_VALUE);
-            }
             applyCommitted(transactionClass, transaction);
         } finally {
             transactionClass.getMethod("close").invoke(transaction);
         }
-    }
-
-    static <T> Map<T, Integer> composeLayers(
-            final Map<T, Integer> applicationLayers, final T chrome) {
-        final Map<T, Integer> composed = new LinkedHashMap<>(applicationLayers);
-        if (chrome != null) {
-            // Every application-plane commit includes the chrome invariant;
-            // callers cannot accidentally put the reveal edge behind a task.
-            composed.put(chrome, Integer.valueOf(Integer.MAX_VALUE));
-        }
-        return composed;
     }
 
     private static void applyCommitted(
