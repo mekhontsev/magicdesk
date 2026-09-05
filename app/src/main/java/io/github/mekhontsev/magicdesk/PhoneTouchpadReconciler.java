@@ -40,7 +40,9 @@ final class PhoneTouchpadReconciler {
             final boolean requested,
             final List<TaskRepository.TaskEntry> phoneTasks) {
         final PhoneTaskState state = inspectPhoneTasks(phoneTasks);
-        if (!requested || state.touchpadVisible) {
+        // The control panel is an intentional phone-side destination, not a
+        // displaced touchpad. Preserve the request without covering the panel.
+        if (!requested || state.touchpadVisible || state.controlPanelVisible) {
             clearPendingRepair();
             return RepairAction.NONE;
         }
@@ -73,6 +75,7 @@ final class PhoneTouchpadReconciler {
         int foregroundTaskId = -1;
         int touchpadTaskId = -1;
         boolean touchpadVisible = false;
+        boolean controlPanelVisible = false;
         if (tasks != null) {
             for (final TaskRepository.TaskEntry task : tasks) {
                 if (task == null) {
@@ -85,12 +88,25 @@ final class PhoneTouchpadReconciler {
                     touchpadTaskId = task.taskId;
                     touchpadVisible |= task.visible;
                 }
+                if (task.visible
+                        && (isControlPanelComponent(task.componentName)
+                                || isControlPanelComponent(task.topActivityName))) {
+                    controlPanelVisible = true;
+                }
             }
         }
         return new PhoneTaskState(
                 foregroundTaskId,
                 touchpadTaskId,
-                touchpadVisible);
+                touchpadVisible,
+                controlPanelVisible);
+    }
+
+    private static boolean isControlPanelComponent(final String component) {
+        final String packageName = BuildConfig.APPLICATION_ID;
+        return (packageName + "/.ControlActivity").equals(component)
+                || (packageName + "/" + packageName + ".ControlActivity")
+                        .equals(component);
     }
 
     private static boolean isTouchpadTask(
@@ -120,14 +136,17 @@ final class PhoneTouchpadReconciler {
         final int foregroundTaskId;
         final int touchpadTaskId;
         final boolean touchpadVisible;
+        final boolean controlPanelVisible;
 
         PhoneTaskState(
                 final int foregroundTaskId,
                 final int touchpadTaskId,
-                final boolean touchpadVisible) {
+                final boolean touchpadVisible,
+                final boolean controlPanelVisible) {
             this.foregroundTaskId = foregroundTaskId;
             this.touchpadTaskId = touchpadTaskId;
             this.touchpadVisible = touchpadVisible;
+            this.controlPanelVisible = controlPanelVisible;
         }
     }
 }

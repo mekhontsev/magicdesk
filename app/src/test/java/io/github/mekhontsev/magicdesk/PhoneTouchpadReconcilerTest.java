@@ -86,6 +86,46 @@ public final class PhoneTouchpadReconcilerTest {
     }
 
     @Test
+    public void controlPanelCoversTouchpadWithoutCancellingItsRequest() {
+        final PhoneTouchpadReconciler reconciler = new PhoneTouchpadReconciler();
+        final List<TaskRepository.TaskEntry> panel = Arrays.asList(
+                task(12, "io.github.mekhontsev.magicdesk/.ControlActivity", true),
+                task(11, TOUCHPAD, false));
+        assertEquals(PhoneTouchpadReconciler.RepairAction.NONE,
+                reconciler.nextRepair(true, panel));
+        assertEquals(PhoneTouchpadReconciler.RepairAction.NONE,
+                reconciler.nextRepair(true, panel));
+
+        final List<TaskRepository.TaskEntry> home = Arrays.asList(
+                task(10, "io.github.mekhontsev.magicdesk/.PhoneHomeActivity", true),
+                task(11, TOUCHPAD, false));
+        assertEquals(PhoneTouchpadReconciler.RepairAction.BRING_EXISTING,
+                reconciler.nextRepair(true, home));
+    }
+
+    @Test
+    public void visibleControlPanelPreventsStartingMissingTouchpad() {
+        final PhoneTouchpadReconciler reconciler = new PhoneTouchpadReconciler();
+        assertEquals(PhoneTouchpadReconciler.RepairAction.NONE,
+                reconciler.nextRepair(true, Collections.singletonList(
+                        task(12, "io.github.mekhontsev.magicdesk/"
+                                + "io.github.mekhontsev.magicdesk.ControlActivity",
+                                true))));
+    }
+
+    @Test
+    public void hiddenControlPanelDoesNotSuppressTouchpadRecovery() {
+        final PhoneTouchpadReconciler reconciler = new PhoneTouchpadReconciler();
+        assertEquals(PhoneTouchpadReconciler.RepairAction.BRING_EXISTING,
+                reconciler.nextRepair(true, Arrays.asList(
+                        task(10, "io.github.mekhontsev.magicdesk/.PhoneHomeActivity",
+                                true),
+                        task(12, "io.github.mekhontsev.magicdesk/.ControlActivity",
+                                false),
+                        task(11, TOUCHPAD, false))));
+    }
+
+    @Test
     public void inactiveRequestCancelsPendingRepair() {
         final PhoneTouchpadReconciler reconciler =
                 new PhoneTouchpadReconciler();

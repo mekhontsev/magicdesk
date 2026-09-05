@@ -426,7 +426,14 @@ runtime integration and are not distributed through the same release path.
   no boot receiver; the user starts MagicDesk manually. The notification body
   is a stable display-0 entry
   point to Phone Control Panel; its separate touchpad action opens the
-  phone-side input panel. Desktop Show/Restore remains a taskbar and `Win+D`
+  phone-side input panel. Both use direct, immutable Activity PendingIntents
+  with display-0 launch options, never service or broadcast trampolines.
+  The touchpad action is offered only for a supported active external desktop;
+  the Activity validates its target again before requesting phone input.
+  A visible phone Control Panel suspends automatic touchpad restoration using
+  the existing task snapshot. Opening the panel from the notification therefore
+  leaves the touchpad behind it without cancelling the user's input request.
+  Desktop Show/Restore remains a taskbar and `Win+D`
   command rather than a state-dependent notification action.
 
 ### Automation boundary

@@ -62,17 +62,20 @@ public final class MagicDeskTouchpadActivity extends Activity {
         synchronized (STATE_LOCK) {
             sRequestedDisplayId = displayId;
         }
-        final Intent intent = new Intent(
-                context, MagicDeskTouchpadActivity.class)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        | Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                .putExtra(EXTRA_TARGET_DISPLAY_ID, displayId);
+        final Intent intent = createLaunchIntent(context, displayId);
         final ActivityOptions options = ActivityOptions.makeBasic();
         options.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
         DesktopShellActivity.setLaunchWindowingMode(
                 options, WINDOWING_MODE_FULLSCREEN);
         context.startActivity(intent, options.toBundle());
+    }
+
+    static Intent createLaunchIntent(final Context context, final int displayId) {
+        return new Intent(context, MagicDeskTouchpadActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(EXTRA_TARGET_DISPLAY_ID, displayId);
     }
 
     static boolean isRequested(final int displayId) {
@@ -570,6 +573,14 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 : intent.getIntExtra(
                         EXTRA_TARGET_DISPLAY_ID,
                         Display.INVALID_DISPLAY);
+        if (PhoneTouchpadController.isSupported(targetDisplayId)) {
+            // Direct notification launches do not pass through open(). Only
+            // an accepted, live desktop target can acquire the input request.
+            synchronized (STATE_LOCK) {
+                sRequestedDisplayId = targetDisplayId;
+            }
+            MagicDeskRuntime.setPhoneTouchpadRequested(true);
+        }
         if (targetDisplayId == mTargetDisplayId) {
             finishIfTargetUnavailable();
             return;
@@ -632,6 +643,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
 
     private void finishIfTargetUnavailable() {
         if (mTargetDisplayId <= Display.DEFAULT_DISPLAY
+                || !PhoneTouchpadController.isSupported(mTargetDisplayId)
                 || mDisplayManager == null
                 || mDisplayManager.getDisplay(mTargetDisplayId) == null) {
             clearRequestedDisplay();

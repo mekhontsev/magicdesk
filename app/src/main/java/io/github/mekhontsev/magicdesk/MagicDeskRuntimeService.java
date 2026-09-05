@@ -22,10 +22,6 @@ public final class MagicDeskRuntimeService extends Service
         implements MagicDeskRuntimeBackend {
     private static final String TAG = "MagicDeskWatcher";
     private static final String CHANNEL_ID = "magicdesk";
-    private static final String ACTION_OPEN_CONTROL_PANEL =
-            "io.github.mekhontsev.magicdesk.action.OPEN_CONTROL_PANEL";
-    private static final String ACTION_OPEN_TOUCHPAD =
-            "io.github.mekhontsev.magicdesk.action.OPEN_TOUCHPAD";
     private static final int NOTIFICATION_ID = 1;
     private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
     private static final int OPEN_CONTROL_PANEL_REQUEST_CODE = 2;
@@ -463,30 +459,11 @@ public final class MagicDeskRuntimeService extends Service
             updateNotification();
             return START_NOT_STICKY;
         }
-        final String action = intent == null ? null : intent.getAction();
-        if (!DeviceSetupManager.isRuntimeAuthorized()
-                && (ACTION_OPEN_CONTROL_PANEL.equals(action)
-                        || ACTION_OPEN_TOUCHPAD.equals(action))) {
-            mMcpRuntime.reconcile();
-            if (ACTION_OPEN_CONTROL_PANEL.equals(action)) {
-                openPhoneControlPanel();
-            }
-            updateNotification();
-            return START_NOT_STICKY;
-        }
         if (!ShellAccess.isReady()
                 && DesktopHomeRoleLease.snapshot() != null) {
             return START_NOT_STICKY;
         }
         initialize();
-        if (intent != null) {
-            if (ACTION_OPEN_CONTROL_PANEL.equals(intent.getAction())) {
-                openPhoneControlPanel();
-            } else if (ACTION_OPEN_TOUCHPAD.equals(intent.getAction())
-                    && ShellAccess.isReady()) {
-                DesktopOperations.openTouchpad();
-            }
-        }
         mDesktopInput.reconcileRuntime(desktopDisplayId());
         updateDesktopTasks();
         mDesktopSession.schedulePhoneTaskRecovery();
@@ -631,6 +608,7 @@ public final class MagicDeskRuntimeService extends Service
         updateSessionWakeLock();
         Log.i(TAG, "ownsExternalDesktop=" + ownsExternalDesktop()
                 + " desktopDisplay=" + desktopDisplayId());
+        updateNotification();
         if (ShellAccess.isReady()) {
             updatePlatformCaptionTarget();
         }
@@ -707,23 +685,10 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     private Notification buildNotification() {
-        final Intent openControlPanelIntent =
-                new Intent(this, MagicDeskRuntimeService.class)
-                        .setAction(ACTION_OPEN_CONTROL_PANEL);
         final PendingIntent openControlPanelPendingIntent =
-                PendingIntent.getForegroundService(
-                        this,
+                phoneActivityPendingIntent(
                         OPEN_CONTROL_PANEL_REQUEST_CODE,
-                        openControlPanelIntent,
-                        pendingIntentFlags());
-        final Intent openTouchpadIntent = new Intent(this, MagicDeskRuntimeService.class)
-                .setAction(ACTION_OPEN_TOUCHPAD);
-        final PendingIntent openTouchpadPendingIntent =
-                PendingIntent.getForegroundService(
-                        this,
-                        OPEN_TOUCHPAD_REQUEST_CODE,
-                        openTouchpadIntent,
-                        pendingIntentFlags());
+                        ControlActivity.createLaunchIntent(this));
         final String text = mOperationStatus != null
                 ? mOperationStatus
                 : (!mInitialized
@@ -742,24 +707,30 @@ public final class MagicDeskRuntimeService extends Service
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setContentIntent(openControlPanelPendingIntent);
-        if (ShellAccess.isReady()) {
+        final int targetDisplayId = desktopDisplayId();
+        if (ShellAccess.isReady()
+                && PhoneTouchpadController.isSupported(targetDisplayId)) {
             builder.addAction(
                         R.drawable.ic_touchpad,
                         getString(R.string.notification_open_touchpad),
-                        openTouchpadPendingIntent);
+                        phoneActivityPendingIntent(
+                                OPEN_TOUCHPAD_REQUEST_CODE,
+                                MagicDeskTouchpadActivity.createLaunchIntent(
+                                        this, targetDisplayId)));
         }
         return builder.build();
     }
 
-    private void openPhoneControlPanel() {
-        if (PhoneControlPanelLauncher.openWithAndroidApi(this)) {
-            Log.i(TAG, "opened phone control panel from notification");
-        }
-    }
-
-    private static int pendingIntentFlags() {
-        return PendingIntent.FLAG_UPDATE_CURRENT
-                | PendingIntent.FLAG_IMMUTABLE;
+    private PendingIntent phoneActivityPendingIntent(
+            final int requestCode, final Intent intent) {
+        // SystemUI must launch the Activity itself. A service intermediary
+        // loses the notification's foreground-launch authorization.
+        final ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(android.view.Display.DEFAULT_DISPLAY);
+        return PendingIntent.getActivity(
+                this, requestCode, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE,
+                options.toBundle());
     }
 
     private void createNotificationChannel() {
