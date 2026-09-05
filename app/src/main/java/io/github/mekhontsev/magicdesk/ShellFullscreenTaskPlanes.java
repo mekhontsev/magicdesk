@@ -4,7 +4,6 @@ import android.graphics.Rect;
 import android.util.Log;
 
 import java.io.IOException;
-import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -12,16 +11,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
 
 /** Keeps fullscreen tasks on stable, independently reordered planes. */
 final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private static final String TAG = "MagicDeskFullscreenPlanes";
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
-    private static final long SURFACE_COMMIT_TIMEOUT_SECONDS = 2L;
     private static final long FAILED_LAUNCH_REMOVAL_TIMEOUT_MILLIS = 1_000L;
     private static final long FAILED_LAUNCH_REMOVAL_POLL_MILLIS = 25L;
 
@@ -36,6 +31,11 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private int mDisplayId = -1;
     private int mNextPlaneSlotId;
     private boolean mConcealedForShowDesktop;
+    private final ShellDesktopSurfaceOrder mSurfaceOrder;
+
+    ShellFullscreenTaskPlanes(final ShellDesktopSurfaceOrder surfaceOrder) {
+        mSurfaceOrder = surfaceOrder;
+    }
 
     synchronized void configure(final int displayId) {
         if (displayId < 0) {
@@ -111,25 +111,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
 
     private void setPlaneSurfacesVisible(final boolean visible)
             throws ReflectiveOperationException {
-        if (mPlanes.isEmpty()) {
-            return;
-        }
-        final Class<?> surfaceClass = Class.forName(
-                "android.view.SurfaceControl");
-        final Class<?> transactionClass = Class.forName(
-                "android.view.SurfaceControl$Transaction");
-        final Object transaction =
-                transactionClass.getConstructor().newInstance();
-        try {
-            final String operation = visible ? "show" : "hide";
-            for (final TaskDisplayAreaHandle plane : mPlanes.values()) {
-                transactionClass.getMethod(operation, surfaceClass)
-                        .invoke(transaction, plane.surfaceLeash());
-            }
-            applyCommittedSurfaceTransaction(
-                    transactionClass, transaction);
-        } finally {
-            transactionClass.getMethod("close").invoke(transaction);
+        if (!mPlanes.isEmpty()) {
+            mSurfaceOrder.setVisible(mPlanes.values(), visible);
         }
     }
 
@@ -1256,89 +1239,15 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final Map<Integer, Integer> layers,
             final Map<Integer, TaskDisplayAreaHandle> planes)
             throws ReflectiveOperationException {
-        if (layers.isEmpty() && mAvailablePlanes.isEmpty()) {
-            return;
+        final Map<TaskDisplayAreaHandle, Integer> assignments = new LinkedHashMap<>();
+        for (final Map.Entry<Integer, Integer> entry : layers.entrySet()) {
+            assignments.put(planes.get(entry.getKey()), entry.getValue());
         }
-        final Class<?> surfaceClass = Class.forName(
-                "android.view.SurfaceControl");
-        final Class<?> transactionClass = Class.forName(
-                "android.view.SurfaceControl$Transaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
-        try {
-            for (final Map.Entry<Integer, Integer> entry : layers.entrySet()) {
-                final TaskDisplayAreaHandle plane = planes.get(entry.getKey());
-                transactionClass.getMethod(
-                        "setLayer", surfaceClass, Integer.TYPE)
-                        .invoke(
-                                transaction,
-                                plane.surfaceLeash(),
-                                entry.getValue());
-            }
-            int idleLayer = -mPlaneAnchorTaskIds.size();
-            for (final TaskDisplayAreaHandle plane : mAvailablePlanes) {
-                transactionClass.getMethod(
-                        "setLayer", surfaceClass, Integer.TYPE)
-                        .invoke(
-                                transaction,
-                                plane.surfaceLeash(),
-                                Integer.valueOf(idleLayer++));
-            }
-            applyCommittedSurfaceTransaction(
-                    transactionClass, transaction);
-        } finally {
-            transactionClass.getMethod("close").invoke(transaction);
+        int idleLayer = -mPlaneAnchorTaskIds.size();
+        for (final TaskDisplayAreaHandle plane : mAvailablePlanes) {
+            assignments.put(plane, Integer.valueOf(idleLayer++));
         }
-    }
-
-    private static void applyCommittedSurfaceTransaction(
-            final Class<?> transactionClass,
-            final Object transaction) throws ReflectiveOperationException {
-        final Class<?> listenerClass = Class.forName(
-                "android.view.SurfaceControl$TransactionCommittedListener");
-        final CountDownLatch committed = new CountDownLatch(1);
-        final Object listener = Proxy.newProxyInstance(
-                listenerClass.getClassLoader(),
-                new Class<?>[]{listenerClass},
-                (proxy, method, arguments) -> {
-                    final String name = method.getName();
-                    if ("onTransactionCommitted".equals(name)) {
-                        committed.countDown();
-                        return null;
-                    }
-                    if ("toString".equals(name)) {
-                        return "MagicDeskSurfaceCommitListener";
-                    }
-                    if ("hashCode".equals(name)) {
-                        return Integer.valueOf(
-                                System.identityHashCode(proxy));
-                    }
-                    if ("equals".equals(name)) {
-                        return Boolean.valueOf(arguments != null
-                                && arguments.length == 1
-                                && proxy == arguments[0]);
-                    }
-                    return null;
-                });
-        final Executor directExecutor = Runnable::run;
-        transactionClass.getMethod(
-                "addTransactionCommittedListener",
-                Executor.class,
-                listenerClass).invoke(
-                        transaction, directExecutor, listener);
-        transactionClass.getMethod("apply").invoke(transaction);
-        final boolean completed;
-        try {
-            completed = committed.await(
-                    SURFACE_COMMIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(
-                    "surface transaction commit interrupted", error);
-        }
-        if (!completed) {
-            throw new IllegalStateException(
-                    "surface transaction commit timed out");
-        }
+        mSurfaceOrder.applyLayers(assignments);
     }
 
     private void closeWithSuccessor(

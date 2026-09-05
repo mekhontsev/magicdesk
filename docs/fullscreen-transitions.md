@@ -54,12 +54,14 @@ The same topology is used on phone, simulated, wired, and wireless targets.
 `PhoneDesktopHomeActivity` remains primary HOME in Android's default task area;
 ordinary freeform tasks share the standard root workspace, while fullscreen
 tasks use independent planes under that workspace. Display chrome uses one
-standard fullscreen root task directly in the same workspace. WindowManager
-keeps this transparent task non-focusable and `alwaysOnTop`; its ActivityRecord
-input sink is disabled, and only bounded child application windows draw or
-receive input. It is deliberately not an organizer `TaskDisplayArea`, because
-Android activity-start ordering expects ordinary root-task siblings above a
-foreground application task.
+transparent, non-focusable fullscreen task in its own organizer area under
+that workspace. Only bounded child application windows draw or receive input.
+`ShellDesktopSurfaceOrder` owns surface composition for fullscreen planes and
+chrome together; each plane-order commit includes the chrome layer above the
+applications. WCT task primitives still target tasks, never the chrome area.
+Launches, mode transitions, and workspace commands finish through the same
+surface-order owner. A failed surface commit is not reported as a successful
+window operation. This adds no task polling or independent input repair.
 On the phone display the taskbar child window also covers the stable lower
 system-bar inset. It paints that portion with the taskbar background, while the
 taskbar controls remain above the inset. When managed fullscreen policy conceals

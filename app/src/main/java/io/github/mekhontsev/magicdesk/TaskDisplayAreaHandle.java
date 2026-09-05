@@ -115,24 +115,6 @@ final class TaskDisplayAreaHandle {
         return mLeash;
     }
 
-    /** Assigns this organizer-owned area a stable sibling surface layer. */
-    synchronized void setSurfaceLayer(final int layer)
-            throws ReflectiveOperationException {
-        final Class<?> surfaceClass = Class.forName(
-                "android.view.SurfaceControl");
-        final Class<?> transactionClass = Class.forName(
-                "android.view.SurfaceControl$Transaction");
-        final Object transaction = transactionClass.getConstructor().newInstance();
-        try {
-            transactionClass.getMethod(
-                    "setLayer", surfaceClass, Integer.TYPE)
-                    .invoke(transaction, surfaceLeash(), Integer.valueOf(layer));
-            transactionClass.getMethod("apply").invoke(transaction);
-        } finally {
-            transactionClass.getMethod("close").invoke(transaction);
-        }
-    }
-
     /** Controls whether child activity requests may rotate this desktop area. */
     void setIgnoreOrientationRequest(
             final Object service,

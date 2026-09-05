@@ -52,6 +52,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
     private final ShellDesktopHostLauncher mDesktopHostLauncher;
     private final ShellDesktopChromeHost mDesktopChromeHost;
+    private final ShellDesktopSurfaceOrder mSurfaceOrder =
+            new ShellDesktopSurfaceOrder();
     private final ShellSelfTestTaskStackGuard mSelfTestTaskStackGuard;
 
     private volatile boolean mClosed;
@@ -117,8 +119,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 activityLauncher);
         mDesktopHostLauncher = new ShellDesktopHostLauncher(
                 mService, mDesktopOwnership);
-        mFullscreenTaskArea = new ShellFullscreenTaskArea(mDesktopOwnership);
-        mDesktopChromeHost = new ShellDesktopChromeHost(mService);
+        mFullscreenTaskArea = new ShellFullscreenTaskArea(
+                mDesktopOwnership, mSurfaceOrder);
+        mDesktopChromeHost = new ShellDesktopChromeHost(mService, mSurfaceOrder);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
         mWindowing = windowing;
         mSystemDialogTracker = new ShellSystemDialogTracker(
@@ -310,7 +313,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mFullscreenTaskArea,
                 mFocusController,
                 mTaskObservations::requestSample,
-                () -> restoreDesktopChromeSurfaceOrder(mConfiguredDisplayId));
+                mSurfaceOrder);
     }
 
     void refreshTaskCaption(
@@ -578,8 +581,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
-        return mFullscreenTaskArea.restoreTask(
-                mService, displayId, taskId, bounds, densityDpi);
+        return mSurfaceOrder.complete(mFullscreenTaskArea.restoreTask(
+                mService, displayId, taskId, bounds, densityDpi));
     }
 
     boolean beginAppFullscreenTask(
@@ -598,7 +601,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 restoreBounds,
                 densityDpi);
         reportDesktopTaskOwnership();
-        return entered;
+        return mSurfaceOrder.complete(entered);
     }
 
     boolean beginFullscreenTask(
@@ -616,7 +619,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mWindowing.requiresNativeFullscreenCaptionRefresh(),
                 densityDpi);
         reportDesktopTaskOwnership();
-        return entered;
+        return mSurfaceOrder.complete(entered);
     }
 
     boolean beginWindowedTask(
@@ -641,7 +644,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     new Rect(bounds),
                     densityDpi);
             reportDesktopTaskOwnership();
-            return true;
+            return mSurfaceOrder.complete(true);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "cannot attach windowed task: "
@@ -680,7 +683,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         final ShellFullscreenTaskArea.CloseResult result =
                 mFullscreenTaskArea.closeTask(
                         mService, displayId, taskId, focusTaskId);
-        return result == ShellFullscreenTaskArea.CloseResult.SUCCEEDED;
+        return mSurfaceOrder.complete(
+                result == ShellFullscreenTaskArea.CloseResult.SUCCEEDED);
     }
 
     int launchWindowedTask(
@@ -868,17 +872,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
 
     private int finishTaskLaunch(final int displayId, final int taskId) {
         reportDesktopTaskOwnership();
-        restoreDesktopChromeSurfaceOrder(displayId);
-        return taskId;
-    }
-
-    private void restoreDesktopChromeSurfaceOrder(final int displayId) {
-        try {
-            mDesktopChromeHost.restoreSurfaceOrder(displayId);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.w(TAG, "could not restore desktop chrome surface order",
-                    error);
-        }
+        return mSurfaceOrder.complete(taskId);
     }
 
     boolean setDesktopTaskDensity(

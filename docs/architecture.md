@@ -1385,12 +1385,10 @@ cover the reserved status- and navigation-bar insets above the wallpaper.
 Android can therefore keep normal system-bar behavior for HOME and freeform
 tasks without exposing bright wallpaper strips around snapped windows.
 
-The desktop chrome host is a regular fullscreen root task directly inside
-Android's standard task workspace. It is translucent, non-focusable,
-`alwaysOnTop`, and receives its ordering through a standard
-`WindowContainerTransaction`. This preserves normal Android root-task ordering
-instead of inserting an organizer `TaskDisplayArea` between ordinary
-application tasks. The taskbar itself is a bounded child application window,
+The desktop chrome host is a translucent, non-focusable fullscreen task in its
+own organizer area under Android's standard task workspace. Its organizer leash
+shares the ordering parent with application tasks and fullscreen planes. The
+taskbar itself is a bounded child application window,
 so a foreground application that suppresses non-system overlays cannot
 suppress it. The fullscreen host never receives a freeform caption.
 The shell disables that Activity's Android 15+ ActivityRecord input sink, so
@@ -1400,9 +1398,13 @@ Auto-hide keeps the non-touchable host geometry stable and resizes the
 application panel containing the taskbar View to its reveal edge. The same
 bounded window therefore owns visible taskbar input and
 hidden-edge hover without forwarding synthetic events. It adds no polling and
-keeps the input frame aligned with the visible edge. WindowManager's root-task
-order keeps both the visible panel and hidden reveal edge above application
-input regions. Start, context menus, notifications, and dialogs reuse this
+keeps the input frame aligned with the visible edge. `ShellDesktopSurfaceOrder`
+includes chrome above application planes in the same committed surface
+transaction. Launch, mode changes, and workspace activation also complete
+through this shared owner, before reporting success. This keeps both the visible
+panel and hidden reveal edge above application input regions; taskbar clicks,
+Alt+Tab, overview, and MCP do not implement separate layer fixes.
+Start, context menus, notifications, and dialogs reuse this
 same application token rather than creating another infrastructure task.
 The taskbar hides for an unrelated true-fullscreen task and returns for the
 desktop. Chrome policy reads the complete physical display snapshot before

@@ -70,8 +70,15 @@ public final class DesktopPanelArchitectureTest {
         assertTrue(host.contains(
                 "TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER"));
         assertFalse(host.contains("TaskDisplayAreaHandle.Parent.ROOT"));
-        assertTrue(host.contains("setSurfaceLayer"));
-        assertTrue(host.contains("restoreSurfaceOrder"));
+        assertTrue(host.contains("mSurfaceOrder.attachChrome(mArea)"));
+        assertTrue(host.contains("mSurfaceOrder.detachChrome(area)"));
+        assertFalse(host.contains("setSurfaceLayer"));
+        final String planes = read(
+                "src/main/java/io/github/mekhontsev/magicdesk/"
+                        + "ShellFullscreenTaskPlanes.java");
+        assertTrue(planes.contains("mSurfaceOrder.applyLayers(assignments)"));
+        assertTrue(planes.contains("mSurfaceOrder.setVisible"));
+        assertFalse(planes.contains("android.view.SurfaceControl"));
         assertTrue(host.contains("setFocusable"));
         assertFalse(host.contains("setAlwaysOnTop(transaction, mArea.token()"));
         assertFalse(host.contains("reorder(transaction, mArea.token()"));

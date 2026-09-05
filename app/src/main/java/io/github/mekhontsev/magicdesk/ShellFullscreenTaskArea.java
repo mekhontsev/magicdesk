@@ -30,19 +30,20 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
 
     private final ShellDesktopTaskOwnership mOwnership;
-    private final ShellFullscreenTaskPlanes mPlanes =
-            new ShellFullscreenTaskPlanes();
+    private final ShellFullscreenTaskPlanes mPlanes;
     private final Map<Integer, Rect> mAppRestoreBounds = new HashMap<>();
 
     private int mDisplayId = -1;
 
     ShellFullscreenTaskArea(
-            final ShellDesktopTaskOwnership ownership) {
+            final ShellDesktopTaskOwnership ownership,
+            final ShellDesktopSurfaceOrder surfaceOrder) {
         if (ownership == null) {
             throw new IllegalArgumentException(
                     "desktop task ownership is required");
         }
         mOwnership = ownership;
+        mPlanes = new ShellFullscreenTaskPlanes(surfaceOrder);
     }
 
     synchronized ShellFullscreenTaskArea.FocusResult focusStack(

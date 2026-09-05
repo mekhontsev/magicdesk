@@ -36,17 +36,17 @@ final class ShellDesktopWorkspaceCoordinator {
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
     private final ShellDesktopFocusController mFocusController;
     private final Runnable mTaskSampleRequester;
-    private final Runnable mWorkspaceSurfaceOrderRestorer;
+    private final ShellDesktopSurfaceOrder mSurfaceOrder;
 
     ShellDesktopWorkspaceCoordinator(
             final Object service,
             final ShellFullscreenTaskArea fullscreenTaskArea,
             final ShellDesktopFocusController focusController,
             final Runnable taskSampleRequester,
-            final Runnable workspaceSurfaceOrderRestorer) {
+            final ShellDesktopSurfaceOrder surfaceOrder) {
         if (service == null || fullscreenTaskArea == null
                 || focusController == null || taskSampleRequester == null
-                || workspaceSurfaceOrderRestorer == null) {
+                || surfaceOrder == null) {
             throw new IllegalArgumentException(
                     "workspace coordinator dependencies are required");
         }
@@ -54,7 +54,7 @@ final class ShellDesktopWorkspaceCoordinator {
         mFullscreenTaskArea = fullscreenTaskArea;
         mFocusController = focusController;
         mTaskSampleRequester = taskSampleRequester;
-        mWorkspaceSurfaceOrderRestorer = workspaceSurfaceOrderRestorer;
+        mSurfaceOrder = surfaceOrder;
     }
 
     synchronized Result execute(final DesktopWorkspaceCommand command) {
@@ -105,6 +105,7 @@ final class ShellDesktopWorkspaceCoordinator {
             final ShellDesktopFocusController.CommitBarrier commitBarrier =
                     mFocusController.captureCommitBarrier();
             applyPhysicalOrder(command, physicalOrder);
+            mSurfaceOrder.restore();
             mTaskSampleRequester.run();
             final boolean requiresInputFocus =
                     command.requiresInputFocusCommit();
@@ -123,7 +124,6 @@ final class ShellDesktopWorkspaceCoordinator {
                                 : "task commit did not converge for task ")
                                 + command.targetTaskId);
             }
-            mWorkspaceSurfaceOrderRestorer.run();
             Log.d(TAG, "completed " + command.operationName()
                     + " display=" + command.displayId
                     + " target=" + command.targetTaskId

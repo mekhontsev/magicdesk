@@ -12,18 +12,20 @@ import java.util.Set;
 final class ShellDesktopChromeHost implements AutoCloseable {
     private static final String TAG = "MagicDeskChromeHost";
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
-    private static final int CHROME_SURFACE_LAYER = Integer.MAX_VALUE;
     private static final long TASK_REMOVAL_TIMEOUT_MILLIS = 1_000L;
     private static final long TASK_REMOVAL_POLL_MILLIS = 25L;
 
     private final Object mService;
+    private final ShellDesktopSurfaceOrder mSurfaceOrder;
 
     private TaskDisplayAreaHandle mArea;
     private int mDisplayId = Display.INVALID_DISPLAY;
     private int mTaskId = -1;
 
-    ShellDesktopChromeHost(final Object service) {
+    ShellDesktopChromeHost(
+            final Object service, final ShellDesktopSurfaceOrder surfaceOrder) {
         mService = service;
+        mSurfaceOrder = surfaceOrder;
     }
 
     synchronized void configure(final int displayId) {
@@ -64,7 +66,8 @@ final class ShellDesktopChromeHost implements AutoCloseable {
                         "desktop chrome host resolved outside its display area");
             }
             configureTask(task);
-            restoreSurfaceOrder(displayId);
+            mSurfaceOrder.attachChrome(mArea);
+            mSurfaceOrder.restore();
             Log.i(TAG, "created display=" + displayId
                     + " feature=" + mArea.featureId()
                     + " task=" + mTaskId);
@@ -94,19 +97,10 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         return mTaskId;
     }
 
-    /** Restores chrome above application tasks after their surface reordering. */
-    synchronized void restoreSurfaceOrder(final int displayId)
-            throws ReflectiveOperationException {
-        if (displayId != mDisplayId || mArea == null
-                || findOwnedTask() == null) {
-            return;
-        }
-        mArea.setSurfaceLayer(CHROME_SURFACE_LAYER);
-    }
-
     @Override
     public synchronized void close() {
         final TaskDisplayAreaHandle area = mArea;
+        mSurfaceOrder.detachChrome(area);
         final Set<Integer> taskIds = findOwnedTaskIds();
         try {
             for (final Integer taskId : taskIds) {
