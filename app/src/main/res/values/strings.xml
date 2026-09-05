@@ -412,7 +412,8 @@
     <string name="status_desktop_closing">Closing desktop&#8230;</string>
     <string name="status_close_desktop_failed">Could not close the external desktop</string>
     <string name="status_touchpad_opening">Opening touchpad&#8230;</string>
-    <string name="touchpad_toggle_keyboard">Show or hide keyboard</string>
+    <string name="touchpad_show_keyboard">Show keyboard</string>
+    <string name="touchpad_keyboard_unavailable">Could not connect to the desktop text field</string>
     <string name="touchpad_present_desktop_workspace">Return to desktop workspace</string>
     <string name="touchpad_fullscreen_current_window">Fullscreen current window (Win + Up)</string>
     <string name="touchpad_restore_current_window">Restore or minimize current window (Win + Down)</string>

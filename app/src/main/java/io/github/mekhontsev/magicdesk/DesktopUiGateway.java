@@ -519,33 +519,26 @@ final class DesktopUiGateway {
         return completion.await(timeoutMillis);
     }
 
-    boolean dispatchPanelTextInput(
-            final int displayId,
-            final int action,
-            final String text,
-            final int arg1,
-            final int arg2,
-            final int arg3) {
+    LocalTextInputSession captureLocalTextInput(final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
                 || activity.getCurrentDisplayId() != displayId
                 || Looper.myLooper() != Looper.getMainLooper()) {
-            return false;
+            return null;
         }
         final DesktopPanelWindowController panels = activity.panels();
-        return panels != null && panels.dispatchTextInput(
-                action, text, arg1, arg2, arg3);
-    }
-
-    boolean hasPanelTextInput(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
-        if (activity == null
-                || activity.getCurrentDisplayId() != displayId
-                || Looper.myLooper() != Looper.getMainLooper()) {
-            return false;
+        final android.view.View panelEditor = panels == null
+                ? null : panels.focusedTextEditor();
+        if (panelEditor != null) {
+            return LocalTextInputSession.capture(panelEditor, displayId);
         }
-        final DesktopPanelWindowController panels = activity.panels();
-        return panels != null && panels.hasTextInputTarget();
+        // The phone button may already own window focus. Select the editor by
+        // the existing desktop task snapshot, not by global window focus.
+        final TaskRepository.Snapshot snapshot = activity.getTaskSnapshot();
+        final TaskRepository.TaskEntry activeTask = snapshot.available
+                ? DesktopTaskSnapshotController.findActiveTask(snapshot.tasks) : null;
+        return activeTask == null ? null : LocalTextInputSession.capture(
+                BuiltInWindowRegistry.focusedTextEditor(displayId, activeTask.taskId), displayId);
     }
 
     void showTransientStatus(

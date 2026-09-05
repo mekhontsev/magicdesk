@@ -148,13 +148,37 @@ secondary click. Two-finger movement scrolls, while a stationary two-finger
 tap also becomes a secondary click. These decisions stay in the phone UI;
 display-targeted event injection stays inside the shell UserService.
 
-The software keyboard is a separate path. An invisible phone-side
-`InputConnection` receives normal IME operations, including composing text,
-commits, deletion, and key events. For desktop applications those operations
-are forwarded to the focused vendor `IDisplayMirrorWindow`; MagicDesk-owned
-panel fields are handled locally. The focused mirror window is captured for
-one explicit keyboard session and released when the keyboard closes, so text
-input does not depend on polling or changing the user's selected IME.
+The software keyboard is a separate, explicit session. `PhoneImeInputView`
+adapts Android IME operations, including composing text, commits, deletion,
+and key events, to a captured desktop editor. For third-party applications
+the platform text-input driver supplies that transport; the Nubia driver
+currently uses `IDisplayMirrorWindow`. This does not require a mirror display.
+MagicDesk-owned panel and built-in application fields share `LocalTextInputSession`
+and the editor's ordinary Android `InputConnection`. The UI gateway checks the
+active panel and the selected task from the existing desktop snapshot before
+consulting `BuiltInWindowRegistry`; phone-window focus is not used to choose
+a desktop editor.
+One editor is captured for the keyboard session. Detached, hidden, unfocused,
+or moved editors invalidate that session instead of redirecting text to another
+window or falling back to vendor input. Closing the keyboard or the desktop
+releases the connection. Target discovery is one-shot, with no new polling,
+activity observer, or change to the user's selected IME.
+
+`PhoneImeRequest` owns the phone-side opening and visibility lifecycle.
+Only the keyboard button captures a text session: pointer clicks never capture
+or replace it, and capture failure reports an unavailable editor without
+injecting another click. One explicit show request is sent after window focus
+and the Android input-connection creation callback; subsequent focus callbacks
+do not reopen the keyboard. Initial hidden insets do not cancel an opening
+request. The button only opens the keyboard; repeated presses retain the
+current or pending session. Android's Back gesture dismisses the IME. Observed IME
+dismissal, touchpad stop, target-display change, and destruction release the
+session. Each input connection has a distinct identity, so a superseded or
+closed connection cannot write into or close a newer one. These transitions
+are callback-driven and introduce no timer, worker, or task query. A failed
+vendor capture remains an explicit limitation; the phone adapter does not
+guess a different recipient or replace the application's selected editor.
+
 While an external desktop is owned, the runtime temporarily enables Android's
 `show_ime_with_hard_keyboard` setting so the user can explicitly open the
 phone keyboard even when a physical keyboard is connected. It remembers the

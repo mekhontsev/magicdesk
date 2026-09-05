@@ -12,13 +12,10 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.Display;
 import android.view.Gravity;
-import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewParent;
 import android.view.WindowManager;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputConnection;
 import android.widget.FrameLayout;
 
 import java.util.HashMap;
@@ -79,8 +76,6 @@ final class DesktopPanelWindowController {
 
     private DesktopDialogPresenter.Factory mDialogFactory;
     private AlertDialog mDialog;
-    private View mTextInputView;
-    private InputConnection mTextInputConnection;
 
     DesktopPanelWindowController(
             final Context context,
@@ -226,9 +221,6 @@ final class DesktopPanelWindowController {
                 ? mOwnerFocusBeforeChild : mVisiblePanel.findFocus();
         hideChild(false);
         mOwnerFocusBeforeChild = ownerFocus;
-        if (mVisibleFocusable) {
-            clearTextInputConnection();
-        }
 
         final Rect hostBounds = new Rect(mBounds);
         hostBounds.union(left, top, left + width, top + height);
@@ -364,7 +356,6 @@ final class DesktopPanelWindowController {
     private void hideAll(final boolean preservePanelVisibility) {
         hideChild(false);
         hideTransient();
-        clearTextInputConnection();
         final View panel = mVisiblePanel;
         final boolean wasRequested = mVisibleRequested && panel != null;
         if (mVisibleAdded && panel != null && mWindowManager != null) {
@@ -460,54 +451,14 @@ final class DesktopPanelWindowController {
                         || (panel == mVisiblePanel && mVisibleRequested));
     }
 
-    boolean hasTextInputTarget() {
+    View focusedTextEditor() {
         final View inputPanel = topInputPanel();
         if (Looper.myLooper() != Looper.getMainLooper()
                 || inputPanel == null) {
-            return false;
+            return null;
         }
         final View focused = inputPanel.findFocus();
-        return focused != null && focused.onCheckIsTextEditor();
-    }
-
-    boolean dispatchTextInput(
-            final int action,
-            final String text,
-            final int arg1,
-            final int arg2,
-            final int arg3) {
-        final View inputPanel = topInputPanel();
-        if (Looper.myLooper() != Looper.getMainLooper()
-                || inputPanel == null) {
-            return false;
-        }
-        final View focused = inputPanel.findFocus();
-        if (focused == null || !focused.onCheckIsTextEditor()) {
-            clearTextInputConnection();
-            return false;
-        }
-        final InputConnection connection = textInputConnection(focused);
-        if (connection == null) {
-            return false;
-        }
-        switch (action) {
-            case PlatformTextInputDriver.COMMIT_TEXT:
-                return connection.commitText(safeText(text), arg1);
-            case PlatformTextInputDriver.SEND_KEY:
-                final long eventTime = android.os.SystemClock.uptimeMillis();
-                return connection.sendKeyEvent(new KeyEvent(
-                        eventTime, eventTime, arg1, arg2, 0, arg3));
-            case PlatformTextInputDriver.SET_COMPOSING_TEXT:
-                return connection.setComposingText(safeText(text), arg1);
-            case PlatformTextInputDriver.SET_COMPOSING_REGION:
-                return connection.setComposingRegion(arg1, arg2);
-            case PlatformTextInputDriver.FINISH_COMPOSING:
-                return connection.finishComposingText();
-            case PlatformTextInputDriver.DELETE_SURROUNDING:
-                return connection.deleteSurroundingText(arg1, arg2);
-            default:
-                return false;
-        }
+        return focused != null && focused.onCheckIsTextEditor() ? focused : null;
     }
 
     boolean contains(final float x, final float y) {
@@ -954,38 +905,12 @@ final class DesktopPanelWindowController {
         return false;
     }
 
-    private InputConnection textInputConnection(final View focused) {
-        if (mTextInputView == focused && mTextInputConnection != null) {
-            return mTextInputConnection;
-        }
-        clearTextInputConnection();
-        final InputConnection connection = focused.onCreateInputConnection(
-                new EditorInfo());
-        if (connection != null) {
-            mTextInputView = focused;
-            mTextInputConnection = connection;
-        }
-        return connection;
-    }
-
-    private void clearTextInputConnection() {
-        if (mTextInputConnection != null) {
-            mTextInputConnection.closeConnection();
-        }
-        mTextInputView = null;
-        mTextInputConnection = null;
-    }
-
     private void notifyPanelVisibilityChanged(
             final View panel,
             final boolean visible) {
         if (mPanelVisibilityListener != null && panel != null) {
             mPanelVisibilityListener.onPanelVisibilityChanged(panel, visible);
         }
-    }
-
-    private static String safeText(final String text) {
-        return text == null ? "" : text;
     }
 
     private static String safeTitle(final String title) {

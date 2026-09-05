@@ -11,9 +11,9 @@ import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
 import android.widget.EditText;
 
-/** Invisible IME target that writes into the focused mirrored window. */
+/** Phone-side Android IME adapter for a captured desktop editor. */
 @SuppressLint("ViewConstructor")
-final class MirrorInputEditText extends EditText {
+final class PhoneImeInputView extends EditText {
     interface Dispatcher {
         boolean dispatch(
                 int action,
@@ -24,11 +24,17 @@ final class MirrorInputEditText extends EditText {
     }
 
     private final Dispatcher mDispatcher;
+    private final PhoneImeRequest mRequest;
+    private final Runnable mConnectionReady;
 
-    MirrorInputEditText(
+    PhoneImeInputView(
             final Context context,
+            final PhoneImeRequest request,
+            final Runnable connectionReady,
             final Dispatcher dispatcher) {
         super(context);
+        mRequest = request;
+        mConnectionReady = connectionReady;
         mDispatcher = dispatcher;
         setSingleLine(false);
         setCursorVisible(false);
@@ -39,10 +45,10 @@ final class MirrorInputEditText extends EditText {
         setShowSoftInputOnFocus(false);
     }
 
-    void setKeyboardRequested(final boolean requested) {
+    void updateFocusability() {
+        final boolean requested = mRequest.isRequested();
         setFocusable(requested);
         setFocusableInTouchMode(requested);
-        setShowSoftInputOnFocus(requested);
         if (!requested) {
             clearFocus();
         }
@@ -50,6 +56,13 @@ final class MirrorInputEditText extends EditText {
 
     @Override
     public boolean dispatchKeyEvent(final KeyEvent event) {
+        return dispatchKeyEvent(event, mRequest.currentConnection());
+    }
+
+    private boolean dispatchKeyEvent(final KeyEvent event, final long connection) {
+        if (!mRequest.accepts(connection)) {
+            return false;
+        }
         if (event.getKeyCode() == KeyEvent.KEYCODE_UNKNOWN) {
             return true;
         }
@@ -65,6 +78,7 @@ final class MirrorInputEditText extends EditText {
                 final boolean backward =
                         event.getKeyCode() == KeyEvent.KEYCODE_DEL;
                 return dispatch(
+                        connection,
                         PlatformTextInputDriver.DELETE_SURROUNDING,
                         "",
                         backward ? 1 : 0,
@@ -73,6 +87,7 @@ final class MirrorInputEditText extends EditText {
             }
         }
         return dispatch(
+                connection,
                 PlatformTextInputDriver.SEND_KEY,
                 "",
                 event.getAction(),
@@ -83,21 +98,33 @@ final class MirrorInputEditText extends EditText {
     @Override
     public InputConnection onCreateInputConnection(
             final EditorInfo editorInfo) {
+        if (!mRequest.isRequested()) {
+            return null;
+        }
         final InputConnection viewConnection =
                 super.onCreateInputConnection(editorInfo);
         if (viewConnection == null) {
             return null;
         }
-        return new RemoteInputConnection(this);
+        final long connection = mRequest.openConnection();
+        // Finish Android's connection-creation callback before requesting IME
+        // visibility. A replacement connection invalidates this queued callback.
+        post(() -> {
+            if (mRequest.accepts(connection)) {
+                mConnectionReady.run();
+            }
+        });
+        return new RemoteInputConnection(this, connection);
     }
 
     private boolean dispatch(
+            final long connection,
             final int action,
             final CharSequence text,
             final int arg1,
             final int arg2,
             final int arg3) {
-        return mDispatcher != null && mDispatcher.dispatch(
+        return mRequest.accepts(connection) && mDispatcher != null && mDispatcher.dispatch(
                 action,
                 text == null ? "" : text.toString(),
                 arg1,
@@ -106,8 +133,17 @@ final class MirrorInputEditText extends EditText {
     }
 
     private final class RemoteInputConnection extends BaseInputConnection {
-        RemoteInputConnection(final View targetView) {
+        private final long mConnection;
+
+        RemoteInputConnection(final View targetView, final long connection) {
             super(targetView, true);
+            mConnection = connection;
+        }
+
+        @Override
+        public void closeConnection() {
+            super.closeConnection();
+            mRequest.closeConnection(mConnection);
         }
 
         @Override
@@ -115,6 +151,7 @@ final class MirrorInputEditText extends EditText {
                 final CharSequence text,
                 final int newCursorPosition) {
             return dispatch(
+                    mConnection,
                     PlatformTextInputDriver.COMMIT_TEXT,
                     text,
                     newCursorPosition,
@@ -124,7 +161,7 @@ final class MirrorInputEditText extends EditText {
 
         @Override
         public boolean sendKeyEvent(final KeyEvent event) {
-            return MirrorInputEditText.this.dispatchKeyEvent(event);
+            return PhoneImeInputView.this.dispatchKeyEvent(event, mConnection);
         }
 
         @Override
@@ -132,6 +169,7 @@ final class MirrorInputEditText extends EditText {
                 final CharSequence text,
                 final int newCursorPosition) {
             return dispatch(
+                    mConnection,
                     PlatformTextInputDriver.SET_COMPOSING_TEXT,
                     text,
                     newCursorPosition,
@@ -144,6 +182,7 @@ final class MirrorInputEditText extends EditText {
                 final int start,
                 final int end) {
             return dispatch(
+                    mConnection,
                     PlatformTextInputDriver.SET_COMPOSING_REGION,
                     "",
                     start,
@@ -154,6 +193,7 @@ final class MirrorInputEditText extends EditText {
         @Override
         public boolean finishComposingText() {
             return dispatch(
+                    mConnection,
                     PlatformTextInputDriver.FINISH_COMPOSING,
                     "",
                     0,
@@ -166,6 +206,7 @@ final class MirrorInputEditText extends EditText {
                 final int beforeLength,
                 final int afterLength) {
             return dispatch(
+                    mConnection,
                     PlatformTextInputDriver.DELETE_SURROUNDING,
                     "",
                     beforeLength,

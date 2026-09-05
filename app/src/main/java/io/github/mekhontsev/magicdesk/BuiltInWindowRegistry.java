@@ -3,12 +3,13 @@ package io.github.mekhontsev.magicdesk;
 import android.app.Activity;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Tracks built-in app windows so a full MagicDesk exit can close them. */
+/** Live built-in windows for local UI services and full MagicDesk exit. */
 final class BuiltInWindowRegistry {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final List<WeakReference<Activity>> WINDOWS =
@@ -31,6 +32,28 @@ final class BuiltInWindowRegistry {
         synchronized (WINDOWS) {
             removeLocked(activity);
         }
+    }
+
+    static View focusedTextEditor(final int displayId, final int taskId) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return null;
+        }
+        synchronized (WINDOWS) {
+            for (final WeakReference<Activity> reference : WINDOWS) {
+                final Activity activity = reference.get();
+                if (activity == null || activity.isFinishing() || activity.isDestroyed()
+                        || activity.getDisplay() == null
+                        || activity.getDisplay().getDisplayId() != displayId
+                        || activity.getTaskId() != taskId) {
+                    continue;
+                }
+                final View focused = activity.getCurrentFocus();
+                if (focused != null && focused.onCheckIsTextEditor()) {
+                    return focused;
+                }
+            }
+        }
+        return null;
     }
 
     static void finishAll(final Runnable completion) {

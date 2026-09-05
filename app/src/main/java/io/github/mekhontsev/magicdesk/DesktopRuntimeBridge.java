@@ -179,19 +179,8 @@ public final class DesktopRuntimeBridge {
                 timeoutMillis);
     }
 
-    static boolean dispatchPanelTextInput(
-            final int displayId,
-            final int action,
-            final String text,
-            final int arg1,
-            final int arg2,
-            final int arg3) {
-        return UI.dispatchPanelTextInput(
-                displayId, action, text, arg1, arg2, arg3);
-    }
-
-    static boolean hasPanelTextInput(final int displayId) {
-        return UI.hasPanelTextInput(displayId);
+    static LocalTextInputSession captureLocalTextInput(final int displayId) {
+        return UI.captureLocalTextInput(displayId);
     }
 
     static void showTransientStatus(

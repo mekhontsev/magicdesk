@@ -20,17 +20,15 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowInsets;
-import android.view.WindowInsetsAnimation;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 
 import java.lang.ref.WeakReference;
-import java.util.List;
 
 /** Phone-side touch surface for every external MagicDesk display. */
 public final class MagicDeskTouchpadActivity extends Activity {
@@ -49,7 +47,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private DisplayManager.DisplayListener mDisplayListener;
     private int mTargetDisplayId = Display.INVALID_DISPLAY;
     private boolean mPointerDragActive;
-    private MirrorInputEditText mMirrorInput;
+    private final PhoneImeRequest mKeyboardRequest = new PhoneImeRequest();
+    private PhoneImeInputView mPhoneInput;
     private FrameLayout mContentContainer;
     private ImageButton mHelpButton;
     private ScrollView mHelpView;
@@ -178,16 +177,14 @@ public final class MagicDeskTouchpadActivity extends Activity {
     @Override
     public void onWindowFocusChanged(final boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (!hasFocus) {
-            return;
-        }
-        if (hasTextInputProxy()) {
+        if (hasFocus) {
             showKeyboardIfReady();
         }
     }
 
     @Override
     protected void onStop() {
+        clearTextInputProxy();
         finishPointerDrag();
         DesktopSelfTestPhoneUiObserver.noteTouchpadStopped(mTargetDisplayId);
         synchronized (STATE_LOCK) {
@@ -227,7 +224,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        hidePhoneKeyboard();
         clearTextInputProxy();
         if (mBackCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(
@@ -247,31 +243,12 @@ public final class MagicDeskTouchpadActivity extends Activity {
             final Insets bars = windowInsets.getInsets(
                     WindowInsets.Type.systemBars());
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            if (mKeyboardRequest.wasDismissed(
+                    windowInsets.isVisible(WindowInsets.Type.ime()))) {
+                clearTextInputProxy();
+            }
             return windowInsets;
         });
-        root.setWindowInsetsAnimationCallback(
-                new WindowInsetsAnimation.Callback(
-                        WindowInsetsAnimation.Callback
-                                .DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
-                    @Override
-                    public WindowInsets onProgress(
-                            final WindowInsets insets,
-                            final List<WindowInsetsAnimation>
-                                    runningAnimations) {
-                        return insets;
-                    }
-
-                    @Override
-                    public void onEnd(
-                            final WindowInsetsAnimation animation) {
-                        if ((animation.getTypeMask()
-                                & WindowInsets.Type.ime()) != 0
-                                && !isKeyboardVisible()
-                                && hasTextInputProxy()) {
-                            clearTextInputProxy();
-                        }
-                    }
-                });
 
         final LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
@@ -305,7 +282,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         header.addView(restore, headerButtonParams(ui));
 
         final ImageButton desktop = new ImageButton(this);
-        desktop.setImageResource(R.drawable.ic_home_workspace);
+        desktop.setImageResource(R.drawable.ic_show_desktop);
         desktop.setColorFilter(DesktopUiFactory.COLOR_TEXT);
         desktop.setBackgroundColor(Color.TRANSPARENT);
         desktop.setContentDescription(
@@ -338,13 +315,13 @@ public final class MagicDeskTouchpadActivity extends Activity {
         keyboard.setColorFilter(DesktopUiFactory.COLOR_TEXT);
         keyboard.setBackgroundColor(Color.TRANSPARENT);
         keyboard.setContentDescription(
-                getString(R.string.touchpad_toggle_keyboard));
+                getString(R.string.touchpad_show_keyboard));
         keyboard.setTooltipText(
-                getString(R.string.touchpad_toggle_keyboard));
+                getString(R.string.touchpad_show_keyboard));
         keyboard.setOnClickListener(view -> {
             view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
             hideHelp();
-            togglePhoneKeyboard();
+            showPhoneKeyboard();
         });
         header.addView(keyboard, new LinearLayout.LayoutParams(
                 ui.dp(48), ui.dp(48)));
@@ -352,8 +329,10 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        mMirrorInput = new MirrorInputEditText(
+        mPhoneInput = new PhoneImeInputView(
                 this,
+                mKeyboardRequest,
+                this::showKeyboardIfReady,
                 (action, text, arg1, arg2, arg3) ->
                         MagicDeskRuntime
                                 .updateDesktopTextInput(
@@ -363,7 +342,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                                         arg1,
                                         arg2,
                                         arg3));
-        root.addView(mMirrorInput, new LinearLayout.LayoutParams(1, 1));
+        root.addView(mPhoneInput, new LinearLayout.LayoutParams(1, 1));
 
         final TouchSurface touchSurface = new TouchSurface(this);
         touchSurface.setBackground(ui.rounded(
@@ -461,35 +440,28 @@ public final class MagicDeskTouchpadActivity extends Activity {
     }
 
     private void showPhoneKeyboard() {
-        if (mMirrorInput == null) {
+        if (mPhoneInput == null || mKeyboardRequest.isRequested()) {
             return;
         }
-        MagicDeskRuntime.endDesktopTextInput(
-                mTargetDisplayId);
         final boolean inputCaptured = MagicDeskRuntime
                 .beginDesktopTextInput(mTargetDisplayId);
         Log.i(TAG, "phone keyboard requested display=" + mTargetDisplayId
                 + " inputCaptured=" + inputCaptured
                 + " windowFocus=" + hasWindowFocus());
         if (!inputCaptured) {
-            MagicDeskRuntime.clickDesktopPointer(
-                    mTargetDisplayId,
-                    MotionEvent.BUTTON_PRIMARY);
+            Toast.makeText(this, R.string.touchpad_keyboard_unavailable,
+                    Toast.LENGTH_SHORT).show();
             return;
         }
-        bringTaskToFront();
-        mMirrorInput.setKeyboardRequested(true);
-        if (!mMirrorInput.requestFocus()) {
+        mKeyboardRequest.begin();
+        mPhoneInput.updateFocusability();
+        if (!mPhoneInput.requestFocus()) {
             clearTextInputProxy();
             return;
         }
-        final InputMethodManager inputMethodManager =
-                getSystemService(InputMethodManager.class);
-        if (inputMethodManager == null) {
-            clearTextInputProxy();
-            return;
+        if (!hasWindowFocus()) {
+            bringTaskToFront();
         }
-        inputMethodManager.restartInput(mMirrorInput);
         showKeyboardIfReady();
     }
 
@@ -504,8 +476,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
     }
 
     private void showKeyboardIfReady() {
-        if (!hasTextInputProxy()
-                || !hasWindowFocus()) {
+        if (!mKeyboardRequest.takeShowRequest(hasWindowFocus())) {
             return;
         }
         Log.i(TAG, "show keyboard display=" + mTargetDisplayId);
@@ -515,45 +486,18 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private void hidePhoneKeyboard() {
         Log.i(TAG, "hide keyboard display=" + mTargetDisplayId);
         getWindow().getInsetsController().hide(WindowInsets.Type.ime());
-        if (hasTextInputProxy()) {
-            final InputMethodManager inputMethodManager =
-                    getSystemService(InputMethodManager.class);
-            if (inputMethodManager != null) {
-                inputMethodManager.hideSoftInputFromWindow(
-                        mMirrorInput.getWindowToken(), 0);
-            }
-        }
         clearTextInputProxy();
     }
 
-    private void togglePhoneKeyboard() {
-        if (isKeyboardVisible()) {
-            hidePhoneKeyboard();
-        } else {
-            showPhoneKeyboard();
-        }
-    }
-
     private void clearTextInputProxy() {
-        final boolean hadTextInputProxy = hasTextInputProxy();
-        if (mMirrorInput != null) {
-            mMirrorInput.setKeyboardRequested(false);
+        if (!mKeyboardRequest.isRequested()) {
+            return;
         }
-        if (hadTextInputProxy) {
-            MagicDeskRuntime.endDesktopTextInput(
-                    mTargetDisplayId);
+        mKeyboardRequest.cancel();
+        if (mPhoneInput != null) {
+            mPhoneInput.updateFocusability();
         }
-    }
-
-    private boolean hasTextInputProxy() {
-        return mMirrorInput != null && mMirrorInput.hasFocus();
-    }
-
-    private boolean isKeyboardVisible() {
-        final WindowInsets insets = getWindow().getDecorView()
-                .getRootWindowInsets();
-        return insets != null
-                && insets.isVisible(WindowInsets.Type.ime());
+        MagicDeskRuntime.endDesktopTextInput(mTargetDisplayId);
     }
 
     private void finishPointerDrag() {
@@ -598,6 +542,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         }
 
         finishPointerDrag();
+        clearTextInputProxy();
         mTargetDisplayId = targetDisplayId;
 
         if (visible && targetDisplayId > Display.DEFAULT_DISPLAY) {

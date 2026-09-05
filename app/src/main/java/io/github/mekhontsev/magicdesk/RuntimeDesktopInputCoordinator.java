@@ -47,6 +47,8 @@ final class RuntimeDesktopInputCoordinator {
     private String mPreviousShowImeWithHardKeyboard;
     private int mPhoneImePolicyDisplayId = Display.INVALID_DISPLAY;
     private boolean mDestroyed;
+    private LocalTextInputSession mLocalTextInput;
+    private boolean mTextInputActive;
 
     RuntimeDesktopInputCoordinator(
             final Context context,
@@ -79,6 +81,7 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     void destroy() {
+        endTextInput(mDesktopDisplayId);
         mDestroyed = true;
         mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
         ++mInputSourceRefreshGeneration;
@@ -121,6 +124,9 @@ final class RuntimeDesktopInputCoordinator {
             return;
         }
         final int previousDisplayId = mDesktopDisplayId;
+        if (previousDisplayId != displayId) {
+            endTextInput(previousDisplayId);
+        }
         mDesktopDisplayId = displayId;
         if (displayId > Display.DEFAULT_DISPLAY) {
             mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
@@ -279,15 +285,10 @@ final class RuntimeDesktopInputCoordinator {
         if (!mRelaySession.isPointerReady(displayId)) {
             return false;
         }
-        final boolean injected = button == MotionEvent.BUTTON_SECONDARY
+        return button == MotionEvent.BUTTON_SECONDARY
                 && supportsAbsolutePointer(displayId)
                         ? ShellAccess.injectPointerClick(displayId, button)
                         : mRelaySession.clickPointer(button);
-        if (injected && button == MotionEvent.BUTTON_PRIMARY) {
-            endTextInput(displayId);
-            beginTextInput(displayId);
-        }
-        return injected;
     }
 
     boolean scrollPointer(final int displayId, final float amount) {
@@ -303,26 +304,47 @@ final class RuntimeDesktopInputCoordinator {
             final int arg1,
             final int arg2,
             final int arg3) {
-        if (!isActiveDesktopDisplay(displayId)) {
+        if (!isActiveDesktopDisplay(displayId) || !mTextInputActive) {
             return false;
         }
-        if (DesktopRuntimeBridge.dispatchPanelTextInput(
-                displayId, action, text, arg1, arg2, arg3)) {
-            return true;
+        if (mLocalTextInput != null) {
+            // A rejected operation does not change the keyboard's owner.
+            return mLocalTextInput.dispatch(action, text, arg1, arg2, arg3);
         }
         return ShellAccess.updateMirrorTextInput(
                 displayId, action, text, arg1, arg2, arg3);
     }
 
     boolean beginTextInput(final int displayId) {
-        return isActiveDesktopDisplay(displayId)
-                && (DesktopRuntimeBridge.hasPanelTextInput(displayId)
-                        || ShellAccess.beginMirrorTextInput(displayId));
+        if (!isActiveDesktopDisplay(displayId)) {
+            return false;
+        }
+        endTextInput(displayId);
+        mLocalTextInput = DesktopRuntimeBridge.captureLocalTextInput(displayId);
+        mTextInputActive = mLocalTextInput != null
+                || ShellAccess.beginMirrorTextInput(displayId);
+        return mTextInputActive;
     }
 
     void endTextInput(final int displayId) {
-        if (isActiveDesktopDisplay(displayId)) {
-            ShellAccess.endMirrorTextInput(displayId);
+        if (displayId == mDesktopDisplayId && mTextInputActive) {
+            mTextInputActive = false;
+            final LocalTextInputSession localSession = mLocalTextInput;
+            mLocalTextInput = null;
+            try {
+                if (localSession != null) {
+                    localSession.close();
+                } else {
+                    // The phone connection is already invalidated. Finish any
+                    // composing span before releasing its remote recipient.
+                    ShellAccess.updateMirrorTextInput(displayId,
+                            PlatformTextInputDriver.FINISH_COMPOSING, "", 0, 0, 0);
+                }
+            } catch (RuntimeException error) {
+                Log.w(TAG, "cannot finish desktop text input", error);
+            } finally {
+                ShellAccess.endMirrorTextInput(displayId);
+            }
         }
     }
 

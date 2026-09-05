@@ -98,7 +98,7 @@ final class DesktopTaskSnapshotController {
         return hasVisibleFreeformTask(tasks, -1);
     }
 
-    private static TaskRepository.TaskEntry findActiveTask(
+    static TaskRepository.TaskEntry findActiveTask(
             final List<TaskRepository.TaskEntry> tasks) {
         if (tasks == null) {
             return null;
