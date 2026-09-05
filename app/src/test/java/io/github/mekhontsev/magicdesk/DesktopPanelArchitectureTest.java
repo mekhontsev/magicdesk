@@ -90,6 +90,26 @@ public final class DesktopPanelArchitectureTest {
                 "<item name=\"android:windowIsTranslucent\">true</item>"));
     }
 
+    @Test
+    public void chromePrioritySurvivesFrameworkLayerReassignment()
+            throws IOException {
+        final String host = read(
+                "src/main/java/io/github/mekhontsev/magicdesk/"
+                        + "ShellDesktopChromeHost.java");
+
+        // WindowConfiguration.isAlwaysOnTop() ignores this flag in fullscreen.
+        // TaskDisplayArea assigns a nested area's layer from its top root task.
+        assertTrue(host.contains("WINDOWING_MODE_MULTI_WINDOW = 6"));
+        assertTrue(host.contains(
+                "transaction, taskToken, WINDOWING_MODE_MULTI_WINDOW"));
+        assertTrue(host.contains(
+                "setAlwaysOnTop(transaction, taskToken, true)"));
+        assertTrue(host.contains("setFocusable(transaction, taskToken, false)"));
+        assertTrue(host.contains("setBounds(transaction, taskToken, new Rect())"));
+        assertFalse(host.contains("WINDOWING_MODE_FREEFORM"));
+        assertFalse(host.contains("setAlwaysOnTop(transaction, mArea.token()"));
+    }
+
     private static String read(final String path) throws IOException {
         return Files.readString(Path.of(path), StandardCharsets.UTF_8);
     }

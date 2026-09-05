@@ -2081,6 +2081,7 @@ final class DesktopSelfTestWindowSuite {
                 context,
                 result,
                 displayId,
+                captureSource,
                 freshPair.firstTaskId,
                 freshPair.firstToken,
                 freshPair.secondTaskId,

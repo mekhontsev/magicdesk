@@ -193,12 +193,14 @@ maintains a different Z-order, and can leave controls above the wrong window.
 MagicDesk instead keeps native WMShell captions visible. One persistent,
 transparent `DesktopChromeActivity` supplies the application token for the
 taskbar, Start, context menus, notification center, and desktop dialogs. The
-shell launches this host as a standard fullscreen root task, makes that task
-non-focusable and `alwaysOnTop`, and disables its ActivityRecord input sink.
+shell launches this host in a dedicated organizer area under the standard
+workspace and configures its task as non-floating `MULTI_WINDOW`, non-focusable,
+and `alwaysOnTop`, with empty bounds that fill the area. It also disables the
+ActivityRecord input sink.
 All visible chrome is an ordinary bounded `TYPE_APPLICATION_PANEL` child
-window, so empty parts of the fullscreen host neither draw nor consume input.
-The host never enters the freeform caption path and does not own an organizer
-area. Its exported component is protected by the framework
+window, so empty parts of the display-sized host neither draw nor consume input.
+The host never enters the freeform caption path. Its exported component is
+protected by the framework
 `MANAGE_ACTIVITY_TASKS` permission, so only the authorized shell runtime can
 create it.
 
@@ -1385,12 +1387,16 @@ cover the reserved status- and navigation-bar insets above the wallpaper.
 Android can therefore keep normal system-bar behavior for HOME and freeform
 tasks without exposing bright wallpaper strips around snapped windows.
 
-The desktop chrome host is a translucent, non-focusable fullscreen task in its
+The desktop chrome host is a translucent, non-focusable `MULTI_WINDOW` task in its
 own organizer area under Android's standard task workspace. Its organizer leash
 shares the ordering parent with application tasks and fullscreen planes. The
 taskbar itself is a bounded child application window,
 so a foreground application that suppresses non-system overlays cannot
-suppress it. The fullscreen host never receives a freeform caption.
+suppress it. Empty task bounds fill the area without a freeform caption.
+The host task is `alwaysOnTop`: Android 15+ honors this flag for `MULTI_WINDOW`
+but ignores it for fullscreen tasks. Framework layer assignment places the
+containing area according to its top root task's priority, so child-panel
+relayout does not discard chrome's position above ordinary application tasks.
 The shell disables that Activity's Android 15+ ActivityRecord input sink, so
 only the taskbar window's bounded touch region receives input and pointer events
 outside the panel continue to the desktop and application windows.
@@ -1995,11 +2001,12 @@ same task is idempotent; a second live task is rejected without releasing the
 registered host's taskbar, fullscreen planes, or other session resources.
 
 All phone, simulated, wired, and wireless sessions use one taskbar topology.
-Its transparent chrome host is an `alwaysOnTop`, non-focusable standard root
-task in Android's default task container and does not manage a private surface
-layer. Freeform tasks remain direct children of the default task area, while
-only managed fullscreen tasks retain isolated organizer areas under that same
-ordering parent.
+Its transparent chrome host is an `alwaysOnTop`, non-focusable `MULTI_WINDOW`
+task in a dedicated organizer area under Android's default task container.
+Freeform tasks remain direct children of the default task area, while managed
+fullscreen tasks retain separate organizer areas under that same ordering
+parent. `ShellDesktopSurfaceOrder` composes fullscreen planes and chrome in one
+transaction; the chrome task's framework priority also survives later relayout.
 
 Task order around this host is the desktop visibility boundary. Freeform tasks
 above it are visible windows; tasks below it are minimized and follow Android's

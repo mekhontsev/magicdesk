@@ -473,6 +473,7 @@ final class DesktopSelfTestInputSuite {
             final Context context,
             final DesktopSelfTestResult result,
             final int displayId,
+            final DisplayCaptureSource captureSource,
             final int firstTaskId,
             final String firstToken,
             final int secondTaskId,
@@ -498,6 +499,7 @@ final class DesktopSelfTestInputSuite {
                 context,
                 result,
                 displayId,
+                captureSource,
                 firstTaskId,
                 firstToken,
                 secondTaskId,
@@ -757,6 +759,7 @@ final class DesktopSelfTestInputSuite {
             final Context context,
             final DesktopSelfTestResult result,
             final int displayId,
+            final DisplayCaptureSource captureSource,
             final int firstTaskId,
             final String firstToken,
             final int secondTaskId,
@@ -794,6 +797,8 @@ final class DesktopSelfTestInputSuite {
                 () -> focusFullscreenPairThroughAltTab(
                         context,
                         displayId,
+                        captureSource,
+                        geometry,
                         firstTaskId,
                         firstToken,
                         secondTaskId,
@@ -804,6 +809,8 @@ final class DesktopSelfTestInputSuite {
                 () -> focusFullscreenPairThroughAltTab(
                         context,
                         displayId,
+                        captureSource,
+                        geometry,
                         secondTaskId,
                         secondToken,
                         firstTaskId,
@@ -814,6 +821,7 @@ final class DesktopSelfTestInputSuite {
                 context,
                 result,
                 displayId,
+                captureSource,
                 firstTaskId,
                 firstToken,
                 secondTaskId,
@@ -1286,6 +1294,7 @@ final class DesktopSelfTestInputSuite {
             final Context context,
             final DesktopSelfTestResult result,
             final int displayId,
+            final DisplayCaptureSource captureSource,
             final int firstTaskId,
             final String firstToken,
             final int secondTaskId,
@@ -1335,6 +1344,8 @@ final class DesktopSelfTestInputSuite {
             focusFullscreenPairThroughAltTab(
                     context,
                     displayId,
+                    captureSource,
+                    geometry,
                     firstTaskId,
                     firstToken,
                     secondTaskId,
@@ -1863,6 +1874,8 @@ final class DesktopSelfTestInputSuite {
     private static String focusFullscreenPairThroughAltTab(
             final Context context,
             final int displayId,
+            final DisplayCaptureSource captureSource,
+            final DesktopSelfTestGeometry geometry,
             final int targetTaskId,
             final String targetToken,
             final int otherTaskId,
@@ -1874,8 +1887,17 @@ final class DesktopSelfTestInputSuite {
             throw new IOException("desktop Alt+Tab is unavailable");
         }
         waitForAltTabPanel(panelGeneration);
-        inspectFullscreenModes(
-                displayId, targetTaskId, otherTaskId, "while Alt+Tab is open");
+        final String panel;
+        try {
+            // A created panel can still be behind the fullscreen application.
+            // Check the rendered surface before releasing the Alt+Tab selection.
+            panel = verifyRenderedAltTabPanel(displayId, captureSource, geometry);
+            inspectFullscreenModes(
+                    displayId, targetTaskId, otherTaskId, "while Alt+Tab is open");
+        } catch (IOException error) {
+            DesktopRuntimeBridge.cancelAltTab();
+            throw error;
+        }
         if (!DesktopRuntimeBridge.finishAltTab()) {
             DesktopRuntimeBridge.cancelAltTab();
             throw new IOException("desktop Alt+Tab completion is unavailable");
@@ -1890,8 +1912,27 @@ final class DesktopSelfTestInputSuite {
             DesktopRuntimeBridge.cancelAltTab();
             throw error;
         }
-        return focus + ", " + inspectFullscreenPair(
+        return panel + ", " + focus + ", " + inspectFullscreenPair(
                 displayId, targetTaskId, otherTaskId);
+    }
+
+    private static String verifyRenderedAltTabPanel(
+            final int displayId,
+            final DisplayCaptureSource captureSource,
+            final DesktopSelfTestGeometry geometry) throws IOException {
+        final DesktopUiSnapshot ui =
+                DesktopRuntimeBridge.getAutomationUiSnapshot(displayId);
+        if (ui == null || !ui.available || !ui.popupVisible
+                || ui.popupBounds.isEmpty()) {
+            throw new IOException("Alt+Tab panel bounds are unavailable");
+        }
+        final Rect bounds = ui.popupBounds;
+        final int x = bounds.left + Math.min(
+                bounds.width() - 1, geometry.scaleFrom160Dpi(6));
+        final int color = awaitDisplayColor(
+                captureSource, x, bounds.centerY(), DesktopUiFactory.COLOR_PANEL);
+        return "panel-rendered-before-commit="
+                + DesktopTransitionSurfaceProbe.formatColor(color);
     }
 
     private static void waitForAltTabPanel(

@@ -54,8 +54,13 @@ The same topology is used on phone, simulated, wired, and wireless targets.
 `PhoneDesktopHomeActivity` remains primary HOME in Android's default task area;
 ordinary freeform tasks share the standard root workspace, while fullscreen
 tasks use independent planes under that workspace. Display chrome uses one
-transparent, non-focusable fullscreen task in its own organizer area under
-that workspace. Only bounded child application windows draw or receive input.
+transparent, non-focusable `MULTI_WINDOW` task in its own organizer area under
+that workspace. Empty bounds fill the area without making the task floating.
+The chrome task is `alwaysOnTop`; Android 15+ ignores that flag in fullscreen
+mode but honors it in `MULTI_WINDOW`. Framework layer assignment uses the top
+root task's priority for its containing area, preserving chrome order when
+panel or input-window relayout recomputes layers. Only bounded child
+application windows draw or receive input.
 `ShellDesktopSurfaceOrder` owns surface composition for fullscreen planes and
 chrome together; each plane-order commit includes the chrome layer above the
 applications. WCT task primitives still target tasks, never the chrome area.

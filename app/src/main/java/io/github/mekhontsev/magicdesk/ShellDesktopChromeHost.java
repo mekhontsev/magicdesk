@@ -11,7 +11,7 @@ import java.util.Set;
 /** Owns the isolated display area that supplies desktop application-window chrome. */
 final class ShellDesktopChromeHost implements AutoCloseable {
     private static final String TAG = "MagicDeskChromeHost";
-    private static final int WINDOWING_MODE_FULLSCREEN = 1;
+    private static final int WINDOWING_MODE_MULTI_WINDOW = 6;
     private static final long TASK_REMOVAL_TIMEOUT_MILLIS = 1_000L;
     private static final long TASK_REMOVAL_POLL_MILLIS = 25L;
 
@@ -141,13 +141,18 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         final Class<?> transactionClass = windowing.transactionClass();
         final Object transaction = windowing.newTransaction();
         final Object taskToken = HiddenTaskApi.getTaskToken(task);
+        // Android 15+ ignores always-on-top for fullscreen tasks. A non-floating
+        // multi-window host fills its area without a freeform caption, and its
+        // priority keeps the containing area above normal tasks on every WM
+        // traversal, including child-panel add/remove and input-focus relayout.
         windowing.setWindowingMode(
-                transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
+                transaction, taskToken, WINDOWING_MODE_MULTI_WINDOW);
         windowing.setBounds(transaction, taskToken, new Rect());
         windowing.setForceTranslucent(transaction, taskToken, true);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transaction, taskToken, true);
         windowing.setFocusable(transaction, taskToken, false);
+        windowing.setAlwaysOnTop(transaction, taskToken, true);
         windowing.reorder(transaction, taskToken, true);
         ShellWindowTransitionExecutor.applyAtomic(
                 mService, transactionClass, transaction);
