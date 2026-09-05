@@ -1017,7 +1017,7 @@ public final class TaskDisplayAreaLaunchCommand {
             taskHidden = true;
             // A source-side freeform state can reconfigure the client before
             // it moves. Keep the task hidden and fullscreen until the target
-            // OPEN transaction applies display, mode, bounds and visibility.
+            // CHANGE transaction applies display, mode, bounds and visibility.
             ShellPreparedTaskTransition.prepareFullscreen(
                     service, sourceDisplayId, taskId);
             waitForTaskWindowingMode(
@@ -1071,36 +1071,33 @@ public final class TaskDisplayAreaLaunchCommand {
             final int targetDisplayId,
             final Rect bounds,
             final int densityDpi) throws ReflectiveOperationException {
+        moveExistingTaskToDisplay(service, taskId, sourceDisplayId,
+                targetDisplayId, WINDOWING_MODE_FREEFORM, bounds, densityDpi);
+    }
+
+    private static void moveExistingTaskToDisplay(
+            final Object service,
+            final int taskId,
+            final int sourceDisplayId,
+            final int targetDisplayId,
+            final int windowingMode,
+            final Rect bounds,
+            final int densityDpi) throws ReflectiveOperationException {
         final Object taskToken = HiddenTaskApi.requireTaskToken(
                 service, sourceDisplayId, taskId);
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(targetDisplayId);
-        options.setLaunchBounds(bounds);
-        ActivityOptions.class.getMethod(
-                "setLaunchWindowingMode", Integer.TYPE)
-                .invoke(options, Integer.valueOf(WINDOWING_MODE_FREEFORM));
-        ActivityOptions.class.getMethod(
-                "setFlexibleLaunchSize", Boolean.TYPE)
-                .invoke(options, Boolean.TRUE);
+        final ActivityOptions options = existingTaskOptions(
+                targetDisplayId, windowingMode, bounds, null);
         final FrameworkWindowingApi windowing =
                 FrameworkRuntime.current().windowing();
         final Class<?> transactionClass = windowing.transactionClass();
-        final Object transaction = windowing.newTransaction();
-        // Apply the display move, mode and geometry in one visible change. The
-        // task already exists, so OPEN would add a launch animation and alter
-        // the desktop surface while the task crosses displays.
-        windowing.setWindowingMode(
-                transaction, taskToken, WINDOWING_MODE_FREEFORM);
-        windowing.setBounds(transaction, taskToken, bounds);
-        DesktopTaskDensity.apply(
-                windowing, transaction, taskToken, densityDpi);
-        windowing.setForceTranslucent(transaction, taskToken, false);
-        windowing.setHidden(transaction, taskToken, false);
+        final Object transaction = createTaskMoveTransaction(
+                windowing, taskToken, taskId, options.toBundle(),
+                windowingMode, bounds, densityDpi);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transaction,
-                taskToken,
-                false);
-        windowing.startTask(transaction, taskId, options.toBundle());
+                transaction, taskToken, windowingMode == WINDOWING_MODE_FULLSCREEN);
+        // WM owns both the destination hierarchy and the task leash. A raw
+        // display move followed by reveal can retain the source crop/position
+        // even though TaskInfo already reports destination fullscreen bounds.
         ShellWindowTransitionExecutor.startForShellAdoption(
                 targetDisplayId,
                 ShellWindowTransitionExecutor.SystemTransition.CHANGE,
@@ -1109,7 +1106,33 @@ public final class TaskDisplayAreaLaunchCommand {
                 "move-running-task");
     }
 
-    private static void restoreFailedTaskMove(
+    static Object createTaskMoveTransaction(
+            final FrameworkWindowingApi windowing,
+            final Object taskToken,
+            final int taskId,
+            final Bundle options,
+            final int windowingMode,
+            final Rect bounds,
+            final int densityDpi) throws ReflectiveOperationException {
+        if (taskId < 0 || !DesktopTaskDensity.isValid(densityDpi)
+                || (windowingMode != WINDOWING_MODE_FULLSCREEN
+                        && windowingMode != WINDOWING_MODE_FREEFORM)
+                || (windowingMode == WINDOWING_MODE_FREEFORM
+                        && !hasExplicitBounds(bounds))) {
+            throw new IllegalArgumentException("invalid task move configuration");
+        }
+        final Object transaction = windowing.newTransaction();
+        windowing.setWindowingMode(transaction, taskToken, windowingMode);
+        windowing.setBounds(transaction, taskToken,
+                windowingMode == WINDOWING_MODE_FULLSCREEN ? new Rect() : bounds);
+        DesktopTaskDensity.apply(windowing, transaction, taskToken, densityDpi);
+        windowing.setForceTranslucent(transaction, taskToken, false);
+        windowing.setHidden(transaction, taskToken, false);
+        windowing.startTask(transaction, taskId, options);
+        return transaction;
+    }
+
+    static void restoreFailedTaskMove(
             final Object service,
             final int taskId,
             final int sourceDisplayId,
@@ -1142,7 +1165,8 @@ public final class TaskDisplayAreaLaunchCommand {
                     service, sourceDisplayId, taskId, originalBounds);
         } else if (originalWindowingMode == WINDOWING_MODE_FULLSCREEN) {
             moveExistingTaskAsFullscreen(
-                    service, taskId, currentDisplayId, sourceDisplayId);
+                    service, taskId, currentDisplayId, sourceDisplayId,
+                    DesktopTaskDensity.UNCHANGED);
             waitForTaskWindowingMode(
                     service,
                     sourceDisplayId,
@@ -1160,35 +1184,10 @@ public final class TaskDisplayAreaLaunchCommand {
             final Object service,
             final int taskId,
             final int sourceDisplayId,
-            final int targetDisplayId) throws ReflectiveOperationException {
-        HiddenTaskApi.requireTask(service, sourceDisplayId, taskId);
-        final ActivityOptions options = existingTaskOptions(
-                targetDisplayId,
-                WINDOWING_MODE_FULLSCREEN,
-                null,
-                null);
-        final Object taskToken = HiddenTaskApi.requireTaskToken(
-                service, sourceDisplayId, taskId);
-        final FrameworkWindowingApi windowing =
-                FrameworkRuntime.current().windowing();
-        final Class<?> transactionClass = windowing.transactionClass();
-        final Object transaction = windowing.newTransaction();
-        windowing.setWindowingMode(
-                transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
-        windowing.setBounds(transaction, taskToken, new Rect());
-        windowing.setForceTranslucent(transaction, taskToken, false);
-        windowing.setHidden(transaction, taskToken, false);
-        TaskCaptionInsetsCommand.addCaptionInsetOperation(
-                transaction,
-                taskToken,
-                true);
-        windowing.startTask(transaction, taskId, options.toBundle());
-        ShellWindowTransitionExecutor.startForShellAdoption(
-                targetDisplayId,
-                ShellWindowTransitionExecutor.SystemTransition.OPEN,
-                transactionClass,
-                transaction,
-                "move-running-task-fullscreen");
+            final int targetDisplayId,
+            final int densityDpi) throws ReflectiveOperationException {
+        moveExistingTaskToDisplay(service, taskId, sourceDisplayId,
+                targetDisplayId, WINDOWING_MODE_FULLSCREEN, null, densityDpi);
     }
 
     /**

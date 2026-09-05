@@ -38,6 +38,17 @@ transition, has strict time and output bounds, and is not part of a background
 poller. If a firmware has no task-local caption source, the normal fullscreen
 transition proceeds without the refresh.
 
+Cross-display fullscreen return uses the same native `CHANGE` transaction as
+freeform transfer. After hidden source preparation, one WCT starts the exact
+existing task on the destination and applies mode, empty fullscreen bounds,
+density, caption policy, and reveal. A raw root-task display move followed by a
+sync reveal can leave the task leash at its old external freeform crop/position
+even when both TaskInfo and application frames already report phone fullscreen
+bounds. The native transition owns that surface lifecycle. Fullscreen return
+uses `FrameworkWindowCommitBarrier` before a following phone launcher Intent;
+it does not submit an additional focus transaction or manually reposition a
+surface. This path is shared by phone Start, task return, and session parking.
+
 When an application initiates immersive mode itself, the long-lived shell task
 observer retains its freeform bounds and does not recreate the Activity. The
 application's own insets request updates its client window; retrying or

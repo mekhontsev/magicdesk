@@ -160,7 +160,6 @@ final class ExistingTaskController {
                                 densityDpi)
                         : DesktopTaskTransfer.moveFullscreen(
                                 task.taskId,
-                                task.rootTaskId,
                                 task.displayId,
                                 targetDisplayId,
                                 densityDpi);

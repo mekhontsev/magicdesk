@@ -1619,7 +1619,6 @@ final class DesktopSelfTestWindowSuite {
             if (currentTask.displayId != displayId) {
                 final String output = DesktopTaskTransfer.moveFullscreen(
                         taskId,
-                        currentTask.rootTaskId,
                         currentTask.displayId,
                         displayId,
                         DesktopTaskDensity.UNCHANGED);

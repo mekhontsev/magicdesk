@@ -45,7 +45,6 @@ public final class DesktopTaskReturnCommand {
                     TaskFullscreenMoveCommand.moveTask(
                             service,
                             taskId,
-                            taskId,
                             sourceDisplayId,
                             PHONE_DISPLAY_ID,
                             DesktopTaskDensity.INHERIT);

@@ -1314,10 +1314,18 @@ marker remains for a later recovery attempt.
 Task placement has one shared policy rather than separate launch, reuse,
 parking, or self-test routes. A running task is hidden and normalized as
 fullscreen on its source display. One WMShell `CHANGE` transaction then combines
-the existing-task launch on the destination with its freeform mode, final
-bounds, caption policy, and reveal. The source therefore never contains a
-freeform transfer state, while the first visible destination state already has
-the final geometry and native caption/input surfaces. The simulated driver
+the existing-task launch on the destination with its fullscreen or freeform
+mode, final bounds, density, caption policy, and reveal. Fullscreen clears the
+source bounds and inherits phone density when returning to ordinary phone use.
+Both modes share this transaction builder and failure restoration path; neither
+uses a raw root-task display move followed by a separate reveal/focus operation.
+WM owns the cross-display task leash as well as the task configuration, which
+alone can report correct fullscreen bounds while an old surface crop remains.
+Fullscreen return also uses the existing framework transition/input barrier
+before a caller can reuse the task with its ordinary launcher Intent.
+The source therefore never contains a freeform transfer state, while the first
+visible destination state already has the final geometry and native
+caption/input surfaces. The simulated driver
 deliberately uses this same path to model external-display behavior without
 connected hardware.
 

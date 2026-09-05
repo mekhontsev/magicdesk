@@ -385,7 +385,6 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         if (parked.fullscreen) {
             DesktopTaskTransfer.moveFullscreen(
                     live.taskId,
-                    live.rootTaskId,
                     live.displayId,
                     target.displayId,
                     densityDpi);

@@ -25,7 +25,6 @@ final class ShellPreparedTaskTransition {
 
     private enum FullscreenApplication {
         HIDE_SYNC,
-        SHOW_SYNC,
         SHOW_TRANSITION,
         DETACH_HIDE_SYNC,
         DETACH_SYNC
@@ -240,37 +239,6 @@ final class ShellPreparedTaskTransition {
                 FullscreenApplication.SHOW_TRANSITION);
     }
 
-    static void showMovedFullscreen(
-            final Object service,
-            final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        showMovedFullscreen(
-                service,
-                displayId,
-                taskId,
-                DesktopTaskDensity.UNCHANGED);
-    }
-
-    static void showMovedFullscreen(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final int densityDpi) throws ReflectiveOperationException {
-        // The display move already committed the hidden task's hierarchy.
-        // Reveal that state synchronously before a normal focus transition;
-        // an independent asynchronous reveal can be dropped while WMShell is
-        // still finishing the cross-display transition.
-        applyPreparedFullscreen(
-                service,
-                displayId,
-                taskId,
-                FullscreenApplication.SHOW_SYNC,
-                null,
-                densityDpi);
-        TaskWindowingCommand.focusTasks(
-                service, displayId, new int[]{taskId});
-    }
-
     static void detachFullscreenParent(
             final Object service,
             final int displayId,
@@ -435,8 +403,7 @@ final class ShellPreparedTaskTransition {
                 displayId,
                 taskId,
                 application,
-                null,
-                DesktopTaskDensity.UNCHANGED);
+                null);
     }
 
     private static void applyPreparedFullscreen(
@@ -445,23 +412,6 @@ final class ShellPreparedTaskTransition {
             final int taskId,
             final FullscreenApplication application,
             final Object targetParentToken)
-            throws ReflectiveOperationException {
-        applyPreparedFullscreen(
-                service,
-                displayId,
-                taskId,
-                application,
-                targetParentToken,
-                DesktopTaskDensity.UNCHANGED);
-    }
-
-    private static void applyPreparedFullscreen(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final FullscreenApplication application,
-            final Object targetParentToken,
-            final int densityDpi)
             throws ReflectiveOperationException {
         final boolean hidden = application == FullscreenApplication.HIDE_SYNC
                 || application == FullscreenApplication.DETACH_HIDE_SYNC;
@@ -477,12 +427,8 @@ final class ShellPreparedTaskTransition {
         windowing.setWindowingMode(
                 transaction, taskToken, WINDOWING_MODE_FULLSCREEN);
         windowing.setBounds(transaction, taskToken, new Rect());
-        DesktopTaskDensity.apply(
-                windowing, transaction, taskToken, densityDpi);
+        // Preparation preserves density; the destination transition owns it.
         if (!detachFromParent) {
-            // Fullscreen topology does not own presentation policy. Density
-            // is preserved unless the caller supplies an explicit override in
-            // the same semantic transition that changes the task mode.
             windowing.setForceTranslucent(transaction, taskToken, false);
         }
         windowing.setHidden(transaction, taskToken, hidden);

@@ -249,7 +249,6 @@ public final class TaskRepository {
                 if (targetPhoneWithoutDesktop) {
                     output = DesktopTaskTransfer.moveFullscreen(
                             task.taskId,
-                            task.rootTaskId,
                             task.displayId,
                             targetDisplayId,
                             densityDpi);

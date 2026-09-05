@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.graphics.Rect;
-import android.view.Display;
 
 /** Moves a task across displays without publishing it in the wrong mode. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
@@ -16,39 +15,35 @@ public final class TaskFullscreenMoveCommand {
 
     static String createMoveCommand(
             final int taskId,
-            final int rootTaskId,
             final int sourceDisplayId,
             final int targetDisplayId,
             final int densityDpi) {
-        validate(taskId, rootTaskId, sourceDisplayId, targetDisplayId);
+        validate(taskId, sourceDisplayId, targetDisplayId);
         return AppProcessCommand.run(
                 TaskFullscreenMoveCommand.class.getName(),
-                taskId + " " + rootTaskId
-                        + " " + sourceDisplayId
+                taskId + " " + sourceDisplayId
                         + " " + targetDisplayId
                         + " " + densityDpi);
     }
 
     public static void main(final String[] args) {
-        if (args.length != 5) {
+        if (args.length != 4) {
             System.err.println("usage: TaskFullscreenMoveCommand "
-                    + "<task-id> <root-task-id> "
+                    + "<task-id> "
                     + "<source-display-id> <target-display-id> <density-dpi>");
             System.exit(64);
             return;
         }
         try {
             final int taskId = parseNonNegative(args[0], "task id");
-            final int rootTaskId = parseNonNegative(args[1], "root task id");
             final int sourceDisplayId = parseNonNegative(
-                    args[2], "source display id");
+                    args[1], "source display id");
             final int targetDisplayId = parseNonNegative(
-                    args[3], "target display id");
-            final int densityDpi = Integer.parseInt(args[4]);
+                    args[2], "target display id");
+            final int densityDpi = Integer.parseInt(args[3]);
             moveTask(
                     HiddenTaskApi.getService(),
                     taskId,
-                    rootTaskId,
                     sourceDisplayId,
                     targetDisplayId,
                     densityDpi);
@@ -63,11 +58,10 @@ public final class TaskFullscreenMoveCommand {
     static void moveTask(
             final Object service,
             final int taskId,
-            final int rootTaskId,
             final int sourceDisplayId,
             final int targetDisplayId,
             final int densityDpi) throws ReflectiveOperationException {
-        validate(taskId, rootTaskId, sourceDisplayId, targetDisplayId);
+        validate(taskId, sourceDisplayId, targetDisplayId);
         if (!DesktopTaskDensity.isValid(densityDpi)) {
             throw new IllegalArgumentException("invalid task density");
         }
@@ -94,34 +88,25 @@ public final class TaskFullscreenMoveCommand {
                     taskId,
                     WINDOWING_MODE_FULLSCREEN,
                     false);
-            service.getClass().getMethod(
-                    "moveRootTaskToDisplay", Integer.TYPE, Integer.TYPE)
-                    .invoke(
-                            service,
-                            Integer.valueOf(rootTaskId),
-                            Integer.valueOf(targetDisplayId));
-            waitForTaskState(
-                    service,
-                    targetDisplayId,
-                    taskId,
-                    WINDOWING_MODE_FULLSCREEN,
-                    false);
-            ShellPreparedTaskTransition.showMovedFullscreen(
-                    service, targetDisplayId, taskId, densityDpi);
+            TaskDisplayAreaLaunchCommand.moveExistingTaskAsFullscreen(
+                    service, taskId, sourceDisplayId, targetDisplayId, densityDpi);
             waitForTaskState(
                     service,
                     targetDisplayId,
                     taskId,
                     WINDOWING_MODE_FULLSCREEN,
                     true);
+            // Do not let a following launcher Intent race WM's finish-surface
+            // transaction. This is the existing framework event barrier, not
+            // a delay or another task/focus submission.
+            FrameworkWindowCommitBarrier.awaitSystemTransitions();
             taskHidden = false;
         } catch (ReflectiveOperationException | RuntimeException error) {
             if (taskHidden) {
                 try {
-                    restoreTask(
+                    TaskDisplayAreaLaunchCommand.restoreFailedTaskMove(
                             service,
                             taskId,
-                            rootTaskId,
                             sourceDisplayId,
                             originalWindowingMode,
                             originalBounds);
@@ -132,40 +117,6 @@ public final class TaskFullscreenMoveCommand {
             }
             throw error;
         }
-    }
-
-    private static void restoreTask(
-            final Object service,
-            final int taskId,
-            final int rootTaskId,
-            final int sourceDisplayId,
-            final int originalWindowingMode,
-            final Rect originalBounds) throws ReflectiveOperationException {
-        final Object task = HiddenTaskApi.findTask(
-                service, Display.INVALID_DISPLAY, taskId);
-        if (task == null) {
-            return;
-        }
-        if (HiddenTaskApi.getTaskDisplayId(task) != sourceDisplayId) {
-            service.getClass().getMethod(
-                    "moveRootTaskToDisplay", Integer.TYPE, Integer.TYPE)
-                    .invoke(
-                            service,
-                            Integer.valueOf(rootTaskId),
-                            Integer.valueOf(sourceDisplayId));
-            waitForTaskState(
-                    service,
-                    sourceDisplayId,
-                    taskId,
-                    WINDOWING_MODE_FULLSCREEN,
-                    false);
-        }
-        ShellPreparedTaskTransition.restorePreparedTask(
-                service,
-                sourceDisplayId,
-                taskId,
-                originalWindowingMode,
-                originalBounds);
     }
 
     private static void waitForTaskState(
@@ -197,10 +148,9 @@ public final class TaskFullscreenMoveCommand {
 
     private static void validate(
             final int taskId,
-            final int rootTaskId,
             final int sourceDisplayId,
             final int targetDisplayId) {
-        if (taskId < 0 || rootTaskId < 0
+        if (taskId < 0
                 || sourceDisplayId < 0 || targetDisplayId < 0
                 || sourceDisplayId == targetDisplayId) {
             throw new IllegalArgumentException("invalid fullscreen task move");

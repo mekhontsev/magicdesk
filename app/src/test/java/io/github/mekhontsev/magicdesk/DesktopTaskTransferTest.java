@@ -9,6 +9,30 @@ import org.junit.Test;
 
 public final class DesktopTaskTransferTest {
     @Test
+    public void fullscreenTransferUsesExactTaskAndInheritsPhoneDensity() {
+        final String command = TaskFullscreenMoveCommand.createMoveCommand(
+                42, 3, 0, DesktopTaskDensity.INHERIT);
+
+        assertTrue(command.contains("TaskFullscreenMoveCommand 42 3 0 0"));
+    }
+
+    @Test
+    public void fullscreenTransferCarriesResolvedDensity() {
+        final String command = TaskFullscreenMoveCommand.createMoveCommand(
+                42, 0, 3, 200);
+
+        assertTrue(command.contains("TaskFullscreenMoveCommand 42 0 3 200"));
+    }
+
+    @Test
+    public void fullscreenTransferRejectsInvalidDisplayMove() {
+        assertThrows(IllegalArgumentException.class,
+                () -> TaskFullscreenMoveCommand.createMoveCommand(42, 3, 3, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> TaskFullscreenMoveCommand.createMoveCommand(42, -1, 0, 0));
+    }
+
+    @Test
     public void freeformTransferUsesAtomicTaskCommand() {
         final Rect bounds = bounds(20, 30, 800, 900);
         final String command = DesktopTaskTransfer.createFreeformCommand(

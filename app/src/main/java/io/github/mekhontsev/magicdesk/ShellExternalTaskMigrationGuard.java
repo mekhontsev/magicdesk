@@ -292,7 +292,6 @@ final class ShellExternalTaskMigrationGuard implements
             TaskFullscreenMoveCommand.moveTask(
                     mService,
                     state.taskId,
-                    state.taskId,
                     sourceDisplayId,
                     Display.DEFAULT_DISPLAY,
                     DesktopTaskDensity.INHERIT);

@@ -47,18 +47,13 @@ final class DesktopTaskTransfer {
 
     static String moveFullscreen(
             final int taskId,
-            final int rootTaskId,
             final int sourceDisplayId,
             final int targetDisplayId,
             final int densityDpi) throws IOException {
         requireTransfer(taskId, sourceDisplayId, targetDisplayId);
-        if (rootTaskId < 0) {
-            throw new IllegalArgumentException("invalid root task id");
-        }
         requireDesktopTarget(targetDisplayId);
         return ShellAccess.run(TaskFullscreenMoveCommand.createMoveCommand(
                 taskId,
-                rootTaskId,
                 sourceDisplayId,
                 targetDisplayId,
                 densityDpi));
