@@ -10,6 +10,12 @@ import android.view.ViewConfiguration;
 
 /** Keeps a hidden taskbar reachable from a passive strip at the screen edge. */
 final class DesktopTaskbarRevealController {
+    enum Presentation {
+        UNAVAILABLE,
+        EDGE,
+        VISIBLE
+    }
+
     private static final int EDGE_STRIP_HEIGHT_PX = 1;
     private static final long REVEAL_DWELL_MILLIS = 450L;
     private static final long HIDE_DELAY_MILLIS = 300L;
@@ -218,18 +224,17 @@ final class DesktopTaskbarRevealController {
         if (taskbar == null || taskbarHost == null) {
             return;
         }
-        if (!mAvailable || !mPolicyVisible) {
+        final Presentation presentation = resolvePresentation(
+                mAvailable, mPolicyVisible, mAutoHide, mForcedVisible,
+                mPointerState.isRevealed() || mTouchState.isRevealed());
+        if (presentation == Presentation.UNAVAILABLE) {
             taskbarHost.setPresented(false);
             taskbar.setEdgeHidden(false);
             taskbarHost.setEdgeHidden(false, 1);
             return;
         }
-        final boolean visible = mForcedVisible
-                || isPinnedVisible()
-                || mPointerState.isRevealed()
-                || mTouchState.isRevealed();
         taskbarHost.setPresented(true);
-        if (visible) {
+        if (presentation == Presentation.VISIBLE) {
             taskbar.setEdgeHidden(false);
             taskbarHost.setEdgeHidden(false, 1);
         } else {
@@ -248,19 +253,25 @@ final class DesktopTaskbarRevealController {
         mHandler.removeCallbacks(mHideTimeout);
     }
 
-    private boolean isPinnedVisible() {
-        return mPolicyVisible && !mAutoHide;
-    }
-
-    private boolean shouldArm() {
-        return mAvailable
-                && mPolicyVisible
-                && !mForcedVisible
-                && !isPinnedVisible();
+    static Presentation resolvePresentation(
+            final boolean available,
+            final boolean policyVisible,
+            final boolean autoHide,
+            final boolean forcedVisible,
+            final boolean revealed) {
+        // Managed fullscreen conceals the panel, not its reveal edge. Only
+        // an unavailable desktop chrome surface disables edge input entirely.
+        if (!available) {
+            return Presentation.UNAVAILABLE;
+        }
+        return forcedVisible || (policyVisible && !autoHide) || revealed
+                ? Presentation.VISIBLE : Presentation.EDGE;
     }
 
     private void updateArmedState() {
-        final boolean armed = shouldArm();
+        final boolean armed = resolvePresentation(
+                mAvailable, mPolicyVisible, mAutoHide, mForcedVisible,
+                false) == Presentation.EDGE;
         mPointerState.setArmed(armed);
         mTouchState.setArmed(mTouchEdgeEnabled && armed);
     }

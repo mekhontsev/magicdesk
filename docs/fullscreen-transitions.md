@@ -62,8 +62,9 @@ Android activity-start ordering expects ordinary root-task siblings above a
 foreground application task.
 On the phone display the taskbar child window also covers the stable lower
 system-bar inset. It paints that portion with the taskbar background, while the
-taskbar controls remain above the inset. When fullscreen policy conceals the
-taskbar, the child window is removed and the transparent chrome host remains
+taskbar controls remain above the inset. When managed fullscreen policy conceals
+the taskbar, the child window collapses to its reveal edge. An unrelated
+foreground task removes it entirely. The transparent chrome host remains
 structurally stable without covering fullscreen content.
 
 Taskbar, task overview, MCP, and Alt+Tab use the same focus gateway. The app

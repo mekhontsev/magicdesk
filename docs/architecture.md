@@ -1363,10 +1363,10 @@ so its application panel paints that inset as taskbar chrome even when a
 managed fullscreen plane covers HOME. The taskbar controls retain their
 ordinary height above the inset. On displays without a lower inset the two
 bounds are identical. The attached application panel does not apply system-bar
-or IME insets a second time. When fullscreen policy conceals the taskbar, the
-Activity removes the bounded panel; its transparent, non-input chrome host
-remains structurally stable without leaving a colored surface over fullscreen
-content.
+or IME insets a second time. When managed fullscreen policy conceals the taskbar,
+the bounded panel collapses to its reveal edge; an unrelated foreground task
+removes the panel entirely. The transparent, non-input chrome host remains
+structurally stable without leaving the taskbar backdrop over fullscreen content.
 There is no separate phone implementation of the desktop.
 IME visibility may keep an
 auto-hiding taskbar logically presented, but it never moves the taskbar surface:
@@ -1396,9 +1396,9 @@ suppress it. The fullscreen host never receives a freeform caption.
 The shell disables that Activity's Android 15+ ActivityRecord input sink, so
 only the taskbar window's bounded touch region receives input and pointer events
 outside the panel continue to the desktop and application windows.
-Auto-hide keeps the host geometry stable, makes the hidden taskbar window
-non-touchable, and resizes the application panel containing the taskbar View to
-its reveal edge. The same window therefore owns visible taskbar input and
+Auto-hide keeps the non-touchable host geometry stable and resizes the
+application panel containing the taskbar View to its reveal edge. The same
+bounded window therefore owns visible taskbar input and
 hidden-edge hover without forwarding synthetic events. It adds no polling and
 keeps the input frame aligned with the visible edge. WindowManager's root-task
 order keeps both the visible panel and hidden reveal edge above application
