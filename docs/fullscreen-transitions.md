@@ -343,6 +343,16 @@ task; an ordinary freeform close follows Android's task lifecycle. Its restore
 changes only mode, bounds, and order. These paths preserve the Activity
 instance and avoid a display-0 trampoline.
 
+Task-removal focus reconciliation is armed by `onTaskRemovalStarted`, not
+only by final `onTaskRemoved`: Android can need a resumed successor before
+its native CLOSE transition becomes ready. The existing typed task observer
+waits for the closing task to leave its snapshot, then considers the first
+visible non-infrastructure surface. HOME is a valid successor and an opaque
+boundary; a stale focused fullscreen task behind it must not override that
+choice. An unrelated foreground phone task ends the search without desktop
+focus repair. This reuses the existing input-focus reconciler and adds no
+timer, polling source, HOME launch, or application selection command.
+
 `ShellPreparedTaskTransition` separately owns hidden preparation and reveal
 for running-task display moves and freeform decoration repair outside the
 per-plane exit path. Phone-session teardown restores the previous HOME role and

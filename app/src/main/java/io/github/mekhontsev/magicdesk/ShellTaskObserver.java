@@ -1048,6 +1048,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (mClosed || taskInfo == null) {
             return;
         }
+        // onTaskRemoved is delivered after the native CLOSE finishes. Its
+        // readiness can itself require a resumed successor on this display.
+        // Arm the existing snapshot reconciliation before that boundary.
+        rememberDesktopTaskRemoval(taskInfo.taskId);
         mFullscreenTaskArea.onTaskRemovalStarted(
                 mService, taskInfo.taskId);
         mSelfTestTaskStackGuard.sample("task-removal-started");
@@ -1097,24 +1101,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             removedTaskId = mPendingRemovedDesktopTaskId;
         }
 
-        boolean removedTaskStillPresent = false;
-        FrameworkTaskSnapshot candidate = null;
-        for (final FrameworkTaskSnapshot task : tasks) {
-            if (task.taskId == removedTaskId) {
-                removedTaskStillPresent = true;
-                continue;
-            }
-            if (!isPostRemovalFocusCandidate(displayId, task)) {
-                continue;
-            }
-            if (candidate == null || task.focused) {
-                candidate = task;
-            }
-            if (task.focused) {
-                break;
-            }
-        }
-        if (candidate == null && removedTaskStillPresent) {
+        final FrameworkTaskSnapshot candidate =
+                DesktopRemovalFocusPolicy.exposedTask(
+                        tasks, displayId, removedTaskId);
+        if (candidate == null) {
             return;
         }
         synchronized (mPostRemovalFocusLock) {
@@ -1125,7 +1115,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mPendingRemovedDesktopTaskId = -1;
             mPendingRemovalDisplayId = Display.INVALID_DISPLAY;
         }
-        if (candidate == null) {
+        if (!isPostRemovalFocusCandidate(displayId, candidate)) {
             return;
         }
 
@@ -1147,15 +1137,17 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (task == null
                 || task.displayId != displayId
                 || !task.visible
-                || task.activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
-                || task.taskId == mDesktopOwnership.desktopHostTaskId()
                 || DesktopInfrastructureTasks.isComponent(
                         task.rootComponent)
                 || DesktopInfrastructureTasks.isComponent(
                         task.topComponent)) {
             return false;
         }
-        return task.task != null && mDesktopOwnership.isDesktopTask(task.task);
+        return mDesktopOwnership.isDesktopHostTask(task.taskId)
+                || (task.activityType
+                        == FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
+                        && task.task != null
+                        && mDesktopOwnership.isDesktopTask(task.task));
     }
 
     private void clearPendingPostRemovalFocus() {
