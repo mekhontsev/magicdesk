@@ -141,6 +141,16 @@ normal roots, even when our hierarchy explicitly demotes a fullscreen plane
 below HOME. Publishing that plane's negative layer before native finish lets
 WM overwrite it and leaves the demoted application visible behind freeforms.
 
+The plane owner retains the last committed placement relative to HOME together
+with its plane order. A parked empty plane cannot infer the remaining surfaces'
+placement from input focus: a freeform foreground can still have a fullscreen
+background. Native selection also puts covered planes below HOME in the root
+hierarchy, without replacing their explicitly composed surface order. Mixed
+selection therefore retains that composed background when the hierarchy has
+no foreground fullscreen task. Explicit desktop presentation commits planes
+below HOME and clears that background. This replaces per-plane focus queries
+at release; it introduces no additional observation or selection transaction.
+
 The barrier is global, not display- or token-specific, and Android can return
 at its internal deadline without a timeout result. It is not exposed as proof
 that a particular transition succeeded: the existing surface acknowledgement

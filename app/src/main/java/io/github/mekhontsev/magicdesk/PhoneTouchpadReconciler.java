@@ -7,8 +7,6 @@ import java.util.List;
 /** Restores a requested phone touchpad displaced by a window transition. */
 final class PhoneTouchpadReconciler {
     private static final String TAG = "MagicDeskTasks";
-    private static final String MAGICDESK_TOUCHPAD_ACTIVITY =
-            "io.github.mekhontsev.magicdesk.MagicDeskTouchpadActivity";
 
     private boolean mRepairAwaitingVisibility;
     private int mLastRepairForegroundTaskId = Integer.MIN_VALUE;
@@ -40,9 +38,9 @@ final class PhoneTouchpadReconciler {
             final boolean requested,
             final List<TaskRepository.TaskEntry> phoneTasks) {
         final PhoneTaskState state = inspectPhoneTasks(phoneTasks);
-        // The control panel is an intentional phone-side destination, not a
-        // displaced touchpad. Preserve the request without covering the panel.
-        if (!requested || state.touchpadVisible || state.controlPanelVisible) {
+        // A visible phone task owns phone navigation. Keep the touchpad request
+        // but repair only an exposed HOME/empty workspace, not another app.
+        if (!requested || state.touchpadVisible || state.phoneTaskVisible) {
             clearPendingRepair();
             return RepairAction.NONE;
         }
@@ -75,10 +73,10 @@ final class PhoneTouchpadReconciler {
         int foregroundTaskId = -1;
         int touchpadTaskId = -1;
         boolean touchpadVisible = false;
-        boolean controlPanelVisible = false;
+        boolean phoneTaskVisible = false;
         if (tasks != null) {
             for (final TaskRepository.TaskEntry task : tasks) {
-                if (task == null) {
+                if (task == null || task.displayId != android.view.Display.DEFAULT_DISPLAY) {
                     continue;
                 }
                 if (foregroundTaskId < 0 && task.visible) {
@@ -87,11 +85,8 @@ final class PhoneTouchpadReconciler {
                 if (isTouchpadTask(task)) {
                     touchpadTaskId = task.taskId;
                     touchpadVisible |= task.visible;
-                }
-                if (task.visible
-                        && (isControlPanelComponent(task.componentName)
-                                || isControlPanelComponent(task.topActivityName))) {
-                    controlPanelVisible = true;
+                } else if (task.visible && !task.home) {
+                    phoneTaskVisible = true;
                 }
             }
         }
@@ -99,14 +94,7 @@ final class PhoneTouchpadReconciler {
                 foregroundTaskId,
                 touchpadTaskId,
                 touchpadVisible,
-                controlPanelVisible);
-    }
-
-    private static boolean isControlPanelComponent(final String component) {
-        final String packageName = BuildConfig.APPLICATION_ID;
-        return (packageName + "/.ControlActivity").equals(component)
-                || (packageName + "/" + packageName + ".ControlActivity")
-                        .equals(component);
+                phoneTaskVisible);
     }
 
     private static boolean isTouchpadTask(
@@ -116,8 +104,10 @@ final class PhoneTouchpadReconciler {
     }
 
     private static boolean isTouchpadComponent(final String component) {
-        return component != null
-                && component.endsWith(MAGICDESK_TOUCHPAD_ACTIVITY);
+        final String packageName = BuildConfig.APPLICATION_ID;
+        return (packageName + "/.MagicDeskTouchpadActivity").equals(component)
+                || (packageName + "/" + packageName + ".MagicDeskTouchpadActivity")
+                        .equals(component);
     }
 
     enum RepairAction {
@@ -136,17 +126,17 @@ final class PhoneTouchpadReconciler {
         final int foregroundTaskId;
         final int touchpadTaskId;
         final boolean touchpadVisible;
-        final boolean controlPanelVisible;
+        final boolean phoneTaskVisible;
 
         PhoneTaskState(
                 final int foregroundTaskId,
                 final int touchpadTaskId,
                 final boolean touchpadVisible,
-                final boolean controlPanelVisible) {
+                final boolean phoneTaskVisible) {
             this.foregroundTaskId = foregroundTaskId;
             this.touchpadTaskId = touchpadTaskId;
             this.touchpadVisible = touchpadVisible;
-            this.controlPanelVisible = controlPanelVisible;
+            this.phoneTaskVisible = phoneTaskVisible;
         }
     }
 }

@@ -430,9 +430,11 @@ runtime integration and are not distributed through the same release path.
   with display-0 launch options, never service or broadcast trampolines.
   The touchpad action is offered only for a supported active external desktop;
   the Activity validates its target again before requesting phone input.
-  A visible phone Control Panel suspends automatic touchpad restoration using
-  the existing task snapshot. Opening the panel from the notification therefore
-  leaves the touchpad behind it without cancelling the user's input request.
+  Any visible phone application suspends automatic touchpad restoration using
+  the existing task snapshot. Opening an app or Control Panel from the
+  notification therefore leaves the touchpad behind it without cancelling the
+  user's input request. Restoration resumes only on an exposed HOME or empty
+  phone workspace; there is no component-specific Control Panel exception.
   Desktop Show/Restore remains a taskbar and `Win+D`
   command rather than a state-dependent notification action.
 
@@ -735,11 +737,12 @@ runtime integration and are not distributed through the same release path.
   value. It is cleared with that controller and is not process-global.
 - `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.
 - `PhoneTouchpadReconciler` keeps the requested phone touchpad visible after
-  display changes without owning desktop-session policy. It raises an existing
+  display changes without overriding visible phone tasks. It raises an existing
   touchpad task before starting a replacement and treats restoration as pending
   until task observation reports the touchpad visible. Identical sampled task
   state never repeats the repair command; a changed phone-task observation can
-  retry it without another poller.
+  retry it without another poller. Phone apps, Overview and the self-test phone
+  guard all retain their foreground through this same task-visibility rule.
 - `AppTaskController` and `AltTabController` coordinate task actions,
   Show Desktop, restoration, and exact-task
   switching. `AppTaskController` has one UI lifecycle for built-in and regular
@@ -1285,6 +1288,12 @@ surface. This
 catches a repeated hierarchy rebuild and an implementation that works only for
 a pair of tasks. `WINDOW-015` and `WINDOW-020` identify these
 application-fullscreen hierarchy checks.
+
+The phone-to-desktop transfer probe captures its reference after the source
+task has left the desktop and the production Show Desktop command has committed.
+It compares the transfer against that settled destination, not a previous
+workspace with the source window's shadow. Pixel tolerances and first-visible
+freeform mode/bounds assertions remain the same.
 
 The simulated target owns its display through a Binder-owned shell stream;
 closing the stream or losing its owner closes stdin, runs a shell `trap`, and

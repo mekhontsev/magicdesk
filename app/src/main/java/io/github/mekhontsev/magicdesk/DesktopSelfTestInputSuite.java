@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /** Exercises native input windows, pointer behavior, and task focus. */
 final class DesktopSelfTestInputSuite {
@@ -1817,29 +1818,40 @@ final class DesktopSelfTestInputSuite {
     private static void commitTaskFocusThroughDesktop(
             final int displayId,
             final int taskId) throws IOException {
+        awaitDesktopAction("desktop task focus", callback ->
+                MagicDeskRuntime.focusDesktopTask(displayId, taskId, callback));
+    }
+
+    static void showDesktopThroughRuntime(
+            final int displayId,
+            final int hostTaskId) throws IOException {
+        awaitDesktopAction("desktop presentation", callback ->
+                MagicDeskRuntime.showDesktop(displayId, hostTaskId, callback));
+    }
+
+    private static void awaitDesktopAction(
+            final String operation,
+            final Consumer<TaskRepository.ActionCallback> submit) throws IOException {
         final CountDownLatch complete = new CountDownLatch(1);
         final AtomicBoolean success = new AtomicBoolean();
         final StringBuilder message = new StringBuilder();
-        MagicDeskRuntime.focusDesktopTask(
-                displayId,
-                taskId,
-                action -> {
-                    success.set(action.success);
-                    message.append(action.message);
-                    complete.countDown();
-                });
+        submit.accept(action -> {
+            success.set(action.success);
+            message.append(action.message);
+            complete.countDown();
+        });
         try {
             if (!complete.await(
                     STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-                throw new IOException("desktop task focus timed out");
+                throw new IOException(operation + " timed out");
             }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            throw new IOException("desktop task focus interrupted", error);
+            throw new IOException(operation + " interrupted", error);
         }
         if (!success.get()) {
             throw new IOException(
-                    "desktop task focus failed: " + message);
+                    operation + " failed: " + message);
         }
     }
 

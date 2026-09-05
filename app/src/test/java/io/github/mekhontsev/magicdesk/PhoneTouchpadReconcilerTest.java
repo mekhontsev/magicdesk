@@ -52,7 +52,7 @@ public final class PhoneTouchpadReconcilerTest {
     }
 
     @Test
-    public void changedPhoneForegroundRetriesUnconfirmedRepair() {
+    public void phoneApplicationSuspendsUnconfirmedRepairUntilHomeReturns() {
         final PhoneTouchpadReconciler reconciler =
                 new PhoneTouchpadReconciler();
         final List<TaskRepository.TaskEntry> first = Arrays.asList(
@@ -65,10 +65,40 @@ public final class PhoneTouchpadReconcilerTest {
 
         assertEquals(PhoneTouchpadReconciler.RepairAction.BRING_EXISTING,
                 reconciler.nextRepair(true, first));
-        assertEquals(PhoneTouchpadReconciler.RepairAction.BRING_EXISTING,
+        assertEquals(PhoneTouchpadReconciler.RepairAction.NONE,
                 reconciler.nextRepair(true, changed));
         assertEquals(PhoneTouchpadReconciler.RepairAction.NONE,
                 reconciler.nextRepair(true, changed));
+        assertEquals(PhoneTouchpadReconciler.RepairAction.BRING_EXISTING,
+                reconciler.nextRepair(true, first));
+    }
+
+    @Test
+    public void phoneGuardAndOverviewAreOrdinaryPhoneDestinations() {
+        for (final String component : Arrays.asList(
+                "io.github.mekhontsev.magicdesk/.DesktopSelfTestPhoneGuardActivity",
+                "io.github.mekhontsev.magicdesk/.PhoneOverviewActivity")) {
+            final PhoneTouchpadReconciler reconciler = new PhoneTouchpadReconciler();
+            assertEquals(PhoneTouchpadReconciler.RepairAction.NONE,
+                    reconciler.nextRepair(true, Collections.singletonList(
+                            task(12, component, true))));
+            assertEquals(PhoneTouchpadReconciler.RepairAction.START_MISSING,
+                    reconciler.nextRepair(true, Collections.singletonList(
+                            task(12, component, false))));
+        }
+    }
+
+    @Test
+    public void visibleShortTouchpadComponentCompletesPendingRepair() {
+        final PhoneTouchpadReconciler reconciler = new PhoneTouchpadReconciler();
+        assertEquals(PhoneTouchpadReconciler.RepairAction.START_MISSING,
+                reconciler.nextRepair(true, Collections.emptyList()));
+        assertEquals(PhoneTouchpadReconciler.RepairAction.NONE,
+                reconciler.nextRepair(true, Collections.singletonList(
+                        task(11, "io.github.mekhontsev.magicdesk/.MagicDeskTouchpadActivity",
+                                true))));
+        assertEquals(PhoneTouchpadReconciler.RepairAction.START_MISSING,
+                reconciler.nextRepair(true, Collections.emptyList()));
     }
 
     @Test

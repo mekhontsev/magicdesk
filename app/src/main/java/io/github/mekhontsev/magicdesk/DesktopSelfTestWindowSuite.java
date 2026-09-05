@@ -209,9 +209,6 @@ final class DesktopSelfTestWindowSuite {
                     "Preserve desktop surface during task transfer",
                     "an external display was not selected");
         } else {
-            final SurfaceReferenceResult transferSurfaceReference =
-                    captureSurfaceReferenceOutsideWindow(
-                            captureSource, settledGeometry, windowBounds);
             require(result,
                     "WINDOW-009",
                     "Move existing task to phone fullscreen",
@@ -232,7 +229,8 @@ final class DesktopSelfTestWindowSuite {
                             targetFixtureTaskId,
                             desktopTask.taskId,
                             windowBounds,
-                            transferSurfaceReference)));
+                            captureSource,
+                            settledGeometry)));
             samplePhoneUiBestEffort();
             if (!taskTransfer.probeError.isEmpty()) {
                 result.add(DesktopSelfTestResult.State.NOT_TESTED,
@@ -1579,11 +1577,15 @@ final class DesktopSelfTestWindowSuite {
             final int taskId,
             final int desktopTaskId,
             final Rect bounds,
-            final SurfaceReferenceResult surfaceReference) throws IOException {
-        ShellAccess.run(TaskFocusCommands.createShellCommand(
-                displayId,
-                Collections.singletonList(Integer.valueOf(desktopTaskId))));
+            final DisplayCaptureSource captureSource,
+            final DesktopSelfTestGeometry geometry) throws IOException {
+        DesktopSelfTestInputSuite.showDesktopThroughRuntime(
+                displayId, desktopTaskId);
         waitForWindowFocus(displayId, true);
+        // Measure the settled destination immediately before the transfer,
+        // not the earlier desktop with the source window and its shadow.
+        final SurfaceReferenceResult surfaceReference =
+                captureSurfaceReferenceOutsideWindow(captureSource, geometry, bounds);
         return reopenTask(displayId, taskId, bounds, surfaceReference);
     }
 

@@ -31,6 +31,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private int mDisplayId = -1;
     private int mNextPlaneSlotId;
     private boolean mConcealedForShowDesktop;
+    private boolean mPlanesBelowWorkspace = true;
     private final ShellDesktopSurfaceOrder mSurfaceOrder;
 
     ShellFullscreenTaskPlanes(final ShellDesktopSurfaceOrder surfaceOrder) {
@@ -734,12 +735,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             // applySelection settles native freeform transitions first: WM
             // places HOME below normal roots when assigning finish layers, so
             // a plane demoted below HOME needs our composition after that.
-            if (mixedOrder != null && mixedOrder.fullscreenTaskId < 0) {
-                applySurfaceLayers(surfaceLayers(
-                        committedOrder, effectivePlanes.keySet(), true), effectivePlanes);
-            } else {
-                applySurfaceOrder(committedOrder, effectivePlanes);
-            }
+            applySurfaceOrder(committedOrder, effectivePlanes,
+                    mixedOrder != null && mixedOrder.fullscreenTaskId < 0);
             if (launchEnteringTask) {
                 final TaskDisplayAreaHandle enteringPlane = acquiredPlanes.get(
                         Integer.valueOf(enteringTaskId));
@@ -774,7 +771,9 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     + " tasks=" + mPlanes.keySet()
                     + " order=" + java.util.Arrays.toString(committedOrder)
                     + " target="
-                    + requestedTaskIds[requestedTaskIds.length - 1]);
+                    + requestedTaskIds[requestedTaskIds.length - 1]
+                    + " background="
+                    + (mixedOrder == null ? "plane" : mixedOrder.fullscreenTaskId));
         } catch (ReflectiveOperationException | RuntimeException error) {
             for (final TaskDisplayAreaHandle plane : acquiredPlanes.values()) {
                 if (!mAvailablePlanes.contains(plane)) {
@@ -1077,8 +1076,25 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 requestedTaskIds,
                 planeTaskIds,
                 foreground.freeformTaskIds,
-                foreground.fullscreenTaskId,
+                composedFullscreenBackground(
+                        foreground.fullscreenTaskId,
+                        mPlaneOrder,
+                        mPlanesBelowWorkspace),
                 targetIsFreeform);
+    }
+
+    static int composedFullscreenBackground(
+            final int hierarchyFullscreenTaskId,
+            final List<Integer> committedPlaneOrder,
+            final boolean planesBelowWorkspace) {
+        if (hierarchyFullscreenTaskId >= 0) {
+            return hierarchyFullscreenTaskId;
+        }
+        // Plane selection can place covered peers below HOME in WM's root
+        // hierarchy while retaining them above HOME in our surface composition.
+        // A freeform focus or plane release does not demote that background.
+        return planesBelowWorkspace || committedPlaneOrder.isEmpty()
+                ? -1 : committedPlaneOrder.get(committedPlaneOrder.size() - 1);
     }
 
     private static void addOrderOperations(
@@ -1233,17 +1249,24 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final int[] taskIds,
             final Map<Integer, TaskDisplayAreaHandle> planes)
             throws ReflectiveOperationException {
+        applySurfaceOrder(taskIds, planes, false);
+    }
+
+    private void applySurfaceOrder(
+            final int[] taskIds,
+            final Map<Integer, TaskDisplayAreaHandle> planes,
+            final boolean belowWorkspace)
+            throws ReflectiveOperationException {
         applySurfaceLayers(
-                surfaceLayers(taskIds, planes.keySet(), false), planes);
+                surfaceLayers(taskIds, planes.keySet(), belowWorkspace), planes);
+        mPlanesBelowWorkspace = belowWorkspace;
     }
 
     private void applySurfaceOrderBelowWorkspace(
             final List<Integer> taskIds,
             final Map<Integer, TaskDisplayAreaHandle> planes)
             throws ReflectiveOperationException {
-        applySurfaceLayers(
-                surfaceLayers(toIntArray(taskIds), planes.keySet(), true),
-                planes);
+        applySurfaceOrder(toIntArray(taskIds), planes, true);
     }
 
     private static int[] toIntArray(final List<Integer> taskIds) {
@@ -1714,11 +1737,9 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         // Commit hierarchy state before restoring explicit organizer layers.
         ShellWindowTransitionExecutor.applySynchronized(
                 service, transactionClass, transaction);
-        if (hasFocusedPlaneTask(service, mDisplayId)) {
-            applySurfaceOrder(toIntArray(mPlaneOrder), mPlanes);
-        } else {
-            applySurfaceOrderBelowWorkspace(mPlaneOrder, mPlanes);
-        }
+        // Retiring one plane preserves the remaining composition, including
+        // a fullscreen background whose freeform foreground now owns focus.
+        applySurfaceOrder(toIntArray(mPlaneOrder), mPlanes, mPlanesBelowWorkspace);
     }
 
     private TaskDisplayAreaHandle retirePlaneRecord(final int taskId) {
@@ -1729,19 +1750,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             mAvailablePlanes.add(plane);
         }
         return plane;
-    }
-
-    private boolean hasFocusedPlaneTask(
-            final Object service,
-            final int displayId) throws ReflectiveOperationException {
-        for (final Integer taskId : mPlanes.keySet()) {
-            final Object task = HiddenTaskApi.findTask(
-                    service, displayId, taskId.intValue());
-            if (task != null && HiddenTaskApi.isTaskFocused(task)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Override
@@ -1791,6 +1799,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         mPlaneAnchorTaskIds.clear();
         mAvailablePlanes.clear();
         mPlaneOrder.clear();
+        mPlanesBelowWorkspace = true;
         mService = null;
         mNextPlaneSlotId = 0;
         mConcealedForShowDesktop = false;

@@ -15,6 +15,30 @@ import java.util.Set;
 
 public final class ShellFullscreenTaskPlanesTest {
     @Test
+    public void freeformRestoreRetainsComposedFullscreenBackgroundBelowHomeInHierarchy() {
+        assertEquals(11, ShellFullscreenTaskPlanes.composedFullscreenBackground(
+                -1, Arrays.asList(10, 11), false));
+    }
+
+    @Test
+    public void explicitDesktopPresentationDoesNotRestoreCoveredPlanes() {
+        assertEquals(-1, ShellFullscreenTaskPlanes.composedFullscreenBackground(
+                -1, Arrays.asList(10, 11), true));
+    }
+
+    @Test
+    public void foregroundFullscreenHierarchyTakesPrecedenceOverPreviousComposition() {
+        assertEquals(12, ShellFullscreenTaskPlanes.composedFullscreenBackground(
+                12, Arrays.asList(10, 11), true));
+    }
+
+    @Test
+    public void lastPlaneReleaseReturnsToDesktopBackground() {
+        assertEquals(-1, ShellFullscreenTaskPlanes.composedFullscreenBackground(
+                -1, Collections.emptyList(), false));
+    }
+
+    @Test
     public void appendsRequestedStackAboveEveryFullscreenPlane() {
         assertArrayEquals(
                 new int[]{1, 2, 3},
