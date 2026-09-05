@@ -1,15 +1,21 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 /** Keeps panel dismissal outside the asynchronous workspace acknowledgement. */
 public final class AltTabPanelContractTest {
+    @Rule
+    public final TemporaryFolder temporary = new TemporaryFolder();
+
     @Test
     public void finishDismissesPanelBeforeSubmittingActivation() throws Exception {
         final String source = source("AltTabController");
@@ -54,9 +60,23 @@ public final class AltTabPanelContractTest {
                 + "                    } else if (!mActivity.showAltTabPanel())"));
     }
 
+    @Test
+    public void sourceReaderNormalizesWindowsLineEndings() throws Exception {
+        final String expected = source("AltTabController");
+        final Path windowsSource = temporary.newFile("AltTabController.java").toPath();
+        Files.writeString(windowsSource, expected.replace("\n", "\r\n"));
+
+        assertEquals(expected, readSource(windowsSource));
+    }
+
     private static String source(final String className) throws Exception {
-        return Files.readString(Path.of(
+        return readSource(Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/"
                         + className + ".java"));
+    }
+
+    private static String readSource(final Path path) throws Exception {
+        // Contract checks must not depend on the checkout's line endings.
+        return String.join("\n", Files.readAllLines(path));
     }
 }
