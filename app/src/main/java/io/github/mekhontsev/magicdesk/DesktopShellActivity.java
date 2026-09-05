@@ -1882,6 +1882,10 @@ public abstract class DesktopShellActivity extends Activity
         return mAutomationUi.invoke(elementId, action);
     }
 
+    DesktopAutomationUiRegistry automationUi() {
+        return mAutomationUi;
+    }
+
     void registerAutomationUiElement(
             final View view,
             final String id,

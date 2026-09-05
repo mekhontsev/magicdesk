@@ -10,6 +10,10 @@ final class SystemBarInsets {
     }
 
     static void addToPadding(final View view) {
+        addToPadding(view, false);
+    }
+
+    static void addToPadding(final View view, final boolean includeIme) {
         final int left = view.getPaddingLeft();
         final int top = view.getPaddingTop();
         final int right = view.getPaddingRight();
@@ -17,7 +21,8 @@ final class SystemBarInsets {
         view.setOnApplyWindowInsetsListener((target, windowInsets) -> {
             final Insets safeArea = windowInsets.getInsets(
                     WindowInsets.Type.systemBars()
-                            | WindowInsets.Type.displayCutout());
+                            | WindowInsets.Type.displayCutout()
+                            | (includeIme ? WindowInsets.Type.ime() : 0));
             target.setPadding(
                     left + safeArea.left,
                     top + safeArea.top,

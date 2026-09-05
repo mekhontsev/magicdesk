@@ -146,6 +146,14 @@ screen coordinates. `magicdesk.invoke_ui_action` accepts an id returned by
 same click or context-menu listener as user input; MCP does not contain a
 parallel menu policy.
 
+During an external desktop session, `list_ui_elements(displayId=0)` also
+exposes the visible phone HOME Start. Its `start.*` IDs are local to that
+display, so `invoke_ui_action` with display 0 launches on the phone while
+the same ID on the desktop display retains desktop behavior. Phone HOME
+actions are `phone.controls`, `phone.touchpad` and `phone.close_desktop`.
+The registry is removed when that HOME stops; this does not create another
+desktop session or a background UI observer.
+
 ## Desktop Commands
 
 Normal commands include:

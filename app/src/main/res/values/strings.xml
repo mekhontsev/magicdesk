@@ -459,6 +459,7 @@
     <string name="control_display_status">This display: %1$d | External desktop: %2$s</string>
     <string name="control_external_display_status">Output: %1$s</string>
     <string name="search_apps_hint">Search apps, files and actions</string>
+    <string name="search_phone_apps_hint">Search apps</string>
     <string name="search_no_results">No matching results</string>
     <string name="taskbar_running_description">%1$s, task %2$d</string>
     <plurals name="taskbar_hidden_items_description">

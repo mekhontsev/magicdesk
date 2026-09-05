@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.app.Activity;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -132,16 +133,11 @@ final class StartSearchController implements AutoCloseable {
     private static final int MAX_FILE_RESULTS = 24;
     private static final long FILE_SEARCH_DEBOUNCE_MILLIS = 180L;
 
-    private final DesktopShellActivity mActivity;
+    private final Activity mContext;
+    private final StartMenuScope mScope;
     private final Listener mListener;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
-    private final ExecutorService mWorker =
-            Executors.newSingleThreadExecutor(runnable -> {
-                final Thread thread = new Thread(
-                        runnable, "MagicDeskStartSearch");
-                thread.setDaemon(true);
-                return thread;
-            });
+    private final ExecutorService mWorker;
     private final FileManagerSearchController mFileSearch;
     private final List<Result> mLocalResults = new ArrayList<>();
     private final List<Result> mFileResults = new ArrayList<>();
@@ -153,12 +149,26 @@ final class StartSearchController implements AutoCloseable {
     private boolean mClosed;
 
     StartSearchController(
-            final DesktopShellActivity activity,
+            final Activity context,
+            final StartMenuScope scope,
             final Listener listener) {
-        mActivity = activity;
+        mContext = context;
+        mScope = scope;
         mListener = listener;
+        if (scope == StartMenuScope.PHONE) {
+            mWorker = null;
+            mFileSearch = null;
+            return;
+        }
+        mWorker =
+            Executors.newSingleThreadExecutor(runnable -> {
+                final Thread thread = new Thread(
+                        runnable, "MagicDeskStartSearch");
+                thread.setDaemon(true);
+                return thread;
+            });
         mFileSearch = new FileManagerSearchController(
-                activity,
+                context,
                 mWorker,
                 new FileManagerSearchController.Listener() {
                     @Override
@@ -209,17 +219,21 @@ final class StartSearchController implements AutoCloseable {
         mFileResults.clear();
         mDesktopApplicationPaths.clear();
         mHandler.removeCallbacks(mStartFileSearch);
-        mFileSearch.cancel();
+        if (mFileSearch != null) {
+            mFileSearch.cancel();
+        }
         if (mQuery.isEmpty()) {
             mListener.onResultsChanged();
             return;
         }
         collectApps(apps);
-        collectDesktopApplications(applications);
-        collectActions();
+        if (mScope == StartMenuScope.DESKTOP) {
+            collectDesktopApplications(applications);
+            collectActions();
+        }
         sortLocalResults();
         mListener.onResultsChanged();
-        if (mQuery.length() >= 2 && ShellAccess.isReady()) {
+        if (mFileSearch != null && mQuery.length() >= 2 && ShellAccess.isReady()) {
             mHandler.postDelayed(
                     mStartFileSearch,
                     FILE_SEARCH_DEBOUNCE_MILLIS);
@@ -249,7 +263,9 @@ final class StartSearchController implements AutoCloseable {
 
     void pause() {
         mHandler.removeCallbacks(mStartFileSearch);
-        mFileSearch.cancel();
+        if (mFileSearch != null) {
+            mFileSearch.cancel();
+        }
     }
 
     @Override
@@ -259,8 +275,10 @@ final class StartSearchController implements AutoCloseable {
         }
         mClosed = true;
         mHandler.removeCallbacks(mStartFileSearch);
-        mFileSearch.close();
-        mWorker.shutdownNow();
+        if (mFileSearch != null) {
+            mFileSearch.close();
+            mWorker.shutdownNow();
+        }
     }
 
     private void collectApps(final List<AppItem> apps) {
@@ -273,12 +291,15 @@ final class StartSearchController implements AutoCloseable {
                 }
             }
         }
+        if (mScope == StartMenuScope.PHONE) {
+            return;
+        }
         for (final BuiltInDesktopAppCatalog.Entry entry
                 : BuiltInDesktopAppCatalog.searchEntries()) {
             if (targets.contains(entry.launchTarget)) {
                 continue;
             }
-            final String label = mActivity.getString(entry.fallbackLabelResId);
+            final String label = mContext.getString(entry.fallbackLabelResId);
             if (matches(label, "magicdesk")) {
                 mLocalResults.add(Result.builtIn(label, entry));
             }
@@ -314,7 +335,7 @@ final class StartSearchController implements AutoCloseable {
             final int labelResId,
             final Action action,
             final String keywords) {
-        final String label = mActivity.getString(labelResId);
+        final String label = mContext.getString(labelResId);
         if (matches(label, keywords)) {
             mLocalResults.add(Result.action(label, action));
         }
@@ -351,7 +372,8 @@ final class StartSearchController implements AutoCloseable {
     }
 
     private void startFileSearch() {
-        if (!mClosed && mQuery.length() >= 2 && ShellAccess.isReady()) {
+        if (!mClosed && mFileSearch != null
+                && mQuery.length() >= 2 && ShellAccess.isReady()) {
             mFileSearch.start(
                     ShellDesktopDirectory.ABSOLUTE_PATH,
                     mQuery,

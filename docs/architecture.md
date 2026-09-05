@@ -1496,6 +1496,26 @@ not move tasks that remain on another display or revive unrelated external
 entries. External Close runs this reconciliation before presenting restored
 HOME, including when the physical monitor remains connected.
 
+`PhoneHomeActivity` embeds `StartMenuContent`, the same contents used by the
+desktop `StartMenuController` popup. Each host owns its own view, query, page,
+selection and focus; both Starts can be visible at once. The phone uses its
+own recent-launch history and only application search, without constructing
+the desktop file-search worker. The application catalog reuses
+`LauncherAppRepository`; phone loading is asynchronous and invalidated by
+`LauncherApps.Callback`, not by a timer. Grid capacity follows each panel's
+measured viewport, including keyboard resizing.
+
+Phone selection uses `PhoneAppLauncher`, outside desktop launch integrations,
+saved bounds and density profiles. A one-shot typed task snapshot identifies
+an existing external task only when there is no matching phone instance. Such
+a task returns through `TaskRepository.moveTaskToDisplay` before the ordinary
+display-0 launcher Intent is delivered; this avoids cross-area Intent reuse
+inside Android's ActivityStarter. No duplicate task or alternate transition
+protocol is introduced. The phone HOME also exposes phone controls, touchpad
+and production Close. An explicit HOME launch releases the existing touchpad
+request so its recovery mechanism cannot cover the requested phone Start.
+It registers a display-0 automation surface without registering a desktop host.
+
 The Nubia Overview router may remain registered while task teardown is still
 finishing, but it cancels the firmware Recents launch only after the app-side
 callback confirms an `ACTIVE` HOME lease. The lease enters `RELEASING` before

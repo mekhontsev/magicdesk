@@ -24,9 +24,39 @@ final class DesktopUiGateway {
             new WeakReference<>(null);
     private WeakReference<DesktopShellActivity> mDesktop =
             new WeakReference<>(null);
+    private WeakReference<PhoneHomeActivity> mPhoneHome = new WeakReference<>(null);
 
     DesktopUiGateway(final DesktopSessionRegistry session) {
         mSession = session;
+    }
+
+    void registerPhoneHome(final PhoneHomeActivity activity) {
+        synchronized (mHostLock) {
+            mPhoneHome = new WeakReference<>(activity);
+        }
+    }
+
+    void unregisterPhoneHome(final PhoneHomeActivity activity) {
+        synchronized (mHostLock) {
+            if (mPhoneHome.get() == activity) {
+                mPhoneHome.clear();
+            }
+        }
+    }
+
+    // UI-thread only. A phone HOME registry is not a desktop session host.
+    private DesktopAutomationUiRegistry automationUi(final int displayId) {
+        final PhoneHomeActivity phone;
+        synchronized (mHostLock) {
+            phone = mPhoneHome.get();
+        }
+        if (displayId == Display.DEFAULT_DISPLAY && phone != null
+                && phone.isAutomationAvailable()) {
+            return phone.automation();
+        }
+        final DesktopShellActivity desktop = usableDesktop(false);
+        return desktop != null && desktop.getCurrentDisplayId() == displayId
+                ? desktop.automationUi() : null;
     }
 
     boolean registerDesktop(
@@ -836,82 +866,54 @@ final class DesktopUiGateway {
     }
 
     DesktopAutomationUiRegistry.Snapshot getAutomationUiElements(
-            final int displayId,
-            final String query,
-            final boolean includeHidden) {
-        final DesktopShellActivity activity = usableDesktop(false);
-        if (activity == null
-                || activity.getCurrentDisplayId() != displayId) {
-            return DesktopAutomationUiRegistry.Snapshot.UNAVAILABLE;
-        }
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            try {
-                return activity.getAutomationUiElements(query, includeHidden);
-            } catch (org.json.JSONException error) {
-                return DesktopAutomationUiRegistry.Snapshot.UNAVAILABLE;
-            }
-        }
-        final DesktopAutomationUiRegistry.Snapshot[] result =
-                new DesktopAutomationUiRegistry.Snapshot[1];
-        final CountDownLatch ready = new CountDownLatch(1);
-        mMainHandler.post(() -> {
-            try {
-                if (isUsable(activity)
-                        && activity.getCurrentDisplayId() == displayId) {
-                    result[0] = activity.getAutomationUiElements(
-                            query, includeHidden);
-                }
-            } catch (org.json.JSONException ignored) {
-            } finally {
-                ready.countDown();
-            }
-        });
-        if (!await(ready) || result[0] == null) {
-            return DesktopAutomationUiRegistry.Snapshot.UNAVAILABLE;
-        }
-        return result[0];
+            final int displayId, final String query, final boolean includeHidden) {
+        return readAutomationUi(displayId,
+                registry -> registry.snapshot(displayId, query, includeHidden),
+                DesktopAutomationUiRegistry.Snapshot.UNAVAILABLE);
     }
 
     DesktopAutomationUiRegistry.ActionResult invokeAutomationUiAction(
-            final int displayId,
-            final String elementId,
-            final String action) {
-        final DesktopShellActivity activity = usableDesktop(false);
-        if (activity == null
-                || activity.getCurrentDisplayId() != displayId) {
-            return new DesktopAutomationUiRegistry.ActionResult(
-                    false, "desktop UI is unavailable", null);
-        }
+            final int displayId, final String elementId, final String action) {
+        return readAutomationUi(displayId,
+                registry -> registry.invoke(elementId, action),
+                new DesktopAutomationUiRegistry.ActionResult(
+                        false, "UI surface unavailable or action timed out", null));
+    }
+
+    private interface AutomationUiCall<T> {
+        T run(DesktopAutomationUiRegistry registry) throws org.json.JSONException;
+    }
+
+    private <T> T readAutomationUi(
+            final int displayId, final AutomationUiCall<T> call, final T unavailable) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            try {
-                return activity.invokeAutomationUiAction(elementId, action);
-            } catch (org.json.JSONException error) {
-                return new DesktopAutomationUiRegistry.ActionResult(
-                        false, ShellAccess.usefulMessage(error), null);
-            }
+            return callAutomationUi(displayId, call, unavailable);
         }
-        final DesktopAutomationUiRegistry.ActionResult[] result =
-                new DesktopAutomationUiRegistry.ActionResult[1];
+        final java.util.concurrent.atomic.AtomicReference<T> result =
+                new java.util.concurrent.atomic.AtomicReference<>(unavailable);
         final CountDownLatch ready = new CountDownLatch(1);
         mMainHandler.post(() -> {
             try {
-                if (isUsable(activity)
-                        && activity.getCurrentDisplayId() == displayId) {
-                    result[0] = activity.invokeAutomationUiAction(
-                            elementId, action);
-                }
-            } catch (org.json.JSONException error) {
-                result[0] = new DesktopAutomationUiRegistry.ActionResult(
-                        false, ShellAccess.usefulMessage(error), null);
+                result.set(callAutomationUi(displayId, call, unavailable));
             } finally {
                 ready.countDown();
             }
         });
-        if (!await(ready) || result[0] == null) {
-            return new DesktopAutomationUiRegistry.ActionResult(
-                    false, "desktop UI action timed out", null);
+        return await(ready) ? result.get() : unavailable;
+    }
+
+    private <T> T callAutomationUi(
+            final int displayId, final AutomationUiCall<T> call, final T unavailable) {
+        final DesktopAutomationUiRegistry registry = automationUi(displayId);
+        if (registry == null) {
+            return unavailable;
         }
-        return result[0];
+        try {
+            return call.run(registry);
+        } catch (org.json.JSONException error) {
+            Log.w(TAG, "could not access automation UI", error);
+            return unavailable;
+        }
     }
 
     private boolean toggleShowDesktopWorkspaceOnDisplay(

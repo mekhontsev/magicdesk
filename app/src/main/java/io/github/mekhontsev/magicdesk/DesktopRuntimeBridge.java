@@ -23,6 +23,14 @@ public final class DesktopRuntimeBridge {
         UI.unregister(activity);
     }
 
+    static void registerPhoneHome(final PhoneHomeActivity activity) {
+        UI.registerPhoneHome(activity);
+    }
+
+    static void unregisterPhoneHome(final PhoneHomeActivity activity) {
+        UI.unregisterPhoneHome(activity);
+    }
+
     static void closeDesktopSession(final int displayId) {
         UI.closeDesktopSession(displayId, null);
     }
