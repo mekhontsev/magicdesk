@@ -82,6 +82,7 @@ final class AppFunctionCapabilityProbe {
                     new AtomicReference<>();
             final AtomicReference<AppFunctionException> failure =
                     new AtomicReference<>();
+            final CancellationSignal cancellation = new CancellationSignal();
             try {
                 manager.executeAppFunction(
                         new ExecuteAppFunctionRequest.Builder(
@@ -89,7 +90,7 @@ final class AppFunctionCapabilityProbe {
                                 MagicDeskAppFunctionCatalog.GET_DESKTOP_STATE)
                                 .build(),
                         Runnable::run,
-                        new CancellationSignal(),
+                        cancellation,
                         new OutcomeReceiver<ExecuteAppFunctionResponse,
                                 AppFunctionException>() {
                             @Override
@@ -107,11 +108,13 @@ final class AppFunctionCapabilityProbe {
                             }
                         });
                 if (!completed.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    cancellation.cancel();
                     append(report, "error", "getDesktopState timed out");
                     return;
                 }
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
+                cancellation.cancel();
                 append(report, "error", "probe interrupted");
                 return;
             } catch (RuntimeException error) {

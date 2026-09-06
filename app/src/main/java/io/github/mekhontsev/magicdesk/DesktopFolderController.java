@@ -1,9 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.net.Uri;
-import android.os.Binder;
 import android.os.Handler;
-import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
 import android.view.DragAndDropPermissions;
@@ -14,6 +12,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 final class DesktopFolderController {
     private static final String TAG = "MagicDeskFolder";
@@ -33,46 +32,27 @@ final class DesktopFolderController {
     private final Listener mListener;
     private final MetadataListener mMetadataListener;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
-    private final IBinder mFileOperationOwner = new Binder();
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor(
             runnable -> new Thread(runnable, "MagicDeskDesktopFolder"));
+    private final ContentRequestScope mImports = new ContentRequestScope(mExecutor);
+    private FileManagerOperationController mOperations;
     private int mLoadGeneration;
     private int mThumbnailLimit;
-    private boolean mStarted;
+    private volatile boolean mStarted;
     private boolean mLoaded;
     private volatile boolean mReleased;
     private ShellDesktopFolderHandle mObserverHandle;
-    private int mObserverGeneration;
+    private volatile int mObserverGeneration;
     private boolean mObservedStateChanged;
     private boolean mObservedWallpaperChanged;
-    private final IDesktopFolderObserverCallback mObserverCallback =
-            new IDesktopFolderObserverCallback.Stub() {
-                @Override
-                public void onDesktopFolderChanged(
-                        final String relativePath) {
-                    if (mReleased) {
-                        return;
-                    }
-                    if (relativePath != null
-                            && (relativePath.equals(
-                                    ShellDesktopDirectory.METADATA_DIRECTORY)
-                                    || relativePath.startsWith(
-                                            ShellDesktopDirectory
-                                                    .METADATA_DIRECTORY
-                                                    + "/"))) {
-                        mHandler.post(() ->
-                                scheduleMetadataRefresh(relativePath));
-                    } else {
-                        mHandler.removeCallbacks(mObservedRefresh);
-                        mHandler.postDelayed(
-                                mObservedRefresh, CHANGE_DEBOUNCE_MILLIS);
-                    }
-                }
-            };
-    private final Runnable mObservedRefresh =
-            () -> refresh(true, mThumbnailLimit);
+    private final Runnable mObservedRefresh = () -> {
+        if (!mReleased && mStarted) {
+            refresh(true, mThumbnailLimit);
+        }
+    };
     private final Runnable mObservedMetadataRefresh = () -> {
-        if (mReleased) {
+        final int generation = mObserverGeneration;
+        if (!isCurrentObserver(generation)) {
             return;
         }
         final boolean reloadState = mObservedStateChanged;
@@ -80,18 +60,44 @@ final class DesktopFolderController {
         mObservedStateChanged = false;
         mObservedWallpaperChanged = false;
         mExecutor.execute(() -> {
-            final DesktopStateStore.ExternalSnapshot snapshot = reloadState
-                    ? DesktopStateStore.readExternal() : null;
+            if (!isCurrentObserver(generation)) {
+                return;
+            }
+            final boolean stateChanged = reloadState && DesktopStateStore.reload();
             mHandler.post(() -> {
-                if (!mReleased) {
-                    final boolean stateChanged =
-                            DesktopStateStore.applyExternal(snapshot);
+                if (isCurrentObserver(generation)) {
                     notifyMetadataChanged(
                             stateChanged, wallpaperChanged);
                 }
             });
         });
     };
+
+    private IDesktopFolderObserverCallback observerCallback(final int generation) {
+        return new IDesktopFolderObserverCallback.Stub() {
+            @Override
+            public void onDesktopFolderChanged(final String relativePath) {
+                mHandler.post(() -> {
+                    if (!isCurrentObserver(generation)) {
+                        return;
+                    }
+                    if (relativePath != null
+                            && (relativePath.equals(ShellDesktopDirectory.METADATA_DIRECTORY)
+                                    || relativePath.startsWith(
+                                            ShellDesktopDirectory.METADATA_DIRECTORY + "/"))) {
+                        scheduleMetadataRefresh(relativePath);
+                    } else {
+                        mHandler.removeCallbacks(mObservedRefresh);
+                        mHandler.postDelayed(mObservedRefresh, CHANGE_DEBOUNCE_MILLIS);
+                    }
+                });
+            }
+        };
+    }
+
+    private boolean isCurrentObserver(final int generation) {
+        return !mReleased && mStarted && generation == mObserverGeneration;
+    }
 
     private void scheduleMetadataRefresh(final String relativePath) {
         final String statePath = ShellDesktopDirectory.STATE_RELATIVE_PATH;
@@ -100,12 +106,12 @@ final class DesktopFolderController {
         if (relativePath.equals(ShellDesktopDirectory.METADATA_DIRECTORY)) {
             mObservedStateChanged = true;
             mObservedWallpaperChanged = true;
-        } else if (relativePath.equals(statePath)
-                || relativePath.startsWith(statePath + ".")) {
+        } else if (relativePath.equals(statePath)) {
             mObservedStateChanged = true;
-        } else if (relativePath.equals(wallpaperPath)
-                || relativePath.startsWith(wallpaperPath + ".")) {
+        } else if (relativePath.equals(wallpaperPath)) {
             mObservedWallpaperChanged = true;
+        } else {
+            return;
         }
         mHandler.removeCallbacks(mObservedMetadataRefresh);
         mHandler.postDelayed(
@@ -135,22 +141,31 @@ final class DesktopFolderController {
             return;
         }
         mStarted = true;
+        operations();
         ensureObserver();
         refresh(!mLoaded, mThumbnailLimit);
     }
 
     void stop() {
         mStarted = false;
+        mLoadGeneration++;
+        mLoaded = false;
+        if (mOperations != null) {
+            mOperations.close();
+            mOperations = null;
+        }
         closeObserver();
         mHandler.removeCallbacks(mObservedRefresh);
         mHandler.removeCallbacks(mObservedMetadataRefresh);
+        mObservedStateChanged = false;
+        mObservedWallpaperChanged = false;
     }
 
     void release() {
         mReleased = true;
         stop();
-        mLoadGeneration++;
         mHandler.removeCallbacksAndMessages(null);
+        mImports.close();
         mExecutor.shutdownNow();
     }
 
@@ -273,23 +288,8 @@ final class DesktopFolderController {
             releasePermissions(permissions);
             return;
         }
-        mExecutor.execute(() -> {
-            DesktopFileRepository.ImportResult result;
-            try {
-                result = mFilesRepository.importContent(
-                        content, destination);
-            } catch (IOException | RuntimeException error) {
-                result = new DesktopFileRepository.ImportResult(
-                        0, content.hasUris() ? content.uriItems.size() : 1, error);
-            } finally {
-                releasePermissions(permissions);
-            }
-            final DesktopFileRepository.ImportResult completed = result;
-            final int requested = content.hasUris()
-                    ? content.uriItems.size() : 1;
-            mHandler.post(() -> onImportCompleted(
-                    requested, completed, destinationLabel));
-        });
+        submitImport(() -> ContentUriTransfer.prepareContent(
+                mActivity.getContentResolver(), content, destination), permissions, destinationLabel);
     }
 
     void importFiles(
@@ -301,19 +301,27 @@ final class DesktopFolderController {
             releasePermissions(permissions);
             return;
         }
-        mExecutor.execute(() -> {
-            DesktopFileRepository.ImportResult result;
-            try {
-                result = mFilesRepository.importFiles(uris, destination);
-            } catch (IOException | RuntimeException error) {
-                result = new DesktopFileRepository.ImportResult(
-                        0, uris.size(), error);
-            } finally {
-                releasePermissions(permissions);
+        submitImport(() -> ContentUriTransfer.prepareUris(
+                mActivity.getContentResolver(), uris, destination), permissions, destinationLabel);
+    }
+
+    private void submitImport(
+            final Supplier<ContentImportBatch<?>> prepare,
+            final DragAndDropPermissions permissions, final String destinationLabel) {
+        final ContentImportBatch<?> request;
+        try {
+            request = prepare.get();
+        } catch (RuntimeException error) {
+            releasePermissions(permissions);
+            postOperationFailure(error);
+            return;
+        }
+        mImports.submit(cancelled -> request.run(cancelled, null), () -> releasePermissions(permissions))
+                .thenAccept(completion -> {
+            final ContentImportBatch.Result completed = request.finish(completion.value, completion.failure);
+            if (!mReleased) {
+                mHandler.post(() -> onImportCompleted(completed, destinationLabel));
             }
-            final DesktopFileRepository.ImportResult completed = result;
-            mHandler.post(() -> onImportCompleted(
-                    uris.size(), completed, destinationLabel));
         });
     }
 
@@ -351,46 +359,21 @@ final class DesktopFolderController {
         if (mReleased || paths == null || paths.isEmpty()) {
             return;
         }
-        final IFileOperationCallback callback =
-                new IFileOperationCallback.Stub() {
-                    @Override
-                    public void onProgress(
-                            final long operationId,
-                            final int completedItems,
-                            final int totalItems,
-                            final String currentPath,
-                            final long bytesCompleted) {
-                        // The desktop observer owns incremental refreshes.
-                    }
+        if (!operations().startRemote(
+                copy ? ShellFileSystem.OPERATION_COPY : ShellFileSystem.OPERATION_MOVE,
+                paths, destination, copy ? -1L : clipboardGeneration)) {
+            mActivity.setStatus(R.string.file_manager_operation_busy);
+            return;
+        }
+        mActivity.setStatus(mActivity.getString(R.string.file_manager_operation_running)
+                + (destinationLabel == null ? "" : " [" + destinationLabel + "]"));
+    }
 
-                    @Override
-                    public void onFinished(
-                            final long operationId,
-                            final boolean successful,
-                            final String message) {
-                        mHandler.post(() -> onTransferCompleted(
-                                paths.size(),
-                                copy,
-                                clipboardGeneration,
-                                destinationLabel,
-                                successful,
-                                message));
-                    }
-                };
-        mExecutor.execute(() -> {
-            try {
-                ShellAccess.startShellFileOperation(
-                        copy
-                                ? ShellFileSystem.OPERATION_COPY
-                                : ShellFileSystem.OPERATION_MOVE,
-                        paths.toArray(new String[0]),
-                        destination,
-                        callback,
-                        mFileOperationOwner);
-            } catch (IOException | RuntimeException error) {
-                postOperationFailure(error);
-            }
-        });
+    private FileManagerOperationController operations() {
+        if (mOperations == null) {
+            mOperations = new FileManagerOperationController(mActivity, this::onTransferCompleted);
+        }
+        return mOperations;
     }
 
     void inspect(
@@ -489,7 +472,7 @@ final class DesktopFolderController {
         final int generation = ++mObserverGeneration;
         try {
             mObserverHandle = ShellAccess.openDesktopFolderObserver(
-                    mObserverCallback,
+                    observerCallback(generation),
                     () -> mHandler.post(() -> {
                         if (!mReleased
                                 && generation == mObserverGeneration) {
@@ -545,13 +528,15 @@ final class DesktopFolderController {
     }
 
     private void onImportCompleted(
-            final int requested,
-            final DesktopFileRepository.ImportResult result,
+            final ContentImportBatch.Result result,
             final String destinationLabel) {
         if (mReleased) {
             return;
         }
-        if (result.failed == 0) {
+        if (result.cancelled && result.firstFailure == null) {
+            mActivity.setStatus(mActivity.getResources().getQuantityString(
+                    R.plurals.file_import_cancelled, result.total, result.copied, result.total));
+        } else if (result.isComplete()) {
             mActivity.setStatus(destinationLabel == null
                     ? mActivity.getResources().getQuantityString(
                             R.plurals.status_desktop_files_copied,
@@ -566,19 +551,24 @@ final class DesktopFolderController {
             final Throwable error = result.firstFailure == null
                     ? new IOException("imported file could not be copied")
                     : result.firstFailure;
-            final String message = result.copied == 0
+            final String message = result.cancelled
+                    ? mActivity.getResources().getQuantityString(
+                            R.plurals.file_import_cancelled, result.total, result.copied, result.total)
+                            + "\n" + ShellAccess.usefulMessage(error)
+                    : result.copied == 0
                     ? mActivity.getString(
                             R.string.status_desktop_file_operation_failed,
                             ShellAccess.usefulMessage(error))
                     : mActivity.getResources().getQuantityString(
                             R.plurals.status_desktop_files_partially_copied,
-                            requested,
+                            result.total,
                             Integer.valueOf(result.copied),
-                            Integer.valueOf(requested));
+                            Integer.valueOf(result.total));
             mActivity.setErrorStatus(
                     "FILES-005",
                     message,
-                    "copied=" + result.copied + " failed=" + result.failed,
+                    "copied=" + result.copied + " failed=" + result.failed
+                            + " skipped=" + result.skipped,
                     error);
         }
         if (result.copied > 0) {
@@ -587,10 +577,6 @@ final class DesktopFolderController {
     }
 
     private void onTransferCompleted(
-            final int count,
-            final boolean copy,
-            final long clipboardGeneration,
-            final String destinationLabel,
             final boolean successful,
             final String message) {
         if (mReleased) {
@@ -600,25 +586,7 @@ final class DesktopFolderController {
             postOperationFailure(new IOException(message));
             return;
         }
-        if (!copy && clipboardGeneration >= 0L) {
-            FileClipboardInterop.completeMove(clipboardGeneration);
-        }
-        if (destinationLabel == null) {
-            mActivity.setStatus(mActivity.getResources().getQuantityString(
-                    copy
-                            ? R.plurals.status_desktop_items_copied
-                            : R.plurals.status_desktop_items_moved,
-                    count,
-                    Integer.valueOf(count)));
-        } else {
-            mActivity.setStatus(mActivity.getResources().getQuantityString(
-                    copy
-                            ? R.plurals.status_shortcut_items_copied
-                            : R.plurals.status_shortcut_items_moved,
-                    count,
-                    Integer.valueOf(count),
-                    destinationLabel));
-        }
+        mActivity.setStatus(R.string.status_desktop_file_operation_complete);
         refresh(true, mThumbnailLimit);
     }
 

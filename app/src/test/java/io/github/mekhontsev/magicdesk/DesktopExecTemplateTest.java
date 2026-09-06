@@ -5,11 +5,66 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import java.util.Collections;
 import java.util.List;
 
 import org.junit.Test;
 
 public final class DesktopExecTemplateTest {
+    @Test
+    public void expandedCommandAcceptsExactLimitIncludingArgumentQuotes() {
+        final String prefix = "'tool' ";
+        final String name = "a".repeat(DesktopExecCommand.MAX_LENGTH - prefix.length() - 2);
+        assertEquals(prefix + "'" + name + "'", DesktopExecTemplate.expand(
+                "tool %c", DesktopLaunchArguments.empty(), name, "", ""));
+        assertThrows(IllegalArgumentException.class, () -> DesktopExecTemplate.expand(
+                "tool %c", DesktopLaunchArguments.empty(), name + "a", "", ""));
+    }
+
+    @Test
+    public void shellEscapingCountsTowardExpansionLimit() {
+        final String name = "'".repeat(818) + "aaaa";
+        final String expanded = DesktopExecTemplate.expand(
+                "%c", DesktopLaunchArguments.empty(), name, "", "");
+        assertEquals(DesktopExecCommand.MAX_LENGTH, expanded.length());
+        assertEquals(ShellCommandLine.quote(name), expanded);
+        assertThrows(IllegalArgumentException.class, () -> DesktopExecTemplate.expand(
+                "%c", DesktopLaunchArguments.empty(), name + "a", "", ""));
+    }
+
+    @Test
+    public void repeatedSelectionFieldsCannotMaterializeAnOversizedCommand() {
+        for (final var argument : List.of(DesktopLaunchArgument.file("/x"),
+                DesktopLaunchArgument.file("/" + "a".repeat(8184)))) {
+            final var selection = DesktopLaunchArguments.of(Collections.nCopies(128, argument));
+            for (final String field : List.of("%F", "%U")) {
+                assertThrows(IllegalArgumentException.class, () -> DesktopExecTemplate.expand(
+                        (field + " ").repeat(1365), selection, "", "", ""));
+            }
+        }
+    }
+
+    @Test
+    public void fieldInsideSingleTokenIsAlsoBounded() {
+        assertThrows(IllegalArgumentException.class, () -> DesktopExecTemplate.expand(
+                "%c".repeat(2000), DesktopLaunchArguments.empty(), "a".repeat(3000), "", ""));
+    }
+
+    @Test
+    public void metadataArgumentsCannotBypassExpansionLimit() {
+        final String oversized = "x".repeat(8192);
+        assertThrows(IllegalArgumentException.class, () -> DesktopExecTemplate.expand(
+                "tool %i", DesktopLaunchArguments.empty(), "", oversized, ""));
+        assertThrows(IllegalArgumentException.class, () -> DesktopExecTemplate.expand(
+                "tool %k", DesktopLaunchArguments.empty(), "", "", oversized));
+    }
+
+    @Test
+    public void missingAndEmptyFieldsKeepExistingArgumentSemantics() {
+        assertEquals("'tool' '' 'x'", DesktopExecTemplate.expand(
+                "tool %c %f %k x%f %i", DesktopLaunchArguments.empty(), "", "", ""));
+    }
+
     @Test
     public void rawShellCommandKeepsOperatorsAndDecodesPercent() {
         assertEquals(

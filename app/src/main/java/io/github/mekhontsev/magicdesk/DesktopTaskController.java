@@ -74,6 +74,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private boolean mDesktopOwnershipReady;
     private volatile List<TaskRepository.TaskEntry> mLatestTasks =
             Collections.emptyList();
+    private volatile TaskRepository.Snapshot mObservedTaskSnapshot;
     private Set<Integer> mDesktopOwnedTaskIds = Collections.emptySet();
     private final Set<Integer> mTaskbarConcealedTaskIds =
             new LinkedHashSet<>();
@@ -410,6 +411,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
 
                     @Override
                     public void onDisconnected(final int generation) {
+                        publishTaskObservation(null);
                         mTaskWatcherReady = false;
                         mAppPresentations.resetAttempts();
                         clearDesktopOwnership();
@@ -438,6 +440,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     void start(final int displayId) {
+        publishTaskObservation(null);
         if (displayId < 0) {
             stop();
             return;
@@ -468,8 +471,10 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     void stop() {
+        publishTaskObservation(null);
         mRunning = false;
         mGeneration++;
+        mWindowTransitions.cancelPendingTransitions("desktop task runtime stopped");
         mWorkspaceQueue.cancelAll("desktop task runtime stopped");
         mHandler.removeCallbacks(mRefreshRunnable);
         mRefreshDueUptimeMillis = -1;
@@ -515,6 +520,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             return;
         }
         mTaskWatcherRunning = enabled;
+        publishTaskObservation(null);
         mTaskWatcherReady = false;
         mTaskWatcherGeneration++;
         if (enabled) {
@@ -530,6 +536,25 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     @Override
     public boolean isTaskObserverReady() {
         return mTaskWatcherRunning && mTaskWatcherReady;
+    }
+
+    @Override
+    public TaskRepository.Snapshot observedTaskSnapshot(final int displayId) {
+        final TaskRepository.Snapshot snapshot = mObservedTaskSnapshot;
+        return mRunning && mTaskWatcherReady && displayId == mDisplayId
+                && snapshot != null && snapshot.available ? snapshot : null;
+    }
+
+    private void publishTaskObservation(final TaskRepository.Snapshot snapshot) {
+        final boolean wasAvailable = mObservedTaskSnapshot != null;
+        final TaskRepository.Snapshot next = mRunning && mTaskWatcherReady
+                && snapshot != null && snapshot.available ? snapshot : null;
+        mObservedTaskSnapshot = next;
+        if (wasAvailable != (next != null)) {
+            DesktopAutomationEventJournal.record(
+                    "task", "observation_availability", true,
+                    "display=" + mDisplayId + ", available=" + (next != null));
+        }
     }
 
     @Override
@@ -731,6 +756,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         final TaskRepository.ActionCallback scopedCallback = result -> {
             if (!mRunning || generation != mGeneration
                     || displayId != mDisplayId) {
+                completeActionCallback(callback, false,
+                        "desktop task runtime stopped");
                 return;
             }
             completeActionCallback(
@@ -2007,6 +2034,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     private void applySnapshot(final TaskRepository.Snapshot snapshot) {
+        publishTaskObservation(snapshot);
         if (!snapshot.available) {
             Log.w(TAG, "task snapshot unavailable: " + snapshot.error);
             return;
@@ -2161,13 +2189,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         }
         synchronized (mTaskbarConcealedTaskIds) {
             mTaskbarConcealedTaskIds.retainAll(liveTaskIds);
-        }
-    }
-
-    private boolean isTaskbarTaskConcealed(final int taskId) {
-        synchronized (mTaskbarConcealedTaskIds) {
-            return mTaskbarConcealedTaskIds.contains(
-                    Integer.valueOf(taskId));
         }
     }
 

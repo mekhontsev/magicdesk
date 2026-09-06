@@ -27,6 +27,8 @@ final class DisplayCapturePanelController {
     private Button mRecordAction;
     private Button mScreenshotAction;
     private Button mResetAction;
+    private Button mBitrateDecrease;
+    private Button mBitrateIncrease;
     private SeekBar mBitrateSlider;
     private TextView mBitrateValue;
     private TextView mOutputSize;
@@ -242,10 +244,10 @@ final class DisplayCapturePanelController {
         adjustment.setOrientation(LinearLayout.HORIZONTAL);
         adjustment.setGravity(Gravity.CENTER_VERTICAL);
 
-        final Button decrease = stepButton(
+        mBitrateDecrease = stepButton(
                 "-", R.string.action_bitrate_decrease);
-        decrease.setOnClickListener(view -> adjustBitrate(-1));
-        adjustment.addView(decrease, stepButtonParams());
+        mBitrateDecrease.setOnClickListener(view -> adjustBitrate(-1));
+        adjustment.addView(mBitrateDecrease, stepButtonParams());
 
         mBitrateSlider = new SeekBar(mActivity);
         mBitrateSlider.setMin(DisplayRecordingSettings.MIN_BITRATE_MBPS);
@@ -259,7 +261,11 @@ final class DisplayCapturePanelController {
                             final SeekBar seekBar,
                             final int progress,
                             final boolean fromUser) {
-                        updateBitrateValue(progress);
+                        if (fromUser) {
+                            setBitrate(progress);
+                        } else {
+                            updateBitrateValue(progress);
+                        }
                     }
 
                     @Override
@@ -268,16 +274,15 @@ final class DisplayCapturePanelController {
 
                     @Override
                     public void onStopTrackingTouch(final SeekBar seekBar) {
-                        setBitrate(seekBar.getProgress());
                     }
                 });
         adjustment.addView(mBitrateSlider, new LinearLayout.LayoutParams(
                 0, dp(STEP_BUTTON_SIZE_DP), 1));
 
-        final Button increase = stepButton(
+        mBitrateIncrease = stepButton(
                 "+", R.string.action_bitrate_increase);
-        increase.setOnClickListener(view -> adjustBitrate(1));
-        adjustment.addView(increase, stepButtonParams());
+        mBitrateIncrease.setOnClickListener(view -> adjustBitrate(1));
+        adjustment.addView(mBitrateIncrease, stepButtonParams());
         parent.addView(adjustment, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -410,6 +415,12 @@ final class DisplayCapturePanelController {
         }
         if (mBitrateSlider != null) {
             mBitrateSlider.setEnabled(settingsEnabled);
+        }
+        if (mBitrateDecrease != null) {
+            mBitrateDecrease.setEnabled(settingsEnabled);
+        }
+        if (mBitrateIncrease != null) {
+            mBitrateIncrease.setEnabled(settingsEnabled);
         }
         for (final Button button : mScaleButtons.values()) {
             button.setEnabled(settingsEnabled);

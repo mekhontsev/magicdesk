@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -22,6 +23,8 @@ public final class BoundedStateAwaiter {
         DISPLAY_STATE,
         INPUT_DEVICE,
         TRANSITION_HEALTH,
+        RUNTIME_READY,
+        RECORDING_STARTUP,
         VENDOR_STATE
     }
 
@@ -113,7 +116,7 @@ public final class BoundedStateAwaiter {
             throw new IllegalArgumentException("invalid state wait pause");
         }
         POLL_PAUSES.incrementAndGet();
-        sLastReason = reason.name().toLowerCase();
+        sLastReason = reason.name().toLowerCase(Locale.ROOT);
         sleepUninterruptibly(delayMillis);
     }
 
@@ -124,7 +127,7 @@ public final class BoundedStateAwaiter {
             throw new IllegalArgumentException("invalid state wait pause");
         }
         POLL_PAUSES.incrementAndGet();
-        sLastReason = reason.name().toLowerCase();
+        sLastReason = reason.name().toLowerCase(Locale.ROOT);
         Thread.sleep(delayMillis);
     }
 
@@ -191,7 +194,7 @@ public final class BoundedStateAwaiter {
 
     private static void begin(final Reason reason) {
         REQUESTS.incrementAndGet();
-        sLastReason = reason.name().toLowerCase();
+        sLastReason = reason.name().toLowerCase(Locale.ROOT);
     }
 
     private static void complete(
@@ -200,6 +203,6 @@ public final class BoundedStateAwaiter {
         if (timedOut) {
             TIMEOUTS.incrementAndGet();
         }
-        sLastReason = reason.name().toLowerCase();
+        sLastReason = reason.name().toLowerCase(Locale.ROOT);
     }
 }

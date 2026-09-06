@@ -13,7 +13,6 @@ import java.util.Set;
 
 public final class TaskRepository {
     private static final String TAG = "MagicDeskTasks";
-    private static final String CMD = "/system/bin/cmd";
     private static final String AM = "/system/bin/am";
     private static final String CLOSE_SYSTEM_DIALOGS =
             AM + " broadcast --user 0"
@@ -430,44 +429,6 @@ public final class TaskRepository {
             }
         }
         return null;
-    }
-
-    private static List<TaskEntry> parseTasks(final String output, final int targetDisplayId) {
-        final List<TaskEntry> tasks = new ArrayList<>();
-        final Set<Integer> activeDisplays = new LinkedHashSet<>();
-        for (final TaskStackParser.Entry parsed :
-                TaskStackParser.parse(output)) {
-            if (targetDisplayId >= 0
-                    && parsed.displayId != targetDisplayId) {
-                continue;
-            }
-            final boolean home = parsed.isHome();
-            final boolean active =
-                    parsed.visible && !home
-                            && isForegroundApplicationCandidate(
-                                    parsed.componentName,
-                                    parsed.topActivityName)
-                            && activeDisplays.add(
-                                    Integer.valueOf(parsed.displayId));
-            tasks.add(new TaskEntry(
-                    parsed.rootTaskId,
-                    parsed.taskId,
-                    parsed.displayId,
-                    parsed.packageName,
-                    parsed.componentName,
-                    parsed.topActivityName,
-                    parsed.windowingMode,
-                    new Rect(
-                            parsed.bounds.left,
-                            parsed.bounds.top,
-                            parsed.bounds.right,
-                            parsed.bounds.bottom),
-                    TaskEntry.ACTIVITY_TYPE_UNKNOWN,
-                    home,
-                    parsed.visible,
-                    active));
-        }
-        return tasks;
     }
 
     private static List<TaskEntry> parseTasks(

@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.graphics.Rect;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 
 /** Launches or reuses one app task as a native desktop window. */
 final class WindowedAppLauncher {
@@ -27,23 +28,35 @@ final class WindowedAppLauncher {
     static final class LaunchResult {
         final int taskId;
         final boolean reused;
+        private final CompletableFuture<TaskRepository.ActionResult> mReady;
 
         LaunchResult(final int taskId, final boolean reused) {
+            this(taskId, reused, CompletableFuture.completedFuture(
+                    new TaskRepository.ActionResult(true, "task launched")));
+        }
+
+        private LaunchResult(final int taskId, final boolean reused,
+                final CompletableFuture<TaskRepository.ActionResult> ready) {
             this.taskId = taskId;
             this.reused = reused;
+            mReady = ready;
+        }
+
+        void whenReady(final TaskRepository.ActionCallback callback) {
+            mReady.thenAccept(callback::onComplete);
         }
     }
 
     private WindowedAppLauncher() {
     }
 
-    static void launchBuiltInWindow(
+    static LaunchResult launchBuiltInWindow(
             final Intent launchIntent,
             final AppLaunchTarget launchTarget,
             final int displayId,
             final int[] preservedTaskIds,
             final TaskReadyCallback taskReadyCallback) throws IOException {
-        launch(
+        return launch(
                 launchIntent,
                 launchTarget,
                 displayId,
@@ -296,11 +309,22 @@ final class WindowedAppLauncher {
             final int taskId,
             final int originalDisplayId,
             final String launchPath) {
-        MagicDeskRuntime.focusDesktopTask(displayId, taskId, null);
-        DesktopTaskLaunchDiagnostics.note(
-                taskId, originalDisplayId, displayId, launchPath);
-        MagicDeskRuntime.noteTaskLaunchFocus(displayId, taskId);
-        return new LaunchResult(taskId, true);
+        final CompletableFuture<TaskRepository.ActionResult> ready =
+                new CompletableFuture<>();
+        MagicDeskRuntime.focusDesktopTask(displayId, taskId, result -> {
+            synchronized (ready) {
+                if (ready.isDone()) {
+                    return;
+                }
+                if (result.success) {
+                    DesktopTaskLaunchDiagnostics.note(
+                            taskId, originalDisplayId, displayId, launchPath);
+                    MagicDeskRuntime.noteTaskLaunchFocus(displayId, taskId);
+                }
+                ready.complete(result);
+            }
+        });
+        return new LaunchResult(taskId, true, ready);
     }
 
     private static String launchPath(

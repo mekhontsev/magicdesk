@@ -171,6 +171,13 @@ final class StartMenuController implements StartMenuContent.Host {
                 mActivity.openTaskManager();
             } else if (BuiltInDesktopAppCatalog.settingsTarget().equals(target)) {
                 mActivity.openSettings();
+            } else if (BuiltInDesktopAppCatalog.appPresentationSettingsTarget()
+                    .equals(target)) {
+                mActivity.openApplicationSettings(null);
+            } else if (BuiltInDesktopAppCatalog.diagnosticsTarget().equals(target)) {
+                mActivity.openDiagnostics();
+            } else if (BuiltInDesktopAppCatalog.activityExplorerTarget().equals(target)) {
+                mActivity.openActivityExplorer();
             }
             return;
         }

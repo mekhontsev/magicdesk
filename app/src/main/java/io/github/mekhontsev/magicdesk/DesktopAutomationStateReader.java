@@ -208,7 +208,7 @@ final class DesktopAutomationStateReader {
             }
         }
         final JSONArray tasks = new JSONArray();
-        final int end = Math.min(filtered.size(), offset + limit);
+        final int end = pageEnd(filtered.size(), offset, limit);
         for (int index = Math.min(offset, filtered.size());
                 index < end; index++) {
             final TaskRepository.TaskEntry task = filtered.get(index);
@@ -274,7 +274,7 @@ final class DesktopAutomationStateReader {
                 .comparing((AppRow row) -> row.label.toLowerCase(Locale.ROOT))
                 .thenComparing(row -> row.component));
         final JSONArray result = new JSONArray();
-        final int end = Math.min(rows.size(), offset + limit);
+        final int end = pageEnd(rows.size(), offset, limit);
         for (int index = Math.min(offset, rows.size()); index < end; index++) {
             final AppRow row = rows.get(index);
             result.put(new JSONObject()
@@ -334,10 +334,11 @@ final class DesktopAutomationStateReader {
 
     JSONObject events(final long afterId, final int limit)
             throws JSONException {
+        final DesktopAutomationEventJournal.Snapshot snapshot =
+                DesktopAutomationEventJournal.snapshotWithCursor(Math.max(0L, afterId), limit);
         return new JSONObject()
-                .put("latestId", DesktopAutomationEventJournal.latestId())
-                .put("events", DesktopAutomationEventJournal.snapshot(
-                        Math.max(0L, afterId), limit));
+                .put("latestId", snapshot.latestId)
+                .put("events", snapshot.events);
     }
 
     JSONObject uiElements(final JSONObject arguments) throws JSONException {
@@ -479,8 +480,13 @@ final class DesktopAutomationStateReader {
                 .put("bottom", rect.bottom);
     }
 
+    static int pageEnd(final int total, final int offset, final int limit) {
+        return (int) Math.min(total, (long) offset + limit);
+    }
+
     private static int pageLimit(final JSONObject arguments) {
-        final int limit = arguments.optInt("limit", 100);
+        final int limit = arguments.has("limit")
+                ? AutomationJsonArguments.requiredInt(arguments, "limit") : 100;
         if (limit < 1 || limit > 200) {
             throw new IllegalArgumentException(
                     "limit must be between 1 and 200");
@@ -510,11 +516,7 @@ final class DesktopAutomationStateReader {
         if (!arguments.has(name)) {
             return null;
         }
-        final Object value = arguments.opt(name);
-        if (!(value instanceof Number)) {
-            throw new IllegalArgumentException(name + " must be an integer");
-        }
-        return Integer.valueOf(((Number) value).intValue());
+        return Integer.valueOf(AutomationJsonArguments.requiredInt(arguments, name));
     }
 
     private static String normalized(

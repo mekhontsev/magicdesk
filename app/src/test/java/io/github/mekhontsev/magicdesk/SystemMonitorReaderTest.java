@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.util.LinkedHashMap;
@@ -9,6 +10,37 @@ import java.util.Map;
 import org.junit.Test;
 
 public final class SystemMonitorReaderTest {
+    @Test
+    public void cpuTotalDoesNotCountGuestTimeTwice() throws Exception {
+        final SystemMonitorReader.Cpu cpu = SystemMonitorReader.parseCpuStat(
+                "cpu 100 20 30 400 5 6 7 8 40 10");
+        assertEquals(576L, cpu.total);
+        assertEquals(405L, cpu.idle);
+    }
+
+    @Test
+    public void cpuStatAcceptsBaseCountersAndWhitespace() throws Exception {
+        final SystemMonitorReader.Cpu cpu = SystemMonitorReader.parseCpuStat(
+                "  cpu\t1 2 3 4  ");
+        assertEquals(10L, cpu.total);
+        assertEquals(4L, cpu.idle);
+    }
+
+    @Test
+    public void malformedCpuCountersRemainUnavailable() {
+        for (String row : new String[]{null, "", "cpu0 1 2 3 4", "cpu 1 2 3",
+                "cpu 1 2 -3 4", "cpu x 2 3 4", "cpu 9223372036854775807 1 0 0"}) {
+            assertThrows(java.io.IOException.class, () -> SystemMonitorReader.parseCpuStat(row));
+        }
+    }
+
+    @Test
+    public void overflowingProcessCpuIsNotPublishedAsInfinity() {
+        final Map<String, SystemMonitorReader.MutableProcess> processes = new LinkedHashMap<>();
+        SystemMonitorReader.parseCpuInfo("9".repeat(400) + "% 100/com.example.app: user", processes);
+        assertTrue(processes.isEmpty());
+    }
+
     @Test
     public void parsesCpuForMainAndNamedProcesses() {
         final Map<String, SystemMonitorReader.MutableProcess> processes =

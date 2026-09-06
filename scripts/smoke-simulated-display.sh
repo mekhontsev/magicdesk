@@ -32,7 +32,7 @@ printf '%s\n' "$output" | grep -q '^Outcome: ' || {
     printf 'MagicDesk simulated-display self-test timed out.\n' >&2
     exit 1
 }
-printf '%s\n' "$output" | grep -q '^Outcome: FAIL' && {
-    printf 'MagicDesk simulated-display self-test failed.\n' >&2
+if ! printf '%s\n' "$output" | grep -Eq '^Outcome: (PASS|WARN)$'; then
+    printf 'MagicDesk simulated-display self-test did not pass.\n' >&2
     exit 1
-}
+fi

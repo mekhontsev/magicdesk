@@ -64,12 +64,20 @@ public final class TaskDisplayAreaLaunchCommandTest {
                     "20", "30", "800", "900"
                 }));
         assertEquals(
+                "operation=move, task=42, "
+                        + "sourceDisplay=0, targetDisplay=6, "
+                        + "bounds=[20,30][800,900]",
+                TaskDisplayAreaLaunchCommand.transitionContext(new String[]{
+                    "move", "42", "0", "6",
+                    "20", "30", "800", "900", "200"
+                }));
+        assertEquals(
                 "operation=move-observed, task=42, "
                         + "sourceDisplay=0, targetDisplay=6, "
                         + "bounds=[20,30][800,900]",
                 TaskDisplayAreaLaunchCommand.transitionContext(new String[]{
                     "move-observed", "42", "0", "6",
-                    "20", "30", "800", "900",
+                    "20", "30", "800", "900", "200",
                     "6", "100", "200", "ff112233"
                 }));
     }

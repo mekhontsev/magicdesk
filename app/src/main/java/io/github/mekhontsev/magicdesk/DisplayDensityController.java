@@ -32,10 +32,6 @@ final class DisplayDensityController implements AutoCloseable {
         mActivity = activity;
     }
 
-    void resetApplyState() {
-        mApplyStarted = false;
-    }
-
     void apply(final int dpi) {
         if (mClosed || !ShellAccess.isReady()) {
             return;
@@ -145,14 +141,6 @@ final class DisplayDensityController implements AutoCloseable {
                 });
             }
         });
-    }
-
-    String getStatus() {
-        return mActivity.getString(
-                R.string.density_status,
-                Integer.valueOf(
-                        mActivity.getResources()
-                                .getDisplayMetrics().densityDpi));
     }
 
     private void runDisplayAction(

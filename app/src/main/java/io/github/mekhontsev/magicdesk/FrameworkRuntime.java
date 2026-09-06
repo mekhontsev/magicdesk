@@ -26,10 +26,6 @@ final class FrameworkRuntime {
         return mWindowingCompat.capabilities();
     }
 
-    String profileDetail() {
-        return FrameworkWindowingCompat.overrideDetail();
-    }
-
     String diagnosticDetail() {
         final FrameworkWindowingCompat.Capabilities capabilities =
                 mWindowingCompat.capabilities();

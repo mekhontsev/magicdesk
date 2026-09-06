@@ -11,7 +11,6 @@ import android.os.ParcelFileDescriptor;
 import android.provider.OpenableColumns;
 
 import java.io.FileNotFoundException;
-import java.io.IOException;
 
 public final class ShellFileProvider extends ContentProvider {
     private static final String[] DEFAULT_COLUMNS = {
@@ -71,7 +70,7 @@ public final class ShellFileProvider extends ContentProvider {
             final Uri uri,
             final String mode,
             final CancellationSignal signal) throws FileNotFoundException {
-        try {
+        return ContentProviderFileAccess.open(signal, () -> {
             final ShellFileGrantStore.Entry entry = entry(uri);
             final boolean writeRequested = mode != null
                     && (mode.indexOf('w') >= 0
@@ -86,12 +85,7 @@ public final class ShellFileProvider extends ContentProvider {
             } finally {
                 Binder.restoreCallingIdentity(identity);
             }
-        } catch (IOException | RuntimeException error) {
-            final FileNotFoundException failure = new FileNotFoundException(
-                    ShellAccess.usefulMessage(error));
-            failure.initCause(error);
-            throw failure;
-        }
+        });
     }
 
     @Override

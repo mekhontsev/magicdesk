@@ -11,17 +11,36 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.function.BooleanSupplier;
 
 /** Shared provider-to-shell transfer used by Desktop and Files imports. */
 final class ContentUriTransfer {
     static final String FALLBACK_FILE_NAME = "Imported file";
-    private static final int COPY_BUFFER_SIZE = 64 * 1024;
 
     private ContentUriTransfer() {
     }
 
-    static String displayName(
+    static ContentImportBatch<Uri> prepareUris(
+            final ContentResolver resolver, final List<Uri> uris, final String destination) {
+        ShellFilePathPolicy.absolute(destination);
+        return new ContentImportBatch<>(uris,
+                (uri, cancelled) -> importUri(resolver, uri, destination, cancelled));
+    }
+
+    static ContentImportBatch<?> prepareContent(
+            final ContentResolver resolver, final AndroidContentPayload content,
+            final String destination) {
+        if (content != null && content.hasUris()) {
+            return prepareUris(resolver, content.uris(), destination);
+        }
+        ShellFilePathPolicy.absolute(destination);
+        return new ContentImportBatch<>(content == null || content.isEmpty()
+                ? List.of() : List.of(content),
+                (item, cancelled) -> importTextToShellDirectory(destination, item, cancelled));
+    }
+
+    private static String displayName(
             final ContentResolver resolver,
             final Uri uri,
             final String fallback) {
@@ -44,35 +63,40 @@ final class ContentUriTransfer {
         return fallback;
     }
 
-    static void copyToShellFile(
+    private static ShellFileInfo importUri(
             final ContentResolver resolver,
             final Uri source,
-            final ShellFileInfo target,
+            final String destination,
             final BooleanSupplier cancelled) throws IOException {
-        try (InputStream input = resolver.openInputStream(source)) {
-            if (input == null) {
-                throw new IOException("source provider returned no data");
-            }
-            try (OutputStream output = new ParcelFileDescriptor
-                    .AutoCloseOutputStream(
-                            ShellAccess.openVerifiedShellFile(target, "w"))) {
-                final byte[] buffer = new byte[COPY_BUFFER_SIZE];
-                int count;
-                while ((count = input.read(buffer)) != -1) {
-                    if (cancelled != null && cancelled.getAsBoolean()) {
-                        throw new IOException("import cancelled");
-                    }
-                    output.write(buffer, 0, count);
+        ContentStreamCopy.checkCancelled(cancelled);
+        final String name = safeFileName(displayName(resolver, source, FALLBACK_FILE_NAME));
+        ContentStreamCopy.checkCancelled(cancelled);
+        try (ShellFileCreation target = ShellAccess.beginShellFileCreation(destination, name)) {
+            ContentStreamCopy.checkCancelled(cancelled);
+            // Both streams must close before committing; a provider close error
+            // still belongs to this transfer and must leave rollback armed.
+            try (InputStream input = resolver.openInputStream(source)) {
+                if (input == null) {
+                    throw new IOException("source provider returned no data");
+                }
+                ContentStreamCopy.checkCancelled(cancelled);
+                try (OutputStream output = new ParcelFileDescriptor
+                        .AutoCloseOutputStream(target.open())) {
+                    ContentStreamCopy.copy(input, output, cancelled);
                 }
             }
+            ContentStreamCopy.checkCancelled(cancelled);
+            target.commit();
+            return target.file;
         } catch (RuntimeException error) {
             throw new IOException("cannot read imported file", error);
         }
     }
 
-    static ShellFileInfo importTextToShellDirectory(
+    private static ShellFileInfo importTextToShellDirectory(
             final String destination,
-            final AndroidContentPayload content) throws IOException {
+            final AndroidContentPayload content,
+            final BooleanSupplier cancelled) throws IOException {
         if (content == null || !content.hasText() || content.hasUris()) {
             throw new IllegalArgumentException(
                     "plain clipboard text is required");
@@ -81,50 +105,18 @@ final class ContentUriTransfer {
                 && !content.htmlText.isEmpty();
         final String requestedName = textFileName(
                 content.subject, content.label, htmlOnly);
-        final ShellFileInfo created = ShellAccess.createAvailableShellEntry(
-                destination, requestedName, false);
-        try {
+        ContentStreamCopy.checkCancelled(cancelled);
+        try (ShellFileCreation target = ShellAccess.beginShellFileCreation(
+                destination, requestedName)) {
             try (OutputStreamWriter writer = new OutputStreamWriter(
-                    new ParcelFileDescriptor.AutoCloseOutputStream(
-                            ShellAccess.openVerifiedShellFile(created, "w")),
+                    new ParcelFileDescriptor.AutoCloseOutputStream(target.open()),
                     StandardCharsets.UTF_8)) {
+                ContentStreamCopy.checkCancelled(cancelled);
                 writer.write(htmlOnly ? content.htmlText : content.text);
             }
-        } catch (IOException | RuntimeException error) {
-            cleanupFailedShellFile(created.absolutePath, error);
-            throw error;
-        }
-        return created;
-    }
-
-    static void cleanupFailedShellFile(
-            final String path,
-            final Throwable original) {
-        try {
-            ShellAccess.startShellFileOperation(
-                    ShellFileSystem.OPERATION_DELETE,
-                    new String[]{path},
-                    "",
-                    new IFileOperationCallback.Stub() {
-                        @Override
-                        public void onProgress(
-                                final long id,
-                                final int completed,
-                                final int total,
-                                final String current,
-                                final long bytes) {
-                        }
-
-                        @Override
-                        public void onFinished(
-                                final long id,
-                                final boolean successful,
-                                final String message) {
-                        }
-                    },
-                    new android.os.Binder());
-        } catch (IOException | RuntimeException cleanupError) {
-            original.addSuppressed(cleanupError);
+            ContentStreamCopy.checkCancelled(cancelled);
+            target.commit();
+            return target.file;
         }
     }
 
@@ -149,6 +141,14 @@ final class ContentUriTransfer {
             return ShellFileNamePolicy.validate(name);
         } catch (IllegalArgumentException error) {
             return "Clipboard text" + extension;
+        }
+    }
+
+    static String safeFileName(final String requested) {
+        try {
+            return ShellFileNamePolicy.validate(requested);
+        } catch (IllegalArgumentException error) {
+            return FALLBACK_FILE_NAME;
         }
     }
 }

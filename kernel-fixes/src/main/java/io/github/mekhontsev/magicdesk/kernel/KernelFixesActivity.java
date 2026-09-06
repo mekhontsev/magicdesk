@@ -25,7 +25,12 @@ public final class KernelFixesActivity extends Activity {
 
     private TextView mXrStatus;
     private Button mXrAction;
-    private int mActivationGeneration;
+    private boolean mObserving;
+    private final Runnable mActivationObserver = () -> runOnUiThread(() -> {
+        if (mObserving) {
+            updateActiveState();
+        }
+    });
 
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -41,9 +46,18 @@ public final class KernelFixesActivity extends Activity {
     }
 
     @Override
-    protected void onDestroy() {
-        mActivationGeneration++;
-        super.onDestroy();
+    protected void onStart() {
+        super.onStart();
+        mObserving = true;
+        XrResolutionFix.observe(mActivationObserver);
+        updateActiveState();
+    }
+
+    @Override
+    protected void onStop() {
+        mObserving = false;
+        XrResolutionFix.removeObserver(mActivationObserver);
+        super.onStop();
     }
 
     private View createContent() {
@@ -104,7 +118,7 @@ public final class KernelFixesActivity extends Activity {
     }
 
     private void confirmActivation() {
-        if (XrResolutionFix.isActive()) {
+        if (XrResolutionFix.state().running || XrResolutionFix.isActive()) {
             updateActiveState();
             return;
         }
@@ -118,49 +132,57 @@ public final class KernelFixesActivity extends Activity {
     }
 
     private void activateFix() {
-        final int generation = ++mActivationGeneration;
+        XrResolutionFix.activate(this);
+        updateActiveState();
+    }
+
+    private void showWorking() {
         mXrAction.setEnabled(false);
         mXrAction.setText(R.string.xr_fix_working);
         mXrStatus.setText(R.string.xr_fix_working);
         mXrStatus.setTextColor(COLOR_AMBER);
-        XrResolutionFix.activate(this, result -> runOnUiThread(() -> {
-            if (generation != mActivationGeneration || isDestroyed()) {
-                return;
-            }
-            mXrAction.setEnabled(true);
-            switch (result.code) {
-                case ACTIVE:
-                    showActive(R.string.xr_fix_active);
-                    break;
-                case ACTIVATED:
-                    showActive(R.string.xr_fix_activated);
-                    break;
-                case UNSUPPORTED_KERNEL:
-                    showFailure(getString(
-                            R.string.xr_fix_unsupported_kernel, result.detail));
-                    break;
-                case UNSUPPORTED_DRIVER:
-                    showFailure(getString(
-                            R.string.xr_fix_unsupported_driver, result.detail));
-                    break;
-                case INVALID_MODULE:
-                    showFailure(getString(
-                            R.string.xr_fix_invalid_module, result.detail));
-                    break;
-                case FAILED:
-                default:
-                    showFailure(getString(R.string.xr_fix_failed, result.detail));
-                    break;
-            }
-        }));
+    }
+
+    private void showResult(final XrResolutionFix.Result result) {
+        switch (result.code) {
+            case ACTIVE:
+                showActive(R.string.xr_fix_active);
+                break;
+            case ACTIVATED:
+                showActive(R.string.xr_fix_activated);
+                break;
+            case UNSUPPORTED_KERNEL:
+                showFailure(getString(
+                        R.string.xr_fix_unsupported_kernel, result.detail));
+                break;
+            case UNSUPPORTED_DRIVER:
+                showFailure(getString(
+                        R.string.xr_fix_unsupported_driver, result.detail));
+                break;
+            case INVALID_MODULE:
+                showFailure(getString(
+                        R.string.xr_fix_invalid_module, result.detail));
+                break;
+            case FAILED:
+            default:
+                showFailure(getString(R.string.xr_fix_failed, result.detail));
+                break;
+        }
     }
 
     private void updateActiveState() {
         if (mXrStatus == null || mXrAction == null) {
             return;
         }
-        if (XrResolutionFix.isActive()) {
-            showActive(R.string.xr_fix_active);
+        final XrResolutionFix.State state = XrResolutionFix.state();
+        if (state.running) {
+            showWorking();
+        } else if (XrResolutionFix.isActive()) {
+            showActive(state.result != null
+                    && state.result.code == XrResolutionFix.Code.ACTIVATED
+                    ? R.string.xr_fix_activated : R.string.xr_fix_active);
+        } else if (state.result != null) {
+            showResult(state.result);
         } else {
             mXrStatus.setText(R.string.xr_fix_ready);
             mXrStatus.setTextColor(COLOR_AMBER);
@@ -182,6 +204,7 @@ public final class KernelFixesActivity extends Activity {
         mXrStatus.setText(status);
         mXrStatus.setTextColor(COLOR_RED);
         mXrAction.setText(R.string.action_activate);
+        mXrAction.setEnabled(true);
         mXrAction.setBackground(panel(COLOR_PANEL_ALT, COLOR_RED));
     }
 

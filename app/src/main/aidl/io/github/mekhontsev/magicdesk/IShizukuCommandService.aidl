@@ -233,7 +233,7 @@ interface IShizukuCommandService {
         IFileSearchCallback callback,
         IBinder ownerToken) = 68;
 
-    void cancelShellFileSearch(long searchId) = 69;
+    oneway void cancelShellFileSearch(long searchId) = 69;
 
     SystemMonitorSnapshot readSystemMonitorSnapshot(
         boolean includeProcessMemory) = 70;
@@ -433,5 +433,7 @@ interface IShizukuCommandService {
         int displayId,
         in int[] taskIds,
         int densityDpi) = 116;
+
+    void deleteVerifiedShellFile(String absolutePath, long deviceId, long inode) = 117;
 
 }

@@ -73,70 +73,39 @@ final class DesktopStateStore {
         synchronized (LOCK) {
             try {
                 ensureLoadedLocked();
-            } catch (IOException error) {
-                report("Could not save desktop state", error);
-                return false;
-            }
-            final String previous;
-            try {
-                previous = toJson(sState).toString();
-            } catch (JSONException | RuntimeException error) {
-                report("Could not encode desktop state", error);
-                return false;
-            }
-            try {
-                mutation.apply(sState);
-            } catch (RuntimeException error) {
-                restoreLocked(previous);
-                report("Could not update desktop state", error);
-                return false;
-            }
-            final String encoded;
-            try {
-                encoded = toJson(sState).toString();
-            } catch (JSONException | RuntimeException error) {
-                restoreLocked(previous);
-                report("Could not encode desktop state", error);
-                return false;
-            }
-            if (encoded.equals(previous)) {
-                return true;
-            }
-            try {
+                // Never mutate published state before persistence succeeds.
+                // A failed mutation, encoding, or write simply discards this copy.
+                final State updated = snapshotLocked();
+                mutation.apply(updated);
+                final String encoded = toJson(updated).toString();
+                if (encoded.equals(toJson(sState).toString())) {
+                    return true;
+                }
                 sStorage.write(encoded);
+                sState = updated;
                 sEncoded = encoded;
                 return true;
-            } catch (IOException | RuntimeException error) {
-                restoreLocked(previous);
+            } catch (IOException | JSONException | RuntimeException error) {
                 report("Could not save desktop state", error);
                 return false;
             }
         }
     }
 
-    static ExternalSnapshot readExternal() {
-        try {
-            return new ExternalSnapshot(sStorage.read());
-        } catch (IOException | RuntimeException error) {
-            report("Could not reload desktop state", error);
-            return null;
-        }
-    }
-
-    static boolean applyExternal(final ExternalSnapshot snapshot) {
-        if (snapshot == null) {
-            return false;
-        }
+    static boolean reload() {
         synchronized (LOCK) {
-            if (Objects.equals(snapshot.encoded, sEncoded)) {
-                return false;
-            }
             try {
-                sState = decode(snapshot.encoded);
-                sEncoded = snapshot.encoded;
+                // Reading and publication share the write lock. Posting a raw
+                // file snapshot to UI would let it overwrite a newer local save.
+                final String encoded = sStorage.read();
+                if (Objects.equals(encoded, sEncoded)) {
+                    return false;
+                }
+                sState = decode(encoded);
+                sEncoded = encoded;
                 return true;
-            } catch (JSONException | RuntimeException error) {
-                report("Desktop state is invalid", error);
+            } catch (IOException | JSONException | RuntimeException error) {
+                report("Could not reload desktop state", error);
                 return false;
             }
         }
@@ -196,17 +165,6 @@ final class DesktopStateStore {
         } catch (JSONException | RuntimeException error) {
             report("Desktop state is invalid; using defaults", error);
             sState = new State();
-            sEncoded = null;
-        }
-    }
-
-    private static void restoreLocked(final String encoded) {
-        try {
-            sState = decode(encoded);
-            sEncoded = encoded;
-        } catch (JSONException | RuntimeException error) {
-            report("Could not roll back desktop state", error);
-            sState = null;
             sEncoded = null;
         }
     }
@@ -503,7 +461,7 @@ final class DesktopStateStore {
                             : error.getMessage(),
                     error);
         } catch (RuntimeException ignored) {
-            // The state has already been rolled back where necessary.
+            // A rejected update leaves the published state untouched.
         }
     }
 
@@ -518,13 +476,5 @@ final class DesktopStateStore {
         final Map<String, DisplayProfileStore.Profile> displayProfiles =
                 new LinkedHashMap<>();
         MagicDeskSettings.Values settings = MagicDeskSettings.Values.defaults();
-    }
-
-    static final class ExternalSnapshot {
-        final String encoded;
-
-        ExternalSnapshot(final String encoded) {
-            this.encoded = encoded;
-        }
     }
 }

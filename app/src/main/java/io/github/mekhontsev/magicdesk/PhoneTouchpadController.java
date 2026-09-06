@@ -73,7 +73,9 @@ final class PhoneTouchpadController {
     }
 
     static void release(final int displayId) {
-        MagicDeskRuntime.setPhoneTouchpadRequested(false);
+        if (MagicDeskTouchpadActivity.isRequested(displayId)) {
+            MagicDeskRuntime.setPhoneTouchpadRequested(false);
+        }
         MagicDeskTouchpadActivity.release(displayId);
     }
 

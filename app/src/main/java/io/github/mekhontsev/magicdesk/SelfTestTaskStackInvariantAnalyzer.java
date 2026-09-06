@@ -714,7 +714,7 @@ final class SelfTestTaskStackInvariantAnalyzer {
     }
 
     private void addAnomaly(final String key, final String detail) {
-        if (!mAnomalyKeys.add(key) || mAnomalies.size() >= MAX_ANOMALIES) {
+        if (mAnomalies.size() >= MAX_ANOMALIES || !mAnomalyKeys.add(key)) {
             return;
         }
         mAnomalies.add(detail);

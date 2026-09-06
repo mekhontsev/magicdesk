@@ -261,7 +261,7 @@ final class TaskbarOverflowController {
                 row,
                 item.task == null
                         ? "taskbar_overflow.app."
-                                + DesktopAutomationUiRegistry.segment(
+                                + DesktopAutomationUiRegistry.identitySegment(
                                         item.app.packageName)
                         : "taskbar_overflow.task." + item.task.taskId,
                 "application",

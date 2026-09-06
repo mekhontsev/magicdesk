@@ -7,7 +7,6 @@ import org.json.JSONObject;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 
 /** Bounded process-local history for structured automation operations. */
 final class DesktopAutomationEventJournal {
@@ -15,7 +14,7 @@ final class DesktopAutomationEventJournal {
     private static final int MAX_DETAIL_CHARS = 1_000;
     private static final Object LOCK = new Object();
     private static final ArrayDeque<Event> EVENTS = new ArrayDeque<>();
-    private static final AtomicLong NEXT_ID = new AtomicLong();
+    private static long sLastId;
 
     private DesktopAutomationEventJournal() {
     }
@@ -34,22 +33,22 @@ final class DesktopAutomationEventJournal {
             final boolean success,
             final String detail,
             final JSONObject data) {
-        final Event event = new Event(
-                NEXT_ID.incrementAndGet(),
-                System.currentTimeMillis(),
-                clean(type),
-                clean(operation),
-                success,
-                clean(detail),
-                copy(data));
+        final String eventType = clean(type);
+        final String eventOperation = clean(operation);
+        final String eventDetail = clean(detail);
+        final JSONObject eventData = copy(data);
         synchronized (LOCK) {
+            // The cursor identifies published history, not an in-flight writer.
+            final Event event = new Event(
+                    ++sLastId, System.currentTimeMillis(), eventType,
+                    eventOperation, success, eventDetail, eventData);
             EVENTS.addLast(event);
             while (EVENTS.size() > MAX_EVENTS) {
                 EVENTS.removeFirst();
             }
             LOCK.notifyAll();
+            return event.id;
         }
-        return event.id;
     }
 
     static long awaitChange(
@@ -59,23 +58,30 @@ final class DesktopAutomationEventJournal {
                 + Math.max(0L, timeoutMillis);
         synchronized (LOCK) {
             long remaining = timeoutMillis;
-            while (NEXT_ID.get() <= observedId && remaining > 0L) {
+            while (sLastId <= observedId && remaining > 0L) {
                 EventDrivenWaits.await(
                         LOCK,
                         EventDrivenWaits.Reason.AUTOMATION_EVENT,
                         remaining);
                 remaining = deadline - android.os.SystemClock.uptimeMillis();
             }
-            return NEXT_ID.get();
+            return sLastId;
         }
     }
 
     static JSONArray snapshot(final long afterId, final int requestedLimit)
             throws JSONException {
+        return snapshotWithCursor(afterId, requestedLimit).events;
+    }
+
+    static Snapshot snapshotWithCursor(final long afterId, final int requestedLimit)
+            throws JSONException {
         final int limit = Math.max(1, Math.min(MAX_EVENTS, requestedLimit));
         final List<Event> copy;
+        final long latestId;
         synchronized (LOCK) {
             copy = new ArrayList<>(EVENTS);
+            latestId = sLastId;
         }
         final JSONArray result = new JSONArray();
         final int first = Math.max(0, copy.size() - limit);
@@ -85,11 +91,23 @@ final class DesktopAutomationEventJournal {
                 result.put(event.toJson());
             }
         }
-        return result;
+        return new Snapshot(latestId, result);
+    }
+
+    static final class Snapshot {
+        final long latestId;
+        final JSONArray events;
+
+        Snapshot(final long latestId, final JSONArray events) {
+            this.latestId = latestId;
+            this.events = events;
+        }
     }
 
     static long latestId() {
-        return NEXT_ID.get();
+        synchronized (LOCK) {
+            return sLastId;
+        }
     }
 
     private static String clean(final String value) {
@@ -100,8 +118,7 @@ final class DesktopAutomationEventJournal {
                 .replace('\r', ' ')
                 .replace('\n', ' ')
                 .trim();
-        return normalized.length() <= MAX_DETAIL_CHARS
-                ? normalized : normalized.substring(0, MAX_DETAIL_CHARS);
+        return BoundedText.prefix(normalized, MAX_DETAIL_CHARS);
     }
 
     private static JSONObject copy(final JSONObject value) {
@@ -149,7 +166,7 @@ final class DesktopAutomationEventJournal {
                     .put("operation", operation)
                     .put("success", success)
                     .put("detail", detail)
-                    .put("data", data);
+                    .put("data", new JSONObject(data.toString()));
         }
     }
 }

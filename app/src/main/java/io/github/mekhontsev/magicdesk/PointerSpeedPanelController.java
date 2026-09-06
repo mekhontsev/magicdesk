@@ -89,6 +89,9 @@ final class PointerSpeedPanelController {
                             final int progress,
                             final boolean fromUser) {
                         updateValue(progress);
+                        if (fromUser && !mTracking) {
+                            apply(progress);
+                        }
                     }
 
                     @Override

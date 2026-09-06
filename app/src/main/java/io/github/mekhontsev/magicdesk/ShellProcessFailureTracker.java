@@ -4,13 +4,15 @@ import android.content.ComponentName;
 import android.view.Display;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /** Correlates process failures with tasks on the active desktop display. */
 final class ShellProcessFailureTracker implements
         ShellActivityStartController.ProcessFailureListener {
+    static final int MAX_PENDING_ANRS = 64;
+
     interface Listener {
         void onDesktopProcessFailure(
                 int type,
@@ -26,7 +28,7 @@ final class ShellProcessFailureTracker implements
     private final Listener mListener;
     private final List<TaskContext> mTasks = new ArrayList<>();
     private final Map<ProcessIdentity, PendingAnr> mPendingAnrs =
-            new HashMap<>();
+            new LinkedHashMap<>();
 
     private int mDisplayId = Display.INVALID_DISPLAY;
 
@@ -93,9 +95,14 @@ final class ShellProcessFailureTracker implements
             return;
         }
         final ProcessIdentity identity = new ProcessIdentity(processName, pid);
+        mPendingAnrs.remove(identity);
         mPendingAnrs.put(
                 identity,
-                new PendingAnr(task, annotation));
+                new PendingAnr(task, DesktopProcessFailure.compactReason(annotation)));
+        // Android may abandon an early ANR without delivering the final callback.
+        if (mPendingAnrs.size() > MAX_PENDING_ANRS) {
+            mPendingAnrs.remove(mPendingAnrs.keySet().iterator().next());
+        }
     }
 
     @Override

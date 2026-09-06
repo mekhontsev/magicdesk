@@ -135,26 +135,25 @@ public final class MagicDeskRuntime {
     static void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {
-        final MagicDeskRuntimeBackend backend = backend();
-        if (backend == null || activityToken == null) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null || activityToken == null) {
             return;
         }
-        backend.desktopTasks().configureDesktopActivityInput(
-                displayId, activityToken);
+        tasks.configureDesktopActivityInput(displayId, activityToken);
     }
 
     static void prepareDesktopChromeHost(
             final int displayId,
             final TaskRepository.ActionCallback callback) {
-        final MagicDeskRuntimeBackend backend = backend();
-        if (backend == null) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
             if (callback != null) {
                 callback.onComplete(new TaskRepository.ActionResult(
                         false, "desktop runtime is unavailable"));
             }
             return;
         }
-        backend.desktopTasks().prepareDesktopChromeHost(displayId, callback);
+        tasks.prepareDesktopChromeHost(displayId, callback);
     }
 
     public static void refreshPlatformState() {
@@ -412,6 +411,11 @@ public final class MagicDeskRuntime {
     static boolean isTaskObserverReady() {
         final DesktopTaskRuntime tasks = desktopTasks();
         return tasks != null && tasks.isTaskObserverReady();
+    }
+
+    static TaskRepository.Snapshot observedTaskSnapshot(final int displayId) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        return tasks == null ? null : tasks.observedTaskSnapshot(displayId);
     }
 
     static TaskRepository.Snapshot selectDesktopTaskSnapshot(

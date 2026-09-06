@@ -124,8 +124,11 @@ final class DesktopTaskbarHost {
         synchronized (REGISTRY_LOCK) {
             if (HOSTS.get(Integer.valueOf(mDisplayId)) == this) {
                 HOSTS.remove(Integer.valueOf(mDisplayId));
+                activity = ACTIVITIES.get(Integer.valueOf(mDisplayId));
+            } else {
+                // A replacement host owns the attached taskbar now.
+                activity = null;
             }
-            activity = ACTIVITIES.get(Integer.valueOf(mDisplayId));
         }
         if (activity != null) {
             activity.detachTaskbar();
@@ -182,7 +185,8 @@ final class DesktopTaskbarHost {
 
     private DesktopChromeActivity currentActivity() {
         synchronized (REGISTRY_LOCK) {
-            return ACTIVITIES.get(Integer.valueOf(mDisplayId));
+            return HOSTS.get(Integer.valueOf(mDisplayId)) == this
+                    ? ACTIVITIES.get(Integer.valueOf(mDisplayId)) : null;
         }
     }
 
@@ -194,7 +198,8 @@ final class DesktopTaskbarHost {
     }
 
     private void apply(final DesktopChromeActivity activity) {
-        if (activity == null || mReleased || mTaskbar == null) {
+        if (activity == null || activity != currentActivity()
+                || mReleased || mTaskbar == null) {
             return;
         }
         activity.attachTaskbar(

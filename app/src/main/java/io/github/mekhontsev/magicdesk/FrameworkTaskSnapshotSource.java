@@ -163,10 +163,8 @@ final class FrameworkTaskSnapshotSource {
                 taskId,
                 displayId,
                 readInt(task, "displayAreaFeatureId", -1),
-                HiddenTaskApi.getWindowConfigurationValue(
-                        task, "getWindowingMode"),
-                HiddenTaskApi.getWindowConfigurationValue(
-                        task, "getActivityType"),
+                HiddenTaskApi.getTaskWindowingMode(task),
+                HiddenTaskApi.getTaskActivityType(task),
                 component,
                 topActivity,
                 flatten(component),

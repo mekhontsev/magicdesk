@@ -167,6 +167,7 @@
     <string name="file_manager_operation_progress">%1$d of %2$d</string>
     <string name="file_manager_operation_busy">Another file operation is already running</string>
     <string name="file_manager_operation_running">File operation</string>
+    <string name="status_desktop_file_operation_complete">File operation completed</string>
     <string name="file_manager_cancel">Cancel</string>
     <string name="file_manager_delete_title">Delete permanently?</string>
     <string name="file_manager_delete_message">Delete %1$d selected item(s)? This cannot be undone.</string>
@@ -184,7 +185,15 @@
     <string name="file_manager_link_target">Link target: %1$s</string>
     <string name="file_manager_identity">Access service: uid %1$d</string>
     <string name="file_manager_import_complete">Imported %1$d file(s)</string>
-    <string name="file_manager_import_failed">Could not import dropped files: %1$s</string>
+    <string name="file_manager_import_failed">Could not import files: %1$s</string>
+    <plurals name="file_manager_import_partial">
+        <item quantity="one">Imported %1$d of %2$d item: %3$s</item>
+        <item quantity="other">Imported %1$d of %2$d items: %3$s</item>
+    </plurals>
+    <plurals name="file_import_cancelled">
+        <item quantity="one">Import cancelled: %1$d of %2$d item copied</item>
+        <item quantity="other">Import cancelled: %1$d of %2$d items copied</item>
+    </plurals>
     <string name="file_manager_import_files">Import files</string>
     <string name="file_manager_share">Share</string>
     <string name="activity_explorer_title">Activity Explorer</string>
@@ -230,7 +239,6 @@
     <string name="external_display_system_native">System / native</string>
     <string name="external_display_system_mode">%1$s (system)</string>
     <string name="action_desktop_this_screen">Open desktop here</string>
-    <string name="status_local_desktop_guard_failed">Local desktop could not start safely: %1$s</string>
     <string name="action_open_touchpad">Open touchpad</string>
     <string name="action_open_control_panel">Phone control panel</string>
     <string name="action_dpi_default">Apply recommended display DPI</string>
@@ -314,7 +322,6 @@
     <string name="battery_state_discharging">not charging</string>
     <string name="battery_panel_status">Battery %1$s | %2$s</string>
     <string name="page_status">%1$d / %2$d</string>
-    <string name="density_status">DPI %1$d</string>
     <string name="dpi_label">Display DPI</string>
     <string name="dpi_value">%1$d</string>
     <string name="dpi_range" tools:ignore="PluralsCandidate">%1$d - %2$d dpi</string>
@@ -349,25 +356,9 @@
         <item quantity="one">%1$d file copied to Desktop</item>
         <item quantity="other">%1$d files copied to Desktop</item>
     </plurals>
-    <plurals name="status_desktop_items_copied">
-        <item quantity="one">%1$d item copied to Desktop</item>
-        <item quantity="other">%1$d items copied to Desktop</item>
-    </plurals>
-    <plurals name="status_desktop_items_moved">
-        <item quantity="one">%1$d item moved to Desktop</item>
-        <item quantity="other">%1$d items moved to Desktop</item>
-    </plurals>
     <plurals name="status_shortcut_files_copied">
         <item quantity="one">%1$d file copied to %2$s</item>
         <item quantity="other">%1$d files copied to %2$s</item>
-    </plurals>
-    <plurals name="status_shortcut_items_copied">
-        <item quantity="one">%1$d item copied to %2$s</item>
-        <item quantity="other">%1$d items copied to %2$s</item>
-    </plurals>
-    <plurals name="status_shortcut_items_moved">
-        <item quantity="one">%1$d item moved to %2$s</item>
-        <item quantity="other">%1$d items moved to %2$s</item>
     </plurals>
     <string name="status_desktop_entry_created">%1$s created</string>
     <string name="status_desktop_entry_renamed">Renamed to %1$s</string>
@@ -605,8 +596,6 @@
     <string name="setup_value_unsupported">Unsupported: %1$s %2$s</string>
     <string name="setup_value_available">Available</string>
     <string name="setup_value_unavailable">Unavailable</string>
-    <string name="setup_value_allowed">Allowed</string>
-    <string name="setup_value_permission_required">Permission required</string>
     <string name="setup_value_enabled">Enabled</string>
     <string name="setup_value_disabled">Disabled</string>
     <string name="setup_value_square">Square</string>
@@ -631,7 +620,6 @@
     <string name="setup_status_applying">Applying system configuration&#8230;</string>
     <string name="setup_status_restoring">Restoring platform defaults&#8230;</string>
     <string name="setup_status_rebooting">Restarting Android&#8230;</string>
-    <string name="setup_status_starting">Starting MagicDesk&#8230;</string>
     <string name="setup_action_recheck">Check again</string>
     <string name="setup_action_configure">Prepare device</string>
     <string name="setup_action_reboot_now">Restart phone</string>
@@ -639,7 +627,6 @@
     <string name="setup_action_continue">Start MagicDesk</string>
     <string name="setup_action_get_shizuku">Get official Shizuku</string>
     <string name="setup_action_open_shizuku">Open Shizuku</string>
-    <string name="setup_action_open_settings">Open settings</string>
     <string name="setup_action_allow_shizuku">Allow through Shizuku</string>
     <string name="setup_action_done">Done</string>
     <string name="setup_action_exit">Exit</string>
@@ -654,6 +641,7 @@
     <string name="diagnostics_title">Compatibility diagnostics</string>
     <string name="diagnostics_description">Review this report before sharing it. Attach the complete text when opening a compatibility issue.</string>
     <string name="diagnostics_collecting">Checking firmware capabilities and recent MagicDesk errors&#8230;</string>
+    <string name="diagnostics_report_failed">Compatibility report collection failed: %1$s</string>
     <string name="diagnostics_ready">Report ready</string>
     <string name="diagnostics_refresh">Refresh</string>
     <string name="diagnostics_copy">Copy report</string>

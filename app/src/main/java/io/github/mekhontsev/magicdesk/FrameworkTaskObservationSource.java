@@ -55,6 +55,8 @@ final class FrameworkTaskObservationSource implements Closeable {
     private final Listener mListener;
     private final boolean mRefreshCaptionAfterNativeFullscreen;
     private final Object mLock = new Object();
+    private final LatestOperationSerializer mPublications = new LatestOperationSerializer();
+    private LatestOperationSerializer.Ticket mConfiguration;
     private final Map<Integer, Integer> mLastVisibleTypes = new HashMap<>();
     private final Map<Integer, Integer> mLastProcessIds = new HashMap<>();
     private final Map<Integer, FreeformBoundsState> mLastFreeformBounds =
@@ -126,6 +128,7 @@ final class FrameworkTaskObservationSource implements Closeable {
                 return;
             }
             mDisplayId = displayId;
+            mConfiguration = mPublications.supersede();
             mDisplayBounds = new Rect(displayBounds);
             mWorkAreaBounds = new Rect(workAreaBounds);
             mLastVisibleTypes.clear();
@@ -147,6 +150,8 @@ final class FrameworkTaskObservationSource implements Closeable {
                 return;
             }
             mDisplayId = -1;
+            mPublications.invalidate();
+            mConfiguration = null;
             mDisplayBounds.setEmpty();
             mWorkAreaBounds.setEmpty();
             mLastVisibleTypes.clear();
@@ -178,6 +183,8 @@ final class FrameworkTaskObservationSource implements Closeable {
                 return;
             }
             mClosed = true;
+            mPublications.invalidate();
+            mConfiguration = null;
             mDisplayId = -1;
             mLastVisibleTypes.clear();
             mLastProcessIds.clear();
@@ -193,12 +200,13 @@ final class FrameworkTaskObservationSource implements Closeable {
     }
 
     private void run() {
-        boolean failureReported = false;
+        LatestOperationSerializer.Ticket failureReportedFor = null;
         while (true) {
             final int displayId;
             final Rect displayBounds;
             final Rect workAreaBounds;
             final long sampleGeneration;
+            final LatestOperationSerializer.Ticket configuration;
             synchronized (mLock) {
                 while (!mClosed
                         && (mDisplayId < 0 || mDisplayBounds.isEmpty())) {
@@ -219,6 +227,7 @@ final class FrameworkTaskObservationSource implements Closeable {
                 displayBounds = new Rect(mDisplayBounds);
                 workAreaBounds = new Rect(mWorkAreaBounds);
                 sampleGeneration = mSampleGeneration;
+                configuration = mConfiguration;
             }
             try {
                 final FrameworkTaskSnapshotSource.Sample sample =
@@ -230,16 +239,19 @@ final class FrameworkTaskObservationSource implements Closeable {
                 final List<?> tasks = sample.rawTasks;
                 final List<FrameworkTaskSnapshot> taskSnapshots =
                         sample.snapshots;
-                mListener.onTasksSampled(
-                        displayId, tasks, taskSnapshots);
-                publishTaskStackChanges(displayId, taskSnapshots);
-                publishWindowChanges(displayId, taskSnapshots);
-                publishImmersiveChanges(displayId, taskSnapshots);
-                failureReported = false;
+                if (!mPublications.executeIfCurrent(configuration, () ->
+                        mListener.onTasksSampled(displayId, tasks, taskSnapshots))) {
+                    continue;
+                }
+                publishTaskStackChanges(configuration, displayId, taskSnapshots);
+                publishWindowChanges(configuration, displayId, taskSnapshots);
+                publishImmersiveChanges(configuration, displayId, taskSnapshots);
+                failureReportedFor = null;
             } catch (ReflectiveOperationException | RuntimeException error) {
-                if (!failureReported) {
-                    mListener.onError(usefulMessage(error));
-                    failureReported = true;
+                if (failureReportedFor != configuration
+                        && mPublications.executeIfCurrent(configuration, () ->
+                                mListener.onError(usefulMessage(error)))) {
+                    failureReportedFor = configuration;
                 }
             }
             synchronized (mLock) {
@@ -264,12 +276,13 @@ final class FrameworkTaskObservationSource implements Closeable {
     }
 
     private void publishTaskStackChanges(
+            final LatestOperationSerializer.Ticket configuration,
             final int displayId,
             final List<FrameworkTaskSnapshot> states) {
         final List<Long> fingerprint = taskStackFingerprint(states);
         final boolean changed;
         synchronized (mLock) {
-            if (mClosed || displayId != mDisplayId) {
+            if (mClosed || configuration != mConfiguration || displayId != mDisplayId) {
                 return;
             }
             changed = !mTaskStackSampled
@@ -280,7 +293,7 @@ final class FrameworkTaskObservationSource implements Closeable {
             }
         }
         if (changed) {
-            mListener.onTaskStackChanged();
+            mPublications.executeIfCurrent(configuration, mListener::onTaskStackChanged);
         }
     }
 
@@ -309,6 +322,7 @@ final class FrameworkTaskObservationSource implements Closeable {
     }
 
     private void publishImmersiveChanges(
+            final LatestOperationSerializer.Ticket configuration,
             final int displayId,
             final List<FrameworkTaskSnapshot> states)
             throws ReflectiveOperationException {
@@ -345,7 +359,7 @@ final class FrameworkTaskObservationSource implements Closeable {
 
         final List<ImmersiveEvent> events = new ArrayList<>();
         synchronized (mLock) {
-            if (displayId != mDisplayId || mClosed) {
+            if (configuration != mConfiguration || displayId != mDisplayId || mClosed) {
                 return;
             }
             for (final Map.Entry<Integer, Integer> entry
@@ -413,11 +427,12 @@ final class FrameworkTaskObservationSource implements Closeable {
                     + " foreground=" + foreground
                     + (event.taskFocused
                             ? " source=task" : " source=task+input"));
-            mListener.onImmersiveRequest(
+            final boolean observedForeground = foreground;
+            mPublications.executeIfCurrent(configuration, () -> mListener.onImmersiveRequest(
                     event.taskId,
                     event.requesting,
                     event.initialSample,
-                    foreground);
+                    observedForeground));
         }
     }
 
@@ -455,6 +470,7 @@ final class FrameworkTaskObservationSource implements Closeable {
     }
 
     private void publishWindowChanges(
+            final LatestOperationSerializer.Ticket configuration,
             final int displayId,
             final List<FrameworkTaskSnapshot> states) {
         final Set<Integer> liveTaskIds = new HashSet<>();
@@ -494,7 +510,7 @@ final class FrameworkTaskObservationSource implements Closeable {
         final List<WindowingModeEvent> modeChanges = new ArrayList<>();
         final List<FreeformBoundsEvent> boundsChanges = new ArrayList<>();
         synchronized (mLock) {
-            if (displayId != mDisplayId || mClosed) {
+            if (configuration != mConfiguration || displayId != mDisplayId || mClosed) {
                 return;
             }
             for (final Map.Entry<Integer, Integer> entry
@@ -557,7 +573,7 @@ final class FrameworkTaskObservationSource implements Closeable {
                     TaskCaptionInsetsRefresher.captureCaptionSourceIds(
                             captionCaptureCandidates);
             synchronized (mLock) {
-                if (displayId == mDisplayId && !mClosed) {
+                if (configuration == mConfiguration && displayId == mDisplayId && !mClosed) {
                     for (final Map.Entry<Integer, Integer> entry
                             : captured.entrySet()) {
                         final Integer currentMode =
@@ -573,20 +589,20 @@ final class FrameworkTaskObservationSource implements Closeable {
             }
         }
         for (final FreeformBoundsEvent event : boundsChanges) {
-            mListener.onFreeformBoundsChanged(
+            mPublications.executeIfCurrent(configuration, () -> mListener.onFreeformBoundsChanged(
                     event.taskId,
                     event.state.stateKey,
                     displayId,
-                    event.state.bounds);
+                    event.state.bounds));
         }
         for (final WindowingModeEvent event : modeChanges) {
-            mListener.onWindowingModeChanged(
+            mPublications.executeIfCurrent(configuration, () -> mListener.onWindowingModeChanged(
                     displayId,
                     event.taskId,
                     event.previousMode,
                     event.currentMode,
                     event.previousCaptionSourceId,
-                    event.focused);
+                    event.focused));
         }
     }
 

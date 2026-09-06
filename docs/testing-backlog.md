@@ -57,6 +57,14 @@ firmware task, display, input, or capture behavior.
 
 ## Pending Functional Validation
 
+- [ ] Investigate retained WindowManager transition-performance entries after
+  an ordinary simulated desktop Close. On the maintainer Android 16 firmware,
+  the 2026-09-06 audit observed this before and after its changes: start a
+  simulated session, open Start or a terminal, then use production Close.
+  The desktop closes, but a later report can reference its removed display.
+  Self-test cleanup in the same process reported no newly stale entries.
+  Compare the normal and self-test display-release boundaries; passing the
+  self-test alone does not verify this manual lifecycle case.
 - [ ] After clearing application data, verify **Restore defaults** removes
   desktop settings and properties, resets display 0 overrides, normalizes
   phone tasks, and requests one reboot.

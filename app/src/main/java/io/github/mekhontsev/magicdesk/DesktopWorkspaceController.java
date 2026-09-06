@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.appwidget.AppWidgetHostView;
 import android.content.ClipData;
 import android.content.Intent;
-import android.net.Uri;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.DragAndDropPermissions;
@@ -38,6 +38,7 @@ final class DesktopWorkspaceController {
     private final ExecutorService mContentWorker =
             Executors.newSingleThreadExecutor(runnable ->
                     new Thread(runnable, "MagicDeskContentAction"));
+    private final ContentRequestScope mContentRequests = new ContentRequestScope(mContentWorker);
 
     private DesktopGridLayout mGrid;
     private List<AppItem> mApps = new ArrayList<>();
@@ -58,7 +59,7 @@ final class DesktopWorkspaceController {
                 MagicDeskSettings.load().openFilesWithSingleClick,
                 ViewConfiguration.getDoubleTapTimeout());
         mOpenWith = new FileOpenWithController(
-                activity, activity::showDesktopDialog);
+                activity, mContentWorker, activity::showDesktopDialog);
         mContentActions = new AndroidContentActionGateway(activity);
         mFolder = new DesktopFolderController(
                 activity,
@@ -67,6 +68,14 @@ final class DesktopWorkspaceController {
                 activity::onDesktopMetadataChanged);
         mWidgets = new DesktopWidgetController(
                 activity, ui, this::onWidgetsChanged);
+    }
+
+    void saveInstanceState(final Bundle outState) {
+        mWidgets.saveInstanceState(outState);
+    }
+
+    void restoreInstanceState(final Bundle state) {
+        mWidgets.restoreInstanceState(state);
     }
 
     DesktopGridLayout createGrid() {
@@ -114,6 +123,7 @@ final class DesktopWorkspaceController {
     }
 
     void release() {
+        mContentRequests.close();
         mOpenWith.close();
         mContentWorker.shutdownNow();
         mFolder.release();
@@ -481,7 +491,7 @@ final class DesktopWorkspaceController {
         final DesktopLaunchArguments arguments =
                 DesktopLaunchArguments.files(
                         List.of(desktopAbsolutePath(file)));
-        if (!mOpenWith.open(
+        mOpenWith.open(
                 intent,
                 arguments,
                 alwaysAsk,
@@ -501,15 +511,20 @@ final class DesktopWorkspaceController {
                                 desktopFilePath,
                                 selectedArguments);
                     }
-                })) {
-            mActivity.setErrorStatus(
-                    "FILES-003",
-                    mActivity.getString(
-                            R.string.status_desktop_file_failed,
-                            file.name),
-                    "mime=" + file.mimeType + " no handler",
-                    null);
-        }
+
+                    @Override
+                    public void noHandler() {
+                        mActivity.setErrorStatus(
+                                "FILES-003",
+                                mActivity.getString(R.string.status_desktop_file_failed, file.name),
+                                "mime=" + file.mimeType + " no handler", null);
+                    }
+
+                    @Override
+                    public void failed(final Throwable error) {
+                        showFileActionError(file, ShellAccess.usefulMessage(error), error);
+                    }
+                });
     }
 
     private void launchFileIntent(
@@ -1084,34 +1099,22 @@ final class DesktopWorkspaceController {
             final AndroidContentPayload content,
             final DragAndDropPermissions permissions) {
         final int displayId = mActivity.getCurrentDisplayId();
-        mContentWorker.execute(() -> {
-            try {
-                final DesktopAutomationResult result =
-                        new AndroidIntegrationGateway(mActivity)
-                                .deliverContent(
-                                        content,
-                                        target,
-                                        DesktopLaunchPresentation.automatic(),
-                                        displayId);
-                if (!result.success) {
-                    mActivity.runOnUiThread(() -> mActivity.setErrorStatus(
+        AndroidDesktopActionDispatcher.deliverContent(
+                mContentRequests, mActivity, content, target,
+                DesktopLaunchPresentation.automatic(), displayId,
+                () -> {
+                    if (permissions != null) {
+                        permissions.release();
+                    }
+                }, result -> {
+                    if (!result.success) {
+                        mActivity.setErrorStatus(
                             "CONTENT-DROP-001",
                             result.message,
                             "package=" + target.packageName,
-                            null));
-                }
-            } catch (Exception error) {
-                mActivity.runOnUiThread(() -> mActivity.setErrorStatus(
-                        "CONTENT-DROP-001",
-                        ShellAccess.usefulMessage(error),
-                        "package=" + target.packageName,
-                        error));
-            } finally {
-                if (permissions != null) {
-                    permissions.release();
-                }
-            }
-        });
+                            null);
+                    }
+                });
     }
 
     private void activateFile(
@@ -1171,10 +1174,7 @@ final class DesktopWorkspaceController {
                 final ClipData data = dragData(
                         itemId, file, filePayload);
                 final int flags = file == null
-                        ? 0 : View.DRAG_FLAG_GLOBAL
-                                | (file.directory
-                                        ? 0
-                                        : View.DRAG_FLAG_GLOBAL_URI_READ);
+                        ? 0 : FileDragPayload.dragFlags(!file.directory);
                 return target.startDragAndDrop(
                         data,
                         new View.DragShadowBuilder(target),
@@ -1213,7 +1213,8 @@ final class DesktopWorkspaceController {
                     mActivity.getString(R.string.desktop_drag_label),
                     List.of());
         }
-        return payload.clipData(file.name, List.of(file.uri));
+        return payload.clipData(file.name, List.of(
+                new AndroidContentPayload.UriItem(file.uri, file.mimeType)));
     }
 
     private boolean importDroppedFiles(final DragEvent event) {

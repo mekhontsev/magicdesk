@@ -3,9 +3,10 @@
 At the application-process boundary, window policy emits a typed
 `DesktopWindowTransitionRequest` through `DesktopWindowTransitionGateway`.
 The gateway maps semantic enter and restore operations to the existing
-shell task observer. If that backend declines a request, the caller retains its
-established `TaskRepository` fallback. This layer adds observability and a
-stable extension boundary; it does not add another transition implementation.
+shell task observer. A declined active-session request completes with an
+explicit failure; UI callers do not bypass fullscreen ownership through a raw
+`TaskRepository` fallback. Developer-only raw automation remains separate from
+the semantic gateway.
 
 RedMagic external desktop windowing can retain a native caption inset after a task
 changes from freeform to fullscreen. The task and application window already
@@ -154,7 +155,7 @@ not a second focus/raise after applying the same WCT.
 The native phase ends at `FrameworkWindowCommitBarrier`, using Android 15+'s
 `IWindowManager.syncInputTransactions(true)` before returning to the topology
 owner. WM waits for pending transitions/animations and input-window publication
-using its own bounded event waits. The existing plane/chrome surface commit
+using its own bounded event waits. The existing plane surface commit
 then publishes the final workspace order, followed by input-focus confirmation.
 This order matters because native finish-layer assignment places HOME below
 normal roots, even when our hierarchy explicitly demotes a fullscreen plane
@@ -295,10 +296,13 @@ Task selection is modeled as z-order, not as a window-state transition:
   and no managed application is ordered above it. A background or covered task
   selected from the taskbar, task overview, Alt+Tab, or MCP follows this
   operation through `DesktopTaskController`.
-- `demote(active)` rotates the foreground task behind the next MRU application.
-  Selecting the already-active taskbar item uses this operation. If there is no
-  peer, the desktop host comes to the front while the application remains live
-  below it.
+- `demote(active)` lowers the foreground task behind the next eligible
+  application. Selecting the already-active taskbar item uses this operation.
+  Previously explicitly concealed tasks are not implicit successors: demoting
+  two fullscreen peers in turn reveals HOME instead of reviving the first one.
+  If there is no eligible peer, the desktop host comes to the front while the
+  application remains live below it. Explicit activation makes that task
+  eligible again.
 
 Both operations preserve the task's windowing mode, bounds, parent, and hidden
 state. Occlusion is not minimization: a covered task remains live in the same

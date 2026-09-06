@@ -65,19 +65,6 @@ final class DesktopDisplayDrivers {
         WIRED.activate(source, policy);
     }
 
-    static DesktopDisplayDriver forActiveDisplay(final int displayId) {
-        if (displayId == Display.DEFAULT_DISPLAY) {
-            return PHONE;
-        }
-        final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getDesktopTarget(displayId);
-        if (target == null) {
-            throw new IllegalStateException(
-                    "desktop target is unavailable for display " + displayId);
-        }
-        return forTarget(target);
-    }
-
     static boolean hasActiveWorkspace(final int displayId) {
         if (displayId == Display.DEFAULT_DISPLAY
                 && DesktopRuntimeBridge.isLocalDesktopActiveOrStarting()) {

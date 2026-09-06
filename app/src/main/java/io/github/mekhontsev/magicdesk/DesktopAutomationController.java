@@ -1,5 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
+import static io.github.mekhontsev.magicdesk.AutomationJsonArguments.requiredInt;
+import static io.github.mekhontsev.magicdesk.AutomationJsonArguments.requiredLong;
+
 import android.app.ActivityOptions;
 import android.app.KeyguardManager;
 import android.content.ComponentName;
@@ -314,7 +317,8 @@ final class DesktopAutomationController {
             try {
                 observedEventId = DesktopAutomationEventJournal.awaitChange(
                         observedEventId,
-                        Math.min(remaining, WAIT_RECHECK_MILLIS));
+                        waitInterval(condition, remaining,
+                                observation.optBoolean("taskObservationRecheck", false)));
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
                 return record("wait_for_state",
@@ -330,6 +334,28 @@ final class DesktopAutomationController {
         return record("wait_for_state", DesktopAutomationResult.failure(
                 DesktopAutomationErrorCode.TIMEOUT,
                 "condition timed out", true, observation));
+    }
+
+    static long waitInterval(final String condition, final long remaining,
+            final boolean freshTaskObservation) {
+        if (freshTaskObservation) {
+            return Math.min(remaining, WAIT_RECHECK_MILLIS);
+        }
+        switch (condition) {
+            case "ui_visible":
+            case "ui_element_state":
+            case "popup_state":
+            case "taskbar_visible":
+            case "wallpaper_rendered":
+            // Input-window commits need not change a task or emit a UI journal event.
+            case "app_ready":
+            case "app_crashed":
+            case "app_not_responding":
+            case "system_dialog_visible":
+                return Math.min(remaining, WAIT_RECHECK_MILLIS);
+            default:
+                return remaining;
+        }
     }
 
     private DesktopAutomationResult startDesktop(final String rawTarget)
@@ -581,7 +607,8 @@ final class DesktopAutomationController {
         if (files == null || files.length() == 0) {
             return DesktopLaunchArguments.empty();
         }
-        final List<String> paths = new ArrayList<>();
+        DesktopLaunchArguments.requireCount(files.length());
+        final List<String> paths = new ArrayList<>(files.length());
         for (int index = 0; index < files.length(); index++) {
             paths.add(files.getString(index));
         }
@@ -1069,46 +1096,19 @@ final class DesktopAutomationController {
             case "task_windowing_mode":
             case "task_focused":
             case "task_bounds": {
-                final TaskRepository.TaskEntry task = findTask(
-                        requiredInt(args, "taskId"));
-                boolean matched = task != null;
-                if ("task_absent".equals(condition)) {
-                    matched = task == null;
-                } else if ("task_windowing_mode".equals(condition)) {
-                    matched = task != null
-                            && DesktopLaunchMode.matchesWindowingMode(
-                                    requiredString(args, "mode"),
-                                    task.windowingMode);
-                } else if ("task_focused".equals(condition)) {
-                    matched = task != null && task.active;
-                } else if ("task_bounds".equals(condition)) {
-                    final Rect expected = readWaitBounds(
-                            requiredObject(args, "bounds"));
-                    final int tolerance = Math.max(
-                            0, args.optInt("tolerance", 0));
-                    matched = task != null
-                            && boundsMatch(task.bounds, expected, tolerance);
-                    observation.put("expectedBounds", rectJson(expected))
-                            .put("tolerance", tolerance);
-                }
-                observation.put("matched", matched);
-                if (task != null) {
-                    observation.put("displayId", task.displayId)
-                            .put("windowingMode", task.windowingMode)
-                            .put("mode", DesktopLaunchMode
-                                    .semanticWindowingMode(
-                                            task.windowingMode))
-                            .put("bounds", rectJson(task.bounds))
-                            .put("visible", task.visible);
-                }
-                return observation;
+                final TaskRepository.Snapshot snapshot =
+                        observedWaitTasks(args, observation);
+                return observeTaskCondition(condition, args, snapshot, observation);
             }
             case "app_ready":
             case "app_crashed":
             case "app_not_responding": {
                 final int taskId = requiredInt(args, "taskId");
                 final TaskRepository.Snapshot snapshot =
-                        TaskRepository.loadAllNow();
+                        observedWaitTasks(args, observation);
+                if (snapshot == null) {
+                    return observation.put("matched", false).put("taskId", taskId);
+                }
                 final TaskRepository.TaskEntry task =
                         findTask(snapshot, taskId);
                 final DesktopWindowObservation windows =
@@ -1140,13 +1140,16 @@ final class DesktopAutomationController {
                 return observation;
             }
             case "system_dialog_visible": {
-                final int displayId = optionalDisplayId(args);
                 final Integer taskId = args.has("taskId")
                         ? Integer.valueOf(requiredInt(args, "taskId")) : null;
                 final String packageName = optionalString(
                         args, "package", "");
                 final TaskRepository.Snapshot snapshot =
-                        TaskRepository.loadAllNow();
+                        observedWaitTasks(args, observation);
+                if (snapshot == null) {
+                    return observation.put("matched", false);
+                }
+                final int displayId = optionalDisplayId(args);
                 final DesktopWindowObservation windows =
                         DesktopWindowObservation.capture();
                 return observation
@@ -1306,6 +1309,101 @@ final class DesktopAutomationController {
         }
     }
 
+    private static TaskRepository.Snapshot observedWaitTasks(
+            final JSONObject args, final JSONObject observation)
+            throws JSONException {
+        final String condition = requiredString(args, "condition");
+        final int activeDisplayId = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final Integer displayId = args.has("displayId")
+                ? Integer.valueOf(requiredInt(args, "displayId")) : null;
+        if (displayId != null && displayId.intValue() < 0) {
+            throw new IllegalArgumentException("displayId must be nonnegative");
+        }
+        TaskRepository.Snapshot snapshot = selectObservedTasks(
+                MagicDeskRuntime.observedTaskSnapshot(activeDisplayId),
+                activeDisplayId, displayId);
+        final boolean published = activeDisplayId >= 0 && (displayId != null
+                ? displayId.intValue() == activeDisplayId
+                        || displayId.intValue() == Display.DEFAULT_DISPLAY
+                : !"task_absent".equals(condition) && (snapshot == null
+                        || "system_dialog_visible".equals(condition)
+                        || (args.has("taskId")
+                                && findTask(snapshot, requiredInt(args, "taskId")) != null)));
+        if (!published) {
+            // An explicit bounded wait still covers inactive sessions and other displays.
+            // In particular, only a global query can establish global task absence.
+            snapshot = filterWaitTasks(TaskRepository.loadAllNow(), displayId);
+        }
+        observation.put("taskObservationAvailable", snapshot != null)
+                .put("taskObservationState", snapshot == null ? "unknown" : "available")
+                .put("taskObservationSource", published ? "published" : "fresh")
+                .put("taskObservationRecheck", !published)
+                .put("taskObservationScope", displayId != null ? "display"
+                        : published ? "active_desktop_and_phone" : "global");
+        if (displayId != null) {
+            observation.put("requestedDisplayId", displayId.intValue());
+        }
+        return snapshot;
+    }
+
+    static TaskRepository.Snapshot selectObservedTasks(
+            final TaskRepository.Snapshot snapshot, final int activeDisplayId,
+            final Integer displayId) {
+        if (activeDisplayId < 0 || snapshot == null || !snapshot.available
+                || (displayId != null && displayId.intValue() != activeDisplayId
+                        && displayId.intValue() != Display.DEFAULT_DISPLAY)) {
+            return null;
+        }
+        return filterWaitTasks(snapshot, displayId);
+    }
+
+    private static TaskRepository.Snapshot filterWaitTasks(
+            final TaskRepository.Snapshot snapshot, final Integer displayId) {
+        if (snapshot == null || !snapshot.available) {
+            return null;
+        }
+        final List<TaskRepository.TaskEntry> tasks = new ArrayList<>();
+        for (final List<TaskRepository.TaskEntry> source :
+                java.util.Arrays.asList(snapshot.tasks, snapshot.phoneTasks)) {
+            for (final TaskRepository.TaskEntry task : source) {
+                if (displayId == null || task.displayId == displayId.intValue()) {
+                    tasks.add(task);
+                }
+            }
+        }
+        return new TaskRepository.Snapshot(tasks, true, "");
+    }
+
+    static JSONObject observeTaskCondition(
+            final String condition, final JSONObject args,
+            final TaskRepository.Snapshot snapshot, final JSONObject observation)
+            throws JSONException {
+        final TaskRepository.TaskEntry task = findTask(snapshot, requiredInt(args, "taskId"));
+        boolean matched = task != null;
+        if ("task_absent".equals(condition)) {
+            matched = snapshot != null && snapshot.available && task == null;
+        } else if ("task_windowing_mode".equals(condition)) {
+            matched = task != null && DesktopLaunchMode.matchesWindowingMode(
+                    requiredString(args, "mode"), task.windowingMode);
+        } else if ("task_focused".equals(condition)) {
+            matched = task != null && task.active;
+        } else if ("task_bounds".equals(condition)) {
+            final Rect expected = readWaitBounds(requiredObject(args, "bounds"));
+            final int tolerance = Math.max(0, args.optInt("tolerance", 0));
+            matched = task != null && boundsMatch(task.bounds, expected, tolerance);
+            observation.put("expectedBounds", rectJson(expected)).put("tolerance", tolerance);
+        }
+        observation.put("matched", matched);
+        if (task != null) {
+            observation.put("displayId", task.displayId)
+                    .put("windowingMode", task.windowingMode)
+                    .put("mode", DesktopLaunchMode.semanticWindowingMode(task.windowingMode))
+                    .put("bounds", rectJson(task.bounds))
+                    .put("visible", task.visible);
+        }
+        return observation;
+    }
+
     private TaskRepository.TaskEntry findTask(final int taskId) {
         final TaskRepository.Snapshot snapshot = TaskRepository.loadAllNow();
         return findTask(snapshot, taskId);
@@ -1313,7 +1411,7 @@ final class DesktopAutomationController {
 
     private static TaskRepository.TaskEntry findTask(
             final TaskRepository.Snapshot snapshot, final int taskId) {
-        if (!snapshot.available) {
+        if (snapshot == null || !snapshot.available) {
             return null;
         }
         for (final TaskRepository.TaskEntry task : snapshot.tasks) {
@@ -1490,34 +1588,6 @@ final class DesktopAutomationController {
         }
         final String value = object.optString(key, "").trim();
         return value.isEmpty() ? defaultValue : value;
-    }
-
-    private static int requiredInt(
-            final JSONObject object, final String key) {
-        if (object == null || !object.has(key)) {
-            throw new IllegalArgumentException(key + " is required");
-        }
-        final Object value = object.opt(key);
-        if (!(value instanceof Number)) {
-            throw new IllegalArgumentException(key + " must be an integer");
-        }
-        final long number = ((Number) value).longValue();
-        if (number < Integer.MIN_VALUE || number > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(key + " is out of range");
-        }
-        return (int) number;
-    }
-
-    private static long requiredLong(
-            final JSONObject object, final String key) {
-        if (object == null || !object.has(key)) {
-            throw new IllegalArgumentException(key + " is required");
-        }
-        final Object value = object.opt(key);
-        if (!(value instanceof Number)) {
-            throw new IllegalArgumentException(key + " must be an integer");
-        }
-        return ((Number) value).longValue();
     }
 
     private static JSONObject requiredObject(

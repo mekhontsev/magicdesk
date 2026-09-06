@@ -83,7 +83,11 @@ final class DesktopWebShortcut extends DesktopEntry {
                 || uri.getHost().isEmpty()) {
             throw new IllegalArgumentException("unsupported web shortcut URL");
         }
-        return uri.toASCIIString();
+        final String normalized = uri.toASCIIString();
+        if (normalized.length() > MAX_URL_LENGTH) {
+            throw new IllegalArgumentException("web shortcut URL is too large");
+        }
+        return normalized;
     }
 
     private static boolean isSystemResolver(final String className) {

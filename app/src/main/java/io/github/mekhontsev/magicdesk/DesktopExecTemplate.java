@@ -21,22 +21,18 @@ final class DesktopExecTemplate {
         }
         final DesktopLaunchArguments supplied = arguments == null
                 ? DesktopLaunchArguments.empty() : arguments;
-        final List<String> expanded = new ArrayList<>();
+        final List<String> files = supplied.filePaths();
+        final List<String> uris = supplied.uris();
+        final StringBuilder result = new StringBuilder();
         for (final String token : tokenize(normalized)) {
             expandToken(
                     token,
-                    supplied,
+                    files,
+                    uris,
                     name == null ? "" : name,
                     icon == null ? "" : icon,
                     desktopFilePath == null ? "" : desktopFilePath,
-                    expanded);
-        }
-        final StringBuilder result = new StringBuilder();
-        for (final String token : expanded) {
-            if (result.length() > 0) {
-                result.append(' ');
-            }
-            result.append(ShellCommandLine.quote(token));
+                    result);
         }
         return DesktopExecCommand.normalize(result.toString());
     }
@@ -143,28 +139,31 @@ final class DesktopExecTemplate {
 
     private static void expandToken(
             final String token,
-            final DesktopLaunchArguments arguments,
+            final List<String> files,
+            final List<String> uris,
             final String name,
             final String icon,
             final String desktopFilePath,
-            final List<String> result) {
+            final StringBuilder result) {
         if ("%F".equals(token)) {
-            result.addAll(arguments.filePaths());
+            for (final String file : files) {
+                appendArgument(result, file);
+            }
             return;
         }
         if ("%U".equals(token)) {
-            result.addAll(arguments.uris());
+            for (final String uri : uris) {
+                appendArgument(result, uri);
+            }
             return;
         }
         if ("%i".equals(token)) {
             if (!icon.isEmpty()) {
-                result.add("--icon");
-                result.add(icon);
+                appendArgument(result, "--icon");
+                appendArgument(result, icon);
             }
             return;
         }
-        final List<String> files = arguments.filePaths();
-        final List<String> uris = arguments.uris();
         final StringBuilder expanded = new StringBuilder();
         boolean omittedValue = false;
         boolean hadField = false;
@@ -186,24 +185,24 @@ final class DesktopExecTemplate {
                     if (files.isEmpty()) {
                         omittedValue = true;
                     } else {
-                        expanded.append(files.get(0));
+                        appendField(expanded, files.get(0));
                     }
                     break;
                 case 'u':
                     if (uris.isEmpty()) {
                         omittedValue = true;
                     } else {
-                        expanded.append(uris.get(0));
+                        appendField(expanded, uris.get(0));
                     }
                     break;
                 case 'c':
-                    expanded.append(name);
+                    appendField(expanded, name);
                     break;
                 case 'k':
                     if (desktopFilePath.isEmpty()) {
                         omittedValue = true;
                     } else {
-                        expanded.append(desktopFilePath);
+                        appendField(expanded, desktopFilePath);
                     }
                     break;
                 case 'd':
@@ -224,7 +223,32 @@ final class DesktopExecTemplate {
             }
         }
         if (!(hadField && omittedValue && expanded.length() == 0)) {
-            result.add(expanded.toString());
+            appendArgument(result, expanded.toString());
         }
+    }
+
+    private static void appendField(final StringBuilder token, final String value) {
+        if (value.length() > DesktopExecCommand.MAX_LENGTH - token.length()) {
+            throw new IllegalArgumentException("expanded Exec argument is too long");
+        }
+        token.append(value);
+    }
+
+    private static void appendArgument(final StringBuilder command, final String value) {
+        final int separatorLength = command.length() == 0 ? 0 : 1;
+        final int remaining = DesktopExecCommand.MAX_LENGTH - command.length() - separatorLength;
+        if (value.length() > remaining - 2) {
+            throw new IllegalArgumentException("expanded Exec command is too long");
+        }
+        // Check each rendered argument, not a complete expansion that may multiply
+        // the same selection many times through repeated %F or %U fields.
+        final String quoted = ShellCommandLine.quote(value);
+        if (quoted.length() > remaining) {
+            throw new IllegalArgumentException("expanded Exec command is too long");
+        }
+        if (separatorLength != 0) {
+            command.append(' ');
+        }
+        command.append(quoted);
     }
 }

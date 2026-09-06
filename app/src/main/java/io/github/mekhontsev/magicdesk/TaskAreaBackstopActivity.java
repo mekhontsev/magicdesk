@@ -53,15 +53,6 @@ public final class TaskAreaBackstopActivity extends Activity {
         return TaskAreaBackstopRole.UNKNOWN;
     }
 
-    static boolean isBackstopTask(final TaskRepository.TaskEntry task) {
-        if (task == null
-                || !BuildConfig.APPLICATION_ID.equals(task.packageName)) {
-            return false;
-        }
-        return isBackstopComponentName(task.componentName)
-                || isBackstopComponentName(task.topActivityName);
-    }
-
     static boolean isBackstopComponentName(final String componentName) {
         return (BuildConfig.APPLICATION_ID + "/" + CLASS_NAME)
                         .equals(componentName)

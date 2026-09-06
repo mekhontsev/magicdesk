@@ -2,15 +2,20 @@ package io.github.mekhontsev.magicdesk.kernel;
 
 import android.content.Context;
 
-import java.io.BufferedReader;
+import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executor;
 
 final class XrResolutionFix {
     private static final String EXPECTED_KERNEL =
@@ -20,8 +25,9 @@ final class XrResolutionFix {
     private static final String EXPECTED_MODULE_SHA256 =
             "f1abf9dfece5b175801194c9a32bba08d6c1d913d16c73e4bc9db332613e043d";
     private static final String DRIVER_PATH = "/vendor_dlkm/lib/modules/msm_drm.ko";
-    private static final String ROOT_MODULE_PATH =
-            "/data/local/tmp/magicdesk-dp-mode-reset.ko";
+    private static final long ROOT_TIMEOUT_MILLIS = 30_000L;
+    private static final int MAX_ROOT_OUTPUT_BYTES = 32 * 1024;
+    private static final Activation ACTIVATION = new Activation();
 
     enum Code {
         ACTIVE,
@@ -42,8 +48,76 @@ final class XrResolutionFix {
         }
     }
 
-    interface Callback {
-        void onComplete(Result result);
+    static final class State {
+        final boolean running;
+        final Result result;
+
+        State(final boolean running, final Result result) {
+            this.running = running;
+            this.result = result;
+        }
+    }
+
+    /** One process-owned operation; activities observe without owning its worker. */
+    static final class Activation {
+        private final Set<Runnable> mObservers = new LinkedHashSet<>();
+        private State mState = new State(false, null);
+
+        synchronized State state() {
+            return mState;
+        }
+
+        synchronized void observe(final Runnable observer) {
+            mObservers.add(observer);
+        }
+
+        synchronized void removeObserver(final Runnable observer) {
+            mObservers.remove(observer);
+        }
+
+        boolean start(final Executor executor, final Callable<Result> loader) {
+            synchronized (this) {
+                if (mState.running) {
+                    return false;
+                }
+                mState = new State(true, null);
+            }
+            try {
+                executor.execute(() -> {
+                    Result result;
+                    try {
+                        result = loader.call();
+                    } catch (Exception error) {
+                        if (error instanceof InterruptedException) {
+                            Thread.currentThread().interrupt();
+                        }
+                        result = failure(error);
+                    }
+                    complete(result);
+                });
+            } catch (RuntimeException error) {
+                complete(failure(error));
+            }
+            notifyObservers();
+            return true;
+        }
+
+        private void complete(final Result result) {
+            synchronized (this) {
+                mState = new State(false, result);
+            }
+            notifyObservers();
+        }
+
+        private void notifyObservers() {
+            final ArrayList<Runnable> observers;
+            synchronized (this) {
+                observers = new ArrayList<>(mObservers);
+            }
+            for (final Runnable observer : observers) {
+                observer.run();
+            }
+        }
     }
 
     private XrResolutionFix() {
@@ -55,76 +129,87 @@ final class XrResolutionFix {
                         .canRead();
     }
 
-    static void activate(final Context context, final Callback callback) {
-        final Context appContext = context.getApplicationContext();
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                Result result;
-                try {
-                    final File module = extractModule(appContext);
-                    result = runCheckedLoad(module);
-                } catch (IOException | RuntimeException error) {
-                    final String message = error.getMessage();
-                    result = new Result(Code.FAILED,
-                            message == null || message.isEmpty()
-                                    ? error.getClass().getSimpleName()
-                                    : message);
-                }
-                callback.onComplete(result);
-            }
-        }, "MagicDeskXrResolutionFix").start();
+    static State state() {
+        return ACTIVATION.state();
     }
 
-    private static File extractModule(final Context context) throws IOException {
-        final File target = new File(context.getNoBackupFilesDir(), "dp_mode_reset.ko");
-        final File temporary = new File(context.getNoBackupFilesDir(),
-                "dp_mode_reset.ko.tmp");
-        if (temporary.exists() && !temporary.delete()) {
-            throw new IOException("cannot replace temporary module");
-        }
+    static void observe(final Runnable observer) {
+        ACTIVATION.observe(observer);
+    }
 
-        final MessageDigest digest;
+    static void removeObserver(final Runnable observer) {
+        ACTIVATION.removeObserver(observer);
+    }
+
+    static void activate(final Context context) {
+        final Context appContext = context.getApplicationContext();
+        ACTIVATION.start(
+                command -> new Thread(command, "MagicDeskXrResolutionFix").start(),
+                () -> {
+                    final File module = extractModule(
+                            appContext.getNoBackupFilesDir(),
+                            appContext.getResources().openRawResource(R.raw.dp_mode_reset),
+                            EXPECTED_MODULE_SHA256);
+                    try {
+                        return runCheckedLoad(module);
+                    } finally {
+                        module.delete();
+                    }
+                });
+    }
+
+    private static Result failure(final Exception error) {
+        final String message = error.getMessage();
+        return new Result(Code.FAILED,
+                message == null || message.isEmpty()
+                        ? error.getClass().getSimpleName() : message);
+    }
+
+    static File extractModule(final File directory, final InputStream source,
+            final String expectedHash) throws IOException {
+        File temporary = null;
+        boolean verified = false;
         try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException e) {
-            throw new IOException("SHA-256 is unavailable", e);
-        }
-
-        try (InputStream input = context.getResources().openRawResource(
-                R.raw.dp_mode_reset);
-                FileOutputStream output = new FileOutputStream(temporary)) {
-            final byte[] buffer = new byte[16 * 1024];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                output.write(buffer, 0, count);
-                digest.update(buffer, 0, count);
+            try (InputStream input = source) {
+                final MessageDigest digest;
+                try {
+                    digest = MessageDigest.getInstance("SHA-256");
+                } catch (NoSuchAlgorithmException error) {
+                    throw new IOException("SHA-256 is unavailable", error);
+                }
+                temporary = File.createTempFile("dp_mode_reset-", ".ko", directory);
+                try (FileOutputStream output = new FileOutputStream(temporary)) {
+                    final byte[] buffer = new byte[16 * 1024];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) {
+                        output.write(buffer, 0, count);
+                        digest.update(buffer, 0, count);
+                    }
+                    output.getFD().sync();
+                }
+                final String actualHash = toHex(digest.digest());
+                if (!expectedHash.equals(actualHash)) {
+                    throw new IOException("bundled module checksum mismatch: " + actualHash);
+                }
             }
-            output.getFD().sync();
-        } catch (IOException e) {
-            temporary.delete();
-            throw e;
+            verified = true;
+            return temporary;
+        } finally {
+            if (!verified && temporary != null) {
+                temporary.delete();
+            }
         }
-
-        final String actualHash = toHex(digest.digest());
-        if (!EXPECTED_MODULE_SHA256.equals(actualHash)) {
-            temporary.delete();
-            throw new IOException("bundled module checksum mismatch: " + actualHash);
-        }
-        if (target.exists() && !target.delete()) {
-            temporary.delete();
-            throw new IOException("cannot replace extracted module");
-        }
-        if (!temporary.renameTo(target)) {
-            temporary.delete();
-            throw new IOException("cannot publish extracted module");
-        }
-        return target;
     }
 
     private static Result runCheckedLoad(final File module) throws IOException {
+        return parseResult(runRootCommand(loadCommand(module)));
+    }
+
+    static String loadCommand(final File module) {
         final String modulePath = shellQuote(module.getAbsolutePath());
-        final String command =
+        final String rootModulePath = shellQuote(
+                "/data/local/tmp/magicdesk-" + module.getName());
+        return
                 "if [ -d /sys/module/dp_mode_reset ]; then "
                 + "if [ -r /sys/module/dp_mode_reset/parameters/disconnect_hits ] "
                 + "&& [ -r /sys/module/dp_mode_reset/parameters/stale_override_hits ]; "
@@ -140,22 +225,22 @@ final class XrResolutionFix {
                 + " 2>/dev/null); module_hash=${module_hash%% *}; "
                 + "if [ \"$module_hash\" != '" + EXPECTED_MODULE_SHA256 + "' ]; then "
                 + "echo INVALID_MODULE:$module_hash; exit 0; fi; "
-                + "/system/bin/rm -f " + shellQuote(ROOT_MODULE_PATH) + "; "
+                + "trap " + shellQuote("/system/bin/rm -f " + rootModulePath)
+                + " EXIT; trap 'exit 1' HUP INT TERM; "
                 + "if ! /system/bin/cp " + modulePath + " "
-                + shellQuote(ROOT_MODULE_PATH) + "; then "
+                + rootModulePath + "; then "
                 + "echo ERROR:copy_failed; exit 0; fi; "
-                + "/system/bin/chmod 600 " + shellQuote(ROOT_MODULE_PATH) + "; "
-                + "load_output=$(/system/bin/insmod " + shellQuote(ROOT_MODULE_PATH)
+                + "if ! /system/bin/chmod 600 " + rootModulePath + "; then "
+                + "echo ERROR:chmod_failed; exit 0; fi; "
+                + "load_output=$(/system/bin/insmod " + rootModulePath
                 + " 2>&1); load_status=$?; "
-                + "/system/bin/rm -f " + shellQuote(ROOT_MODULE_PATH) + "; "
                 + "if [ $load_status -ne 0 ]; then "
                 + "echo ERROR:insmod_failed:$load_output; exit 0; fi; "
                 + "if [ -d /sys/module/dp_mode_reset ]; then "
                 + "echo ACTIVATED; else echo ERROR:module_not_visible; fi";
-        return parseResult(runRootCommand(command));
     }
 
-    private static Result parseResult(final String output) {
+    static Result parseResult(final String output) {
         final String[] lines = output.split("\\r?\\n");
         for (int i = lines.length - 1; i >= 0; i--) {
             final String line = lines[i].trim();
@@ -185,30 +270,28 @@ final class XrResolutionFix {
     }
 
     private static String runRootCommand(final String command) throws IOException {
-        final Process process = new ProcessBuilder("su", "-c", command)
+        return readRootResult(new ProcessBuilder("su", "-c", command)
                 .redirectErrorStream(true)
-                .start();
-        final StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line).append('\n');
-            }
-        }
+                .start());
+    }
+
+    static String readRootResult(final Process process) throws IOException {
         try {
-            final int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                throw new IOException("root command failed " + exitCode + ": "
-                        + output.toString().trim());
+            final BoundedProcessRunner.Result result = BoundedProcessRunner.run(
+                    process, ROOT_TIMEOUT_MILLIS, MAX_ROOT_OUTPUT_BYTES);
+            if (result.truncated) {
+                throw new IOException("root command output exceeded "
+                        + MAX_ROOT_OUTPUT_BYTES + " bytes");
             }
+            if (result.exitCode != 0) {
+                throw new IOException("root command failed " + result.exitCode + ": "
+                        + result.output.trim());
+            }
+            return result.output;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("root command interrupted", e);
-        } finally {
-            process.destroy();
         }
-        return output.toString();
     }
 
     private static String shellQuote(final String value) {

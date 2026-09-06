@@ -26,6 +26,8 @@ final class DesktopWidgetController {
     static final int REQUEST_CONFIGURE = 1102;
     private static final int HOST_ID = 0x4d44;
     private static final String TAG = "MagicDeskWidgets";
+    private static final String STATE_PENDING_ID = "desktop_widget_pending_id";
+    private static final String STATE_PENDING_NEW = "desktop_widget_pending_new";
 
     private final DesktopShellActivity mActivity;
     private final AppWidgetManager mManager;
@@ -46,6 +48,21 @@ final class DesktopWidgetController {
         mHost = new DesktopAppWidgetHost(activity, HOST_ID);
         mPicker = new DesktopWidgetPickerController(activity, ui);
         mChanged = changed;
+    }
+
+    void saveInstanceState(final Bundle outState) {
+        outState.putInt(STATE_PENDING_ID, mPendingWidgetId);
+        outState.putBoolean(STATE_PENDING_NEW, mPendingNewWidget);
+    }
+
+    void restoreInstanceState(final Bundle state) {
+        if (state == null) {
+            return;
+        }
+        mPendingWidgetId = state.getInt(
+                STATE_PENDING_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
+        mPendingNewWidget = mPendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID
+                && state.getBoolean(STATE_PENDING_NEW, false);
     }
 
     void start() {
@@ -93,7 +110,7 @@ final class DesktopWidgetController {
                     mManager.getAppWidgetInfo(appWidgetId);
             if (info != null) {
                 widgets.add(new WidgetEntry(appWidgetId, info));
-            } else {
+            } else if (appWidgetId != mPendingWidgetId) {
                 deleteWidgetId(appWidgetId);
             }
         }
@@ -118,6 +135,9 @@ final class DesktopWidgetController {
     }
 
     void addWidget() {
+        if (mPendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            return;
+        }
         mActivity.hideAllPanels();
         mPicker.show(mManager.getInstalledProviders(), this::bindWidget);
     }
@@ -127,6 +147,9 @@ final class DesktopWidgetController {
     }
 
     void addWidgets(final String packageName) {
+        if (mPendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            return;
+        }
         final List<AppWidgetProviderInfo> providers =
                 providersForPackage(packageName);
         if (providers.isEmpty()) {
@@ -166,6 +189,9 @@ final class DesktopWidgetController {
     }
 
     private void bindWidget(final AppWidgetProviderInfo info) {
+        if (mPendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            return;
+        }
         final int appWidgetId;
         try {
             appWidgetId = mHost.allocateAppWidgetId();
@@ -269,6 +295,9 @@ final class DesktopWidgetController {
     }
 
     void configure(final int appWidgetId) {
+        if (mPendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            return;
+        }
         final AppWidgetProviderInfo info =
                 mManager.getAppWidgetInfo(appWidgetId);
         if (info == null || info.configure == null) {

@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 import org.junit.Test;
 
@@ -57,6 +58,20 @@ public final class TaskLocalInsetsSourceParserTest {
                                 + "* Task{bbb #8 type=standard mode=freeform}\n"
                                 + "  InsetsSource id=12340002 type=captionBar\n",
                         7));
+    }
+
+    @Test
+    public void malformedCoordinatesDoNotBecomeSyntheticZeroes() {
+        final TaskLocalInsetsSourceParser.CaptionSource source =
+                TaskLocalInsetsSourceParser.findCaptionSource(
+                        "* Task{aaa #7 type=standard mode=freeform}\n"
+                                + "  InsetsSource id=12340002 type=captionBar "
+                                + "frame=[2147483648,0][800,40]\n",
+                        7);
+
+        assertNotNull(source);
+        assertEquals(0x12340002, source.sourceId);
+        assertNull(source.frame);
     }
 
     @Test

@@ -39,6 +39,68 @@ final class ShellAppFunctionGateway {
     private ShellAppFunctionGateway() {
     }
 
+    enum ArrayType {
+        EMPTY, BOOLEAN, LONG, DOUBLE, STRING, DOCUMENT
+    }
+
+    static JSONObject documentProperties(final JSONObject source) throws JSONException {
+        if (source.has("properties")) {
+            final Object properties = source.get("properties");
+            if (!(properties instanceof JSONObject)) {
+                throw new IllegalArgumentException("App Function properties must be an object");
+            }
+            return (JSONObject) properties;
+        }
+        final JSONObject properties = new JSONObject();
+        final java.util.Iterator<String> names = source.keys();
+        while (names.hasNext()) {
+            final String name = names.next();
+            if (!"namespace".equals(name) && !"id".equals(name)
+                    && !"schemaType".equals(name)) {
+                properties.put(name, source.get(name));
+            }
+        }
+        return properties;
+    }
+
+    static ArrayType arrayType(final JSONArray values) throws JSONException {
+        if (values.length() > MAX_ARRAY_VALUES) {
+            throw new IllegalArgumentException("App Function property array is too large");
+        }
+        ArrayType type = ArrayType.EMPTY;
+        for (int index = 0; index < values.length(); index++) {
+            final Object value = values.get(index);
+            final ArrayType next;
+            if (value instanceof Boolean) {
+                next = ArrayType.BOOLEAN;
+            } else if (value instanceof Byte || value instanceof Short
+                    || value instanceof Integer || value instanceof Long
+                    || value instanceof java.math.BigInteger) {
+                AutomationJsonArguments.longValue(value, "App Function array value");
+                next = ArrayType.LONG;
+            } else if (value instanceof Number) {
+                if (!Double.isFinite(((Number) value).doubleValue())) {
+                    throw new IllegalArgumentException(
+                            "App Function array numbers must be finite");
+                }
+                next = ArrayType.DOUBLE;
+            } else if (value instanceof String) {
+                next = ArrayType.STRING;
+            } else if (value instanceof JSONObject) {
+                next = ArrayType.DOCUMENT;
+            } else {
+                throw new IllegalArgumentException(
+                        "unsupported App Function array value at index " + index);
+            }
+            if (type != ArrayType.EMPTY && type != next) {
+                throw new IllegalArgumentException(
+                        "App Function property arrays must contain one value type");
+            }
+            type = next;
+        }
+        return type;
+    }
+
     static String execute(
             final Context context,
             final String packageName,
@@ -126,8 +188,6 @@ final class ShellAppFunctionGateway {
                 final GenericDocument parameters = document(
                         input,
                         input.optString("schemaType", "AppFunctionParameters"),
-                        input.optJSONObject("properties") == null
-                                ? input : input.getJSONObject("properties"),
                         0);
                 final ExecuteAppFunctionRequest request =
                         new ExecuteAppFunctionRequest.Builder(
@@ -200,8 +260,8 @@ final class ShellAppFunctionGateway {
         private static GenericDocument document(
                 final JSONObject source,
                 final String schemaType,
-                final JSONObject properties,
                 final int depth) throws JSONException {
+            final JSONObject properties = documentProperties(source);
             if (depth > MAX_DOCUMENT_DEPTH
                     || properties.length() > MAX_DOCUMENT_PROPERTIES) {
                 throw new IllegalArgumentException(
@@ -219,12 +279,6 @@ final class ShellAppFunctionGateway {
             final java.util.Iterator<String> names = properties.keys();
             while (names.hasNext()) {
                 final String name = names.next();
-                if ("namespace".equals(name)
-                        || "id".equals(name)
-                        || "schemaType".equals(name)
-                        || "properties".equals(name)) {
-                    continue;
-                }
                 setProperty(
                         builder,
                         boundedString(name),
@@ -254,8 +308,6 @@ final class ShellAppFunctionGateway {
                 builder.setPropertyDocument(name, document(
                         object,
                         object.optString("schemaType", "NestedDocument"),
-                        object.optJSONObject("properties") == null
-                                ? object : object.getJSONObject("properties"),
                         depth + 1));
             } else if (value instanceof JSONArray) {
                 setArrayProperty(
@@ -271,34 +323,30 @@ final class ShellAppFunctionGateway {
                 final String name,
                 final JSONArray values,
                 final int depth) throws JSONException {
-            if (values.length() > MAX_ARRAY_VALUES) {
-                throw new IllegalArgumentException(
-                        "App Function property array is too large: " + name);
-            }
-            if (values.length() == 0) {
+            final ArrayType type = arrayType(values);
+            if (type == ArrayType.EMPTY) {
                 builder.setPropertyString(name, new String[0]);
                 return;
             }
-            final Object first = values.get(0);
-            if (first instanceof Boolean) {
+            if (type == ArrayType.BOOLEAN) {
                 final boolean[] result = new boolean[values.length()];
                 for (int index = 0; index < result.length; index++) {
-                    result[index] = values.getBoolean(index);
+                    result[index] = (Boolean) values.get(index);
                 }
                 builder.setPropertyBoolean(name, result);
-            } else if (first instanceof Integer || first instanceof Long) {
+            } else if (type == ArrayType.LONG) {
                 final long[] result = new long[values.length()];
                 for (int index = 0; index < result.length; index++) {
-                    result[index] = values.getLong(index);
+                    result[index] = AutomationJsonArguments.longValue(values.get(index), name);
                 }
                 builder.setPropertyLong(name, result);
-            } else if (first instanceof Number) {
+            } else if (type == ArrayType.DOUBLE) {
                 final double[] result = new double[values.length()];
                 for (int index = 0; index < result.length; index++) {
-                    result[index] = values.getDouble(index);
+                    result[index] = ((Number) values.get(index)).doubleValue();
                 }
                 builder.setPropertyDouble(name, result);
-            } else if (first instanceof JSONObject) {
+            } else if (type == ArrayType.DOCUMENT) {
                 final GenericDocument[] result =
                         new GenericDocument[values.length()];
                 for (int index = 0; index < result.length; index++) {
@@ -306,15 +354,13 @@ final class ShellAppFunctionGateway {
                     result[index] = document(
                             object,
                             object.optString("schemaType", "NestedDocument"),
-                            object.optJSONObject("properties") == null
-                                    ? object : object.getJSONObject("properties"),
                             depth + 1);
                 }
                 builder.setPropertyDocument(name, result);
             } else {
                 final String[] result = new String[values.length()];
                 for (int index = 0; index < result.length; index++) {
-                    result[index] = boundedString(values.getString(index));
+                    result[index] = boundedString((String) values.get(index));
                 }
                 builder.setPropertyString(name, result);
             }

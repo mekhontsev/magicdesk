@@ -37,29 +37,23 @@ final class FileClipboardInterop {
         final FileOperationClipboard.Snapshot previous =
                 FileOperationClipboard.snapshot();
         final List<String> paths = new ArrayList<>(files.size());
-        boolean publishable = AndroidClipboardGateway.acceptsUriItemCount(
-                files.size());
         for (final ShellFileInfo file : files) {
             paths.add(file.absolutePath);
-            if (file.directory || file.symbolicLink || !file.readable) {
-                publishable = false;
-            }
         }
         final FileOperationClipboard.Snapshot stored =
                 FileOperationClipboard.set(paths, mode);
         boolean published = false;
-        if (publishable) {
-            try {
-                final List<AndroidContentPayload.UriItem> items =
-                        new ArrayList<>(files.size());
-                for (final ShellFileInfo file : files) {
-                    items.add(new AndroidContentPayload.UriItem(
-                            ShellFileGrantStore.create(context, file, false),
-                            file.mimeType));
-                }
+        List<AndroidContentPayload.UriItem> items = List.of();
+        try {
+            items = ShellFileGrantStore.createReadOnlySelection(context, files);
+            if (!items.isEmpty()) {
                 published = publish(context, items, stored);
-            } catch (RuntimeException ignored) {
-                // Android interop is additive; internal copy/move still works.
+            }
+        } catch (RuntimeException ignored) {
+            // Android interop is additive; internal copy/move still works.
+        } finally {
+            if (!published) {
+                ShellFileGrantStore.discardUnpublished(context, items);
             }
         }
         if (!published) {

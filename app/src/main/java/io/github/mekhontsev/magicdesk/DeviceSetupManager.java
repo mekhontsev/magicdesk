@@ -8,7 +8,6 @@ import android.provider.Settings;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -43,11 +42,10 @@ public final class DeviceSetupManager {
 
         Map<String, String> values = readUnprivilegedValues(
                 context, platform.windowing());
-        String runtimeError = "";
         boolean shellReady = false;
         int shizukuUid = -1;
         ShellAccess.Snapshot shellState = ShellAccess.refresh();
-        runtimeError = shellState.error;
+        String runtimeError = shellState.error;
         if (shellState.isReady()) {
             try {
                 final int serviceUid = ShellAccess.connectAndGetUid();
@@ -169,7 +167,7 @@ public final class DeviceSetupManager {
             throw new IOException(
                     "Shizuku setup could not fully provision desktop windowing");
         }
-        return audit(context, sessionProfile);
+        return after;
     }
 
     static Audit restoreDefaults(
@@ -316,26 +314,18 @@ public final class DeviceSetupManager {
         if (argument == null || argument.isEmpty()) {
             return "";
         }
-        Process process = null;
         try {
-            process = new ProcessBuilder(executable, argument)
-                    .redirectErrorStream(true)
-                    .start();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
-                final String line = reader.readLine();
-                process.waitFor();
-                return line == null ? "" : line.trim();
-            }
+            final BoundedProcessRunner.Result result = BoundedProcessRunner.run(
+                    new ProcessBuilder(executable, argument)
+                            .redirectErrorStream(true)
+                            .start());
+            return result.exitCode == 0 && !result.truncated
+                    ? result.output.trim() : "";
         } catch (IOException e) {
             return "";
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return "";
-        } finally {
-            if (process != null) {
-                process.destroy();
-            }
         }
     }
 

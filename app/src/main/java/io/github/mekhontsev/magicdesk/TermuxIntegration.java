@@ -36,11 +36,11 @@ final class TermuxIntegration {
     private static final String EXTRA_RESULT_PENDING_INTENT =
             "com.termux.RUN_COMMAND_PENDING_INTENT";
     private static final String RUNNER_APP_SHELL = "app-shell";
-    private static final String PTY_BOOTSTRAP =
+    static final String PTY_BOOTSTRAP =
             "set -eu\n"
             + "target=\"$7\"\n"
             + "mkdir -p \"${target%/*}\"\n"
-            + "tmp=\"$target.tmp.$$\"\n"
+            + "tmp=\"${target%/*}/.magicdesk-pty-tmp.$$\"\n"
             + "trap 'rm -f \"$tmp\"' EXIT HUP INT TERM\n"
             + "base64 -d > \"$tmp\"\n"
             + "chmod 700 \"$tmp\"\n"
@@ -162,8 +162,8 @@ final class TermuxIntegration {
                         target
                 })
                 .putExtra(EXTRA_STDIN, encodedHelper)
-                // The bridge handles the requested cwd after it starts, so
-                // an inaccessible shared path cannot prevent the PTY itself.
+                // Install from Termux's home. The bridge validates the requested
+                // cwd before launching a shell or publishing a ready PTY.
                 .putExtra(EXTRA_WORKDIR, HOME_DIRECTORY)
                 .putExtra(EXTRA_RUNNER, RUNNER_APP_SHELL)
                 .putExtra(EXTRA_BACKGROUND, true)

@@ -61,12 +61,6 @@ final class DesktopLaunchPresentation {
                         -1);
     }
 
-    DesktopLaunchPresentation withBounds(
-            final RelativeWindowBounds value) {
-        return new DesktopLaunchPresentation(
-                mode, value, instancePolicy, preferredTaskId);
-    }
-
     DesktopLaunchPresentation withInstancePolicy(
             final DesktopTaskInstancePolicy value) {
         return new DesktopLaunchPresentation(mode, bounds, value, -1);

@@ -86,6 +86,27 @@ public final class TaskInputWindowParserTest {
     }
 
     @Test
+    public void maximizeMenuRequiresTheExactTaskId() {
+        assertNull(TaskInputWindowParser.findMaximizeMenu(DUMP, 636));
+        assertNull(TaskInputWindowParser.findMaximizeMenu(
+                DUMP.replace("name=Maximize Menu for Task=6362",
+                        "name=Embedded{Maximize Menu for Task=6362}"),
+                636));
+    }
+
+    @Test
+    public void ignoresCaptionResizeAndMenuWindowsFromLastAnr() {
+        final String dump = "Input Dispatcher State:\n"
+                + "  Display: 155\n"
+                + "    Windows: <none>\n"
+                + "Input Dispatcher State at time of last ANR:\n" + DUMP;
+
+        assertNull(TaskInputWindowParser.findCaption(dump, 6362));
+        assertNull(TaskInputWindowParser.findResize(dump, 6362));
+        assertNull(TaskInputWindowParser.findMaximizeMenu(dump, 6362));
+    }
+
+    @Test
     public void ignoresInputWindowsClonedToMirrorDisplay() {
         final String mirrored = DUMP.replace(
                 "displayId=155, inputConfig=",
@@ -297,12 +318,47 @@ public final class TaskInputWindowParserTest {
         assertEquals(42, focused.applicationTaskId);
         assertEquals("com.example.game", focused.packageName);
         assertEquals("crash_dialog", focused.kind);
+        assertFalse(TaskInputWindowParser.isTaskFocused(focusDump, 20, 42));
         assertEquals(1, snapshot.systemDialogs().size());
         assertTrue(snapshot.hasErrorDialogForPackage("com.example.game"));
         assertFalse(snapshot.hasErrorDialogForPackage("com.example.other"));
         assertEquals(4321,
                 snapshot.processWindow(
                         20, 42, "com.example.game").ownerPid);
+    }
+
+    @Test
+    public void rememberedApplicationDoesNotOverrideSystemDialogFocus() {
+        for (final String title : new String[] {
+                "Application Error: com.example.game",
+                "Application Not Responding: com.example.game",
+                "System permission prompt"}) {
+            final String dump = "Input Dispatcher State:\n"
+                    + "  FocusedApplications:\n"
+                    + "    displayId=20, name='ActivityRecord{123 u0 com.example.game/.Main t42}'\n"
+                    + "  FocusedWindows:\n"
+                    + "    displayId=20, name='dialog " + title + "'\n"
+                    + "  FocusRequests:\n"
+                    + "  Display: 20\n"
+                    + "    Windows:\n"
+                    + "      0: name=dialog " + title + ", id=1, displayId=20, "
+                    + "inputConfig=0x0, alpha=1, applicationInfo.name=, "
+                    + "ownerPid=1000, ownerUid=1000, token=x\n";
+            assertTrue(TaskInputWindowParser.readWindowSnapshot(dump)
+                    .focusedWindow(20).isSystemDialog());
+            assertFalse(TaskInputWindowParser.isTaskFocused(dump, 20, 42));
+        }
+    }
+
+    @Test
+    public void errorDialogFocusIsRecognizedWithoutAWindowMapping() {
+        final String dump = "Input Dispatcher State:\n"
+                + "  FocusedApplications:\n"
+                + "    displayId=20, name='ActivityRecord{123 u0 com.example.game/.Main t42}'\n"
+                + "  FocusedWindows:\n"
+                + "    displayId=20, name='dialog Application Error: com.example.game'\n"
+                + "  FocusRequests:\n";
+        assertFalse(TaskInputWindowParser.isTaskFocused(dump, 20, 42));
     }
 
     @Test

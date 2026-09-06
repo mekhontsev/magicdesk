@@ -176,7 +176,12 @@ public final class SettingsActivity extends Activity
 
     @Override
     public void openApplicationSettings() {
-        if (DesktopRuntimeBridge.openApplicationSettings(null)) {
+        final android.view.Display display = getDisplay();
+        final int displayId = display == null
+                ? android.view.Display.DEFAULT_DISPLAY
+                : display.getDisplayId();
+        if (displayId == DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                && DesktopRuntimeBridge.openApplicationSettings(null)) {
             return;
         }
         startActivityOnCurrentDisplay(

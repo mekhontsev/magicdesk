@@ -30,6 +30,10 @@ final class AndroidDesktopActionDispatcher {
     private AndroidDesktopActionDispatcher() {
     }
 
+    static ContentRequestScope createContentScope() {
+        return new ContentRequestScope(WORKER);
+    }
+
     static void dispatch(
             final Context context,
             final AndroidDesktopAction action,
@@ -42,17 +46,34 @@ final class AndroidDesktopActionDispatcher {
     }
 
     static void deliverContent(
+            final ContentRequestScope owner,
             final Context context,
             final AndroidContentPayload content,
             final AppLaunchTarget target,
             final DesktopLaunchPresentation presentation,
             final int displayId,
+            final Runnable release,
             final Callback callback) {
-        dispatch(
-                context,
-                gateway -> gateway.deliverContent(
-                        content, target, presentation, displayId),
-                callback);
+        final Context appContext = context.getApplicationContext();
+        owner.submit(cancelled -> new AndroidIntegrationGateway(appContext)
+                .deliverContent(content, target, presentation, displayId), release)
+                .thenAccept(completion -> {
+                    if (completion.value != null && completion.failure != null) {
+                        CompatibilityDiagnostics.record(
+                                "CONTENT-GRANT-RELEASE-001",
+                                "Could not release incoming content permissions",
+                                "deliveryCompleted=true", completion.failure);
+                    }
+                    // Delivery is already decided by the gateway. A grant-release
+                    // error must not tell the user to repeat a committed action.
+                    final DesktopAutomationResult completed = completion.value != null ? completion.value
+                            : DesktopAutomationResult.failure(
+                                    DesktopAutomationErrorCode.ACTION_FAILED,
+                                    ShellAccess.usefulMessage(completion.failure), false);
+                    if (callback != null) {
+                        owner.deliver(MAIN::post, () -> callback.onComplete(completed));
+                    }
+                });
     }
 
     static void shareContent(

@@ -13,7 +13,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Random;
 
 public final class ShellFileSystemTest {
     @Rule
@@ -37,6 +40,41 @@ public final class ShellFileSystemTest {
         final Path requested = directory.resolve("report.txt");
 
         assertEquals(requested, ShellFileSystem.availableTarget(requested));
+    }
+
+    @Test
+    public void conflictSelectionIsNotLimitedToOneDirectoryPage() throws IOException {
+        final Path directory = temporary.newFolder("many-conflicts").toPath();
+        final Path requested = Files.writeString(directory.resolve("report.txt"), "original");
+        for (int suffix = 2; suffix <= 510; suffix++) {
+            Files.createFile(directory.resolve("report (" + suffix + ").txt"));
+        }
+
+        assertEquals(directory.resolve("report (511).txt"),
+                ShellFileSystem.availableTarget(requested));
+        assertEquals("original", Files.readString(requested));
+    }
+
+    @Test
+    public void invalidImportNameUsesAvailableFallbackOnTheFilesystem() throws IOException {
+        final Path directory = temporary.newFolder("fallback").toPath();
+        Files.createFile(directory.resolve("Imported file"));
+        final Path requested = directory.resolve(ContentUriTransfer.safeFileName("../outside.txt"));
+
+        assertEquals(directory.resolve("Imported file (2)"),
+                ShellFileSystem.availableTarget(requested));
+    }
+
+    @Test
+    public void nameConflictFollowsTheDestinationFilesystemsCaseRules() throws IOException {
+        final Path directory = temporary.newFolder("case-rules").toPath();
+        final Path existing = Files.writeString(directory.resolve("Report.txt"), "original");
+        final Path requested = directory.resolve("report.txt");
+        final boolean conflicts = Files.exists(requested);
+
+        assertEquals(conflicts ? directory.resolve("report (2).txt") : requested,
+                ShellFileSystem.availableTarget(requested));
+        assertEquals("original", Files.readString(existing));
     }
 
     @Test
@@ -72,6 +110,44 @@ public final class ShellFileSystemTest {
         entries.sort(ShellFileSystem.comparator(
                 ShellFileSystem.SORT_SIZE, false));
         assertEquals(newerLarge, entries.get(0));
+    }
+
+    @Test
+    public void tiedMetadataHasStableOrderAcrossDirectoryPages() {
+        final List<ShellFileInfo> ordered = new ArrayList<>();
+        for (int index = 0; index < 1100; index++) {
+            ordered.add(entry(String.format(Locale.ROOT, "file-%04d.txt", index), false, 7L, 0L));
+        }
+        for (final int sort : new int[] {ShellFileSystem.SORT_MODIFIED, ShellFileSystem.SORT_SIZE}) {
+            final List<ShellFileInfo> firstRead = new ArrayList<>(ordered);
+            final List<ShellFileInfo> nextRead = new ArrayList<>(ordered);
+            Collections.shuffle(firstRead, new Random(1));
+            Collections.shuffle(nextRead, new Random(2));
+            firstRead.sort(ShellFileSystem.comparator(sort, true));
+            nextRead.sort(ShellFileSystem.comparator(sort, true));
+            final List<ShellFileInfo> pages = new ArrayList<>(firstRead.subList(0, 500));
+            pages.addAll(nextRead.subList(500, nextRead.size()));
+
+            assertEquals(ordered, pages);
+            nextRead.sort(ShellFileSystem.comparator(sort, false));
+            Collections.reverse(nextRead);
+            assertEquals(ordered, nextRead);
+        }
+    }
+
+    @Test
+    public void namesDifferingOnlyByCaseHaveAnUnambiguousOrder() {
+        final var lower = entry("alpha", false, 0L, 0L);
+        final var upper = entry("Alpha", false, 0L, 0L);
+        final var directory = entry("zeta", true, 0L, 0L);
+        for (final int sort : new int[] {
+                ShellFileSystem.SORT_NAME, ShellFileSystem.SORT_MODIFIED, ShellFileSystem.SORT_SIZE}) {
+            final List<ShellFileInfo> entries = new ArrayList<>(List.of(lower, directory, upper));
+            entries.sort(ShellFileSystem.comparator(sort, true));
+            assertEquals(List.of(directory, upper, lower), entries);
+            entries.sort(ShellFileSystem.comparator(sort, false));
+            assertEquals(List.of(directory, lower, upper), entries);
+        }
     }
 
     @Test

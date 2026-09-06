@@ -128,8 +128,14 @@ final class TermuxPtyTransport implements TerminalTransport {
                 } catch (SocketTimeoutException error) {
                     break;
                 }
+                final long handshakeRemaining = deadline
+                        - android.os.SystemClock.uptimeMillis();
+                if (handshakeRemaining <= 0L) {
+                    socket.close();
+                    break;
+                }
                 final TermuxPtyTransport accepted = acceptClient(
-                        socket, token, workingDirectory, remaining);
+                        socket, token, workingDirectory, (int) handshakeRemaining);
                 if (accepted != null) {
                     return accepted;
                 }
@@ -158,17 +164,13 @@ final class TermuxPtyTransport implements TerminalTransport {
                 return null;
             }
             socket.setTcpNoDelay(true);
-            socket.setSoTimeout((int) Math.min(
-                    CLIENT_HANDSHAKE_MILLIS,
-                    Math.max(1, remainingMillis)));
-            final DataInputStream input = new DataInputStream(
-                    socket.getInputStream());
             final TermuxPtyProtocol.Hello hello =
-                    TermuxPtyProtocol.parseHello(
-                            TermuxPtyProtocol.readFrame(input), token);
+                    TermuxPtyProtocol.readHello(socket, token, (int) Math.min(
+                            CLIENT_HANDSHAKE_MILLIS, Math.max(1, remainingMillis)));
             socket.setSoTimeout(0);
             return new TermuxPtyTransport(
-                    socket, input, hello.processId, workingDirectory);
+                    socket, new DataInputStream(socket.getInputStream()),
+                    hello.processId, workingDirectory);
         } catch (IOException | RuntimeException error) {
             try {
                 socket.close();

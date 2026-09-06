@@ -229,6 +229,17 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                                 mRoutePhysicalMice,
                                 mRouteVirtualMouse)
                         : Collections.emptyList();
+        final Set<String> requestedPorts = new LinkedHashSet<>(mAssociatedInputPorts);
+        for (final DesktopKeyboardDevice keyboard : keyboards) {
+            addRequestedPort(requestedPorts, keyboard.location);
+        }
+        for (final DesktopMouseDevice mouse : mice) {
+            addRequestedPort(requestedPorts, mouse.location);
+        }
+        if (!requestedPorts.equals(mAssociatedInputPorts)) {
+            // Retain recovery ownership even if a later hotplug association fails.
+            DesktopInputRoutingOwnership.record(requestedPorts);
+        }
         if (hasUnassociatedMouse(mice)
                 && mPointer.supportsDisplay(mDisplayId)) {
             mPointer.refreshViewport();

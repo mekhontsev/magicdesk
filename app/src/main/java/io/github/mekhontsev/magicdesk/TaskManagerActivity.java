@@ -10,7 +10,9 @@ import android.os.Looper;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public final class TaskManagerActivity extends Activity
         implements ShellAccess.StateListener {
@@ -21,7 +23,8 @@ public final class TaskManagerActivity extends Activity
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final SystemMonitorRepository mMonitor =
             new SystemMonitorRepository();
-    private final Runnable mScheduledRefresh = this::refresh;
+    private final Runnable mScheduledRefresh = () -> refresh(false);
+    private TaskRepository.Snapshot mStandaloneSnapshot;
     private boolean mDestroyed;
     private boolean mStarted;
     private boolean mLoading;
@@ -84,6 +87,7 @@ public final class TaskManagerActivity extends Activity
     protected void onStop() {
         mStarted = false;
         mLoading = false;
+        mStandaloneSnapshot = null;
         mLoadGeneration++;
         mHandler.removeCallbacks(mScheduledRefresh);
         ShellAccess.removeStateListener(this);
@@ -110,6 +114,7 @@ public final class TaskManagerActivity extends Activity
                 refresh();
             } else {
                 mLoading = false;
+                mStandaloneSnapshot = null;
                 mLoadGeneration++;
                 mHandler.removeCallbacks(mScheduledRefresh);
                 mView.showUnavailable(
@@ -119,6 +124,10 @@ public final class TaskManagerActivity extends Activity
     }
 
     private void refresh() {
+        refresh(true);
+    }
+
+    private void refresh(final boolean requestTasks) {
         mHandler.removeCallbacks(mScheduledRefresh);
         if (!mStarted || mDestroyed) {
             return;
@@ -139,23 +148,61 @@ public final class TaskManagerActivity extends Activity
                 !mHasRenderedContent
                         || ++mRefreshCycle
                         % PROCESS_MEMORY_REFRESH_CYCLES == 0;
-        TaskRepository.load(-1, snapshot -> runOnUiThread(() -> {
-            if (mDestroyed || generation != mLoadGeneration) {
-                return;
-            }
-            if (!snapshot.available) {
-                mView.showUnavailable(snapshot.error);
-                finishRefresh();
-                return;
-            }
-            mMonitor.load(includeProcessMemory, monitor -> runOnUiThread(() -> {
-                if (mDestroyed || generation != mLoadGeneration) {
+        final int displayId = observationDisplayId();
+        if (displayId >= 0) {
+            mStandaloneSnapshot = null;
+        }
+        if (requestTasks && displayId < 0) {
+            TaskRepository.load(-1, snapshot -> runOnUiThread(() -> {
+                if (!mStarted || mDestroyed || generation != mLoadGeneration) {
                     return;
                 }
-                render(snapshot.tasks, monitor);
-                finishRefresh();
+                mStandaloneSnapshot = observationDisplayId() < 0 ? snapshot : null;
+                refreshMonitor(generation, includeProcessMemory);
             }));
+        } else {
+            refreshMonitor(generation, includeProcessMemory);
+        }
+    }
+
+    private void refreshMonitor(final int generation, final boolean includeProcessMemory) {
+        mMonitor.load(includeProcessMemory, monitor -> runOnUiThread(() -> {
+            if (!mStarted || mDestroyed || generation != mLoadGeneration) {
+                return;
+            }
+            final int displayId = observationDisplayId();
+            final TaskRepository.Snapshot snapshot;
+            if (displayId >= 0) {
+                mStandaloneSnapshot = null;
+                snapshot = MagicDeskRuntime.observedTaskSnapshot(displayId);
+            } else {
+                snapshot = mStandaloneSnapshot;
+            }
+            if (snapshot == null || !snapshot.available) {
+                mView.showUnavailable(snapshot == null ? "unknown" : snapshot.error);
+            } else {
+                render(allTasks(snapshot), monitor);
+            }
+            finishRefresh();
         }));
+    }
+
+    private static int observationDisplayId() {
+        final DesktopSessionSnapshot session = DesktopRuntimeBridge.getSessionSnapshot();
+        // A prepared target survives host recreation; it is not a standalone query path.
+        return session.hasHost() ? session.activeDisplayId()
+                : session.target() == null ? -1 : session.target().displayId;
+    }
+
+    static List<TaskRepository.TaskEntry> allTasks(final TaskRepository.Snapshot snapshot) {
+        final Map<Integer, TaskRepository.TaskEntry> tasks = new LinkedHashMap<>();
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            tasks.put(Integer.valueOf(task.taskId), task);
+        }
+        for (final TaskRepository.TaskEntry task : snapshot.phoneTasks) {
+            tasks.putIfAbsent(Integer.valueOf(task.taskId), task);
+        }
+        return new ArrayList<>(tasks.values());
     }
 
     private void finishRefresh() {

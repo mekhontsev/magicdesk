@@ -48,13 +48,10 @@ final class WebShortcutShareRequest {
     }
 
     static String findHttpUrl(final CharSequence text) {
-        if (text == null) {
+        if (text == null || text.length() > MAX_SHARED_TEXT_LENGTH) {
             return null;
         }
         final String value = text.toString().trim();
-        if (value.length() > MAX_SHARED_TEXT_LENGTH) {
-            return null;
-        }
         final String exact = normalizeCandidate(value);
         if (exact != null) {
             return exact;
@@ -83,12 +80,9 @@ final class WebShortcutShareRequest {
         }
     }
 
-    private static String normalizeName(
+    static String normalizeName(
             final CharSequence title, final String url) {
-        String name = title == null ? "" : title.toString();
-        if (name.length() > MAX_SHARED_TEXT_LENGTH) {
-            name = name.substring(0, MAX_SHARED_TEXT_LENGTH);
-        }
+        String name = BoundedText.prefix(title, MAX_SHARED_TEXT_LENGTH);
         name = name.replaceAll("\\s+", " ").trim();
         if (name.isEmpty()) {
             try {
@@ -98,7 +92,6 @@ final class WebShortcutShareRequest {
                 name = url;
             }
         }
-        return name.length() <= MAX_NAME_LENGTH
-                ? name : name.substring(0, MAX_NAME_LENGTH).trim();
+        return BoundedText.prefix(name, MAX_NAME_LENGTH).trim();
     }
 }

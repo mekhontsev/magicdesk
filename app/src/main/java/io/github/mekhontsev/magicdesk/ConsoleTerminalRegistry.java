@@ -17,9 +17,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Process-local semantic registry for visible interactive Console windows. */
 final class ConsoleTerminalRegistry {
@@ -322,9 +322,11 @@ final class ConsoleTerminalRegistry {
             }
             throw new IllegalStateException("terminal operation failed", cause);
         } catch (TimeoutException error) {
-            MAIN.removeCallbacks(task);
-            task.cancel(false);
             throw new IllegalStateException("terminal UI thread timed out", error);
+        } finally {
+            // A cancelled MCP worker must not leave queued terminal input behind.
+            task.cancel(false);
+            MAIN.removeCallbacks(task);
         }
     }
 

@@ -28,10 +28,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 final class DesktopWallpaperController {
     private static final String TAG = "MagicDeskWallpaper";
-    private static final int BUFFER_SIZE = 32 * 1024;
+    private static final long MAX_DECODED_PIXELS = 16L * 1024 * 1024;
 
     private final DesktopShellActivity mActivity;
     private final Context mContext;
@@ -92,6 +93,9 @@ final class DesktopWallpaperController {
     }
 
     void useSystemWallpaper() {
+        if (!mStarted) {
+            return;
+        }
         mExecutor.execute(() -> {
             try {
                 ShellAccess.deleteDesktopWallpaper();
@@ -145,12 +149,20 @@ final class DesktopWallpaperController {
         final DisplayMetrics metrics = mWallpaperView.getResources().getDisplayMetrics();
         final int targetWidth = Math.max(1, metrics.widthPixels);
         final int targetHeight = Math.max(1, metrics.heightPixels);
+        final BooleanSupplier cancelled = () -> generation != mLoadGeneration.get();
         mExecutor.execute(new Runnable() {
             @Override
             public void run() {
                 try {
+                    ContentStreamCopy.checkCancelled(cancelled);
+                    final WallpaperResult source = loadWallpaper(
+                            targetWidth, targetHeight, cancelled);
+                    if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) {
+                        source.bitmap.recycle();
+                        return;
+                    }
                     final WallpaperResult result = renderDisplayFrame(
-                            loadWallpaper(targetWidth, targetHeight),
+                            source,
                             targetWidth,
                             targetHeight);
                     mMainHandler.post(new Runnable() {
@@ -166,7 +178,10 @@ final class DesktopWallpaperController {
                             publishRenderedFrame(generation, result);
                         }
                     });
-                } catch (RuntimeException error) {
+                } catch (IOException | RuntimeException error) {
+                    if (cancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) {
+                        return;
+                    }
                     Log.w(TAG, "Cannot render desktop background", error);
                     CompatibilityDiagnostics.record(
                             "WALLPAPER-002",
@@ -214,69 +229,101 @@ final class DesktopWallpaperController {
 
     private WallpaperResult loadWallpaper(
             final int targetWidth,
-            final int targetHeight) {
+            final int targetHeight,
+            final BooleanSupplier cancelled) throws IOException {
         final File cacheFile = new File(
                 mContext.getCacheDir(), "desktop-wallpaper");
         final File customCacheFile = new File(
                 mContext.getCacheDir(), "desktop-custom-wallpaper");
         if (!ShellAccess.isReady()) {
-            if (customCacheFile.isFile()) {
-                try {
-                    return new WallpaperResult(decodeWallpaper(
-                            customCacheFile,
-                            targetWidth,
-                            targetHeight), true, false);
-                } catch (IOException error) {
-                    customCacheFile.delete();
-                }
-            }
-            return cachedOrBuiltInOrFallback(
-                    cacheFile, targetWidth, targetHeight);
+            return cachedCustomOrSystem(customCacheFile, cacheFile, targetWidth, targetHeight);
         }
-        final File pendingFile = new File(
-                mContext.getCacheDir(), "desktop-wallpaper.pending");
+        final File pendingFile;
         try {
-            if (copyCustomWallpaper(pendingFile)) {
-                final Bitmap wallpaper = decodeWallpaper(
-                        pendingFile, targetWidth, targetHeight);
-                replaceCachedWallpaper(pendingFile, customCacheFile);
-                return new WallpaperResult(wallpaper, true, false);
-            }
-            customCacheFile.delete();
+            pendingFile = createPendingFile(mContext.getCacheDir());
         } catch (IOException | RuntimeException error) {
-            Log.w(TAG, "Custom desktop wallpaper unavailable", error);
-            CompatibilityDiagnostics.record(
-                    "WALLPAPER-003",
-                    "Custom desktop wallpaper unavailable",
-                    usefulMessage(error),
-                    error);
-            if (customCacheFile.isFile()) {
-                try {
-                    return new WallpaperResult(decodeWallpaper(
-                            customCacheFile,
-                            targetWidth,
-                            targetHeight), true, false);
-                } catch (IOException cacheError) {
-                    customCacheFile.delete();
+            ContentStreamCopy.checkCancelled(cancelled);
+            Log.w(TAG, "Cannot prepare wallpaper cache", error);
+            return cachedCustomOrSystem(customCacheFile, cacheFile, targetWidth, targetHeight);
+        }
+        try {
+            try {
+                if (copyCustomWallpaper(pendingFile, cancelled)) {
+                    return decodeAndCache(pendingFile, customCacheFile,
+                            targetWidth, targetHeight, true, cancelled);
                 }
+                ContentStreamCopy.checkCancelled(cancelled);
+                customCacheFile.delete();
+            } catch (IOException | RuntimeException error) {
+                ContentStreamCopy.checkCancelled(cancelled);
+                Log.w(TAG, "Custom desktop wallpaper unavailable", error);
+                CompatibilityDiagnostics.record(
+                        "WALLPAPER-003",
+                        "Custom desktop wallpaper unavailable",
+                        usefulMessage(error),
+                        error);
+                final WallpaperResult cached = cachedCustomWallpaper(
+                        customCacheFile, targetWidth, targetHeight);
+                if (cached != null) {
+                    return cached;
+                }
+            }
+            ContentStreamCopy.checkCancelled(cancelled);
+            try {
+                copyShellWallpaper(pendingFile, cancelled);
+                return decodeAndCache(pendingFile, cacheFile,
+                        targetWidth, targetHeight, false, cancelled);
+            } catch (IOException | RuntimeException error) {
+                ContentStreamCopy.checkCancelled(cancelled);
+                Log.d(TAG, "Current system wallpaper unavailable: " + usefulMessage(error));
+                return cachedOrBuiltInOrFallback(cacheFile, targetWidth, targetHeight);
             }
         } finally {
             pendingFile.delete();
         }
+    }
+
+    private WallpaperResult cachedCustomOrSystem(
+            final File customCacheFile, final File cacheFile,
+            final int targetWidth, final int targetHeight) {
+        final WallpaperResult custom = cachedCustomWallpaper(
+                customCacheFile, targetWidth, targetHeight);
+        return custom != null ? custom
+                : cachedOrBuiltInOrFallback(cacheFile, targetWidth, targetHeight);
+    }
+
+    private WallpaperResult cachedCustomWallpaper(
+            final File cacheFile, final int targetWidth, final int targetHeight) {
+        if (cacheFile.isFile()) {
+            try {
+                return new WallpaperResult(decodeWallpaper(
+                        cacheFile, targetWidth, targetHeight), true, false);
+            } catch (IOException error) {
+                cacheFile.delete();
+            }
+        }
+        return null;
+    }
+
+    private WallpaperResult decodeAndCache(
+            final File pendingFile, final File cacheFile,
+            final int targetWidth, final int targetHeight,
+            final boolean custom, final BooleanSupplier cancelled) throws IOException {
+        ContentStreamCopy.checkCancelled(cancelled);
+        final Bitmap wallpaper = decodeWallpaper(pendingFile, targetWidth, targetHeight);
         try {
-            copySystemWallpaper(pendingFile);
-            final Bitmap wallpaper = decodeWallpaper(
-                    pendingFile, targetWidth, targetHeight);
+            ContentStreamCopy.checkCancelled(cancelled);
             replaceCachedWallpaper(pendingFile, cacheFile);
-            return new WallpaperResult(wallpaper, false, false);
-        } catch (IOException | RuntimeException error) {
-            Log.d(TAG, "Current system wallpaper unavailable: "
-                    + usefulMessage(error));
-            return cachedOrBuiltInOrFallback(
-                    cacheFile, targetWidth, targetHeight);
-        } finally {
-            pendingFile.delete();
+            return new WallpaperResult(wallpaper, custom, false);
+        } catch (IOException | RuntimeException | Error error) {
+            wallpaper.recycle();
+            throw error;
         }
+    }
+
+    static File createPendingFile(final File directory) throws IOException {
+        // Controllers may overlap while their HOME hosts are being replaced.
+        return File.createTempFile("desktop-wallpaper-", ".pending", directory);
     }
 
     private static WallpaperResult renderDisplayFrame(
@@ -406,12 +453,10 @@ final class DesktopWallpaperController {
         return wallpaper;
     }
 
-    private void copySystemWallpaper(final File destination) throws IOException {
-        copyShellWallpaper(destination);
-    }
-
-    private static boolean copyCustomWallpaper(final File destination)
+    private static boolean copyCustomWallpaper(
+            final File destination, final BooleanSupplier cancelled)
             throws IOException {
+        ContentStreamCopy.checkCancelled(cancelled);
         final ParcelFileDescriptor descriptor =
                 ShellAccess.openDesktopWallpaper();
         if (descriptor == null) {
@@ -421,10 +466,10 @@ final class DesktopWallpaperController {
                         new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
                 FileOutputStream output =
                         new FileOutputStream(destination, false)) {
-            copy(input, output);
-        }
-        if (destination.length() == 0) {
-            throw new IOException("custom desktop wallpaper is empty");
+            if (ContentStreamCopy.copy(input, output, cancelled,
+                    ShellDesktopDirectory.MAX_WALLPAPER_BYTES) == 0) {
+                throw new IOException("custom desktop wallpaper is empty");
+            }
         }
         return true;
     }
@@ -439,26 +484,18 @@ final class DesktopWallpaperController {
         }
     }
 
-    private static void copyShellWallpaper(final File destination)
+    private static void copyShellWallpaper(
+            final File destination, final BooleanSupplier cancelled)
             throws IOException {
+        ContentStreamCopy.checkCancelled(cancelled);
         try (InputStream input = new ParcelFileDescriptor.AutoCloseInputStream(
                         ShellAccess.openSystemWallpaper());
                 FileOutputStream output =
                         new FileOutputStream(destination, false)) {
-            copy(input, output);
-        }
-        if (destination.length() == 0) {
-            throw new IOException("Shell wallpaper read returned no data");
-        }
-    }
-
-    private static void copy(
-            final InputStream input,
-            final FileOutputStream output) throws IOException {
-        final byte[] buffer = new byte[BUFFER_SIZE];
-        int count;
-        while ((count = input.read(buffer)) >= 0) {
-            output.write(buffer, 0, count);
+            if (ContentStreamCopy.copy(input, output, cancelled,
+                    ShellDesktopDirectory.MAX_WALLPAPER_BYTES) == 0) {
+                throw new IOException("Shell wallpaper read returned no data");
+            }
         }
     }
 
@@ -469,11 +506,21 @@ final class DesktopWallpaperController {
                 : message.trim();
     }
 
-    private static int calculateSampleSize(final int sourceWidth, final int sourceHeight,
+    static int calculateSampleSize(final int sourceWidth, final int sourceHeight,
             final int targetWidth, final int targetHeight) {
+        if (sourceWidth <= 0 || sourceHeight <= 0
+                || targetWidth <= 0 || targetHeight <= 0) {
+            throw new IllegalArgumentException("wallpaper dimensions must be positive");
+        }
         int sampleSize = 1;
-        while (sourceWidth / (sampleSize * 2) >= targetWidth
-                && sourceHeight / (sampleSize * 2) >= targetHeight) {
+        while (sourceWidth / (sampleSize * 2L) >= targetWidth
+                && sourceHeight / (sampleSize * 2L) >= targetHeight) {
+            sampleSize *= 2;
+        }
+        // Encoded size and the short image edge do not bound decoded memory.
+        while (((sourceWidth + sampleSize - 1L) / sampleSize)
+                * ((sourceHeight + sampleSize - 1L) / sampleSize)
+                > MAX_DECODED_PIXELS) {
             sampleSize *= 2;
         }
         return sampleSize;

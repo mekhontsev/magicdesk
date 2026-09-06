@@ -73,7 +73,7 @@ final class DesktopPlacementEngine {
             final int preferredColumn,
             final int preferredRow) {
         DesktopPlacement best = null;
-        int bestDistance = Integer.MAX_VALUE;
+        long bestDistance = Long.MAX_VALUE;
         final int safeColumnSpan = Math.max(1, Math.min(columns, columnSpan));
         final int safeRowSpan = Math.max(1, Math.min(rows, rowSpan));
         for (int row = 0; row <= rows - safeRowSpan; row++) {
@@ -83,8 +83,8 @@ final class DesktopPlacementEngine {
                 if (!isAvailable(candidate, occupied, columns, rows)) {
                     continue;
                 }
-                final int distance = Math.abs(column - preferredColumn)
-                        + Math.abs(row - preferredRow);
+                final long distance = Math.abs((long) column - preferredColumn)
+                        + Math.abs((long) row - preferredRow);
                 if (best == null || distance < bestDistance) {
                     best = candidate;
                     bestDistance = distance;

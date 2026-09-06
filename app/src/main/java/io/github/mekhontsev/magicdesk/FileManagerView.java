@@ -46,7 +46,7 @@ final class FileManagerView {
         boolean onContextMenu(View anchor, ShellFileInfo file);
         boolean onBackgroundContextMenu(
                 View anchor, float rawX, float rawY);
-        void onStartDrag(
+        boolean onStartDrag(
                 View source, ShellFileInfo file, int metaState);
         boolean onDrop(DragEvent event, String destinationPath);
         boolean onApplicationDrop(
@@ -87,6 +87,7 @@ final class FileManagerView {
     private final ShellFileAdapter mAdapter;
     private final TextView mEmpty;
     private final TextView mStatus;
+    private final FileManagerStatus mStatusState = new FileManagerStatus();
     private final LinearLayout mFilterPanel;
     private final EditText mFilter;
     private final ImageButton mBack;
@@ -360,10 +361,7 @@ final class FileManagerView {
                 listener::onItemClick,
                 listener::onSelectionChanged,
                 listener::onContextMenu,
-                (row, file, metaState) -> {
-                    listener.onStartDrag(row, file, metaState);
-                    return true;
-                },
+                listener::onStartDrag,
                 listener::onDrop,
                 listener::onApplicationDrop);
         mAdapter.setLayoutMode(initialLayoutMode);
@@ -491,7 +489,23 @@ final class FileManagerView {
     }
 
     void setStatus(final String text) {
-        mStatus.setText(text);
+        mStatusState.message(text);
+        renderStatus();
+    }
+
+    void setSummary(final String text) {
+        mStatusState.summary(text);
+        renderStatus();
+    }
+
+    void clearStatus() {
+        mStatusState.clearMessage();
+        renderStatus();
+    }
+
+    private void renderStatus() {
+        mStatus.setText(mStatusState.text());
+        mStatus.setTooltipText(mStatusState.text());
     }
 
     void setNavigationEnabled(

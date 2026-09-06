@@ -17,8 +17,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private static final String TAG = "MagicDeskFullscreenPlanes";
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final int WINDOWING_MODE_FREEFORM = 5;
-    private static final long FAILED_LAUNCH_REMOVAL_TIMEOUT_MILLIS = 1_000L;
-    private static final long FAILED_LAUNCH_REMOVAL_POLL_MILLIS = 25L;
 
     private final Map<Integer, TaskDisplayAreaHandle> mPlanes =
             new LinkedHashMap<>();
@@ -26,6 +24,8 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             new LinkedHashMap<>();
     private final List<TaskDisplayAreaHandle> mAvailablePlanes =
             new ArrayList<>();
+    private final Set<TaskDisplayAreaHandle> mUnconfirmedPlanes =
+            new LinkedHashSet<>();
     private final List<Integer> mPlaneOrder = new ArrayList<>();
     private Object mService;
     private int mDisplayId = -1;
@@ -272,6 +272,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         if (!mAvailablePlanes.isEmpty()) {
             final TaskDisplayAreaHandle plane = mAvailablePlanes.remove(0);
             requirePlaneAnchor(service, displayId, plane);
+            requireEmptyPlane(service, displayId, plane);
             return plane;
         }
         final TaskDisplayAreaHandle plane =
@@ -516,10 +517,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         return true;
     }
 
-    synchronized boolean hasPlanes() {
-        return !mPlanes.isEmpty();
-    }
-
     synchronized int planeFeatureId(final int taskId) {
         final TaskDisplayAreaHandle plane =
                 mPlanes.get(Integer.valueOf(taskId));
@@ -538,11 +535,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         try {
             final Object task = HiddenTaskApi.requireTask(
                     mService, displayId, taskId);
-            final Object windowConfiguration =
-                    HiddenTaskApi.getWindowConfiguration(task);
-            final Rect bounds = new Rect((Rect) windowConfiguration.getClass()
-                    .getMethod("getBounds")
-                    .invoke(windowConfiguration));
+            final Rect bounds = HiddenTaskApi.readBounds(task);
             if (!bounds.isEmpty()) {
                 restoreFreeform(
                         mService,
@@ -583,26 +576,27 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
 
         final Map<Integer, TaskDisplayAreaHandle> acquiredPlanes =
                 new LinkedHashMap<>();
-        for (final Integer taskId : fullscreenTaskIds) {
-            if (mPlanes.containsKey(taskId)) {
-                continue;
-            }
-            acquiredPlanes.put(
-                    taskId,
-                    acquirePlane(
-                            service, displayId));
-        }
-        final Map<Integer, TaskDisplayAreaHandle> effectivePlanes =
-                new LinkedHashMap<>(mPlanes);
-        effectivePlanes.putAll(acquiredPlanes);
-        final FrameworkWindowingApi windowing =
-                FrameworkRuntime.current().windowing();
-        final Class<?> transactionClass = windowing.transactionClass();
-        final Object transaction = windowing.newTransaction();
-        final boolean launchEnteringTask = forceEnteringFullscreen
-                && acquiredPlanes.containsKey(
-                        Integer.valueOf(enteringTaskId));
+        boolean submissionAttempted = false;
         try {
+            for (final Integer taskId : fullscreenTaskIds) {
+                if (mPlanes.containsKey(taskId)) {
+                    continue;
+                }
+                acquiredPlanes.put(
+                        taskId,
+                        acquirePlane(
+                                service, displayId));
+            }
+            final Map<Integer, TaskDisplayAreaHandle> effectivePlanes =
+                    new LinkedHashMap<>(mPlanes);
+            effectivePlanes.putAll(acquiredPlanes);
+            final FrameworkWindowingApi windowing =
+                    FrameworkRuntime.current().windowing();
+            final Class<?> transactionClass = windowing.transactionClass();
+            final Object transaction = windowing.newTransaction();
+            final boolean launchEnteringTask = forceEnteringFullscreen
+                    && acquiredPlanes.containsKey(
+                            Integer.valueOf(enteringTaskId));
             for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
                     : acquiredPlanes.entrySet()) {
                 final Object planeToken = entry.getValue().token();
@@ -715,6 +709,11 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 windowing.reorder(
                         transaction, enteringTaskToken, true, true);
             }
+            // A failed acknowledgement may follow a committed reparent. Keep
+            // reservation identity before submitting; never publish it as free.
+            mPlanes.putAll(acquiredPlanes);
+            mUnconfirmedPlanes.addAll(acquiredPlanes.values());
+            submissionAttempted = true;
             if (!forceEnteringFullscreen && acquiredPlanes.isEmpty()) {
                 final Object target = HiddenTaskApi.requireTask(service, displayId,
                         requestedTaskIds[requestedTaskIds.length - 1]);
@@ -760,7 +759,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                         enteringTaskId,
                         enteringPlane.featureId());
             }
-            mPlanes.putAll(acquiredPlanes);
+            mUnconfirmedPlanes.removeAll(acquiredPlanes.values());
             mPlaneOrder.clear();
             for (final int taskId : committedOrder) {
                 if (effectivePlanes.containsKey(Integer.valueOf(taskId))) {
@@ -775,9 +774,11 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     + " background="
                     + (mixedOrder == null ? "plane" : mixedOrder.fullscreenTaskId));
         } catch (ReflectiveOperationException | RuntimeException error) {
-            for (final TaskDisplayAreaHandle plane : acquiredPlanes.values()) {
-                if (!mAvailablePlanes.contains(plane)) {
-                    mAvailablePlanes.add(plane);
+            if (!submissionAttempted) {
+                for (final TaskDisplayAreaHandle plane : acquiredPlanes.values()) {
+                    if (!mAvailablePlanes.contains(plane)) {
+                        mAvailablePlanes.add(plane);
+                    }
                 }
             }
             throw error;
@@ -1043,7 +1044,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         }
     }
 
-
     private MixedStackOrder mixedStackOrder(
             final Object service,
             final int displayId,
@@ -1243,7 +1243,6 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     false);
         }
     }
-
 
     private void applySurfaceOrder(
             final int[] taskIds,
@@ -1626,6 +1625,42 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry
                 : new ArrayList<>(mPlanes.entrySet())) {
             final Integer featureId = taskFeatureIds.get(entry.getKey());
+            if (mUnconfirmedPlanes.contains(entry.getValue())) {
+                if (featureId == null
+                        || featureId.intValue() != entry.getValue().featureId()) {
+                    final TaskDisplayAreaHandle plane = entry.getValue();
+                    final Integer anchor = mPlaneAnchorTaskIds.get(plane);
+                    final Integer anchorFeature = taskFeatureIds.get(anchor);
+                    if (anchorFeature == null
+                            || anchorFeature.intValue() != plane.featureId()) {
+                        throw new IllegalStateException(
+                                "fullscreen slot observation is unavailable task="
+                                        + entry.getKey());
+                    }
+                    final List<Integer> children = new ArrayList<>();
+                    for (final Map.Entry<Integer, Integer> task
+                            : taskFeatureIds.entrySet()) {
+                        if (task.getValue().intValue() == plane.featureId()
+                                && !task.getKey().equals(anchor)) {
+                            children.add(task.getKey());
+                        }
+                    }
+                    if (children.size() > 1) {
+                        throw new IllegalStateException(
+                                "fullscreen slot has multiple application children="
+                                        + children);
+                    }
+                    mUnconfirmedPlanes.remove(plane);
+                    retirePlaneRecord(entry.getKey().intValue());
+                    if (children.isEmpty()) {
+                        parkPlane(service, plane);
+                    } else {
+                        retainObservedPlaneChildren(plane, children);
+                    }
+                    continue;
+                }
+                mUnconfirmedPlanes.remove(entry.getValue());
+            }
             if (featureId == null
                     || featureId.intValue() != entry.getValue().featureId()) {
                 removeTask(service, entry.getKey().intValue());
@@ -1642,39 +1677,20 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final int displayId,
             final int taskId,
             final TaskDisplayAreaHandle plane) {
-        if (taskId >= 0
-                && mPlanes.get(Integer.valueOf(taskId)) == plane) {
-            try {
-                HiddenTaskApi.removeTask(service, taskId);
-                if (HiddenTaskApi.findTask(service, displayId, taskId) == null) {
-                    releasePlane(service, taskId);
-                }
-            } catch (ReflectiveOperationException | RuntimeException error) {
-                Log.w(TAG, "could not remove failed fullscreen launch task="
-                        + taskId, error);
-            }
-            // If removal is asynchronous, its task callback releases the plane.
-            return;
-        }
-
+        mAvailablePlanes.remove(plane);
         try {
-            final List<Integer> unexpectedChildren =
+            final List<Integer> remainingChildren =
                     unexpectedPlaneChildren(service, displayId, plane);
-            for (final Integer childTaskId : unexpectedChildren) {
-                HiddenTaskApi.removeTask(service, childTaskId.intValue());
-            }
-            final List<Integer> remainingChildren = unexpectedChildren.isEmpty()
-                    ? unexpectedChildren
-                    : BoundedStateAwaiter.awaitFramework(
-                            BoundedStateAwaiter.Reason.TASK_REMOVAL,
-                            FAILED_LAUNCH_REMOVAL_TIMEOUT_MILLIS,
-                            FAILED_LAUNCH_REMOVAL_POLL_MILLIS,
-                            () -> unexpectedPlaneChildren(
-                                    service, displayId, plane),
-                            List::isEmpty);
             if (remainingChildren.isEmpty()) {
+                if (mPlanes.get(Integer.valueOf(taskId)) == plane) {
+                    mPlanes.remove(Integer.valueOf(taskId));
+                    mPlaneOrder.remove(Integer.valueOf(taskId));
+                }
                 parkPlane(service, plane);
             } else {
+                // Only the launch owner has creation provenance. A returned ID
+                // or an observed child does not authorize deleting an app task.
+                retainObservedPlaneChildren(plane, remainingChildren);
                 Log.w(TAG, "reserved fullscreen slot retained after failed "
                         + "launch feature=" + plane.featureId()
                         + " tasks=" + remainingChildren);
@@ -1682,6 +1698,14 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not reclaim failed fullscreen launch slot "
                     + "feature=" + plane.featureId(), error);
+        }
+    }
+
+    private void retainObservedPlaneChildren(
+            final TaskDisplayAreaHandle plane,
+            final List<Integer> children) {
+        if (children.size() == 1) {
+            mPlanes.put(children.get(0), plane);
         }
     }
 
@@ -1724,10 +1748,11 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final Object service,
             final TaskDisplayAreaHandle plane)
             throws ReflectiveOperationException {
-        requirePlaneAnchor(service, mDisplayId, plane);
-        if (!mAvailablePlanes.contains(plane)) {
-            mAvailablePlanes.add(plane);
+        if (mUnconfirmedPlanes.contains(plane)) {
+            throw new IllegalStateException("fullscreen slot submission is unconfirmed");
         }
+        requirePlaneAnchor(service, mDisplayId, plane);
+        requireEmptyPlane(service, mDisplayId, plane);
         final FrameworkWindowingApi windowing =
                 FrameworkRuntime.current().windowing();
         final Class<?> transactionClass = windowing.transactionClass();
@@ -1740,15 +1765,29 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         // Retiring one plane preserves the remaining composition, including
         // a fullscreen background whose freeform foreground now owns focus.
         applySurfaceOrder(toIntArray(mPlaneOrder), mPlanes, mPlanesBelowWorkspace);
+        if (!mAvailablePlanes.contains(plane)) {
+            mAvailablePlanes.add(plane);
+        }
+    }
+
+    private void requireEmptyPlane(
+            final Object service,
+            final int displayId,
+            final TaskDisplayAreaHandle plane) throws ReflectiveOperationException {
+        final List<Integer> children = unexpectedPlaneChildren(service, displayId, plane);
+        if (!children.isEmpty()) {
+            mAvailablePlanes.remove(plane);
+            retainObservedPlaneChildren(plane, children);
+            throw new IllegalStateException(
+                    "fullscreen slot is occupied feature=" + plane.featureId()
+                            + " tasks=" + children);
+        }
     }
 
     private TaskDisplayAreaHandle retirePlaneRecord(final int taskId) {
         mPlaneOrder.remove(Integer.valueOf(taskId));
         final TaskDisplayAreaHandle plane =
                 mPlanes.remove(Integer.valueOf(taskId));
-        if (plane != null && !mAvailablePlanes.contains(plane)) {
-            mAvailablePlanes.add(plane);
-        }
         return plane;
     }
 
@@ -1798,13 +1837,13 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         mPlanes.clear();
         mPlaneAnchorTaskIds.clear();
         mAvailablePlanes.clear();
+        mUnconfirmedPlanes.clear();
         mPlaneOrder.clear();
         mPlanesBelowWorkspace = true;
         mService = null;
         mNextPlaneSlotId = 0;
         mConcealedForShowDesktop = false;
     }
-
 
     private static void removeMigratedAnchorTasks(
             final Object service,

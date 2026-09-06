@@ -40,6 +40,7 @@ final class RedmagicHardwarePanelController
     private Button mPumpManual;
     private SeekBar mPumpSpeed;
     private boolean mUpdatingControls;
+    private boolean mTrackingPumpSpeed;
     private boolean mMonitoringActive;
 
     RedmagicHardwarePanelController(
@@ -113,14 +114,19 @@ final class RedmagicHardwarePanelController
                             final int progress,
                             final boolean fromUser) {
                         updatePumpSpeedStatus(progress);
+                        if (fromUser && !mUpdatingControls && !mTrackingPumpSpeed) {
+                            applyPumpMode(pumpModeForSpeed(progress));
+                        }
                     }
 
                     @Override
                     public void onStartTrackingTouch(final SeekBar seekBar) {
+                        mTrackingPumpSpeed = true;
                     }
 
                     @Override
                     public void onStopTrackingTouch(final SeekBar seekBar) {
+                        mTrackingPumpSpeed = false;
                         if (!mUpdatingControls) {
                             applyPumpMode(pumpModeForSpeed(
                                     seekBar.getProgress()));
@@ -377,7 +383,7 @@ final class RedmagicHardwarePanelController
         if (speed == RedmagicHardwareSnapshot.UNKNOWN) {
             return 2;
         }
-        return speed < 50 ? 1 : (speed < 70 ? 2 : 3);
+        return speed <= 60 ? 1 : (speed <= 70 ? 2 : 3);
     }
 
     private static RedmagicHardwareController.PumpMode pumpModeForSpeed(

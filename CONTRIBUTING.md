@@ -55,6 +55,17 @@ Run the complete local verification before submitting a change:
 ./gradlew verifyDevelopment
 ```
 
+On Linux or Termux, also run the native PTY and input recovery fixtures:
+
+```sh
+sh scripts/verify-native.sh
+```
+
+They require a host C compiler and coreutils `timeout`, use only their own
+PTYs and controlled input fixtures, and do not access physical input devices.
+Linux CI runs the same script. The Windows build still compiles the Android
+native helpers through the NDK; it does not execute Linux host fixtures.
+
 Debug and pull-request builds do not require release-signing credentials.
 
 To test the Standard Android platform driver on ZTE/nubia hardware, build:

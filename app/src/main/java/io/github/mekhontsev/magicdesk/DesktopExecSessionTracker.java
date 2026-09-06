@@ -1,8 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 
 /** Bounded observational state for commands delegated by launch requests. */
 final class DesktopExecSessionTracker {
@@ -15,8 +15,9 @@ final class DesktopExecSessionTracker {
     }
 
     private static final int MAX_SESSIONS = 32;
-    private static final Map<String, Session> SESSIONS =
+    private static final Map<String, State> SESSIONS =
             new LinkedHashMap<>();
+    private static long sNextId;
 
     private DesktopExecSessionTracker() {
     }
@@ -26,19 +27,10 @@ final class DesktopExecSessionTracker {
         if (request == null || request.exec == null) {
             return "";
         }
-        final String target = request.androidLaunch == null
-                || request.androidLaunch.target == null
-                ? "" : request.androidLaunch.target.packageName;
-        final int hash = Objects.hash(
-                request.exec.backend.wireName,
-                request.exec.command,
-                request.exec.workingDirectory,
-                target,
-                request.name);
+        // Each execution has its own completion callback, even for identical commands.
         final String id = request.exec.backend.wireName + "."
-                + Integer.toUnsignedString(hash, 16);
-        SESSIONS.remove(id);
-        SESSIONS.put(id, new Session(id, State.PREPARING));
+                + Long.toUnsignedString(++sNextId, 16);
+        SESSIONS.put(id, State.PREPARING);
         trim();
         return id;
     }
@@ -61,9 +53,9 @@ final class DesktopExecSessionTracker {
 
     static synchronized String diagnostics() {
         int active = 0;
-        Session latest = null;
-        for (final Session session : SESSIONS.values()) {
-            if (session.state == State.RUNNING) {
+        Map.Entry<String, State> latest = null;
+        for (final Map.Entry<String, State> session : SESSIONS.entrySet()) {
+            if (session.getValue() == State.RUNNING) {
                 active++;
             }
             latest = session;
@@ -72,19 +64,21 @@ final class DesktopExecSessionTracker {
                 + ", active=" + active
                 + (latest == null
                         ? ""
-                        : ", last=" + latest.id + ":"
-                                + latest.state.name().toLowerCase());
+                        : ", last=" + latest.getKey() + ":"
+                                + latest.getValue().name().toLowerCase(Locale.ROOT));
     }
 
     private static void update(final String id, final State state) {
         if (id == null || id.isEmpty()) {
             return;
         }
-        final Session previous = SESSIONS.remove(id);
-        if (previous == null) {
+        final State previous = SESSIONS.get(id);
+        if (previous == null || previous == State.FINISHED
+                || previous == State.FAILED || previous == State.DELEGATED) {
             return;
         }
-        SESSIONS.put(id, new Session(previous.id, state));
+        SESSIONS.remove(id);
+        SESSIONS.put(id, state);
     }
 
     private static void trim() {
@@ -94,15 +88,4 @@ final class DesktopExecSessionTracker {
         }
     }
 
-    private static final class Session {
-        final String id;
-        final State state;
-
-        Session(
-                final String id,
-                final State state) {
-            this.id = id;
-            this.state = state;
-        }
-    }
 }

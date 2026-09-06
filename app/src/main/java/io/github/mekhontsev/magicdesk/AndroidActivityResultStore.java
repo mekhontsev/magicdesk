@@ -1,35 +1,30 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
-import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.content.UriPermission;
 import android.net.Uri;
-import android.os.Bundle;
 import android.os.SystemClock;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
-/** Bounded event-driven result registry for MCP Activity result requests. */
+/** Bounded event-driven result registry for Activity result requests. */
 final class AndroidActivityResultStore {
     private static final int MAX_RESULTS = 64;
-    private static final int MAX_RESULT_URIS = 32;
-    private static final int MAX_EXTRAS = 32;
-    private static final int MAX_TEXT_CHARS = 8_192;
     private static final Object LOCK = new Object();
     private static final Map<String, Entry> ENTRIES = new LinkedHashMap<>();
-    private static final ArrayDeque<String> ORDER = new ArrayDeque<>();
+    private static PersistedUriPermissions sUriPermissions;
 
     private AndroidActivityResultStore() {
     }
@@ -79,19 +74,15 @@ final class AndroidActivityResultStore {
                 null);
     }
 
-    static String begin(final Context context, final Intent target) {
-        if (context == null) {
-            throw new IllegalArgumentException("result context is required");
-        }
+    static String begin(final Intent target) throws JSONException {
         final String id = UUID.randomUUID().toString();
         final ArrayList<Entry> evicted;
-        final Entry pending = Entry.pending(id, describeIntent(target));
+        final Entry pending = Entry.pending(id, AndroidActivityResultData.describeIntent(target));
         synchronized (LOCK) {
             ENTRIES.put(id, pending);
-            ORDER.addLast(id);
             evicted = trimLocked();
         }
-        releaseEntries(context, evicted);
+        releaseEntries(evicted);
         DesktopAutomationEventJournal.record(
                 "android-integration",
                 "activity-result-pending",
@@ -112,17 +103,39 @@ final class AndroidActivityResultStore {
                 return;
             }
         }
-        final Entry completed = Entry.completed(
-                id, resultCode, describeResult(context, data));
-        synchronized (LOCK) {
-            final Entry pending = ENTRIES.get(id);
-            if (pending == null || !pending.isPending()) {
-                releaseEntry(context, completed);
-                return;
+        final List<PersistedUriPermissions.Grant> grants = new ArrayList<>();
+        final Entry completed;
+        try {
+            final AndroidActivityResultData result = AndroidActivityResultData.read(data);
+            result.json.put("persistedUris", persistReturnedUris(context, result, grants));
+            completed = Entry.completed(
+                    id, resultCode, result.json, grants);
+        } catch (JSONException | RuntimeException error) {
+            try {
+                releaseGrants(grants);
+            } catch (RuntimeException cleanupFailure) {
+                if (cleanupFailure != error) {
+                    error.addSuppressed(cleanupFailure);
+                }
             }
-            ENTRIES.put(id, completed);
-            LOCK.notifyAll();
+            fail(id, error);
+            return;
         }
+        final boolean accepted;
+        final Entry previous;
+        synchronized (LOCK) {
+            previous = ENTRIES.get(id);
+            accepted = previous != null && previous.isPending();
+            if (accepted) {
+                ENTRIES.put(id, completed);
+                LOCK.notifyAll();
+            }
+        }
+        if (!accepted) {
+            releaseEntry(completed);
+            return;
+        }
+        previous.ready.complete(null);
         DesktopAutomationEventJournal.record(
                 "android-integration",
                 "activity-result-completed",
@@ -134,14 +147,16 @@ final class AndroidActivityResultStore {
     static void fail(final String id, final Throwable error) {
         final String message = ShellAccess.usefulMessage(error);
         final Entry failed = Entry.failed(id, message);
+        final Entry previous;
         synchronized (LOCK) {
-            final Entry pending = ENTRIES.get(id);
-            if (pending == null || !pending.isPending()) {
+            previous = ENTRIES.get(id);
+            if (previous == null || !previous.isPending()) {
                 return;
             }
             ENTRIES.put(id, failed);
             LOCK.notifyAll();
         }
+        previous.ready.complete(null);
         DesktopAutomationEventJournal.record(
                 "android-integration",
                 "activity-result-failed",
@@ -151,15 +166,14 @@ final class AndroidActivityResultStore {
     }
 
     static JSONObject get(
-            final Context context,
             final String id,
             final long waitMillis,
             final boolean consume) throws JSONException {
         final Entry entry;
         final boolean consumed;
         synchronized (LOCK) {
-            final long deadline = SystemClock.elapsedRealtime()
-                    + Math.max(0L, waitMillis);
+            final long deadline = waitMillis > 0L
+                    ? SystemClock.elapsedRealtime() + waitMillis : 0L;
             Entry current = ENTRIES.get(id);
             while (current != null
                     && "pending".equals(current.state)
@@ -183,7 +197,7 @@ final class AndroidActivityResultStore {
             if (consume && entry != null
                     && !entry.isPending()) {
                 ENTRIES.remove(id);
-                ORDER.remove(id);
+                LOCK.notifyAll();
                 consumed = true;
             } else {
                 consumed = false;
@@ -194,108 +208,106 @@ final class AndroidActivityResultStore {
                     .put("requestId", id)
                     .put("state", "not_found");
         }
+        // Consumption ends ownership even if serializing the response fails.
+        final JSONArray released = consumed ? releaseEntry(entry) : null;
         final JSONObject result = entry.toJson();
         if (consumed) {
             result.put("consumed", true)
-                    .put("releasedPersistedUris",
-                            releaseEntry(context, entry));
+                    .put("releasedPersistedUris", released);
         }
         return result;
     }
 
+    /** Notifies outside the registry lock; the callback reads the current result. */
+    static CompletableFuture<Void> whenReady(final String id, final Runnable callback) {
+        final CompletableFuture<Void> ready;
+        synchronized (LOCK) {
+            final Entry entry = ENTRIES.get(id);
+            ready = entry == null ? CompletableFuture.completedFuture(null) : entry.ready;
+        }
+        return ready.thenRun(callback);
+    }
+
+    static void discard(final String id) {
+        final Entry entry;
+        synchronized (LOCK) {
+            entry = ENTRIES.remove(id);
+            if (entry != null) {
+                LOCK.notifyAll();
+            }
+        }
+        if (entry != null) {
+            releaseEntry(entry);
+        }
+    }
+
+    static ClaimedResult claim(final String id) {
+        final Entry entry;
+        synchronized (LOCK) {
+            entry = ENTRIES.get(id);
+            if (entry == null || entry.isPending()) {
+                return null;
+            }
+            ENTRIES.remove(id);
+            LOCK.notifyAll();
+        }
+        return new ClaimedResult(entry);
+    }
+
+    /** An import owns this result until its provider I/O has finished. */
+    static final class ClaimedResult implements AutoCloseable {
+        private final Entry entry;
+
+        ClaimedResult(final Entry entry) {
+            this.entry = entry;
+        }
+
+        JSONObject toJson() throws JSONException {
+            return entry.toJson();
+        }
+
+        @Override
+        public void close() {
+            releaseEntry(entry);
+        }
+    }
+
     private static ArrayList<Entry> trimLocked() {
         final ArrayList<Entry> evicted = new ArrayList<>();
-        while (ORDER.size() > MAX_RESULTS) {
-            final Entry entry = ENTRIES.remove(ORDER.removeFirst());
-            if (entry != null) {
-                evicted.add(entry);
-            }
+        final Iterator<Entry> oldest = ENTRIES.values().iterator();
+        while (ENTRIES.size() > MAX_RESULTS && oldest.hasNext()) {
+            evicted.add(oldest.next());
+            oldest.remove();
+        }
+        if (!evicted.isEmpty()) {
+            LOCK.notifyAll();
         }
         return evicted;
     }
 
-    private static JSONObject describeIntent(final Intent intent) {
-        final JSONObject data = new JSONObject();
-        if (intent == null) {
-            return data;
-        }
-        try {
-            data.put("action", value(intent.getAction()))
-                    .put("dataUri", value(intent.getDataString()))
-                    .put("mimeType", value(intent.getType()))
-                    .put("component", intent.getComponent() == null
-                            ? "" : intent.getComponent().flattenToShortString())
-                    .put("package", value(intent.getPackage()));
-        } catch (JSONException ignored) {
-        }
-        return data;
-    }
-
-    private static JSONObject describeResult(
-            final Context context,
-            final Intent intent) {
-        final JSONObject data = describeIntent(intent);
-        if (intent == null) {
-            return data;
-        }
-        try {
-            final ClipData clip = intent.getClipData();
-            final JSONArray clipUris = new JSONArray();
-            if (clip != null) {
-                for (int index = 0;
-                        index < clip.getItemCount()
-                                && index < MAX_RESULT_URIS;
-                        index++) {
-                    final Uri uri = clip.getItemAt(index).getUri();
-                    if (uri != null) {
-                        clipUris.put(value(uri.toString()));
-                    }
-                }
-            }
-            data.put("clipUris", clipUris)
-                    .put("clipUrisTruncated", clip != null
-                            && clip.getItemCount() > MAX_RESULT_URIS)
-                    .put("grantFlags", intent.getFlags()
-                            & (Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                                    | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION))
-                    .put("persistedUris", persistReturnedUris(context, intent))
-                    .put("extras", scalarExtras(intent.getExtras()));
-        } catch (JSONException ignored) {
-        }
-        return data;
-    }
-
     private static JSONArray persistReturnedUris(
             final Context context,
-            final Intent intent) {
+            final AndroidActivityResultData result,
+            final List<PersistedUriPermissions.Grant> grants) {
         final JSONArray persisted = new JSONArray();
-        if (context == null || intent == null
-                || (intent.getFlags()
+        if (context == null
+                || (result.grantFlags
                         & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) == 0) {
             return persisted;
         }
-        final int modeFlags = intent.getFlags()
+        final int modeFlags = result.grantFlags
                 & (Intent.FLAG_GRANT_READ_URI_PERMISSION
                         | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         if (modeFlags == 0) {
             return persisted;
         }
-        final ArrayList<Uri> uris = new ArrayList<>();
-        addUri(uris, intent.getData());
-        final ClipData clip = intent.getClipData();
-        if (clip != null) {
-            for (int index = 0;
-                    index < clip.getItemCount() && index < MAX_RESULT_URIS;
-                    index++) {
-                addUri(uris, clip.getItemAt(index).getUri());
+        for (final String uri : result.returnedUris) {
+            if (!"content".equalsIgnoreCase(Uri.parse(uri).getScheme())) {
+                continue;
             }
-        }
-        for (final Uri uri : uris) {
             try {
-                takePersistedUri(context, uri, modeFlags);
-                persisted.put(uri.toString());
+                grants.add(uriPermissions(context).acquire(uri, modeFlags));
+                persisted.put(uri);
             } catch (SecurityException | UnsupportedOperationException ignored) {
                 // The provider may advertise a transient grant only.
             }
@@ -304,41 +316,73 @@ final class AndroidActivityResultStore {
     }
 
     private static void releaseEntries(
-            final Context context,
             final ArrayList<Entry> entries) {
         for (final Entry entry : entries) {
-            releaseEntry(context, entry);
+            try {
+                releaseEntry(entry);
+            } catch (RuntimeException error) {
+                // Eviction has committed; cleanup must not orphan the new request.
+                DesktopAutomationEventJournal.record(
+                        "android-integration", "evicted-result-grant-release-failed",
+                        false, error.getClass().getSimpleName(), diagnosticSummary(entry));
+            }
         }
     }
 
-    private static JSONArray releaseEntry(
-            final Context context,
-            final Entry entry) {
+    private static JSONArray releaseEntry(final Entry entry) {
+        try {
+            return releaseGrants(entry.grants);
+        } finally {
+            // Discard/eviction also ends a pending subscription. Late Activity
+            // results cannot recreate an entry after its owner has left.
+            entry.ready.complete(null);
+        }
+    }
+
+    private static JSONArray releaseGrants(
+            final List<PersistedUriPermissions.Grant> grants) {
         final JSONArray released = new JSONArray();
-        if (context == null || entry == null) {
-            return released;
-        }
-        final JSONArray persisted = entry.data.optJSONArray("persistedUris");
-        final int modeFlags = entry.data.optInt("grantFlags", 0)
-                & (Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        if (persisted == null || modeFlags == 0) {
-            return released;
-        }
-        for (int index = 0; index < persisted.length(); index++) {
-            final String value = persisted.optString(index, "");
-            if (value.isEmpty()) {
-                continue;
-            }
+        RuntimeException failure = null;
+        for (final PersistedUriPermissions.Grant grant : grants) {
             try {
-                releasePersistedUri(context, Uri.parse(value), modeFlags);
-                released.put(value);
+                if (grant.release()) {
+                    released.put(grant.uri);
+                }
             } catch (SecurityException | IllegalArgumentException
                     | UnsupportedOperationException ignored) {
-                // Another owner may already have released the grant.
+                // Android or the provider may already have revoked access.
+            } catch (RuntimeException error) {
+                if (failure == null) {
+                    failure = error;
+                } else if (failure != error) {
+                    failure.addSuppressed(error);
+                }
             }
         }
+        if (failure != null) {
+            throw failure;
+        }
         return released;
+    }
+
+    private static synchronized PersistedUriPermissions uriPermissions(
+            final Context context) {
+        if (sUriPermissions == null) {
+            final Context application = context.getApplicationContext();
+            sUriPermissions = new PersistedUriPermissions(
+                    new PersistedUriPermissions.Access() {
+                        @Override
+                        public void take(final String uri, final int flags) {
+                            takePersistedUri(application, Uri.parse(uri), flags);
+                        }
+
+                        @Override
+                        public void release(final String uri, final int flags) {
+                            releasePersistedUri(application, Uri.parse(uri), flags);
+                        }
+                    });
+        }
+        return sUriPermissions;
     }
 
     @SuppressLint("WrongConstant")
@@ -384,114 +428,69 @@ final class AndroidActivityResultStore {
         return values == null ? 0 : values.length();
     }
 
-    private static void addUri(final ArrayList<Uri> uris, final Uri uri) {
-        if (uri != null
-                && "content".equalsIgnoreCase(uri.getScheme())
-                && !uris.contains(uri)) {
-            uris.add(uri);
-        }
-    }
-
-    private static JSONObject scalarExtras(final Bundle extras)
-            throws JSONException {
-        final JSONObject result = new JSONObject();
-        if (extras == null) {
-            return result;
-        }
-        int count = 0;
-        final Iterator<String> names = extras.keySet().iterator();
-        while (names.hasNext() && count < MAX_EXTRAS) {
-            final String name = names.next();
-            final Object item;
-            try {
-                item = extras.get(name);
-            } catch (RuntimeException ignored) {
-                continue;
-            }
-            if (item == null
-                    || item instanceof String
-                    || item instanceof Boolean
-                    || item instanceof Number) {
-                result.put(value(name), item == null
-                        ? JSONObject.NULL
-                        : item instanceof String
-                                ? value((String) item) : item);
-                count++;
-            } else if (item instanceof CharSequence) {
-                result.put(value(name), value(item.toString()));
-                count++;
-            } else if (item instanceof Uri) {
-                result.put(value(name), value(item.toString()));
-                count++;
-            }
-        }
-        return result;
-    }
-
-    private static String value(final String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.length() <= MAX_TEXT_CHARS
-                ? value : value.substring(0, MAX_TEXT_CHARS);
-    }
-
-    private static final class Entry {
+    static final class Entry {
         final String requestId;
         final String state;
         final long timestampMillis;
         final Integer resultCode;
         final String error;
-        final JSONObject data;
+        private final JSONObject data;
+        final List<PersistedUriPermissions.Grant> grants;
+        private final CompletableFuture<Void> ready;
 
         Entry(
                 final String requestId,
                 final String state,
                 final Integer resultCode,
                 final String error,
-                final JSONObject data) {
+                final JSONObject data,
+                final List<PersistedUriPermissions.Grant> grants) {
             this.requestId = requestId;
             this.state = state;
             this.timestampMillis = System.currentTimeMillis();
             this.resultCode = resultCode;
             this.error = error == null ? "" : error;
-            this.data = data == null ? new JSONObject() : data;
+            try {
+                this.data = data == null ? new JSONObject() : new JSONObject(data.toString());
+            } catch (JSONException invalidData) {
+                throw new IllegalArgumentException("Activity result data is not valid JSON", invalidData);
+            }
+            this.grants = List.copyOf(grants);
+            ready = isPending() ? new CompletableFuture<>() : CompletableFuture.completedFuture(null);
         }
 
         static Entry pending(final String id, final JSONObject data) {
-            return new Entry(id, "pending", null, "", data);
+            return new Entry(id, "pending", null, "", data, List.of());
         }
 
         static Entry completed(
                 final String id,
                 final int resultCode,
-                final JSONObject data) {
+                final JSONObject data,
+                final List<PersistedUriPermissions.Grant> grants) {
             return new Entry(
-                    id, "completed", Integer.valueOf(resultCode), "", data);
+                    id, "completed", Integer.valueOf(resultCode), "", data, grants);
         }
 
         static Entry failed(final String id, final String error) {
-            return new Entry(id, "failed", null, error, null);
+            return new Entry(id, "failed", null, error, null, List.of());
         }
 
         boolean isPending() {
             return "pending".equals(state);
         }
 
-        JSONObject toJson() {
-            final JSONObject result = new JSONObject();
-            try {
-                result.put("requestId", requestId)
-                        .put("state", state)
-                        .put("timestampMillis", timestampMillis)
-                        .put("data", data);
-                if (resultCode != null) {
-                    result.put("resultCode", resultCode.intValue());
-                }
-                if (!error.isEmpty()) {
-                    result.put("error", error);
-                }
-            } catch (JSONException ignored) {
+        JSONObject toJson() throws JSONException {
+            final JSONObject result = new JSONObject()
+                    .put("requestId", requestId)
+                    .put("state", state)
+                    .put("timestampMillis", timestampMillis)
+                    .put("data", new JSONObject(data.toString()));
+            if (resultCode != null) {
+                result.put("resultCode", resultCode.intValue());
+            }
+            if (!error.isEmpty()) {
+                result.put("error", error);
             }
             return result;
         }

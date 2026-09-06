@@ -418,7 +418,7 @@ final class RuntimeDesktopInputCoordinator {
         final boolean shouldRun = shouldRunKeyboardWatcher(
                 ShellAccess.isReady(),
                 mHasHardwareKeyboard,
-                !requiresInputRouting());
+                requiresInputRouting());
         if (shouldRun == mKeyboardWatcherRunning) {
             return;
         }

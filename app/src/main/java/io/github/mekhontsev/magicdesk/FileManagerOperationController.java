@@ -2,8 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.os.Binder;
-import android.os.IBinder;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -22,7 +20,6 @@ final class FileManagerOperationController implements AutoCloseable {
 
     private final Activity mActivity;
     private final Listener mListener;
-    private final IBinder mOwnerToken = new Binder();
     private final FileOperationCenter mCenter = FileOperationCenter.get();
     private final FileOperationCenter.Listener mCenterListener =
             this::onRemoteStateChanged;
@@ -40,7 +37,7 @@ final class FileManagerOperationController implements AutoCloseable {
             final Listener listener) {
         mActivity = activity;
         mListener = listener;
-        final FileOperationCenter.Snapshot snapshot = mCenter.snapshot();
+        final FileOperationState.Snapshot snapshot = mCenter.snapshot();
         mLastCompletionSequence = snapshot.sequence;
         mCenter.addListener(mCenterListener);
         if (snapshot.isBusy()) {
@@ -51,10 +48,6 @@ final class FileManagerOperationController implements AutoCloseable {
     boolean isBusy() {
         return mActiveOperationId == LOCAL_IMPORT
                 || mCenter.snapshot().isBusy();
-    }
-
-    IBinder ownerToken() {
-        return mOwnerToken;
     }
 
     boolean startRemote(
@@ -78,7 +71,12 @@ final class FileManagerOperationController implements AutoCloseable {
         }
         mActiveOperationId = LOCAL_IMPORT;
         mImportCancelled = false;
-        showProgress(totalItems);
+        try {
+            showProgress(totalItems);
+        } catch (RuntimeException failure) {
+            finishImport();
+            throw failure;
+        }
         return true;
     }
 
@@ -120,7 +118,7 @@ final class FileManagerOperationController implements AutoCloseable {
     }
 
     private void onRemoteStateChanged(
-            final FileOperationCenter.Snapshot snapshot) {
+            final FileOperationState.Snapshot snapshot) {
         if (mClosed || mActiveOperationId == LOCAL_IMPORT) {
             return;
         }
@@ -138,7 +136,7 @@ final class FileManagerOperationController implements AutoCloseable {
             return;
         }
         dismissProgress();
-        if (snapshot.state != FileOperationCenter.State.FINISHED
+        if (snapshot.state != FileOperationState.State.FINISHED
                 || snapshot.sequence <= mLastCompletionSequence) {
             return;
         }

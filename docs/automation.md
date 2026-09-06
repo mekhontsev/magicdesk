@@ -220,6 +220,10 @@ Android clipboard privacy rules. Writing supports Android's sensitive-content
 marker. These commands require Developer automation; clipboard contents are
 never exposed as an MCP resource, included in diagnostics, or declared as App
 Functions.
+The text limit is 262,144 UTF-16 code units. Read results retain the original
+`textLength` and report `truncated`; the returned prefix never splits a valid
+surrogate pair and may therefore be one code unit shorter than the limit.
+Oversized writes are rejected, not truncated.
 `clipboard.open` accepts one clipboard URI or an HTTP(S) link, while
 `clipboard.share` sends text and bounded URI items through Android's chooser.
 Both preserve `ClipData` URI grants and enter the normal desktop Intent launch
@@ -326,11 +330,26 @@ its own exact transport identity and always receives a distinct transient task;
 it never reuses or moves an existing task belonging to the result target.
 Direct same-package intents continue to use exact-component task actions.
 `expectResult=true` returns a `requestId`;
+if a result request was allocated before a launch observation failure, its
+`requestId` is returned in the failure observation as well. A retryable launch
+failure does not by itself prove that the external Activity cannot still reply.
 `get_intent_result` reads or waits up to 60 seconds for its bounded,
 process-local, event-driven state. `consume=true` removes a terminal result and
-releases any persistable URI grants retained for it. Its
-diagnostic projection keeps only bounded scalar extras and `ClipData` URIs, so
-an external Activity cannot grow the registry or event journal without limit.
+releases any persistable URI grants retained for it, including when response
+serialization fails. Each read returns an independent data snapshot; editing
+it cannot affect later reads or URI-grant ownership. The result projection
+preserves the primary URI and inspects at most 32 `ClipData` items;
+`clipUrisTruncated` reports additional uninspected items. URI addresses and
+identity fields are limited to 8192 UTF-16 code units and rejected rather than
+shortened. An oversized returned URI makes the request `failed` before any
+persistable grants are acquired. Scalar extras inspect at most 32 keys,
+including unreadable and unsupported values. `extrasTruncated` reports omitted
+fields, an unreadable Bundle, or text shortened to the 8192-unit limit. Text
+truncation never splits a valid surrogate pair; keys and URI-valued extras are
+omitted rather than shortened. Non-finite numbers are omitted without losing
+other fields. These are projection bounds, not limits on Android's Bundle
+unmarshalling. The event journal records result metadata counts, not the URI
+addresses or extras themselves.
 Implicit targets are resolved by the shell-side package manager so MCP
 discovery and execution use the same package-visibility scope. Resolution is
 typed as one concrete handler, a required system resolver, or no handler. A
@@ -360,6 +379,13 @@ content URI. Shell paths use MagicDesk's existing bounded file-grant provider.
 `share` supports text and one or more shell paths or content URIs. Grants are
 read-only unless `open_file` explicitly requests writable access and the
 source is writable. No file bytes are copied into an MCP cache.
+The complete request is validated before its prepared shell-file URIs enter
+the provider registry. A failed preparation therefore cannot publish only part
+of a selection; after dispatch, observation timeouts do not revoke a possibly
+active recipient's access. `share` validates the complete file array against
+the common 64-item content limit and preserves the shared text's indentation,
+spaces, and trailing newlines. MIME selection uses the same content model as
+the clipboard and drag-and-drop.
 
 `get_activity_history` returns the newest actual Activity launches from the
 same bounded evidence included in compatibility diagnostics. It adds no probe,
@@ -414,9 +440,13 @@ file contents. Compatibility reports include a 24 KiB bounded tail of at most
 64 events so reports from remote devices retain task, focus, display, and input
 ordering. It is observability, not persistent telemetry.
 
-`magicdesk.wait_for_state` is event-driven. It observes the condition, waits
-on the shared event journal, and uses a bounded 200 ms recheck only for Android
-`View` properties that do not emit a journal event. Conditions include desktop
+`magicdesk.wait_for_state` observes the condition and waits on the shared event
+journal. Scoped task waits reuse the active session's task publication;
+unknown observation never proves task absence. Unscoped absence requires a
+global query, and requests outside that publication's display scope retain
+fresh queries. Android `View` and input-window state can change without a
+journal event, so these conditions and fresh-query scopes retain a bounded
+200 ms recheck only while the explicit wait is running. Conditions include desktop
 active/inactive, task present/absent/mode/focus/bounds, pointer readiness,
 application ready/crashed/not-responding state, blocking system-dialog
 visibility, MagicDesk UI visibility, taskbar, wallpaper, and self-test
@@ -492,6 +522,13 @@ the saved user window stack nor persists test window state. The phone rotation
 is locked at its current value for the run and restored exactly afterward. If
 the tested desktop session closes, its existing lifecycle event cancels the run
 and cleanup begins; no background session polling is added.
+
+Window fixtures retain ordinary task lifetime and are not excluded from Android
+Recents. An excluded task staged behind HOME can be removed by Android's idle
+Recents trimming before its first reveal (`recent-task-trimmed`), independently
+of the window transaction. Fixture cleanup explicitly removes the test tasks;
+it does not rely on that system trimming. Permission protection, production
+launch paths, and hierarchy/visibility assertions remain unchanged.
 
 `ACTIVITY-RESULT-001` exercises an ordinary app-owned `startActivityForResult`
 within a freeform task, rather than launching another task through MagicDesk.

@@ -86,11 +86,6 @@ final class ExistingTaskController {
                 true) != null;
     }
 
-    static void waitForNativeDesktopTask(final int taskId, final int displayId)
-            throws IOException {
-        waitForTaskState(taskId, displayId, MODE_FREEFORM);
-    }
-
     private static ReuseResult reuseIfExists(final AppLaunchTarget target,
             final int targetDisplayId, final boolean targetFreeform,
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,

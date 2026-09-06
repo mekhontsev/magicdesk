@@ -76,7 +76,9 @@ public final class DebugSelfTestActivity extends Activity {
                     });
                     return;
                 }
-                SystemClock.sleep(ExternalDisplayController.STATE_POLL_MS);
+                BoundedStateAwaiter.pause(
+                        BoundedStateAwaiter.Reason.RUNTIME_READY,
+                        ExternalDisplayController.STATE_POLL_MS);
             } while (SystemClock.uptimeMillis() < deadline);
             Log.e(TAG, "self-test runtime did not become ready");
             runOnUiThread(() -> {

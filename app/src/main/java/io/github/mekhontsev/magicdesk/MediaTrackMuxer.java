@@ -6,6 +6,7 @@ import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
@@ -22,50 +23,39 @@ final class MediaTrackMuxer {
             final long videoStartedNanos,
             final long audioStartedNanos) throws IOException {
         final MediaExtractor video = new MediaExtractor();
-        final MediaExtractor audio = new MediaExtractor();
-        MediaMuxer muxer = null;
-        try {
-            video.setDataSource(videoPath);
-            audio.setDataSource(audioPath);
-            final int videoSourceTrack = findTrack(video, "video/");
-            final int audioSourceTrack = findTrack(audio, "audio/");
-            if (videoSourceTrack < 0 || audioSourceTrack < 0) {
-                throw new IOException("recording is missing a video or audio track");
-            }
-            video.selectTrack(videoSourceTrack);
-            audio.selectTrack(audioSourceTrack);
-
-            muxer = new MediaMuxer(
-                    outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
-            copyOrientationHint(videoPath, muxer);
-            final int videoTargetTrack = muxer.addTrack(
-                    video.getTrackFormat(videoSourceTrack));
-            final int audioTargetTrack = muxer.addTrack(
-                    audio.getTrackFormat(audioSourceTrack));
-            muxer.start();
-
-            final long originNanos = Math.min(
-                    videoStartedNanos, audioStartedNanos);
-            copyTrack(
-                    video,
-                    muxer,
-                    videoTargetTrack,
-                    Math.max(0L, (videoStartedNanos - originNanos) / 1_000L));
-            copyTrack(
-                    audio,
-                    muxer,
-                    audioTargetTrack,
-                    Math.max(0L, (audioStartedNanos - originNanos) / 1_000L));
-        } finally {
-            video.release();
-            audio.release();
-            if (muxer != null) {
-                try {
-                    muxer.stop();
-                } catch (IllegalStateException ignored) {
-                    // The muxer may not have started after an earlier failure.
+        // These native handles expose release(), not AutoCloseable. Java owns
+        // reverse-order release and suppressed errors, including partial setup.
+        try (Closeable releaseVideo = video::release) {
+            final MediaExtractor audio = new MediaExtractor();
+            try (Closeable releaseAudio = audio::release) {
+                video.setDataSource(videoPath);
+                audio.setDataSource(audioPath);
+                final int videoSourceTrack = findTrack(video, "video/");
+                final int audioSourceTrack = findTrack(audio, "audio/");
+                if (videoSourceTrack < 0 || audioSourceTrack < 0) {
+                    throw new IOException("recording is missing a video or audio track");
                 }
-                muxer.release();
+                video.selectTrack(videoSourceTrack);
+                audio.selectTrack(audioSourceTrack);
+
+                final MediaMuxer muxer = new MediaMuxer(
+                        outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+                try (Closeable releaseMuxer = muxer::release) {
+                    copyOrientationHint(videoPath, muxer);
+                    final int videoTargetTrack = muxer.addTrack(
+                            video.getTrackFormat(videoSourceTrack));
+                    final int audioTargetTrack = muxer.addTrack(
+                            audio.getTrackFormat(audioSourceTrack));
+                    muxer.start();
+
+                    final long originNanos = Math.min(videoStartedNanos, audioStartedNanos);
+                    copyTrack(video, muxer, videoTargetTrack,
+                            Math.max(0L, (videoStartedNanos - originNanos) / 1_000L));
+                    copyTrack(audio, muxer, audioTargetTrack,
+                            Math.max(0L, (audioStartedNanos - originNanos) / 1_000L));
+                    // Finalization is part of success, not best-effort cleanup.
+                    muxer.stop();
+                }
             }
         }
     }
@@ -96,13 +86,12 @@ final class MediaTrackMuxer {
         }
         while (true) {
             buffer.clear();
+            checkSampleSize(extractor.getSampleSize(), buffer.capacity());
             final int size = extractor.readSampleData(buffer, 0);
             if (size < 0) {
                 break;
             }
-            if (size == buffer.capacity()) {
-                throw new IOException("encoded recording sample is too large");
-            }
+            checkSampleSize(size, buffer.capacity());
             info.set(
                     0,
                     size,
@@ -115,6 +104,12 @@ final class MediaTrackMuxer {
             if (!extractor.advance()) {
                 break;
             }
+        }
+    }
+
+    static void checkSampleSize(final long size, final int capacity) throws IOException {
+        if (size > capacity) {
+            throw new IOException("encoded recording sample is too large");
         }
     }
 

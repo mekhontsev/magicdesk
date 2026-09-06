@@ -115,10 +115,7 @@ public final class DesktopTaskLaunchObserverCommand {
             final ActivityManager.RunningTaskInfo task)
             throws ReflectiveOperationException {
         final int windowingMode = HiddenTaskApi.getTaskWindowingMode(task);
-        final Object windowConfiguration =
-                HiddenTaskApi.getWindowConfiguration(task);
-        final Rect bounds = new Rect((Rect) windowConfiguration.getClass()
-                .getMethod("getBounds").invoke(windowConfiguration));
+        final Rect bounds = HiddenTaskApi.readBounds(task);
         return OBSERVED
                 + "\t" + task.taskId
                 + "\t" + HiddenTaskApi.getTaskDisplayId(task)

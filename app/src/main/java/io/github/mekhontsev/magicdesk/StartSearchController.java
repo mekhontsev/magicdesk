@@ -124,6 +124,22 @@ final class StartSearchController implements AutoCloseable {
                     null,
                     file);
         }
+
+        String stableKey() {
+            if (app != null) {
+                return "app|" + app.launchTarget.stableKey();
+            }
+            if (desktopApplication != null) {
+                return "command|" + desktopApplication.desktopFilePath;
+            }
+            if (builtIn != null) {
+                return "builtin|" + builtIn.launchTarget.stableKey();
+            }
+            if (action != null) {
+                return "action|" + action.name();
+            }
+            return "file|" + file.absolutePath;
+        }
     }
 
     interface Listener {

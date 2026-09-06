@@ -1286,6 +1286,12 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void deleteVerifiedShellFile(
+            final String absolutePath, final long deviceId, final long inode) {
+        mFileSystem.deleteVerifiedFile(absolutePath, deviceId, inode);
+    }
+
+    @Override
     public ShellFileInfo createAvailableShellEntry(
             final String parentPath,
             final String name,
@@ -1803,7 +1809,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         String workingDirectory() throws IOException {
             final long processId = processId();
             final String directory = new File(
-                    "/proc/" + processId + "/cwd").getCanonicalPath();
+                    "/proc/" + processId + "/cwd").toPath().toRealPath().toString();
             if (!directory.startsWith("/")) {
                 throw new IOException("PTY shell directory is invalid");
             }

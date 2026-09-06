@@ -449,12 +449,8 @@ final class RedmagicHardwareController {
                 + "pe=$(/system/bin/settings get system "
                 + VENDOR_PUMP_EFFECTIVE + "); "
                 + "case \"$pe\" in 0|1) "
-                + "printf 'node.pump_enable=%s\\n' \"$pe\"; "
-                + "pf=$(/system/bin/settings get system "
-                + VENDOR_PUMP_FLOW + "); "
-                + "case \"$pf\" in low) ps=60;; mid) ps=70;; *) ps=80;; esac; "
-                + "printf 'node.pump_speed=%s\\n' "
-                + "\"$ps\";; esac; ";
+                + "printf 'node.pump_enable=%s\\n' \"$pe\";; esac; "
+                + RedmagicHardwareSettings.readCommand(VENDOR_PUMP_MAIN, VENDOR_PUMP_FLOW);
     }
 
     private static boolean captureVendorFanBaseline() {

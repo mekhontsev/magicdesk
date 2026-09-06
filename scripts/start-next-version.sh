@@ -16,8 +16,18 @@ if ! printf '%s\n' "$version" \
     printf 'Version must use major.minor.patch format: %s\n' "$version" >&2
     exit 2
 fi
-if ! printf '%s\n' "$version_code" | grep -Eq '^[1-9][0-9]*$'; then
-    printf 'Version code must be a positive integer: %s\n' \
+case "$version_code" in
+    ''|0*|*[!0-9]*)
+        printf 'Version code must be a positive integer: %s\n' \
+            "$version_code" >&2
+        exit 2
+        ;;
+esac
+# Gradle consumes versionCode as a signed Java int. Check length before shell
+# arithmetic so oversized input cannot overflow the host shell's integer range.
+if [ "${#version_code}" -gt 10 ] \
+        || [ "$version_code" -gt 2147483647 ]; then
+    printf 'Version code must not exceed 2147483647: %s\n' \
         "$version_code" >&2
     exit 2
 fi

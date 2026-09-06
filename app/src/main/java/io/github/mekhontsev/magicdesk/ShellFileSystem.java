@@ -7,20 +7,18 @@ import android.os.FileObserver;
 import android.provider.DocumentsContract;
 import android.system.ErrnoException;
 import android.system.Os;
+import android.system.OsConstants;
 import android.system.StructStat;
 import android.webkit.MimeTypeMap;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitOption;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,7 +47,6 @@ final class ShellFileSystem implements AutoCloseable {
             LinkOption.NOFOLLOW_LINKS
     };
     private static final int MAX_PAGE_SIZE = 500;
-    private static final int COPY_BUFFER_SIZE = 64 * 1024;
     private static final long PROGRESS_BYTE_INTERVAL = 1024L * 1024L;
     private static final int SEARCH_BATCH_SIZE = 40;
     private static final int MAX_SEARCH_RESULTS = 2000;
@@ -184,6 +181,25 @@ final class ShellFileSystem implements AutoCloseable {
                 }
             }
             throw failure("cannot verify " + path, error);
+        }
+    }
+
+    void deleteVerifiedFile(
+            final String absolutePath, final long deviceId, final long inode) {
+        final Path path = ShellFilePathPolicy.absolute(absolutePath);
+        try {
+            final StructStat stat = Os.lstat(path.toString());
+            if (!OsConstants.S_ISREG(stat.st_mode)
+                    || stat.st_dev != deviceId || stat.st_ino != inode) {
+                throw new IllegalArgumentException("incomplete file was replaced");
+            }
+            // Cleanup is immediate and non-recursive, after verifying the
+            // original ordinary file, never a queued directory-tree operation.
+            Os.remove(path.toString());
+        } catch (ErrnoException error) {
+            if (error.errno != OsConstants.ENOENT) {
+                throw failure("cannot remove incomplete file " + path, error);
+            }
         }
     }
 
@@ -606,7 +622,7 @@ final class ShellFileSystem implements AutoCloseable {
     }
 
     private final class FileOperation
-            implements Runnable, IBinder.DeathRecipient {
+            implements Runnable, IBinder.DeathRecipient, FileTreeTransfer.Progress {
         final long id;
         final int operation;
         final List<Path> sources;
@@ -658,23 +674,8 @@ final class ShellFileSystem implements AutoCloseable {
                         final Path target = availableTarget(requestedTarget);
                         ShellFilePathPolicy.rejectRecursiveTarget(
                                 source, target);
-                        try {
-                            if (operation == OPERATION_COPY) {
-                                copyTree(source, target, this);
-                            } else {
-                                moveTree(source, target, this);
-                            }
-                        } catch (IOException | RuntimeException error) {
-                            if (!(error instanceof MoveSourceCleanupException)
-                                    && Files.exists(target, NO_FOLLOW)) {
-                                try {
-                                    FileTreeDeletion.delete(target, null);
-                                } catch (IOException cleanupError) {
-                                    error.addSuppressed(cleanupError);
-                                }
-                            }
-                            throw error;
-                        }
+                        FileTreeTransfer.transfer(
+                                source, target, operation == OPERATION_MOVE, this);
                     }
                     notifyProgress(index + 1, source);
                 }
@@ -703,13 +704,15 @@ final class ShellFileSystem implements AutoCloseable {
             cancelled.set(true);
         }
 
-        void checkCancelled() throws OperationCancelled {
+        @Override
+        public void checkCancelled() throws OperationCancelled {
             if (cancelled.get() || Thread.currentThread().isInterrupted()) {
                 throw new OperationCancelled();
             }
         }
 
-        void addBytes(final int count, final Path current)
+        @Override
+        public void addBytes(final int count, final Path current)
                 throws OperationCancelled {
             bytesCompleted += count;
             if (bytesCompleted >= nextProgressBytes) {
@@ -798,7 +801,15 @@ final class ShellFileSystem implements AutoCloseable {
             if (left.directory != right.directory) {
                 return left.directory ? -1 : 1;
             }
-            final int compared = valueComparator.compare(left, right);
+            int compared = valueComparator.compare(left, right);
+            // Each page enumerates the directory again. Equal primary values
+            // need a total name order, independent of filesystem enumeration.
+            if (compared == 0) {
+                compared = left.name.compareToIgnoreCase(right.name);
+            }
+            if (compared == 0) {
+                compared = left.name.compareTo(right.name);
+            }
             return ascending ? compared : -compared;
         };
     }
@@ -818,89 +829,6 @@ final class ShellFileSystem implements AutoCloseable {
             if (!Files.exists(candidate, NO_FOLLOW)) {
                 return candidate;
             }
-        }
-    }
-
-    private static void moveTree(
-            final Path source,
-            final Path target,
-            final FileOperation operation) throws IOException {
-        operation.checkCancelled();
-        try {
-            Files.move(source, target);
-        } catch (IOException directMoveFailure) {
-            copyTree(source, target, operation);
-            try {
-                FileTreeDeletion.delete(source, operation::checkCancelled);
-            } catch (IOException deleteFailure) {
-                throw new MoveSourceCleanupException(
-                        "copied to " + target
-                                + " but could not fully remove " + source,
-                        deleteFailure,
-                        directMoveFailure);
-            }
-        }
-    }
-
-    private static void copyTree(
-            final Path source,
-            final Path target,
-            final FileOperation operation) throws IOException {
-        if (Files.isSymbolicLink(source)) {
-            Files.createSymbolicLink(target, Files.readSymbolicLink(source));
-            return;
-        }
-        if (!Files.isDirectory(source, NO_FOLLOW)) {
-            copyFile(source, target, operation);
-            return;
-        }
-        Files.walkFileTree(source, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult preVisitDirectory(
-                    final Path directory,
-                    final BasicFileAttributes attributes) throws IOException {
-                operation.checkCancelled();
-                final Path relative = source.relativize(directory);
-                final Path copy = target.resolve(relative);
-                Files.createDirectory(copy);
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFile(
-                    final Path file,
-                    final BasicFileAttributes attributes) throws IOException {
-                operation.checkCancelled();
-                final Path copy = target.resolve(source.relativize(file));
-                if (attributes.isSymbolicLink()) {
-                    Files.createSymbolicLink(
-                            copy, Files.readSymbolicLink(file));
-                } else {
-                    copyFile(file, copy, operation);
-                }
-                return FileVisitResult.CONTINUE;
-            }
-        });
-    }
-
-    private static void copyFile(
-            final Path source,
-            final Path target,
-            final FileOperation operation) throws IOException {
-        try (InputStream input = Files.newInputStream(source);
-                OutputStream output = Files.newOutputStream(target)) {
-            final byte[] buffer = new byte[COPY_BUFFER_SIZE];
-            int count;
-            while ((count = input.read(buffer)) >= 0) {
-                output.write(buffer, 0, count);
-                operation.addBytes(count, source);
-            }
-        }
-        try {
-            Files.setLastModifiedTime(
-                    target, Files.getLastModifiedTime(source, NO_FOLLOW));
-        } catch (IOException ignored) {
-            // Content is more important than optional timestamp preservation.
         }
     }
 
@@ -948,17 +876,6 @@ final class ShellFileSystem implements AutoCloseable {
     private static final class OperationCancelled extends IOException {
         OperationCancelled() {
             super("file operation cancelled");
-        }
-    }
-
-    private static final class MoveSourceCleanupException
-            extends IOException {
-        MoveSourceCleanupException(
-                final String message,
-                final IOException cause,
-                final IOException directMoveFailure) {
-            super(message, cause);
-            addSuppressed(directMoveFailure);
         }
     }
 }

@@ -13,13 +13,10 @@ import android.os.OutcomeReceiver;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 /** Android 16 system-agent adapter for the shared automation gateway. */
 @TargetApi(36)
@@ -29,21 +26,21 @@ public final class MagicDeskAppFunctionService
     private static final String RESULT_SCHEMA = "MagicDeskAutomationResult";
     private static final AtomicLong NEXT_RESULT_ID = new AtomicLong();
 
-    private ExecutorService mExecutor;
+    private volatile AppFunctionRequestQueue mRequests;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        mExecutor = Executors.newSingleThreadExecutor(runnable -> {
-            return new Thread(runnable, "MagicDeskAppFunctions");
-        });
+        mRequests = new AppFunctionRequestQueue(Executors.newSingleThreadExecutor(
+                runnable -> new Thread(runnable, "MagicDeskAppFunctions")));
     }
 
     @Override
     public void onDestroy() {
-        if (mExecutor != null) {
-            mExecutor.shutdownNow();
-            mExecutor = null;
+        final AppFunctionRequestQueue requests = mRequests;
+        mRequests = null;
+        if (requests != null) {
+            requests.close();
         }
         super.onDestroy();
     }
@@ -56,36 +53,21 @@ public final class MagicDeskAppFunctionService
             final CancellationSignal cancellationSignal,
             final OutcomeReceiver<ExecuteAppFunctionResponse,
                     AppFunctionException> callback) {
-        final ExecutorService executor = mExecutor;
-        if (executor == null) {
+        final AppFunctionRequestQueue requests = mRequests;
+        if (requests == null) {
             callback.onError(error(
                     AppFunctionException.ERROR_APP_UNKNOWN_ERROR,
                     "MagicDesk automation is unavailable"));
             return;
         }
         final AtomicBoolean delivered = new AtomicBoolean();
-        final AtomicReference<Future<?>> future = new AtomicReference<>();
-        cancellationSignal.setOnCancelListener(() -> {
-            final Future<?> running = future.get();
-            if (running != null) {
-                running.cancel(true);
-            }
-            deliverError(
-                    delivered,
-                    callback,
-                    AppFunctionException.ERROR_CANCELLED,
-                    "App Function cancelled");
-        });
-        try {
-            future.set(executor.submit(() -> execute(
-                    request, cancellationSignal, delivered, callback)));
-        } catch (RejectedExecutionException error) {
-            deliverError(
-                    delivered,
-                    callback,
-                    AppFunctionException.ERROR_APP_UNKNOWN_ERROR,
-                    "MagicDesk automation is stopping");
-        }
+        final FutureTask<Void> future = requests.create(
+                () -> execute(request, cancellationSignal, delivered, callback),
+                () -> deliverError(delivered, callback,
+                        AppFunctionException.ERROR_CANCELLED,
+                        "App Function cancelled or service stopped"));
+        cancellationSignal.setOnCancelListener(() -> future.cancel(true));
+        requests.execute(future);
     }
 
     private void execute(

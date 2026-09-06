@@ -41,6 +41,7 @@ public final class ActivityExplorerActivity extends Activity {
     private CheckBox mExpectResult;
     private TextView mStatus;
     private LinearLayout mResults;
+    private int mPresentationGeneration;
     private volatile boolean mDestroyed;
 
     static Intent createIntent(final Context context) {
@@ -135,6 +136,7 @@ public final class ActivityExplorerActivity extends Activity {
     }
 
     private void query() {
+        final int generation = ++mPresentationGeneration;
         mStatus.setText(R.string.activity_explorer_resolving);
         mResults.removeAllViews();
         final JSONObject request = request(false, "");
@@ -143,14 +145,15 @@ public final class ActivityExplorerActivity extends Activity {
                 final DesktopAutomationResult result =
                         new AndroidIntegrationGateway(this)
                                 .queryIntentHandlers(request);
-                runOnUiThread(() -> renderHandlers(result));
+                present(generation, () -> renderHandlers(result));
             } catch (Exception error) {
-                showError(error);
+                showError(generation, error);
             }
         });
     }
 
     private void launch(final String component) {
+        final int generation = ++mPresentationGeneration;
         mStatus.setText(R.string.activity_explorer_launching);
         final JSONObject request = request(true, component);
         mWorker.execute(() -> {
@@ -158,7 +161,7 @@ public final class ActivityExplorerActivity extends Activity {
                 final DesktopAutomationResult result =
                         new AndroidIntegrationGateway(this)
                                 .launchIntent(request);
-                runOnUiThread(() -> {
+                present(generation, () -> {
                     final String requestId = result.data.optString(
                             "requestId", "");
                     mStatus.setText(requestId.isEmpty()
@@ -166,7 +169,7 @@ public final class ActivityExplorerActivity extends Activity {
                             : result.message + "\nrequestId=" + requestId);
                 });
             } catch (Exception error) {
-                showError(error);
+                showError(generation, error);
             }
         });
     }
@@ -237,6 +240,7 @@ public final class ActivityExplorerActivity extends Activity {
     }
 
     private void showHistory() {
+        mPresentationGeneration++;
         mResults.removeAllViews();
         final JSONArray history = AndroidActivityCompatibilityHistory.snapshot(64);
         mStatus.setText(getString(
@@ -253,10 +257,15 @@ public final class ActivityExplorerActivity extends Activity {
         }
     }
 
-    private void showError(final Throwable error) {
+    private void showError(final int generation, final Throwable error) {
+        present(generation, () ->
+                mStatus.setText(ShellAccess.usefulMessage(error)));
+    }
+
+    private void present(final int generation, final Runnable update) {
         runOnUiThread(() -> {
-            if (!mDestroyed) {
-                mStatus.setText(ShellAccess.usefulMessage(error));
+            if (!mDestroyed && generation == mPresentationGeneration) {
+                update.run();
             }
         });
     }

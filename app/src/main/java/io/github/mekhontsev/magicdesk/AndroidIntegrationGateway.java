@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import static io.github.mekhontsev.magicdesk.AutomationJsonArguments.requiredInt;
+
 import android.app.PendingIntent;
 import android.content.ClipData;
 import android.content.ComponentName;
@@ -18,10 +20,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 /** One typed gateway for Android intents, published actions, and system agents. */
 final class AndroidIntegrationGateway {
-    private static final int MAX_SHARED_FILES = 64;
     private static final int MAX_APP_FUNCTION_PARAMETERS_CHARS = 262_144;
     private static final long LAUNCH_OBSERVE_TIMEOUT_MILLIS = 10_000L;
 
@@ -98,7 +100,7 @@ final class AndroidIntegrationGateway {
                 AndroidIntentHandlerQuery.query(
                         mPackageManager,
                         request,
-                        args.optInt("limit", 100),
+                        args == null ? 100 : args.optInt("limit", 100),
                         "application",
                         BuildConfig.APPLICATION_ID));
     }
@@ -173,6 +175,9 @@ final class AndroidIntegrationGateway {
 
     DesktopAutomationResult openFile(final JSONObject args)
             throws IOException, JSONException {
+        final String action = fileAction(args);
+        final ShellFileGrantStore.Preparation grants =
+                new ShellFileGrantStore.Preparation(mContext);
         final Uri uri;
         String mimeType = optionalString(args, "mimeType", "");
         final String path = optionalString(args, "path", "");
@@ -181,7 +186,7 @@ final class AndroidIntegrationGateway {
             throw new IllegalArgumentException(
                     "provide exactly one of path or uri");
         }
-        final boolean writable = args.optBoolean("writable", false);
+        boolean writable = args.optBoolean("writable", false);
         if (!path.isEmpty()) {
             if (!ShellAccess.isReady()) {
                 return DesktopAutomationResult.failure(
@@ -189,11 +194,10 @@ final class AndroidIntegrationGateway {
                         "shell command service is unavailable", true);
             }
             final ShellFileInfo file = ShellAccess.getShellFileInfo(path);
-            if (file.directory) {
-                throw new IllegalArgumentException("path must identify a file");
-            }
-            uri = ShellFileGrantStore.create(
-                    mContext, file, writable && file.writable);
+            final ShellFileGrantStore.Entry grant =
+                    new ShellFileGrantStore.Entry(file, writable);
+            uri = grants.add(grant);
+            writable = grant.writable;
             if (mimeType.isEmpty()) {
                 mimeType = file.mimeType;
             }
@@ -202,15 +206,6 @@ final class AndroidIntegrationGateway {
         }
         if (mimeType.isEmpty()) {
             mimeType = "application/octet-stream";
-        }
-        final String operation = optionalString(args, "operation", "view");
-        final String action;
-        if ("view".equals(operation)) {
-            action = Intent.ACTION_VIEW;
-        } else if ("edit".equals(operation)) {
-            action = Intent.ACTION_EDIT;
-        } else {
-            throw new IllegalArgumentException("operation must be view or edit");
         }
         final AndroidContentPayload content = AndroidContentPayload.uris(
                 optionalString(args, "name", "Open file"),
@@ -223,11 +218,10 @@ final class AndroidIntegrationGateway {
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         }
         applyTarget(intent, args);
-        return execute(
-                AndroidDesktopAction.request(
-                        "open-file",
-                        "mcp",
-                        AndroidIntegrationRequest.activity(
+        final AndroidDesktopAction request = AndroidDesktopAction.request(
+                "open-file",
+                "mcp",
+                AndroidIntegrationRequest.activity(
                         intent,
                         optionalString(args, "name", "Open file"),
                         AndroidIntegrationRequest.parsePresentation(
@@ -239,84 +233,103 @@ final class AndroidIntegrationGateway {
                                         : DesktopTaskInstancePolicy.REUSE_EXISTING),
                         args.optBoolean("chooser", false),
                         optionalString(args, "chooserTitle", ""),
-                        args.optBoolean("expectResult", false))),
-                optionalDisplayId(args));
+                        args.optBoolean("expectResult", false)));
+        final int displayId = optionalDisplayId(args);
+        grants.publish();
+        // Observation may time out after dispatch; that must not revoke a consumer's URIs.
+        return execute(request, displayId);
     }
 
     DesktopAutomationResult share(final JSONObject args)
             throws IOException, JSONException {
-        final String text = optionalString(args, "text", "");
-        final String subject = optionalString(args, "subject", "");
-        final JSONArray files = args.optJSONArray("files");
+        final List<String> files = shareFiles(args);
+        final ShellFileGrantStore.Preparation grants =
+                new ShellFileGrantStore.Preparation(mContext);
         final ArrayList<AndroidContentPayload.UriItem> uriItems =
-                new ArrayList<>();
-        String inferredMime = "";
-        if (files != null) {
-            if (files.length() > MAX_SHARED_FILES) {
-                throw new IllegalArgumentException(
-                        "share accepts at most " + MAX_SHARED_FILES + " files");
-            }
-            for (int index = 0; index < files.length(); index++) {
-                final String value = files.getString(index).trim();
-                if (value.isEmpty()) {
-                    throw new IllegalArgumentException("files must not contain empty paths");
+                new ArrayList<>(files.size());
+        for (final String value : files) {
+            if (value.startsWith("content://")) {
+                uriItems.add(new AndroidContentPayload.UriItem(
+                        Uri.parse(value), "*/*"));
+            } else {
+                if (!ShellAccess.isReady()) {
+                    return DesktopAutomationResult.failure(
+                            DesktopAutomationErrorCode.SHELL_UNAVAILABLE,
+                            "shell command service is unavailable", true);
                 }
-                if (value.startsWith("content://")) {
-                    uriItems.add(new AndroidContentPayload.UriItem(
-                            Uri.parse(value), "*/*"));
-                } else {
-                    if (!ShellAccess.isReady()) {
-                        return DesktopAutomationResult.failure(
-                                DesktopAutomationErrorCode.SHELL_UNAVAILABLE,
-                                "shell command service is unavailable", true);
-                    }
-                    final ShellFileInfo file = ShellAccess.getShellFileInfo(value);
-                    if (file.directory) {
-                        throw new IllegalArgumentException(
-                                "share files must not include directories");
-                    }
-                    uriItems.add(new AndroidContentPayload.UriItem(
-                            ShellFileGrantStore.create(mContext, file, false),
-                            file.mimeType));
-                    if (inferredMime.isEmpty()) {
-                        inferredMime = file.mimeType;
-                    } else if (!inferredMime.equals(file.mimeType)) {
-                        inferredMime = "*/*";
-                    }
-                }
+                final ShellFileInfo file = ShellAccess.getShellFileInfo(value);
+                uriItems.add(new AndroidContentPayload.UriItem(
+                        grants.add(new ShellFileGrantStore.Entry(file, false)),
+                        file.mimeType));
             }
         }
-        if (text.isEmpty() && uriItems.isEmpty()) {
-            throw new IllegalArgumentException("share requires text or files");
-        }
-        final String requestedMime = optionalString(
-                args,
-                "mimeType",
-                inferredMime.isEmpty() ? "text/plain" : inferredMime);
-        final AndroidContentPayload content = AndroidContentPayload.create(
-                AndroidContentPayload.Origin.APPLICATION,
-                optionalString(args, "name", "Share"),
-                subject,
-                text,
-                "",
-                uriItems,
-                List.of(requestedMime),
-                false);
+        final AndroidContentPayload content = sharePayload(args, uriItems);
         final Intent intent = AndroidContentIntentAdapter.share(content);
         applyTarget(intent, args);
-        return execute(
-                AndroidDesktopAction.request(
-                        "share",
-                        "mcp",
-                        AndroidIntegrationRequest.activity(
+        final AndroidDesktopAction request = AndroidDesktopAction.request(
+                "share",
+                "mcp",
+                AndroidIntegrationRequest.activity(
                         intent,
                         optionalString(args, "name", "Share"),
                         AndroidIntegrationRequest.parsePresentation(
                                 args, DesktopTaskInstancePolicy.CREATE_NEW),
                         args.optBoolean("chooser", true),
                         optionalString(args, "chooserTitle", "Share with"),
-                        false)),
-                optionalDisplayId(args));
+                        false));
+        final int displayId = optionalDisplayId(args);
+        grants.publish();
+        return execute(request, displayId);
+    }
+
+    static String fileAction(final JSONObject args) {
+        final String operation = optionalString(args, "operation", "view");
+        switch (operation) {
+            case "view":
+                return Intent.ACTION_VIEW;
+            case "edit":
+                return Intent.ACTION_EDIT;
+            default:
+                throw new IllegalArgumentException("operation must be view or edit");
+        }
+    }
+
+    static List<String> shareFiles(final JSONObject args) throws JSONException {
+        if (args == null || args.isNull("files")) {
+            return List.of();
+        }
+        final JSONArray files = args.getJSONArray("files");
+        if (files.length() > AndroidContentPayload.MAX_URI_ITEMS) {
+            throw new IllegalArgumentException(
+                    "share accepts at most " + AndroidContentPayload.MAX_URI_ITEMS + " files");
+        }
+        final List<String> sources = new ArrayList<>(files.length());
+        for (int index = 0; index < files.length(); index++) {
+            final Object value = files.get(index);
+            if (!(value instanceof String) || ((String) value).trim().isEmpty()) {
+                throw new IllegalArgumentException("files must contain non-empty strings");
+            }
+            sources.add(((String) value).trim());
+        }
+        return sources;
+    }
+
+    static AndroidContentPayload sharePayload(
+            final JSONObject args, final List<AndroidContentPayload.UriItem> uriItems) {
+        final String text = args == null ? "" : args.optString("text", "");
+        if (text.isEmpty() && uriItems.isEmpty()) {
+            throw new IllegalArgumentException("share requires text or files");
+        }
+        final String mimeType = optionalString(args, "mimeType", "");
+        return AndroidContentPayload.create(
+                AndroidContentPayload.Origin.APPLICATION,
+                optionalString(args, "name", "Share"),
+                optionalString(args, "subject", ""),
+                text,
+                "",
+                uriItems,
+                mimeType.isEmpty() ? List.of() : List.of(mimeType),
+                false);
     }
 
     DesktopAutomationResult openContent(
@@ -330,7 +343,7 @@ final class AndroidIntegrationGateway {
         return execute(
                 AndroidDesktopAction.request(
                         "open-content",
-                        content.origin.name().toLowerCase(),
+                        content.origin.name().toLowerCase(Locale.ROOT),
                         AndroidIntegrationRequest.activity(
                         intent,
                         content.label.isEmpty()
@@ -353,7 +366,7 @@ final class AndroidIntegrationGateway {
         return execute(
                 AndroidDesktopAction.request(
                         "share-content",
-                        content.origin.name().toLowerCase(),
+                        content.origin.name().toLowerCase(Locale.ROOT),
                         AndroidIntegrationRequest.activity(
                         intent,
                         "Share clipboard content",
@@ -392,7 +405,7 @@ final class AndroidIntegrationGateway {
         return execute(
                 AndroidDesktopAction.request(
                         "deliver-content",
-                        content.origin.name().toLowerCase(),
+                        content.origin.name().toLowerCase(Locale.ROOT),
                         request),
                 displayId);
     }
@@ -462,8 +475,9 @@ final class AndroidIntegrationGateway {
                         "app-shortcut",
                         "mcp",
                         new AndroidShortcutSpec(target, actionId),
-                        DesktopLaunchPresentation.automatic()),
-                DesktopRuntimeBridge.getActiveDesktopDisplayId());
+                        AndroidIntegrationRequest.parsePresentation(
+                                args, DesktopTaskInstancePolicy.REUSE_EXISTING)),
+                optionalDisplayId(args));
     }
 
     DesktopAutomationResult listNotifications(final JSONObject args)
@@ -544,7 +558,6 @@ final class AndroidIntegrationGateway {
     DesktopAutomationResult getActivityResult(final JSONObject args)
             throws JSONException {
         final JSONObject result = AndroidActivityResultStore.get(
-                mContext,
                 requiredString(args, "requestId"),
                 Math.max(0L, Math.min(
                         60_000L, args.optLong("waitMillis", 0L))),
@@ -573,9 +586,8 @@ final class AndroidIntegrationGateway {
         }
         final String packageName = requiredString(args, "package");
         final String functionId = requiredString(args, "functionId");
-        final JSONObject parameters = args.optJSONObject("parameters");
-        final String encodedParameters = parameters == null
-                ? "{}" : parameters.toString();
+        final JSONObject parameters = optionalObject(args, "parameters");
+        final String encodedParameters = parameters.toString();
         if (encodedParameters.length()
                 > MAX_APP_FUNCTION_PARAMETERS_CHARS) {
             throw new IllegalArgumentException(
@@ -702,6 +714,7 @@ final class AndroidIntegrationGateway {
     private DesktopAutomationResult executeShortcut(
             final AndroidDesktopAction action,
             final int displayId) throws JSONException {
+        requireShortcutPresentation(action.presentation);
         if (displayId < Display.DEFAULT_DISPLAY
                 || displayId != DesktopRuntimeBridge
                         .getActiveDesktopDisplayId()) {
@@ -766,6 +779,18 @@ final class AndroidIntegrationGateway {
                 "application shortcut launched", base);
     }
 
+    static void requireShortcutPresentation(final DesktopLaunchPresentation presentation) {
+        if (presentation == null) {
+            throw new IllegalArgumentException("shortcut presentation is required");
+        }
+        if (presentation.bounds != null
+                || presentation.instancePolicy != DesktopTaskInstancePolicy.REUSE_EXISTING
+                || presentation.preferredTaskId != -1) {
+            throw new IllegalArgumentException(
+                    "shortcuts support mode only; bounds, instance=new, and preferredTaskId are unsupported");
+        }
+    }
+
     private DesktopAutomationResult launchActivity(
             final AndroidIntegrationRequest request,
             final int displayId) throws IOException, JSONException {
@@ -813,15 +838,37 @@ final class AndroidIntegrationGateway {
         // Direct desktop launches are executed by shell. Issue grants from the
         // app identity after resolution because shell does not own these URIs.
         grantKnownTarget(target, grantUris(target));
-        final Intent launchedIntent;
-        final String resultRequestId;
-        final String relayId;
-        if (request.expectResult) {
-            resultRequestId = AndroidActivityResultStore.begin(
-                    mContext, target);
-        } else {
-            resultRequestId = "";
+        final String resultRequestId = request.expectResult
+                ? AndroidActivityResultStore.begin(target) : "";
+        try {
+            final DesktopAutomationResult result = launchResolvedActivity(
+                    request, displayId, target, resolution, launchPolicy, resultRequestId);
+            if (!resultRequestId.isEmpty()) {
+                // An observation failure can still have a live result relay.
+                // Return its id so the caller can wait for it or discard it.
+                (result.success ? result.data : result.observation).put("requestId", resultRequestId);
+            }
+            return result;
+        } catch (IOException | JSONException | RuntimeException failure) {
+            try {
+                AndroidActivityResultStore.discard(resultRequestId);
+            } catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
         }
+    }
+
+    private DesktopAutomationResult launchResolvedActivity(
+            final AndroidIntegrationRequest request,
+            final int displayId,
+            final Intent target,
+            final AndroidActivityResolution resolution,
+            final AndroidActivityLaunchPolicy launchPolicy,
+            final String resultRequestId) throws IOException, JSONException {
+        final ComponentName resolvedComponent = resolution.component;
+        final Intent launchedIntent;
+        final String relayId;
         final AndroidLaunchSpec.Delivery delivery;
         if (launchPolicy.usesResultRelay()) {
             // Result delivery needs a real Activity lifecycle owner. Shell
@@ -971,9 +1018,6 @@ final class AndroidIntegrationGateway {
                 .put("transportTaskId", result.taskId)
                 .put("reused", result.reused);
         describeObservedTask(data, observation.task);
-        if (!resultRequestId.isEmpty()) {
-            data.put("requestId", resultRequestId);
-        }
         return DesktopAutomationResult.success(
                 "Android Activity launched", data);
     }
@@ -1147,21 +1191,15 @@ final class AndroidIntegrationGateway {
                 packageName, component.getClassName(), Intent.ACTION_MAIN);
     }
 
-    private static int requiredInt(
-            final JSONObject args,
-            final String name) {
+    static JSONObject optionalObject(final JSONObject args, final String name) {
         if (args == null || !args.has(name)) {
-            throw new IllegalArgumentException(name + " is required");
+            return new JSONObject();
         }
         final Object value = args.opt(name);
-        if (!(value instanceof Number)) {
-            throw new IllegalArgumentException(name + " must be an integer");
+        if (!(value instanceof JSONObject)) {
+            throw new IllegalArgumentException(name + " must be an object");
         }
-        final long number = ((Number) value).longValue();
-        if (number < Integer.MIN_VALUE || number > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(name + " is out of range");
-        }
-        return (int) number;
+        return (JSONObject) value;
     }
 
     private static String requiredString(

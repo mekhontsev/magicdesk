@@ -8,11 +8,8 @@ import android.graphics.Rect;
 import android.hardware.HardwareBuffer;
 import android.os.IBinder;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -20,6 +17,8 @@ import java.util.Map;
 final class DisplayPixelProbe {
     private static final int VISUAL_CONTRAST = 16;
     private static final int SIGNATURE_CHANNEL_DIFFERENCE = 2;
+    private static final int MAX_CAPTURE_BYTES = 32 * 1024 * 1024;
+    private static final int MAX_CAPTURE_ERROR_BYTES = 16 * 1024;
 
     private DisplayPixelProbe() {
     }
@@ -243,21 +242,34 @@ final class DisplayPixelProbe {
             final Rect sourceCrop,
             final int outputWidth,
             final int outputHeight) throws IOException {
-        Process process = null;
         Bitmap fullFrame = null;
         try {
-            process = new ProcessBuilder(
+            final Process process = new ProcessBuilder(
                     "/system/bin/screencap",
                     "-p",
                     "-d",
                     source.physicalDisplayId).start();
-            fullFrame = BitmapFactory.decodeStream(process.getInputStream());
-            final String error = readText(process.getErrorStream());
-            final int exitCode = process.waitFor();
-            if (exitCode != 0 || fullFrame == null) {
+            final BoundedProcessRunner.BinaryResult result =
+                    BoundedProcessRunner.runBinary(
+                            process,
+                            BoundedProcessRunner.DEFAULT_TIMEOUT_MILLIS,
+                            MAX_CAPTURE_BYTES,
+                            MAX_CAPTURE_ERROR_BYTES);
+            final String error = result.stderr.trim();
+            if (result.exitCode != 0) {
                 throw new IOException(
                         "physical display capture failed"
                                 + (error.isEmpty() ? "" : ": " + error));
+            }
+            if (result.stdoutTruncated) {
+                throw new IOException("physical display capture exceeds "
+                        + MAX_CAPTURE_BYTES + " bytes");
+            }
+            fullFrame = BitmapFactory.decodeByteArray(
+                    result.stdout, 0, result.stdout.length);
+            if (fullFrame == null) {
+                throw new IOException("physical display capture returned no bitmap"
+                        + (error.isEmpty() ? "" : ": " + error));
             }
             if (sourceCrop.right > fullFrame.getWidth()
                     || sourceCrop.bottom > fullFrame.getHeight()) {
@@ -283,21 +295,7 @@ final class DisplayPixelProbe {
             if (fullFrame != null) {
                 fullFrame.recycle();
             }
-            if (process != null) {
-                process.destroy();
-            }
         }
-    }
-
-    private static String readText(final InputStream stream)
-            throws IOException {
-        final ByteArrayOutputStream output = new ByteArrayOutputStream();
-        final byte[] buffer = new byte[1_024];
-        int read;
-        while ((read = stream.read(buffer)) >= 0) {
-            output.write(buffer, 0, read);
-        }
-        return output.toString(StandardCharsets.UTF_8.name()).trim();
     }
 
     private static int colorDistance(final int firstRgb, final int second) {

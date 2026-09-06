@@ -68,7 +68,7 @@ final class VendorDiscoveryReport {
                         + " | /system/bin/sort",
                 MAX_SECTION_CHARS);
         if (report.length() > MAX_REPORT_CHARS) {
-            report.setLength(MAX_REPORT_CHARS);
+            report.setLength(BoundedText.prefix(report, MAX_REPORT_CHARS).length());
             report.append("\n[report truncated]\n");
         }
         report.append('\n');
@@ -96,15 +96,14 @@ final class VendorDiscoveryReport {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 new FileInputStream(file), StandardCharsets.UTF_8))) {
             final char[] buffer = new char[2_048];
+            final StringBuilder saved = new StringBuilder();
             int read;
-            int total = 0;
-            while ((read = reader.read(buffer)) >= 0
-                    && total < MAX_REPORT_CHARS) {
-                final int accepted = Math.min(
-                        read, MAX_REPORT_CHARS - total);
-                report.append(buffer, 0, accepted);
-                total += accepted;
+            while (saved.length() <= MAX_REPORT_CHARS
+                    && (read = reader.read(buffer, 0, Math.min(
+                            buffer.length, MAX_REPORT_CHARS + 1 - saved.length()))) >= 0) {
+                saved.append(buffer, 0, read);
             }
+            report.append(BoundedText.prefix(saved, MAX_REPORT_CHARS));
             if (report.length() > 0
                     && report.charAt(report.length() - 1) != '\n') {
                 report.append('\n');
@@ -125,7 +124,7 @@ final class VendorDiscoveryReport {
             final ShellAccess.CommandResult result =
                     ShellAccess.executeCommand(command);
             final String output = result.output == null ? "" : result.output;
-            report.append(output, 0, Math.min(output.length(), maxChars));
+            report.append(BoundedText.prefix(output, maxChars));
             if (output.length() > maxChars) {
                 report.append("\n[section truncated]");
             }

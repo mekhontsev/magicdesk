@@ -74,7 +74,7 @@ public final class TaskCaptionSurfaceCommand {
                         states.get(Integer.valueOf(taskId)).label,
                         Integer.valueOf(taskId));
             }
-        } catch (IOException | InterruptedException | NumberFormatException error) {
+        } catch (IOException | InterruptedException | IllegalArgumentException error) {
             if (error instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
@@ -112,6 +112,11 @@ public final class TaskCaptionSurfaceCommand {
         }
         Integer pendingTaskId = null;
         for (final String line : (dump == null ? "" : dump).split("\\R")) {
+            if (pendingTaskId != null
+                    && line.stripLeading().startsWith("Layer [")) {
+                throw new IllegalArgumentException(
+                        "caption visibility missing for task " + pendingTaskId);
+            }
             final Matcher layer = CAPTION_LAYER.matcher(line);
             if (layer.matches()) {
                 final int taskId = Integer.parseInt(layer.group(1));
@@ -133,6 +138,10 @@ public final class TaskCaptionSurfaceCommand {
                 states.put(pendingTaskId, observed);
             }
             pendingTaskId = null;
+        }
+        if (pendingTaskId != null) {
+            throw new IllegalArgumentException(
+                    "caption visibility missing for task " + pendingTaskId);
         }
         return states;
     }

@@ -20,6 +20,7 @@ final class DesktopInputRelaySession {
     private static final long RESTART_DELAY_MILLIS = 1_000L;
 
     private final Object mLock = new Object();
+    private final Object mTeardownLock = new Object();
     private final Context mContext;
     private final DesktopInputRelayPolicy mPolicy;
     private final Runnable mStateChanged;
@@ -256,8 +257,7 @@ final class DesktopInputRelaySession {
         }
         // Mouse reports must stop before the display associations vanish.
         mMouseBridge.setCaptureEnabled(false);
-        closeQuietly(inputRouting);
-        closeQuietly(keyboardStream);
+        closeRoutingHandles(keyboardStream, inputRouting);
         if (supervisor != null) {
             supervisor.interrupt();
         }
@@ -396,9 +396,8 @@ final class DesktopInputRelaySession {
             HardwareKeyboardLayoutController.detachLayoutSink(layoutSink);
             clearActiveHandles(
                     keyboardStream, inputRouting, generation);
-            closeQuietly(inputRouting);
+            closeRoutingHandles(keyboardStream, inputRouting);
             closeQuietly(keyboardReader);
-            closeQuietly(keyboardStream);
             if (isCurrentGeneration(generation)) {
                 KeyboardShortcutWatcher.clearModifierState();
             }
@@ -446,7 +445,7 @@ final class DesktopInputRelaySession {
             keyboardStream.writeLine("resume");
         } catch (IOException error) {
             Log.w(TAG, "Cannot resume keyboard bridge", error);
-            closeQuietly(keyboardStream);
+            closeRoutingHandles(keyboardStream, null);
         }
     }
 
@@ -638,6 +637,17 @@ final class DesktopInputRelaySession {
             closeable.close();
         } catch (IOException ignored) {
             // A disconnected helper or Binder owner is already released.
+        }
+    }
+
+    private void closeRoutingHandles(
+            final ShellStreamHandle keyboardStream,
+            final ShellInputRoutingHandle inputRouting) {
+        // A second idempotent stream close can return before the first finishes.
+        // Serialize both teardown paths until keyboard shutdown has returned.
+        synchronized (mTeardownLock) {
+            closeQuietly(keyboardStream);
+            closeQuietly(inputRouting);
         }
     }
 }

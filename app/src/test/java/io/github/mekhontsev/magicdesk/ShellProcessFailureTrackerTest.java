@@ -80,6 +80,21 @@ public final class ShellProcessFailureTrackerTest {
     }
 
     @Test
+    public void abandonedEarlyAnrsRetainOnlyTheMostRecentContexts() {
+        final RecordingListener listener = new RecordingListener();
+        final ShellProcessFailureTracker tracker = tracker(listener);
+        for (int pid = 0; pid <= ShellProcessFailureTracker.MAX_PENDING_ANRS; pid++) {
+            tracker.onProcessEarlyNotResponding(APP_PACKAGE, pid, "pending " + pid);
+        }
+        tracker.observeTasks(DISPLAY_ID, Collections.emptyList());
+        tracker.onProcessNotResponding(APP_PACKAGE, 0);
+        assertNull(listener.processName);
+        tracker.onProcessNotResponding(APP_PACKAGE, ShellProcessFailureTracker.MAX_PENDING_ANRS);
+        assertEquals(TASK_ID, listener.taskId);
+        assertEquals("pending " + ShellProcessFailureTracker.MAX_PENDING_ANRS, listener.reason);
+    }
+
+    @Test
     public void ignoresFinalAnrWithoutDesktopContext() {
         final RecordingListener listener = new RecordingListener();
         final ShellProcessFailureTracker tracker = tracker(listener);

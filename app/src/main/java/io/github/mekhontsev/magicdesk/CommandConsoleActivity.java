@@ -104,14 +104,6 @@ public final class CommandConsoleActivity extends Activity
                 .putExtra(EXTRA_BACKEND, backend.wireName);
     }
 
-    static Intent createCommandIntent(
-            final Context context, final String command) {
-        return createPreparedCommandIntent(
-                context,
-                DesktopExecCommand.prepare(command),
-                ShellDesktopDirectory.ABSOLUTE_PATH);
-    }
-
     static Intent createPreparedCommandIntent(
             final Context context,
             final String command,

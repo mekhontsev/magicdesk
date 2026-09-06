@@ -2,12 +2,10 @@ package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
-
-import java.util.Arrays;
-import java.util.List;
 
 public final class PersistentAutomationShellSessionTest {
     private static final String MARKER = "__MAGICDESK_CWD_test__0\t";
@@ -177,22 +175,48 @@ public final class PersistentAutomationShellSessionTest {
     }
 
     @Test
-    public void readsAndNormalizesThePersistentShellPath() throws Exception {
+    public void invalidInitialDirectoriesAreRejectedBeforeExecution() {
+        for (final String directory : new String[]{null, "", "relative", "/tmp\0other",
+                "/tmp\nother", "/tmp\rother", "/" + "x".repeat(4096)}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> new PersistentAutomationShellSession(directory, command -> {
+                        throw new AssertionError("invalid directory reached executor");
+                    }, "test"));
+        }
+    }
+
+    @Test
+    public void rejectedDirectoryChangeKeepsLastConfirmedDirectory() throws Exception {
+        final PersistentAutomationShellSession session = sessionReturning(result(0, "/tmp"));
+        session.execute("pwd");
+        assertThrows(IllegalArgumentException.class,
+                () -> session.setWorkingDirectory("/tmp\0other"));
+        assertEquals("/tmp", session.workingDirectory());
+        assertEquals("/tmp", session.execute("pwd").workingDirectory);
+    }
+
+    @Test
+    public void invalidObservedDirectoryDoesNotReplaceSessionState() throws Exception {
+        for (final String directory : new String[]{"/tmp\0other", "/tmp\rother",
+                "/" + "x".repeat(4096)}) {
+            final String raw = "output\n\n" + MARKER + directory + "\n";
+            final PersistentAutomationShellSession session = sessionReturning(
+                    new ShellAccess.CommandResult(0, raw));
+            final var result = session.execute("pwd");
+            assertEquals("/tmp", result.workingDirectory);
+            assertEquals(raw, result.output);
+        }
+    }
+
+    @Test
+    public void validDirectorySpellingIsNotLexicallyRewritten() throws Exception {
+        final String directory = "/tmp/link/../space ' name";
         final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
-                "/tmp",
-                command -> {
-                    assertTrue(command.contains("\"$PATH\""));
-                    return new ShellAccess.CommandResult(
-                            0,
-                            "/system/bin:/vendor/bin:."
-                                    + "\n" + MARKER + "/tmp\n");
-                },
-                "test");
-
-        final List<String> paths = session.commandSearchPath();
-
-        assertEquals(Arrays.asList(
-                "/system/bin", "/vendor/bin", "/tmp"), paths);
+                directory, command -> {
+                    assertTrue(command.contains("cd -- " + ShellCommandLine.quote(directory)));
+                    return result(0, directory);
+                }, "test");
+        assertEquals(directory, session.execute("pwd").workingDirectory);
     }
 
     @Test

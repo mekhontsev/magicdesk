@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_AMBER;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_BACKGROUND;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_PANEL;
 
@@ -311,6 +310,7 @@ public abstract class DesktopShellActivity extends Activity
         mAltTabController = new AltTabController(this);
         mDesktopWorkspaceController =
                 new DesktopWorkspaceController(this, mUi);
+        mDesktopWorkspaceController.restoreInstanceState(savedInstanceState);
         mAppTasks = new AppTaskController(this);
         mTaskSnapshots = new DesktopTaskSnapshotController(this);
         mDisplayDensityController = new DisplayDensityController(this);
@@ -366,6 +366,9 @@ public abstract class DesktopShellActivity extends Activity
                 STATE_TOOLS_VISIBLE,
                 mStartMenuController != null
                         && mStartMenuController.isToolsVisible());
+        if (mDesktopWorkspaceController != null) {
+            mDesktopWorkspaceController.saveInstanceState(outState);
+        }
         super.onSaveInstanceState(outState);
     }
 
@@ -2292,10 +2295,6 @@ public abstract class DesktopShellActivity extends Activity
                 "force_resizable_activities", 0) == 1;
     }
 
-    private Button createActionButton(final int textResId, final int accentColor) {
-        return mUi.actionButton(textResId, accentColor);
-    }
-
     public void setStatus(final int stringResId) {
         setStatus(getString(stringResId));
     }
@@ -2314,10 +2313,6 @@ public abstract class DesktopShellActivity extends Activity
         if (mDesktopControls != null) {
             mDesktopControls.setActivityStatus(text);
         }
-    }
-
-    private int dp(final int value) {
-        return mUi.dp(value);
     }
 
     private int desktopDp(final int normalValue, final int compactValue) {

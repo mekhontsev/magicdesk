@@ -175,7 +175,10 @@ public final class AndroidActivityAuthorization implements Parcelable {
         if (!enabled) {
             return COMPONENT_DISABLED;
         }
-        if (!exported && !samePackage) {
+        if (samePackage) {
+            return ALLOWED;
+        }
+        if (!exported) {
             return COMPONENT_NOT_EXPORTED;
         }
         return permissionGranted

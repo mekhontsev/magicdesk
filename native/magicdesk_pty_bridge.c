@@ -12,8 +12,10 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/signalfd.h>
 #include <sys/wait.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 /* Keep these values synchronized with the Java PTY protocol classes. */
@@ -30,17 +32,14 @@
 #define MAX_DATA_FRAME (1024U * 1024U)
 #define MAX_STARTUP_COMMAND (64U * 1024U)
 #define MAX_PROCESS_NAME 512U
+#define RELAY_BUFFER_SIZE 8192U
+#define CHILD_EXIT_GRACE_MILLIS 500
 
-static volatile sig_atomic_t stop_requested;
-static volatile sig_atomic_t shell_pid = -1;
-
-static void handle_stop_signal(int signal_number) {
-    (void) signal_number;
-    stop_requested = 1;
-    if (shell_pid > 0) {
-        kill(-(pid_t) shell_pid, SIGHUP);
-    }
-}
+struct relay_buffer {
+    uint8_t bytes[FRAME_HEADER_SIZE + RELAY_BUFFER_SIZE];
+    size_t offset;
+    size_t length;
+};
 
 static int write_all(int fd, const void *buffer, size_t length) {
     const uint8_t *next = buffer;
@@ -56,28 +55,6 @@ static int write_all(int fd, const void *buffer, size_t length) {
         length -= (size_t) written;
     }
     return 0;
-}
-
-static int read_exact(int fd, void *buffer, size_t length) {
-    uint8_t *next = buffer;
-    while (length > 0) {
-        const ssize_t count = read(fd, next, length);
-        if (count == 0) {
-            return 0;
-        }
-        if (count < 0) {
-            if (errno == EINTR) {
-                if (stop_requested) {
-                    return 0;
-                }
-                continue;
-            }
-            return -1;
-        }
-        next += count;
-        length -= (size_t) count;
-    }
-    return 1;
 }
 
 static uint32_t decode_u32(const uint8_t *bytes) {
@@ -103,6 +80,20 @@ static int write_frame(
         return -1;
     }
     return length == 0 || write_all(fd, payload, length) == 0 ? 0 : -1;
+}
+
+static int queue_frame(
+        struct relay_buffer *output, uint8_t type, const void *payload, uint32_t length) {
+    if (output->length != 0 || length > RELAY_BUFFER_SIZE) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    output->bytes[0] = type;
+    encode_u32(output->bytes + 1, length);
+    memcpy(output->bytes + FRAME_HEADER_SIZE, payload, length);
+    output->offset = 0;
+    output->length = FRAME_HEADER_SIZE + length;
+    return 0;
 }
 
 static void close_child_descriptors(int preserved_fd) {
@@ -249,11 +240,15 @@ static int open_shell_pty(
         _exit(126);
     }
     close_child_descriptors(exec_status[1]);
+    // Binder startup commands arrive after the ready handshake, so cwd setup
+    // must succeed even when no command was passed directly to this helper.
     if (chdir(working_directory) != 0) {
+        const int child_error = errno;
         perror("chdir");
-    } else {
-        (void) setenv("PWD", working_directory, 1);
+        (void) write_all(exec_status[1], &child_error, sizeof(child_error));
+        _exit(126);
     }
+    (void) setenv("PWD", working_directory, 1);
     const char *shell_name = strrchr(shell_path, '/');
     shell_name = shell_name == NULL ? shell_path : shell_name + 1;
     char login_name[PATH_MAX];
@@ -303,8 +298,8 @@ static int open_shell_pty(
     _exit(127);
 }
 
-static int send_working_directory(
-        int output_fd, pid_t child_pid, int framed_output) {
+static int queue_working_directory(
+        struct relay_buffer *output, pid_t child_pid, int framed_output) {
     if (!framed_output) {
         errno = EPROTO;
         return -1;
@@ -320,8 +315,7 @@ static int send_working_directory(
         return -1;
     }
     directory[length] = '\0';
-    return write_frame(
-            output_fd, FRAME_CWD, directory, (uint32_t) length);
+    return queue_frame(output, FRAME_CWD, directory, (uint32_t) length);
 }
 
 static int read_process_name(
@@ -441,8 +435,8 @@ static pid_t find_process_group_member(
     return preferred > 0 ? preferred : selected;
 }
 
-static int send_foreground_process(
-        int output_fd,
+static int queue_foreground_process(
+        struct relay_buffer *output,
         int master,
         pid_t shell_process,
         int framed_output) {
@@ -453,8 +447,8 @@ static int send_foreground_process(
     const pid_t process_group = tcgetpgrp(master);
     if (process_group < 1) {
         const uint8_t unavailable[8] = {0};
-        return write_frame(
-                output_fd,
+        return queue_frame(
+                output,
                 FRAME_FOREGROUND_PROCESS,
                 unavailable,
                 sizeof(unavailable));
@@ -473,8 +467,8 @@ static int send_foreground_process(
         if (process_id < 1
                 || read_process_name(process_id, name, sizeof(name)) != 0) {
             const uint8_t unavailable[8] = {0};
-            return write_frame(
-                    output_fd,
+            return queue_frame(
+                    output,
                     FRAME_FOREGROUND_PROCESS,
                     unavailable,
                     sizeof(unavailable));
@@ -489,77 +483,110 @@ static int send_foreground_process(
     encode_u32(payload, (uint32_t) process_id);
     encode_u32(payload + 4U, (uint32_t) process_group);
     memcpy(payload + 8U, name, name_length);
-    return write_frame(
-            output_fd,
+    return queue_frame(
+            output,
             FRAME_FOREGROUND_PROCESS,
             payload,
             (uint32_t) (8U + name_length));
 }
 
-static int relay_control_frame(
-        int control_fd,
-        int output_fd,
-        int master,
-        pid_t child_pid,
-        int framed_output) {
+struct control_frame {
     uint8_t header[FRAME_HEADER_SIZE];
-    const int header_result = read_exact(control_fd, header, sizeof(header));
-    if (header_result <= 0) {
-        return header_result;
+    size_t header_used;
+    uint32_t remaining;
+    uint8_t resize[RESIZE_PAYLOAD_SIZE];
+    size_t resize_used;
+};
+
+static int read_control(
+        int control_fd, int master, pid_t child, int framed_output,
+        struct control_frame *frame, struct relay_buffer *input,
+        struct relay_buffer *output) {
+    void *destination;
+    size_t capacity;
+    if (frame->header_used < FRAME_HEADER_SIZE) {
+        destination = frame->header + frame->header_used;
+        capacity = FRAME_HEADER_SIZE - frame->header_used;
+    } else if (frame->header[0] == FRAME_DATA) {
+        destination = input->bytes;
+        capacity = frame->remaining < RELAY_BUFFER_SIZE
+                ? frame->remaining : RELAY_BUFFER_SIZE;
+    } else {
+        destination = frame->resize + frame->resize_used;
+        capacity = RESIZE_PAYLOAD_SIZE - frame->resize_used;
     }
-    const uint32_t length = decode_u32(header + 1);
-    if (header[0] == FRAME_DATA) {
-        if (length > MAX_DATA_FRAME) {
-            errno = EOVERFLOW;
-            return -1;
+    const ssize_t count = read(control_fd, destination, capacity);
+    if (count <= 0) {
+        return count < 0 && (errno == EINTR || errno == EAGAIN) ? 1 : (int) count;
+    }
+    if (frame->header_used < FRAME_HEADER_SIZE) {
+        frame->header_used += (size_t) count;
+        if (frame->header_used < FRAME_HEADER_SIZE) {
+            return 1;
         }
-        uint8_t buffer[8192];
-        uint32_t remaining = length;
-        while (remaining > 0) {
-            const size_t chunk = remaining < sizeof(buffer)
-                    ? remaining : sizeof(buffer);
-            const int result = read_exact(control_fd, buffer, chunk);
-            if (result <= 0 || write_all(master, buffer, chunk) != 0) {
-                return result == 0 ? 0 : -1;
+        frame->remaining = decode_u32(frame->header + 1);
+        frame->resize_used = 0;
+        const uint8_t type = frame->header[0];
+        if (type == FRAME_DATA && frame->remaining <= MAX_DATA_FRAME) {
+            if (frame->remaining == 0) {
+                frame->header_used = 0;
             }
-            remaining -= (uint32_t) chunk;
+            return 1;
         }
-        return 1;
-    }
-    if (header[0] == FRAME_RESIZE && length == RESIZE_PAYLOAD_SIZE) {
-        uint8_t payload[RESIZE_PAYLOAD_SIZE];
-        const int result = read_exact(control_fd, payload, sizeof(payload));
-        if (result <= 0) {
-            return result;
+        if (type == FRAME_RESIZE && frame->remaining == RESIZE_PAYLOAD_SIZE) {
+            return 1;
         }
-        const uint32_t rows = decode_u32(payload);
-        const uint32_t columns = decode_u32(payload + 4);
-        if (rows < 2 || rows > UINT16_MAX
-                || columns < 2 || columns > UINT16_MAX) {
-            errno = EINVAL;
-            return -1;
+        if (type == FRAME_QUERY_CWD && frame->remaining == 0) {
+            frame->header_used = 0;
+            return queue_working_directory(output, child, framed_output) == 0 ? 1 : -1;
         }
-        const struct winsize size = {
-            .ws_row = (unsigned short) rows,
-            .ws_col = (unsigned short) columns,
-            .ws_xpixel = 0,
-            .ws_ypixel = 0
-        };
-        return ioctl(master, TIOCSWINSZ, &size) == 0 ? 1 : -1;
+        if (type == FRAME_QUERY_FOREGROUND_PROCESS && frame->remaining == 0) {
+            frame->header_used = 0;
+            return queue_foreground_process(output, master, child, framed_output) == 0 ? 1 : -1;
+        }
+        errno = type == FRAME_DATA ? EOVERFLOW : EPROTO;
+        return -1;
     }
-    if (header[0] == FRAME_QUERY_CWD && length == 0) {
-        return send_working_directory(
-                output_fd, child_pid, framed_output) == 0 ? 1 : -1;
+    frame->remaining -= (uint32_t) count;
+    if (frame->header[0] == FRAME_DATA) {
+        input->offset = 0;
+        input->length = (size_t) count;
+    } else {
+        frame->resize_used += (size_t) count;
+        if (frame->remaining == 0) {
+            const uint32_t rows = decode_u32(frame->resize);
+            const uint32_t columns = decode_u32(frame->resize + 4);
+            if (rows < 2 || rows > UINT16_MAX || columns < 2 || columns > UINT16_MAX) {
+                errno = EINVAL;
+                return -1;
+            }
+            const struct winsize size = {
+                .ws_row = (unsigned short) rows,
+                .ws_col = (unsigned short) columns
+            };
+            if (ioctl(master, TIOCSWINSZ, &size) != 0) {
+                return -1;
+            }
+        }
     }
-    if (header[0] == FRAME_QUERY_FOREGROUND_PROCESS && length == 0) {
-        return send_foreground_process(
-                output_fd,
-                master,
-                child_pid,
-                framed_output) == 0 ? 1 : -1;
+    if (frame->remaining == 0) {
+        frame->header_used = 0;
     }
-    errno = EPROTO;
-    return -1;
+    return 1;
+}
+
+static int flush_buffer(int fd, struct relay_buffer *buffer) {
+    const ssize_t count = write(fd, buffer->bytes + buffer->offset, buffer->length);
+    if (count < 0) {
+        return errno == EINTR || errno == EAGAIN ? 0 : -1;
+    }
+    if (count == 0) {
+        errno = EIO;
+        return -1;
+    }
+    buffer->offset += (size_t) count;
+    buffer->length -= (size_t) count;
+    return 0;
 }
 
 static int connect_loopback(long port) {
@@ -600,60 +627,168 @@ static int valid_token(const char *token) {
     return 1;
 }
 
+static int nonblocking(int fd) {
+    const int flags = fcntl(fd, F_GETFL);
+    return flags < 0 ? -1 : fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
 static int relay_pty(
-        int control_fd,
-        int output_fd,
-        int master,
-        pid_t child,
-        int framed_output) {
-    uint8_t output[8192];
-    while (!stop_requested) {
-        struct pollfd descriptors[2] = {
-            {.fd = control_fd, .events = POLLIN},
-            {.fd = master, .events = POLLIN}
+        int control_fd, int output_fd, int master, pid_t child,
+        int framed_output, int notifications) {
+    if (nonblocking(control_fd) != 0 || nonblocking(output_fd) != 0
+            || nonblocking(master) != 0) {
+        return -1;
+    }
+    struct control_frame frame = {0};
+    struct relay_buffer input = {0};
+    struct relay_buffer output = {0};
+    int master_eof = 0;
+    int master_write_closed = 0;
+    for (;;) {
+        if (master_eof && output.length == 0) {
+            return 0;
+        }
+        const int read_control_ready = !master_eof && !master_write_closed
+                && input.length == 0 && output.length == 0;
+        const int read_master_ready = !master_eof && output.length == 0;
+        const int write_master_ready = !master_write_closed && input.length > 0;
+        // Only this poll owner reads/writes either direction. A full bounded
+        // queue pauses its producer, never the opposite direction or shutdown.
+        struct pollfd descriptors[4] = {
+            {.fd = control_fd,
+                .events = (short) (POLLRDHUP | (read_control_ready ? POLLIN : 0))},
+            {.fd = read_master_ready || write_master_ready ? master : -1,
+                .events = (short) ((read_master_ready ? POLLIN : 0)
+                        | (write_master_ready ? POLLOUT : 0))},
+            {.fd = output.length > 0 ? output_fd : -1, .events = POLLOUT},
+            {.fd = notifications, .events = POLLIN}
         };
-        const int ready = poll(descriptors, 2, -1);
+        const int ready = poll(descriptors, 4, -1);
         if (ready < 0) {
             if (errno == EINTR) {
                 continue;
             }
             return -1;
         }
-        if ((descriptors[0].revents & (POLLIN | POLLHUP)) != 0) {
-            if (relay_control_frame(
-                    control_fd,
-                    output_fd,
-                    master,
-                    child,
-                    framed_output) <= 0) {
+        if ((descriptors[3].revents & POLLIN) != 0) {
+            struct signalfd_siginfo event;
+            if (read(notifications, &event, sizeof(event)) == sizeof(event)
+                    && (event.ssi_signo == SIGTERM || event.ssi_signo == SIGHUP)) {
                 return 0;
             }
         }
-        if ((descriptors[1].revents & (POLLIN | POLLHUP)) != 0) {
-            const ssize_t count = read(master, output, sizeof(output));
-            if (count <= 0) {
-                if (count < 0 && errno == EINTR) {
-                    continue;
-                }
-                return 0;
-            }
-            const int write_result = framed_output
-                    ? write_frame(
-                            output_fd,
-                            FRAME_OUTPUT,
-                            output,
-                            (uint32_t) count)
-                    : write_all(output_fd, output, (size_t) count);
-            if (write_result != 0) {
+        if ((descriptors[0].revents & (POLLRDHUP | POLLHUP | POLLERR | POLLNVAL)) != 0) {
+            return 0;
+        }
+        if ((descriptors[2].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+            return -1;
+        }
+        if ((descriptors[2].revents & POLLOUT) != 0
+                && flush_buffer(output_fd, &output) != 0) {
+            return -1;
+        }
+        if ((descriptors[1].revents & POLLOUT) != 0
+                && flush_buffer(master, &input) != 0) {
+            if (errno != EIO) {
                 return -1;
             }
+            master_write_closed = 1;
+            input.length = 0;
         }
-        if ((descriptors[0].revents & (POLLERR | POLLNVAL)) != 0
-                || (descriptors[1].revents & (POLLERR | POLLNVAL)) != 0) {
+        if (read_control_ready && output.length == 0
+                && (descriptors[0].revents & POLLIN) != 0
+                && read_control(control_fd, master, child, framed_output,
+                        &frame, &input, &output) <= 0) {
+            return 0;
+        }
+        if (read_master_ready && output.length == 0
+                && (descriptors[1].revents & (POLLIN | POLLHUP | POLLERR)) != 0) {
+            const size_t prefix = framed_output ? FRAME_HEADER_SIZE : 0;
+            const ssize_t count = read(master, output.bytes + prefix, RELAY_BUFFER_SIZE);
+            if (count > 0) {
+                output.offset = 0;
+                output.length = prefix + (size_t) count;
+                if (framed_output) {
+                    output.bytes[0] = FRAME_OUTPUT;
+                    encode_u32(output.bytes + 1, (uint32_t) count);
+                }
+            } else if (count == 0 || errno == EIO) {
+                master_eof = 1;
+                master_write_closed = 1;
+                input.length = 0;
+            } else if (errno != EINTR && errno != EAGAIN) {
+                return -1;
+            }
+        } else if ((descriptors[1].revents & POLLHUP) != 0) {
+            // Drain already queued output before observing the master's EOF.
+            master_write_closed = 1;
+            input.length = 0;
+        }
+        if ((descriptors[1].revents & POLLNVAL) != 0) {
             return -1;
         }
     }
-    return 0;
+}
+
+static int64_t monotonic_millis(void) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+        return -1;
+    }
+    return (int64_t) now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+static int await_child_exit(pid_t child, int notifications, int *status) {
+    const int64_t started = monotonic_millis();
+    if (started < 0) {
+        return -1;
+    }
+    const int64_t deadline = started + CHILD_EXIT_GRACE_MILLIS;
+    for (;;) {
+        const pid_t result = waitpid(child, status, WNOHANG);
+        if (result == child) {
+            return 1;
+        }
+        if (result < 0 && errno != EINTR) {
+            return -1;
+        }
+        const int64_t now = monotonic_millis();
+        if (now < 0) {
+            return -1;
+        }
+        if (now >= deadline) {
+            return 0;
+        }
+        // SIGCHLD is blocked and queued in this descriptor before fork, so
+        // exit between waitpid and poll cannot lose the wakeup. No state polling.
+        struct pollfd event = {.fd = notifications, .events = POLLIN};
+        const int ready = poll(&event, 1, (int) (deadline - now));
+        if (ready < 0 && errno != EINTR) {
+            return -1;
+        }
+        if (ready > 0) {
+            struct signalfd_siginfo info;
+            (void) read(notifications, &info, sizeof(info));
+        }
+    }
+}
+
+static int stop_shell(pid_t child, int master, int notifications) {
+    (void) kill(-child, SIGHUP);
+    close(master);
+    int status = 0;
+    int exited = await_child_exit(child, notifications, &status);
+    if (exited == 0) {
+        // Escalate only the owned shell process group after its HUP grace.
+        (void) kill(-child, SIGKILL);
+        (void) kill(child, SIGKILL);
+        exited = await_child_exit(child, notifications, &status);
+    }
+    if (exited != 1) {
+        return 1;
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status)
+            : WIFSIGNALED(status) ? 128 + WTERMSIG(status) : 1;
 }
 
 int main(int argc, char **argv) {
@@ -683,12 +818,18 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    struct sigaction stop_action;
-    memset(&stop_action, 0, sizeof(stop_action));
-    stop_action.sa_handler = handle_stop_signal;
-    sigemptyset(&stop_action.sa_mask);
-    (void) sigaction(SIGTERM, &stop_action, NULL);
-    (void) sigaction(SIGHUP, &stop_action, NULL);
+    sigset_t signals;
+    sigemptyset(&signals);
+    sigaddset(&signals, SIGTERM);
+    sigaddset(&signals, SIGHUP);
+    sigaddset(&signals, SIGCHLD);
+    if (sigprocmask(SIG_BLOCK, &signals, NULL) != 0) {
+        return 1;
+    }
+    const int notifications = signalfd(-1, &signals, SFD_CLOEXEC | SFD_NONBLOCK);
+    if (notifications < 0) {
+        return 1;
+    }
     (void) signal(SIGPIPE, SIG_IGN);
 
     pid_t child = -1;
@@ -703,9 +844,9 @@ int main(int argc, char **argv) {
             &child);
     if (master < 0) {
         perror("open pty");
+        close(notifications);
         return 1;
     }
-    shell_pid = child;
     int control_fd = STDIN_FILENO;
     int output_fd = STDOUT_FILENO;
     if (socket_mode) {
@@ -722,35 +863,27 @@ int main(int argc, char **argv) {
                         FRAME_HELLO,
                         hello,
                         (uint32_t) hello_length) != 0) {
-            (void) kill(-child, SIGHUP);
-            close(master);
+            (void) stop_shell(child, master, notifications);
             if (control_fd >= 0) {
                 close(control_fd);
             }
+            close(notifications);
             return 1;
         }
     } else if (dprintf(
             STDOUT_FILENO, "MAGICDESK_PTY %d\n", child) < 0) {
-        (void) kill(-child, SIGHUP);
-        close(master);
+        (void) stop_shell(child, master, notifications);
+        close(notifications);
         return 1;
     }
 
     (void) relay_pty(
-            control_fd, output_fd, master, child, socket_mode);
+            control_fd, output_fd, master, child, socket_mode, notifications);
 
-    if (child > 0) {
-        (void) kill(-child, SIGHUP);
-    }
-    close(master);
+    const int exit_code = stop_shell(child, master, notifications);
     if (socket_mode) {
         close(control_fd);
     }
-    int status = 0;
-    while (child > 0 && waitpid(child, &status, 0) < 0 && errno == EINTR) {
-    }
-    if (WIFEXITED(status)) {
-        return WEXITSTATUS(status);
-    }
-    return WIFSIGNALED(status) ? 128 + WTERMSIG(status) : 1;
+    close(notifications);
+    return exit_code;
 }

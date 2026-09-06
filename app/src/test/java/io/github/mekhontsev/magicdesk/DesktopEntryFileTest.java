@@ -2,12 +2,99 @@ package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.nio.charset.StandardCharsets;
+import java.util.function.Function;
 
 import org.junit.Test;
 
 public final class DesktopEntryFileTest {
+    @Test
+    public void streamReaderHonorsExactUtf8LimitAndCallerOwnership() throws Exception {
+        final String encoded = "\u044f".repeat(32 * 1024);
+        final var input = new EntryInput(encoded);
+        assertEquals(encoded, DesktopEntryFile.readUtf8(input));
+        assertFalse(input.closed);
+
+        final var oversized = new EntryInput(encoded + "x");
+        assertThrows(IOException.class, () -> DesktopEntryFile.readUtf8(oversized));
+        assertFalse(oversized.closed);
+    }
+
+    @Test
+    public void cancelledStreamReadDoesNotConsumeOrCloseSource() {
+        final var input = new EntryInput("[Desktop Entry]");
+        Thread.currentThread().interrupt();
+        try {
+            assertThrows(InterruptedIOException.class, () -> DesktopEntryFile.readUtf8(input));
+            assertEquals(15, input.available());
+            assertFalse(input.closed);
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    private static final class EntryInput extends ByteArrayInputStream {
+        boolean closed;
+
+        EntryInput(final String text) {
+            super(text.getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+        }
+    }
+
+    @Test
+    public void parserBoundsUtf8BytesRatherThanCharacters() {
+        final String header = "[Desktop Entry]\nType=Link\nURL=file:///tmp\nName=";
+        final int nameBytes = 64 * 1024 - header.length();
+        for (final String character : new String[]{"a", "\u044f", "\ud83d\ude80"}) {
+            final int width = character.getBytes(StandardCharsets.UTF_8).length;
+            final String encoded = header + character.repeat(nameBytes / width)
+                    + "a".repeat(nameBytes % width);
+
+            assertEquals(64 * 1024, encoded.getBytes(StandardCharsets.UTF_8).length);
+            assertNotNull(DesktopEntryFile.parse(encoded));
+            assertNull(DesktopEntryFile.parse(encoded + "a"));
+        }
+    }
+
+    @Test
+    public void everyEncoderUsesTheReadersUtf8Limit() {
+        assertEncodingLimit(name -> DesktopEntryFile.encodeLink(name, "/tmp"));
+        assertEncodingLimit(name -> DesktopEntryFile.encodeWebLink(name, "https://example.com/"));
+        assertEncodingLimit(name -> DesktopEntryFile.encodeApplication(
+                new DesktopApplicationShortcut(name, "", "pwd", null, "",
+                        DesktopLaunchMode.AUTO, false, DesktopExecBackend.SHELL, false)));
+    }
+
+    @Test
+    public void encodingLimitIncludesEscapingOverhead() {
+        assertThrows(IllegalArgumentException.class,
+                () -> DesktopEntryFile.encodeLink("a\\b".repeat(17000), "/tmp"));
+    }
+
+    private static void assertEncodingLimit(final Function<String, String> encode) {
+        final int nameBytes = 64 * 1024
+                - encode.apply("x").getBytes(StandardCharsets.UTF_8).length + 1;
+        final String name = "\u044f".repeat(nameBytes / 2) + "a".repeat(nameBytes % 2);
+        final String encoded = encode.apply(name);
+
+        assertEquals(64 * 1024, encoded.getBytes(StandardCharsets.UTF_8).length);
+        assertEquals(name, DesktopEntryFile.parse(encoded).name);
+        assertThrows(IllegalArgumentException.class, () -> encode.apply(name + "a"));
+    }
+
     @Test
     public void linkRoundTripPreservesStandardFields() {
         final DesktopEntry parsed = DesktopEntryFile.parse(

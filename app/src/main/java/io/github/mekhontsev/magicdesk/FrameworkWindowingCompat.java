@@ -373,7 +373,7 @@ final class FrameworkWindowingCompat {
             insetsSourceApi = sourceApi;
             taskObservation = new TaskObservationCapabilities(
                     visibleTypesEnabled,
-                    !"unavailable".equals(sourceApi));
+                    sourceApi != null && !sourceApi.startsWith("unavailable"));
         }
 
         String captionStrategy() {

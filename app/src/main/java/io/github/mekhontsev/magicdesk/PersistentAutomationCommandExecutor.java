@@ -162,7 +162,9 @@ final class PersistentAutomationCommandExecutor
                         }
                         append(mDelimiter, 0, mDelimiter.length);
                         append(candidate, 0, candidate.length);
-                        append('\n');
+                        // The rejected line's terminator may start the real
+                        // completion marker; retain it in the matcher.
+                        consume('\n');
                     }
                 }
                 flushMatched();

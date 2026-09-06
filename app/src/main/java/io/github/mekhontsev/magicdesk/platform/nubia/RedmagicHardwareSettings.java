@@ -284,7 +284,7 @@ final class RedmagicHardwareSettings {
                 readError);
     }
 
-    private static String readCommand(final String... requestedKeys) {
+    static String readCommand(final String... requestedKeys) {
         final Set<String> keys = new LinkedHashSet<>();
         if (requestedKeys != null) {
             for (final String key : requestedKeys) {

@@ -57,19 +57,6 @@ public final class ExternalDisplayController {
         return -1;
     }
 
-    static boolean waitForWirelessDisplayStop() {
-        final long deadline = SystemClock.uptimeMillis() + START_TIMEOUT_MS;
-        while (SystemClock.uptimeMillis() < deadline) {
-            if (findWirelessDisplayId() <= 0) {
-                return true;
-            }
-            BoundedStateAwaiter.pause(
-                    BoundedStateAwaiter.Reason.DISPLAY_STATE,
-                    STATE_POLL_MS);
-        }
-        return false;
-    }
-
     public static boolean displayExists(final int displayId) {
         final String output = runCommand(
                 DISPLAY + " get-displays --ids-only");

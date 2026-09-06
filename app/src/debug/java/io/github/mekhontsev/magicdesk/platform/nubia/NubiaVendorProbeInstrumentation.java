@@ -311,7 +311,10 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
                 + " output=" + oneLine(result.output);
     }
 
-    private String probeGlobalSettingWrite() {
+    String probeGlobalSettingWrite() {
+        if (!mAllowMutation) {
+            return "skipped";
+        }
         final Context context = getTargetContext().getApplicationContext();
         final String key = "enable_freeform_support";
         final String original = Settings.Global.getString(

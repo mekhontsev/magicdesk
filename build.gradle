@@ -9,6 +9,7 @@ tasks.register('verifyDevelopment') {
     dependsOn ':app:testDebugUnitTest',
             ':app:lintDebug',
             ':app:assembleDebug',
+            ':kernel-fixes:testDebugUnitTest',
             ':kernel-fixes:lintDebug',
             ':kernel-fixes:assembleDebug'
 }

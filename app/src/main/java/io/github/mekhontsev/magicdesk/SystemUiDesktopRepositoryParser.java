@@ -40,19 +40,32 @@ final class SystemUiDesktopRepositoryParser {
         }
 
         boolean inRepositories = false;
+        int repositoriesIndent = -1;
         boolean inCurrentUserRepository = false;
         Integer currentDisplayId = null;
+        int displayIndent = -1;
         int currentUserId = -1;
         for (final String rawLine : output.split("\\R")) {
             final String line = rawLine.trim();
+            final int indent = indentation(rawLine);
             if (REPOSITORIES.equals(line)) {
                 inRepositories = true;
+                repositoriesIndent = indent;
                 inCurrentUserRepository = false;
                 currentDisplayId = null;
+                currentUserId = -1;
                 continue;
+            }
+            if (!line.isEmpty() && indent <= repositoriesIndent) {
+                inRepositories = false;
+                inCurrentUserRepository = false;
+                currentDisplayId = null;
             }
             if (!inRepositories || line.isEmpty()) {
                 continue;
+            }
+            if (currentDisplayId != null && indent <= displayIndent) {
+                currentDisplayId = null;
             }
             if (line.startsWith(CURRENT_USER)) {
                 currentUserId = parseInteger(line.substring(CURRENT_USER.length()));
@@ -77,6 +90,7 @@ final class SystemUiDesktopRepositoryParser {
                         DISPLAY.length(), separator < 0 ? line.length() : separator));
                 currentDisplayId = inCurrentUserRepository
                         ? Integer.valueOf(displayId) : null;
+                displayIndent = indent;
                 if (currentDisplayId != null) {
                     taskIdsByDisplay.computeIfAbsent(
                             currentDisplayId,
@@ -97,6 +111,14 @@ final class SystemUiDesktopRepositoryParser {
             }
         }
         return taskIdsByDisplay;
+    }
+
+    private static int indentation(final String line) {
+        int offset = 0;
+        while (offset < line.length() && Character.isWhitespace(line.charAt(offset))) {
+            offset++;
+        }
+        return offset;
     }
 
     private static void addTaskIds(

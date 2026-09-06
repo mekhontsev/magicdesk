@@ -17,16 +17,16 @@ import android.view.InputDevice;
 import org.json.JSONArray;
 import org.json.JSONException;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.io.RandomAccessFile;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -113,16 +113,20 @@ public final class CompatibilityDiagnostics {
             }
             entry.append('\n');
             final File file = new File(context.getFilesDir(), EVENT_FILE);
-            if (file.length() > MAX_EVENT_FILE_BYTES) {
+            boolean append = file.length() <= MAX_EVENT_FILE_BYTES;
+            if (!append) {
                 final File previousFile =
                         new File(context.getFilesDir(), EVENT_FILE + ".previous");
-                if (previousFile.exists()) {
-                    previousFile.delete();
+                try {
+                    Files.move(file.toPath(), previousFile.toPath(),
+                            StandardCopyOption.REPLACE_EXISTING);
+                    append = true;
+                } catch (IOException ignored) {
+                    // A failed rotation must not grow the current log without a bound.
                 }
-                file.renameTo(previousFile);
             }
             try (OutputStreamWriter writer = new OutputStreamWriter(
-                    new FileOutputStream(file, true), StandardCharsets.UTF_8)) {
+                    new FileOutputStream(file, append), StandardCharsets.UTF_8)) {
                 writer.write(entry.toString());
             } catch (IOException ignored) {
                 // Diagnostics must never become a second failure path.
@@ -846,16 +850,6 @@ public final class CompatibilityDiagnostics {
                 + (TextUtils.isEmpty(actual) ? "<empty>" : actual);
     }
 
-    public static boolean hasPackage(final Context context, final String packageName) {
-        try {
-            context.getPackageManager().getApplicationInfo(
-                    packageName, PackageManager.MATCH_DISABLED_COMPONENTS);
-            return true;
-        } catch (PackageManager.NameNotFoundException e) {
-            return false;
-        }
-    }
-
     private static String appVersion(final Context context) {
         try {
             final PackageInfo info = context.getPackageManager().getPackageInfo(
@@ -866,29 +860,27 @@ public final class CompatibilityDiagnostics {
         }
     }
 
-    private static String readFile(final File file) {
+    static String readFile(final File file) {
         if (!file.isFile()) {
             return "";
         }
-        final StringBuilder value = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                new FileInputStream(file), StandardCharsets.UTF_8))) {
-            final char[] buffer = new char[2_048];
-            int read;
-            while ((read = reader.read(buffer)) >= 0) {
-                value.append(buffer, 0, read);
-            }
+        try (RandomAccessFile input = new RandomAccessFile(file, "r")) {
+            final long length = input.length();
+            final int count = (int) Math.min(length, MAX_EVENT_FILE_BYTES);
+            input.seek(length - count);
+            final byte[] bytes = new byte[count];
+            input.readFully(bytes);
+            // Event selection already discards an incomplete leading block.
+            return new String(bytes, StandardCharsets.UTF_8);
         } catch (IOException ignored) {
             return "";
         }
-        return value.toString();
     }
 
     private static String runCommand(final String command, final int maxChars) {
         try {
             final String output = ShellAccess.run(command);
-            return output.length() <= maxChars
-                    ? output : output.substring(0, maxChars);
+            return BoundedText.prefix(output, maxChars);
         } catch (IOException e) {
             return "Probe failed: " + cleanSingleLine(e.getMessage(), 500) + '\n';
         }
@@ -904,13 +896,13 @@ public final class CompatibilityDiagnostics {
                 .trim();
     }
 
-    private static String cleanMultiline(final String value, final int maxLength) {
+    static String cleanMultiline(final String value, final int maxLength) {
         if (value == null) {
             return "";
         }
         final String normalized = value.replace("\u0000", "");
         return normalized.length() <= maxLength
-                ? normalized : normalized.substring(0, maxLength) + "...";
+                ? normalized : BoundedText.prefix(normalized, maxLength) + "...";
     }
 
     private static String stackTrace(final Throwable error) {
@@ -935,10 +927,13 @@ public final class CompatibilityDiagnostics {
 
         @Override
         public void uncaughtException(final Thread thread, final Throwable error) {
-            record("CRASH-001", "MagicDesk terminated unexpectedly",
-                    "thread=" + (thread == null ? "unknown" : thread.getName()), error);
-            if (mPrevious != null) {
-                mPrevious.uncaughtException(thread, error);
+            try {
+                record("CRASH-001", "MagicDesk terminated unexpectedly",
+                        "thread=" + (thread == null ? "unknown" : thread.getName()), error);
+            } finally {
+                if (mPrevious != null) {
+                    mPrevious.uncaughtException(thread, error);
+                }
             }
         }
     }

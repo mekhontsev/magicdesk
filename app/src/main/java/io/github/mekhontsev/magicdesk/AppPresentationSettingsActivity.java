@@ -104,19 +104,26 @@ public final class AppPresentationSettingsActivity extends Activity
         }
         mApplying = true;
         mView.setEnabled(false);
-        mutation.run(result -> runOnUiThread(() -> {
-            if (isFinishing() || isDestroyed()) {
-                return;
-            }
-            mApplying = false;
+        mutation.run(result -> runOnUiThread(
+                () -> finishMutation(packageName, result)));
+    }
+
+    void finishMutation(final String packageName,
+            final TaskRepository.ActionResult result) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        mApplying = false;
+        if (packageName.equals(mPackageName)) {
             renderPackage(packageName);
-            if (!result.success) {
-                Toast.makeText(
-                        this,
-                        result.message,
-                        Toast.LENGTH_LONG).show();
-            }
-        }));
+        } else if (mPackageName == null) {
+            renderList();
+        } else {
+            mView.setEnabled(true);
+        }
+        if (!result.success) {
+            Toast.makeText(this, result.message, Toast.LENGTH_LONG).show();
+        }
     }
 
     private void renderIntent(
@@ -138,6 +145,7 @@ public final class AppPresentationSettingsActivity extends Activity
         mReturnToList = false;
         mView = new AppPresentationSettingsView(this, this);
         setContentView(mView.createList());
+        mView.setEnabled(!mApplying);
     }
 
     private void renderPackage(final String packageName) {

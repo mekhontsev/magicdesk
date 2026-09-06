@@ -51,6 +51,7 @@ final class AppPresentationSettingsView {
     private Button mIncrease;
     private String mPackageName;
     private boolean mRendering;
+    private boolean mTrackingScaleTouch;
     private boolean mEnabled = true;
 
     AppPresentationSettingsView(
@@ -162,22 +163,22 @@ final class AppPresentationSettingsView {
                         final int scale = snapScale(progress);
                         if (fromUser && progress != scale) {
                             seekBar.setProgress(scale);
-                            return;
                         }
                         updateScaleValue(scale);
+                        if (fromUser && !mTrackingScaleTouch) {
+                            persistScale(scale);
+                        }
                     }
 
                     @Override
                     public void onStartTrackingTouch(final SeekBar seekBar) {
+                        mTrackingScaleTouch = true;
                     }
 
                     @Override
                     public void onStopTrackingTouch(final SeekBar seekBar) {
-                        if (!mRendering && mCustomMode.isChecked()) {
-                            mActions.setCustomScale(
-                                    mPackageName,
-                                    snapScale(seekBar.getProgress()));
-                        }
+                        mTrackingScaleTouch = false;
+                        persistScale(snapScale(seekBar.getProgress()));
                     }
                 });
         mDecrease.setOnClickListener(view -> adjustScale(-SCALE_STEP));
@@ -201,6 +202,13 @@ final class AppPresentationSettingsView {
     void setEnabled(final boolean enabled) {
         mEnabled = enabled;
         updateEnabledState();
+    }
+
+    private void persistScale(final int scale) {
+        if (mEnabled && !mRendering && mCustomMode != null
+                && mCustomMode.isChecked()) {
+            mActions.setCustomScale(mPackageName, scale);
+        }
     }
 
     private void renderDetail(final AppPresentationProfile profile) {
@@ -458,6 +466,7 @@ final class AppPresentationSettingsView {
     }
 
     private void clearDetailControls() {
+        mTrackingScaleTouch = false;
         mPackageName = null;
         mSystemMode = null;
         mCustomMode = null;

@@ -4,6 +4,9 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 public final class ShellFileInfo implements Parcelable {
+    private static final int MODE_TYPE_MASK = 0170000;
+    private static final int MODE_REGULAR_FILE = 0100000;
+
     public static final Creator<ShellFileInfo> CREATOR =
             new Creator<ShellFileInfo>() {
                 @Override
@@ -91,6 +94,10 @@ public final class ShellFileInfo implements Parcelable {
         writable = source.readBoolean();
         executable = source.readBoolean();
         hidden = source.readBoolean();
+    }
+
+    public boolean isRegularFile() {
+        return (mode & MODE_TYPE_MASK) == MODE_REGULAR_FILE;
     }
 
     @Override

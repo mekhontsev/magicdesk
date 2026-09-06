@@ -1,9 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
@@ -100,27 +97,6 @@ final class PersistentAutomationShellSession {
                 mWorkingDirectory);
     }
 
-    List<String> commandSearchPath() throws IOException {
-        final ExecutionResult result = execute(
-                "command printf '%s' \"$PATH\"");
-        if (result.exitCode != 0) {
-            throw new IOException("could not read the shell PATH");
-        }
-        final LinkedHashSet<String> paths = new LinkedHashSet<>();
-        for (final String entry : result.output.split(":", -1)) {
-            final String candidate = entry.isEmpty()
-                    ? mWorkingDirectory
-                    : entry.startsWith("/")
-                            ? entry : mWorkingDirectory + "/" + entry;
-            try {
-                paths.add(ShellFilePathPolicy.normalizeShellAbsolute(candidate));
-            } catch (IllegalArgumentException ignored) {
-                // Ignore malformed PATH entries without disabling completion.
-            }
-        }
-        return new ArrayList<>(paths);
-    }
-
     void cancelCurrentCommand() {
         mShellResetGeneration.incrementAndGet();
         mDirectoryChangePending = true;
@@ -182,8 +158,10 @@ final class PersistentAutomationShellSession {
         if (pathEnd < 0) {
             return new ParsedOutput(rawOutput, null);
         }
-        final String directory = rawOutput.substring(pathStart, pathEnd);
-        if (!isAbsoluteDirectory(directory)) {
+        final String directory;
+        try {
+            directory = requireAbsoluteDirectory(rawOutput.substring(pathStart, pathEnd));
+        } catch (IllegalArgumentException invalidDirectory) {
             return new ParsedOutput(rawOutput, null);
         }
         return new ParsedOutput(rawOutput.substring(0, markerStart), directory);
@@ -194,17 +172,10 @@ final class PersistentAutomationShellSession {
     }
 
     private static String requireAbsoluteDirectory(final String directory) {
-        if (!isAbsoluteDirectory(directory)) {
+        if (directory == null || !directory.startsWith("/")) {
             throw new IllegalArgumentException("working directory must be absolute");
         }
-        return directory;
-    }
-
-    private static boolean isAbsoluteDirectory(final String directory) {
-        return directory != null
-                && directory.startsWith("/")
-                && directory.indexOf('\n') < 0
-                && directory.indexOf('\r') < 0;
+        return DesktopExecWorkingDirectory.normalize(directory);
     }
 
     interface CommandExecutor {

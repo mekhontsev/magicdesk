@@ -19,6 +19,7 @@ final class NativeInputBridgeStatsClient {
     }
 
     private final String mResponsePrefix;
+    private final Object mRequestLock = new Object();
     private long mRequestSequence;
     private NativeInputBridgeStats mLatestStats;
 
@@ -26,7 +27,14 @@ final class NativeInputBridgeStatsClient {
         mResponsePrefix = responsePrefix;
     }
 
-    synchronized Result request(final ShellStreamHandle stream) {
+    Result request(final ShellStreamHandle stream) {
+        // The response wait releases this object's monitor, but not request ownership.
+        synchronized (mRequestLock) {
+            return requestSerialized(stream);
+        }
+    }
+
+    private synchronized Result requestSerialized(final ShellStreamHandle stream) {
         if (stream == null) {
             return new Result("", "native relay not ready");
         }

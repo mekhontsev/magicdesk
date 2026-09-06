@@ -21,8 +21,6 @@ import com.termux.terminal.KeyHandler;
 import com.termux.terminal.MagicDeskTerminalRenderer;
 import com.termux.terminal.TerminalEmulator;
 
-import java.nio.charset.StandardCharsets;
-
 /** Interactive MagicDesk terminal surface with its own renderer. */
 final class ConsoleTerminalView extends View {
     interface ClipboardActions {
@@ -38,6 +36,8 @@ final class ConsoleTerminalView extends View {
     private final GestureDetector mGestures;
     private final int mContentPadding;
     private final int mTouchSlop;
+    private final ConsoleTerminalInput mInput =
+            new ConsoleTerminalInput(KeyCharacterMap::getDeadChar);
 
     private ConsoleTerminalSession mSession;
     private ClipboardActions mClipboardActions;
@@ -243,12 +243,14 @@ final class ConsoleTerminalView extends View {
                 emulator.isCursorKeysApplicationMode(),
                 emulator.isKeypadApplicationMode());
         if (keySequence != null) {
+            mSession.write(mInput.flushAccent());
             mSession.write(keySequence);
             scrollToBottom();
             return true;
         }
         final int controlCode = controlCode(keyCode, event);
         if (controlCode >= 0) {
+            mSession.write(mInput.flushAccent());
             writeCodePoint(controlCode, event.isAltPressed());
             return true;
         }
@@ -464,11 +466,14 @@ final class ConsoleTerminalView extends View {
     }
 
     private void writeCodePoint(final int codePoint, final boolean alt) {
+        final String text = mInput.text(codePoint);
+        if (text.isEmpty()) {
+            return;
+        }
         if (alt) {
             mSession.write(new byte[]{0x1B});
         }
-        mSession.write(new String(Character.toChars(codePoint))
-                .getBytes(StandardCharsets.UTF_8));
+        mSession.write(text);
         scrollToBottom();
     }
 
@@ -536,8 +541,7 @@ final class ConsoleTerminalView extends View {
     }
 
     private static boolean isTouch(final MotionEvent event) {
-        return event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER
-                || (event.getSource() & InputDevice.SOURCE_TOUCHSCREEN) != 0;
+        return ConsoleTerminalInput.isTouch(event.getToolType(0), event.getSource());
     }
 
     private static boolean isShiftPressed(final MotionEvent event) {

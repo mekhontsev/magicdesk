@@ -295,7 +295,6 @@
 
         <activity
             android:name=".DesktopSelfTestActivity"
-            android:excludeFromRecents="true"
             android:exported="true"
             android:label="@string/self_test_window_target"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
@@ -316,7 +315,6 @@
         <activity
             android:name=".DesktopSelfTestBrowserActivity"
             android:configChanges="keyboard|keyboardHidden|layoutDirection|mcc|mnc|orientation|screenLayout|screenSize|smallestScreenSize"
-            android:excludeFromRecents="true"
             android:exported="true"
             android:label="@string/self_test_window_target"
             android:launchMode="singleTask"

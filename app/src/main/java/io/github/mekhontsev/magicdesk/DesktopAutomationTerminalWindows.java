@@ -148,8 +148,7 @@ final class DesktopAutomationTerminalWindows {
                 return notFound(id);
             }
             final boolean truncated = full.length() > maxChars;
-            final String text = truncated
-                    ? full.substring(full.length() - maxChars) : full;
+            final String text = readTail(full, maxChars);
             return DesktopAutomationResult.success(
                     "terminal screen read",
                     new JSONObject()
@@ -226,6 +225,16 @@ final class DesktopAutomationTerminalWindows {
         } catch (RuntimeException error) {
             return unavailable(error);
         }
+    }
+
+    static String readTail(final String text, final int maxChars) {
+        int start = Math.max(0, text.length() - maxChars);
+        if (start > 0 && start < text.length()
+                && Character.isHighSurrogate(text.charAt(start - 1))
+                && Character.isLowSurrogate(text.charAt(start))) {
+            start++;
+        }
+        return text.substring(start);
     }
 
     static JSONObject toJson(final ConsoleTerminalRegistry.Snapshot snapshot)

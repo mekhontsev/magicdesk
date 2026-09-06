@@ -5,12 +5,10 @@ import android.os.IBinder;
 import android.os.Parcel;
 import android.os.RemoteException;
 
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 final class NubiaDesktopPointerController {
     private static final int MOUSE_CMD_CREATE_OR_UPDATE = 0;
-    private static final int MOUSE_CMD_SHOW = 2;
     private static final String INPUT_MANAGER_DESCRIPTOR =
             "android.hardware.input.IInputManager";
     private static final String SEND_MOUSE_COMMAND_TRANSACTION =
@@ -24,34 +22,6 @@ final class NubiaDesktopPointerController {
     private static Point sKnownMousePosition;
 
     private NubiaDesktopPointerController() {
-    }
-
-    static void setPosition(final Point position)
-            throws ReflectiveOperationException {
-        if (position == null) {
-            throw new IllegalArgumentException("missing pointer position");
-        }
-        final IBinder binder = getInputManagerBinder();
-        final int transaction = getSetPointerPositionTransaction();
-        final Parcel data = Parcel.obtain();
-        final Parcel reply = Parcel.obtain();
-        try {
-            data.writeInterfaceToken(INPUT_MANAGER_DESCRIPTOR);
-            data.writeInt(position.x);
-            data.writeInt(position.y);
-            // Nubia declares this call oneway. A synchronous transaction makes
-            // completion observable without changing the server operation.
-            if (!binder.transact(transaction, data, reply, 0)) {
-                throw new IllegalStateException(
-                        "vendor input service rejected pointer position");
-            }
-        } catch (RemoteException error) {
-            throw new IllegalStateException(
-                    "vendor input service is unavailable", error);
-        } finally {
-            reply.recycle();
-            data.recycle();
-        }
     }
 
     static void setMousePosition(
@@ -69,12 +39,6 @@ final class NubiaDesktopPointerController {
                         Integer.valueOf(position.x),
                         Integer.valueOf(position.y));
         rememberPosition(displayId, position);
-    }
-
-    static void showMouse() throws ReflectiveOperationException {
-        final MousePositionAccess access = mousePositionAccess();
-        access.sendMouseCommand.invoke(
-                access.inputManager, Integer.valueOf(MOUSE_CMD_SHOW));
     }
 
     static void createOrUpdateViewport()
@@ -285,7 +249,6 @@ final class NubiaDesktopPointerController {
         final Object inputManager;
         final Method getMousePosition;
         final Method setMousePosition;
-        final Method sendMouseCommand;
 
         MousePositionAccess() throws ReflectiveOperationException {
             inputManager = getInputManager();
@@ -295,15 +258,7 @@ final class NubiaDesktopPointerController {
                     "getMousePosition", Point.class);
             setMousePosition = type.getMethod(
                     "setMousePosition", int.class, int.class);
-            sendMouseCommand = type.getMethod("sendMouseCmd", int.class);
         }
     }
 
-    static Throwable usefulCause(final ReflectiveOperationException error) {
-        if (error instanceof InvocationTargetException
-                && ((InvocationTargetException) error).getCause() != null) {
-            return ((InvocationTargetException) error).getCause();
-        }
-        return error;
-    }
 }

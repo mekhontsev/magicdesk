@@ -1,17 +1,23 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.concurrent.TimeUnit;
 
 public final class MagicDeskMcpHttpServerTest {
     @Test
@@ -86,6 +92,68 @@ public final class MagicDeskMcpHttpServerTest {
         }
     }
 
+    @Test(timeout = 10_000)
+    public void closeReleasesActiveAndQueuedConnections() throws Exception {
+        final var server = new MagicDeskMcpHttpServer(
+                new McpJsonRpcHandler(new EmptyBackend()), () -> "test-token");
+        final var sockets = new ArrayList<Socket>();
+        try {
+            server.start("127.0.0.1", 0);
+            for (int index = 0; index < 8; index++) {
+                final var socket = new Socket("127.0.0.1", server.snapshot().boundPort);
+                socket.setSoTimeout(500);
+                sockets.add(socket);
+            }
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (server.snapshot().connections < sockets.size()
+                    && System.nanoTime() < deadline) {
+                Thread.yield();
+            }
+            assertEquals(sockets.size(), server.snapshot().connections);
+            server.close();
+            for (final var socket : sockets) {
+                try {
+                    assertEquals(-1, socket.getInputStream().read());
+                } catch (SocketException closed) {
+                    // A reset and an orderly EOF both mean ownership was released.
+                }
+            }
+        } finally {
+            server.close();
+            for (final var socket : sockets) {
+                socket.close();
+            }
+        }
+    }
+
+    @Test
+    public void closeBeforeStartReleasesBackendOnlyOnce() {
+        final var backend = new EmptyBackend();
+        final var server = new MagicDeskMcpHttpServer(
+                new McpJsonRpcHandler(backend), () -> "test-token");
+        server.close();
+        server.close();
+        assertEquals(1, backend.closes);
+    }
+
+    @Test
+    public void closedServerCannotAdvertiseADeadWorkerPool() throws Exception {
+        final var server = new MagicDeskMcpHttpServer(
+                new McpJsonRpcHandler(new EmptyBackend()), () -> "test-token");
+        try {
+            server.start("127.0.0.1", 0);
+            server.close();
+            try {
+                server.start("127.0.0.1", 0);
+                fail("closed server must reject restart");
+            } catch (IOException expected) {
+                assertFalse(server.snapshot().running);
+            }
+        } finally {
+            server.close();
+        }
+    }
+
     private static String request(final int port, final String request)
             throws Exception {
         try (Socket socket = new Socket("127.0.0.1", port);
@@ -104,6 +172,13 @@ public final class MagicDeskMcpHttpServerTest {
     }
 
     private static final class EmptyBackend implements McpBackend {
+        int closes;
+
+        @Override
+        public void close() {
+            closes++;
+        }
+
         @Override
         public JSONArray listTools() {
             return new JSONArray();

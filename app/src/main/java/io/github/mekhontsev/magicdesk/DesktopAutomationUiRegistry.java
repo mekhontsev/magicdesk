@@ -173,9 +173,7 @@ final class DesktopAutomationUiRegistry {
             final View view,
             final Entry entry) throws JSONException {
         final Rect bounds = new Rect();
-        final boolean visible = isVisible(view)
-                && view.getGlobalVisibleRect(bounds)
-                && !bounds.isEmpty();
+        final boolean visible = readDisplayBounds(view, bounds);
         final JSONArray actions = new JSONArray();
         if (view.hasOnClickListeners()) {
             actions.put("click");
@@ -202,6 +200,18 @@ final class DesktopAutomationUiRegistry {
         return result;
     }
 
+    private static boolean readDisplayBounds(final View view, final Rect bounds) {
+        if (!isVisible(view) || !view.getGlobalVisibleRect(bounds) || bounds.isEmpty()) {
+            bounds.setEmpty();
+            return false;
+        }
+        // Global visible bounds are relative to the View root, not the display.
+        final int[] origin = new int[2];
+        view.getRootView().getLocationOnScreen(origin);
+        bounds.offset(origin[0], origin[1]);
+        return true;
+    }
+
     private static boolean isVisible(final View view) {
         return view.isAttachedToWindow()
                 && view.isShown()
@@ -226,6 +236,30 @@ final class DesktopAutomationUiRegistry {
                 .put("top", bounds.top)
                 .put("right", bounds.right)
                 .put("bottom", bounds.bottom);
+    }
+
+    /** Lossless identity encoding; readable action labels use segment instead. */
+    static String identitySegment(final String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("UI identity is required");
+        }
+        final StringBuilder result = new StringBuilder(value.length());
+        final String hex = "0123456789abcdef";
+        for (int index = 0; index < value.length(); index++) {
+            final char character = value.charAt(index);
+            if ((character >= 'a' && character <= 'z')
+                    || (character >= 'A' && character <= 'Z')
+                    || (character >= '0' && character <= '9')
+                    || character == '.' || character == '_' || character == '-') {
+                result.append(character);
+            } else {
+                result.append('~');
+                for (int shift = 12; shift >= 0; shift -= 4) {
+                    result.append(hex.charAt((character >>> shift) & 0xf));
+                }
+            }
+        }
+        return result.toString();
     }
 
     static String segment(final String value) {

@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import static io.github.mekhontsev.magicdesk.AutomationJsonArguments.requiredInt;
+
 import android.content.ComponentName;
 import android.content.Intent;
 import android.net.Uri;
@@ -320,46 +322,70 @@ final class AndroidIntegrationRequest {
             final Intent intent,
             final String name,
             final JSONArray values) throws JSONException {
+        final Object array = arrayExtraValue(name, values);
+        if (array instanceof boolean[]) {
+            intent.putExtra(name, (boolean[]) array);
+        } else if (array instanceof int[]) {
+            intent.putExtra(name, (int[]) array);
+        } else if (array instanceof long[]) {
+            intent.putExtra(name, (long[]) array);
+        } else if (array instanceof double[]) {
+            intent.putExtra(name, (double[]) array);
+        } else {
+            intent.putExtra(name, (String[]) array);
+        }
+    }
+
+    static Object arrayExtraValue(final String name, final JSONArray values)
+            throws JSONException {
         if (values.length() > MAX_ARRAY_VALUES) {
             throw new IllegalArgumentException(
                     "Intent extra array is too large: " + name);
         }
         if (values.length() == 0) {
-            intent.putExtra(name, new String[0]);
-            return;
+            return new String[0];
         }
         final Object first = values.get(0);
         if (first instanceof Boolean) {
             final boolean[] result = new boolean[values.length()];
             for (int index = 0; index < result.length; index++) {
-                result[index] = values.getBoolean(index);
+                final Object value = values.get(index);
+                if (!(value instanceof Boolean)) {
+                    throw new IllegalArgumentException(name + " must contain only booleans");
+                }
+                result[index] = (Boolean) value;
             }
-            intent.putExtra(name, result);
+            return result;
         } else if (first instanceof Integer) {
             final int[] result = new int[values.length()];
             for (int index = 0; index < result.length; index++) {
-                result[index] = values.getInt(index);
+                result[index] = exactInt(values.get(index), name);
             }
-            intent.putExtra(name, result);
+            return result;
         } else if (first instanceof Long) {
             final long[] result = new long[values.length()];
             for (int index = 0; index < result.length; index++) {
-                result[index] = values.getLong(index);
+                result[index] = AutomationJsonArguments.longValue(values.get(index), name);
             }
-            intent.putExtra(name, result);
+            return result;
         } else if (first instanceof Number) {
             final double[] result = new double[values.length()];
             for (int index = 0; index < result.length; index++) {
-                result[index] = values.getDouble(index);
+                result[index] = finiteDouble(values.get(index), name);
             }
-            intent.putExtra(name, result);
-        } else {
+            return result;
+        } else if (first instanceof String) {
             final String[] result = new String[values.length()];
             for (int index = 0; index < result.length; index++) {
-                result[index] = values.getString(index);
+                final Object value = values.get(index);
+                if (!(value instanceof String)) {
+                    throw new IllegalArgumentException(name + " must contain only strings");
+                }
+                result[index] = (String) value;
             }
-            intent.putExtra(name, result);
+            return result;
         }
+        throw new IllegalArgumentException("unsupported Intent extra array type for " + name);
     }
 
     private static DesktopLaunchMode parseLaunchMode(final String value) {
@@ -421,18 +447,23 @@ final class AndroidIntegrationRequest {
         return ((String) value).trim();
     }
 
-    private static int requiredInt(
-            final JSONObject object,
-            final String name) throws JSONException {
-        final Object value = object.get(name);
+    private static int exactInt(final Object value, final String name) {
+        try {
+            return Math.toIntExact(AutomationJsonArguments.longValue(value, name));
+        } catch (ArithmeticException error) {
+            throw new IllegalArgumentException(name + " must be a 32-bit integer", error);
+        }
+    }
+
+    private static double finiteDouble(final Object value, final String name) {
         if (!(value instanceof Number)) {
-            throw new IllegalArgumentException(name + " must be an integer");
+            throw new IllegalArgumentException(name + " must be a number");
         }
-        final long number = ((Number) value).longValue();
-        if (number < Integer.MIN_VALUE || number > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(name + " is out of range");
+        final double number = ((Number) value).doubleValue();
+        if (!Double.isFinite(number)) {
+            throw new IllegalArgumentException(name + " must be a finite number");
         }
-        return (int) number;
+        return number;
     }
 
     private static String clean(final String value, final String fallback) {

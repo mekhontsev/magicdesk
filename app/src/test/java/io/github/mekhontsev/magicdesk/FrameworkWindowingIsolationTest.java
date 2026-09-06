@@ -140,7 +140,7 @@ public final class FrameworkWindowingIsolationTest {
     public void textTaskQueriesStayInSelfTestDiagnostics()
             throws IOException {
         final List<String> violations = new ArrayList<>();
-        visitMainSources((relative, contents) -> {
+        visitRuntimeSources((relative, contents) -> {
             if (contents.contains("activity stack list")
                     && !relative.contains("DesktopSelfTest")) {
                 violations.add(relative);
@@ -155,7 +155,7 @@ public final class FrameworkWindowingIsolationTest {
             final List<String> allowedSources,
             final String... tokens) throws IOException {
         final List<String> violations = new ArrayList<>();
-        visitMainSources((relative, contents) -> {
+        visitRuntimeSources((relative, contents) -> {
             if (allowedSources.contains(relative)) {
                 return;
             }
@@ -168,16 +168,18 @@ public final class FrameworkWindowingIsolationTest {
         assertTrue(message + ": " + violations, violations.isEmpty());
     }
 
-    private static void visitMainSources(final SourceVisitor visitor)
+    private static void visitRuntimeSources(final SourceVisitor visitor)
             throws IOException {
-        try (Stream<Path> paths = Files.walk(MAIN_JAVA)) {
-            for (final Path source : paths
-                    .filter(path -> path.toString().endsWith(".java"))
-                    .toList()) {
-                final String relative = MAIN_JAVA.relativize(source)
-                        .toString().replace('\\', '/');
-                visitor.visit(relative, Files.readString(
-                        source, StandardCharsets.UTF_8));
+        for (final Path root : List.of(MAIN_JAVA, Path.of("src", "debug", "java"))) {
+            try (Stream<Path> paths = Files.walk(root)) {
+                for (final Path source : paths
+                        .filter(path -> path.toString().endsWith(".java"))
+                        .toList()) {
+                    final String relative = root.relativize(source)
+                            .toString().replace('\\', '/');
+                    visitor.visit(relative, Files.readString(
+                            source, StandardCharsets.UTF_8));
+                }
             }
         }
     }

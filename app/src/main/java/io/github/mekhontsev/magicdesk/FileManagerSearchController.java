@@ -19,17 +19,13 @@ final class FileManagerSearchController implements AutoCloseable {
         void onSearchStartFailed(Throwable error);
     }
 
-    private static final long NO_SEARCH = -1L;
-    private static final long PENDING_SEARCH = 0L;
-
     private final Activity mActivity;
     private final ExecutorService mWorker;
     private final Listener mListener;
     private final IBinder mOwnerToken = new Binder();
 
-    private volatile long mActiveSearchId = NO_SEARCH;
-    private volatile long mGeneration;
-    private volatile boolean mClosed;
+    private FileSearchRequest mRequest;
+    private boolean mClosed;
 
     FileManagerSearchController(
             final Activity activity,
@@ -49,36 +45,29 @@ final class FileManagerSearchController implements AutoCloseable {
             return false;
         }
         cancel();
-        final long generation = ++mGeneration;
-        mActiveSearchId = PENDING_SEARCH;
-        final IFileSearchCallback callback = callbackFor(generation);
+        final FileSearchRequest request = new FileSearchRequest();
+        mRequest = request;
+        final IFileSearchCallback callback = callbackFor(request);
         mWorker.execute(() -> {
+            if (!request.isActive()) {
+                return;
+            }
             try {
-                final long searchId = ShellAccess.startShellFileSearch(
+                final ShellFileSearchHandle handle = ShellAccess.startShellFileSearch(
                         rootPath,
                         query,
                         showHidden,
                         maxResults,
                         callback,
                         mOwnerToken);
-                if (mClosed || generation != mGeneration) {
-                    ShellAccess.cancelShellFileSearch(searchId);
-                    return;
+                if (!request.attach(handle)) {
+                    cancelRemote(handle);
                 }
-                mActivity.runOnUiThread(() -> {
-                    if (!mClosed
-                            && generation == mGeneration
-                            && mActiveSearchId == PENDING_SEARCH) {
-                        mActiveSearchId = searchId;
-                    }
-                });
             } catch (IOException | RuntimeException error) {
                 mActivity.runOnUiThread(() -> {
-                    if (mClosed || generation != mGeneration) {
-                        return;
+                    if (request.complete()) {
+                        mListener.onSearchStartFailed(error);
                     }
-                    mActiveSearchId = NO_SEARCH;
-                    mListener.onSearchStartFailed(error);
                 });
             }
         });
@@ -86,19 +75,10 @@ final class FileManagerSearchController implements AutoCloseable {
     }
 
     void cancel() {
-        mGeneration++;
-        final long searchId = mActiveSearchId;
-        mActiveSearchId = NO_SEARCH;
-        if (searchId <= 0L) {
-            return;
+        final ShellFileSearchHandle handle = cancelRequest();
+        if (handle != null) {
+            cancelRemote(handle);
         }
-        mWorker.execute(() -> {
-            try {
-                ShellAccess.cancelShellFileSearch(searchId);
-            } catch (IOException ignored) {
-                // Completion or service shutdown owns cleanup.
-            }
-        });
     }
 
     @Override
@@ -107,28 +87,33 @@ final class FileManagerSearchController implements AutoCloseable {
             return;
         }
         mClosed = true;
-        mGeneration++;
-        final long searchId = mActiveSearchId;
-        mActiveSearchId = NO_SEARCH;
-        if (searchId > 0L) {
-            try {
-                // FileManager shuts down its worker immediately after this
-                // method, so lifecycle cleanup must not be queued there.
-                ShellAccess.cancelShellFileSearch(searchId);
-            } catch (IOException ignored) {
-                // A disconnected UserService no longer owns the search.
-            }
+        cancel();
+    }
+
+    private ShellFileSearchHandle cancelRequest() {
+        final FileSearchRequest request = mRequest;
+        mRequest = null;
+        return request == null ? null : request.cancel();
+    }
+
+    private static void cancelRemote(final ShellFileSearchHandle handle) {
+        try {
+            // Cancellation is a one-way Binder signal. Do not enqueue it on
+            // the Activity worker, whose shutdown would discard the signal.
+            handle.cancel();
+        } catch (IOException ignored) {
+            // Completion or service teardown owns cleanup.
         }
     }
 
-    private IFileSearchCallback callbackFor(final long generation) {
+    private IFileSearchCallback callbackFor(final FileSearchRequest request) {
         return new IFileSearchCallback.Stub() {
             @Override
             public void onBatch(
                     final long searchId,
                     final ShellFileInfo[] matches) {
                 mActivity.runOnUiThread(() -> {
-                    if (accepts(searchId, generation) && matches != null) {
+                    if (request.accepts(searchId) && matches != null) {
                         mListener.onSearchBatch(Arrays.asList(matches));
                     }
                 });
@@ -141,24 +126,13 @@ final class FileManagerSearchController implements AutoCloseable {
                     final boolean truncated,
                     final String message) {
                 mActivity.runOnUiThread(() -> {
-                    if (!accepts(searchId, generation)) {
+                    if (!request.finish(searchId)) {
                         return;
                     }
-                    mActiveSearchId = NO_SEARCH;
                     mListener.onSearchFinished(
                             successful, truncated, message);
                 });
             }
         };
-    }
-
-    private boolean accepts(
-            final long searchId,
-            final long generation) {
-        return !mClosed
-                && generation == mGeneration
-                && searchId > 0L
-                && (mActiveSearchId == PENDING_SEARCH
-                        || mActiveSearchId == searchId);
     }
 }

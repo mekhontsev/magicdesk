@@ -70,14 +70,8 @@ public final class DesktopFileProvider extends ContentProvider {
             final Uri uri,
             final String mode,
             final CancellationSignal signal) throws FileNotFoundException {
-        try {
-            return ShellAccess.openDesktopFile(relativePath(uri), mode);
-        } catch (IOException | RuntimeException error) {
-            final FileNotFoundException failure = new FileNotFoundException(
-                    ShellAccess.usefulMessage(error));
-            failure.initCause(error);
-            throw failure;
-        }
+        return ContentProviderFileAccess.open(signal,
+                () -> ShellAccess.openDesktopFile(relativePath(uri), mode));
     }
 
     @Override

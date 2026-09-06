@@ -33,6 +33,7 @@ final class FrameworkInputWindowObservationSource implements Closeable,
     private static volatile String sLastError = "none";
 
     private final Object mLock = new Object();
+    private final LatestOperationSerializer mPublications = new LatestOperationSerializer();
     private final Listener mObservationListener;
     private final WindowInfosListener mWindowInfosListener =
             new WindowInfosListener() {
@@ -40,11 +41,12 @@ final class FrameworkInputWindowObservationSource implements Closeable,
         public void onWindowInfosChanged(
                 final InputWindowHandle[] inputWindowHandles,
                 final WindowInfosListener.DisplayInfo[] displayInfos) {
-            publish(inputWindowHandles);
+            publish(mPublications.supersede(), inputWindowHandles);
         }
     };
 
     private boolean mRegistered;
+    private boolean mStarting;
     private boolean mClosed;
     private long mGeneration;
     private volatile FrameworkInputWindowState.Snapshot mLatestSnapshot =
@@ -55,30 +57,45 @@ final class FrameworkInputWindowObservationSource implements Closeable,
     }
 
     void start() {
+        final LatestOperationSerializer.Ticket initialPublication;
         synchronized (mLock) {
-            if (mClosed || mRegistered) {
+            if (mClosed || mRegistered || mStarting) {
                 return;
             }
+            mStarting = true;
+            initialPublication = mPublications.supersede();
         }
         try {
             final Pair<InputWindowHandle[], WindowInfosListener.DisplayInfo[]>
                     initial = mWindowInfosListener.register();
+            final boolean closed;
             synchronized (mLock) {
-                if (mClosed) {
-                    mWindowInfosListener.unregister();
-                    return;
+                closed = mClosed;
+                if (!closed) {
+                    mRegistered = true;
+                    sState = "registered";
+                    sLastError = "none";
                 }
-                mRegistered = true;
+            }
+            if (closed) {
+                mWindowInfosListener.unregister();
+                return;
             }
             if (initial != null && initial.first != null) {
-                publish(initial.first);
+                publish(initialPublication, initial.first);
             }
-            sState = "registered";
-            sLastError = "none";
         } catch (RuntimeException | LinkageError error) {
-            sState = "unavailable";
-            sLastError = usefulMessage(error);
+            synchronized (mLock) {
+                if (!mClosed) {
+                    sState = "unavailable";
+                    sLastError = usefulMessage(error);
+                }
+            }
             Log.w(TAG, "input-window events unavailable", error);
+        } finally {
+            synchronized (mLock) {
+                mStarting = false;
+            }
         }
     }
 
@@ -136,6 +153,7 @@ final class FrameworkInputWindowObservationSource implements Closeable,
                 return;
             }
             mClosed = true;
+            mPublications.invalidate();
             unregister = mRegistered;
             mRegistered = false;
             mLock.notifyAll();
@@ -162,7 +180,13 @@ final class FrameworkInputWindowObservationSource implements Closeable,
                 + ", lastError=" + sLastError;
     }
 
-    private void publish(final InputWindowHandle[] handles) {
+    private void publish(
+            final LatestOperationSerializer.Ticket publication,
+            final InputWindowHandle[] handles) {
+        mPublications.executeIfCurrent(publication, () -> publishCurrent(handles));
+    }
+
+    private void publishCurrent(final InputWindowHandle[] handles) {
         final FrameworkInputWindowState.Snapshot snapshot =
                 snapshotFromHandles(handles);
         synchronized (mLock) {

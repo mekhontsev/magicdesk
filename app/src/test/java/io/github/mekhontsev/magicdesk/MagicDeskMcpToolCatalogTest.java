@@ -13,6 +13,35 @@ import java.util.Set;
 
 public final class MagicDeskMcpToolCatalogTest {
     @Test
+    public void consumingActivityResultsIsNotAdvertisedAsReadOnlyOrIdempotent()
+            throws Exception {
+        final JSONObject annotations = tool(MagicDeskMcpToolCatalog.create(false),
+                "get_intent_result").getJSONObject("annotations");
+        assertFalse(annotations.getBoolean("readOnlyHint"));
+        assertFalse(annotations.getBoolean("idempotentHint"));
+        assertTrue(annotations.getBoolean("destructiveHint"));
+    }
+
+    @Test
+    public void appFunctionParametersDeclareHomogeneousArrayContract() throws Exception {
+        final JSONObject parameters = tool(MagicDeskMcpToolCatalog.create(false),
+                "execute_app_function").getJSONObject("inputSchema")
+                .getJSONObject("properties").getJSONObject("parameters");
+        assertEquals("object", parameters.getString("type"));
+        assertTrue(parameters.getString("description").contains("one value type"));
+        assertTrue(parameters.getString("description").contains("cannot be mixed"));
+    }
+
+    @Test
+    public void shareAdvertisesTheCommonContentLimit() throws Exception {
+        final JSONObject files = tool(MagicDeskMcpToolCatalog.create(false), "share")
+                .getJSONObject("inputSchema").getJSONObject("properties")
+                .getJSONObject("files");
+        assertEquals(AndroidContentPayload.MAX_URI_ITEMS, files.getInt("maxItems"));
+        assertEquals("string", files.getJSONObject("items").getString("type"));
+    }
+
+    @Test
     public void developerToolsAreExplicitlyGated() throws Exception {
         final Set<String> publicNames = names(
                 MagicDeskMcpToolCatalog.create(false));

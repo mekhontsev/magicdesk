@@ -12,6 +12,7 @@ import android.util.Log;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.concurrent.TimeUnit;
@@ -252,6 +253,7 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
                 }
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
+                forceStopVideo();
                 process.destroyForcibly();
                 throw new IOException("screenrecord stop was interrupted", error);
             }
@@ -444,55 +446,59 @@ final class ShellDisplayRecordingSession implements AutoCloseable {
         if (mVideoLogPath == null) {
             return "no screenrecord log";
         }
-        try {
-            final byte[] bytes = Files.readAllBytes(
-                    new File(mVideoLogPath).toPath());
-            final int length = Math.min(bytes.length, 2_048);
-            return new String(bytes, 0, length, StandardCharsets.UTF_8).trim();
+        try (InputStream input = Files.newInputStream(new File(mVideoLogPath).toPath())) {
+            return new String(input.readNBytes(2_048), StandardCharsets.UTF_8).trim();
         } catch (IOException error) {
             return usefulMessage(error);
         }
     }
 
     private int awaitVideoPid() throws IOException {
-        final long deadline = SystemClock.uptimeMillis() + 2_000L;
-        while (SystemClock.uptimeMillis() < deadline) {
-            try {
-                final String value = new String(
-                        Files.readAllBytes(new File(mVideoPidPath).toPath()),
-                        StandardCharsets.UTF_8).trim();
-                final int pid = Integer.parseInt(value);
-                if (pid > 0) {
-                    return pid;
-                }
-            } catch (IOException | NumberFormatException ignored) {
-                if (mVideoProcess != null && !mVideoProcess.isAlive()) {
-                    throw new IOException("screenrecord stopped during startup: "
-                            + readVideoLog());
-                }
-            }
-            RuntimeDelays.pause(
-                    RuntimeDelays.Reason.RECORDING_DRAIN, 10L);
+        final int pid = BoundedStateAwaiter.awaitIo(
+                BoundedStateAwaiter.Reason.RECORDING_STARTUP, 2_000L, 10L,
+                this::readVideoPid, value -> value > 0);
+        if (pid > 0) {
+            return pid;
         }
         throw new IOException("screenrecord process id was not published");
     }
 
+    private int readVideoPid() throws IOException {
+        try (InputStream input = Files.newInputStream(new File(mVideoPidPath).toPath())) {
+            final int pid = Integer.parseInt(new String(
+                    input.readNBytes(64), StandardCharsets.UTF_8).trim());
+            if (pid > 0) {
+                return pid;
+            }
+        } catch (IOException | NumberFormatException ignored) {
+            // The shell publishes the PID asynchronously after starting the child.
+        }
+        checkVideoStartup();
+        return -1;
+    }
+
     private long awaitVideoOutput() throws IOException {
         final File output = new File(mVideoPath);
-        final long deadline = SystemClock.uptimeMillis()
-                + VIDEO_START_TIMEOUT_MILLIS;
-        while (SystemClock.uptimeMillis() < deadline) {
-            if (output.length() > 0L) {
-                return SystemClock.elapsedRealtimeNanos();
-            }
-            if (mVideoProcess != null && !mVideoProcess.isAlive()) {
-                throw new IOException("screenrecord stopped during startup: "
-                        + readVideoLog());
-            }
-            RuntimeDelays.pause(
-                    RuntimeDelays.Reason.RECORDING_DRAIN, 10L);
+        final long started = BoundedStateAwaiter.awaitIo(
+                BoundedStateAwaiter.Reason.RECORDING_STARTUP,
+                VIDEO_START_TIMEOUT_MILLIS, 10L,
+                () -> {
+                    if (output.length() > 0L) {
+                        return SystemClock.elapsedRealtimeNanos();
+                    }
+                    checkVideoStartup();
+                    return 0L;
+                }, value -> value > 0L);
+        if (started > 0L) {
+            return started;
         }
         throw new IOException("screenrecord produced no video during startup");
+    }
+
+    private void checkVideoStartup() throws IOException {
+        if (mVideoProcess != null && !mVideoProcess.isAlive()) {
+            throw new IOException("screenrecord stopped during startup: " + readVideoLog());
+        }
     }
 
     private void forceStopVideo() {

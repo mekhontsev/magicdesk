@@ -252,19 +252,4 @@ final class MagicDeskMcpBackend implements McpBackend {
                 .put("mimeType", "application/json");
     }
 
-    private static Integer optionalInteger(
-            final JSONObject object, final String key) {
-        if (object == null || !object.has(key)) {
-            return null;
-        }
-        final Object value = object.opt(key);
-        if (!(value instanceof Number)) {
-            throw new IllegalArgumentException(key + " must be an integer");
-        }
-        final long number = ((Number) value).longValue();
-        if (number < Integer.MIN_VALUE || number > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(key + " is out of range");
-        }
-        return Integer.valueOf((int) number);
-    }
 }

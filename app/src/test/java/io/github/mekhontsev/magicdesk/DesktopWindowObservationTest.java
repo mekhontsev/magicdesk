@@ -66,6 +66,34 @@ public final class DesktopWindowObservationTest {
     }
 
     @Test
+    public void taskScopedDialogQueryUsesTheTasksDisplay() {
+        final DesktopWindowObservation observation =
+                DesktopWindowObservation.fromDump(crashDump(4321));
+
+        assertTrue(observation.hasBlockingSystemDialog(
+                null, Integer.valueOf(TASK_ID), "", snapshot()));
+        assertFalse(observation.hasBlockingSystemDialog(
+                Integer.valueOf(0), Integer.valueOf(TASK_ID), "", snapshot()));
+    }
+
+    @Test
+    public void taskScopedDialogQueryIgnoresSamePackageOnAnotherDisplay() {
+        final String otherDisplay = crashDump(4321)
+                .replace("displayId=20", "displayId=21")
+                .replace("Display: 20", "Display: 21")
+                .replace("t42}", "t43}");
+        final DesktopWindowObservation observation =
+                DesktopWindowObservation.fromDump(otherDisplay);
+
+        assertTrue(observation.hasBlockingSystemDialog(
+                null, null, PACKAGE, snapshot()));
+        assertFalse(observation.hasBlockingSystemDialog(
+                null, Integer.valueOf(TASK_ID), "", snapshot()));
+        assertFalse(observation.hasBlockingSystemDialog(
+                null, Integer.valueOf(TASK_ID), PACKAGE, snapshot()));
+    }
+
+    @Test
     public void clearsFailureWhenSameTaskHasAReplacementProcess() {
         DesktopProcessHealthRegistry.record(
                 DesktopProcessFailure.CRASH,

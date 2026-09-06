@@ -270,6 +270,24 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void boundsRetainedAnomalyKeysAsWellAsReportedDetails() throws Exception {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("MISSING-HOST-0", snapshot(0));
+        for (int index = 1; index <= 256; index++) {
+            analyzer.changeStage("MISSING-HOST-" + index, snapshot(index));
+        }
+
+        final SelfTestTaskStackReport report = analyzer.finish(snapshot(257));
+        assertEquals(32, report.anomalies.length);
+        assertContains(report, "MISSING-HOST-0");
+        final var keys = SelfTestTaskStackInvariantAnalyzer.class
+                .getDeclaredField("mAnomalyKeys");
+        keys.setAccessible(true);
+        assertEquals(report.anomalies.length,
+                ((java.util.Set<?>) keys.get(analyzer)).size());
+    }
+
+    @Test
     public void acceptsHiddenDefaultModeDuringTaskCreation() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         final SelfTestTaskStackInvariantAnalyzer.Snapshot absent = snapshot(

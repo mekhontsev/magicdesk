@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - next/1.8
     paths-ignore:
       - "**/*.md"
       - "docs/**"
@@ -52,6 +51,13 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
+
+      - name: Verify native host fixtures
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        env:
+          CC: clang
+        run: ./scripts/verify-native.sh
 
       - name: Validate Android SDK components
         shell: bash
@@ -313,8 +319,6 @@ jobs:
 
           if gh release view "$tag" \
               --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release delete-asset "$tag" DisplayFixes-development.apk \
-              --repo "$GITHUB_REPOSITORY" --yes >/dev/null 2>&1 || true
             gh release upload "$tag" dist/* \
               --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$tag" \

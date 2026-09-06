@@ -268,12 +268,10 @@ final class AndroidClipboardGateway {
             return failure(operation, "clipboard service is unavailable");
         }
         try {
+            final Metadata metadata = metadata(clip.getDescription(), clip.getItemCount());
             mClipboard.setPrimaryClip(clip);
             recordSuccess(operation, !uriWrite, uriWrite, false);
-            return new OperationResult(
-                    true,
-                    "",
-                    metadata(clip.getDescription(), clip.getItemCount()));
+            return new OperationResult(true, "", metadata);
         } catch (RuntimeException error) {
             return failure(operation, error);
         }

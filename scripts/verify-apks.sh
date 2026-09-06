@@ -17,19 +17,14 @@ fi
 
 core_contents=$(unzip -Z1 "$core_apk")
 
-printf '%s\n' "$core_contents" \
-    | grep -qx 'lib/arm64-v8a/libmagicdesk_uinput_bridge.so' \
-    || {
-        printf 'Core APK is missing libmagicdesk_uinput_bridge.so\n' >&2
-        exit 1
-    }
-
-printf '%s\n' "$core_contents" \
-    | grep -qx 'lib/arm64-v8a/libmagicdesk_keyboard_bridge.so' \
-    || {
-        printf 'Core APK is missing libmagicdesk_keyboard_bridge.so\n' >&2
-        exit 1
-    }
+for helper in uinput_bridge keyboard_bridge pty_bridge; do
+    printf '%s\n' "$core_contents" \
+        | grep -Fxq "lib/arm64-v8a/libmagicdesk_$helper.so" \
+        || {
+            printf 'Core APK is missing libmagicdesk_%s.so\n' "$helper" >&2
+            exit 1
+        }
+done
 
 if printf '%s\n' "$core_contents" | grep -q '\.ko$'; then
     printf 'Core APK must not contain a kernel module\n' >&2
@@ -62,8 +57,8 @@ if [ -n "$kernel_fixes_apk" ]; then
     fi
 
     if printf '%s\n' "$kernel_fixes_contents" \
-            | grep -Eq 'libmagicdesk_(uinput_bridge|keyboard_bridge)\.so$'; then
-        printf 'Kernel fixes APK must not contain an input helper\n' >&2
+            | grep -Eq 'libmagicdesk_.*\.so$'; then
+        printf 'Kernel fixes APK must not contain a shell helper\n' >&2
         exit 1
     fi
 fi

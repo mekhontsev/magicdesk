@@ -8,6 +8,7 @@ import android.view.Display;
 import android.widget.Toast;
 
 import java.lang.ref.WeakReference;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -474,10 +475,14 @@ final class DesktopUiGateway {
             final DesktopLaunchPresentation presentation,
             final int displayId,
             final long timeoutMillis) {
+        try {
+            AndroidIntegrationGateway.requireShortcutPresentation(presentation);
+        } catch (IllegalArgumentException error) {
+            return DesktopActivityLaunchResult.failed(error.getMessage());
+        }
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null || target == null
                 || actionId == null || actionId.isEmpty()
-                || presentation == null
                 || activity.getCurrentDisplayId() != displayId) {
             return DesktopActivityLaunchResult.failed(
                     "desktop host is unavailable");
@@ -485,6 +490,13 @@ final class DesktopUiGateway {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             return DesktopActivityLaunchResult.failed(
                     "observed launch cannot block the UI thread");
+        }
+        final List<AppShortcutAction> shortcuts;
+        try {
+            shortcuts = new AppShortcutRepository(activity).loadAll(target);
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Cannot load published application shortcuts", error);
+            return DesktopActivityLaunchResult.failed(ShellAccess.usefulMessage(error));
         }
         final DesktopActivityLaunchResult.Awaiter completion =
                 new DesktopActivityLaunchResult.Awaiter();
@@ -502,8 +514,7 @@ final class DesktopUiGateway {
                         "application launcher is unavailable"));
                 return;
             }
-            for (final AppShortcutAction action
-                    : new AppShortcutRepository(activity).loadAll(target)) {
+            for (final AppShortcutAction action : shortcuts) {
                 if (actionId.equals(action.id)) {
                     activity.launchShortcut(
                             app,

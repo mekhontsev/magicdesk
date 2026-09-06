@@ -16,8 +16,10 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -47,6 +49,8 @@ final class MagicDeskMcpHttpServer implements Closeable {
             new ThreadPoolExecutor.AbortPolicy());
 
     private volatile boolean mRunning;
+    private boolean mClosed;
+    private final Set<Socket> mOpenConnections = new HashSet<>();
     private volatile String mLastError = "";
     private ServerSocket mServerSocket;
     private Thread mAcceptThread;
@@ -64,6 +68,9 @@ final class MagicDeskMcpHttpServer implements Closeable {
 
     synchronized void start(final String host, final int port)
             throws IOException {
+        if (mClosed) {
+            throw new IOException("MCP server is closed");
+        }
         if (mRunning) {
             return;
         }
@@ -72,12 +79,21 @@ final class MagicDeskMcpHttpServer implements Closeable {
             throw new IOException("MCP server must bind to loopback");
         }
         final ServerSocket server = new ServerSocket();
-        server.setReuseAddress(true);
-        server.bind(new InetSocketAddress(address, port), 16);
+        try {
+            server.setReuseAddress(true);
+            server.bind(new InetSocketAddress(address, port), 16);
+        } catch (IOException | RuntimeException error) {
+            try {
+                server.close();
+            } catch (IOException closeError) {
+                error.addSuppressed(closeError);
+            }
+            throw error;
+        }
         mServerSocket = server;
         mRunning = true;
         mLastError = "";
-        mAcceptThread = daemonThread(this::acceptLoop,
+        mAcceptThread = daemonThread(() -> acceptLoop(server),
                 "MagicDeskMcpAccept");
         mAcceptThread.start();
         DesktopAutomationEventJournal.record(
@@ -86,9 +102,10 @@ final class MagicDeskMcpHttpServer implements Closeable {
 
     @Override
     public synchronized void close() {
-        if (!mRunning && mServerSocket == null) {
+        if (mClosed) {
             return;
         }
+        mClosed = true;
         mRunning = false;
         final ServerSocket server = mServerSocket;
         mServerSocket = null;
@@ -103,13 +120,19 @@ final class MagicDeskMcpHttpServer implements Closeable {
         if (accept != null) {
             accept.interrupt();
         }
+        // Worker interruption does not unblock socket reads, and queued
+        // requests will never reach handle() after shutdownNow().
+        for (final Socket connection : mOpenConnections) {
+            closeQuietly(connection);
+        }
+        mOpenConnections.clear();
         mWorkers.shutdownNow();
         mHandler.close();
         DesktopAutomationEventJournal.record(
                 "mcp", "server_stop", true, "server stopped");
     }
 
-    Snapshot snapshot() {
+    synchronized Snapshot snapshot() {
         final ServerSocket server = mServerSocket;
         return new Snapshot(
                 mRunning,
@@ -120,24 +143,30 @@ final class MagicDeskMcpHttpServer implements Closeable {
                 mLastError);
     }
 
-    private void acceptLoop() {
+    private void acceptLoop(final ServerSocket server) {
         while (mRunning) {
             Socket socket = null;
             try {
-                final ServerSocket server = mServerSocket;
-                if (server == null) {
-                    return;
-                }
                 socket = server.accept();
-                mConnections.incrementAndGet();
+                synchronized (this) {
+                    if (!mRunning) {
+                        return;
+                    }
+                    mOpenConnections.add(socket);
+                    mConnections.incrementAndGet();
+                }
                 final Socket accepted = socket;
                 socket = null;
                 try {
                     mWorkers.execute(() -> handle(accepted));
                 } catch (RejectedExecutionException error) {
                     mRejected.incrementAndGet();
-                    writeAndClose(accepted, 503,
-                            "Service Unavailable", "", null);
+                    try {
+                        writeAndClose(accepted, 503,
+                                "Service Unavailable", "", null);
+                    } finally {
+                        forgetConnection(accepted);
+                    }
                 }
             } catch (SocketException error) {
                 if (mRunning) {
@@ -173,8 +202,16 @@ final class MagicDeskMcpHttpServer implements Closeable {
             writeResponse(output, response.status, response.reason,
                     response.body, response.extraHeaders);
         } catch (IOException | RuntimeException error) {
-            noteError(error);
+            if (mRunning) {
+                noteError(error);
+            }
+        } finally {
+            forgetConnection(socket);
         }
+    }
+
+    private synchronized void forgetConnection(final Socket socket) {
+        mOpenConnections.remove(socket);
     }
 
     private Response route(final Request request) {

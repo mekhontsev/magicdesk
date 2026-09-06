@@ -1,11 +1,13 @@
 package io.github.mekhontsev.magicdesk;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
+/** Owns a bounded one-shot process and its output streams, with no interactive stdin. */
 public final class BoundedProcessRunner {
     static final long DEFAULT_TIMEOUT_MILLIS = 30_000L;
     static final int DEFAULT_MAX_OUTPUT_BYTES = 384 * 1024;
@@ -24,49 +26,114 @@ public final class BoundedProcessRunner {
             final Process process,
             final long timeoutMillis,
             final int maxOutputBytes) throws IOException, InterruptedException {
+        final BinaryResult result = collect(
+                process, timeoutMillis, maxOutputBytes, 0, true);
+        final String output = new String(result.stdout, StandardCharsets.UTF_8);
+        return new Result(result.exitCode,
+                result.stdoutTruncated
+                        ? output + "\n[MagicDesk: command output truncated]" : output,
+                result.stdoutTruncated);
+    }
+
+    /** Keeps binary stdout separate from bounded UTF-8 stderr diagnostics. */
+    public static BinaryResult runBinary(
+            final Process process,
+            final long timeoutMillis,
+            final int maxStdoutBytes,
+            final int maxStderrBytes) throws IOException, InterruptedException {
+        return collect(process, timeoutMillis, maxStdoutBytes, maxStderrBytes, false);
+    }
+
+    private static BinaryResult collect(
+            final Process process,
+            final long timeoutMillis,
+            final int maxStdoutBytes,
+            final int maxStderrBytes,
+            final boolean textDiagnostics) throws IOException, InterruptedException {
         if (process == null) {
             throw new IOException("process is null");
         }
-        final OutputCollector collector =
-                new OutputCollector(process.getInputStream(), maxOutputBytes);
-        final Thread outputThread =
-                new Thread(collector, "MagicDeskCommandOutput");
-        outputThread.setDaemon(true);
-        outputThread.start();
-
-        final boolean completed;
+        final long started = System.nanoTime();
+        final long budget = TimeUnit.MILLISECONDS.toNanos(Math.max(0L, timeoutMillis));
+        final OutputCollector stdout =
+                new OutputCollector(process.getInputStream(), maxStdoutBytes);
+        final OutputCollector stderr =
+                new OutputCollector(process.getErrorStream(), maxStderrBytes);
+        final Thread outputThread = collectorThread(stdout, "MagicDeskCommandOutput");
+        final Thread errorThread = collectorThread(stderr, "MagicDeskCommandError");
         try {
-            completed = process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException error) {
-            terminate(process);
+            outputThread.start();
+            errorThread.start();
+            closeQuietly(process.getOutputStream());
+            if (!process.waitFor(remaining(started, budget), TimeUnit.NANOSECONDS)) {
+                throw new IOException(
+                        "command timed out after " + timeoutMillis + " ms"
+                                + diagnostics(stdout, stderr, textDiagnostics));
+            }
+            // Both collectors share the remaining command budget and the same
+            // EOF grace: an inherited pipe must not extend each join separately.
+            final long joinStarted = System.nanoTime();
+            final long joinBudget = Math.min(remaining(started, budget),
+                    TimeUnit.MILLISECONDS.toNanos(OUTPUT_JOIN_MILLIS));
+            join(outputThread, joinStarted, joinBudget);
+            join(errorThread, joinStarted, joinBudget);
+            if (outputThread.isAlive() || errorThread.isAlive()) {
+                throw new IOException("command output did not close"
+                        + diagnostics(stdout, stderr, textDiagnostics));
+            }
+            final IOException readError = stdout.error() != null
+                    ? stdout.error() : stderr.error();
+            if (readError != null) {
+                throw new IOException(
+                        "cannot read command output"
+                                + diagnostics(stdout, stderr, textDiagnostics), readError);
+            }
+            return new BinaryResult(process.exitValue(), stdout.snapshot(),
+                    new String(stderr.snapshot(), StandardCharsets.UTF_8),
+                    stdout.truncated(), stderr.truncated());
+        } finally {
+            if (process.isAlive()) {
+                terminate(process);
+            }
             closeQuietly(process.getInputStream());
-            throw error;
+            closeQuietly(process.getErrorStream());
+            closeQuietly(process.getOutputStream());
+            outputThread.interrupt();
+            errorThread.interrupt();
+            final long cleanupStarted = System.nanoTime();
+            final long cleanupBudget = TimeUnit.MILLISECONDS.toNanos(OUTPUT_JOIN_MILLIS);
+            try {
+                join(outputThread, cleanupStarted, cleanupBudget);
+                join(errorThread, cleanupStarted, cleanupBudget);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+            }
         }
-        if (!completed) {
-            terminate(process);
-            closeQuietly(process.getInputStream());
-            joinQuietly(outputThread);
-            throw new IOException(
-                    "command timed out after " + timeoutMillis + " ms"
-                            + outputSuffix(collector.snapshot()));
-        }
+    }
 
-        joinQuietly(outputThread);
-        if (outputThread.isAlive()) {
-            closeQuietly(process.getInputStream());
-            throw new IOException("command output did not close"
-                    + outputSuffix(collector.snapshot()));
+    private static Thread collectorThread(final OutputCollector collector, final String name) {
+        final Thread thread = new Thread(collector, name);
+        thread.setDaemon(true);
+        return thread;
+    }
+
+    private static long remaining(final long started, final long budget) {
+        return Math.max(0L, budget - (System.nanoTime() - started));
+    }
+
+    private static void join(final Thread thread, final long started, final long budget)
+            throws InterruptedException {
+        final long remaining = remaining(started, budget);
+        if (remaining > 0) {
+            TimeUnit.NANOSECONDS.timedJoin(thread, remaining);
         }
-        if (collector.error() != null) {
-            throw new IOException(
-                    "cannot read command output"
-                            + outputSuffix(collector.snapshot()),
-                    collector.error());
-        }
-        return new Result(
-                process.exitValue(),
-                collector.snapshot(),
-                collector.truncated());
+    }
+
+    private static String diagnostics(
+            final OutputCollector stdout, final OutputCollector stderr,
+            final boolean textDiagnostics) {
+        return outputSuffix(new String(
+                (textDiagnostics ? stdout : stderr).snapshot(), StandardCharsets.UTF_8));
     }
 
     private static void terminate(final Process process) {
@@ -75,6 +142,7 @@ public final class BoundedProcessRunner {
             if (!process.waitFor(
                     TERMINATION_GRACE_MILLIS, TimeUnit.MILLISECONDS)) {
                 process.destroyForcibly();
+                process.waitFor(TERMINATION_GRACE_MILLIS, TimeUnit.MILLISECONDS);
             }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
@@ -82,16 +150,11 @@ public final class BoundedProcessRunner {
         }
     }
 
-    private static void joinQuietly(final Thread thread)
-            throws InterruptedException {
-        thread.join(OUTPUT_JOIN_MILLIS);
-    }
-
-    private static void closeQuietly(final InputStream input) {
+    private static void closeQuietly(final Closeable stream) {
         try {
-            input.close();
+            stream.close();
         } catch (IOException ignored) {
-            // Process termination is already in progress.
+            // Closing the remaining streams must not mask the command result.
         }
     }
 
@@ -112,6 +175,23 @@ public final class BoundedProcessRunner {
             this.exitCode = exitCode;
             this.output = output;
             this.truncated = truncated;
+        }
+    }
+
+    public static final class BinaryResult {
+        public final int exitCode;
+        public final byte[] stdout;
+        public final String stderr;
+        public final boolean stdoutTruncated;
+        public final boolean stderrTruncated;
+
+        BinaryResult(final int exitCode, final byte[] stdout, final String stderr,
+                final boolean stdoutTruncated, final boolean stderrTruncated) {
+            this.exitCode = exitCode;
+            this.stdout = stdout;
+            this.stderr = stderr;
+            this.stdoutTruncated = stdoutTruncated;
+            this.stderrTruncated = stderrTruncated;
         }
     }
 
@@ -148,13 +228,9 @@ public final class BoundedProcessRunner {
             }
         }
 
-        String snapshot() {
+        byte[] snapshot() {
             synchronized (mOutput) {
-                final String output = new String(
-                        mOutput.toByteArray(), StandardCharsets.UTF_8);
-                return mTruncated
-                        ? output + "\n[MagicDesk: command output truncated]"
-                        : output;
+                return mOutput.toByteArray();
             }
         }
 

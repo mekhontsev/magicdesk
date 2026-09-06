@@ -45,13 +45,7 @@ final class TaskLocalInsetsSourceParser {
                 final Matcher frame = FRAME.matcher(line);
                 return new CaptionSource(
                         sourceId,
-                        frame.find()
-                                ? new Frame(
-                                        parseCoordinate(frame.group(1)),
-                                        parseCoordinate(frame.group(2)),
-                                        parseCoordinate(frame.group(3)),
-                                        parseCoordinate(frame.group(4)))
-                                : null);
+                        frame.find() ? parseFrame(frame) : null);
             }
         }
         return null;
@@ -75,11 +69,15 @@ final class TaskLocalInsetsSourceParser {
         }
     }
 
-    private static int parseCoordinate(final String value) {
+    private static Frame parseFrame(final Matcher frame) {
         try {
-            return Integer.parseInt(value);
+            return new Frame(
+                    Integer.parseInt(frame.group(1)),
+                    Integer.parseInt(frame.group(2)),
+                    Integer.parseInt(frame.group(3)),
+                    Integer.parseInt(frame.group(4)));
         } catch (NumberFormatException ignored) {
-            return 0;
+            return null;
         }
     }
 

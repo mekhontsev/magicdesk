@@ -15,6 +15,8 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /** Restores all state owned by a desktop self-test run. */
 final class DesktopSelfTestCleanup {
@@ -28,18 +30,16 @@ final class DesktopSelfTestCleanup {
             final SimulatedDisplayLease lease) {
         final StringBuilder detail = new StringBuilder();
         final Set<Integer> phoneFixtureTaskIds = new LinkedHashSet<>();
+        final Set<Integer> ownedFixtureTaskIds = new LinkedHashSet<>();
         boolean clean = true;
-        if (ShellAccess.isReady()) {
-            try {
-                removeFixtureTasks(phoneFixtureTaskIds);
-                waitForTaskAbsent(DesktopSelfTestComponents.FIXTURE_CLASS);
-                waitForTaskAbsent(
-                        DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS);
-            } catch (IOException error) {
-                clean = false;
-                detail.append("fixture removal: ")
-                        .append(usefulMessage(error)).append("; ");
-            }
+        boolean sessionClosed = displayId < Display.DEFAULT_DISPLAY;
+        try {
+            requireShell();
+            ownedFixtureTaskIds.addAll(captureFixtureTaskIds());
+        } catch (IOException error) {
+            clean = false;
+            detail.append("fixture ownership: ")
+                    .append(usefulMessage(error)).append("; ");
         }
         if (displayId >= Display.DEFAULT_DISPLAY) {
             final DesktopDisplayTarget displayTarget =
@@ -49,34 +49,45 @@ final class DesktopSelfTestCleanup {
                             .features().phoneTouchpad) {
                 PhoneTouchpadController.release(displayId);
             }
-            if (ShellAccess.isReady()) {
-                try {
-                    releaseDesktopHomeLease(displayId);
-                } catch (IOException error) {
-                    clean = false;
-                    detail.append("HOME lease release: ")
-                            .append(usefulMessage(error)).append("; ");
-                }
+            try {
+                requireShell();
+                releaseDesktopHomeLease(displayId);
+            } catch (IOException error) {
+                clean = false;
+                detail.append("HOME lease release: ")
+                        .append(usefulMessage(error)).append("; ");
             }
-            DesktopRuntimeBridge.closeDesktopSession(displayId);
-            if (ShellAccess.isReady()) {
-                try {
-                    waitForDesktopTaskAbsent();
-                    if (target == DesktopSelfTestTarget.PHONE) {
-                        waitForLocalDesktopCleanup();
-                    }
-                } catch (IOException error) {
-                    clean = false;
-                    detail.append("desktop task quiescence: ")
-                            .append(usefulMessage(error)).append("; ");
+            try {
+                closeDesktopSessionAndWait(displayId);
+                sessionClosed = true;
+                requireShell();
+                waitForDesktopTaskAbsent();
+                if (target == DesktopSelfTestTarget.PHONE) {
+                    waitForLocalDesktopCleanup();
                 }
+            } catch (IOException error) {
+                clean = false;
+                detail.append("desktop task quiescence: ")
+                        .append(usefulMessage(error)).append("; ");
             }
         }
-        if (ShellAccess.isReady()
-                && displayId >= Display.DEFAULT_DISPLAY
+        if (sessionClosed) {
+            try {
+                requireShell();
+                removeFixtureTasks(phoneFixtureTaskIds, ownedFixtureTaskIds);
+                waitForTaskAbsent(DesktopSelfTestComponents.FIXTURE_CLASS);
+                waitForTaskAbsent(DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS);
+            } catch (IOException error) {
+                clean = false;
+                detail.append("fixture removal: ")
+                        .append(usefulMessage(error)).append("; ");
+            }
+        }
+        if (displayId >= Display.DEFAULT_DISPLAY
                 && (target == DesktopSelfTestTarget.PHONE
                         || target == DesktopSelfTestTarget.SIMULATED)) {
             try {
+                requireShell();
                 if (target == DesktopSelfTestTarget.PHONE) {
                     waitForNoLiveDesktopTasks(displayId);
                 } else {
@@ -90,6 +101,9 @@ final class DesktopSelfTestCleanup {
         }
         if (lease != null) {
             try {
+                if (!sessionClosed) {
+                    throw new IOException("desktop session close did not complete");
+                }
                 if (displayId > Display.DEFAULT_DISPLAY
                         && !WindowTransitionHealthDiagnostics
                                 .awaitDisplayIdle(
@@ -137,11 +151,16 @@ final class DesktopSelfTestCleanup {
                     detail.append("desktop repository cleanup: ")
                             .append(usefulMessage(error)).append("; ");
                 }
+            } else {
+                clean = false;
+                detail.append("desktop repository verification unavailable; ");
             }
         }
         if (ShellAccess.isReady()) {
             try {
-                removeFixtureTasks(phoneFixtureTaskIds);
+                if (sessionClosed) {
+                    removeFixtureTasks(phoneFixtureTaskIds, ownedFixtureTaskIds);
+                }
                 if (target == DesktopSelfTestTarget.PHONE) {
                     for (final Integer taskId : phoneFixtureTaskIds) {
                         waitForTaskAbsentFromDesktopRepository(
@@ -171,6 +190,9 @@ final class DesktopSelfTestCleanup {
                             .append(usefulMessage(error)).append("; ");
                 }
             }
+        } else {
+            clean = false;
+            detail.append("shell unavailable for final cleanup verification; ");
         }
         result.add(clean ? DesktopSelfTestResult.State.PASS
                         : DesktopSelfTestResult.State.FAIL,
@@ -179,15 +201,71 @@ final class DesktopSelfTestCleanup {
     }
 
     static void removeFixtureTasks() throws IOException {
-        removeFixtureTasks(null);
+        requireShell();
+        final TaskRepository.Snapshot snapshot = TaskRepository.loadAllNow();
+        if (!snapshot.available) {
+            throw new IOException(snapshot.error);
+        }
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (!DesktopSelfTestComponents.isFixtureTask(task)) {
+                continue;
+            }
+            final CountDownLatch completion = new CountDownLatch(1);
+            final TaskRepository.ActionResult[] action =
+                    new TaskRepository.ActionResult[1];
+            MagicDeskRuntime.closeTask(task, result -> {
+                action[0] = result;
+                completion.countDown();
+            });
+            try {
+                if (!completion.await(
+                        STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                    throw new IOException(
+                            "fixture task close timed out: " + task.taskId);
+                }
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IOException(
+                        "fixture task close interrupted: " + task.taskId, error);
+            }
+            if (action[0] == null || !action[0].success) {
+                throw new IOException("fixture task close failed: " + task.taskId
+                        + (action[0] == null || action[0].message.isEmpty()
+                                ? "" : ": " + action[0].message));
+            }
+            requireShell();
+            DesktopSelfTestTasks.waitForTaskAbsent(task.taskId);
+            if (task.displayId == Display.DEFAULT_DISPLAY) {
+                waitForTaskAbsentFromDesktopRepository(
+                        task.displayId, task.taskId);
+            }
+        }
+    }
+
+    private static Set<Integer> captureFixtureTaskIds() throws IOException {
+        final TaskRepository.Snapshot snapshot = TaskRepository.loadAllNow();
+        if (!snapshot.available) {
+            throw new IOException(snapshot.error);
+        }
+        final Set<Integer> taskIds = new LinkedHashSet<>();
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (DesktopSelfTestComponents.isFixtureTask(task)) {
+                taskIds.add(Integer.valueOf(task.taskId));
+            }
+        }
+        return taskIds;
     }
 
     private static void removeFixtureTasks(
-            final Set<Integer> phoneFixtureTaskIds) throws IOException {
-        final String stack = ShellAccess.run(
-                "/system/bin/cmd activity stack list");
-        for (final TaskStackParser.Entry task : TaskStackParser.parse(stack)) {
-            if (!DesktopSelfTestComponents.isFixtureTask(task)) {
+            final Set<Integer> phoneFixtureTaskIds,
+            final Set<Integer> ownedTaskIds) throws IOException {
+        final TaskRepository.Snapshot snapshot = TaskRepository.loadAllNow();
+        if (!snapshot.available) {
+            throw new IOException(snapshot.error);
+        }
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (!ownedTaskIds.contains(Integer.valueOf(task.taskId))
+                    || !DesktopSelfTestComponents.isFixtureTask(task)) {
                 continue;
             }
             if (phoneFixtureTaskIds != null
@@ -195,7 +273,7 @@ final class DesktopSelfTestCleanup {
                 phoneFixtureTaskIds.add(Integer.valueOf(task.taskId));
             }
             if (requiresPhoneDesktopExitBeforeRemoval(
-                    task,
+                    task.displayId, task.windowingMode,
                     PlatformDrivers.current().windowing()
                             .requiresPhoneTaskRecovery())) {
                 // Removing a phone freeform task directly leaves its ID in
@@ -230,7 +308,7 @@ final class DesktopSelfTestCleanup {
     }
 
     private static String fixtureClass(
-            final TaskStackParser.Entry task) {
+            final TaskRepository.TaskEntry task) {
         return DesktopSelfTestTasks.hasClass(
                 task.componentName,
                 DesktopSelfTestComponents.BROWSER_FIXTURE_CLASS)
@@ -246,8 +324,35 @@ final class DesktopSelfTestCleanup {
             final boolean requiresPhoneTaskRecovery) {
         return requiresPhoneTaskRecovery
                 && task != null
-                && task.displayId == Display.DEFAULT_DISPLAY
-                && "freeform".equals(task.windowingMode);
+                && requiresPhoneDesktopExitBeforeRemoval(
+                        task.displayId, task.windowingMode, true);
+    }
+
+    private static boolean requiresPhoneDesktopExitBeforeRemoval(
+            final int displayId,
+            final String windowingMode,
+            final boolean requiresPhoneTaskRecovery) {
+        return requiresPhoneTaskRecovery && displayId == Display.DEFAULT_DISPLAY
+                && "freeform".equals(windowingMode);
+    }
+
+    private static void requireShell() throws IOException {
+        if (!ShellAccess.isReady()) {
+            throw new IOException("shell unavailable for required cleanup verification");
+        }
+    }
+
+    private static void closeDesktopSessionAndWait(final int displayId) throws IOException {
+        final CountDownLatch closed = new CountDownLatch(1);
+        DesktopRuntimeBridge.closeDesktopSession(displayId, closed::countDown);
+        try {
+            if (!closed.await(STEP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                throw new IOException("desktop session close timed out");
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("desktop session close interrupted", error);
+        }
     }
 
     private static boolean taskExists(final int taskId) throws IOException {

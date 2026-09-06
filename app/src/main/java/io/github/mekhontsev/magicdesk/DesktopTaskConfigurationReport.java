@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import android.graphics.Rect;
 
 import java.io.IOException;
+import java.util.Locale;
 
 /** Captures detailed task configuration only while a report is generated. */
 final class DesktopTaskConfigurationReport {
@@ -90,7 +91,7 @@ final class DesktopTaskConfigurationReport {
             return "none";
         }
         final String mode = saved.mode == null
-                ? "unspecified" : saved.mode.name().toLowerCase();
+                ? "unspecified" : saved.mode.name().toLowerCase(Locale.ROOT);
         final RelativeWindowBounds bounds = saved.windowBounds;
         if (bounds == null) {
             return mode + "/bounds=none";

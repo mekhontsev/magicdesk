@@ -212,22 +212,42 @@ final class DesktopTaskSnapshotController {
     void refresh() {
         final int generation = ++mRefreshGeneration;
         final int displayId = mActivity.getCurrentDisplayId();
+        if (displayId >= 0 && DesktopRuntimeBridge.getSessionSnapshot()
+                .activeDisplayId() == displayId) {
+            applyRefreshSnapshot(generation, displayId, null);
+            return;
+        }
         TaskRepository.load(displayId, snapshot ->
-                mActivity.runOnUiThread(() -> {
-                    if (generation != mRefreshGeneration
-                            || mActivity.isActivityUnavailable()
-                            || displayId != mActivity.getCurrentDisplayId()) {
-                        return;
-                    }
-                    if (snapshot.available) {
-                        sync(snapshot);
-                    } else {
-                        mSnapshot = snapshot;
-                        mActivity.renderTaskbarPins(
-                                mActivity.getLauncherApps());
-                    }
-                    mActivity.updateDesktopControls();
-                }));
+                applyRefreshSnapshot(generation, displayId, snapshot));
+    }
+
+    private void applyRefreshSnapshot(
+            final int generation,
+            final int displayId,
+            final TaskRepository.Snapshot snapshot) {
+        mActivity.runOnUiThread(() -> {
+            if (generation != mRefreshGeneration
+                    || mActivity.isActivityUnavailable()
+                    || displayId != mActivity.getCurrentDisplayId()) {
+                return;
+            }
+            // Active desktop chrome follows the controller's publication, not
+            // an independent query that can observe an in-flight handoff.
+            final TaskRepository.Snapshot current = displayId >= 0
+                    && DesktopRuntimeBridge.getSessionSnapshot()
+                            .activeDisplayId() == displayId
+                    ? MagicDeskRuntime.observedTaskSnapshot(displayId) : snapshot;
+            if (current != null && current.available) {
+                sync(current);
+            } else {
+                mSnapshot = current == null
+                        ? new TaskRepository.Snapshot(Collections.emptyList(),
+                                false, "desktop task observation unavailable")
+                        : current;
+                mActivity.renderTaskbarPins(mActivity.getLauncherApps());
+            }
+            mActivity.updateDesktopControls();
+        });
     }
 
     TaskRepository.TaskEntry findFirstTask(final String packageName) {

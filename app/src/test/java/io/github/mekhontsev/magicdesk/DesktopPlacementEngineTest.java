@@ -56,6 +56,27 @@ public final class DesktopPlacementEngineTest {
     }
 
     @Test
+    public void oversizedPreferredCoordinatesReflowInsideGrid() {
+        final Map<String, DesktopPlacement> result =
+                DesktopPlacementEngine.arrange(
+                        Collections.singletonList(request(
+                                "item", Integer.MAX_VALUE, Integer.MAX_VALUE)),
+                        3,
+                        2);
+
+        assertEquals(new DesktopPlacement(2, 1, 1, 1), result.get("item"));
+    }
+
+    @Test
+    public void nearestCellDistanceDoesNotOverflow() {
+        assertEquals(
+                new DesktopPlacement(0, 0, 1, 1),
+                DesktopPlacementEngine.findNearestFree(
+                        Collections.emptyList(), 3, 2, 1, 1,
+                        Integer.MIN_VALUE, Integer.MIN_VALUE));
+    }
+
+    @Test
     public void omitsItemsWhenGridIsFull() {
         final Map<String, DesktopPlacement> result =
                 DesktopPlacementEngine.arrange(

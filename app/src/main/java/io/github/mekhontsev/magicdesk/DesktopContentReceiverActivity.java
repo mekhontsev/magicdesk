@@ -5,7 +5,6 @@ import android.app.AlertDialog;
 import android.os.Bundle;
 import android.widget.Toast;
 
-import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -20,6 +19,7 @@ public final class DesktopContentReceiverActivity extends Activity {
     private final ExecutorService mWorker =
             Executors.newSingleThreadExecutor(runnable ->
                     new Thread(runnable, "MagicDeskContentImport"));
+    private final ContentRequestScope mImports = new ContentRequestScope(mWorker);
     private AndroidContentPayload mContent;
     private boolean mImporting;
 
@@ -79,27 +79,41 @@ public final class DesktopContentReceiverActivity extends Activity {
             return;
         }
         final AndroidContentPayload content = mContent;
-        mWorker.execute(() -> {
-            final DesktopFileRepository.ImportResult result;
-            try {
-                result = new DesktopFileRepository(this).importContent(
-                        content, ShellDesktopDirectory.ABSOLUTE_PATH);
-            } catch (IOException | RuntimeException error) {
-                final int count = content.hasUris()
-                        ? content.uriItems.size() : 1;
-                onImportFinished(new DesktopFileRepository.ImportResult(
-                        0, count, error));
-                return;
-            }
-            onImportFinished(result);
-        });
+        final ContentImportBatch<?> request;
+        try {
+            request = ContentUriTransfer.prepareContent(
+                    getContentResolver(), content, ShellDesktopDirectory.ABSOLUTE_PATH);
+        } catch (RuntimeException failure) {
+            onImportFinished(ContentImportBatch.Result.notStarted(
+                    content.hasUris() ? content.uriItems.size() : 1, failure));
+            return;
+        }
+        mImports.submit(cancelled -> request.run(cancelled, null), null)
+                .thenAccept(completion ->
+                        onImportFinished(request.finish(completion.value, completion.failure)));
+    }
+
+    @Override
+    protected void onDestroy() {
+        mImports.close();
+        mWorker.shutdownNow();
+        super.onDestroy();
     }
 
     private void onImportFinished(
-            final DesktopFileRepository.ImportResult result) {
+            final ContentImportBatch.Result result) {
         runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
             if (result.copied > 0) {
                 recordSaved(result.copied);
+            }
+            if (result.cancelled) {
+                Toast.makeText(this, getResources().getQuantityString(
+                        R.plurals.file_import_cancelled, result.total, result.copied, result.total),
+                        Toast.LENGTH_LONG).show();
+            } else if (result.copied > 0) {
                 Toast.makeText(
                         this,
                         getResources().getQuantityString(
@@ -108,16 +122,13 @@ public final class DesktopContentReceiverActivity extends Activity {
                                 result.copied),
                         Toast.LENGTH_LONG).show();
             }
-            if (result.failed > 0 || result.firstFailure != null) {
+            if (result.firstFailure != null) {
                 recordFailure();
                 Toast.makeText(
                         this,
                         getString(
                                 R.string.desktop_share_failed,
-                                result.firstFailure == null
-                                        ? "unknown error"
-                                        : ShellAccess.usefulMessage(
-                                                result.firstFailure)),
+                                ShellAccess.usefulMessage(result.firstFailure)),
                         Toast.LENGTH_LONG).show();
             }
             mWorker.shutdown();

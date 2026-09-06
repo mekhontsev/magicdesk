@@ -48,11 +48,11 @@ final class ConsoleTerminalSession {
 
     private static final int DEFAULT_TRANSCRIPT_ROWS = 4_000;
     private static final int MAX_PENDING_INPUT_BYTES = 64 * 1024;
+    private static final int MAX_PENDING_OUTPUT_BYTES = 256 * 1024;
     private static final long PROCESS_REFRESH_DELAY_MILLIS = 250L;
     private static final long MIN_PROCESS_REFRESH_INTERVAL_MILLIS = 1_000L;
 
     private final Object mLock = new Object();
-    private final Object mOutputLock = new Object();
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService mWriter =
             Executors.newSingleThreadExecutor(runnable -> {
@@ -61,10 +61,12 @@ final class ConsoleTerminalSession {
                 thread.setDaemon(true);
                 return thread;
             });
+    private final TerminalRequestScope mRequests = new TerminalRequestScope(mWriter);
     private final ByteArrayOutputStream mPendingInput =
             new ByteArrayOutputStream();
-    private final ByteArrayOutputStream mPendingOutput =
-            new ByteArrayOutputStream();
+    private final TerminalOutputBuffer mPendingOutput =
+            new TerminalOutputBuffer(MAX_PENDING_OUTPUT_BYTES);
+    private final Runnable mDrainOutput = this::drainOutput;
     private final Listener mListener;
     private final TerminalEmulator mEmulator;
     private final TerminalTransport.Factory mTransportFactory;
@@ -83,7 +85,6 @@ final class ConsoleTerminalSession {
     private boolean mReady;
     private boolean mReceivedOutput;
     private boolean mStartupCommandSent;
-    private boolean mOutputPosted;
     private boolean mProcessRefreshPosted;
     private boolean mProcessRefreshInProgress;
     private long mLastProcessRefreshMillis;
@@ -284,21 +285,10 @@ final class ConsoleTerminalSession {
         if (listener == null) {
             return;
         }
-        executeWriter(() -> {
-            String resolved;
-            IOException error = null;
-            try {
-                resolved = resolveWorkingDirectory();
-            } catch (IOException lookupError) {
-                synchronized (mLock) {
-                    resolved = mWorkingDirectory;
-                }
-                error = lookupError;
-            }
-            final IOException failure = error;
-            final String result = resolved;
-            mMainHandler.post(() -> listener.onDirectory(result, failure));
-        });
+        mRequests.submit(this::resolveWorkingDirectory).whenComplete((directory, failure) ->
+                mMainHandler.post(() -> listener.onDirectory(
+                        failure == null ? directory : workingDirectory(),
+                        requestError(failure))));
     }
 
     void requestForegroundProcess(final ProcessListener listener) {
@@ -314,7 +304,15 @@ final class ConsoleTerminalSession {
             }
             return;
         }
-        executeWriter(() -> refreshForegroundProcess(transport, listener));
+        mRequests.submit(() -> readForegroundProcess(transport))
+                .whenComplete((result, failure) -> {
+                    if (listener != null) {
+                        mMainHandler.post(() -> listener.onProcess(
+                                failure == null ? result.process : foregroundProcess(),
+                                failure == null && result.changed,
+                                requestError(failure)));
+                    }
+                });
     }
 
     String resolveWorkingDirectory() throws IOException {
@@ -342,14 +340,7 @@ final class ConsoleTerminalSession {
                 return mForegroundProcess;
             }
         }
-        final TerminalProcessInfo process = transport.foregroundProcess();
-        synchronized (mLock) {
-            if (!mClosed && mTransport == transport
-                    && process != null && process.isKnown()) {
-                mForegroundProcess = process;
-            }
-            return mForegroundProcess;
-        }
+        return readForegroundProcess(transport).process;
     }
 
     private void executeWriter(final Runnable operation) {
@@ -382,6 +373,9 @@ final class ConsoleTerminalSession {
             mProcessRefreshInProgress = false;
         }
         mMainHandler.removeCallbacks(mScheduledProcessRefresh);
+        mPendingOutput.close();
+        mMainHandler.removeCallbacks(mDrainOutput);
+        mRequests.close();
         if (transport != null) {
             transport.close();
         }
@@ -399,6 +393,8 @@ final class ConsoleTerminalSession {
             return;
         }
         final byte[] pending;
+        final int currentRows;
+        final int currentColumns;
         long processId = -1L;
         try {
             processId = transport.processId();
@@ -416,8 +412,15 @@ final class ConsoleTerminalSession {
             mReady = true;
             mStartupCommandSent = mStartupCommand.isEmpty()
                     || transport.consumesStartupCommand();
+            currentRows = mRows;
+            currentColumns = mColumns;
             pending = mPendingInput.toByteArray();
             mPendingInput.reset();
+        }
+        // Layout may have changed while the transport was opening. Publish
+        // its latest dimensions before input queued during startup is sent.
+        if (currentRows != rows || currentColumns != columns) {
+            resizeNow(currentRows, currentColumns);
         }
         if (pending.length > 0) {
             writeNow(pending);
@@ -466,24 +469,19 @@ final class ConsoleTerminalSession {
         }
     }
 
-    private void queueOutput(final byte[] bytes, final int count) {
-        synchronized (mOutputLock) {
-            mPendingOutput.write(bytes, 0, count);
-            if (mOutputPosted) {
-                return;
+    private void queueOutput(final byte[] bytes, final int count) throws IOException {
+        try {
+            if (mPendingOutput.append(bytes, count)) {
+                mMainHandler.post(mDrainOutput);
             }
-            mOutputPosted = true;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("terminal output delivery interrupted", error);
         }
-        mMainHandler.post(this::drainOutput);
     }
 
     private void drainOutput() {
-        final byte[] output;
-        synchronized (mOutputLock) {
-            output = mPendingOutput.toByteArray();
-            mPendingOutput.reset();
-            mOutputPosted = false;
-        }
+        final byte[] output = mPendingOutput.drain();
         synchronized (mLock) {
             if (mClosed) {
                 return;
@@ -515,33 +513,28 @@ final class ConsoleTerminalSession {
         }
     }
 
-    private void refreshForegroundProcess(
-            final TerminalTransport transport,
-            final ProcessListener listener) {
-        TerminalProcessInfo process = null;
-        IOException failure = null;
-        boolean changed = false;
-        try {
-            process = transport.foregroundProcess();
-            synchronized (mLock) {
-                if (!mClosed && mTransport == transport
-                        && process != null
-                        && process.isKnown()) {
-                    changed = !process.equals(mForegroundProcess);
-                    mForegroundProcess = process;
-                }
+    private ProcessRefresh readForegroundProcess(final TerminalTransport transport)
+            throws IOException {
+        final TerminalProcessInfo process = transport.foregroundProcess();
+        synchronized (mLock) {
+            boolean changed = false;
+            if (!mClosed && mTransport == transport
+                    && process != null && process.isKnown()) {
+                changed = !process.equals(mForegroundProcess);
+                mForegroundProcess = process;
             }
-        } catch (IOException error) {
-            failure = error;
+            return new ProcessRefresh(mForegroundProcess, changed);
         }
-        if (listener != null) {
-            final TerminalProcessInfo result = process == null
-                    ? foregroundProcess() : process;
-            final boolean wasChanged = changed;
-            final IOException error = failure;
-            mMainHandler.post(() ->
-                    listener.onProcess(result, wasChanged, error));
+    }
+
+    private record ProcessRefresh(TerminalProcessInfo process, boolean changed) {
+    }
+
+    private static IOException requestError(final Throwable failure) {
+        if (failure == null || failure instanceof IOException) {
+            return (IOException) failure;
         }
+        return new IOException("terminal metadata request failed", failure);
     }
 
     private void sendStartupCommandIfReady() {

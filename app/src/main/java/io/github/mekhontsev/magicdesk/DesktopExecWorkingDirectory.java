@@ -1,10 +1,19 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Validation shared by shell and Termux Desktop Entry working directories. */
+/** Shared Desktop Entry directory validation and one-shot shell preparation. */
 final class DesktopExecWorkingDirectory {
     private static final int MAX_LENGTH = 4096;
 
     private DesktopExecWorkingDirectory() {
+    }
+
+    static String shellCommand(final String command, final String workingDirectory) {
+        final String directory = normalize(workingDirectory);
+        if (directory.isEmpty()) {
+            return command;
+        }
+        // A failed cd must stop the whole script, including lists and user error branches.
+        return "cd -- " + ShellCommandLine.quote(directory) + " || exit\n" + command;
     }
 
     static String normalize(final String value) {

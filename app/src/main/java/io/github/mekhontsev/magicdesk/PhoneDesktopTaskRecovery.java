@@ -11,7 +11,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Reconciles retained WMShell desktop tasks before returning to phone Home. */
+/**
+ * Reconciles retained WMShell desktop tasks before returning to phone Home.
+ * Recovery can run after desktop teardown has unconfigured the active-session
+ * framework observer. Its bounded 100 ms cleanup checks therefore read typed
+ * task snapshots directly; they do not start another task monitor.
+ */
 final class PhoneDesktopTaskRecovery {
     private static final String TAG = "MagicDeskPhoneRecovery";
     private static final String MAGICDESK_PACKAGE =

@@ -599,8 +599,8 @@ final class NubiaHdmiModeController {
                 if (mode != null
                         && mode.getPhysicalWidth() == expected.width
                         && mode.getPhysicalHeight() == expected.height
-                        && Math.abs(mode.getRefreshRate()
-                                - expected.refreshRate) < 0.1f) {
+                        && Math.round(mode.getRefreshRate())
+                                == expected.refreshRate) {
                     if (displayId == stableDisplayId) {
                         stableSamples++;
                     } else {

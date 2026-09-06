@@ -69,12 +69,7 @@ public final class TaskFullscreenMoveCommand {
                 service, sourceDisplayId, taskId);
         final int originalWindowingMode =
                 HiddenTaskApi.getTaskWindowingMode(originalTask);
-        final Object originalWindowConfiguration =
-                HiddenTaskApi.getWindowConfiguration(originalTask);
-        final Rect originalBounds = new Rect(
-                (Rect) originalWindowConfiguration.getClass()
-                        .getMethod("getBounds")
-                        .invoke(originalWindowConfiguration));
+        final Rect originalBounds = HiddenTaskApi.readBounds(originalTask);
         boolean taskHidden = false;
         try {
             // Commit the target mode while the task still belongs to its

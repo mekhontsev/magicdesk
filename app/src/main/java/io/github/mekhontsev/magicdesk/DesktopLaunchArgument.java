@@ -5,6 +5,8 @@ import java.net.URISyntaxException;
 
 /** One file or URI supplied to a Desktop Entry Exec template. */
 final class DesktopLaunchArgument {
+    private static final int MAX_LENGTH = 8192;
+
     final String path;
     final String uri;
 
@@ -16,9 +18,14 @@ final class DesktopLaunchArgument {
         }
         this.path = path == null ? "" : path;
         this.uri = uri == null ? "" : uri;
+        requireLength(this.path);
+        requireLength(this.uri);
     }
 
     static DesktopLaunchArgument file(final String absolutePath) {
+        if (absolutePath != null) {
+            requireLength(absolutePath);
+        }
         final String path = ShellFilePathPolicy.normalizeShellAbsolute(
                 absolutePath);
         try {
@@ -35,5 +42,11 @@ final class DesktopLaunchArgument {
             throw new IllegalArgumentException("invalid URI argument");
         }
         return new DesktopLaunchArgument("", value);
+    }
+
+    private static void requireLength(final String value) {
+        if (value.length() > MAX_LENGTH) {
+            throw new IllegalArgumentException("desktop launch argument is too long");
+        }
     }
 }

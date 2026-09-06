@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
-import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
 import io.github.mekhontsev.magicdesk.ExternalDisplayController;
 import io.github.mekhontsev.magicdesk.DesktopSelfTestCapabilityAudit;
 import io.github.mekhontsev.magicdesk.DesktopSelfTestResult;

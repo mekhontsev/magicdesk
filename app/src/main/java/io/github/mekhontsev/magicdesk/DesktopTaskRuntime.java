@@ -13,6 +13,8 @@ import java.util.List;
 interface DesktopTaskRuntime {
     boolean isTaskObserverReady();
 
+    TaskRepository.Snapshot observedTaskSnapshot(int displayId);
+
     TaskRepository.Snapshot selectDesktopTaskSnapshot(
             int displayId, TaskRepository.Snapshot snapshot);
 

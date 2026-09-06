@@ -66,6 +66,49 @@ public final class TaskActivityModeStateTest {
     }
 
     @Test
+    public void unavailableObservationDoesNotRestoreForeignTopAfterMatchedHandoff() {
+        final TaskActivityModeState state = windowedState();
+        state.arm(MAIN, ROOT);
+
+        assertEquals(
+                TaskActivityModeState.Decision.NONE,
+                state.observe(MAIN, ROOT, 1, null));
+        assertTrue(state.isArmed());
+        assertEquals(
+                TaskActivityModeState.Decision.NONE,
+                state.observe(
+                        PERMISSION,
+                        "com.android.permissioncontroller",
+                        1,
+                        null));
+        assertTrue(state.isArmed());
+        assertEquals(
+                TaskActivityModeState.Decision.RESTORE_FREEFORM,
+                state.observe(MAIN, ROOT, 1, false));
+    }
+
+    @Test
+    public void fullscreenPreferenceCorrectionDoesNotRequireImmersiveObservation() {
+        final TaskActivityModeState state = fullscreenState();
+        state.arm(PERMISSION, "com.android.permissioncontroller");
+
+        assertEquals(
+                TaskActivityModeState.Decision.RESTORE_FULLSCREEN,
+                state.observe(
+                        PERMISSION,
+                        "com.android.permissioncontroller",
+                        5,
+                        null));
+        assertEquals(
+                TaskActivityModeState.Decision.NONE,
+                state.observe(
+                        PERMISSION,
+                        "com.android.permissioncontroller",
+                        5,
+                        null));
+    }
+
+    @Test
     public void ignoresUnrelatedModeChangesWithoutActivityStart() {
         final TaskActivityModeState state = windowedState();
 

@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
@@ -60,6 +59,8 @@ public final class DesktopTaskReturnCommand {
                     + " failed=" + failed
                     + " from=" + sourceDisplayId
                     + " to=" + PHONE_DISPLAY_ID);
+            System.out.println(DesktopTaskReturnResult.encode(
+                    sourceDisplayId, moved, failed));
         } catch (ReflectiveOperationException | RuntimeException e) {
             Throwable cause = e;
             while (cause.getCause() != null && cause.getCause() != cause) {
@@ -115,9 +116,7 @@ public final class DesktopTaskReturnCommand {
 
     private static boolean isMagicDeskPackage(final ComponentName component) {
         return component != null
-                && component.getPackageName()
-                        .toLowerCase(Locale.ROOT)
-                        .endsWith(".magicdesk");
+                && BuildConfig.APPLICATION_ID.equals(component.getPackageName());
     }
 
     private static int getActivityType(final Object task)

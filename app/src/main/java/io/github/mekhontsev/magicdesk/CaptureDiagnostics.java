@@ -144,7 +144,7 @@ final class CaptureDiagnostics {
         return format.format(new Date(millis));
     }
 
-    private static String clean(final String value) {
+    static String clean(final String value) {
         if (value == null) {
             return "";
         }
@@ -152,6 +152,6 @@ final class CaptureDiagnostics {
                 .replace('\r', ' ')
                 .replace('\n', ' ')
                 .trim();
-        return result.length() <= 600 ? result : result.substring(0, 600);
+        return BoundedText.prefix(result, 600);
     }
 }

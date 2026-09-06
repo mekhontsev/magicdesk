@@ -221,28 +221,6 @@ public final class TaskWindowingCommand {
         applyFocusTransaction(service, transactionClass, transaction);
     }
 
-    static void addReorderTasksInManagedArea(
-            final Object service,
-            final int displayId,
-            final int[] taskIds,
-            final Object areaToken,
-            final Class<?> transactionClass,
-            final Object transaction) throws ReflectiveOperationException {
-        if (taskIds == null || taskIds.length == 0 || areaToken == null) {
-            throw new IllegalArgumentException(
-                    "missing managed workspace reorder target");
-        }
-        addFocusOperations(
-                service,
-                displayId,
-                taskIds,
-                transactionClass,
-                transaction,
-                false);
-        FrameworkRuntime.current().windowing().reorder(
-                transaction, areaToken, true);
-    }
-
     static void addFocusTasksWithinCurrentParent(
             final Object service,
             final int displayId,
@@ -289,75 +267,6 @@ public final class TaskWindowingCommand {
         }
     }
 
-    static void closeFullscreenAreaTask(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final int survivorTaskId)
-            throws ReflectiveOperationException {
-        if (taskId == survivorTaskId) {
-            throw new IllegalArgumentException(
-                    "closed and surviving task match");
-        }
-        final FrameworkWindowingApi windowing =
-                FrameworkRuntime.current().windowing();
-        final Class<?> transactionClass = windowing.transactionClass();
-        final Object survivorToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, survivorTaskId);
-
-        // Move focus while both tasks still share the valid fullscreen area.
-        // The sync callback replaces the old visibility polling and confirms
-        // that the handoff reached WindowManager before the close begins.
-        final Object focusTransaction = windowing.newTransaction();
-        windowing.reorder(focusTransaction, survivorToken, true, true);
-        ShellWindowTransitionExecutor.applySynchronized(
-                service, transactionClass, focusTransaction);
-
-        final Object transaction = windowing.newTransaction();
-        final Object closingToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, taskId);
-        windowing.removeTask(transaction, closingToken);
-        windowing.reorder(transaction, survivorToken, true, true);
-        // Keep the survivor in the same fullscreen parent. The removed task is
-        // already in the background, so it cannot replace survivor input focus.
-        ShellWindowTransitionExecutor.applySynchronized(
-                service, transactionClass, transaction);
-    }
-
-    static void closeDesktopTasks(
-            final Object service,
-            final int displayId,
-            final int[] taskIds,
-            final int focusTaskId,
-            final boolean reorderParents) throws ReflectiveOperationException {
-        if (taskIds == null || taskIds.length == 0) {
-            throw new IllegalArgumentException("missing tasks to close");
-        }
-        final FrameworkWindowingApi windowing =
-                FrameworkRuntime.current().windowing();
-        final Class<?> transactionClass = windowing.transactionClass();
-        final Object transaction = windowing.newTransaction();
-        final Object focusTaskToken = HiddenTaskApi.requireTaskToken(
-                service, displayId, focusTaskId);
-        windowing.reorder(
-                transaction, focusTaskToken, true, reorderParents);
-        for (final int taskId : taskIds) {
-            if (taskId == focusTaskId) {
-                throw new IllegalArgumentException(
-                        "closed and focused task match");
-            }
-            final Object taskToken = HiddenTaskApi.requireTaskToken(
-                    service, displayId, taskId);
-            windowing.removeTask(transaction, taskToken);
-        }
-        ShellWindowTransitionExecutor.startForShellAdoption(
-                displayId,
-                ShellWindowTransitionExecutor.SystemTransition.TO_FRONT,
-                transactionClass,
-                transaction,
-                "close-desktop-tasks");
-    }
-
     static void focusFullscreenTask(
             final Object service,
             final int displayId,
@@ -397,12 +306,7 @@ public final class TaskWindowingCommand {
         if (originalMode == WINDOWING_MODE_FULLSCREEN) {
             return false;
         }
-        final Object originalConfiguration =
-                HiddenTaskApi.getWindowConfiguration(task);
-        final Rect originalBounds = new Rect(
-                (Rect) originalConfiguration.getClass()
-                        .getMethod("getBounds")
-                        .invoke(originalConfiguration));
+        final Rect originalBounds = HiddenTaskApi.readBounds(task);
         final int captionSourceId = refreshCaption
                 ? TaskCaptionInsetsRefresher.captureCaptionSourceId(taskId)
                 : TaskLocalInsetsSourceParser.NO_SOURCE_ID;
@@ -535,12 +439,4 @@ public final class TaskWindowingCommand {
         return parsed;
     }
 
-    private static boolean parseFlag(
-            final String value, final String label) {
-        final int parsed = parseInt(value, label);
-        if (parsed > 1) {
-            throw new IllegalArgumentException("invalid " + label);
-        }
-        return parsed == 1;
-    }
 }

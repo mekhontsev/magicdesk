@@ -4,6 +4,7 @@ import android.appwidget.AppWidgetProviderInfo;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -23,6 +24,7 @@ final class DesktopContextMenuController {
     private final AppShortcutRepository mShortcuts;
     private final Map<View, ContextTarget> mTargets = new WeakHashMap<>();
     private final DesktopMenuNavigator mMenuNavigator;
+    private ContentRequestScope mShortcutRequest;
 
     private LinearLayout mPanel;
     private ScrollView mMenuRoot;
@@ -51,6 +53,16 @@ final class DesktopContextMenuController {
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
         mMenuRoot.setVisibility(View.GONE);
+        mMenuRoot.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(final View view) {
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(final View view) {
+                cancelShortcutRequest();
+            }
+        });
         mActivity.registerAutomationUiElement(
                 mMenuRoot,
                 "panel.context_menu",
@@ -274,6 +286,7 @@ final class DesktopContextMenuController {
             return;
         }
         mRetainOwnerPanel = false;
+        cancelShortcutRequest();
         panels.hide(mMenuRoot);
         mPanel.removeAllViews();
         mMenuNavigator.prepare(null);
@@ -439,6 +452,7 @@ final class DesktopContextMenuController {
         if (mPanel == null || panels == null) {
             return;
         }
+        cancelShortcutRequest();
         panels.hide(mMenuRoot);
         mMenuNavigator.prepare(null);
         FileItemContextMenu.populate(
@@ -573,6 +587,7 @@ final class DesktopContextMenuController {
         if (mPanel == null || panels == null) {
             return;
         }
+        cancelShortcutRequest();
         panels.hide(mMenuRoot);
         mPanel.removeAllViews();
         mMenuNavigator.prepare(null);
@@ -602,7 +617,47 @@ final class DesktopContextMenuController {
                 app,
                 task,
                 desktopFile,
-                mShortcuts.load(app)));
+                List.of(),
+                List.of(),
+                false));
+        if (!panels.isRequested(mMenuRoot)) {
+            return;
+        }
+        final ContentRequestScope request = AndroidDesktopActionDispatcher.createContentScope();
+        mShortcutRequest = request;
+        request.submit(cancelled -> {
+            final List<AppShortcutAction> shortcuts = mShortcuts.load(app);
+            if (cancelled.getAsBoolean()) {
+                return null;
+            }
+            final boolean hasWidgets = mActivity.hasDesktopWidgets(app.packageName);
+            final List<DesktopLaunchIntegrationAction> integrationActions = desktopFile == null
+                    ? DesktopLaunchIntegrationRegistry.actions(mActivity, app.launchTarget)
+                    : List.of();
+            return new AppMenuState(x, y, app, task, desktopFile,
+                    shortcuts, integrationActions, hasWidgets);
+        }, null).thenAccept(completion -> request.deliver(mActivity::runOnUiThread, () -> {
+            if (request != mShortcutRequest) {
+                return;
+            }
+            cancelShortcutRequest();
+            if (mActivity.isActivityUnavailable() || !panels.isRequested(mMenuRoot)) {
+                return;
+            }
+            if (completion.failure != null) {
+                Log.w("MagicDesk", "Cannot load application menu actions", completion.failure);
+            } else if (completion.value != null) {
+                showAppMenu(completion.value);
+            }
+        }));
+    }
+
+    private void cancelShortcutRequest() {
+        final ContentRequestScope request = mShortcutRequest;
+        mShortcutRequest = null;
+        if (request != null) {
+            request.close();
+        }
     }
 
     private void showAppMenu(final AppMenuState state) {
@@ -626,8 +681,7 @@ final class DesktopContextMenuController {
         // belong only to the ordinary application/task entry.
         if (state.desktopFile == null) {
             for (final DesktopLaunchIntegrationAction action
-                    : DesktopLaunchIntegrationRegistry.actions(
-                            mActivity, state.app.launchTarget)) {
+                    : state.integrationActions) {
                 addAction(
                         action.labelResource,
                         DesktopUiFactory.COLOR_PANEL_ALT,
@@ -677,7 +731,7 @@ final class DesktopContextMenuController {
                     true,
                     view -> mActivity.toggleDesktopShortcut(state.app));
         }
-        if (mActivity.hasDesktopWidgets(state.app.packageName)) {
+        if (state.hasWidgets) {
             addAction(
                     R.string.action_app_widgets,
                     DesktopUiFactory.COLOR_PANEL_ALT,
@@ -802,6 +856,7 @@ final class DesktopContextMenuController {
             final AppItem app,
             final TaskRepository.TaskEntry task) {
         final DesktopPanelWindowController panels = mActivity.panels();
+        cancelShortcutRequest();
         panels.hide(mMenuRoot);
         mPanel.removeAllViews();
         mMenuNavigator.prepare(null);
@@ -836,6 +891,7 @@ final class DesktopContextMenuController {
             final CharSequence text,
             final View.OnClickListener backListener) {
         final DesktopPanelWindowController panels = mActivity.panels();
+        cancelShortcutRequest();
         panels.hide(mMenuRoot);
         mPanel.removeAllViews();
         mMenuNavigator.prepare(() -> backListener.onClick(mMenuRoot));
@@ -1044,6 +1100,8 @@ final class DesktopContextMenuController {
         final TaskRepository.TaskEntry task;
         final DesktopFile desktopFile;
         final List<AppShortcutAction> shortcuts;
+        final List<DesktopLaunchIntegrationAction> integrationActions;
+        final boolean hasWidgets;
 
         AppMenuState(
                 final float x,
@@ -1051,13 +1109,17 @@ final class DesktopContextMenuController {
                 final AppItem app,
                 final TaskRepository.TaskEntry task,
                 final DesktopFile desktopFile,
-                final List<AppShortcutAction> shortcuts) {
+                final List<AppShortcutAction> shortcuts,
+                final List<DesktopLaunchIntegrationAction> integrationActions,
+                final boolean hasWidgets) {
             this.x = x;
             this.y = y;
             this.app = app;
             this.task = task;
             this.desktopFile = desktopFile;
             this.shortcuts = shortcuts;
+            this.integrationActions = integrationActions;
+            this.hasWidgets = hasWidgets;
         }
     }
 }

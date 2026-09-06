@@ -14,12 +14,25 @@ struct source_device {
     char path[SOURCE_PATH_SIZE];
     bool grabbed;
     bool repeat_overridden;
+    bool sync_dropped;
     unsigned int original_repeat[2];
     bool key_down[KEY_MAX + 1];
     bool consumed[KEY_MAX + 1];
 };
 
 typedef int (*magicdesk_clear_input_state_fn)(void *context);
+
+enum magicdesk_source_event {
+    MAGICDESK_SOURCE_EVENT_READY,
+    MAGICDESK_SOURCE_EVENT_DISCARD,
+    MAGICDESK_SOURCE_STATE_READY,
+};
+
+/* keys is populated only for STATE_READY; ioctl failures return -1. */
+int magicdesk_filter_source_event(
+        struct source_device *source,
+        const struct input_event *event,
+        bool keys[KEY_MAX + 1]);
 
 int magicdesk_open_sources(
         struct source_device *sources,

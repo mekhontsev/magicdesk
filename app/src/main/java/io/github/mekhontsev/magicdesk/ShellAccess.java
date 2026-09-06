@@ -873,25 +873,9 @@ public final class ShellAccess {
         }
     }
 
-    static ShellFileInfo createAvailableShellEntry(
-            final String parentPath,
-            final String name,
-            final boolean directory) throws IOException {
-        try {
-            final ShellFileInfo info = requireService()
-                    .createAvailableShellEntry(
-                            parentPath, name, directory);
-            if (info == null) {
-                throw new IOException(
-                        "Shizuku command service returned no created entry");
-            }
-            return info;
-        } catch (RemoteException error) {
-            handleServiceFailure(error);
-            throw shellFileFailure("available entry creation", error);
-        } catch (RuntimeException error) {
-            throw shellFileFailure("available entry creation", error);
-        }
+    static ShellFileCreation beginShellFileCreation(
+            final String parentPath, final String name) throws IOException {
+        return new ShellFileCreation(requireService(), parentPath, name);
     }
 
     static ShellFileInfo renameShellEntry(
@@ -913,36 +897,25 @@ public final class ShellAccess {
         }
     }
 
-    static long startShellFileOperation(
+    static ShellFileOperationHandle startShellFileOperation(
             final int operation,
             final String[] sourcePaths,
             final String destinationDirectory,
             final IFileOperationCallback callback,
             final IBinder ownerToken) throws IOException {
         try {
-            return requireService().startShellFileOperation(
+            final IShizukuCommandService service = requireService();
+            return new ShellFileOperationHandle(service.startShellFileOperation(
                     operation,
                     sourcePaths,
                     destinationDirectory,
                     callback,
-                    ownerToken);
+                    ownerToken), service);
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw shellFileFailure("operation start", error);
         } catch (RuntimeException error) {
             throw shellFileFailure("operation start", error);
-        }
-    }
-
-    static void cancelShellFileOperation(final long operationId)
-            throws IOException {
-        try {
-            requireService().cancelShellFileOperation(operationId);
-        } catch (RemoteException error) {
-            handleServiceFailure(error);
-            throw shellFileFailure("operation cancellation", error);
-        } catch (RuntimeException error) {
-            throw shellFileFailure("operation cancellation", error);
         }
     }
 
@@ -970,7 +943,7 @@ public final class ShellAccess {
         }
     }
 
-    static long startShellFileSearch(
+    static ShellFileSearchHandle startShellFileSearch(
             final String rootPath,
             final String query,
             final boolean showHidden,
@@ -978,30 +951,19 @@ public final class ShellAccess {
             final IFileSearchCallback callback,
             final IBinder ownerToken) throws IOException {
         try {
-            return requireService().startShellFileSearch(
+            final IShizukuCommandService service = requireService();
+            return new ShellFileSearchHandle(service.startShellFileSearch(
                     rootPath,
                     query,
                     showHidden,
                     maxResults,
                     callback,
-                    ownerToken);
+                    ownerToken), service);
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw shellFileFailure("search start", error);
         } catch (RuntimeException error) {
             throw shellFileFailure("search start", error);
-        }
-    }
-
-    static void cancelShellFileSearch(final long searchId)
-            throws IOException {
-        try {
-            requireService().cancelShellFileSearch(searchId);
-        } catch (RemoteException error) {
-            handleServiceFailure(error);
-            throw shellFileFailure("search cancellation", error);
-        } catch (RuntimeException error) {
-            throw shellFileFailure("search cancellation", error);
         }
     }
 

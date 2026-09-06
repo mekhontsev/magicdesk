@@ -18,8 +18,6 @@ final class ShellPreparedTaskTransition {
     private enum FreeformApplication {
         TRANSITION,
         OPEN_TRANSITION,
-        HIDE_SYNC,
-        SHOW_TRANSITION,
         DETACH_AND_SHOW_TRANSITION
     }
 
@@ -87,34 +85,6 @@ final class ShellPreparedTaskTransition {
                 bounds,
                 FreeformApplication.OPEN_TRANSITION,
                 densityDpi);
-    }
-
-    static void prepareFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds) throws ReflectiveOperationException {
-        applyFreeform(
-                service,
-                displayId,
-                taskId,
-                bounds,
-                FreeformApplication.HIDE_SYNC,
-                DesktopTaskDensity.UNCHANGED);
-    }
-
-    static void showPreparedFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds) throws ReflectiveOperationException {
-        applyFreeform(
-                service,
-                displayId,
-                taskId,
-                bounds,
-                FreeformApplication.SHOW_TRANSITION,
-                DesktopTaskDensity.UNCHANGED);
     }
 
     static void detachAndShowFreeform(
@@ -341,17 +311,9 @@ final class ShellPreparedTaskTransition {
         DesktopTaskDensity.apply(
                 windowing, transaction, taskToken, densityDpi);
         windowing.setForceTranslucent(transaction, taskToken, false);
-        if (application == FreeformApplication.HIDE_SYNC
-                || application == FreeformApplication.SHOW_TRANSITION
-                || application
-                        == FreeformApplication.DETACH_AND_SHOW_TRANSITION) {
-            windowing.setHidden(
-                    transaction,
-                    taskToken,
-                    application == FreeformApplication.HIDE_SYNC);
-        }
         if (application
                 == FreeformApplication.DETACH_AND_SHOW_TRANSITION) {
+            windowing.setHidden(transaction, taskToken, false);
             // The fullscreen parent belongs to the long-lived shell observer.
             // Reparent, expose the destination workspace, and reveal the task
             // in one WMShell transition. A second task-selection transaction
@@ -374,22 +336,13 @@ final class ShellPreparedTaskTransition {
         windowing.reorder(transaction, taskToken, true, true);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transaction, taskToken, false);
-        if (application == FreeformApplication.HIDE_SYNC) {
-            ShellWindowTransitionExecutor.applySynchronized(
-                    service, transactionClass, transaction);
-        } else {
-            final ShellWindowTransitionExecutor.SystemTransition
-                    transitionType = application
-                    == FreeformApplication.OPEN_TRANSITION
-                            ? ShellWindowTransitionExecutor.SystemTransition.OPEN
-                            : ShellWindowTransitionExecutor.SystemTransition.CHANGE;
-            ShellWindowTransitionExecutor.startForShellAdoption(
-                    displayId,
-                    transitionType,
-                    transactionClass,
-                    transaction,
-                    "freeform-" + application.name());
-        }
+        final ShellWindowTransitionExecutor.SystemTransition transitionType =
+                application == FreeformApplication.OPEN_TRANSITION
+                        ? ShellWindowTransitionExecutor.SystemTransition.OPEN
+                        : ShellWindowTransitionExecutor.SystemTransition.CHANGE;
+        ShellWindowTransitionExecutor.startForShellAdoption(
+                displayId, transitionType, transactionClass, transaction,
+                "freeform-" + application.name());
     }
 
     private static void applyPreparedFullscreen(

@@ -101,6 +101,26 @@ public final class MagicDeskRuntimeTest {
     }
 
     @Test
+    public void availableBackendWithoutTaskControllerUsesSafeDefaults() {
+        mAttached = new FakeBackend(true);
+        MagicDeskRuntime.attach(mAttached);
+        final android.os.IBinder token = (android.os.IBinder)
+                java.lang.reflect.Proxy.newProxyInstance(
+                        android.os.IBinder.class.getClassLoader(),
+                        new Class<?>[] {android.os.IBinder.class},
+                        (proxy, method, args) -> null);
+        final int[] callbacks = {0};
+
+        MagicDeskRuntime.configureDesktopActivityInput(7, token);
+        MagicDeskRuntime.prepareDesktopChromeHost(7, result -> {
+            callbacks[0]++;
+            assertFalse(result.success);
+        });
+
+        assertEquals(1, callbacks[0]);
+    }
+
+    @Test
     public void staleDetachDoesNotRemoveReplacementBackend() {
         final FakeBackend stale = new FakeBackend(true);
         mAttached = new FakeBackend(true);

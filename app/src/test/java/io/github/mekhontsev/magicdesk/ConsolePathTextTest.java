@@ -1,100 +1,61 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
-import android.provider.DocumentsContract;
+import static org.junit.Assert.assertThrows;
 
 import org.junit.Test;
 
-import java.util.Arrays;
+import java.util.List;
 
 public final class ConsolePathTextTest {
     @Test
-    public void quotesAndInsertsDroppedPaths() {
-        final String paths = ConsolePathText.quotePaths(Arrays.asList(
-                "/storage/emulated/0/My file.txt",
-                "/storage/emulated/0/it's here"));
+    public void quotesDroppedPathsAsIndividualShellArguments() {
         assertEquals(
                 "'/storage/emulated/0/My file.txt' "
                         + "'/storage/emulated/0/it'\"'\"'s here'",
-                paths);
-        assertEquals("cat '/tmp/a b' tail",
-                ConsolePathText.insert("cat tail", 3, 3, "'/tmp/a b'"));
+                ConsolePathText.quotePaths(List.of(
+                        "/storage/emulated/0/My file.txt",
+                        "/storage/emulated/0/it's here")));
+    }
+
+    @Test
+    public void droppedPathsKeepSupplementaryCharactersAndShellSyntaxLiteral() {
+        assertEquals("'/tmp/\ud83d\ude80;$(id)'",
+                ConsolePathText.quotePaths(List.of("/tmp/./\ud83d\ude80;$(id)")));
+    }
+
+    @Test
+    public void droppedPathsRejectMissingRelativeAndNulValues() {
+        assertThrows(IllegalArgumentException.class, () -> ConsolePathText.quotePaths(null));
+        assertThrows(IllegalArgumentException.class, () -> ConsolePathText.quotePaths(List.of()));
+        for (final String path : List.of("relative", "/tmp\0other")) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> ConsolePathText.quotePaths(List.of(path)));
+        }
     }
 
     @Test
     public void resolvesRelativeSelectedPath() {
         assertEquals("/storage/emulated/0/Download/report.txt",
                 ConsolePathText.resolveSelectedPath(
-                        "/storage/emulated/0/Desktop",
-                        "../Download/report.txt"));
+                        "/storage/emulated/0/Desktop", "../Download/report.txt"));
     }
 
     @Test
-    public void completesRelativeDirectory() {
-        final ConsolePathText.CompletionRequest request =
-                ConsolePathText.completionRequest(
-                        "cd Dow", 6, "/storage/emulated/0");
-        assertEquals("/storage/emulated/0", request.parentPath);
-        assertEquals("Dow", request.namePrefix);
-        final ConsolePathText.CompletionResult result =
-                ConsolePathText.complete(request, Arrays.asList(
-                        info("Download", true), info("Documents", true)));
-        assertEquals("'Download/'", result.replacement);
+    public void selectedAbsoluteAndQuotedPathsDoNotDependOnWorkingDirectory() {
+        assertEquals("/tmp/space name",
+                ConsolePathText.resolveSelectedPath("/elsewhere", "'/tmp/space name'"));
+        assertEquals("/tmp/file",
+                ConsolePathText.resolveSelectedPath("/elsewhere", " \"/tmp/file\" "));
+        assertEquals("/tmp/\ud83d\ude80",
+                ConsolePathText.resolveSelectedPath("/tmp", "\ud83d\ude80"));
     }
 
     @Test
-    public void completesExecutableFromFirstCommandWord() {
-        final ConsolePathText.CompletionRequest request =
-                ConsolePathText.completionRequest(
-                        "prin", 4, "/storage/emulated/0");
-        assertTrue(request.commandName);
-        final ConsolePathText.CompletionResult result =
-                ConsolePathText.complete(request, Arrays.asList(
-                        info("printenv", false, true),
-                        info("private", false, false)));
-        assertEquals("printenv ", result.replacement);
-    }
-
-    @Test
-    public void quotedWordKeepsSpacesInsideCompletionBounds() {
-        final ConsolePathText.CompletionRequest request =
-                ConsolePathText.completionRequest(
-                        "cat 'My fol' tail", 11, "/storage/emulated/0");
-        assertEquals(4, request.tokenStart);
-        assertEquals(12, request.tokenEnd);
-        assertEquals("My fol", request.namePrefix);
-    }
-
-    private static ShellFileInfo info(
-            final String name, final boolean directory) {
-        return info(name, directory, false);
-    }
-
-    private static ShellFileInfo info(
-            final String name,
-            final boolean directory,
-            final boolean executable) {
-        return new ShellFileInfo(
-                "/storage/emulated/0/" + name,
-                name,
-                directory
-                        ? DocumentsContract.Document.MIME_TYPE_DIR
-                        : "text/plain",
-                "",
-                0L,
-                0L,
-                1L,
-                1L,
-                2000,
-                2000,
-                0,
-                directory,
-                false,
-                true,
-                true,
-                executable,
-                false);
+    public void selectedPathRejectsEmptyMultilineAndNulText() {
+        for (final String text : new String[]{null, "", "  ", "''", "x\ny", "x\ry", "x\0y"}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> ConsolePathText.resolveSelectedPath("/tmp", text));
+        }
     }
 }

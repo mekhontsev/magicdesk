@@ -151,7 +151,8 @@ final class AndroidActivityCompatibilityHistory {
             sanitized.put("dataScheme", value(
                     android.net.Uri.parse(dataUri).getScheme()));
         }
-        return sanitized;
+        // Nested metadata belongs to the operation result, not to this history.
+        return new JSONObject(sanitized.toString());
     }
 
     private static JSONObject presentation(

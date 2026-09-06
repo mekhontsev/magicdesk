@@ -10,7 +10,4 @@ final class McpJsonRpcResponse {
         this.body = body == null ? "" : body;
     }
 
-    boolean hasBody() {
-        return !body.isEmpty();
-    }
 }

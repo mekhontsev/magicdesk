@@ -31,6 +31,7 @@
 struct queued_event {
     int source_index;
     struct input_event event;
+    bool *key_snapshot;
 };
 
 struct bridge_state {
@@ -472,7 +473,69 @@ static int process_key_event(
     return write_event(state, active_uinput_fd(state), event);
 }
 
-static int process_event(
+static int reconcile_key_state(
+        struct bridge_state *state,
+        struct source_device *source,
+        const bool keys[KEY_MAX + 1],
+        const struct timeval time) {
+    // Restore modifiers first, but never interpret snapshot differences as
+    // MagicDesk shortcuts or synthesize a deferred modifier tap on release.
+    for (int modifiers = 1; modifiers >= 0; --modifiers) {
+        for (unsigned int code = 0; code <= KEY_MAX; ++code) {
+            if (is_modifier((unsigned short) code) != (modifiers != 0)
+                    || source->key_down[code] == keys[code]) {
+                continue;
+            }
+            if (keys[code] && modifiers) {
+                const struct input_event press = {
+                    .time = time, .type = EV_KEY,
+                    .code = (unsigned short) code, .value = 1
+                };
+                if (process_modifier_event(state, source, &press) < 0) {
+                    return -1;
+                }
+                continue;
+            }
+            source->key_down[code] = keys[code];
+            source->consumed[code] = false;
+            if (keys[code]) {
+                if (state->key_down_count[code]++ > 0) {
+                    continue;
+                }
+                if (flush_pending_modifiers(state) < 0
+                        || emit_key(state, active_uinput_fd(state),
+                                (unsigned short) code, 1) < 0) {
+                    return -1;
+                }
+                state->forwarded_down[code] = true;
+                continue;
+            }
+            if (state->key_down_count[code] > 0) {
+                state->key_down_count[code]--;
+            }
+            if (state->key_down_count[code] > 0) {
+                continue;
+            }
+            if (state->forwarded_down[code]
+                    && emit_key(state, active_uinput_fd(state),
+                            (unsigned short) code, 0) < 0) {
+                return -1;
+            }
+            state->forwarded_down[code] = false;
+            state->modifier_pending[code] = false;
+            state->modifier_consumed[code] = false;
+            state->modifier_order[code] = 0;
+        }
+    }
+    if (state->alt_tab_active && state->key_down_count[KEY_LEFTALT] == 0
+            && state->key_down_count[KEY_RIGHTALT] == 0) {
+        state->alt_tab_active = false;
+        emit_line("MAGICDESK_ALT_TAB_COMMIT");
+    }
+    return 0;
+}
+
+static int forward_event(
         struct bridge_state *state,
         const int source_index,
         const struct input_event *event) {
@@ -486,10 +549,33 @@ static int process_event(
     return 0;
 }
 
+static int process_event(
+        struct bridge_state *state,
+        const int source_index,
+        const struct input_event *event) {
+    struct source_device *source = &state->sources[source_index];
+    bool keys[KEY_MAX + 1];
+    const int filtered = magicdesk_filter_source_event(source, event, keys);
+    if (filtered < 0 || filtered == MAGICDESK_SOURCE_EVENT_DISCARD) {
+        return filtered < 0 ? -1 : 0;
+    }
+    if (filtered == MAGICDESK_SOURCE_STATE_READY
+            && reconcile_key_state(state, source, keys, event->time) < 0) {
+        return -1;
+    }
+    return forward_event(state, source_index, event);
+}
+
 static int queue_event(
         struct bridge_state *state,
         const int source_index,
         const struct input_event *event) {
+    bool keys[KEY_MAX + 1];
+    const int filtered = magicdesk_filter_source_event(
+            &state->sources[source_index], event, keys);
+    if (filtered < 0 || filtered == MAGICDESK_SOURCE_EVENT_DISCARD) {
+        return filtered < 0 ? -1 : 0;
+    }
     if (state->queue_count >= MAX_QUEUED_EVENTS) {
         fprintf(stderr,
                 "MAGICDESK_KEYBOARD_ERROR queue=overflow\n");
@@ -498,8 +584,19 @@ static int queue_event(
     const size_t index =
             (state->queue_head + state->queue_count)
                     % MAX_QUEUED_EVENTS;
+    // Capture at receipt, not at resume: later kernel state cannot replace
+    // this recovery boundary ahead of already queued ordinary events.
+    bool *snapshot = NULL;
+    if (filtered == MAGICDESK_SOURCE_STATE_READY) {
+        snapshot = malloc(sizeof(keys));
+        if (snapshot == NULL) {
+            return -1;
+        }
+        memcpy(snapshot, keys, sizeof(keys));
+    }
     state->queue[index].source_index = source_index;
     state->queue[index].event = *event;
+    state->queue[index].key_snapshot = snapshot;
     state->queue_count++;
     return 0;
 }
@@ -511,14 +608,25 @@ static int drain_queue(struct bridge_state *state) {
         state->queue_head =
                 (state->queue_head + 1) % MAX_QUEUED_EVENTS;
         state->queue_count--;
-        if (process_event(
-                    state,
-                    queued.source_index,
-                    &queued.event) < 0) {
+        const int recovered = queued.key_snapshot == NULL ? 0
+                : reconcile_key_state(state, &state->sources[queued.source_index],
+                        queued.key_snapshot, queued.event.time);
+        free(queued.key_snapshot);
+        if (recovered < 0 || forward_event(
+                    state, queued.source_index, &queued.event) < 0) {
             return -1;
         }
     }
     return 0;
+}
+
+static void clear_queued_events(struct bridge_state *state) {
+    while (state->queue_count > 0) {
+        free(state->queue[state->queue_head].key_snapshot);
+        state->queue_head = (state->queue_head + 1) % MAX_QUEUED_EVENTS;
+        state->queue_count--;
+    }
+    state->queue_head = 0;
 }
 
 static int create_virtual_keyboard(
@@ -624,8 +732,7 @@ static int clear_input_state(void *context) {
             sizeof(state->modifier_down_event));
     state->next_modifier_order = 0;
     state->alt_tab_active = false;
-    state->queue_head = 0;
-    state->queue_count = 0;
+    clear_queued_events(state);
     for (int index = 0; index < state->source_count; ++index) {
         memset(state->sources[index].key_down, 0,
                 sizeof(state->sources[index].key_down));
@@ -1003,6 +1110,7 @@ int main(int argc, char **argv) {
 
     const int result = forward_events(&state);
     release_forwarded_keys(&state);
+    clear_queued_events(&state);
     for (int index = 0; index < layout_count; ++index) {
         ioctl(uinput_fds[index], UI_DEV_DESTROY);
         close(uinput_fds[index]);

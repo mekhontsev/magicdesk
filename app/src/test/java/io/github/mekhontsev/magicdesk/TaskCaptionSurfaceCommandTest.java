@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 import java.util.Map;
 
@@ -26,6 +27,23 @@ public final class TaskCaptionSurfaceCommandTest {
         assertEquals(TaskCaptionSurfaceCommand.State.VISIBLE, states.get(102));
         assertEquals(TaskCaptionSurfaceCommand.State.ABSENT, states.get(103));
         assertEquals(TaskCaptionSurfaceCommand.State.HIDDEN, states.get(104));
+    }
+
+    @Test
+    public void rejectsCaptionWithoutVisibilityBeforeAnotherLayer() {
+        assertThrows(IllegalArgumentException.class,
+                () -> TaskCaptionSurfaceCommand.inspect(
+                        "  Layer [42] Caption of Task=101#42\n"
+                                + "  Layer [43] unrelated app#43\n"
+                                + "    visible reason=buffer=1\n",
+                        101));
+    }
+
+    @Test
+    public void rejectsCaptionWithoutVisibilityAtEndOfDump() {
+        assertThrows(IllegalArgumentException.class,
+                () -> TaskCaptionSurfaceCommand.inspect(
+                        "  Layer [42] Caption of Task=101#42\n", 101));
     }
 
     @Test

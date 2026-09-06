@@ -95,9 +95,8 @@ public final class TaskFullscreenTransitionCommand {
             return false;
         }
         try {
-            TaskCaptionInsetsRefresher.refreshTask(
+            return TaskCaptionInsetsRefresher.refreshTask(
                     service, displayId, taskId, captionSourceId);
-            return true;
         } catch (ReflectiveOperationException | RuntimeException e) {
             System.err.printf("caption source refresh failed: id=%08x: %s%n",
                     captionSourceId, e);

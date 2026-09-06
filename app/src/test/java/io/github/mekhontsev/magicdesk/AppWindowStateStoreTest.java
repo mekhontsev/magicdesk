@@ -57,6 +57,41 @@ public final class AppWindowStateStoreTest {
     }
 
     @Test
+    public void olderCompletionDoesNotReplaceNewerCommittedMode() {
+        assertReorderedModeCommit(false);
+    }
+
+    @Test
+    public void olderCompletionDoesNotReplaceNewerSessionMode() {
+        assertReorderedModeCommit(true);
+    }
+
+    private static void assertReorderedModeCommit(final boolean session) {
+        final RecordingStorage storage = new RecordingStorage();
+        DesktopStateStore.useStorageForTests(storage);
+        if (session) {
+            AppWindowStateStore.beginSession();
+        }
+        final String key = "example.application";
+        final AppWindowStateStore.PendingModeUpdate older =
+                AppWindowStateStore.beginModeUpdate(
+                        key, AppWindowState.Mode.FULLSCREEN);
+        final AppWindowStateStore.PendingModeUpdate newer =
+                AppWindowStateStore.beginModeUpdate(
+                        key, AppWindowState.Mode.WINDOWED);
+
+        assertTrue(AppWindowStateStore.commitModeUpdate(newer));
+        assertTrue(AppWindowStateStore.commitModeUpdate(older));
+        assertEquals(AppWindowState.Mode.WINDOWED,
+                AppWindowStateStore.load(key).mode);
+        assertTrue(AppWindowStateStore.endSession());
+        DesktopStateStore.useStorageForTests(storage);
+        assertEquals(AppWindowState.Mode.WINDOWED,
+                AppWindowStateStore.load(key).mode);
+        assertEquals(1, storage.writeCount);
+    }
+
+    @Test
     public void cancelledPendingModeRestoresPersistedChoice() {
         DesktopStateStore.useStorageForTests(memoryStorage());
         final String stateKey = "example.application";

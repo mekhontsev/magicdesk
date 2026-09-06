@@ -4,6 +4,8 @@ import android.annotation.SuppressLint;
 import android.app.TaskStackListener;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.graphics.Rect;
+import android.os.Bundle;
 import android.view.Display;
 
 import java.lang.reflect.Field;
@@ -104,6 +106,19 @@ final class HiddenTaskApi {
         return (List<?>) result;
     }
 
+    static int startActivityFromRecents(
+            final Object service,
+            final int taskId) throws ReflectiveOperationException {
+        final Object result = service.getClass()
+                .getMethod("startActivityFromRecents", Integer.TYPE, Bundle.class)
+                .invoke(service, Integer.valueOf(taskId), null);
+        if (!(result instanceof Integer)) {
+            throw new IllegalStateException(
+                    "startActivityFromRecents returned no integer result");
+        }
+        return ((Integer) result).intValue();
+    }
+
     static Object findTask(
             final Object service,
             final int displayId,
@@ -184,6 +199,29 @@ final class HiddenTaskApi {
         return getWindowConfigurationValue(task, "getActivityType");
     }
 
+    static Rect readBounds(final Object task)
+            throws ReflectiveOperationException {
+        return readWindowConfigurationBounds(task, "getBounds");
+    }
+
+    static Rect readMaxBounds(final Object task)
+            throws ReflectiveOperationException {
+        return readWindowConfigurationBounds(task, "getMaxBounds");
+    }
+
+    private static Rect readWindowConfigurationBounds(
+            final Object task,
+            final String methodName) throws ReflectiveOperationException {
+        final Object windowConfiguration = getWindowConfiguration(task);
+        final Object bounds = windowConfiguration.getClass()
+                .getMethod(methodName)
+                .invoke(windowConfiguration);
+        if (!(bounds instanceof Rect)) {
+            throw new IllegalStateException(methodName + " returned no bounds");
+        }
+        return new Rect((Rect) bounds);
+    }
+
     static Object getTaskToken(final Object task)
             throws ReflectiveOperationException {
         return getField(task, "token");
@@ -207,11 +245,6 @@ final class HiddenTaskApi {
     static ComponentName getTaskBaseActivity(final Object task)
             throws ReflectiveOperationException {
         return (ComponentName) getField(task, "baseActivity");
-    }
-
-    static Object getTaskTopActivityInfo(final Object task)
-            throws ReflectiveOperationException {
-        return getField(task, "topActivityInfo");
     }
 
     static Intent getTaskBaseIntent(final Object task)
@@ -262,7 +295,7 @@ final class HiddenTaskApi {
         return getField(configuration, "windowConfiguration");
     }
 
-    static int getWindowConfigurationValue(
+    private static int getWindowConfigurationValue(
             final Object task,
             final String methodName) throws ReflectiveOperationException {
         final Object windowConfiguration = getWindowConfiguration(task);

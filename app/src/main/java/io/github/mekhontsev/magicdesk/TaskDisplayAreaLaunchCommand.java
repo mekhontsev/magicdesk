@@ -778,12 +778,14 @@ public final class TaskDisplayAreaLaunchCommand {
             final Set<Integer> excludedTaskIds,
             final TaskIdSource taskIdSource)
             throws ReflectiveOperationException {
-        if (taskIdSource != null) {
-            final int observedTaskId = taskIdSource.awaitTaskId(50L);
-            if (isFreshTaskId(observedTaskId, excludedTaskIds)) {
-                return observedTaskId;
-            }
-        }
+        final int observedTaskId = taskIdSource == null
+                ? -1 : taskIdSource.awaitTaskId(50L);
+        // Creation can precede getTasks visibility. Keep the callback's exact
+        // identity, but require the same queryable task state as other launches.
+        final int matchingTaskId = expectedTaskId >= 0
+                ? expectedTaskId
+                : isFreshTaskId(observedTaskId, excludedTaskIds)
+                        ? observedTaskId : -1;
         final List<FrameworkTaskSnapshot> tasks =
                 BoundedStateAwaiter.awaitFramework(
                         BoundedStateAwaiter.Reason.TASK_APPEARANCE,
@@ -793,11 +795,11 @@ public final class TaskDisplayAreaLaunchCommand {
                                 service, displayId, 100),
                         current -> findMatchingTask(
                                 current,
-                                expectedTaskId,
+                                matchingTaskId,
                                 expectedPackage,
                                 excludedTaskIds) != null);
         final FrameworkTaskSnapshot task = findMatchingTask(
-                tasks, expectedTaskId, expectedPackage, excludedTaskIds);
+                tasks, matchingTaskId, expectedPackage, excludedTaskIds);
         if (task != null) {
             return task.taskId;
         }
@@ -1000,12 +1002,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 service, sourceDisplayId, taskId);
         final int originalWindowingMode =
                 HiddenTaskApi.getTaskWindowingMode(originalTask);
-        final Object originalWindowConfiguration =
-                HiddenTaskApi.getWindowConfiguration(originalTask);
-        final Rect originalBounds = new Rect(
-                (Rect) originalWindowConfiguration.getClass()
-                        .getMethod("getBounds")
-                        .invoke(originalWindowConfiguration));
+        final Rect originalBounds = HiddenTaskApi.readBounds(originalTask);
         final DesktopTransitionSurfaceProbe.Observation observation =
                 reference == null
                         ? null : DesktopTransitionSurfaceProbe.begin(reference);
@@ -1190,28 +1187,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 targetDisplayId, WINDOWING_MODE_FULLSCREEN, null, densityDpi);
     }
 
-    /**
-     * Lets ActivityTaskManager move a live task out of an organizer-owned
-     * fullscreen area while applying its freeform launch configuration.
-     */
-    static void restartExistingTaskAsFreeform(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final Rect bounds) throws ReflectiveOperationException {
-        if (service == null || displayId < 0 || taskId < 0
-                || !hasExplicitBounds(bounds)) {
-            throw new IllegalArgumentException(
-                    "invalid existing task freeform restart");
-        }
-        final ActivityOptions options = existingTaskOptions(
-                displayId,
-                WINDOWING_MODE_FREEFORM,
-                bounds,
-                null);
-        restartExistingTask(service, displayId, taskId, options);
-    }
-
     /** Moves a live task into an organizer area through Android task focus. */
     static void moveExistingTaskAsFullscreen(
             final Object service,
@@ -1225,12 +1200,7 @@ public final class TaskDisplayAreaLaunchCommand {
         }
         final Object task = HiddenTaskApi.requireTask(
                 service, displayId, taskId);
-        final Object windowConfiguration =
-                HiddenTaskApi.getWindowConfiguration(task);
-        final Rect fullscreenBounds = new Rect(
-                (Rect) windowConfiguration.getClass()
-                        .getMethod("getMaxBounds")
-                        .invoke(windowConfiguration));
+        final Rect fullscreenBounds = HiddenTaskApi.readMaxBounds(task);
         if (fullscreenBounds.isEmpty()) {
             throw new IllegalStateException(
                     "fullscreen task max bounds are unavailable");
@@ -1258,31 +1228,6 @@ public final class TaskDisplayAreaLaunchCommand {
                         options.toBundle());
     }
 
-    static void focusExistingTask(
-            final Object service,
-            final int displayId,
-            final int taskId) throws ReflectiveOperationException {
-        final Object task = HiddenTaskApi.requireTask(
-                service, displayId, taskId);
-        final Object configuration = HiddenTaskApi.getWindowConfiguration(
-                task);
-        final Rect bounds = new Rect(
-                (Rect) configuration.getClass()
-                        .getMethod("getBounds")
-                        .invoke(configuration));
-        final int windowingMode = HiddenTaskApi.getTaskWindowingMode(task);
-        final ActivityOptions options = existingTaskOptions(
-                displayId,
-                windowingMode,
-                bounds,
-                null);
-        // Recents activation is observed by WMShell and releases any native
-        // minimize state attached to the root task's surface. A raw
-        // moveTaskToFront only changes ATMS hierarchy and can leave that
-        // surface hidden behind the desktop host.
-        restartExistingTask(service, displayId, taskId, options);
-    }
-
     private static ActivityOptions existingTaskOptions(
             final int displayId,
             final int windowingMode,
@@ -1306,25 +1251,6 @@ public final class TaskDisplayAreaLaunchCommand {
                 "setFlexibleLaunchSize", Boolean.TYPE)
                 .invoke(options, Boolean.TRUE);
         return options;
-    }
-
-    private static void restartExistingTask(
-            final Object service,
-            final int displayId,
-            final int taskId,
-            final ActivityOptions options) throws ReflectiveOperationException {
-        HiddenTaskApi.requireTask(service, displayId, taskId);
-        final Object result = service.getClass().getMethod(
-                "startActivityFromRecents", Integer.TYPE, Bundle.class)
-                .invoke(
-                        service,
-                        Integer.valueOf(taskId),
-                        options.toBundle());
-        if (!(result instanceof Integer)
-                || ((Integer) result).intValue() < 0) {
-            throw new IllegalStateException(
-                    "existing task restart failed: " + result);
-        }
     }
 
     static void waitForTaskVisibility(
@@ -1425,8 +1351,8 @@ public final class TaskDisplayAreaLaunchCommand {
             return "operation=app, targetDisplay=" + args[1]
                     + ", bounds=" + argumentBounds(args, 3);
         }
-        if ((args.length == 8 && "move".equals(args[0]))
-                || (args.length == 12
+        if ((args.length == 9 && "move".equals(args[0]))
+                || (args.length == 13
                         && "move-observed".equals(args[0]))) {
             return "operation=" + args[0]
                     + ", task=" + args[1]

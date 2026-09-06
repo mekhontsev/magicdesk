@@ -126,7 +126,9 @@ final class DesktopWindowObservation {
                 : mWindows.systemDialogs()) {
             if (!dialog.isErrorDialog()
                     || (displayId != null
-                            && dialog.displayId != displayId.intValue())) {
+                            && dialog.displayId != displayId.intValue())
+                    || (requestedTask != null
+                            && dialog.displayId != requestedTask.displayId)) {
                 continue;
             }
             if (!requestedPackage.isEmpty()
@@ -141,8 +143,10 @@ final class DesktopWindowObservation {
         }
         for (final TaskInputWindowParser.FocusedWindow focused
                 : mWindows.focusedWindows()) {
-            if (displayId != null
-                    && focused.displayId != displayId.intValue()) {
+            if ((displayId != null
+                    && focused.displayId != displayId.intValue())
+                    || (requestedTask != null
+                            && focused.displayId != requestedTask.displayId)) {
                 continue;
             }
             final TaskRepository.TaskEntry task = findTask(

@@ -10,11 +10,15 @@ abstract class DesktopEntry {
             final String name,
             final String icon,
             final String exec) {
-        if (name == null || name.trim().isEmpty()) {
-            throw new IllegalArgumentException("missing desktop entry name");
-        }
-        this.name = name.trim();
+        this.name = requireName(name);
         this.icon = icon == null ? "" : icon;
         this.exec = exec == null ? "" : exec;
+    }
+
+    static String requireName(final String value) {
+        if (value == null || value.trim().isEmpty() || value.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("invalid desktop entry name");
+        }
+        return value.trim();
     }
 }

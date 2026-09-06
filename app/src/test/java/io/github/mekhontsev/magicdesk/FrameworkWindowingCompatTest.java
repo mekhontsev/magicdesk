@@ -84,6 +84,22 @@ public final class FrameworkWindowingCompatTest {
     }
 
     @Test
+    public void unavailableInsetsSourceNeverEnablesCaptionObservation() {
+        for (final String sourceApi : new String[] {
+                "unavailable", "unavailable:missing framework class", null}) {
+            final FrameworkWindowingCompat.Capabilities capabilities =
+                    new FrameworkWindowingCompat.Capabilities(
+                            "automatic", false, false, false, false, false,
+                            sourceApi);
+
+            assertEquals("unavailable", capabilities.captionStrategy());
+            assertEquals(
+                    FrameworkWindowingCompat.ObservationProvenance.UNAVAILABLE,
+                    capabilities.taskObservation.captionSource);
+        }
+    }
+
+    @Test
     public void observationProfileCentralizesHybridFallbackCapabilities() {
         final FrameworkWindowingCompat modern = inspect(
                 ModernTaskInfo.class, ModernTransaction.class, "");

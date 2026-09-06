@@ -95,6 +95,16 @@ final class RedmagicHardwareSnapshot {
             }
         }
 
+        final RedmagicHardwareSettings.Snapshot settings =
+                RedmagicHardwareSettings.parse(output);
+        final RedmagicSettingsNamespace namespace = settings.selectNamespace(
+                RedmagicHardwareSettings.PUMP_MAIN, RedmagicHardwareSettings.PUMP_FLOW);
+        if (namespace != null) {
+            final String flow = settings.value(namespace, RedmagicHardwareSettings.PUMP_FLOW);
+            pumpSpeed = "low".equals(flow) ? 60
+                    : "mid".equals(flow) ? 70 : "fast".equals(flow) ? 80 : UNKNOWN;
+        }
+
         return new RedmagicHardwareSnapshot(
                 fanEnabled != UNKNOWN,
                 fanEnabled,

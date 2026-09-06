@@ -19,6 +19,31 @@ static bool bit_is_set(
             & (1UL << (bit % BITS_PER_LONG))) != 0;
 }
 
+int magicdesk_filter_source_event(
+        struct source_device *source,
+        const struct input_event *event,
+        bool keys[KEY_MAX + 1]) {
+    if (event->type == EV_SYN && event->code == SYN_DROPPED) {
+        source->sync_dropped = true;
+        return MAGICDESK_SOURCE_EVENT_DISCARD;
+    }
+    if (!source->sync_dropped) {
+        return MAGICDESK_SOURCE_EVENT_READY;
+    }
+    if (event->type != EV_SYN || event->code != SYN_REPORT) {
+        return MAGICDESK_SOURCE_EVENT_DISCARD;
+    }
+    unsigned long key_bits[BIT_WORDS(KEY_MAX)] = {0};
+    if (ioctl(source->fd, EVIOCGKEY(sizeof(key_bits)), key_bits) < 0) {
+        return -1;
+    }
+    for (unsigned int code = 0; code <= KEY_MAX; ++code) {
+        keys[code] = bit_is_set(key_bits, code);
+    }
+    source->sync_dropped = false;
+    return MAGICDESK_SOURCE_STATE_READY;
+}
+
 static void drain_source(const int source_fd) {
     struct input_event events[64];
     while (read(source_fd, events, sizeof(events)) > 0) {
@@ -58,6 +83,7 @@ int magicdesk_try_grab_source(struct source_device *source) {
     source->grabbed = true;
     const int active_after = source_has_active_keys(source->fd);
     if (active_after == 0) {
+        source->sync_dropped = false;
         return 1;
     }
     ioctl(source->fd, EVIOCGRAB, 0);
@@ -76,6 +102,7 @@ void magicdesk_ungrab_sources(
         }
         ioctl(source->fd, EVIOCGRAB, 0);
         source->grabbed = false;
+        source->sync_dropped = false;
         // Events queued while this fd held the grab were not delivered to
         // Android and therefore cannot initialize its physical pointer.
         drain_source(source->fd);

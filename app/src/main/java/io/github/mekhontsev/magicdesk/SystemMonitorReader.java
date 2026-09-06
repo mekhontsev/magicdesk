@@ -84,7 +84,7 @@ final class SystemMonitorReader {
             try {
                 final float cpu = Float.parseFloat(matcher.group(1));
                 final String name = matcher.group(2).trim();
-                if (!name.isEmpty()) {
+                if (!name.isEmpty() && Float.isFinite(cpu)) {
                     process(processes, name).addCpu(cpu);
                 }
             } catch (NumberFormatException ignored) {
@@ -154,19 +154,32 @@ final class SystemMonitorReader {
     private static Cpu readCpu() throws IOException {
         try (BufferedReader reader = new BufferedReader(
                 new FileReader("/proc/stat"))) {
-            final String line = reader.readLine();
-            if (line == null || !line.startsWith("cpu ")) {
-                throw new IOException("missing aggregate /proc/stat row");
-            }
+            return parseCpuStat(reader.readLine());
+        }
+    }
+
+    static Cpu parseCpuStat(final String line) throws IOException {
+        if (line == null) {
+            throw new IOException("missing aggregate /proc/stat row");
+        }
+        try {
             final String[] fields = line.trim().split("\\s+");
+            if (fields.length < 5 || !"cpu".equals(fields[0])) {
+                throw new IOException("incomplete aggregate /proc/stat row");
+            }
             long total = 0L;
-            for (int index = 1; index < fields.length; index++) {
-                total += Long.parseLong(fields[index]);
+            // guest and guest_nice (fields 9/10) are already included in user/nice.
+            for (int index = 1; index < Math.min(fields.length, 9); index++) {
+                final long value = Long.parseLong(fields[index]);
+                if (value < 0L) {
+                    throw new IOException("negative /proc/stat counter");
+                }
+                total = Math.addExact(total, value);
             }
             final long idle = Long.parseLong(fields[4])
                     + (fields.length > 5 ? Long.parseLong(fields[5]) : 0L);
             return new Cpu(total, idle);
-        } catch (NumberFormatException error) {
+        } catch (NumberFormatException | ArithmeticException error) {
             throw new IOException("invalid /proc/stat", error);
         }
     }
@@ -217,6 +230,9 @@ final class SystemMonitorReader {
                         arguments.length == 0 ? "" : arguments[0],
                         result.exitCode,
                         result.output.trim()));
+            }
+            if (result.truncated) {
+                throw new IOException("dumpsys output exceeded the snapshot limit");
             }
             return result.output;
         } catch (InterruptedException error) {
@@ -269,7 +285,7 @@ final class SystemMonitorReader {
         }
     }
 
-    private static final class Cpu {
+    static final class Cpu {
         final long total;
         final long idle;
 

@@ -110,10 +110,10 @@ final class SystemMonitorRepository implements AutoCloseable {
                 Snapshot snapshot;
                 try {
                     snapshot = convert(ShellAccess.readSystemMonitorSnapshot(
-                            includeProcessMemory));
+                            includeProcessMemory), includeProcessMemory);
                 } catch (IOException | RuntimeException error) {
-                    snapshot = Snapshot.unavailable(
-                            ShellAccess.usefulMessage(error));
+                    snapshot = convert(SystemMonitorSnapshot.unavailable(
+                            ShellAccess.usefulMessage(error)), includeProcessMemory);
                 }
                 if (!mClosed) {
                     callback.accept(snapshot);
@@ -124,7 +124,12 @@ final class SystemMonitorRepository implements AutoCloseable {
         }
     }
 
-    private Snapshot convert(final SystemMonitorSnapshot raw) {
+    Snapshot convert(final SystemMonitorSnapshot raw, final boolean includeProcessMemory) {
+        // CPU-only samples reuse the last memory measurement, but the next
+        // memory attempt replaces it, including unavailable process values.
+        if (includeProcessMemory) {
+            mProcessMemory.clear();
+        }
         if (!raw.available) {
             return Snapshot.unavailable(raw.error);
         }

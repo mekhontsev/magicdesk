@@ -10,7 +10,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /** Immutable content shared by clipboard, Intent, and drag boundaries. */
@@ -33,7 +32,7 @@ final class AndroidContentPayload {
                 throw new IllegalArgumentException("content URI is required");
             }
             this.uri = uri;
-            this.mimeType = normalizeMimeType(mimeType);
+            this.mimeType = AndroidContentMimeTypes.normalize(mimeType);
         }
     }
 
@@ -43,7 +42,7 @@ final class AndroidContentPayload {
     final String text;
     final String htmlText;
     final List<UriItem> uriItems;
-    final List<String> mimeTypes;
+    final AndroidContentMimeTypes mimeTypes;
     final boolean sensitive;
     final boolean truncated;
 
@@ -63,8 +62,12 @@ final class AndroidContentPayload {
         this.text = value(text);
         this.htmlText = value(htmlText);
         this.uriItems = immutableUriItems(uriItems);
-        this.mimeTypes = immutableMimeTypes(
-                mimeTypes, this.text, this.htmlText, this.uriItems);
+        final List<String> itemTypes = new ArrayList<>(this.uriItems.size());
+        for (final UriItem item : this.uriItems) {
+            itemTypes.add(item.mimeType);
+        }
+        this.mimeTypes = new AndroidContentMimeTypes(
+                mimeTypes, itemTypes, !this.text.isEmpty(), !this.htmlText.isEmpty());
         this.sensitive = sensitive;
         this.truncated = truncated;
     }
@@ -115,16 +118,9 @@ final class AndroidContentPayload {
 
     static AndroidContentPayload drag(
             final CharSequence label,
-            final List<Uri> uris,
+            final List<UriItem> uriItems,
             final String localMimeType) {
-        final List<UriItem> items = new ArrayList<>();
-        if (uris != null) {
-            for (final Uri uri : uris) {
-                if (uri != null) {
-                    items.add(new UriItem(uri, "*/*"));
-                }
-            }
-        }
+        final List<UriItem> items = uriItems == null ? List.of() : uriItems;
         return new AndroidContentPayload(
                 Origin.DRAG,
                 label == null ? "" : label.toString(),
@@ -166,7 +162,7 @@ final class AndroidContentPayload {
         }
         final ClipDescription description = clip.getDescription();
         final List<String> declaredMimeTypes = mimeTypes(description);
-        final String uriMimeType = preferredUriMimeType(declaredMimeTypes);
+        final String uriMimeType = AndroidContentMimeTypes.preferredUriMimeType(declaredMimeTypes);
         final Set<Uri> seenUris = new LinkedHashSet<>();
         final List<UriItem> items = new ArrayList<>();
         String text = "";
@@ -220,35 +216,50 @@ final class AndroidContentPayload {
         final String subject = firstNonEmpty(
                 charSequenceExtra(intent, Intent.EXTRA_SUBJECT),
                 charSequenceExtra(intent, Intent.EXTRA_TITLE));
-        final Set<Uri> seen = new LinkedHashSet<>();
-        final List<UriItem> items = new ArrayList<>();
-        addUriItems(items, seen, clipPayload.uriItems);
+        final List<Uri> streams;
         if (Intent.ACTION_SEND_MULTIPLE.equals(intent.getAction())) {
-            final ArrayList<Uri> streams = intent.getParcelableArrayListExtra(
+            streams = intent.getParcelableArrayListExtra(
                     Intent.EXTRA_STREAM, Uri.class);
-            if (streams != null) {
-                for (final Uri uri : streams) {
-                    addUri(items, seen, uri, intent.getType());
-                }
-            }
         } else {
-            addUri(
-                    items,
-                    seen,
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class),
-                    intent.getType());
+            streams = Collections.singletonList(
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class));
         }
-        final int acceptedCount = Math.min(items.size(), MAX_URI_ITEMS);
+        return mergeSendContent(clipPayload, streams, intent.getType(),
+                subject, sharedText, sharedHtml);
+    }
+
+    static AndroidContentPayload mergeSendContent(
+            final AndroidContentPayload clipPayload,
+            final List<Uri> streams,
+            final String mimeType,
+            final String subject,
+            final String sharedText,
+            final String sharedHtml) {
+        final Set<Uri> seen = new LinkedHashSet<>();
+        final List<UriItem> items = new ArrayList<>(clipPayload.uriItems);
+        for (final UriItem item : items) {
+            seen.add(item.uri);
+        }
+        boolean truncated = clipPayload.truncated;
+        if (streams != null) {
+            // Bound inspected entries as well as distinct URIs: duplicates must not
+            // turn an incoming share into an unbounded scan on the Activity thread.
+            final int count = Math.min(streams.size(), MAX_URI_ITEMS);
+            truncated |= streams.size() > count;
+            for (int index = 0; index < count; index++) {
+                truncated |= !addUri(items, seen, streams.get(index), mimeType);
+            }
+        }
         return new AndroidContentPayload(
                 Origin.INTENT,
                 firstNonEmpty(subject, clipPayload.label),
                 subject,
                 firstNonEmpty(sharedText, clipPayload.text),
                 firstNonEmpty(sharedHtml, clipPayload.htmlText),
-                items.subList(0, acceptedCount),
-                mergeMimeTypes(clipPayload.mimeTypes, intent.getType()),
+                items,
+                clipPayload.mimeTypes.withDeclaration(mimeType),
                 clipPayload.sensitive,
-                clipPayload.truncated || items.size() > acceptedCount);
+                truncated);
     }
 
     boolean isEmpty() {
@@ -264,7 +275,7 @@ final class AndroidContentPayload {
     }
 
     boolean canOpen() {
-        return uriItems.size() == 1 || webUriFromText() != null;
+        return openUri() != null;
     }
 
     boolean canShare() {
@@ -275,7 +286,7 @@ final class AndroidContentPayload {
         if (uriItems.size() == 1) {
             return uriItems.get(0).uri;
         }
-        return webUriFromText();
+        return uriItems.isEmpty() ? webUriFromText() : null;
     }
 
     List<Uri> uris() {
@@ -287,57 +298,7 @@ final class AndroidContentPayload {
     }
 
     String preferredMimeType() {
-        final List<String> itemMimeTypes = new ArrayList<>(uriItems.size());
-        for (final UriItem item : uriItems) {
-            itemMimeTypes.add(item.mimeType);
-        }
-        return selectPreferredMimeType(
-                itemMimeTypes,
-                mimeTypes,
-                !uriItems.isEmpty(),
-                !htmlText.isEmpty());
-    }
-
-    static String selectPreferredMimeType(
-            final List<String> itemMimeTypes,
-            final List<String> declaredMimeTypes,
-            final boolean hasUris,
-            final boolean hasHtml) {
-        if (!hasUris) {
-            return hasHtml
-                    ? ClipDescription.MIMETYPE_TEXT_HTML
-                    : ClipDescription.MIMETYPE_TEXT_PLAIN;
-        }
-        String selected = selectCommonMimeType(itemMimeTypes, false);
-        if (!selected.isEmpty()) {
-            return selected;
-        }
-        selected = selectCommonMimeType(declaredMimeTypes, true);
-        return selected.isEmpty() ? "*/*" : selected;
-    }
-
-    private static String selectCommonMimeType(
-            final List<String> mimeTypes,
-            final boolean ignoreTransportTypes) {
-        String selected = "";
-        if (mimeTypes == null) {
-            return selected;
-        }
-        for (final String rawMimeType : mimeTypes) {
-            final String mimeType = normalizeMimeType(rawMimeType);
-            if ("*/*".equals(mimeType)) {
-                continue;
-            }
-            if (ignoreTransportTypes && isTransportMimeType(mimeType)) {
-                continue;
-            }
-            if (selected.isEmpty()) {
-                selected = mimeType;
-            } else if (!selected.equalsIgnoreCase(mimeType)) {
-                return "*/*";
-            }
-        }
-        return selected;
+        return mimeTypes.preferred;
     }
 
     ClipData toClipData() {
@@ -346,13 +307,14 @@ final class AndroidContentPayload {
         }
         final ClipDescription description = new ClipDescription(
                 label.isEmpty() ? "MagicDesk content" : label,
-                mimeTypes.toArray(new String[0]));
+                mimeTypes.description.toArray(new String[0]));
         if (sensitive) {
             final PersistableBundle extras = new PersistableBundle();
             extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
             description.setExtras(extras);
         }
-        final CharSequence clipText = text.isEmpty() ? null : text;
+        // HTML requires a non-null plain-text slot, even when its text is empty.
+        final CharSequence clipText = hasText() ? text : null;
         final String clipHtml = htmlText.isEmpty() ? null : htmlText;
         final Uri firstUri = uriItems.isEmpty() ? null : uriItems.get(0).uri;
         final ClipData clip = new ClipData(
@@ -401,35 +363,6 @@ final class AndroidContentPayload {
         return Collections.unmodifiableList(copy);
     }
 
-    private static List<String> immutableMimeTypes(
-            final List<String> declared,
-            final String text,
-            final String htmlText,
-            final List<UriItem> items) {
-        final Set<String> result = new LinkedHashSet<>();
-        if (declared != null) {
-            for (final String mimeType : declared) {
-                addMimeType(result, mimeType);
-            }
-        }
-        if (!text.isEmpty()) {
-            result.add(ClipDescription.MIMETYPE_TEXT_PLAIN);
-        }
-        if (!htmlText.isEmpty()) {
-            result.add(ClipDescription.MIMETYPE_TEXT_HTML);
-        }
-        if (!items.isEmpty()) {
-            result.add(ClipDescription.MIMETYPE_TEXT_URILIST);
-            for (final UriItem item : items) {
-                addMimeType(result, item.mimeType);
-            }
-        }
-        if (result.isEmpty()) {
-            result.add(ClipDescription.MIMETYPE_TEXT_PLAIN);
-        }
-        return Collections.unmodifiableList(new ArrayList<>(result));
-    }
-
     private static List<String> mimeTypes(
             final ClipDescription description) {
         if (description == null) {
@@ -442,39 +375,6 @@ final class AndroidContentPayload {
         return result;
     }
 
-    private static List<String> mergeMimeTypes(
-            final List<String> existing,
-            final String additional) {
-        final List<String> result = new ArrayList<>();
-        if (existing != null) {
-            result.addAll(existing);
-        }
-        if (additional != null && !additional.trim().isEmpty()) {
-            result.add(additional);
-        }
-        return result;
-    }
-
-    private static String preferredUriMimeType(
-            final List<String> mimeTypes) {
-        if (mimeTypes != null) {
-            for (final String mimeType : mimeTypes) {
-                if (!isTransportMimeType(mimeType)) {
-                    return normalizeMimeType(mimeType);
-                }
-            }
-        }
-        return "*/*";
-    }
-
-    private static boolean isTransportMimeType(final String mimeType) {
-        return ClipDescription.MIMETYPE_TEXT_URILIST.equals(mimeType)
-                || ClipDescription.MIMETYPE_TEXT_PLAIN.equals(mimeType)
-                || ClipDescription.MIMETYPE_TEXT_HTML.equals(mimeType)
-                || ClipDescription.MIMETYPE_TEXT_INTENT.equals(mimeType)
-                || FileDragPayload.MIME_TYPE.equals(mimeType);
-    }
-
     private static boolean isSensitive(
             final ClipDescription description) {
         final PersistableBundle extras = description == null
@@ -483,36 +383,20 @@ final class AndroidContentPayload {
                 && extras.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false);
     }
 
-    private static void addUriItems(
-            final List<UriItem> target,
-            final Set<Uri> seen,
-            final List<UriItem> source) {
-        for (final UriItem item : source) {
-            addUri(target, seen, item.uri, item.mimeType);
-        }
-    }
-
-    private static void addUri(
+    private static boolean addUri(
             final List<UriItem> target,
             final Set<Uri> seen,
             final Uri uri,
             final String mimeType) {
-        if (uri != null && seen.add(uri)) {
-            target.add(new UriItem(uri, mimeType));
+        if (uri == null || seen.contains(uri)) {
+            return true;
         }
-    }
-
-    private static void addMimeType(
-            final Set<String> target,
-            final String mimeType) {
-        if (mimeType != null && !mimeType.trim().isEmpty()) {
-            target.add(normalizeMimeType(mimeType));
+        if (target.size() >= MAX_URI_ITEMS) {
+            return false;
         }
-    }
-
-    private static String normalizeMimeType(final String mimeType) {
-        final String value = clean(mimeType).toLowerCase(Locale.ROOT);
-        return value.isEmpty() ? "*/*" : value;
+        seen.add(uri);
+        target.add(new UriItem(uri, mimeType));
+        return true;
     }
 
     private static String charSequenceExtra(

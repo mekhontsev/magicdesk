@@ -81,7 +81,7 @@ final class TaskActivityModeState {
                         && mRootPackage.equals(topPackage))) {
             return Decision.NONE;
         }
-        if (requestingImmersive == null && expectedActivityVisible) {
+        if (requestingImmersive == null) {
             // Without a framework observation, fullscreen may have been
             // requested by the activity. Preserve the application state.
             return Decision.NONE;

@@ -37,6 +37,22 @@ public final class PersistentAutomationCommandExecutorTest {
     }
 
     @Test
+    public void completionCanImmediatelyFollowARejectedMarkerLine() throws Exception {
+        final String output = "before\n" + MARKER + "not-a-record";
+        final String encoded = output + "\n" + MARKER + "0\t/tmp\n";
+        final StringBuilder streamed = new StringBuilder();
+        final var state = new PersistentAutomationCommandExecutor.ReadState(
+                ("\n" + MARKER).getBytes(StandardCharsets.UTF_8), streamed::append);
+        final var completion = state.read(new ByteArrayInputStream(
+                encoded.getBytes(StandardCharsets.UTF_8)));
+
+        assertEquals(0, completion.exitCode);
+        assertEquals("/tmp", completion.workingDirectory);
+        assertEquals(output, state.output());
+        assertEquals(output, streamed.toString());
+    }
+
+    @Test
     public void streamsOnlyVisibleCommandOutput() throws Exception {
         final List<String> streamed = new ArrayList<>();
         final PersistentAutomationCommandExecutor.ReadState state =

@@ -19,26 +19,21 @@ final class DesktopPlacement {
         this.rowSpan = Math.max(1, rowSpan);
     }
 
-    DesktopPlacement withPosition(final int newColumn, final int newRow) {
-        return new DesktopPlacement(
-                newColumn, newRow, columnSpan, rowSpan);
-    }
-
     DesktopPlacement withSpan(final int newColumnSpan, final int newRowSpan) {
         return new DesktopPlacement(
                 column, row, newColumnSpan, newRowSpan);
     }
 
     boolean fits(final int columns, final int rows) {
-        return column + columnSpan <= columns
-                && row + rowSpan <= rows;
+        return (long) column + columnSpan <= columns
+                && (long) row + rowSpan <= rows;
     }
 
     boolean intersects(final DesktopPlacement other) {
-        return column < other.column + other.columnSpan
-                && column + columnSpan > other.column
-                && row < other.row + other.rowSpan
-                && row + rowSpan > other.row;
+        return column < (long) other.column + other.columnSpan
+                && (long) column + columnSpan > other.column
+                && row < (long) other.row + other.rowSpan
+                && (long) row + rowSpan > other.row;
     }
 
     @Override

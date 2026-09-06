@@ -10,7 +10,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 
@@ -39,22 +41,119 @@ public final class BoundedProcessRunnerTest {
             assertTrue(expected.getMessage().contains("timed out"));
         }
         assertTrue(process.destroyed);
+        assertStreamsClosed(process);
     }
 
-    private static final class FakeProcess extends Process {
+    @Test
+    public void closesStdinBeforeWaitingAndReleasesAllStreams() throws Exception {
+        final FakeProcess process = new FakeProcess("result", true, 0) {
+            @Override
+            public boolean waitFor(final long timeout, final TimeUnit unit) {
+                assertTrue("one-shot command must receive EOF", inputClosed);
+                return super.waitFor(timeout, unit);
+            }
+        };
+
+        assertEquals("result", BoundedProcessRunner.run(process).output);
+        assertStreamsClosed(process);
+    }
+
+    @Test
+    public void interruptionWhileJoiningOutputReleasesAllStreams() throws Exception {
+        final CountDownLatch reading = new CountDownLatch(1);
+        final CountDownLatch closed = new CountDownLatch(1);
+        final FakeProcess process = new FakeProcess("", true, 0) {
+            private final InputStream output = new InputStream() {
+                @Override
+                public int read() throws IOException {
+                    reading.countDown();
+                    try {
+                        if (!closed.await(5L, TimeUnit.SECONDS)) {
+                            throw new IOException("test stream not closed");
+                        }
+                        return -1;
+                    } catch (InterruptedException error) {
+                        throw new IOException(error);
+                    }
+                }
+
+                @Override
+                public void close() {
+                    outputClosed = true;
+                    closed.countDown();
+                }
+            };
+
+            @Override
+            public InputStream getInputStream() {
+                return output;
+            }
+        };
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        final Thread runner = new Thread(() -> {
+            try {
+                BoundedProcessRunner.run(process);
+                failure.set(new AssertionError("expected interruption"));
+            } catch (InterruptedException expected) {
+                // Interrupting an output join must use the same cleanup path.
+            } catch (Throwable error) {
+                failure.set(error);
+            }
+        });
+        runner.start();
+        try {
+            assertTrue(reading.await(2L, TimeUnit.SECONDS));
+            runner.interrupt();
+            runner.join(2_000L);
+            assertTrue("runner must stop", !runner.isAlive());
+            assertEquals(null, failure.get());
+            assertStreamsClosed(process);
+        } finally {
+            closed.countDown();
+            runner.interrupt();
+            runner.join(2_000L);
+        }
+    }
+
+    private static void assertStreamsClosed(final FakeProcess process) {
+        assertTrue("stdin leaked", process.inputClosed);
+        assertTrue("stdout leaked", process.outputClosed);
+        assertTrue("stderr leaked", process.errorClosed);
+    }
+
+    private static class FakeProcess extends Process {
         private final InputStream mOutput;
-        private final OutputStream mInput = new ByteArrayOutputStream();
+        private final OutputStream mInput = new ByteArrayOutputStream() {
+            @Override
+            public void close() {
+                inputClosed = true;
+            }
+        };
+        private final InputStream mError = new ByteArrayInputStream(new byte[0]) {
+            @Override
+            public void close() {
+                errorClosed = true;
+            }
+        };
         private final int mExitCode;
         private final boolean mCompletes;
         private boolean mAlive = true;
         boolean destroyed;
+        volatile boolean inputClosed;
+        volatile boolean outputClosed;
+        volatile boolean errorClosed;
 
         FakeProcess(
                 final String output,
                 final boolean completes,
                 final int exitCode) {
             mOutput = new ByteArrayInputStream(
-                    output.getBytes(StandardCharsets.UTF_8));
+                    output.getBytes(StandardCharsets.UTF_8)) {
+                @Override
+                public void close() {
+                    outputClosed = true;
+                }
+            };
             mCompletes = completes;
             mExitCode = exitCode;
         }
@@ -71,7 +170,7 @@ public final class BoundedProcessRunnerTest {
 
         @Override
         public InputStream getErrorStream() {
-            return new ByteArrayInputStream(new byte[0]);
+            return mError;
         }
 
         @Override

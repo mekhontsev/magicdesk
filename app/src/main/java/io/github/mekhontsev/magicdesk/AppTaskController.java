@@ -939,28 +939,55 @@ final class AppTaskController {
                         displayId,
                         getTaskIds(visibleTasks),
                         () -> publishConfirmedLaunchSnapshot(displayId));
-                if (afterLaunch != null) {
-                    afterLaunch.run(
-                            displayId, launch.taskId, launch.reused);
-                }
-                complete(completion, DesktopActivityLaunchResult.observedTask(
-                        launch.taskId, displayId, launch.reused));
-                mActivity.runOnUiThread(() -> {
-                    if (mActivity.isActivityUnavailable()) {
-                        return;
-                    }
+                // Focus convergence needs this queue for task snapshots. Resume
+                // after its acknowledgement rather than blocking the worker.
+                launch.whenReady(result -> TaskCommandQueue.execute(() ->
+                        finishWindowLaunch(displayId, label, launch, result,
+                                afterLaunch, onFailure, completion)));
+            } catch (IOException | RuntimeException error) {
+                failWindowLaunch(onFailure, completion, error);
+            }
+        });
+    }
+
+    private void finishWindowLaunch(
+            final int displayId,
+            final String label,
+            final WindowedAppLauncher.LaunchResult launch,
+            final TaskRepository.ActionResult result,
+            final PreparedTaskAction afterLaunch,
+            final LaunchFailureAction onFailure,
+            final DesktopActivityLaunchResult.Completion completion) {
+        try {
+            if (!result.success) {
+                throw new IOException(result.message);
+            }
+            if (afterLaunch != null) {
+                afterLaunch.run(displayId, launch.taskId, launch.reused);
+            }
+            complete(completion, DesktopActivityLaunchResult.observedTask(
+                    launch.taskId, displayId, launch.reused));
+            mActivity.runOnUiThread(() -> {
+                if (!mActivity.isActivityUnavailable()) {
                     mActivity.setStatus(mActivity.getString(
                             R.string.status_switch_done, label));
                     mActivity.refreshTaskSnapshot();
-                });
-            } catch (IOException | RuntimeException error) {
-                runIfPresent(onFailure, error);
-                complete(completion, DesktopActivityLaunchResult.failed(error));
-                mActivity.runOnUiThread(() -> {
-                    if (!mActivity.isActivityUnavailable()) {
-                        mActivity.showLaunchFailure(error);
-                    }
-                });
+                }
+            });
+        } catch (IOException | RuntimeException error) {
+            failWindowLaunch(onFailure, completion, error);
+        }
+    }
+
+    private void failWindowLaunch(
+            final LaunchFailureAction onFailure,
+            final DesktopActivityLaunchResult.Completion completion,
+            final Exception error) {
+        runIfPresent(onFailure, error);
+        complete(completion, DesktopActivityLaunchResult.failed(error));
+        mActivity.runOnUiThread(() -> {
+            if (!mActivity.isActivityUnavailable()) {
+                mActivity.showLaunchFailure(error);
             }
         });
     }

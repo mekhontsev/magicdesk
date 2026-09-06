@@ -52,6 +52,7 @@ public final class AppLogViewerActivity extends Activity
     private final Object mPendingLock = new Object();
     private final StringBuilder mPending = new StringBuilder();
     private final AtomicInteger mStreamGeneration = new AtomicInteger();
+    private final Object mStreamLock = new Object();
 
     private EditText mOutput;
     private TextView mStatus;
@@ -161,7 +162,7 @@ public final class AppLogViewerActivity extends Activity
         header.addView(iconButton(
                 android.R.drawable.ic_menu_delete,
                 R.string.console_clear,
-                view -> mOutput.setText("")), square());
+                view -> clearOutput()), square());
         header.addView(iconButton(
                 R.drawable.ic_file_copy,
                 R.string.console_copy_output,
@@ -211,30 +212,31 @@ public final class AppLogViewerActivity extends Activity
         mWorker.execute(() -> {
             try {
                 final int uid = packageUid();
-                final ShellStreamHandle stream = ShellAccess.openOwnedStream(
+                try (ShellStreamHandle stream = ShellAccess.openOwnedStream(
                         "exec /system/bin/logcat --uid=" + uid
-                                + " -v threadtime");
-                if (mDestroyed
-                        || generation != mStreamGeneration.get()) {
-                    stream.close();
-                    return;
-                }
-                mStream = stream;
-                mStarting = false;
-                runOnUiThread(() -> {
-                    if (mDestroyed
-                            || generation != mStreamGeneration.get()
-                            || mStream != stream) {
-                        stream.close();
-                        return;
+                                + " -v threadtime")) {
+                    synchronized (mStreamLock) {
+                        if (mDestroyed
+                                || generation != mStreamGeneration.get()) {
+                            return;
+                        }
+                        mStream = stream;
+                        mStarting = false;
                     }
-                    updateToggle();
-                    mStatus.setText(getString(
-                            R.string.app_logs_streaming,
-                            mPackageName,
-                            uid));
-                });
-                readStream(stream);
+                    runOnUiThread(() -> {
+                        if (mDestroyed
+                                || generation != mStreamGeneration.get()
+                                || mStream != stream) {
+                            return;
+                        }
+                        updateToggle();
+                        mStatus.setText(getString(
+                                R.string.app_logs_streaming,
+                                mPackageName,
+                                uid));
+                    });
+                    readStream(stream);
+                }
             } catch (IOException | RuntimeException error) {
                 runOnUiThread(() -> {
                     if (generation != mStreamGeneration.get()) {
@@ -293,13 +295,50 @@ public final class AppLogViewerActivity extends Activity
 
     private void enqueue(final String text) {
         synchronized (mPendingLock) {
-            mPending.append(text);
+            appendPendingText(mPending, text, MAX_TRANSCRIPT_CHARS);
             if (mDrainScheduled) {
                 return;
             }
             mDrainScheduled = true;
         }
         mOutput.post(this::drainPending);
+    }
+
+    static void appendPendingText(
+            final StringBuilder pending,
+            final String text,
+            final int limit) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("log text limit must be positive");
+        }
+        if (text.length() >= limit) {
+            pending.setLength(0);
+            int start = text.length() - limit;
+            if (start > 0
+                    && Character.isHighSurrogate(text.charAt(start - 1))
+                    && Character.isLowSurrogate(text.charAt(start))) {
+                start++;
+            }
+            pending.append(text, start, text.length());
+            return;
+        }
+        int excess = pending.length() - (limit - text.length());
+        if (excess > 0) {
+            if (excess < pending.length()
+                    && Character.isHighSurrogate(pending.charAt(excess - 1))
+                    && Character.isLowSurrogate(pending.charAt(excess))) {
+                excess++;
+            }
+            pending.delete(0, excess);
+        }
+        pending.append(text);
+    }
+
+    private void clearOutput() {
+        synchronized (mPendingLock) {
+            mPending.setLength(0);
+        }
+        mOutput.setText("");
     }
 
     private void drainPending() {
@@ -323,10 +362,13 @@ public final class AppLogViewerActivity extends Activity
     }
 
     private void closeStream() {
-        mStreamGeneration.incrementAndGet();
-        final ShellStreamHandle stream = mStream;
-        mStream = null;
-        mStarting = false;
+        final ShellStreamHandle stream;
+        synchronized (mStreamLock) {
+            mStreamGeneration.incrementAndGet();
+            stream = mStream;
+            mStream = null;
+            mStarting = false;
+        }
         if (stream != null) {
             stream.close();
         }

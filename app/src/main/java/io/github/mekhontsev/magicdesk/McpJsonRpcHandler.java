@@ -114,10 +114,7 @@ final class McpJsonRpcHandler implements java.io.Closeable {
         if (name.isEmpty()) {
             throw new IllegalArgumentException("tool name is required");
         }
-        final JSONObject arguments = params.optJSONObject("arguments");
-        return mBackend.callTool(
-                name,
-                arguments == null ? new JSONObject() : arguments);
+        return mBackend.callTool(name, optionalObject(params, "arguments"));
     }
 
     private JSONObject readResource(final JSONObject params)
@@ -136,7 +133,7 @@ final class McpJsonRpcHandler implements java.io.Closeable {
 
     private static JSONObject optionalObject(
             final JSONObject parent, final String key) {
-        if (!parent.has(key) || parent.isNull(key)) {
+        if (!parent.has(key)) {
             return new JSONObject();
         }
         final JSONObject value = parent.optJSONObject(key);

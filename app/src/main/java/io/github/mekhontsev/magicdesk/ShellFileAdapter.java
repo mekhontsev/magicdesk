@@ -143,12 +143,7 @@ final class ShellFileAdapter extends BaseAdapter {
 
     @Override
     public long getItemId(final int position) {
-        return getItem(position).absolutePath.hashCode();
-    }
-
-    @Override
-    public boolean hasStableIds() {
-        return true;
+        return position;
     }
 
     @Override

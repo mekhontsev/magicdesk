@@ -21,8 +21,11 @@ final class ClipboardAutomationGateway {
     }
 
     DesktopAutomationResult readText() throws JSONException {
-        final AndroidClipboardGateway.TextReadResult read =
-                mClipboard.readText();
+        return describeText(mClipboard.readText());
+    }
+
+    static DesktopAutomationResult describeText(
+            final AndroidClipboardGateway.TextReadResult read) throws JSONException {
         final JSONObject observation = metadataJson(read.metadata);
         if (read.metadata.access == AndroidClipboardGateway.Access.DENIED) {
             return DesktopAutomationResult.failure(
@@ -43,8 +46,7 @@ final class ClipboardAutomationGateway {
                     observation);
         }
         final boolean truncated = read.text.length() > MAX_TEXT_CHARS;
-        final String returnedText = truncated
-                ? read.text.substring(0, MAX_TEXT_CHARS) : read.text;
+        final String returnedText = BoundedText.prefix(read.text, MAX_TEXT_CHARS);
         return DesktopAutomationResult.success(
                 read.metadata.access == AndroidClipboardGateway.Access.EMPTY
                         ? "clipboard is empty" : "clipboard text read",

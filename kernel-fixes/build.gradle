@@ -2,6 +2,28 @@ plugins {
     id 'com.android.application'
 }
 
+abstract class SharedProcessSources extends Sync {
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDirectory()
+}
+
+def sharedProcessMain = tasks.register('prepareSharedProcessMain', SharedProcessSources) {
+    description = 'Stages only the standalone process owner, not the application runtime.'
+    from(rootProject.file('app/src/main/java')) {
+        include 'io/github/mekhontsev/magicdesk/BoundedProcessRunner.java'
+    }
+    outputDirectory = layout.buildDirectory.dir('generated/sharedProcess/main')
+    into outputDirectory
+}
+def sharedProcessTest = tasks.register('prepareSharedProcessTest', SharedProcessSources) {
+    description = 'Stages the shared process-owner regression tests.'
+    from(rootProject.file('app/src/test/java')) {
+        include 'io/github/mekhontsev/magicdesk/BoundedProcessRunnerTest.java'
+    }
+    outputDirectory = layout.buildDirectory.dir('generated/sharedProcess/test')
+    into outputDirectory
+}
+
 android {
     namespace = 'io.github.mekhontsev.magicdesk.kernel'
     compileSdk = 37
@@ -18,6 +40,23 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+}
+
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    // Register generated sources with their producer instead of exposing the app source tree.
+    variant.sources.java.addGeneratedSourceDirectory(sharedProcessMain) {
+        it.outputDirectory
+    }
+    variant.hostTests.values().each { hostTest ->
+        hostTest.sources.java.addGeneratedSourceDirectory(sharedProcessTest) {
+            it.outputDirectory
+        }
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
 }
 
 apply from: rootProject.file('gradle/release-signing.gradle')

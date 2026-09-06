@@ -82,7 +82,7 @@ final class DesktopExecRunner {
             try {
                 final ShellAccess.CommandResult result =
                         ShellAccess.executeCommand(
-                                withWorkingDirectory(
+                                DesktopExecWorkingDirectory.shellCommand(
                                         prepared, workingDirectory));
                 notifyCompletion(completion, result, null);
             } catch (IOException | RuntimeException error) {
@@ -114,17 +114,5 @@ final class DesktopExecRunner {
             return;
         }
         MAIN.post(() -> completion.complete(result, error));
-    }
-
-    private static String withWorkingDirectory(
-            final String command,
-            final String workingDirectory) {
-        final String directory = DesktopExecWorkingDirectory.normalize(
-                workingDirectory);
-        if (directory.isEmpty()) {
-            return command;
-        }
-        return "cd -- " + ShellCommandLine.quote(directory)
-                + " && " + command;
     }
 }

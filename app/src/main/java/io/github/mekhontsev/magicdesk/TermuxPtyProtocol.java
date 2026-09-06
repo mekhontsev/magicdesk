@@ -3,7 +3,12 @@ package io.github.mekhontsev.magicdesk;
 import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 /** Framing sent from the Termux-hosted PTY bridge to MagicDesk. */
 final class TermuxPtyProtocol {
@@ -14,8 +19,53 @@ final class TermuxPtyProtocol {
     static final int MAX_FRAME_BYTES = 1024 * 1024;
     private static final int PROCESS_HEADER_BYTES = 8;
     private static final int MAX_PROCESS_NAME_BYTES = 512;
+    private static final int MAX_HELLO_BYTES = 96;
 
     private TermuxPtyProtocol() {
+    }
+
+    static Hello readHello(
+            final Socket socket, final String expectedToken, final int timeoutMillis)
+            throws IOException {
+        return readHello(socket, expectedToken, timeoutMillis, System::nanoTime);
+    }
+
+    static Hello readHello(
+            final Socket socket, final String expectedToken, final int timeoutMillis,
+            final LongSupplier nanoTime) throws IOException {
+        final long deadline = nanoTime.getAsLong()
+                + TimeUnit.MILLISECONDS.toNanos(Math.max(1, timeoutMillis));
+        final InputStream input = socket.getInputStream();
+        final byte[] header = new byte[5];
+        readBeforeDeadline(socket, input, header, deadline, nanoTime);
+        final long length = decodeUnsignedInt(header, 1);
+        if (header[0] != FRAME_HELLO || length < 1 || length > MAX_HELLO_BYTES) {
+            throw new IOException("invalid Termux PTY handshake frame");
+        }
+        final byte[] payload = new byte[(int) length];
+        readBeforeDeadline(socket, input, payload, deadline, nanoTime);
+        return parseHello(new Frame(FRAME_HELLO, payload), expectedToken);
+    }
+
+    private static void readBeforeDeadline(
+            final Socket socket, final InputStream input, final byte[] bytes,
+            final long deadline, final LongSupplier nanoTime) throws IOException {
+        int offset = 0;
+        while (offset < bytes.length) {
+            final long remaining = deadline - nanoTime.getAsLong();
+            if (remaining <= 0L) {
+                throw new SocketTimeoutException("Termux PTY handshake timed out");
+            }
+            // SO_TIMEOUT bounds one read only. Recompute its budget so a peer
+            // sending partial frames cannot extend the authentication deadline.
+            socket.setSoTimeout((int) Math.max(1L, Math.min(Integer.MAX_VALUE,
+                    TimeUnit.NANOSECONDS.toMillis(remaining))));
+            final int count = input.read(bytes, offset, bytes.length - offset);
+            if (count < 0) {
+                throw new EOFException("incomplete Termux PTY handshake");
+            }
+            offset += count;
+        }
     }
 
     static Frame readFrame(final DataInputStream input) throws IOException {

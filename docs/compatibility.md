@@ -22,15 +22,16 @@ the common runtime through an unrelated Nubia code path.
 The platform baseline is not a guarantee that every hook exists on every
 model. The firmware must expose working freeform task support and, for an
 external session, a secondary display that accepts application tasks. Managed
-projection, absolute touchpad positioning, external-display input routing,
+projection, optional absolute-pointer access, external-display input routing,
 WMShell desktop commands, and several task transitions can still depend on
 firmware behavior.
 
 Compatibility reports expose keyboard relay, mouse relay, and absolute-pointer
 support separately. A vendor can therefore require a complete keyboard stream
-without replacing mouse routing, or provide absolute touchpad positioning
-without enabling either native relay. Missing one input capability must not
-disable or start the others.
+without replacing mouse routing, or expose absolute-pointer observation and
+explicit positioning independently of either native relay. The phone touchpad's
+relative-motion path requires the mouse relay, not an absolute-position API.
+Missing one input capability must not disable or start the others.
 
 Phone desktop availability is independent from external-display support.
 MagicDesk reports Android's live
@@ -108,8 +109,8 @@ exact fingerprint.
 Failures that can be isolated should not terminate the desktop. MagicDesk keeps
 the rest of the UI running, shows a short user-facing message with a stable
 error code such as `[SHELL-CONSOLE-002]`, and records technical context for the
-diagnostics report. An identical error is recorded only once during a process
-lifetime, exact duplicates from earlier process runs are collapsed when the
+diagnostics report. A bounded set of recent error signatures suppresses
+repetitions, exact duplicates from earlier process runs are collapsed when the
 report is built, and the local event log is size-bounded.
 
 Static environment states such as an unverified firmware profile, missing

@@ -54,13 +54,6 @@ public final class DesktopChromeActivity extends Activity {
         return COMPONENT.equals(component);
     }
 
-    static boolean isChromeComponentName(final String componentName) {
-        return (BuildConfig.APPLICATION_ID + "/" + CLASS_NAME)
-                        .equals(componentName)
-                || (BuildConfig.APPLICATION_ID + "/.DesktopChromeActivity")
-                        .equals(componentName);
-    }
-
     IBinder activityToken() {
         return FrameworkActivityInputApi.requireActivityToken(this);
     }

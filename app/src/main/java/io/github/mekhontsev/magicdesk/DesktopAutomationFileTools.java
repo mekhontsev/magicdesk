@@ -162,14 +162,14 @@ final class DesktopAutomationFileTools {
         }
     }
 
-    private static String required(
+    static String required(
             final JSONObject object,
             final String name) {
-        final String value = object.optString(name, "").trim();
-        if (value.isEmpty()) {
+        final Object value = object.opt(name);
+        if (!(value instanceof String) || ((String) value).isEmpty()) {
             throw new IllegalArgumentException(name + " is required");
         }
-        return value;
+        return (String) value;
     }
 
     private static DesktopAutomationResult invalid(final Throwable error) {

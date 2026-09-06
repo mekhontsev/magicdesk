@@ -1,7 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.os.Bundle;
-
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -73,11 +71,8 @@ public final class PhoneDesktopTaskRecoveryCommand {
     private static void startTaskFromRecents(
             final Object service,
             final int taskId) throws ReflectiveOperationException {
-        final Object result = service.getClass().getMethod(
-                "startActivityFromRecents", Integer.TYPE, Bundle.class)
-                .invoke(service, Integer.valueOf(taskId), null);
-        if (!(result instanceof Integer)
-                || ((Integer) result).intValue() < 0) {
+        final int result = HiddenTaskApi.startActivityFromRecents(service, taskId);
+        if (result < 0) {
             throw new IllegalStateException(
                     "could not revive task " + taskId + ": " + result);
         }

@@ -4,8 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 
-import android.graphics.Point;
-
 import io.github.mekhontsev.magicdesk.platform.android.GenericAndroidPlatformDriver;
 
 import org.junit.Test;

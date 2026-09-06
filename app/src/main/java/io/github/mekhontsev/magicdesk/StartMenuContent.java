@@ -474,7 +474,7 @@ final class StartMenuContent {
         mHost.automation().register(
                 tile,
                 "start.app."
-                        + DesktopAutomationUiRegistry.segment(
+                        + DesktopAutomationUiRegistry.identitySegment(
                                 application.identity()),
                 "application",
                 application.label(),
@@ -690,7 +690,7 @@ final class StartMenuContent {
             mHost.automation().register(
                     row,
                     "start.search.app."
-                            + DesktopAutomationUiRegistry.segment(
+                            + DesktopAutomationUiRegistry.identitySegment(
                                     result.app.packageName),
                     "application",
                     result.label,
@@ -703,7 +703,7 @@ final class StartMenuContent {
             mHost.automation().register(
                     row,
                     "start.search.command."
-                            + DesktopAutomationUiRegistry.segment(
+                            + DesktopAutomationUiRegistry.identitySegment(
                                     result.desktopApplication.desktopFilePath),
                     "application",
                     result.label);
@@ -711,8 +711,8 @@ final class StartMenuContent {
             mHost.automation().register(
                     row,
                     "start.search.result."
-                            + DesktopAutomationUiRegistry.segment(
-                                    result.detail),
+                            + DesktopAutomationUiRegistry.identitySegment(
+                                    result.stableKey()),
                     "search_result",
                     result.label);
         }

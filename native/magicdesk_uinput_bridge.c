@@ -349,10 +349,56 @@ static int set_control_primary(
             || emit_sync(state, state->uinput_fd) < 0 ? -1 : 0;
 }
 
+static int reconcile_button_state(
+        struct bridge_state *state,
+        struct source_device *source,
+        const bool keys[KEY_MAX + 1]) {
+    for (unsigned int code = 0; code <= KEY_MAX; ++code) {
+        if (source->key_down[code] == keys[code]) {
+            continue;
+        }
+        source->key_down[code] = keys[code];
+        if (keys[code]) {
+            if (state->key_down_count[code]++ > 0 || code == BTN_RIGHT) {
+                continue;
+            }
+            state->forwarded_down[code] = true;
+        } else {
+            if (state->key_down_count[code] > 0) {
+                state->key_down_count[code]--;
+            }
+            if (state->key_down_count[code] > 0 || !state->forwarded_down[code]) {
+                continue;
+            }
+            state->forwarded_down[code] = false;
+        }
+        // A state correction is not a secondary-click gesture, and a control
+        // drag remains owned independently from all physical sources.
+        if (code == BTN_LEFT && state->control_primary_down) {
+            continue;
+        }
+        if (emit_key(state, state->uinput_fd, (unsigned short) code,
+                    keys[code] ? 1 : 0) < 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
 static int process_event(
         struct bridge_state *state,
         const int source_index,
         const struct input_event *event) {
+    struct source_device *source = &state->sources[source_index];
+    bool keys[KEY_MAX + 1];
+    const int filtered = magicdesk_filter_source_event(source, event, keys);
+    if (filtered < 0 || filtered == MAGICDESK_SOURCE_EVENT_DISCARD) {
+        return filtered < 0 ? -1 : 0;
+    }
+    if (filtered == MAGICDESK_SOURCE_STATE_READY
+            && reconcile_button_state(state, source, keys) < 0) {
+        return -1;
+    }
     if (event->type == EV_KEY) {
         return process_key_event(
                 state, &state->sources[source_index], event);

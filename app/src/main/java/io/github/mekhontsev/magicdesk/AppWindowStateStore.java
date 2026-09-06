@@ -50,6 +50,9 @@ final class AppWindowStateStore {
     }
 
     private static final Object STATE_LOCK = new Object();
+    private static final Object MODE_COMMIT_LOCK = new Object();
+    private static final Map<String, Long> COMMITTED_MODE_SEQUENCES =
+            new LinkedHashMap<>();
     private static final Map<String, PendingModeUpdate> PENDING_MODES =
             new LinkedHashMap<>();
     private static final Map<String, SessionPatch> SESSION_PATCHES =
@@ -172,9 +175,23 @@ final class AppWindowStateStore {
         if (update == null) {
             return false;
         }
-        final boolean committed = rememberMode(update.stateKey, update.mode);
-        finishModeUpdate(update);
-        return committed;
+        // Serialize persistence as well as sequence acceptance. A newer pending
+        // choice is only an overlay; only a successful commit supersedes this one.
+        synchronized (MODE_COMMIT_LOCK) {
+            final Long committedSequence = COMMITTED_MODE_SEQUENCES.get(
+                    update.stateKey);
+            if (committedSequence != null
+                    && committedSequence.longValue() >= update.sequence) {
+                finishModeUpdate(update);
+                return true;
+            }
+            final boolean committed = rememberMode(update.stateKey, update.mode);
+            if (committed) {
+                COMMITTED_MODE_SEQUENCES.put(update.stateKey, update.sequence);
+            }
+            finishModeUpdate(update);
+            return committed;
+        }
     }
 
     static void cancelModeUpdate(final PendingModeUpdate update) {
@@ -306,6 +323,9 @@ final class AppWindowStateStore {
     }
 
     static void clearPendingModeUpdatesForTests() {
+        synchronized (MODE_COMMIT_LOCK) {
+            COMMITTED_MODE_SEQUENCES.clear();
+        }
         synchronized (STATE_LOCK) {
             PENDING_MODES.clear();
             SESSION_PATCHES.clear();

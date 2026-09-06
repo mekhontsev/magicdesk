@@ -11,6 +11,42 @@ import java.util.Set;
 import org.junit.Test;
 
 public final class SystemUiDesktopRepositoryParserTest {
+    private static final String CURRENT = "DesktopUserRepositories:\n"
+            + "  currentUserId=0\n"
+            + "  DesktopRepository\n"
+            + "    userId=0\n"
+            + "    Display #0:\n"
+            + "      activeTasks=[42]\n";
+
+    @Test
+    public void followingControllerCannotContributeTaskLists() {
+        assertEquals(Set.of(42), SystemUiDesktopRepositoryParser.parseTaskIds(
+                CURRENT + "OtherController:\n  activeTasks=[999]\n", 0));
+    }
+
+    @Test
+    public void repeatedRepositorySectionDoesNotInheritTheCurrentUser() {
+        assertEquals(Set.of(42), SystemUiDesktopRepositoryParser.parseTaskIds(
+                CURRENT + "DesktopUserRepositories:\n"
+                        + "  DesktopRepository\n"
+                        + "    userId=0\n"
+                        + "    Display #0:\n"
+                        + "      activeTasks=[999]\n", 0));
+    }
+
+    @Test
+    public void surroundingDumpIndentationDoesNotChangeSectionOwnership() {
+        final String nested = "  " + CURRENT.replace("\n", "\n  ").stripTrailing() + "\n";
+        assertEquals(Set.of(42), SystemUiDesktopRepositoryParser.parseTaskIds(
+                "Shell:\n" + nested + "  OtherController:\n    activeTasks=[999]\n", 0));
+    }
+
+    @Test
+    public void displaySiblingDoesNotReuseThePreviousDisplay() {
+        assertEquals(Set.of(42), SystemUiDesktopRepositoryParser.parseTaskIds(
+                CURRENT + "    OtherState:\n      activeTasks=[999]\n", 0));
+    }
+
     @Test
     public void findsCurrentUserPhoneDesktopTasks() {
         assertEquals(

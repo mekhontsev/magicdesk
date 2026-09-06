@@ -9,7 +9,9 @@ import android.util.Log;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 final class DesktopWindowTransitionController {
@@ -45,6 +47,8 @@ final class DesktopWindowTransitionController {
     private final DesktopTaskRuntimeRegistry mTaskStates;
     private final RuntimeState mRuntimeState;
     private final DesktopWindowTransitionGateway mGateway;
+    private final Map<DesktopTaskRuntimeState, TaskRepository.ActionCallback>
+            mFullscreenCompletions = new LinkedHashMap<>();
 
     DesktopWindowTransitionController(
             final Handler handler,
@@ -59,11 +63,6 @@ final class DesktopWindowTransitionController {
         mTaskStates = taskStates;
         mRuntimeState = runtimeState;
         mGateway = gateway;
-    }
-
-    boolean hasManagedFullscreenState(final int taskId) {
-        final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
-        return state != null && state.fullscreenRestoreBounds() != null;
     }
 
     void observeWindowingModeChange(
@@ -309,6 +308,31 @@ final class DesktopWindowTransitionController {
             finishWorkspaceTransition(
                     mRuntimeState.displayId(), false);
         }
+        completeFullscreen(state, mFullscreenCompletions.get(state),
+                false, "desktop task was removed");
+    }
+
+    void cancelPendingTransitions(final String reason) {
+        final Map<DesktopTaskRuntimeState, TaskRepository.ActionCallback> pending =
+                new LinkedHashMap<>(mFullscreenCompletions);
+        mFullscreenCompletions.clear();
+        for (final TaskRepository.ActionCallback completion : pending.values()) {
+            try {
+                complete(completion, false, reason);
+            } catch (RuntimeException error) {
+                Log.w(TAG, "transition cancellation callback failed", error);
+            }
+        }
+    }
+
+    private void completeFullscreen(
+            final DesktopTaskRuntimeState state,
+            final TaskRepository.ActionCallback completion,
+            final boolean success,
+            final String message) {
+        if (completion != null && mFullscreenCompletions.remove(state, completion)) {
+            complete(completion, success, message);
+        }
     }
 
     void reconcile(
@@ -518,9 +542,19 @@ final class DesktopWindowTransitionController {
         }
         mDisplayTaskState.beginFullscreenTransition(
                 mDisplayTaskState.visibleTasks(), task.taskId);
+        final TaskRepository.ActionCallback pendingCompletion = result ->
+                complete(completion, result.success, result.message);
+        mFullscreenCompletions.put(state, pendingCompletion);
         final TaskRepository.ActionCallback callback =
                 result -> mHandler.post(() -> {
-                    if (!mTaskStates.isCurrent(taskId, state)) {
+                    if (mFullscreenCompletions.get(state) != pendingCompletion) {
+                        return;
+                    }
+                    if (!mTaskStates.isCurrent(taskId, state)
+                            || !mRuntimeState.isRunning()
+                            || mRuntimeState.displayId() != displayId) {
+                        completeFullscreen(state, pendingCompletion,
+                                false, "desktop task transition was cancelled");
                         return;
                     }
                     if (!result.success) {
@@ -534,13 +568,16 @@ final class DesktopWindowTransitionController {
                                 "fullscreen shortcut failed task="
                                         + task.taskId
                                         + " message=" + result.message);
-                        complete(completion, false, result.message);
+                        completeFullscreen(state, pendingCompletion,
+                                false, result.message);
                         return;
                     }
                     if (appRequested) {
                         // Submission is asynchronous. A task snapshot confirms
                         // when WindowManager has applied the transition.
                         mRuntimeState.scheduleRefresh();
+                        completeFullscreen(state, pendingCompletion,
+                                true, result.message);
                         return;
                     }
                     state.finishFullscreenTransition();
@@ -550,7 +587,8 @@ final class DesktopWindowTransitionController {
                                 BuiltInDesktopAppCatalog.appIdentityKey(task),
                                 AppWindowState.Mode.FULLSCREEN);
                     }
-                    complete(completion, true, result.message);
+                    completeFullscreen(state, pendingCompletion,
+                            true, result.message);
                 });
         final DesktopWindowTransitionRequest request = appRequested
                 ? DesktopWindowTransitionRequest.enterAppFullscreen(

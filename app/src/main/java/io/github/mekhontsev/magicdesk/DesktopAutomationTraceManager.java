@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import static io.github.mekhontsev.magicdesk.AutomationJsonArguments.requiredInt;
+
 import android.view.Display;
 
 import org.json.JSONArray;
@@ -60,9 +62,10 @@ final class DesktopAutomationTraceManager {
                     "unknown or expired traceId", false);
         }
         final long endedAtMillis = System.currentTimeMillis();
-        final long latestEventId = DesktopAutomationEventJournal.latestId();
-        final JSONArray events = DesktopAutomationEventJournal.snapshot(
-                start.afterEventId, 256);
+        final DesktopAutomationEventJournal.Snapshot snapshot =
+                DesktopAutomationEventJournal.snapshotWithCursor(start.afterEventId, 256);
+        final long latestEventId = snapshot.latestId;
+        final JSONArray events = snapshot.events;
         final long firstEventId = events.length() == 0
                 ? latestEventId + 1L
                 : events.getJSONObject(0).optLong("id", latestEventId + 1L);
@@ -110,19 +113,6 @@ final class DesktopAutomationTraceManager {
             throw new IllegalArgumentException(key + " is required");
         }
         return value;
-    }
-
-    private static int requiredInt(
-            final JSONObject object, final String key) {
-        final Object value = object == null ? null : object.opt(key);
-        if (!(value instanceof Number)) {
-            throw new IllegalArgumentException(key + " must be an integer");
-        }
-        final long number = ((Number) value).longValue();
-        if (number < Integer.MIN_VALUE || number > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(key + " is out of range");
-        }
-        return (int) number;
     }
 
     private static final class TraceStart {

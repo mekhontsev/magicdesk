@@ -12,7 +12,14 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class TermuxPtyProtocolTest {
     private static final String TOKEN =
@@ -113,6 +120,70 @@ public final class TermuxPtyProtocolTest {
                                 new byte[8]));
 
         assertEquals(false, process.isKnown());
+    }
+
+    @Test
+    public void fragmentedHandshakeSharesOneDeadline() throws Exception {
+        final byte[] hello = frame(TermuxPtyProtocol.FRAME_HELLO,
+                (TOKEN + " 1234").getBytes(StandardCharsets.US_ASCII));
+        final FragmentedSocket socket = new FragmentedSocket(hello, 100);
+
+        assertThrows(SocketTimeoutException.class,
+                () -> TermuxPtyProtocol.readHello(socket, TOKEN, 500, socket.time::get));
+
+        assertEquals(List.of(500, 400, 300, 200, 100), socket.timeouts);
+    }
+
+    @Test
+    public void timelyHandshakeDoesNotConsumeFollowingOutput() throws Exception {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        bytes.write(frame(TermuxPtyProtocol.FRAME_HELLO,
+                (TOKEN + " 1234").getBytes(StandardCharsets.US_ASCII)));
+        bytes.write(frame(TermuxPtyProtocol.FRAME_OUTPUT, new byte[]{65}));
+        final FragmentedSocket socket = new FragmentedSocket(bytes.toByteArray(), 1);
+
+        assertEquals(1234L, TermuxPtyProtocol.readHello(
+                socket, TOKEN, 1000, socket.time::get).processId);
+        assertArrayEquals(new byte[]{65}, TermuxPtyProtocol.readFrame(
+                new DataInputStream(socket.getInputStream())).payload);
+    }
+
+    @Test
+    public void handshakeRejectsOversizedPayloadBeforeReadingIt() throws Exception {
+        final FragmentedSocket socket = new FragmentedSocket(
+                new byte[]{17, 0, 0, 1, 0}, 0);
+
+        final IOException failure = assertThrows(IOException.class,
+                () -> TermuxPtyProtocol.readHello(socket, TOKEN, 1000, socket.time::get));
+        assertEquals("invalid Termux PTY handshake frame", failure.getMessage());
+        assertEquals(5, socket.timeouts.size());
+    }
+
+    private static final class FragmentedSocket extends Socket {
+        final AtomicLong time = new AtomicLong();
+        final List<Integer> timeouts = new ArrayList<>();
+        private final InputStream input;
+
+        FragmentedSocket(final byte[] bytes, final int millisPerRead) {
+            input = new ByteArrayInputStream(bytes) {
+                @Override
+                public synchronized int read(final byte[] target, final int offset,
+                        final int length) {
+                    time.addAndGet(TimeUnit.MILLISECONDS.toNanos(millisPerRead));
+                    return super.read(target, offset, Math.min(1, length));
+                }
+            };
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return input;
+        }
+
+        @Override
+        public void setSoTimeout(final int timeout) {
+            timeouts.add(timeout);
+        }
     }
 
     private static byte[] frame(final int type, final byte[] payload)

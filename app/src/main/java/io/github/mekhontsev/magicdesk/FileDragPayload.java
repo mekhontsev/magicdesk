@@ -1,8 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.ClipData;
-import android.net.Uri;
 import android.view.DragEvent;
+import android.view.View;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,12 +38,28 @@ final class FileDragPayload {
 
     ClipData clipData(
             final CharSequence label,
-            final List<Uri> shareableUris) {
+            final List<AndroidContentPayload.UriItem> shareableItems) {
+        if (shareableItems != null && !shareableItems.isEmpty()) {
+            if (shareableItems.size() > AndroidContentPayload.MAX_URI_ITEMS) {
+                throw new IllegalArgumentException("too many dragged URIs");
+            }
+            if (shareableItems.size() != absolutePaths.size()) {
+                throw new IllegalArgumentException("drag URIs must cover the entire selection");
+            }
+            for (final AndroidContentPayload.UriItem item : shareableItems) {
+                if (item == null) {
+                    throw new IllegalArgumentException("missing dragged URI");
+                }
+            }
+        }
         return AndroidContentPayload.drag(
-                label,
-                shareableUris == null
-                        ? Collections.emptyList() : shareableUris,
-                MIME_TYPE).toClipData();
+                label, shareableItems, MIME_TYPE).toClipData();
+    }
+
+    static int dragFlags(final boolean shareableContent) {
+        return shareableContent
+                ? View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_GLOBAL_URI_READ
+                : View.DRAG_FLAG_GLOBAL_SAME_APPLICATION;
     }
 
     List<String> pathsForDestination(final String destination) {

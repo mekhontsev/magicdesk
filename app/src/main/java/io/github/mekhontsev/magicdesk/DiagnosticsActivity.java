@@ -10,6 +10,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.Display;
 import android.view.View;
@@ -232,20 +233,44 @@ public final class DiagnosticsActivity extends Activity {
         setActionsEnabled(false);
         mStatus.setText(R.string.diagnostics_collecting);
         new Thread(() -> {
-            final String report =
-                    CompatibilityDiagnostics.buildReport(getApplicationContext());
+            final DiagnosticsReportResult report = collectReport();
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                mReport = report;
-                mReportView.setText(report);
-                mStatus.setText(R.string.diagnostics_ready);
-                mLoading = false;
-                setActionsEnabled(true);
-                runPendingAutomatedSelfTest();
+                finishReportCollection(report, report.successful()
+                        ? getString(R.string.diagnostics_ready) : "");
             });
         }, "MagicDeskDiagnostics").start();
+    }
+
+    private DiagnosticsReportResult collectReport() {
+        final DiagnosticsReportResult result = DiagnosticsReportResult.collect(() ->
+                CompatibilityDiagnostics.buildReport(getApplicationContext()));
+        if (!result.successful()) {
+            Log.w("MagicDeskDiagnostics", "Could not collect compatibility report", result.cause);
+        }
+        return result;
+    }
+
+    private void showReport(
+            final DiagnosticsReportResult report,
+            final String status) {
+        mReport = report.report;
+        final String failure = report.successful() ? "" : getString(
+                R.string.diagnostics_report_failed, report.failure);
+        mReportView.setText(report.successful() ? mReport : failure);
+        mStatus.setText(failure.isEmpty() ? status
+                : status.isEmpty() ? failure : status + "\n" + failure);
+    }
+
+    private void finishReportCollection(
+            final DiagnosticsReportResult report,
+            final String status) {
+        showReport(report, status);
+        mLoading = false;
+        setActionsEnabled(true);
+        runPendingAutomatedSelfTest();
     }
 
     private void runPendingAutomatedSelfTest() {
@@ -783,22 +808,17 @@ public final class DiagnosticsActivity extends Activity {
                             getTaskId(),
                             mSelfTestExecutionPolicy,
                             runId);
-            final String report =
-                    CompatibilityDiagnostics.buildReport(getApplicationContext());
+            final DiagnosticsReportResult report = collectReport();
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()
                         || runId != mSelfTestRunId) {
                     return;
                 }
-                mReport = report;
-                mReportView.setText(report);
-                if (result.isCancelled()) {
-                    mStatus.setText(R.string.diagnostics_self_test_cancelled);
-                } else {
-                    mStatus.setText(getString(
-                            R.string.diagnostics_self_test_complete,
-                            result.summary()));
-                }
+                showReport(report, result.isCancelled()
+                        ? getString(R.string.diagnostics_self_test_cancelled)
+                        : getString(
+                                R.string.diagnostics_self_test_complete,
+                                result.summary()));
                 finishSelfTestPreparation(runId);
             });
         }, "MagicDeskDesktopSelfTest").start();
@@ -885,30 +905,25 @@ public final class DiagnosticsActivity extends Activity {
                         ? error.getClass().getSimpleName()
                         : error.getMessage();
             }
-            final String report = CompatibilityDiagnostics.buildReport(
-                    getApplicationContext());
+            final DiagnosticsReportResult report = collectReport();
             final String message = failure;
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                mReport = report;
-                mReportView.setText(report);
-                mStatus.setText(message.isEmpty()
+                finishReportCollection(report, message.isEmpty()
                         ? getString(R.string.diagnostics_vendor_probe_complete)
                         : getString(
                                 R.string.diagnostics_vendor_probe_failed,
                                 message));
-                mLoading = false;
-                setActionsEnabled(true);
             });
         }, "MagicDeskVendorProbe").start();
     }
 
     private void setActionsEnabled(final boolean enabled) {
         mRefresh.setEnabled(enabled);
-        mCopy.setEnabled(enabled);
-        mShare.setEnabled(enabled);
+        mCopy.setEnabled(enabled && !mReport.isEmpty());
+        mShare.setEnabled(enabled && !mReport.isEmpty());
         mSelfTest.setEnabled(enabled && ShellAccess.isReady());
         mOnboarding.setEnabled(enabled);
         mVendorProbe.setEnabled(enabled && ShellAccess.isReady());
@@ -937,10 +952,5 @@ public final class DiagnosticsActivity extends Activity {
 
     private int dp(final int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
-    private int getDisplayId() {
-        final Display display = getDisplay();
-        return display == null ? Display.DEFAULT_DISPLAY : display.getDisplayId();
     }
 }

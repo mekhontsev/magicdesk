@@ -133,14 +133,12 @@ selected by that policy; `PlatformPointerDriver` remains a separate capability
 and is never inferred from relay availability.
 
 MagicDesk uses one phone-side `MagicDeskTouchpadActivity` for every external
-transport. Touch
-motion is converted from a stable gesture origin into an absolute cursor
-position through Nubia's input service. Android `VelocityTracker` selects
-bounded acceleration steps without changing the gesture origin. MagicDesk
-then injects hover or drag events with the common virtual pointer's device ID;
-clicks and high-resolution scrolling use the same pointer. The cursor is shown
-only after its first accepted position update, which avoids a stale image at a
-firmware-selected startup coordinate.
+transport. `TouchpadPointerMotion` converts successive finger coordinates into
+relative deltas. The shared native mouse relay forwards these deltas and button
+state through its virtual pointer; Android owns pointer acceleration, cursor
+visibility, hover shape, and window dragging. There is no additional motion
+smoothing or acceleration loop. Optional absolute-position APIs remain separate
+for explicit positioning, observation, and supported secondary-click handling.
 
 A long press remains undecided until the finger either moves or is released.
 Movement starts a primary-button drag; release without movement becomes a
@@ -208,6 +206,13 @@ contrast,
 MagicDesk-owned native helpers compiled from repository C sources by every
 local and CI build.
 
+Both relays handle evdev `SYN_DROPPED` at the shared source boundary: discard
+tainted events through the next `SYN_REPORT`, then read that source's key state
+once. Each relay reconciles its own forwarding policy without releasing
+another source's keys or a control-owned drag. Keyboard recovery preserves
+its position in the existing paused queue and never invents shortcut presses.
+There is no periodic device-state query.
+
 ### Do not draw replacement application captions
 
 An application overlay cannot share a task's SurfaceControl leash or transition
@@ -217,9 +222,10 @@ maintains a different Z-order, and can leave controls above the wrong window.
 MagicDesk instead keeps native WMShell captions visible. One persistent,
 transparent `DesktopChromeActivity` supplies the application token for the
 taskbar, Start, context menus, notification center, and desktop dialogs. The
-shell launches this host in a dedicated organizer area under the standard
-workspace and configures its task as non-floating `MULTI_WINDOW`, non-focusable,
-and `alwaysOnTop`, with empty bounds that fill the area. It also disables the
+shell launches this host in a root-level organizer area, a sibling of the
+standard task workspace. Both the area and its task use `MULTI_WINDOW` and
+`alwaysOnTop`; the task is non-floating and non-focusable, with empty bounds
+that fill the area. The shell also disables the
 ActivityRecord input sink.
 All visible chrome is an ordinary bounded `TYPE_APPLICATION_PANEL` child
 window, so empty parts of the display-sized host neither draw nor consume input.
@@ -390,8 +396,10 @@ runtime integration and are not distributed through the same release path.
 
 - `ControlActivity` and `PhoneControlPanelController` provide the compact phone
   control surface. They do not create taskbar, wallpaper, or app-catalog UI.
-- `FileManagerActivity` is an ordinary resizable desktop task. Its view owns
-  navigation and selection only; `FileManagerOperationController` owns
+- `FileManagerActivity` is an ordinary resizable desktop task. The activity owns
+  navigation and selection; `FileManagerView` renders them and routes user actions.
+  `FileDirectoryReader` reads a complete listing on the existing Files worker;
+  `FileManagerOperationController` owns
   lifecycle-bound remote operations and `FileManagerImportController` owns
   incoming Android URI drops. It has no vendor dependency.
 - `CommandConsoleActivity` is an ordinary multi-instance desktop task. Every
@@ -478,7 +486,9 @@ runtime integration and are not distributed through the same release path.
   cursor pagination.
 - `DesktopAutomationEventJournal` retains at most 256 process-local structured
   events and provides the condition variable used by event-driven automation
-  waits. `DesktopAutomationTaskEventTracker` derives task lifecycle, display,
+  waits. An event receives its cursor id atomically with publication, so
+  concurrent producers cannot publish an older event behind a reader's cursor.
+  `DesktopAutomationTaskEventTracker` derives task lifecycle, display,
   focus, top-activity, mode, bounds, and visibility events from snapshots
   already delivered by `DesktopTaskWatcher`; it does not register another task
   observer. Compatibility reports include at most the newest 64 events within
@@ -498,7 +508,9 @@ runtime integration and are not distributed through the same release path.
   a bounded recheck for `View` state changes that Android does not publish.
 - `MagicDeskMcpRuntime` is owned by `MagicDeskRuntimeService`. When explicitly
   enabled, it starts one bounded Streamable HTTP server on literal
-  `127.0.0.1:8765`; stopping the runtime closes the listener and workers.
+  `127.0.0.1:8765`; stopping the runtime closes the listener, active and queued
+  client sockets, workers, and backend. A closed transport cannot be restarted;
+  enabling the runtime again creates a new transport with its own resources.
   A user launch may first create the service in automation-only mode so an MCP
   client can connect before Shizuku is available. That mode owns only the
   foreground service and MCP transport. The same service is promoted in place
@@ -517,6 +529,15 @@ runtime integration and are not distributed through the same release path.
   it. `AndroidDesktopActionCatalog` owns the bounded set of public system
   actions and their typed parameters. `AndroidDesktopActionDispatcher` is only
   the asynchronous UI adapter; it does not implement a second launch policy.
+  Content drops from Desktop and taskbar use this same adapter with a
+  UI-owned `ContentRequestScope`. Closing that owner cancels queued deliveries;
+  running deliveries release their source grant before scheduling a UI result.
+  Resource release never depends on the callback running, and queued callbacks
+  check their owner again on the UI thread. A release error after the gateway
+  has returned does not replace its delivery result; the dispatcher records
+  `CONTENT-GRANT-RELEASE-001` separately instead of suggesting that a committed
+  action needs to be repeated. The existing executors retain their
+  ordering; no additional worker or polling loop is created.
   `AndroidIntegrationRequest` owns Intent parsing and validation;
   raw Intent URIs are an input form rather than a parallel executor. Direct
   launches cross the Shizuku task-launch boundary as full Parcelable Intents,
@@ -576,13 +597,32 @@ runtime integration and are not distributed through the same release path.
   task. A missing or mismatched exact task is a failure and never falls back to
   creating another window.
 - `AndroidActivityResultStore` owns the bounded lifecycle of document picker
-  and other Activity results. Waiting uses `EventDrivenWaits`; there is no
-  result poller. A returned content grant is retained only while its terminal
-  result remains owned by the store. Explicit consume and bounded eviction
-  release retained grants. Files waits for the picker result, imports the
-  selected URIs through its normal typed filesystem controller, and consumes
-  the result after the copy completes. Because request ids are process-local,
+  and other Activity results. Synchronous automation waits use `EventDrivenWaits`;
+  UI owners subscribe to request readiness without occupying a worker while a
+  user chooses a document. Notifications run outside the registry lock, including
+  failure, discard, and eviction; subscribing after completion cannot miss the
+  result. There is no result poller. A returned content grant is retained only
+  while its terminal result is owned by the store or a claimed import.
+  Claiming removes the result atomically from the bounded registry without
+  revoking its grants; unrelated requests cannot evict an active import's access.
+  `PersistedUriPermissions` tracks typed
+  grant ownership independently of result JSON; consuming or evicting one
+  result releases only permission flags no remaining result owns for that URI.
+  Stored result data and every reader's projection own independent nested JSON
+  objects. Consuming a result releases its grants before serializing the reply,
+  so a response failure cannot strand already-consumed permission ownership.
+  Files subscribes to the picker result, claims it, imports the selected URIs
+  through its normal typed filesystem controller, and closes the claim after
+  the copy completes. Because request ids are process-local,
   process startup releases result grants orphaned by an earlier process death.
+- `AndroidActivityResultData` owns the bounded projection of returned Intent
+  data, separate from request lifetime and grant ownership. URI addresses and
+  identity fields are preserved exactly or rejected when oversized; they are
+  never shortened into different identifiers. Grant acquisition uses the same
+  validated URI snapshot exposed to consumers. Extras inspect at most 32 keys,
+  including unsupported or unreadable entries. Optional data loss is reported
+  as `extrasTruncated`; text prefixes retain complete UTF-16 surrogate pairs,
+  and unsupported or non-finite numeric values do not discard later extras.
 - `AndroidActivityCompatibilityHistory` records at most 64 Activity launches
   that already occurred. It keeps presentation, authorization, observed task
   topology, outcome, and only the URI scheme; full Intent extras and content
@@ -590,6 +630,9 @@ runtime integration and are not distributed through the same release path.
   Explorer read this same process-local history. Activity Explorer resolves
   current exported handlers and launches them through the production gateway;
   it has no private task command or vendor component list.
+  Nested diagnostic fields are copied when recorded; later edits to an
+  operation response cannot modify the saved evidence. Result and event
+  snapshots likewise never expose the registries' internal JSON objects.
 - Direct Files, shell, and Terminal automation has a second independent
   setting.
   `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
@@ -642,6 +685,10 @@ runtime integration and are not distributed through the same release path.
   profiles. `DesktopLayoutStore`, `AppWindowStateStore`,
   `AppPresentationProfileStore`, `DesktopPreferences`, and
   `DisplayProfileStore` are narrow domain facades over that model.
+  Updates mutate a private copy and publish it only after persistence succeeds.
+  External file reloads read and publish under the same transaction lock, on
+  the folder worker; the UI receives only the change notification, never a
+  delayed snapshot that could replace a newer save.
   Its persisted schema accepts only the current format; an unsupported format
   starts from defaults instead of running an in-process data migration.
   `DesktopPlacementEngine` is the platform-independent collision and reflow
@@ -660,7 +707,11 @@ runtime integration and are not distributed through the same release path.
   recreation or external-display teardown.
 - `DesktopLayoutController` owns WindowInsets, viewport, and taskbar geometry.
 - `DesktopTaskSnapshotController` serializes task refresh generations and
-  filters the taskbar model.
+  filters the taskbar model. During an active session, refresh reuses the
+  controller's published display snapshot; it does not issue an independent
+  raw query that can expose a transient Activity handoff to chrome policy.
+  Unknown publication leaves visibility unchanged and remains unavailable.
+  Replies requested before activation also recheck the current session.
 
 ### Tasks and windows
 
@@ -716,7 +767,7 @@ runtime integration and are not distributed through the same release path.
   together with the hierarchy. A plain WCT sync callback did not guarantee that
   layer assignment. Fullscreen-plane selection retains its atomic WCT and
   explicit organizer-surface composition; no second focus or raise is appended.
-  Before the final plane/chrome composition, the native freeform phase passes
+  Before the final plane composition, the native freeform phase passes
   the framework-owned transition/input barrier in `FrameworkWindowCommitBarrier`.
   This prevents its finish transaction from overwriting a plane demoted below
   HOME. The barrier is global and internally bounded, with duration diagnostics;
@@ -877,6 +928,14 @@ indefinitely outside an active session and an explicit production operation can
 wake it immediately; reconciliation reuses the same snapshot and adds no
 second task query.
 
+`DesktopTaskRuntime.observedTaskSnapshot` publishes the last complete app-side
+repository observation for the active desktop, including its phone tasks,
+before workspace filtering. Task Manager and explicit MCP task waits reuse
+this publication instead of issuing a second periodic task query. Missing
+readiness, a disconnected observer, or a stopped session invalidates it;
+unknown is not an observed empty task list. Explicit user commands retain
+their fresh repository reads.
+
 Runtime timing has three explicit mechanisms:
 
 - `EventDrivenWaits` wraps monitor waits released by a concrete callback or
@@ -885,7 +944,7 @@ Runtime timing has three explicit mechanisms:
   reliable callback. Every call declares a semantic reason, deadline, and
   sample interval; self-tests use the same classification.
 - `RuntimeDelays` owns intentional non-state pauses such as input gesture
-  spacing, supervisor backoff, recording drain, vendor command settling,
+  spacing, supervisor backoff, vendor command settling,
   watchdog ticks, and stream heartbeats.
 
 Direct `Thread.sleep`, `SystemClock.sleep`, and `Object.wait` calls are rejected
@@ -1099,7 +1158,20 @@ the process's own security domain. Closing the window, running `exit`, service
 death, or stream failure ends only that PTY and shell. A failed transport is
 discarded rather than silently changing privilege or execution backend.
 
+The native relay owns both directions in one nonblocking poll loop, with
+bounded input/output buffers and incremental control-frame decoding. A partial
+frame or backpressure in one direction cannot block the other direction or
+shutdown. Process signals wake the same poll owner; cleanup has a bounded
+HUP-to-kill sequence for the owned shell group, not a separate worker thread.
+
 `ConsoleTerminalSession` owns transport and terminal state for one window.
+Its PTY-to-UI output buffer is bounded; a busy UI pauses the reader on a drain
+event rather than dropping terminal bytes or growing an unbounded queue. Closing
+the session releases that wait. Metadata requests use the same session writer,
+with `TerminalRequestScope` completing every pending response when the session
+closes, even if executor teardown discards its queued work. No additional thread
+or periodic query is involved. A resize received while the transport opens is
+applied to the PTY before sending input queued during startup.
 The pinned Termux `terminal-emulator` module parses escape sequences and models
 the main screen, alternate screen, cursor, colors, and scrollback. MagicDesk
 does not use Termux app session, JNI, or rendering code. Its own
@@ -1123,7 +1195,27 @@ request-driven and has no listener, history, or polling loop.
 Android share/view Intents, external drag-and-drop, Files, and Desktop. It
 preserves bounded URI items, declared MIME types, text/HTML, sensitivity, and
 origin without carrying executable clipboard Intents.
-`AndroidContentIntentAdapter` is the only payload-to-Intent/ClipData serializer.
+Incoming Share parsing inspects at most 64 entries from each of `ClipData`
+and `EXTRA_STREAM`, retaining at most 64 distinct URIs across both. Limiting
+only the final result would still allow an arbitrarily long duplicate list
+to be traversed on the receiver's UI thread. The payload records truncation
+when either inspection or retention is capped; clip text, HTML, and sensitivity
+survive the merge. Locally produced drag URI lists are rejected before traversal
+if they exceed the same publication limit.
+MIME selection considers every URI: a mixed or partially unknown selection
+stays `*/*`, and a clip-wide type list is never treated as the type of its
+first file. `AndroidContentMimeTypes` keeps source declarations separate from
+the derived `ClipDescription` and computes the Intent type once per payload.
+When all URI types are unknown, a uniform source declaration can supply their
+type; generated wildcard placeholders must not overwrite that declaration on
+this or the next transfer. This fallback never narrows an explicitly ambiguous
+source declaration. Merging Share extras retains source declarations, not generated
+text/URI transport metadata. This policy is shared by clipboard, drag, and
+Intent conversion and performs no provider query or background work.
+**Open** accepts one URI, or a text link when no URI files are
+present; multiple files cannot redirect that action to a link in their text.
+`AndroidContentPayload` serializes `ClipData`; `AndroidContentIntentAdapter`
+builds user-facing View/Share Intents from the same payload.
 Read grants travel in both `ClipData` and Intent flags, so the selected
 application receives the same content that MagicDesk classified. Clipboard
 **Open** and **Share** are explicit desktop actions and launch through the
@@ -1166,6 +1258,14 @@ then opened through the ordinary Termux Console path. There is no session
 poller, and closing the Console closes only that tmux client. The public Termux
 command boundary does not transfer the PTY stream of an ordinary Termux app
 session, so those sessions remain owned by the Termux UI.
+
+`TermuxCommandResultReceiver` owns each result callback, timeout, and one-shot
+`PendingIntent` as one registration. Completion, cancellation, and timeout all
+remove that registration and cancel its remaining resources. The callback
+Intent uses a unique data URI, so a token retained by Termux across MagicDesk
+process death cannot match a later request. `DesktopExecSessionTracker` records
+each execution separately, including repeated launches of the same command;
+late start acknowledgements cannot reopen a completed diagnostic session.
 
 `ShellExecutionEnvironment` defines the common execution profile used by the
 PTY relay, marker-delimited MCP shells, background shell Desktop Entries, and
@@ -1393,9 +1493,11 @@ display number or vendor. The analyzer requires every
 simultaneous fullscreen fixture to have a distinct feature ID, exactly one
 anchor in that plane, and the same parent throughout focus switches. A fixture may
 leave the selected display only in fullscreen mode during
-the explicit transfer scenario. A visible freeform fixture with a
-hidden desktop host is an error on every target; this also detects a native
-desktop area taking ownership of the phone screen. No snapshots are taken
+the explicit transfer scenario. The guard requires a visible desktop task at
+committed stack boundaries. HOME visibility metadata may change while a
+freeform fixture stays visible; that flag alone is not a surface failure.
+Separate wallpaper and taskbar assertions check the rendered desktop.
+No guard snapshots are taken
 during normal desktop operation, and the guard uses neither polling nor timing
 guesses. Android can deliver remote `onTaskMovedToFront` before the matching
 visibility update; only a gap beginning at that callback may remain pending,
@@ -1648,7 +1750,14 @@ installed app and Android user. Global layout data may contain opaque placement
 keys for currently bound widgets, but those keys cannot bind or instantiate a
 widget. Application and folder shortcuts are not embedded in this JSON state.
 They are bounded freedesktop Desktop Entry files parsed by `DesktopEntryFile`
-in any directory shown by built-in Files. `Type=Link` holds a local folder URL.
+in any directory shown by built-in Files. Encoders, the parser, and stream I/O
+share a 64 KiB UTF-8 byte limit, including escaping and metadata. Oversized
+entries are rejected before creating a destination file. `Type=Link` holds a
+local folder URL or an HTTP(S) URL; web addresses must fit their length limit
+after ASCII encoding as well, so normalization remains valid on reread.
+`DesktopEntry` owns display-name validation for every entry type and encoder;
+empty or NUL-containing names are rejected before persistence. Display names
+are not filesystem paths: filename sanitization remains in `DesktopEntryFile`.
 `Type=Application` stores standard `Name`, `Icon`, and `Exec` fields plus one
 typed Android descriptor and launch-mode metadata in `X-MagicDesk-*` keys. A
 generic Android launch uses a full Intent URI, preserving extras, categories,
@@ -1695,10 +1804,18 @@ Android task, then runs its companion command.
 `DesktopExecTemplate` expands the supported Desktop Entry file, URI, name,
 icon, and source-file field codes. `DesktopLaunchArguments` remains independent
 of Android UI classes; `DesktopDragLaunchArguments` is the drag-and-drop
-adapter used by Desktop and Files. Commands without field codes retain raw
-shell syntax, while expanded values are tokenized and shell-quoted. `Path` is
-validated once and transported through `DesktopExecSpec` to either Console,
-the shell process, or Termux.
+adapter used by Desktop and Files. Each argument validates its 8192-character
+path/URI limit at construction, including the escaped file URI; selection and
+automation readers check the 128-item limit before materializing arguments.
+Commands without field codes retain raw shell syntax, while expanded values
+are tokenized and shell-quoted. Expansion writes directly into the bounded
+4096-character command, checking inserted fields and quoting overhead as it
+goes instead of building a potentially much larger intermediate argument list.
+`Path` is
+validated by `DesktopExecWorkingDirectory` and transported through
+`DesktopExecSpec` to either Console, the shell process, or Termux. For a
+one-shot shell command, directory preparation aborts the process if `cd`
+fails, before any part of the user script can run in a different directory.
 
 Backend capabilities describe background, terminal, working-directory, and
 completion-result support. `DesktopExecSessionTracker` keeps only a bounded
@@ -1728,6 +1845,20 @@ traversal, invalid names, and accidental overwrite. Removing an application
 shortcut or widget never deletes application data, and MagicDesk does not
 delete the Desktop directory or its contents during Exit or uninstall.
 Desktop changes arrive through `FileObserver`; the fixed folder is not polled.
+State and wallpaper writes use an exclusively created temporary file in the
+metadata directory for each operation. Overlapping Binder calls cannot remove
+or publish each other's staged bytes; the last successful publication wins.
+Writer and publication failures remove only that operation's temporary file.
+Publication requests an atomic replacement, retaining a regular replacement
+fallback for filesystems without atomic moves; this is not a power-loss
+durability guarantee.
+Metadata observation forwards changes to the published state or wallpaper
+path, plus invalidation of the metadata directory itself. Temporary-file
+events do not trigger a state reload or a wallpaper decode. The state reader
+enforces its 2 MiB byte limit during streaming, not just through a prior file
+size check; wallpaper transfers enforce their 64 MiB limit the same way.
+The wallpaper writer owns its incoming descriptor before preparing the
+metadata directory, so preparation failures release it as well.
 Built-in Files uses the same `DesktopEntryFile` parser outside the fixed
 desktop root, so a `.desktop` shortcut can be kept and opened from an ordinary
 folder without introducing a second shortcut model.
@@ -1739,6 +1870,10 @@ Desktop Entry consumed by Desktop and Files. Opening that entry resolves the
 current Android browser and then uses the normal desktop application-launch
 path; when Android still needs the user to choose a browser, its resolver is
 opened on the same display.
+Share URL extraction rejects source text exceeding 32 Ki UTF-16 code units
+before copying or scanning it. Suggested titles and bounded clipboard reads
+use `BoundedText` to retain complete surrogate pairs within their existing
+code-unit budgets; title whitespace normalization remains a separate policy.
 
 `ShellFileSystem` deliberately exposes the complete filesystem visible to the
 connected UserService identity. Path validation requires normalized absolute
@@ -1748,16 +1883,73 @@ recursive delete run on one operation executor only after an explicit user
 action. Operations support cancellation and Binder-owner death; there is no
 file-manager polling or idle worker loop. Name conflicts receive a numeric
 suffix, so an interrupted copy never begins by deleting an existing target.
+URI imports from both Desktop and Files use the same provider-name validation
+and shell-side name reservation. The UI does not enumerate a partial directory
+page or maintain its own occupied-name set. Collision handling follows the
+destination filesystem's case rules, with exclusive creation deciding races.
+`FileTreeTransfer` owns the filesystem copy/move mechanics, independently of
+Binder callbacks. Copies create files exclusively with `CREATE_NEW`; a target
+that appears after name selection is a conflict, never an instruction to
+truncate it. During an explicit copy, a transient list records the created
+entries and their parent identities. Rollback visits only those entries in
+reverse order, checks their filesystem keys and parents, and deletes directories
+non-recursively. Replaced paths, unavailable identity, or foreign children leave
+the affected partial result intact instead of risking unrelated data. The list
+is discarded when the operation completes; it is not a persistent index.
 If cross-filesystem move cleanup fails after a complete copy, the destination
 is retained rather than risking loss of both copies.
 
 `FileOperationCenter` owns copy, move, and delete at MagicDesk process scope.
+Its `FileOperationState` binds callbacks to the originating request, including
+before the remote operation ID is returned. Cancellation, disconnection, or a
+new request cannot let late callbacks finish another operation or clear its
+clipboard selection. The center owns Binder and UI dispatch; the state model
+owns progress and terminal transitions without Android dependencies.
+`ShellFileOperationHandle` binds cancellation to the originating UserService,
+not whichever service is current when a delayed cancellation is delivered.
 Files windows subscribe only to immutable progress snapshots, so closing the
 window does not cancel a remote operation. The process Binder remains the
 remote owner: process death still cancels work, and a disconnected shell turns
 the active snapshot into a bounded failure rather than leaving a permanently
 busy UI. Imports from external `content://` providers remain Activity-scoped
 because their temporary drag permission belongs to that UI interaction.
+`ContentRequestScope` owns queued requests on each UI's existing executor.
+Closing it releases grants for work that never started and signals cancellation
+to running work; a running import releases its grant only after leaving provider
+I/O. Executor rejection and release failures also complete the request, and a
+closed UI ignores late presentation callbacks. Completion carries both the
+operation value and any failure: a grant-release exception cannot erase an
+already committed copy or action. Subscribers run after release and outside
+the owner's lock; a subscriber failure cannot alter the published completion
+or prevent releasing other requests. There is no additional executor
+or polling loop. Cancellation is checked before provider access, between chunks,
+at EOF, and before accepting the completed output, including empty/text imports.
+An already blocked provider read must still return before its worker can finish.
+`ContentImportBatch` owns the immutable source list and shared per-item execution
+for Files, Desktop, and the Android share receiver. Sources are captured before
+queueing; `ContentUriTransfer` binds the provider/text copy operation to that
+request. Result counts distinguish committed copies, failed items, and items
+left incomplete or unattempted. Cancellation is separate from success and
+preserves already committed files and earlier failures. A provider error does
+not prevent subsequent items from being imported unless cancellation is also
+requested. Files progress counts processed items, including failures, rather
+than successful copies alone. Progress-delivery failures stop the batch without
+discarding its copy/error counts. Finalization preserves those counts and any
+earlier provider failure when resource release also fails. The batch adds no
+executor or background work;
+`DesktopFileRepository` only loads desktop entries and thumbnails.
+
+`ShellFileCreation` binds a newly created ordinary file to its originating
+UserService. Imports and `.desktop` entry creation share this boundary. Writes
+verify the original device/inode; commit retains a complete result.
+Provider imports close both input and output streams before commit, so an input
+close failure still rolls back the uncommitted file instead of leaving a saved
+file that the batch reports as failed.
+Otherwise close requests an immediate, non-recursive removal after shell verifies
+that the path still names that ordinary file. A mismatch leaves it untouched and
+cleanup errors are attached to the original failure. This replaces path-only
+asynchronous cleanup jobs in Files and Desktop; it is not a filesystem-wide
+atomic transaction against concurrent external renames.
 
 `FileManagerActivity` maps the selection model to the same typed operations
 for toolbar commands, item context menus, and standard file-manager keyboard
@@ -1789,7 +1981,26 @@ containing readable ordinary files is additionally published as read-only
 `content://` items. Directories, symbolic links, and selections larger than
 the bounded Android publication limit remain internal because Android has no
 portable directory-clipboard contract and clipboard Binder payloads must stay
-bounded. Files and Desktop can also paste content copied by another Android
+bounded. `ShellFileGrantStore` makes the same all-or-nothing publication
+decision for shell-file clipboard selections and drag-and-drop. It checks the
+entire bounded selection before preparing URIs, rejects special filesystem
+nodes, and registers a batch only after URI preparation succeeds. Failed
+clipboard writes and refused drag starts discard their unpublished entries;
+accepted transfers retain them for consumers that open files asynchronously.
+The prepared selection carries each URI together with its existing file MIME
+metadata. Clipboard and drag producers consume the same typed items, so drag
+does not replace known file types with wildcards or require another provider
+query. Desktop file drags preserve the metadata from their file snapshot too.
+`ShellFileGrantStore.Preparation` reuses that bounded staging map for explicit
+Android Open/Share requests. A URI can be placed in an Intent before it is
+registered with the provider. These calls publish only after the entire action
+and requested display are validated, so a bad final source or malformed launch
+option cannot leave a partially registered selection or evict older entries.
+Publication precedes execution, not its observation result: a launch timeout
+does not prove that a recipient has stopped using the file. Writable access
+is capped in the grant entry itself, and the Open Intent uses that effective
+value rather than the requested flag.
+Files and Desktop can also paste content copied by another Android
 application. URI items are imported as files; plain text becomes a UTF-8
 `.txt` file (or `.html` when HTML is the only representation). External
 consumers always see copy semantics; only MagicDesk can
@@ -1797,23 +2008,54 @@ complete the internal move. A completed move clears only its own generation
 and the matching Android URI clip, so an older operation cannot discard a
 newer selection or unrelated clipboard data.
 
+Directory pages use a total name tie-break after the requested sort key, so
+unchanged files with equal sizes, dates, or case-insensitive names cannot shift
+between pages merely because the filesystem enumerated them differently.
+`FileDirectoryReader` captures each load's path and sort/filter options in one
+immutable request and returns one immutable listing, including desktop-entry
+metadata. It abandons superseded work before querying another page or reading
+more desktop entries and checks cancellation after blocking reads. A page must
+advance its offset and retain the same canonical directory path. Pagination is
+not an atomic snapshot of concurrent external directory mutations. The activity
+invalidates pending reads on navigation, shell loss, and destruction; failures
+clear the backing listing and selection together, not just the visible rows.
+`FileManagerStatus` keeps listing summaries separate from operation messages:
+automatic refresh cannot erase an import result or failure with an item count.
+Explicit refresh, navigation, filtering, or selection clears the message and
+reveals the current summary. This uses the existing footer, with no timer.
+
 The current-folder name filter operates only on the already loaded page set;
 `Ctrl+F` changes only the local Files presentation. Recursive name search is a
 separate explicit action. `ShellFileSystem` walks without following symbolic
 links, returns bounded batches through a typed callback, and cancels on request
-or Binder-owner death. It creates no persistent index or idle scanner. Each
+or Binder-owner death. Files and desktop Start share `FileManagerSearchController`;
+each search has one `FileSearchRequest` identity, including callbacks received
+before the Binder start reply. Cancellation rejects late replies and signals
+the original service through a bound `ShellFileSearchHandle`. The cancellation
+is a one-way Binder signal, so closing the UI worker cannot discard it. It
+creates no persistent index or idle scanner. Each
 Files window also owns a shell-side `FileObserver` for only its current
 directory. Callback bursts are coalesced into one posted reload without a
 polling interval or guessed delay; manual refresh remains available when a
-filesystem cannot be observed.
+filesystem cannot be observed. Both the callback and the posted reload retain
+the observer's generation; closing it invalidates already queued events, so
+an old directory cannot supersede a new navigation request.
 
 Files opened or dragged into another application are exposed through the
-non-exported `ShellFileProvider` and a process-lifetime capability URI. A grant
+non-exported `ShellFileProvider` and a process-local capability URI. The registry
+retains at most 256 entries in access order; eviction or process exit expires
+an entry, so these URIs are not durable file references. A grant
 records the selected path and file identity; each open is performed again by
 the UserService and accepted only when device and inode still match. Drag
 grants are read-only, while an explicit open grants write only when the
 UserService reported the file writable. The receiving application never
 receives shell access, a raw privileged path, or the UserService Binder.
+`ContentProviderFileAccess` gives both shell-grant and Desktop-file providers
+the same cancellation and descriptor-transfer boundary. Cancellation is
+checked before opening and after the Binder reply;
+a descriptor returned after cancellation is closed, and cancellation retains
+its Android exception type instead of becoming a file-not-found error. This
+does not interrupt an already running Binder call.
 The in-task **Open with** dialog avoids Android ResolverActivity hiding the
 desktop taskbar. It reads Android's current preferred handler. Its **Always**
 action asks the shell UserService to write the same PackageManager preferred
@@ -1823,31 +2065,56 @@ Desktop Entries from the MagicDesk desktop when their standard `MimeType`
 list matches and `Exec` accepts a file or URI field code. These command
 profiles are one-time launch targets: they never enter Android's preferred
 activity record and therefore cannot be selected with **Always**.
+`FileHandlerRepository` owns blocking PackageManager and desktop-entry discovery
+and preferred-handler writes. `FileOpenWithController` uses the existing UI
+owner's worker and a replaceable `ContentRequestScope`; a newer file request or
+owner teardown discards queued work and stale callbacks. Only result presentation
+and launcher callbacks run on the UI thread. While **Always** saves the selected
+handler, selection buttons are disabled; dismissing the dialog prevents a late
+launch. No dedicated thread or association cache is added.
 
 Files **Share** serializes the same `AndroidContentPayload` used by Desktop and
 clipboard actions. **Import files** launches Android's `ACTION_OPEN_DOCUMENT`
-surface as a managed STANDARD task, waits on its Activity result, and feeds the
-returned URIs into `FileManagerImportController`. Persisted picker grants are
-released when that import finishes. Dropping a file or other Android content
+surface as a managed STANDARD task. `FileManagerImportController` owns both the
+pending picker and its eventual import on the Files window's existing worker.
+The worker is free between launch completion and result delivery. Only one
+picker can be pending per window; closing Files discards its request, including
+a launch reply that arrives after teardown. Late Activity results cannot
+recreate a discarded request. Result delivery atomically claims the result and
+passes grant ownership to the import. The claim is closed if delivery fails or
+the window closes before handoff; queued/running imports release it through
+`ContentRequestScope`. Window closure or registry eviction cannot revoke access
+underneath a running provider read. A failed launch response still exposes an allocated result
+request id; an exception that prevents returning that id discards the request
+inside the integration gateway. Dropping a file or other Android content
 onto an application shortcut or a concrete taskbar instance enters the same
 gateway and preserves the source grant until delivery completes.
 
 Incoming global Android URI drops are copied into the visible Files directory.
-Incomplete imports are removed, conflicts gain a numeric suffix, and the
-incoming drag grant is released. Cross-window import depends on the source
+Incomplete imports are removed when their recorded identity still matches,
+conflicts gain a numeric suffix, and the incoming drag grant is released.
+Cross-window import depends on the source
 publishing an Android global drag session; private in-window drag gestures are
 not visible to MagicDesk. For drags between MagicDesk's own Desktop and Files
 windows, `FileDragPayload` keeps absolute paths in process-local state. That
 typed path supports files and recursive folders without publishing privileged
 paths or inventing directory content URIs; the default action is move and
-holding `Ctrl` when the drag starts selects copy. Only ordinary files receive
-temporary URIs for drops into other Android applications. The built-in Console
+holding `Ctrl` when the drag starts selects copy. Only a complete bounded
+selection of readable ordinary files receives read-only URIs for drops into
+other Android applications. Mixed selections are never exported as a subset.
+Local-only selections use Android 15's `DRAG_FLAG_GLOBAL_SAME_APPLICATION`,
+so files and folders can cross MagicDesk windows without exposing a label-only
+drag to other applications. Files passes Android's actual drag-start result
+back to the gesture owner. The built-in Console
 can be prefilled with the current directory. Process-local file drags dropped
 on its input insert normalized, shell-quoted paths but never run a command.
 Console can open its current directory in Files, and selected output is treated
 as a path only after `ShellFileSystem` verifies the resolved absolute target.
 File completion lists the exact parent directory through the typed filesystem
-API instead of parsing shell completion output. Optional Termux integration
+API instead of parsing shell completion output. `ConsolePathText` uses the
+same surrogate-safe prefix boundary when completing multiple names, so a
+shared half-character cannot become a replacement shell path.
+Optional Termux integration
 uses Termux's documented `RUN_COMMAND` intent and permission; it is not
 required by Files. Files can launch a new Termux-backed Console at its current
 shared directory. MagicDesk atomically installs a versioned native relay from
@@ -1892,9 +2159,10 @@ the current Settings command in that file, so later global changes do not
 silently alter an existing preset.
 The user-visible file format and examples are documented in
 [Desktop Entry files](desktop-entries.md).
-Shell scripts can be handed to Console as a safely quoted initial command.
-Console still requires its normal explicit Run action; opening a script from
-Files never executes it automatically.
+The explicit **Run script** action in Files opens Console with a safely quoted
+initial command. Console submits that authorized command once its PTY is ready.
+Ordinary file opening uses the selected file handler and does not take the
+Run script path.
 
 Normal application launch continues to reuse an existing task. The explicit
 **New window** action instead requests `NEW_DOCUMENT | MULTIPLE_TASK` and then
@@ -1910,7 +2178,7 @@ On **Start external desktop** or `Win+D`, MagicDesk:
 2. loads the profile keyed by that display's stable identity;
 3. optionally applies a platform-specific physical output timing;
 4. corrects geometry and applies the display profile DPI;
-5. creates or normalizes one display-sized MagicDesk multi-window host task;
+5. creates or normalizes the display-sized MagicDesk fullscreen HOME host;
 6. focuses the desktop and restores the last visible window layout.
 
 The desktop target always contains the Android display that actually hosts the
@@ -2233,11 +2501,11 @@ UIDs owning live tasks on the desktop display. It removes stale task entries
 and clears the remaining state during restore. No persistent freezer whitelist
 is installed.
 
-`MagicDeskTouchpadActivity` is the common phone-side input panel for wired and
-wireless desktops. It remains an ordinary display-0 Activity and can be opened
-from the phone notification or desktop controls. Android's public
-`VelocityTracker` supplies gesture speed; the vendor input service supplies
-absolute cursor placement on the active desktop viewport.
+`MagicDeskTouchpadActivity` is the common phone-side input panel for external
+desktops. It remains an ordinary display-0 Activity and can be opened from the
+phone notification or desktop controls. Its relative-motion path uses the
+shared native mouse relay described above and does not require a firmware
+absolute-position API.
 
 Pointer speed uses Android's standard `Settings.System.pointer_speed` range and
 is observed for changes made outside MagicDesk.
@@ -2361,8 +2629,9 @@ authorize a runtime session or start services.
 ## Diagnostics
 
 `CompatibilityDiagnostics` records stable error codes with bounded local
-history. An identical signature is recorded only once during a process
-lifetime, including when unrelated events occur between repetitions. Exact
+history. A bounded set of the 256 most recent distinct signatures suppresses
+repetitions, including interleaved events. An evicted signature can be recorded
+again. Exact
 duplicates left by earlier process runs are also collapsed when the report is
 built. The issue report includes firmware identity, displays, external input,
 desktop settings, Shizuku UID/domain/capability probes, and MagicDesk-only
@@ -2411,6 +2680,12 @@ undecodable image falls back to the last valid custom image, the system image,
 the last valid cached system image, or MagicDesk's built-in background and
 records one compatibility event per distinct failure instead of changing
 desktop session state.
+Each background load owns a unique temporary cache file. The existing load
+generation cancels superseded work before provider reads, between transfer
+chunks, and before cache publication and rendering. Cancellation does not
+trigger fallback or a compatibility failure, and an already decoded but
+unused image is recycled. Temporary cache allocation failure still permits
+cached or built-in wallpaper. No extra worker, timer, or polling loop is added.
 
 `CommandConsoleActivity` is a permission-protected, multi-instance desktop task
 over a selected `TerminalTransport`. Each Activity owns one independent
@@ -2422,8 +2697,11 @@ mouse protocols retain their normal semantics. Running `exit` or closing the
 Activity closes that shell. Commands supplied by explicit Files and Desktop
 actions are safely quoted and sent after the PTY becomes ready.
 
-`TaskManagerActivity` consumes the existing `TaskRepository`; it does not own
-another task-stack parser or windowing policy. Focus, task close, and explicit
+`TaskManagerActivity` consumes the active session's published task snapshot;
+outside a session it requests a snapshot on open or explicit refresh. Its
+process statistics retain their own UI refresh cadence, without repeatedly
+querying tasks. It owns no task-stack parser or windowing policy. Focus, task
+close, and explicit
 force-stop therefore use the same validated operations as the taskbar. A log
 action launches `AppLogViewerActivity`, whose lifecycle-bound owned stream runs
 `logcat` with a numeric UID filter. The viewer keeps a bounded transcript and
@@ -2440,9 +2718,9 @@ These constraints define the supported implementation paths:
 - Every configured desktop uses standard-workspace freeform tasks and
   independent per-task fullscreen planes. Session cleanup drains every owned
   plane and its structural anchor.
-- Every desktop target hosts the taskbar in one non-focusable, always-on-top
-  organizer area under the default task container; application tasks never
-  enter that area.
+- Every desktop target hosts the taskbar in one root-level, always-on-top
+  organizer area beside the standard workspace. Its non-focusable chrome task
+  supplies the bounded panel windows; application tasks never enter that area.
 - Nubia `WindowReply` is allowlisted and cannot manage arbitrary packages.
 - Moving a running task through display 0 can kill or recreate the application.
 - Fixed sleeps around task transitions are both visible and race-prone.
@@ -2483,17 +2761,32 @@ The Gradle project has three modules:
 - `hidden-api-stubs`: compile-only framework signatures;
 - `kernel-fixes`: independent optional APK.
 
-Every main-app build compiles the two native input helpers from source. CI must
-verify that the main APK contains both helpers and no `.ko`, and that the
-Kernel Fixes APK contains exactly the reviewed module and no input helper.
+Every main-app build compiles three native helpers from source: keyboard relay,
+mouse relay, and PTY transport. CI verifies that the main APK contains all three
+and no `.ko`, and that the Kernel Fixes APK contains exactly the reviewed module
+and no main-app native helper.
+
+Host regression support under `app/src/testSupport/java` uses the JDK compiler
+to execute selected production method bodies against controlled dependencies.
+It is compiled separately against the JDK and added only to the unit-test
+classpath, never an APK. These deterministic fixtures complement, but cannot
+replace, the Android device self-tests.
+
+`scripts/verify-native.sh` builds and runs Linux host fixtures against the real
+native sources. PTY fixtures exercise bidirectional backpressure, partial
+frames, metadata and shutdown; input fixtures replace only device I/O to
+exercise lost-event recovery, shared key ownership and paused queue cleanup.
+They use bounded subprocess lifetimes and a temporary directory, without
+physical input access. Linux CI runs them in addition to Gradle verification.
 
 The kernel module itself is not compiled in normal Android CI. Rebuilding it
 requires the exact upstream kernel source, config, symbol versions, and guarded
 script documented in [VITURE XR resolution fix](xr-resolution-fix.md).
 
-Normal CI builds unsigned release variants of the main and Kernel Fixes
-applications and runs `scripts/verify-apks.sh` with their APKs to enforce
-package boundaries.
+Push CI builds signed development APKs with a unique version suffix and
+publishes the main-app artifact. Pull requests and manual CI runs build unsigned
+release variants without signing secrets. Both routes run
+`scripts/verify-apks.sh` to enforce the main and Kernel Fixes package boundaries.
 
 For a `v*` tag, the release workflow loads signing credentials through
 `gradle/release-signing.gradle`, signs only the main MagicDesk APK, verifies its

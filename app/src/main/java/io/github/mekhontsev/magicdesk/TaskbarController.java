@@ -35,6 +35,8 @@ final class TaskbarController {
 
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
+    private final ContentRequestScope mContentRequests =
+            AndroidDesktopActionDispatcher.createContentScope();
 
     private LinearLayout mTaskbar;
     private Button mStartButton;
@@ -321,6 +323,7 @@ final class TaskbarController {
     }
 
     void release() {
+        mContentRequests.close();
         mEdgeHidden = false;
         mTaskbar = null;
         mStartButton = null;
@@ -691,7 +694,7 @@ final class TaskbarController {
                 item,
                 task == null
                         ? "taskbar.app."
-                                + DesktopAutomationUiRegistry.segment(
+                                + DesktopAutomationUiRegistry.identitySegment(
                                         app.packageName)
                         : "taskbar.task." + task.taskId,
                 "application",
@@ -763,11 +766,17 @@ final class TaskbarController {
                                 : DesktopLaunchMode.FULLSCREEN)
                         .withPreferredTask(task.taskId);
         AndroidDesktopActionDispatcher.deliverContent(
+                mContentRequests,
                 mActivity,
                 content,
                 app.launchTarget,
                 presentation,
                 displayId,
+                () -> {
+                    if (permissions != null) {
+                        permissions.release();
+                    }
+                },
                 result -> {
                     if (!result.success) {
                         mActivity.setErrorStatus(
@@ -775,9 +784,6 @@ final class TaskbarController {
                                 result.message,
                                 "package=" + app.packageName,
                                 null);
-                    }
-                    if (permissions != null) {
-                        permissions.release();
                     }
                 });
     }

@@ -10,7 +10,28 @@ import org.junit.Test;
 
 public final class CompatibilityDiagnosticsTest {
     @Test
-    public void coalescesInterleavedSignaturesForProcessLifetime() {
+    public void readsOnlyBoundedRecentTailOfOversizedLog() throws Exception {
+        final java.nio.file.Path file = java.nio.file.Files.createTempFile("events-", ".log");
+        try {
+            final String newest = "2026-09-06T00:00:00Z | TEST-001 | Latest event\n";
+            java.nio.file.Files.writeString(file, "x".repeat(300_000) + '\n' + newest);
+            final String tail = CompatibilityDiagnostics.readFile(file.toFile());
+            assertEquals(128 * 1024, tail.length());
+            assertEquals(newest, CompatibilityDiagnostics.filterRecordedEvents(tail));
+        } finally {
+            java.nio.file.Files.delete(file);
+        }
+    }
+
+    @Test
+    public void cleansTextWithoutSplittingSupplementaryCharacters() {
+        assertEquals("a...", CompatibilityDiagnostics.cleanMultiline("a\uD83D\uDE00b", 2));
+        assertEquals("a\uD83D\uDE00...", CompatibilityDiagnostics.cleanMultiline("a\uD83D\uDE00b", 3));
+        assertEquals("ab", CompatibilityDiagnostics.cleanMultiline("a\u0000b", 2));
+    }
+
+    @Test
+    public void coalescesInterleavedRecentSignatures() {
         assertFalse(CompatibilityDiagnostics.isDuplicate(
                 "test-display-event"));
         assertFalse(CompatibilityDiagnostics.isDuplicate(

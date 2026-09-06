@@ -7,6 +7,7 @@ import android.os.RemoteException;
 import android.provider.DocumentsContract;
 import android.webkit.MimeTypeMap;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -14,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
@@ -37,8 +39,7 @@ final class ShellDesktopDirectory implements AutoCloseable {
             | FileObserver.ATTRIB;
     private static final String BINARY_MIME = "application/octet-stream";
     private static final int MAX_STATE_BYTES = 2 * 1024 * 1024;
-    private static final long MAX_WALLPAPER_BYTES = 64L * 1024L * 1024L;
-    private static final int COPY_BUFFER_SIZE = 32 * 1024;
+    static final long MAX_WALLPAPER_BYTES = 64L * 1024L * 1024L;
 
     private final Object mLock = new Object();
     private final Path mRoot = Path.of(ABSOLUTE_PATH).toAbsolutePath().normalize();
@@ -220,12 +221,17 @@ final class ShellDesktopDirectory implements AutoCloseable {
             return null;
         }
         validateMetadataFile(mState, MAX_STATE_BYTES);
-        try {
-            return new String(
-                    Files.readAllBytes(mState), StandardCharsets.UTF_8);
+        try (InputStream input = Files.newInputStream(mState, LinkOption.NOFOLLOW_LINKS)) {
+            return readState(input);
         } catch (IOException error) {
             throw failure("cannot read desktop state", error);
         }
+    }
+
+    static String readState(final InputStream input) throws IOException {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ContentStreamCopy.copy(input, bytes, null, MAX_STATE_BYTES);
+        return bytes.toString(StandardCharsets.UTF_8);
     }
 
     void writeState(final String encodedState) {
@@ -258,25 +264,17 @@ final class ShellDesktopDirectory implements AutoCloseable {
         if (source == null) {
             throw new IllegalArgumentException("missing desktop wallpaper");
         }
-        ensureMetadataDirectory();
-        writeAtomically(mWallpaper, output -> {
-            try (InputStream input =
-                    new ParcelFileDescriptor.AutoCloseInputStream(source)) {
-                final byte[] buffer = new byte[COPY_BUFFER_SIZE];
-                long total = 0L;
-                int count;
-                while ((count = input.read(buffer)) >= 0) {
-                    total += count;
-                    if (total > MAX_WALLPAPER_BYTES) {
-                        throw new IOException("desktop wallpaper is too large");
-                    }
-                    output.write(buffer, 0, count);
-                }
-                if (total == 0L) {
+        // Own the incoming Binder descriptor even when directory preparation fails.
+        try (InputStream input = new ParcelFileDescriptor.AutoCloseInputStream(source)) {
+            ensureMetadataDirectory();
+            writeAtomically(mWallpaper, output -> {
+                if (ContentStreamCopy.copy(input, output, null, MAX_WALLPAPER_BYTES) == 0) {
                     throw new IOException("desktop wallpaper is empty");
                 }
-            }
-        });
+            });
+        } catch (IOException error) {
+            throw failure("cannot write desktop wallpaper", error);
+        }
     }
 
     boolean deleteWallpaper() {
@@ -398,38 +396,42 @@ final class ShellDesktopDirectory implements AutoCloseable {
         }
     }
 
-    private void writeAtomically(
+    static void writeAtomically(
             final Path destination,
             final FileWriter writer) {
-        final Path pending = destination.resolveSibling(
-                destination.getFileName() + ".pending");
         try {
-            Files.deleteIfExists(pending);
-            try (OutputStream output = Files.newOutputStream(
-                    pending,
-                    StandardOpenOption.CREATE_NEW,
-                    StandardOpenOption.WRITE)) {
-                writer.write(output);
-                output.flush();
-            }
+            // Binder writers can overlap. Each owns its staging file until
+            // publication; a later successful publication replaces earlier data.
+            final Path pending = Files.createTempFile(
+                    destination.toAbsolutePath().getParent(),
+                    destination.getFileName() + ".",
+                    ".pending");
             try {
-                Files.move(
-                        pending,
-                        destination,
-                        StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException ignored) {
-                Files.move(
-                        pending,
-                        destination,
-                        StandardCopyOption.REPLACE_EXISTING);
+                try (OutputStream output = Files.newOutputStream(
+                        pending, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
+                    writer.write(output);
+                }
+                try {
+                    Files.move(
+                            pending,
+                            destination,
+                            StandardCopyOption.ATOMIC_MOVE,
+                            StandardCopyOption.REPLACE_EXISTING);
+                } catch (AtomicMoveNotSupportedException ignored) {
+                    Files.move(
+                            pending,
+                            destination,
+                            StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (IOException | RuntimeException | Error error) {
+                try {
+                    Files.deleteIfExists(pending);
+                } catch (IOException | RuntimeException cleanupError) {
+                    error.addSuppressed(cleanupError);
+                }
+                throw error;
             }
         } catch (IOException error) {
-            try {
-                Files.deleteIfExists(pending);
-            } catch (IOException ignored) {
-                // Preserve the original failure.
-            }
             throw failure("cannot update MagicDesk metadata", error);
         }
     }
@@ -482,16 +484,25 @@ final class ShellDesktopDirectory implements AutoCloseable {
                 mMetadata.toFile(), OBSERVED_EVENTS) {
             @Override
             public void onEvent(final int event, final String path) {
-                notifyChanged(path == null
+                final String relativePath = path == null
                         ? METADATA_DIRECTORY
-                        : METADATA_DIRECTORY + "/" + path);
+                        : METADATA_DIRECTORY + "/" + path;
+                if (isPublishedMetadataPath(relativePath)) {
+                    notifyChanged(relativePath);
+                }
             }
         };
         mMetadataObserver.startWatching();
     }
 
+    static boolean isPublishedMetadataPath(final String relativePath) {
+        return METADATA_DIRECTORY.equals(relativePath)
+                || STATE_RELATIVE_PATH.equals(relativePath)
+                || WALLPAPER_RELATIVE_PATH.equals(relativePath);
+    }
+
     @FunctionalInterface
-    private interface FileWriter {
+    interface FileWriter {
         void write(OutputStream output) throws IOException;
     }
 

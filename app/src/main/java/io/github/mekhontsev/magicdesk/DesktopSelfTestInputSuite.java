@@ -17,8 +17,7 @@ import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 
 import java.io.IOException;
-import java.util.Collections;
-import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -1708,47 +1707,6 @@ final class DesktopSelfTestInputSuite {
                 });
     }
 
-    static void restoreFullscreenThroughShortcut(
-            final int displayId,
-            final int taskId,
-            final Rect expectedBounds,
-            final int expectedFeatureId) throws IOException {
-        final TaskRepository.Snapshot snapshot =
-                TaskRepository.loadNow(displayId);
-        final TaskRepository.TaskEntry task =
-                DesktopShellActivity.findTask(snapshot, taskId);
-        if (task == null) {
-            throw new IOException("fullscreen task is unavailable: " + taskId);
-        }
-        if (!task.isFreeform() && !task.isFullscreen()) {
-            throw new IOException("unexpected task mode during restore: "
-                    + task.windowingMode);
-        }
-        if (task.isFullscreen()) {
-            focusTaskThroughDesktop(displayId, taskId);
-            final TaskStackParser.Entry focused = waitForTask(
-                    displayId,
-                    FIXTURE_CLASS,
-                    entry -> entry.taskId == taskId
-                            && entry.visible
-                            && ("fullscreen".equals(entry.windowingMode)
-                                    || "freeform".equals(entry.windowingMode)));
-            waitForFrontTask(displayId, taskId);
-            waitForTaskInputFocus(displayId, taskId);
-            if (!"freeform".equals(focused.windowingMode)
-                    && !MagicDeskRuntime.handleActiveTaskShortcut(
-                            DesktopTaskController.SHORTCUT_RESTORE)) {
-                throw new IOException(
-                        "MagicDesk fullscreen restore is unavailable");
-            }
-        }
-        waitForRestoredTask(
-                displayId, taskId, expectedBounds, expectedFeatureId);
-        waitForWmShellTransitionsIdle();
-        waitForRestoredTask(
-                displayId, taskId, expectedBounds, expectedFeatureId);
-    }
-
     private static void waitForRestoredTask(
             final int displayId,
             final int taskId,
@@ -2178,7 +2136,7 @@ final class DesktopSelfTestInputSuite {
             } catch (IOException error) {
                 throw new IOException(error.getMessage()
                         + "; menu=" + menu.frame
-                        + ", input=" + inputSpace.name().toLowerCase()
+                        + ", input=" + inputSpace.name().toLowerCase(Locale.ROOT)
                         + ", click=" + x + "," + y);
             }
             result.add(DesktopSelfTestResult.State.PASS,

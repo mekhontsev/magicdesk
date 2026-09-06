@@ -356,7 +356,7 @@ final class MagicDeskMcpToolCatalog {
                         "Invoke notification",
                         "Open, invoke an action on, or dismiss an active Android notification by its opaque key.",
                         notificationActionSchema()))
-                .put(readTool(
+                .put(destructiveTool(
                         "get_intent_result",
                         "Get Activity result",
                         "Read an event-driven Activity result requested by launch_intent or open_file.",
@@ -534,7 +534,9 @@ final class MagicDeskMcpToolCatalog {
                                 "Expected task mode.",
                                 "windowed", "freeform", "fullscreen"))
                         .put("displayId", integerProperty(
-                                "Display id for display conditions."))
+                                "Display id for display conditions and optional task scope. "
+                                        + "task_absent without a display id checks global absence; "
+                                        + "with a display id it checks absence on that display."))
                         .put("bounds", boundsProperty(
                                 "Expected task bounds."))
                         .put("tolerance", integerProperty(
@@ -875,7 +877,8 @@ final class MagicDeskMcpToolCatalog {
                 .put("subject", stringProperty("Optional shared subject."))
                 .put("files", arrayProperty(
                         "Absolute shell paths or content URIs.",
-                        stringProperty("File path or content URI.")))
+                        stringProperty("File path or content URI."))
+                        .put("maxItems", AndroidContentPayload.MAX_URI_ITEMS))
                 .put("mimeType", stringProperty("Optional shared MIME type."))
                 .put("package", stringProperty("Optional target package."))
                 .put("component", stringProperty(
@@ -987,7 +990,7 @@ final class MagicDeskMcpToolCatalog {
                         .put("functionId", stringProperty(
                                 "Published App Function identifier."))
                         .put("parameters", openObjectProperty(
-                                "GenericDocument properties, optionally with namespace, id, schemaType, and a properties object."))
+                                "GenericDocument properties, optionally with namespace, id, schemaType, and a properties object. An explicit properties field must be an object; names inside it are properties, not metadata. Arrays must contain one value type; integers and floating-point numbers cannot be mixed. Null array elements are unsupported."))
                         .put("timeoutMillis", integerProperty(
                                 "Bounded operation timeout, up to 60000 ms.")),
                 "package", "functionId");

@@ -11,7 +11,6 @@ public final class RuntimeDelays {
     public enum Reason {
         INPUT_GESTURE,
         SUPERVISOR_BACKOFF,
-        RECORDING_DRAIN,
         VENDOR_COMMAND_SETTLE,
         WATCHDOG_TICK,
         STREAM_HEARTBEAT

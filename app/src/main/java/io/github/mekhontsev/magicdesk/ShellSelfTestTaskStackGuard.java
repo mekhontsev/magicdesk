@@ -87,10 +87,8 @@ final class ShellSelfTestTaskStackGuard {
         for (final Object task : HiddenTaskApi.getAllTasks(mService)) {
             final int taskId = HiddenTaskApi.getTaskId(task);
             final int displayId = HiddenTaskApi.getTaskDisplayId(task);
-            final int windowingMode = HiddenTaskApi
-                    .getWindowConfigurationValue(task, "getWindowingMode");
-            final int activityType = HiddenTaskApi
-                    .getWindowConfigurationValue(task, "getActivityType");
+            final int windowingMode = HiddenTaskApi.getTaskWindowingMode(task);
+            final int activityType = HiddenTaskApi.getTaskActivityType(task);
             final int displayAreaFeatureId = getDisplayAreaFeatureId(task);
             final ComponentName component = HiddenTaskApi.getTaskComponent(task);
             final boolean fixture = component != null

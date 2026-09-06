@@ -237,7 +237,7 @@ public final class DesktopOperations {
                             AppProcessCommand.run(
                                     DESKTOP_TASK_RETURN_COMMAND,
                                     Integer.toString(displayId))).trim();
-                    success = output.contains("tasks-returned=");
+                    success = DesktopTaskReturnResult.succeeded(output, displayId);
                     if (!success) {
                         Log.w(TAG, "Desktop task return failed output=" + output);
                     }
@@ -254,13 +254,6 @@ public final class DesktopOperations {
                 }
             }
         });
-    }
-
-    static void showMagicDeskStart() {
-        Log.i(TAG, "show MagicDesk Start panel");
-        if (!MagicDeskRuntime.showStart()) {
-            Log.w(TAG, "MagicDesk desktop is unavailable for Start");
-        }
     }
 
     static void advanceAltTab(final boolean reverse) {

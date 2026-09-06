@@ -108,19 +108,6 @@ final class DesktopLaunchRequest {
                 desktopFilePath);
     }
 
-    DesktopLaunchRequest withAndroidLaunch(
-            final AndroidLaunchSpec value) {
-        return new DesktopLaunchRequest(
-                name,
-                icon,
-                value,
-                null,
-                exec,
-                presentation,
-                arguments,
-                desktopFilePath);
-    }
-
     DesktopLaunchRequest prepareExec() {
         if (exec == null) {
             return this;

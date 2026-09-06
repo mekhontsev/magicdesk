@@ -101,21 +101,21 @@ final class DesktopEntryFile {
         } catch (URISyntaxException error) {
             throw new IllegalArgumentException("invalid shortcut target", error);
         }
-        return HEADER + "\n"
+        return checkedEncoding(HEADER + "\n"
                 + "Version=1.5\n"
                 + "Type=Link\n"
-                + "Name=" + escape(requireName(name)) + "\n"
+                + "Name=" + escape(DesktopEntry.requireName(name)) + "\n"
                 + "URL=" + url + "\n"
-                + "Icon=folder\n";
+                + "Icon=folder\n");
     }
 
     static String encodeWebLink(final String name, final String url) {
-        return HEADER + "\n"
+        return checkedEncoding(HEADER + "\n"
                 + "Version=1.5\n"
                 + "Type=Link\n"
-                + "Name=" + escape(requireName(name)) + "\n"
+                + "Name=" + escape(DesktopEntry.requireName(name)) + "\n"
                 + "URL=" + DesktopWebShortcut.normalizeUrl(url) + "\n"
-                + "Icon=web-browser\n";
+                + "Icon=web-browser\n");
     }
 
     static String encodeApplication(
@@ -152,7 +152,7 @@ final class DesktopEntryFile {
         if (shortcut.defaultLaunch) {
             append(encoded, "X-MagicDesk-Default", "true");
         }
-        return encoded.toString();
+        return checkedEncoding(encoded.toString());
     }
 
     static String applicationExec(final String intentUri) {
@@ -169,10 +169,9 @@ final class DesktopEntryFile {
     }
 
     static String shortcutFileName(final String displayName) {
-        String stem = requireName(displayName)
+        String stem = DesktopEntry.requireName(displayName)
                 .replace('/', '_')
-                .replace('\\', '_')
-                .replace('\0', '_');
+                .replace('\\', '_');
         if (".".equals(stem) || "..".equals(stem)) {
             stem = "Shortcut";
         }
@@ -184,27 +183,24 @@ final class DesktopEntryFile {
     private static DesktopFileInfo create(
             final String displayName,
             final String encoded) throws IOException {
-        final ShellFileInfo created = ShellAccess.createAvailableShellEntry(
-                ShellDesktopDirectory.ABSOLUTE_PATH,
-                shortcutFileName(displayName),
-                false);
-        try (OutputStream output =
-                     new ParcelFileDescriptor.AutoCloseOutputStream(
-                             ShellAccess.openVerifiedShellFile(created, "w"))) {
-            output.write(encoded.getBytes(StandardCharsets.UTF_8));
-        } catch (IOException | RuntimeException error) {
-            try {
-                ShellAccess.deleteDesktopEntry(created.name);
-            } catch (IOException | RuntimeException cleanupError) {
-                error.addSuppressed(cleanupError);
+        ContentStreamCopy.checkCancelled(null);
+        final byte[] bytes = encodeUtf8(encoded);
+        try (ShellFileCreation creation = ShellAccess.beginShellFileCreation(
+                ShellDesktopDirectory.ABSOLUTE_PATH, shortcutFileName(displayName))) {
+            try (OutputStream output = new ParcelFileDescriptor.AutoCloseOutputStream(
+                    creation.open())) {
+                output.write(bytes);
             }
-            throw error;
+            ContentStreamCopy.checkCancelled(null);
+            creation.commit();
+            return ShellAccess.getDesktopFileInfo(creation.file.name);
         }
-        return ShellAccess.getDesktopFileInfo(created.name);
     }
 
     private static Map<String, String> parseValues(final String encoded) {
-        if (encoded == null || encoded.length() > MAX_BYTES) {
+        try {
+            encodeUtf8(encoded);
+        } catch (IllegalArgumentException error) {
             return null;
         }
         final Map<String, String> values = new LinkedHashMap<>();
@@ -237,7 +233,7 @@ final class DesktopEntryFile {
             final Map<String, String> values) {
         final String name = values.get("Name");
         final String rawUrl = values.get("URL");
-        if (!validName(name) || rawUrl == null) {
+        if (rawUrl == null) {
             return null;
         }
         final URI uri;
@@ -254,7 +250,7 @@ final class DesktopEntryFile {
             }
             try {
                 return new DesktopFolderShortcut(
-                        name.trim(),
+                        name,
                         ShellFilePathPolicy.normalizeShellAbsolute(
                                 uri.getPath()),
                         false);
@@ -264,7 +260,7 @@ final class DesktopEntryFile {
         }
         try {
             return new DesktopWebShortcut(
-                    name.trim(), value(values, "Icon"), rawUrl);
+                    name, value(values, "Icon"), rawUrl);
         } catch (IllegalArgumentException error) {
             return null;
         }
@@ -277,10 +273,9 @@ final class DesktopEntryFile {
         final String appShortcutId = value(
                 values, "X-MagicDesk-AppShortcut");
         final String exec = value(values, "Exec");
-        if (!validName(name)
-                || (intentUri.isEmpty()
-                        && appShortcutId.isEmpty()
-                        && exec.isEmpty())) {
+        if (intentUri.isEmpty()
+                && appShortcutId.isEmpty()
+                && exec.isEmpty()) {
             return null;
         }
         AppLaunchTarget target = null;
@@ -295,7 +290,7 @@ final class DesktopEntryFile {
                                 packageName, activity, action);
             }
             return new DesktopApplicationShortcut(
-                    name.trim(),
+                    name,
                     value(values, "Icon"),
                     exec,
                     target,
@@ -344,17 +339,30 @@ final class DesktopEntryFile {
                 && name.toLowerCase(Locale.ROOT).endsWith(EXTENSION);
     }
 
-    private static String readUtf8(final InputStream input) throws IOException {
+    static String readUtf8(final InputStream input) throws IOException {
         final ByteArrayOutputStream output = new ByteArrayOutputStream();
-        final byte[] buffer = new byte[4096];
-        int count;
-        while ((count = input.read(buffer)) != -1) {
-            if (output.size() + count > MAX_BYTES) {
-                throw new IOException("desktop entry is too large");
-            }
-            output.write(buffer, 0, count);
-        }
+        ContentStreamCopy.copy(input, output, null, MAX_BYTES);
         return new String(output.toByteArray(), StandardCharsets.UTF_8);
+    }
+
+    private static String checkedEncoding(final String encoded) {
+        encodeUtf8(encoded);
+        return encoded;
+    }
+
+    private static byte[] encodeUtf8(final String encoded) {
+        if (encoded == null) {
+            throw new IllegalArgumentException("missing desktop entry");
+        }
+        // Bound the allocation first, then check the actual persisted representation.
+        if (encoded.length() > MAX_BYTES) {
+            throw new IllegalArgumentException("desktop entry is too large");
+        }
+        final byte[] bytes = encoded.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > MAX_BYTES) {
+            throw new IllegalArgumentException("desktop entry is too large");
+        }
+        return bytes;
     }
 
     private static void append(
@@ -371,19 +379,6 @@ final class DesktopEntryFile {
             final String key) {
         final String value = values.get(key);
         return value == null ? "" : value;
-    }
-
-    private static String requireName(final String value) {
-        if (!validName(value)) {
-            throw new IllegalArgumentException("missing desktop entry name");
-        }
-        return value.trim();
-    }
-
-    private static boolean validName(final String value) {
-        return value != null
-                && !value.trim().isEmpty()
-                && value.indexOf('\0') < 0;
     }
 
     private static String escape(final String value) {

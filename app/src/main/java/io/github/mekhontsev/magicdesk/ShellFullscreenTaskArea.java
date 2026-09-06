@@ -49,32 +49,28 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     synchronized ShellFullscreenTaskArea.FocusResult focusStack(
             final Object service,
             final int displayId,
-            final int[] taskIds) {
+            final int[] taskIds) throws ReflectiveOperationException {
         if (displayId != mDisplayId) {
             return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
         }
-        try {
-            if (taskIds == null || taskIds.length == 0) {
-                return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
-            }
-            final int targetTaskId = taskIds[taskIds.length - 1];
-            final Object targetTask = HiddenTaskApi.requireTask(
-                    service, displayId, targetTaskId);
-            if (!mOwnership.isDesktopHostTask(targetTaskId)
-                    && !mOwnership.isDesktopTask(targetTask)) {
-                return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
-            }
-            final int[] desktopTaskIds = desktopFocusTasks(
-                    service, displayId, taskIds);
-            if (desktopTaskIds.length == 0) {
-                return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
-            }
-            return mPlanes.focusStack(
-                    service, displayId, desktopTaskIds, mOwnership);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.w(TAG, "fullscreen plane focus unavailable", error);
+        if (taskIds == null || taskIds.length == 0) {
             return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
         }
+        final int targetTaskId = taskIds[taskIds.length - 1];
+        final Object targetTask = HiddenTaskApi.requireTask(
+                service, displayId, targetTaskId);
+        if (!mOwnership.isDesktopHostTask(targetTaskId)
+                && !mOwnership.isDesktopTask(targetTask)) {
+            return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
+        }
+        final int[] desktopTaskIds = desktopFocusTasks(
+                service, displayId, taskIds);
+        if (desktopTaskIds.length == 0) {
+            return ShellFullscreenTaskArea.FocusResult.NOT_HANDLED;
+        }
+        // Once the owner attempts execution, failure cannot authorize raw focus.
+        return mPlanes.focusStack(
+                service, displayId, desktopTaskIds, mOwnership);
     }
 
     synchronized boolean ownsFocusTarget(
@@ -159,7 +155,7 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         }
         final Integer taskKey = Integer.valueOf(taskId);
         final Rect appBounds = mAppRestoreBounds.get(taskKey);
-        final Rect restoreBounds = appBounds == null ? bounds : appBounds;
+        final Rect restoreBounds = bounds == null ? appBounds : bounds;
         if (restoreBounds == null || restoreBounds.isEmpty()) {
             return false;
         }

@@ -43,11 +43,20 @@ final class TaskInputWindowParser {
     }
 
     static Entry findMaximizeMenu(final String dump, final int taskId) {
-        return find(dump, "Maximize Menu for Task=" + taskId);
+        final Entry direct = find(
+                dump, "name=Maximize Menu for Task=" + taskId + ",");
+        return direct != null ? direct : find(
+                dump, "name=Embedded{Maximize Menu for Task=" + taskId + "},");
     }
 
     static boolean isTaskFocused(
             final String dump, final int displayId, final int taskId) {
+        final WindowSnapshot snapshot = readWindowSnapshot(dump);
+        final FocusedWindow focused = snapshot.focusedWindow(displayId);
+        if (!snapshot.available || taskId < 0
+                || (focused != null && focused.isSystemDialog())) {
+            return false;
+        }
         final String dispatcher = currentDispatcherState(dump);
         if (dispatcher.isEmpty()) {
             return false;
@@ -442,7 +451,11 @@ final class TaskInputWindowParser {
         if (dump == null || dump.isEmpty()) {
             return null;
         }
-        for (final String rawLine : dump.split("\\r?\\n")) {
+        final int staleState = dump.indexOf(
+                "Input Dispatcher State at time of last ANR:");
+        final String liveDump = staleState < 0
+                ? dump : dump.substring(0, staleState);
+        for (final String rawLine : liveDump.split("\\r?\\n")) {
             final int markerIndex = rawLine.indexOf(marker);
             if (markerIndex < 0) {
                 continue;

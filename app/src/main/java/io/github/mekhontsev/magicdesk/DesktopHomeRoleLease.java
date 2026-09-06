@@ -172,6 +172,14 @@ final class DesktopHomeRoleLease {
                                     + existing.targetKind
                                     + " display=" + existing.displayId);
                 }
+                if (existing.policy != policy) {
+                    throw new IOException("HOME lease policy mismatch: leased="
+                            + existing.policy + " requested=" + policy);
+                }
+                if (existing.phase == Phase.RELEASING) {
+                    throw new IOException("HOME lease is releasing for "
+                            + existing.targetKind + " display=" + existing.displayId);
+                }
                 final String holder = sBackend.getHomePackage(existing.userId);
                 if (MAGICDESK_PACKAGE.equals(holder)) {
                     sBackend.selectHomeSurface(surfaceFor(existing));

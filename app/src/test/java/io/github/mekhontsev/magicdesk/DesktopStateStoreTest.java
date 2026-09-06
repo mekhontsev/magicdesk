@@ -13,6 +13,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class DesktopStateStoreTest {
     @After
@@ -144,7 +149,7 @@ public final class DesktopStateStoreTest {
             final String packageName = "example.application" + index;
             new Thread(() -> {
                 try {
-                    start.await();
+                    assertTrue(start.await(5L, TimeUnit.SECONDS));
                     assertTrue(DesktopStateStore.update(state ->
                             state.taskbarPackages.add(packageName)));
                 } catch (Throwable error) {
@@ -156,7 +161,7 @@ public final class DesktopStateStoreTest {
         }
 
         start.countDown();
-        complete.await();
+        assertTrue(complete.await(10L, TimeUnit.SECONDS));
 
         assertTrue(failures.toString(), failures.isEmpty());
         final List<String> packages = DesktopStateStore.read(
@@ -183,6 +188,119 @@ public final class DesktopStateStoreTest {
                 DesktopStateStore.read(
                         state -> new ArrayList<>(state.taskbarPackages),
                         Collections.emptyList()));
+    }
+
+    @Test
+    public void reloadSerializesReadAndPublicationWithLocalSave() throws Exception {
+        final MemoryStorage storage = new MemoryStorage();
+        final AtomicBoolean holdNextRead = new AtomicBoolean();
+        final CountDownLatch reading = new CountDownLatch(1);
+        final CountDownLatch releaseRead = new CountDownLatch(1);
+        DesktopStateStore.useStorageForTests(new DesktopStateStore.Storage() {
+            @Override
+            public String read() throws IOException {
+                final String encoded = storage.read();
+                if (holdNextRead.compareAndSet(true, false)) {
+                    reading.countDown();
+                    try {
+                        if (!releaseRead.await(2L, TimeUnit.SECONDS)) {
+                            throw new IOException("test read was not released");
+                        }
+                    } catch (InterruptedException error) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException(error);
+                    }
+                }
+                return encoded;
+            }
+
+            @Override
+            public void write(final String encoded) throws IOException {
+                storage.write(encoded);
+            }
+        });
+        assertTrue(DesktopStateStore.update(state ->
+                state.taskbarPackages.add("example.before")));
+        holdNextRead.set(true);
+        final ExecutorService worker = Executors.newFixedThreadPool(2);
+        final CountDownLatch updating = new CountDownLatch(1);
+        final CountDownLatch mutated = new CountDownLatch(1);
+        try {
+            final Future<Boolean> reload = worker.submit(DesktopStateStore::reload);
+            assertTrue(reading.await(2L, TimeUnit.SECONDS));
+            final Future<Boolean> update = worker.submit(() -> {
+                updating.countDown();
+                return DesktopStateStore.update(state -> {
+                    mutated.countDown();
+                    state.taskbarPackages.add("example.after");
+                });
+            });
+            assertTrue(updating.await(2L, TimeUnit.SECONDS));
+            assertFalse(mutated.await(100L, TimeUnit.MILLISECONDS));
+            releaseRead.countDown();
+            assertFalse(reload.get(2L, TimeUnit.SECONDS));
+            assertTrue(update.get(2L, TimeUnit.SECONDS));
+
+            final List<String> expected = List.of("example.before", "example.after");
+            assertEquals(expected, DesktopStateStore.read(
+                    state -> state.taskbarPackages, List.of()));
+            assertEquals(expected, DesktopStateStore.decode(storage.read()).taskbarPackages);
+        } finally {
+            releaseRead.countDown();
+            worker.shutdownNow();
+            assertTrue(worker.awaitTermination(2L, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void uncommittedMutationDoesNotChangePublishedState() {
+        DesktopStateStore.useStorageForTests(new MemoryStorage());
+        assertTrue(DesktopStateStore.update(state ->
+                state.taskbarPackages.add("example.before")));
+
+        assertTrue(DesktopStateStore.update(state -> {
+            state.taskbarPackages.add("example.after");
+            assertEquals(List.of("example.before"), DesktopStateStore.read(
+                    published -> published.taskbarPackages, List.of()));
+        }));
+        assertEquals(List.of("example.before", "example.after"), DesktopStateStore.read(
+                state -> state.taskbarPackages, List.of()));
+    }
+
+    @Test
+    public void failedMutationAndEncodingLeavePublishedStateUnchanged() {
+        DesktopStateStore.useStorageForTests(new MemoryStorage());
+        assertTrue(DesktopStateStore.update(state ->
+                state.taskbarPackages.add("example.before")));
+
+        assertFalse(DesktopStateStore.update(state -> {
+            state.taskbarPackages.clear();
+            throw new IllegalArgumentException("invalid mutation");
+        }));
+        assertFalse(DesktopStateStore.update(state -> {
+            state.taskbarPackages.clear();
+            state.settings = null;
+        }));
+        assertEquals(List.of("example.before"), DesktopStateStore.read(
+                state -> state.taskbarPackages, List.of()));
+    }
+
+    @Test
+    public void reloadPublishesValidExternalStateButKeepsStateOnInvalidInput() throws Exception {
+        final MemoryStorage storage = new MemoryStorage();
+        DesktopStateStore.useStorageForTests(storage);
+        assertTrue(DesktopStateStore.update(state ->
+                state.taskbarPackages.add("example.before")));
+        final DesktopStateStore.State external = new DesktopStateStore.State();
+        external.taskbarPackages.add("example.external");
+        storage.write(DesktopStateStore.encode(external));
+
+        assertTrue(DesktopStateStore.reload());
+        assertFalse(DesktopStateStore.reload());
+        storage.write("{invalid");
+        assertFalse(DesktopStateStore.reload());
+        assertEquals(List.of("example.external"), DesktopStateStore.read(
+                state -> state.taskbarPackages, List.of()));
     }
 
     @Test

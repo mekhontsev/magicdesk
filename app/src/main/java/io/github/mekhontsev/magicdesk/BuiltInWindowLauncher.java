@@ -46,15 +46,17 @@ final class BuiltInWindowLauncher {
                             .selectVisibleFreeformTasks(
                                     TaskRepository.loadNow(displayId));
                 }
-                WindowedAppLauncher.launchBuiltInWindow(
-                        intent,
-                        target,
-                        displayId,
-                        taskIds(visibleTasks),
-                        () -> DesktopRuntimeBridge.syncTaskbarWithSnapshot(
+                final WindowedAppLauncher.LaunchResult launch =
+                        WindowedAppLauncher.launchBuiltInWindow(
+                                intent,
+                                target,
                                 displayId,
-                                TaskRepository.loadNow(displayId)));
-                complete(activity, callback, null);
+                                taskIds(visibleTasks),
+                                () -> DesktopRuntimeBridge.syncTaskbarWithSnapshot(
+                                        displayId,
+                                        TaskRepository.loadNow(displayId)));
+                launch.whenReady(result -> complete(activity, callback,
+                        result.success ? null : new IOException(result.message)));
             } catch (IOException | RuntimeException error) {
                 complete(activity, callback, error);
             }
