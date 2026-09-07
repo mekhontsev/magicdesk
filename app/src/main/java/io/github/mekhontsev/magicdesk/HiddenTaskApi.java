@@ -39,6 +39,8 @@ final class HiddenTaskApi {
             final Object service,
             final int displayId,
             final int maxTasks) throws ReflectiveOperationException {
+        // Task identity uses Intent filter fields, never arbitrary app extras.
+        // Retaining extras can exhaust the shared Binder buffer during reads.
         final Object result = service.getClass()
                 .getMethod(
                         "getTasks",
@@ -50,7 +52,7 @@ final class HiddenTaskApi {
                         service,
                         Integer.valueOf(maxTasks),
                         Boolean.FALSE,
-                        Boolean.TRUE,
+                        Boolean.FALSE,
                         Integer.valueOf(displayId));
         if (!(result instanceof List)) {
             throw new IllegalStateException("getTasks returned no task list");

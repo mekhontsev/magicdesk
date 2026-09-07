@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -11,10 +12,32 @@ import android.os.Bundle;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import org.junit.Test;
 
 public final class HiddenTaskApiTest {
+    @Test
+    public void taskQueriesOmitExtrasWithoutFilteringHiddenTasks() throws Exception {
+        final TaskQueryService service = new TaskQueryService();
+        assertSame(service.tasks, HiddenTaskApi.getTasks(service, 3, 16));
+        assertEquals(3, service.displayId);
+        assertEquals(16, service.limit);
+        assertFalse(service.filterOnlyVisibleRecents);
+        assertFalse(service.keepIntentExtra);
+
+        assertSame(service.tasks, HiddenTaskApi.getTasks(service, 0));
+        assertEquals(0, service.displayId);
+        assertEquals(100, service.limit);
+        assertFalse(service.keepIntentExtra);
+
+        assertSame(service.tasks, HiddenTaskApi.getAllTasks(service));
+        assertEquals(-1, service.displayId);
+        assertEquals(100, service.limit);
+        assertFalse(service.filterOnlyVisibleRecents);
+        assertFalse(service.keepIntentExtra);
+    }
+
     @Test
     public void startsRecentsWithNullOptionsAndPreservesEveryIntegerResult() throws Exception {
         for (final int result : new int[] {0, 2, -96}) {
@@ -100,6 +123,24 @@ public final class HiddenTaskApiTest {
                 source.indexOf("static Object getTaskToken("));
         assertTrue(reader.contains("bounds instanceof Rect"));
         assertTrue(reader.contains("return new Rect((Rect) bounds)"));
+    }
+
+    public static final class TaskQueryService {
+        final List<Object> tasks = List.of(new Object());
+        int displayId;
+        int limit;
+        boolean filterOnlyVisibleRecents = true;
+        boolean keepIntentExtra = true;
+
+        public List<?> getTasks(final int maxNum,
+                final boolean filterOnlyVisibleRecents,
+                final boolean keepIntentExtra, final int displayId) {
+            this.limit = maxNum;
+            this.filterOnlyVisibleRecents = filterOnlyVisibleRecents;
+            this.keepIntentExtra = keepIntentExtra;
+            this.displayId = displayId;
+            return tasks;
+        }
     }
 
     public static final class FakeTask {

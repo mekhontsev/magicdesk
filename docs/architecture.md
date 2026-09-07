@@ -901,6 +901,10 @@ focused adapters rather than one broad compatibility utility.
   `FrameworkTaskSnapshotSource` converts them into the parcelable
   `FrameworkTaskSnapshot` returned through typed AIDL. Application policy and
   recovery code no longer parse `cmd activity stack list` in production.
+  Running-task queries omit application Intent extras at the framework boundary;
+  component, data URI, categories, and flags remain available for task identity.
+  Unused launch payloads must not consume the shared Binder buffer on every
+  observation or explicit window command.
 - `FrameworkInputSnapshotSource` is the only runtime owner of the bounded
   InputDispatcher dump used when no typed focus/cursor API exists.
 - `FrameworkInputWindowObservationSource` is the shell-side owner of hidden
