@@ -38,11 +38,9 @@ community compatibility result, not the complete maintainer interface matrix.
 | Interface | Ordinary app access | Finding | Production decision |
 | --- | --- | --- | --- |
 | `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Production setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
-| `IDisplayManager` Nubia extensions | Read and command | Display state and `setCmdToDisplay` calls are accepted from the app UID. | Production uses only the physical-output refresh command; Android's existing display remains the desktop target. |
+| `IDisplayManager` Nubia extensions | Read and command | Display state and `setCmdToDisplay` calls are accepted from the app UID. | Production sends command 10 before the HDMI HPD pulse. In the archived implementation this extends projection-removal grace, not a physical-display refresh. |
 | `IInputManager` Nubia mouse extensions | Shell read and command verified | `getMousePosition` and `setMousePosition` expose the firmware cursor position used by wired and wireless projection. | The Shizuku UserService uses these methods for position observation and explicit positioning. Relative pointer transport, buttons, and display routing use shared Android mechanisms. |
-| `IDisplayManager` text-input extension | Shell command verified | `getFocusMirrorWindow` returns the currently focused projected window. | The focused window is retained only for an explicit software-keyboard session. |
-| `IDisplayMirrorWindow` | Shell command verified | The focused window accepts composing text, committed text, deletion, and key events. | A bounded phone-side `InputConnection` forwards standard IME operations without selecting or embedding an IME. |
-| `SurfaceControl.setSFOption(1100/1102, ...)` | Write verified | The app UID can change wireless/wired privacy and caption visibility. No corresponding SurfaceFlinger getter was found. | Shizuku uses transport-aware lifecycle ownership and restores the separate preferences reported by Nubia's exported projection provider. |
+| `SurfaceControl.setSFOption(1100/1102, ...)` | Write verified | The app UID can change wireless/wired privacy and caption visibility. No corresponding SurfaceFlinger getter was found. | The app-UID helper uses transport-aware lifecycle ownership and restores the separate preferences reported by Nubia's exported projection provider. |
 | `ZteScreenRefreshRate` | Binder accepted | The implementation selects `DisplayControl.getPhysicalDisplayIds()[0]`. | Do not present it as external-monitor refresh control. |
 | `ColorfulLightService` | Binder discoverable; methods have no local permission check | It can preview and apply RedMagic lighting scenes. | Out of scope: it duplicates device settings and mutates unrelated hardware. |
 | `VendorPowerManagerService` | Binder discoverable | The interface contains no callable methods. | No use. |
@@ -125,15 +123,20 @@ live or retained display-0 freeform state without extending HOME ownership.
 
 ## Physical Output And Caption Control
 
-The Nubia `IDisplayManager` additions have no local permission checks for:
+The Nubia `IDisplayManager.setCmdToDisplay` addition has no local permission
+check.
 
-- `setCmdToDisplay`
-- `getFocusMirrorWindow`
-- `requestInputMethodChange`
+In the archived `DisplayMirrorCtrl` implementation, command 10 calls
+`otherMayChangeDisplayMode()`: it sets `mIsOtherChangeDisplayMode` for 10 seconds.
+While set, `getRemoveDelayTime()` extends removal of an existing `MirrorDisplay`
+from 500 to 2400 ms. The command does not apply a timing or refresh the physical
+display. This is an archived-source finding, not a fresh extraction of every
+supported firmware.
 
-`DisplayMirrorCtrl` command 10 temporarily allows the physical HDMI mode to be
-refreshed after a timing change. MagicDesk uses only this command. It does not
-invoke the vendor commands that create, switch, or destroy projection modes.
+MagicDesk still sends command 10 between its EDID write and HDMI HPD pulse.
+The EDID/HPD sequence changes the physical timing; the command's continued
+necessity requires a separate timing-change experiment. A startup with an
+already matching mode does not exercise that path.
 
 The firmware uses SurfaceFlinger option `1100` for wireless privacy and `1102`
 for wired privacy. Value `1` hides external layers whose names include `Task=`,
@@ -248,16 +251,6 @@ display-associated virtual mouse. On the current desktop path, native
 The firmware handler above is not evidence that this path needs button
 replacement. MagicDesk forwards the native sequence without querying vendor
 cursor coordinates.
-
-For phone-side text input, `IDisplayManager.getFocusMirrorWindow()` returns an
-`IDisplayMirrorWindow` Binder. Its text, composing-region, deletion, and key
-methods are sufficient to mirror a standard Android `InputConnection` without
-changing the selected IME. MagicDesk captures that Binder only after the user
-requests the software keyboard and discards it when the keyboard closes.
-The capability probe checks all required method signatures without requesting
-a focused window. It records the last real keyboard-session result separately;
-`no_focused_window` is a transient runtime state, not an API compatibility
-failure.
 
 ## Debug Probe
 

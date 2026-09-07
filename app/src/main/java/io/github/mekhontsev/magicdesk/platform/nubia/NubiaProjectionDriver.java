@@ -47,11 +47,6 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
                         context, physicalDisplayId, profile);
         return new PreparedMode() {
             @Override
-            public int physicalDisplayId() {
-                return prepared.physicalDisplayId();
-            }
-
-            @Override
             public boolean applyDeferredMode() throws IOException {
                 return prepared.applyDeferredMode();
             }

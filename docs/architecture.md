@@ -2260,8 +2260,12 @@ after a settlement timeout. Callers do not implement separate model checks or
 retry a permanently denied node on every control-panel refresh.
 
 Changing the physical timing uses Nubia's own sequence: write the selected
-EDID mode, ask DisplayManager to refresh its physical displays, pulse HDMI HPD,
-then wait for three stable observations of the requested mode. The physical
+EDID mode, send DisplayManager vendor command 10, pulse HDMI HPD, then wait for
+three stable observations of the requested mode. In the archived firmware,
+command 10 extends projection-removal grace during a temporary disconnect;
+it does not itself refresh physical displays. The source evidence and remaining
+verification are recorded in the
+[vendor audit](nubia-vendor-audit.md#physical-output-and-caption-control). The physical
 display id is resolved again afterward because the firmware can recreate it
 during this transition. The operation runs before the desktop session starts,
 so no MagicDesk task is attached to a disappearing display.

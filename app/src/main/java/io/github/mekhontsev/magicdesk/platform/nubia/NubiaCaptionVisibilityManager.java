@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
 import io.github.mekhontsev.magicdesk.MagicDeskApplication;
-import io.github.mekhontsev.magicdesk.SurfaceFlingerOptionCommand;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -55,7 +54,7 @@ public final class NubiaCaptionVisibilityManager {
     private static final String PROVIDER_METHOD = "MagicDesk";
     private static final String APP_PROCESS = "/system/bin/app_process";
     private static final String COMMAND_CLASS =
-            "io.github.mekhontsev.magicdesk.SurfaceFlingerOptionCommand";
+            SurfaceFlingerOptionCommand.class.getName();
     private static final long COMMAND_TIMEOUT_MILLIS = 5_000L;
     private static final int MAX_OUTPUT_BYTES = 32 * 1024;
 

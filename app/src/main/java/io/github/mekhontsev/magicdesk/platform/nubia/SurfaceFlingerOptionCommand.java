@@ -1,9 +1,9 @@
-package io.github.mekhontsev.magicdesk;
+package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-/** Applies the narrow SurfaceFlinger policy needed by external captions. */
+/** Applies Nubia's transport-specific SurfaceFlinger privacy policy. */
 public final class SurfaceFlingerOptionCommand {
     private static final int WIRELESS_PRIVACY_MODE_OPTION = 1100;
     private static final int WIRED_PRIVACY_MODE_OPTION = 1102;

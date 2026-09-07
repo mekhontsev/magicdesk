@@ -60,7 +60,6 @@ final class NubiaExternalDisplayModeController {
         final String previousBypass = readBypass();
         final PreparedMode prepared = new PreparedMode(
                 previousBypass,
-                preparedDisplayId,
                 deferExactMode ? context : null,
                 deferExactMode ? selection : null);
         try {
@@ -130,24 +129,17 @@ final class NubiaExternalDisplayModeController {
 
     static final class PreparedMode implements AutoCloseable {
         private final String mPreviousBypass;
-        private int mPhysicalDisplayId;
         private Context mDeferredContext;
         private NubiaHdmiModeController.Selection mDeferredSelection;
         private boolean mClosed;
 
         PreparedMode(
                 final String previousBypass,
-                final int physicalDisplayId,
                 final Context deferredContext,
                 final NubiaHdmiModeController.Selection deferredSelection) {
             mPreviousBypass = previousBypass;
-            mPhysicalDisplayId = physicalDisplayId;
             mDeferredContext = deferredContext;
             mDeferredSelection = deferredSelection;
-        }
-
-        int physicalDisplayId() {
-            return mPhysicalDisplayId;
         }
 
         boolean applyDeferredMode() throws IOException {
@@ -172,7 +164,7 @@ final class NubiaExternalDisplayModeController {
                 throw new IOException(
                         "native output timing disappeared during output setup");
             }
-            mPhysicalDisplayId = NubiaHdmiModeController.applyIfNeeded(
+            NubiaHdmiModeController.applyIfNeeded(
                     mDeferredContext, currentDisplayId, refreshed);
             mDeferredContext = null;
             mDeferredSelection = null;

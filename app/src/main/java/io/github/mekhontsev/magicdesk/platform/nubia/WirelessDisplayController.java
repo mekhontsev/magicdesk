@@ -1,8 +1,6 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
-import io.github.mekhontsev.magicdesk.AppProcessCommand;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
-import io.github.mekhontsev.magicdesk.ShellAccess;
 
 import android.app.Activity;
 import android.content.ComponentName;
@@ -11,8 +9,6 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.util.Log;
 
-import java.io.IOException;
-
 /** Opens RedMagic's stock Miracast device picker. */
 final class WirelessDisplayController {
     private static final String TAG = "MagicDeskWirelessDisplay";
@@ -20,8 +16,6 @@ final class WirelessDisplayController {
             new ComponentName(
                     "cn.nubia.touping",
                     "cn.nubia.touping.HomeActivity");
-    private static final String DISCONNECT_COMMAND =
-            "io.github.mekhontsev.magicdesk.platform.nubia.WirelessDisplayCommand";
 
     private WirelessDisplayController() {
     }
@@ -56,15 +50,5 @@ final class WirelessDisplayController {
                     error);
             return false;
         }
-    }
-
-    static boolean disconnect() throws IOException {
-        final String output = ShellAccess.run(
-                AppProcessCommand.run(DISCONNECT_COMMAND)).trim();
-        if (output.contains("wireless-display-disconnected")) {
-            return true;
-        }
-        Log.w(TAG, "Could not disconnect wireless display output=" + output);
-        return false;
     }
 }

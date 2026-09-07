@@ -99,8 +99,6 @@ public interface PlatformProjectionDriver {
     }
 
     interface PreparedMode extends AutoCloseable {
-        int physicalDisplayId();
-
         boolean applyDeferredMode() throws IOException;
 
         @Override
