@@ -7,9 +7,6 @@ public interface PlatformWindowingDriver {
     /** Whether confirmed stale input focus needs host relayout/hierarchy repair. */
     boolean requiresDesktopInputFocusRepair();
 
-    /** Whether secondary desktop startup requires a freeform display default. */
-    boolean requiresSecondaryDisplayFreeformDefault();
-
     /** Whether moving one desktop task to the phone can destroy the display host. */
     boolean protectsExternalSessionFromPhoneTaskMigration();
 

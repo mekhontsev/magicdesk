@@ -235,6 +235,14 @@ final class DesktopSessionTransitionCoordinator {
             }
         }
         try {
+            SecondaryDisplayWindowing.release(target.displayId);
+        } catch (java.io.IOException | RuntimeException error) {
+            success = false;
+            CompatibilityDiagnostics.record("DISPLAY-WINDOWING-001",
+                    "Could not restore secondary display default mode",
+                    error.getMessage(), error);
+        }
+        try {
             final DesktopHomeRoleLease.RestoredHomePresentation presentation =
                     DesktopHomeRoleLease.finishSessionClose(target);
             DesktopHomeRoleLease.presentRestoredHome(presentation);

@@ -73,6 +73,25 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public DisplayWindowingSnapshot readDisplayWindowing(final int displayId) {
+        try {
+            return FrameworkRuntime.current().displayWindowing().read(displayId);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("cannot read display default mode", error);
+        }
+    }
+
+    @Override
+    public void setDisplayWindowing(
+            final int displayId, final String uniqueId, final int mode) {
+        try {
+            FrameworkRuntime.current().displayWindowing().set(displayId, uniqueId, mode);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("cannot set display default mode", error);
+        }
+    }
+
+    @Override
     public SystemMonitorSnapshot readSystemMonitorSnapshot(
             final boolean includeProcessMemory) {
         return SystemMonitorReader.read(includeProcessMemory);

@@ -119,6 +119,14 @@ public final class FrameworkWindowingIsolationTest {
     }
 
     @Test
+    public void displayDefaultWritesStayInFrameworkAdapter() throws IOException {
+        assertNoSourceTokensOutside(
+                "Display-default mutation outside framework adapter",
+                List.of("io/github/mekhontsev/magicdesk/FrameworkDisplayWindowingApi.java"),
+                "getMethod(\"setWindowingMode\", Integer.TYPE, Integer.TYPE)");
+    }
+
+    @Test
     public void sleepsStayInExplicitTimingBoundaries() throws IOException {
         assertNoSourceTokensOutside(
                 "Direct sleep outside timing boundaries",

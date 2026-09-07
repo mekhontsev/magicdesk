@@ -56,6 +56,7 @@ final class RuntimeDesktopSessionCoordinator {
     }
 
     void start() {
+        SecondaryDisplayWindowing.recoverPending();
         refreshOwnership();
         if (LocalDesktopSessionState.isCleanupPending(mContext)) {
             scheduleLocalDesktopCleanup();
@@ -173,6 +174,7 @@ final class RuntimeDesktopSessionCoordinator {
     }
 
     void onShellReady() {
+        SecondaryDisplayWindowing.recoverPending();
         schedulePhoneTaskRecovery();
         if (LocalDesktopSessionState.isCleanupPending(mContext)) {
             scheduleLocalDesktopCleanup();

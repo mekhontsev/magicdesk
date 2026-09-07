@@ -60,7 +60,7 @@ final class DesktopSessionController {
         try {
             DesktopRuntimeBridge.noteDesktopTarget(
                     preparedTarget, resolvedPolicy);
-            prepareDisplayWindowing(preparedTarget);
+            SecondaryDisplayWindowing.prepare(preparedTarget.displayId);
             DesktopHomeRoleLease.activate(homeAcquisition);
             final Boolean visibleTaskSnapshot =
                     MagicDeskRuntime.hasVisibleAppTaskSnapshot(
@@ -110,6 +110,7 @@ final class DesktopSessionController {
                     + " as HOME");
             final boolean ready = waitForDesktopReady(preparedTarget.displayId);
             if (!ready) {
+                SecondaryDisplayWindowing.release(preparedTarget.displayId);
                 DesktopHomeRoleLease.releaseAfterFailedStart(
                         homeAcquisition);
                 DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
@@ -122,6 +123,11 @@ final class DesktopSessionController {
             }
             return new ShowResult(ready, true);
         } catch (IOException | RuntimeException error) {
+            try {
+                SecondaryDisplayWindowing.release(preparedTarget.displayId);
+            } catch (IOException releaseError) {
+                error.addSuppressed(releaseError);
+            }
             try {
                 DesktopHomeRoleLease.releaseAfterFailedStart(
                         homeAcquisition);
@@ -242,18 +248,6 @@ final class DesktopSessionController {
                     DesktopShellActivity.ACTION_RESTORE_WINDOWS);
         }
         return intent;
-    }
-
-    private static void prepareDisplayWindowing(
-            final DesktopDisplayTarget target) throws IOException {
-        if (target.displayId <= 0
-                || !PlatformDrivers.current().windowing()
-                        .requiresSecondaryDisplayFreeformDefault()) {
-            return;
-        }
-        ShellAccess.run(AppProcessCommand.run(
-                DisplayWindowingModeCommand.class.getName(),
-                Integer.toString(target.displayId)));
     }
 
     private static int findDesktopTask(final int displayId)

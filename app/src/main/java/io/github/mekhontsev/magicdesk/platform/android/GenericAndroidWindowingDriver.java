@@ -13,11 +13,6 @@ final class GenericAndroidWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
-    public boolean requiresSecondaryDisplayFreeformDefault() {
-        return false;
-    }
-
-    @Override
     public boolean protectsExternalSessionFromPhoneTaskMigration() {
         return false;
     }

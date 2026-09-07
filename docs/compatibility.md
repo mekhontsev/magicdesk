@@ -26,6 +26,13 @@ projection, optional absolute-pointer access, external-display input routing,
 WMShell desktop commands, and several task transitions can still depend on
 firmware behavior.
 
+Secondary sessions prepare a freeform display default through Android's
+WindowManager on every platform. Explicit fullscreen tasks remain supported;
+the phone display default is never changed. Diagnostics distinguishes this
+shared policy from optional firmware focus repair and reports pending display
+mode restoration. Close restores a changed effective default; disconnected
+physical displays are reconciled by stable identity when they return.
+
 Compatibility reports distinguish the platform's default physical-input relay
 policy, the saved user preference, the current session's capture policy, and
 actual relay readiness. **Redirect physical keyboard and mouse to desktop

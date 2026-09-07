@@ -2246,12 +2246,27 @@ Normal starts use `DesktopSessionPolicy.USER`; diagnostics can select the
 non-restoring, non-persisting `ISOLATED_SELF_TEST` policy without adding
 display-specific restore exceptions.
 
-`requiresSecondaryDisplayFreeformDefault` separately controls the current
-secondary display-default preparation before HOME activation. It is not an
-input-focus policy. The existing command changes WindowManager's display
-override without a paired restoration; removing or adding lifecycle ownership
-to this mutation requires a known pre-session override baseline, not a focus
-repair experiment on an already configured monitor.
+Secondary sessions share one display-default policy on every platform:
+`SecondaryDisplayWindowing` prepares freeform before HOME activation through
+`FrameworkRuntime.displayWindowing()` and the existing Shizuku Binder service.
+Display 0 is untouched; explicit fullscreen task modes remain independent.
+An unavailable or rejected default-mode request fails preparation.
+
+`DisplayWindowingSession` captures and durably records the previous effective
+mode only when it changes the display default. Close restores it after desktop
+teardown, and failed startup releases the same ownership. An already-freeform
+display requires neither a write nor a restoration entry. Android 15+'s getter
+resolves an undefined override into framework policy, so restoration preserves
+the previous effective mode, not the absence of a raw override. A different
+mode selected by another owner is left intact.
+
+WindowManager retains physical-display overrides after disconnection. Pending
+restoration therefore uses the stable display identity, not the connection's
+numeric id. Existing display-added and shell-ready callbacks recover interrupted
+changes, skipping the active session. Virtual-display entries are discarded
+only when the display is gone. There is no additional timer, task sampling,
+worker, or idle Binder traffic. Diagnostics reports active display and pending
+restoration count. This lifecycle is independent of optional input-focus repair.
 
 ### Output timing
 

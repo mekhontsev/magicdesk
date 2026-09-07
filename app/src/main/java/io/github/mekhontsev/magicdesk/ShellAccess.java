@@ -191,6 +191,26 @@ public final class ShellAccess {
         }
     }
 
+    static DisplayWindowingSnapshot readDisplayWindowing(final int displayId)
+            throws IOException {
+        try {
+            return requireService().readDisplayWindowing(displayId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("display mode read failed: " + usefulMessage(error), error);
+        }
+    }
+
+    static void setDisplayWindowing(
+            final int displayId, final String uniqueId, final int mode) throws IOException {
+        try {
+            requireService().setDisplayWindowing(displayId, uniqueId, mode);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("display mode write failed: " + usefulMessage(error), error);
+        }
+    }
+
     public static CommandResult executeCommand(final String command) throws IOException {
         final String encoded;
         try {

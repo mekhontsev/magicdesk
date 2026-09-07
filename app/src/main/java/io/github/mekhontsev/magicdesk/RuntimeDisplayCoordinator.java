@@ -43,12 +43,14 @@ final class RuntimeDisplayCoordinator implements DisplayManager.DisplayListener 
     @Override
     public void onDisplayAdded(final int displayId) {
         record("added", displayId);
+        SecondaryDisplayWindowing.recoverPending();
         mListener.onDisplayStateChanged(displayId, false);
     }
 
     @Override
     public void onDisplayRemoved(final int displayId) {
         record("removed", displayId);
+        SecondaryDisplayWindowing.onDisplayRemoved(displayId);
         mListener.onDisplayStateChanged(displayId, true);
     }
 

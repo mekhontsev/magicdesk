@@ -72,6 +72,12 @@ public final class DesktopCloseFailureTest {
                     }
                 }
                 static class ControlActivity { static boolean isControlPanelVisible() { return false; } }
+                static class SecondaryDisplayWindowing {
+                    static void release(int displayId) throws IOException {
+                        step("display-mode");
+                        if (failure.equals("display-mode-io")) throw new IOException("restore failed");
+                    }
+                }
                 static class PhoneControlPanelLauncher {
                     static void openOnPhoneWithShell() { step("panel"); }
                 }
@@ -82,7 +88,8 @@ public final class DesktopCloseFailureTest {
                 public static void verify() {
                     for (String fail : List.of("none", "home", "phone", "phone-result",
                             "screen-unowned", "protection", "park", "close",
-                            "recover", "surfaces", "present", "panel", "remove")) {
+                            "recover", "display-mode", "display-mode-io",
+                            "surfaces", "present", "panel", "remove")) {
                         failure = fail; active = 7; completions = 0; events.clear();
                         Fixture f = new Fixture();
                         DesktopDisplayTarget target = new DesktopDisplayTarget();
@@ -107,6 +114,12 @@ public final class DesktopCloseFailureTest {
                         check(events.indexOf("input") < events.indexOf("park"), "input survived into parking");
                         check(events.indexOf("close") < events.indexOf("surfaces"),
                                 "HOME surfaces disabled before host close: " + events);
+                        check(events.indexOf("close") < events.indexOf("display-mode")
+                                && events.indexOf("display-mode") < events.indexOf("surfaces"),
+                                "display default restored outside teardown boundary: " + events);
+                        if (fail.startsWith("display-mode")) {
+                            check(!succeeded[0], "lost display default restoration failure");
+                        }
                         if (fail.equals("remove")) check(events.indexOf("remove") < events.indexOf("surfaces"),
                                 "HOME surfaces disabled before display removal: " + events);
                         check(events.contains("recover") && events.contains("panel")

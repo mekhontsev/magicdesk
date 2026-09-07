@@ -33,7 +33,6 @@ public final class PlatformDriversTest {
         assertTrue(driver.phoneUi().isAvailable());
         assertTrue(driver.windowing()
                 .requiresDesktopInputFocusRepair());
-        assertTrue(driver.windowing().requiresSecondaryDisplayFreeformDefault());
         assertTrue(driver.windowing()
                 .requiresNativeFullscreenCaptionRefresh());
         assertTrue(driver.windowing().requiresPhoneTaskRecovery());
@@ -78,7 +77,6 @@ public final class PlatformDriversTest {
         assertFalse(driver.phoneUi().isAvailable());
         assertFalse(driver.windowing()
                 .requiresDesktopInputFocusRepair());
-        assertFalse(driver.windowing().requiresSecondaryDisplayFreeformDefault());
         assertFalse(driver.windowing()
                 .requiresNativeFullscreenCaptionRefresh());
         assertFalse(driver.windowing().requiresPhoneTaskRecovery());

@@ -13,11 +13,6 @@ final class NubiaWindowingDriver implements PlatformWindowingDriver {
     }
 
     @Override
-    public boolean requiresSecondaryDisplayFreeformDefault() {
-        return true;
-    }
-
-    @Override
     public boolean protectsExternalSessionFromPhoneTaskMigration() {
         // Starting an already running desktop task from Nubia's phone launcher
         // can tear down the external desktop task hierarchy instead of moving

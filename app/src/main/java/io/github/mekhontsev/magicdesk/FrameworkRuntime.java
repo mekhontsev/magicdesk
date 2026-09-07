@@ -4,6 +4,7 @@ package io.github.mekhontsev.magicdesk;
 final class FrameworkRuntime {
     private final FrameworkWindowingCompat mWindowingCompat;
     private final FrameworkWindowingApi mWindowingApi;
+    private FrameworkDisplayWindowingApi mDisplayWindowingApi;
 
     private FrameworkRuntime() {
         mWindowingCompat = FrameworkWindowingCompat.current();
@@ -20,6 +21,14 @@ final class FrameworkRuntime {
 
     FrameworkWindowingApi windowing() {
         return mWindowingApi;
+    }
+
+    synchronized FrameworkDisplayWindowingApi displayWindowing()
+            throws ReflectiveOperationException {
+        if (mDisplayWindowingApi == null) {
+            mDisplayWindowingApi = new FrameworkDisplayWindowingApi();
+        }
+        return mDisplayWindowingApi;
     }
 
     FrameworkWindowingCompat.Capabilities capabilities() {

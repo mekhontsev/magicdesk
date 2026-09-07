@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import io.github.mekhontsev.magicdesk.DisplayWindowingSnapshot;
+
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -417,5 +419,9 @@ interface IShizukuCommandService {
         int displayId,
         int taskId,
         boolean focusable) = 118;
+
+    DisplayWindowingSnapshot readDisplayWindowing(int displayId) = 119;
+
+    void setDisplayWindowing(int displayId, String uniqueId, int mode) = 120;
 
 }

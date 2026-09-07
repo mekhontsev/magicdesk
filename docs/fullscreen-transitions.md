@@ -203,8 +203,8 @@ Commit verification is shared on every platform, independently of the optional
 is a failed command, not a successful no-op. The same event-driven input wait
 also covers HOME when repair is disabled. Normal preparation sets HOME's final
 focusability independently of that policy; only repair pulses focusability or
-reasserts hierarchy. Secondary display-default configuration has its own
-`requiresSecondaryDisplayFreeformDefault` policy.
+reasserts hierarchy. Secondary display-default configuration belongs to the
+shared `DisplayWindowingSession` lifecycle, not to a firmware focus policy.
 
 ## Rejected approaches
 
