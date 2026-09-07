@@ -43,7 +43,6 @@ public final class PhoneDisplayGuardCommand {
     private Set<Integer> mReportedUids = new LinkedHashSet<>();
     private final Set<Integer> mProtectionFailures = new LinkedHashSet<>();
     private String mLastTaskReadFailure;
-    private String mLastPointerRefreshFailure;
     private volatile boolean mFinished;
 
     private PhoneDisplayGuardCommand(
@@ -96,7 +95,6 @@ public final class PhoneDisplayGuardCommand {
         if (!requestDisplayPower("power-off")) {
             throw new IOException("DisplayManager rejected power-off for display 0");
         }
-        refreshPointerViewport();
         mLastHeartbeat.set(android.os.SystemClock.elapsedRealtime());
         startWatchdog();
         System.out.println(READY);
@@ -108,7 +106,6 @@ public final class PhoneDisplayGuardCommand {
             while ((line = reader.readLine()) != null) {
                 if (HEARTBEAT.equals(line)) {
                     refreshFreezerState();
-                    refreshPointerViewport();
                     mLastHeartbeat.set(
                             android.os.SystemClock.elapsedRealtime());
                 } else if (RESTORE.equals(line)) {
@@ -283,21 +280,6 @@ public final class PhoneDisplayGuardCommand {
             throw new IllegalArgumentException("invalid application UID " + uid);
         }
         return uid;
-    }
-
-    private void refreshPointerViewport() {
-        try {
-            NubiaDesktopPointerController.createOrUpdateViewport();
-            mLastPointerRefreshFailure = null;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            final String failure = usefulMessage(error);
-            if (!failure.equals(mLastPointerRefreshFailure)) {
-                mLastPointerRefreshFailure = failure;
-                System.err.println(
-                        "MagicDesk phone display: could not refresh pointer viewport: "
-                                + failure);
-            }
-        }
     }
 
     private static String parseRestoreOperation(final String operation) {

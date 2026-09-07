@@ -41,7 +41,6 @@ final class RuntimeDesktopInputCoordinator {
     private int mDesktopDisplayId = Display.INVALID_DISPLAY;
     private boolean mDesktopPrepared;
     private int mMouseBridgeSuspendedDisplayId = Display.INVALID_DISPLAY;
-    private int mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
     private int mInputSourceRefreshGeneration;
     private boolean mShowImeOverrideActive;
     private boolean mLastReportedPointerReady;
@@ -77,7 +76,6 @@ final class RuntimeDesktopInputCoordinator {
 
     void destroy() {
         mDestroyed = true;
-        mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
         ++mInputSourceRefreshGeneration;
         mInputDevices.stop();
         KeyboardShortcutWatcher.stop();
@@ -95,22 +93,6 @@ final class RuntimeDesktopInputCoordinator {
         mInputDevices.scheduleRefresh();
     }
 
-    void onConfigurationChanged() {
-        scheduleDeviceRefresh();
-        finalizePointerViewportRecovery();
-    }
-
-    void onDesktopDisplayRemoved(final int displayId) {
-        if (mDestroyed || displayId <= Display.DEFAULT_DISPLAY
-                || (displayId != mDesktopDisplayId
-                        && displayId != mMouseBridgeSuspendedDisplayId)
-                || !supportsAbsolutePointer(displayId)) {
-            return;
-        }
-        mPointerViewportRecoveryDisplayId = displayId;
-        finalizePointerViewportRecovery();
-    }
-
     void setDesktopDisplay(
             final int displayId,
             final boolean ownershipChanged) {
@@ -123,19 +105,8 @@ final class RuntimeDesktopInputCoordinator {
             mDesktopPrepared = false;
         }
         mDesktopDisplayId = displayId;
-        if (displayId > Display.DEFAULT_DISPLAY) {
-            mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
-        } else if (shouldRecoverPointerViewport(
-                previousDisplayId, displayId, ownershipChanged)
-                && supportsAbsolutePointer(previousDisplayId)) {
-            // A desktop host can close while HDMI or a wireless display stays
-            // connected. Complete the same pointer handoff used when a
-            // desktop display is physically removed.
-            mPointerViewportRecoveryDisplayId = previousDisplayId;
-        }
         clearCompletedMouseBridgeSuspension(displayId);
         if (!ownershipChanged) {
-            finalizePointerViewportRecovery();
             return;
         }
         updateShowImeOverride();
@@ -143,7 +114,6 @@ final class RuntimeDesktopInputCoordinator {
         if (ownsExternalDesktop()) {
             refreshDesktopInputSources();
         }
-        finalizePointerViewportRecovery();
     }
 
     void reconcileRuntime(final int displayId) {
@@ -400,23 +370,6 @@ final class RuntimeDesktopInputCoordinator {
         }
     }
 
-    private void finalizePointerViewportRecovery() {
-        if (mPointerViewportRecoveryDisplayId <= Display.DEFAULT_DISPLAY
-                || ownsExternalDesktop()
-                || !supportsAbsolutePointer(
-                        mPointerViewportRecoveryDisplayId)) {
-            return;
-        }
-        // The display callback and configuration broadcast have no stable
-        // ordering. Complete recovery from the ownership transition itself,
-        // after the removed desktop can no longer be selected as a viewport.
-        if (ShellAccess.refreshPointerViewport()) {
-            Log.i(TAG, "phone pointer viewport finalized after desktop release="
-                    + mPointerViewportRecoveryDisplayId);
-            mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
-        }
-    }
-
     private void refreshDesktopInputSources() {
         if (mDestroyed || !relaysPhysicalInput()
                 || !ShellAccess.isReady()) {
@@ -565,14 +518,5 @@ final class RuntimeDesktopInputCoordinator {
         return shellReady
                 && hardwareKeyboard
                 && !routingOwnedByRelaySession;
-    }
-
-    static boolean shouldRecoverPointerViewport(
-            final int previousDisplayId,
-            final int displayId,
-            final boolean ownershipChanged) {
-        return ownershipChanged
-                && previousDisplayId > Display.DEFAULT_DISPLAY
-                && displayId <= Display.DEFAULT_DISPLAY;
     }
 }

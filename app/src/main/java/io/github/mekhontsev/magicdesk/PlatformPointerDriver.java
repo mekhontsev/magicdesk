@@ -30,8 +30,6 @@ public interface PlatformPointerDriver extends AutoCloseable {
             int action,
             long downTime);
 
-    void refreshViewport();
-
     @Override
     void close();
 }

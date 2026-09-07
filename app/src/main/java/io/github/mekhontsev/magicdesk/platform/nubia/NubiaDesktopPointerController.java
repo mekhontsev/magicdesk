@@ -27,12 +27,6 @@ final class NubiaDesktopPointerController {
                         Integer.valueOf(position.y));
     }
 
-    static void createOrUpdateViewport()
-            throws ReflectiveOperationException {
-        // Experiment: suppress vendor viewport updates from every caller,
-        // including phone-screen guard heartbeats; leave AOSP routing unchanged.
-    }
-
     static Point getPosition() throws ReflectiveOperationException {
         final Point position = queryPosition();
         if (position == null) {

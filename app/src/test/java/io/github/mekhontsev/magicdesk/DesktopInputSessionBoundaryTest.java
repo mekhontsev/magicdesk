@@ -5,6 +5,48 @@ import org.junit.Test;
 /** Exercises the production boundaries without input devices or Android services. */
 public final class DesktopInputSessionBoundaryTest {
     @Test
+    public void ownershipChangesReconcileInputWithoutAnAbsolutePointer() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Display { static final int INVALID_DISPLAY = -1; }
+                boolean mDestroyed, mDesktopPrepared;
+                int mDesktopDisplayId = -1, mMouseBridgeSuspendedDisplayId = -1;
+                final List<String> events = new ArrayList<>();
+                void selectInputPolicyForNewSession(int display) { events.add("policy"); }
+                void updateShowImeOverride() { events.add("ime"); }
+                void updateInputBridges() { events.add("bridges"); }
+                void refreshDesktopInputSources() { events.add("sources"); }
+                boolean ownsExternalDesktop() { return mDesktopDisplayId > 0; }
+                public static void verify() {
+                    Fixture f = new Fixture();
+                    f.setDesktopDisplay(7, true);
+                    check(f.events.equals(List.of("policy", "ime", "bridges", "sources")),
+                            "external input setup changed: " + f.events);
+                    f.mDesktopPrepared = true;
+                    f.events.clear();
+                    f.setDesktopDisplay(7, false);
+                    check(f.mDesktopPrepared && f.events.equals(List.of("policy")),
+                            "unchanged ownership restarted input");
+                    f.mMouseBridgeSuspendedDisplayId = 7;
+                    f.events.clear();
+                    f.setDesktopDisplay(-1, true);
+                    check(!f.mDesktopPrepared && f.mMouseBridgeSuspendedDisplayId == -1,
+                            "closed desktop retained readiness or suspension");
+                    check(f.events.equals(List.of("policy", "ime", "bridges")),
+                            "close skipped shared cleanup: " + f.events);
+                    f.events.clear();
+                    f.setDesktopDisplay(0, true);
+                    check(f.events.equals(List.of("policy", "ime", "bridges")),
+                            "phone desktop started external routing");
+                    f.events.clear();
+                    f.mDestroyed = true;
+                    f.setDesktopDisplay(7, true);
+                    check(f.events.isEmpty(), "destroyed runtime accepted ownership");
+                }
+                """ + RuntimeSourceFixture.methods("RuntimeDesktopInputCoordinator",
+                        "setDesktopDisplay", "clearCompletedMouseBridgeSuspension"));
+    }
+
+    @Test
     public void preparationStartsOnceAndCloseRejectsLateReadiness() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Display { static final int INVALID_DISPLAY = -1; }

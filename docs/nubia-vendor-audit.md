@@ -39,7 +39,7 @@ community compatibility result, not the complete maintainer interface matrix.
 | --- | --- | --- | --- |
 | `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Production setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
 | `IDisplayManager` Nubia extensions | Read and command | Display state and `setCmdToDisplay` calls are accepted from the app UID. | Production uses only the physical-output refresh command; Android's existing display remains the desktop target. |
-| `IInputManager` Nubia mouse extensions | Shell read and command verified | `getMousePosition`, `setMousePosition`, and `sendMouseCmd` expose the firmware cursor viewport used by wired and wireless projection. | Production resolves the methods inside the Shizuku UserService and combines absolute position updates with display-targeted events from MagicDesk's virtual pointer. |
+| `IInputManager` Nubia mouse extensions | Shell read and command verified | `getMousePosition` and `setMousePosition` expose the firmware cursor position used by wired and wireless projection. | The Shizuku UserService uses these methods for position observation, explicit positioning, and secondary-click injection. Relative pointer transport and display routing use shared Android mechanisms. |
 | `IDisplayManager` text-input extension | Shell command verified | `getFocusMirrorWindow` returns the currently focused projected window. | The focused window is retained only for an explicit software-keyboard session. |
 | `IDisplayMirrorWindow` | Shell command verified | The focused window accepts composing text, committed text, deletion, and key events. | A bounded phone-side `InputConnection` forwards standard IME operations without selecting or embedding an IME. |
 | `SurfaceControl.setSFOption(1100/1102, ...)` | Write verified | The app UID can change wireless/wired privacy and caption visibility. No corresponding SurfaceFlinger getter was found. | Shizuku uses transport-aware lifecycle ownership and restores the separate preferences reported by Nubia's exported projection provider. |
@@ -212,8 +212,7 @@ service. The display helper refreshes it with the existing heartbeat for
 MagicDesk and every application UID that owns a live task on the desktop
 display. It retains that union
 for the screen-off interval because a briefly absent task must not freeze
-shared desktop input, and refreshes the firmware mouse viewport after the
-display power transition. All entries are cleared after `power-reset`. If
+shared desktop input. All entries are cleared after `power-reset`. If
 cleanup cannot run, `cfreezer` expires an unrefreshed working state internally.
 MagicDesk never writes the persistent freezer whitelist because such an entry
 could outlive an interrupted helper.

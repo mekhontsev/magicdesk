@@ -69,15 +69,6 @@ final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
     }
 
     @Override
-    public void refreshViewport() {
-        try {
-            NubiaDesktopPointerController.createOrUpdateViewport();
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.w(TAG, "pointer viewport refresh unavailable", error);
-        }
-    }
-
-    @Override
     public void close() {
     }
 

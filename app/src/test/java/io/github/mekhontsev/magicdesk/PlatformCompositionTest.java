@@ -134,10 +134,6 @@ public final class PlatformCompositionTest {
         }
 
         @Override
-        public void refreshViewport() {
-        }
-
-        @Override
         public void close() {
         }
     }

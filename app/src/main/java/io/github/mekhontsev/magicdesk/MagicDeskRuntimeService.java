@@ -489,9 +489,6 @@ public final class MagicDeskRuntimeService extends Service
 
     private void handleDisplayStateChanged(
             final int displayId, final boolean displayRemoved) {
-        if (displayRemoved && mDesktopInput != null) {
-            mDesktopInput.onDesktopDisplayRemoved(displayId);
-        }
         if (mDesktopSession != null) {
             mDesktopSession.handleDisplayStateChanged(
                     displayId, displayRemoved);
@@ -507,7 +504,7 @@ public final class MagicDeskRuntimeService extends Service
             public void onReceive(final Context context, final Intent intent) {
                 if (Intent.ACTION_CONFIGURATION_CHANGED.equals(intent.getAction())) {
                     if (mDesktopInput != null) {
-                        mDesktopInput.onConfigurationChanged();
+                        mDesktopInput.scheduleDeviceRefresh();
                     }
                 } else if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())
                         && mPhoneUi.isPhoneScreenControlActive()) {

@@ -823,11 +823,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public void refreshPointerViewport() {
-        mPointerDriver.refreshViewport();
-    }
-
-    @Override
     public boolean injectPointerClick(
             final int displayId,
             final int button) {
@@ -914,8 +909,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                         expectedVirtualKeyboardCount,
                         routeKeyboards,
                         routePhysicalMice,
-                        routeVirtualMouse,
-                        mPointerDriver);
+                        routeVirtualMouse);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);
                 ownerLinked = true;

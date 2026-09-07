@@ -62,16 +62,11 @@ public final class RuntimeAuditRegressionTest {
                         journal = new LinkedHashSet<>(ports);
                     }
                 }
-                static class Pointer {
-                    boolean supportsDisplay(int id) { return false; }
-                    void refreshViewport() {}
-                }
                 final Set<String> mAssociatedInputPorts = new LinkedHashSet<>(List.of("existing"));
                 Object mInputManager = this, mAssociationTarget = "display";
                 Method mAddAssociation;
-                Pointer mPointer = new Pointer();
                 boolean mClosed, mRouteKeyboards = true, mRoutePhysicalMice = true, mRouteVirtualMouse;
-                int mDisplayId = 7, mKeyboardAssociationCount, calls;
+                int mKeyboardAssociationCount, calls;
                 boolean journaledBefore = true;
                 public void add(String port, String target) throws IOException {
                     calls++;
@@ -99,7 +94,7 @@ public final class RuntimeAuditRegressionTest {
                     check(f.calls == 0, "association ran despite journal failure");
                 }
                 """ + RuntimeSourceFixture.methods("DesktopInputRoutingSession",
-                "refreshAssociations", "hasUnassociatedMouse", "associatePort", "addRequestedPort"));
+                "refreshAssociations", "associatePort", "addRequestedPort"));
     }
 
     @Test

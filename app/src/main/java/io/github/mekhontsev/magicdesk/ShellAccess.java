@@ -408,23 +408,6 @@ public final class ShellAccess {
         }
     }
 
-    static boolean refreshPointerViewport() {
-        if (!isReady()) {
-            return false;
-        }
-        final IShizukuCommandService service = connectedServiceOrConnect();
-        if (service == null) {
-            return false;
-        }
-        try {
-            service.refreshPointerViewport();
-            return true;
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure(error);
-            return false;
-        }
-    }
-
     static boolean injectPointerClick(
             final int displayId,
             final int button) {

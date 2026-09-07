@@ -23,7 +23,6 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
 
     private final Set<String> mAssociatedInputPorts =
             new LinkedHashSet<>();
-    private final PlatformPointerDriver mPointer;
     private Object mInputManager;
     private Method mAddAssociation;
     private Method mRemoveAssociation;
@@ -36,9 +35,7 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
     private boolean mRouteVirtualMouse;
     private boolean mClosed;
 
-    private DesktopInputRoutingSession(
-            final PlatformPointerDriver pointer) {
-        mPointer = pointer;
+    private DesktopInputRoutingSession() {
     }
 
     static DesktopInputRoutingSession open(
@@ -47,8 +44,7 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             final int expectedVirtualKeyboardCount,
             final boolean routeKeyboards,
             final boolean routePhysicalMice,
-            final boolean routeVirtualMouse,
-            final PlatformPointerDriver pointer) throws Exception {
+            final boolean routeVirtualMouse) throws Exception {
         if (context == null) {
             throw new IllegalArgumentException(
                     "input routing requires a service context");
@@ -82,7 +78,7 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                         : Collections.emptyList();
         cleanupStaleAssociations();
         final DesktopInputRoutingSession session =
-                new DesktopInputRoutingSession(pointer);
+                new DesktopInputRoutingSession();
         try {
             session.start(
                     context,
@@ -192,14 +188,6 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         }
         DesktopInputRoutingOwnership.record(requestedPorts);
 
-        // Vendor pointer services may rebuild their viewport asynchronously.
-        // Prepare them before AOSP associations so the final InputReader
-        // rebuild is always owned by the routing session.
-        if ((mRoutePhysicalMice || mRouteVirtualMouse)
-                && mPointer.supportsDisplay(displayId)) {
-            mPointer.refreshViewport();
-        }
-
         int keyboardAssociations = 0;
         for (final DesktopKeyboardDevice keyboard : keyboards) {
             if (associatePort(
@@ -240,10 +228,6 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             // Retain recovery ownership even if a later hotplug association fails.
             DesktopInputRoutingOwnership.record(requestedPorts);
         }
-        if (hasUnassociatedMouse(mice)
-                && mPointer.supportsDisplay(mDisplayId)) {
-            mPointer.refreshViewport();
-        }
         int added = 0;
         for (final DesktopKeyboardDevice keyboard : keyboards) {
             if (associatePort(keyboard.location)) {
@@ -260,18 +244,6 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             DesktopInputRoutingOwnership.record(mAssociatedInputPorts);
         }
         return added;
-    }
-
-    private boolean hasUnassociatedMouse(
-            final List<DesktopMouseDevice> mice) {
-        for (final DesktopMouseDevice mouse : mice) {
-            if (mouse.location != null
-                    && !mouse.location.isEmpty()
-                    && !mAssociatedInputPorts.contains(mouse.location)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private boolean associatePort(final String location)
@@ -368,13 +340,6 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             }
         }
         mAssociatedInputPorts.clear();
-        // The routing target may have disappeared while vendor input still
-        // uses its viewport. Rebuild it only after physical ports are back on
-        // Android's default routing so the phone cannot retain desktop bounds.
-        if ((mRoutePhysicalMice || mRouteVirtualMouse)
-                && mPointer.supportsDisplay(mDisplayId)) {
-            mPointer.refreshViewport();
-        }
         mDisplayId = -1;
         mAssociationTarget = null;
         mKeyboardAssociationCount = 0;

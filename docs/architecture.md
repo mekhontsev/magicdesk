@@ -105,24 +105,15 @@ or removing a display. Late preparation and device callbacks cannot reopen
 input for a closing session; the next session establishes its own readiness.
 
 The pointer helper starts passively. The runtime first waits until its virtual
-mouse is visible in EventHub. It then prepares any optional vendor pointer
-viewport, establishes Android's display associations as the final InputReader
-configuration change, and only then enables physical capture. Capture acquires
-every neutral source immediately; it does not expose a first physical motion
-report as an implicit vendor handshake. Hot-plugged sources enter the same
-neutral-state protocol. Absolute-pointer preparation belongs to that same
-routing transaction, but runs only when the selected pointer driver exposes
-that capability. Nubia's oneway viewport command is issued
-synchronously so capture cannot overtake the service-side request; firmware
-may apply the accepted update while the desktop surface is becoming visible.
+mouse is visible in EventHub, establishes Android's display associations,
+and only then enables physical capture. Capture acquires every neutral source
+immediately. Hot-plugged sources enter the same neutral-state protocol.
+Android's InputReader owns the pointer viewport through those associations;
+the routing session is independent of the optional absolute-pointer driver.
 Teardown reverses that order: the helper
 releases every `EVIOCGRAB` and acknowledges completion before the routing
 session removes its associations. A helper restart repeats the same protocol
 instead of inheriting capture permission from a destroyed virtual device.
-After a desktop display is removed, the runtime finalizes the phone pointer
-viewport from the external-ownership transition itself. Configuration broadcasts
-are not used as an ordering barrier because firmware may deliver one before the
-display ownership callback.
 This ordering prevents physical and virtual cursor mappers from observing a
 partially constructed or partially removed route.
 
@@ -210,8 +201,8 @@ keyboard preference is imposed during setup.
 
 MagicDesk does not package or link a Nubia binary library. The vendor surface
 used for desktop input consists of private Binder methods added to framework
-interfaces on RedMagic firmware: `IInputManager.getMousePosition`,
-`setMousePosition`, and `sendMouseCmd`.
+interfaces on RedMagic firmware: `IInputManager.getMousePosition` and
+`setMousePosition`.
 
 These signatures are resolved reflectively inside the shell UserService and
 are never exposed as a generic command surface. Diagnostics and the self-test

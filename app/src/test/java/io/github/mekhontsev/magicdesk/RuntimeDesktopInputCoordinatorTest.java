@@ -65,18 +65,4 @@ public final class RuntimeDesktopInputCoordinatorTest {
         assertEquals(1, selected.size());
         assertEquals("magicdesk-mouse", selected.get(0).location);
     }
-
-    @Test
-    public void pointerViewportRecoversWhenExternalOwnershipEnds() {
-        assertTrue(RuntimeDesktopInputCoordinator.shouldRecoverPointerViewport(
-                7, Display.INVALID_DISPLAY, true));
-        assertTrue(RuntimeDesktopInputCoordinator.shouldRecoverPointerViewport(
-                7, Display.DEFAULT_DISPLAY, true));
-        assertFalse(RuntimeDesktopInputCoordinator.shouldRecoverPointerViewport(
-                7, Display.INVALID_DISPLAY, false));
-        assertFalse(RuntimeDesktopInputCoordinator.shouldRecoverPointerViewport(
-                Display.DEFAULT_DISPLAY, Display.INVALID_DISPLAY, true));
-        assertFalse(RuntimeDesktopInputCoordinator.shouldRecoverPointerViewport(
-                7, 8, true));
-    }
 }

@@ -24,10 +24,6 @@ final class GenericAndroidPointerDriver implements PlatformPointerDriver {
     }
 
     @Override
-    public void refreshViewport() {
-    }
-
-    @Override
     public void close() {
     }
 }
