@@ -203,18 +203,40 @@ method used below. These probes do not change display power or UID protection.
 The same firmware contains the Binder service `cfreezer`
 (`com.zte.performance.cfreezer.ICpuFreezerManager`). Turning display 0 off
 caused direct `am_freeze` events for MagicDesk even while ActivityManager
-classified the process as TOP with a foreground service; `cmd activity
+classified the process as TOP with a foreground service. That observation did
+not establish behavior while MagicDesk holds HOME. `cmd activity
 unfreeze --sticky` did not override this separate vendor freezer. The service's
 `noteCpuFreezerUidWorking(uid, working, "service")` API is accessible to shell
 UID 2000 and is the firmware's own transient protection for an executing
 service. The display helper refreshes it with the existing heartbeat for
-MagicDesk and every application UID that owns a live task on the desktop
-display. It retains that union
+other application UIDs that own live tasks on the desktop display; MagicDesk's
+own UID is excluded even when its windows appear in those snapshots.
+It retains that union
 for the screen-off interval because a briefly absent task must not freeze
 shared desktop input. All entries are cleared after `power-reset`. If
 cleanup cannot run, `cfreezer` expires an unrefreshed working state internally.
 MagicDesk never writes the persistent freezer whitelist because such an entry
 could outlive an interrupted helper.
+
+The 2026-09-08 inspection of the installed NX809J Android 16 firmware
+(`20260204.221845`, `/system/framework/services.jar` SHA-256
+`e80906b720ecc8d117c640ad916706217e08ed4853ae9879c7b4f904e89d95a8`)
+found explicit selected-HOME exclusions in `CpuFreezerManagerServiceV2`.
+`CpuFreezerUtils.getLauncherPackageName` and `AppInfoUtils.isCurrentLauncher`
+resolve `MAIN`/`HOME`, rather than hardcoding the stock launcher. The service
+refreshes its cached HOME on preferred-activity changes and screen-off;
+`CommonChecker` also checks HOME when deciding whether to freeze an app.
+Its ordinary `isScreenOn` branch checks display 0, not external displays.
+In `CommonScreenChecker`, top/float-window exclusions are in the screen-on
+branch; the screen-off branch only temporarily exempts the screen-off top app.
+These source findings do not prove that other desktop apps will be frozen,
+but HOME alone does not protect their UIDs. Close also returns HOME before
+restoring phone power, so its intermediate state needs separate coverage.
+No screen-off trial with working-state protection disabled accompanied this
+inspection. MagicDesk's own working-state refresh has since been removed;
+the screen-off and Close behavior still needs device verification. Other
+desktop-app protection remains in place. The power-restoration watchdog has
+an independent cleanup purpose and is not made redundant by HOME ownership.
 
 Two apparent event sources are not sufficient by themselves. Nubia's
 `zte_backlight` callback reports only calls to `setNit`, `setBacklight`, and

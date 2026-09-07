@@ -9,6 +9,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -39,7 +40,7 @@ public final class PhoneDisplayGuardCommand {
     private final int mDesktopDisplayId;
     private final Map<Integer, NubiaCpuFreezerWorkingState.Session>
             mFreezerSessions = new LinkedHashMap<>();
-    private Set<Integer> mReportedUids = new LinkedHashSet<>();
+    private Set<Integer> mReportedUids;
     private final Set<Integer> mProtectionFailures = new LinkedHashSet<>();
     private String mLastTaskReadFailure;
     private volatile boolean mFinished;
@@ -71,7 +72,7 @@ public final class PhoneDisplayGuardCommand {
         Runtime.getRuntime().addShutdownHook(shutdownHook);
         try {
             guard.run();
-        } catch (IOException | ReflectiveOperationException error) {
+        } catch (IOException error) {
             System.out.println(ERROR + " " + usefulMessage(error));
         } finally {
             guard.mFinished = true;
@@ -86,7 +87,7 @@ public final class PhoneDisplayGuardCommand {
         }
     }
 
-    private void run() throws IOException, ReflectiveOperationException {
+    private void run() throws IOException {
         refreshFreezerState();
         // Claim ownership before the command so every later exit path resets
         // even if the process dies immediately after DisplayManager accepts it.
@@ -171,14 +172,13 @@ public final class PhoneDisplayGuardCommand {
         return released;
     }
 
-    private void refreshFreezerState() throws ReflectiveOperationException {
-        final Set<Integer> desiredUids = new LinkedHashSet<>();
-        desiredUids.add(Integer.valueOf(mAppUid));
+    private void refreshFreezerState() {
+        Set<Integer> liveUids = Collections.emptySet();
         try {
-            desiredUids.addAll(ShellTaskUidReader.read(mDesktopDisplayId));
+            liveUids = ShellTaskUidReader.read(mDesktopDisplayId);
             mLastTaskReadFailure = null;
         } catch (ReflectiveOperationException | RuntimeException error) {
-            // Keeping MagicDesk itself alive preserves fail-open screen recovery.
+            // Retain protection for previously observed apps on a failed snapshot.
             final String failure = usefulMessage(error);
             if (!failure.equals(mLastTaskReadFailure)) {
                 mLastTaskReadFailure = failure;
@@ -189,7 +189,8 @@ public final class PhoneDisplayGuardCommand {
         }
 
         synchronized (mFreezerSessions) {
-            desiredUids.addAll(mFreezerSessions.keySet());
+            final Set<Integer> desiredUids = protectedDesktopUids(
+                    mAppUid, liveUids, mFreezerSessions.keySet());
             for (final Integer uid : desiredUids) {
                 final NubiaCpuFreezerWorkingState.Session existing =
                         mFreezerSessions.get(uid);
@@ -197,9 +198,6 @@ public final class PhoneDisplayGuardCommand {
                     try {
                         existing.refresh();
                     } catch (ReflectiveOperationException | RuntimeException error) {
-                        if (uid.intValue() == mAppUid) {
-                            throw error;
-                        }
                         existing.close();
                         mFreezerSessions.remove(uid);
                         mProtectionFailures.add(uid);
@@ -211,9 +209,6 @@ public final class PhoneDisplayGuardCommand {
                             uid, NubiaCpuFreezerWorkingState.begin(uid.intValue()));
                     mProtectionFailures.remove(uid);
                 } catch (ReflectiveOperationException | RuntimeException error) {
-                    if (uid.intValue() == mAppUid) {
-                        throw error;
-                    }
                     if (mProtectionFailures.add(uid)) {
                         System.err.println(
                                 "MagicDesk phone display: could not protect UID "
@@ -229,10 +224,22 @@ public final class PhoneDisplayGuardCommand {
             if (!protectedUids.equals(mReportedUids)) {
                 mReportedUids = protectedUids;
                 System.out.println(PROTECTED_UIDS + " "
-                        + joinUids(protectedUids));
+                        + (protectedUids.isEmpty() ? "none" : joinUids(protectedUids)));
                 System.out.flush();
             }
         }
+    }
+
+    static Set<Integer> protectedDesktopUids(
+            final int appUid,
+            final Set<Integer> liveUids,
+            final Set<Integer> retainedUids) {
+        final Set<Integer> uids = new LinkedHashSet<>(liveUids);
+        uids.addAll(retainedUids);
+        // The selected HOME is already exempt from cfreezer. Our desktop
+        // windows also appear in task snapshots, so exclude their shared UID.
+        uids.remove(Integer.valueOf(appUid));
+        return uids;
     }
 
     private static String joinUids(final Set<Integer> uids) {

@@ -2584,11 +2584,18 @@ The guard publishes its process-local screen state through
 `MagicDeskRuntime.refreshPlatformState`; UI command completions and runtime
 notifications refresh the controls without a settings observer.
 
-While display 0 is off, RedMagic's independent `cfreezer` can freeze even a
-foreground-service HOME process. The same heartbeat refreshes the vendor's
-transient `noteCpuFreezerUidWorking` state for MagicDesk and the application
-UIDs owning live tasks on the desktop display. It retains the accumulated UID
-set for the screen-off interval, then clears it during restore. No persistent
+While display 0 is off, RedMagic's independent `cfreezer` applies a separate
+screen-off policy. The inspected firmware exempts the selected HOME package;
+that exemption does not extend to other desktop applications and ends when
+Close returns HOME, before restoring phone power. See
+`docs/nubia-vendor-audit.md` for the firmware evidence and verification scope.
+The same heartbeat refreshes the vendor's transient
+`noteCpuFreezerUidWorking` state for other application UIDs owning live tasks
+on the desktop display. It excludes MagicDesk's UID, including its entries in
+task snapshots, and relies on the firmware's HOME exemption for the host.
+There is no separate working-state request for MagicDesk during Close.
+The helper retains the accumulated desktop-app UID set for the screen-off
+interval, then clears it during restore. No persistent
 freezer whitelist is installed. The optional Nubia phone-UI component is
 detected from this service and method; diagnostics inspect the same API without
 changing any UID's working state.
