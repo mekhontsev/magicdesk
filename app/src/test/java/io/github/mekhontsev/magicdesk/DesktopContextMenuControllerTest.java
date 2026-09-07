@@ -46,7 +46,7 @@ public final class DesktopContextMenuControllerTest {
     public void observedShortcutDiscoveryStaysOnTheExistingNonUiCaller() throws IOException {
         final String source = between(read("DesktopUiGateway.java"),
                 "DesktopActivityLaunchResult invokeAppActionObserved(",
-                "LocalTextInputSession captureLocalTextInput(");
+                "void showTransientStatus(");
         final int query = source.indexOf("new AppShortcutRepository(activity).loadAll(target)");
         final int ui = source.indexOf("mMainHandler.post(() ->");
         assertTrue(query > source.indexOf("Looper.myLooper() == Looper.getMainLooper()"));
@@ -59,7 +59,7 @@ public final class DesktopContextMenuControllerTest {
             throws IOException {
         final String source = between(read("DesktopUiGateway.java"),
                 "DesktopActivityLaunchResult invokeAppActionObserved(",
-                "LocalTextInputSession captureLocalTextInput(");
+                "void showTransientStatus(");
         final int validation = source.indexOf(
                 "AndroidIntegrationGateway.requireShortcutPresentation(presentation);");
         assertTrue(validation >= 0);

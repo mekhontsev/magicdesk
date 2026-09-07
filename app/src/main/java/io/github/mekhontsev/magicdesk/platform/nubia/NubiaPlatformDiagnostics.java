@@ -151,14 +151,6 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                 result, capabilities,
                 "vendor.mouse_position", "present",
                 "API-NUBIA-007", "MagicDesk Nubia desktop pointer backend");
-        DesktopSelfTestCapabilityAudit.optional(
-                result, capabilities,
-                "vendor.mirror_text_input", "present",
-                "API-NUBIA-009", "RedMagic mirrored text input API");
-        DesktopSelfTestCapabilityAudit.runtimeCapability(
-                result, capabilities,
-                "runtime.mirror_text_input", "working", "failed",
-                "API-NUBIA-010", "RedMagic mirrored text input runtime");
         DesktopSelfTestCapabilityAudit.optionalComponent(
                 context, result,
                 "cn.nubia.touping",

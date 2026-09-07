@@ -140,13 +140,6 @@ final class ComposedPlatformDriver implements PlatformDriver {
     }
 
     @Override
-    public PlatformTextInputDriver textInput() {
-        return component(
-                PlatformComponent.TEXT_INPUT,
-                mExtension.textInput(), mBaseline.textInput());
-    }
-
-    @Override
     public PlatformSystemControls createSystemControls(
             final DesktopShellActivity activity,
             final DesktopUiFactory ui) {

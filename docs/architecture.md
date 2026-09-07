@@ -146,36 +146,41 @@ secondary click. Two-finger movement scrolls, while a stationary two-finger
 tap also becomes a secondary click. These decisions stay in the phone UI;
 display-targeted event injection stays inside the shell UserService.
 
-The software keyboard is a separate, explicit session. `PhoneImeInputView`
-adapts Android IME operations, including composing text, commits, deletion,
-and key events, to a captured desktop editor. For third-party applications
-the platform text-input driver supplies that transport; the Nubia driver
-currently uses `IDisplayMirrorWindow`. This does not require a mirror display.
-MagicDesk-owned panel and built-in application fields share `LocalTextInputSession`
-and the editor's ordinary Android `InputConnection`. The UI gateway checks the
-active panel and the selected task from the existing desktop snapshot before
-consulting `BuiltInWindowRegistry`; phone-window focus is not used to choose
-a desktop editor.
-One editor is captured for the keyboard session. Detached, hidden, unfocused,
-or moved editors invalidate that session instead of redirecting text to another
-window or falling back to vendor input. Closing the keyboard or the desktop
-releases the connection. Target discovery is one-shot, with no new polling,
-activity observer, or change to the user's selected IME.
+The user's Android IME connects directly to the focused desktop editor through
+its normal `InputConnection`. `DisplayImePolicyController` temporarily applies
+Android's fallback-to-default-display policy on external desktops. The shell
+task-observer session owns this policy alongside the display configuration:
+clear, close, and owner Binder death restore the previous policy if it still
+has our value. Repeated configuration of the same display does not query or
+write the policy. Phone desktop leaves display-0 policy unchanged.
 
-`PhoneImeRequest` owns the phone-side opening and visibility lifecycle.
-Only the keyboard button captures a text session: pointer clicks never capture
-or replace it, and capture failure reports an unavailable editor without
-injecting another click. One explicit show request is sent after window focus
-and the Android input-connection creation callback; subsequent focus callbacks
-do not reopen the keyboard. Initial hidden insets do not cancel an opening
-request. The button only opens the keyboard; repeated presses retain the
-current or pending session. Android's Back gesture dismisses the IME. Observed IME
-dismissal, touchpad stop, target-display change, and destruction release the
-session. Each input connection has a distinct identity, so a superseded or
-closed connection cannot write into or close a newer one. These transitions
-are callback-driven and introduce no timer, worker, or task query. A failed
-vendor capture remains an explicit limitation; the phone adapter does not
-guess a different recipient or replace the application's selected editor.
+The phone touchpad is an ordinary Activity with a non-focusable attached
+`PopupWindow` containing its controls and touch surface. Android's
+`INPUT_METHOD_NEEDED` mode allows the window to coexist with the phone IME.
+Touchpad motion and clicks do not take editor focus from the external
+application. System and IME insets constrain the usable touch surface. The
+popup is attached only while the Activity is started and is dismissed on stop;
+it cannot remain over another phone application. The Activity itself retains
+normal focus and Back handling when no external editor is active.
+
+Start initially focuses its search for hardware input without requesting the
+software keyboard. Clicking the search field enables and explicitly requests
+the IME. Other applications use their own editor's native show/hide behavior.
+The chrome task permits focus only while a focusable panel or dialog is
+requested; its transparent base window and taskbar remain non-focusable.
+`DesktopPanelWindowController` acquires task focusability before attaching the
+panel and releases it on dismissal, failed attachment, or host teardown.
+Acknowledgements from a closed panel cannot attach a replacement. The existing
+task command queue orders release before a following application launch; no
+worker, polling loop, or UI-thread Binder wait is added. Leaving the task
+permanently focusable lets its always-on-top priority block application focus
+even with no focused child window. Conversely, making the
+whole task non-focusable rejects a child panel's input connection even when
+that child receives ordinary hardware key events.
+
+No editor text is captured or relayed by MagicDesk. Composing text, selection,
+deletion, editor actions, and Back-to-dismiss remain Android IME operations.
+There is no extra keyboard, polling loop, or software-keyboard selection.
 
 While an external desktop is owned, the runtime temporarily enables Android's
 `show_ime_with_hard_keyboard` setting so the user can explicitly open the
@@ -190,16 +195,12 @@ used for desktop input consists of private Binder methods added to framework
 interfaces on RedMagic firmware:
 
 - `IInputManager.getMousePosition`, `setMousePosition`, and `sendMouseCmd`;
-- `IDisplayManager.getFocusMirrorWindow`;
-- `IDisplayMirrorWindow` composing, text, deletion, and key dispatch methods;
 - the wired-only `dumpsys display dmctrl inputSource` control.
 
 These signatures are resolved reflectively inside the shell UserService and
 are never exposed as a generic command surface. Diagnostics and the self-test
-inspect the absolute-pointer and mirror-text signatures without invoking them.
-The report also retains the last mirror-text runtime result from an explicit
-keyboard session. No focused projected window is reported as not tested rather
-than as missing firmware support. A missing optional package or method disables
+inspect the absolute-pointer signatures without invoking them.
+A missing optional package or method disables
 the corresponding operation rather than changing unrelated device state. In
 contrast,
 `libmagicdesk_keyboard_bridge.so` and `libmagicdesk_uinput_bridge.so` are
@@ -224,7 +225,7 @@ transparent `DesktopChromeActivity` supplies the application token for the
 taskbar, Start, context menus, notification center, and desktop dialogs. The
 shell launches this host in a root-level organizer area, a sibling of the
 standard task workspace. Both the area and its task use `MULTI_WINDOW` and
-`alwaysOnTop`; the task is non-floating and non-focusable, with empty bounds
+`alwaysOnTop`; the task is non-floating and normally non-focusable, with empty bounds
 that fill the area. The shell also disables the
 ActivityRecord input sink.
 All visible chrome is an ordinary bounded `TYPE_APPLICATION_PANEL` child
@@ -1018,7 +1019,6 @@ isolated behind these boundaries.
   port or unique-id display associations. `DesktopInputRelayPolicy`, carried
   by `PlatformFeatures`, independently selects complete keyboard and mouse
   relays; it does not imply absolute-pointer support.
-  `PlatformTextInputDriver` owns optional projected-window IME forwarding; and
   `PlatformDiagnostics` contributes only the probes for the selected platform.
   A selected `SYSTEM_CONTROLS` provider identifies the platform integration,
   not every optional hardware control. Nubia cooling settings are read through
@@ -1565,7 +1565,7 @@ cover the reserved status- and navigation-bar insets above the wallpaper.
 Android can therefore keep normal system-bar behavior for HOME and freeform
 tasks without exposing bright wallpaper strips around snapped windows.
 
-The desktop chrome host is a translucent, non-focusable `MULTI_WINDOW` task in its
+The desktop chrome host is a translucent, normally non-focusable `MULTI_WINDOW` task in its
 own root-level organizer area beside Android's standard task workspace. The
 taskbar itself is a bounded child application window,
 so a foreground application that suppresses non-system overlays cannot
@@ -2396,7 +2396,7 @@ same task is idempotent; a second live task is rejected without releasing the
 registered host's taskbar, fullscreen planes, or other session resources.
 
 All phone, simulated, wired, and wireless sessions use one taskbar topology.
-Its transparent chrome host is an `alwaysOnTop`, non-focusable `MULTI_WINDOW`
+Its transparent chrome host is an `alwaysOnTop`, normally non-focusable `MULTI_WINDOW`
 task in a dedicated root-level organizer area beside Android's default task
 container. The area itself also uses `MULTI_WINDOW` and `alwaysOnTop`.
 Freeform tasks remain direct children of the default task area, while managed
@@ -2729,8 +2729,9 @@ These constraints define the supported implementation paths:
   independent per-task fullscreen planes. Session cleanup drains every owned
   plane and its structural anchor.
 - Every desktop target hosts the taskbar in one root-level, always-on-top
-  organizer area beside the standard workspace. Its non-focusable chrome task
-  supplies the bounded panel windows; application tasks never enter that area.
+  organizer area beside the standard workspace. Its chrome task accepts focus
+  only for a requested focusable panel or dialog; application tasks never enter
+  that area.
 - Nubia `WindowReply` is allowlisted and cannot manage arbitrary packages.
 - Moving a running task through display 0 can kill or recreate the application.
 - Fixed sleeps around task transitions are both visible and race-prone.

@@ -179,9 +179,6 @@ public final class DesktopRuntimeBridge {
                 timeoutMillis);
     }
 
-    static LocalTextInputSession captureLocalTextInput(final int displayId) {
-        return UI.captureLocalTextInput(displayId);
-    }
 
     static void showTransientStatus(
             final String message,

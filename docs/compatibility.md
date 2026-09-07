@@ -9,7 +9,7 @@ firmware interfaces are verified, it uses the standard Android driver.
 Likewise, Nubia hardware running an AOSP-derived custom ROM uses the standard
 Android provider for every component whose firmware API is absent. Passive
 runtime probes may retain an independently available Nubia projection,
-pointer, mirrored-input, internal-audio, diagnostics, or hardware-control
+pointer, internal-audio, diagnostics, or hardware-control
 component. Vendor branding alone is not a baseline requirement and never
 enables the complete Nubia integration.
 

@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.app.Activity;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.View;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -34,27 +33,6 @@ final class BuiltInWindowRegistry {
         }
     }
 
-    static View focusedTextEditor(final int displayId, final int taskId) {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            return null;
-        }
-        synchronized (WINDOWS) {
-            for (final WeakReference<Activity> reference : WINDOWS) {
-                final Activity activity = reference.get();
-                if (activity == null || activity.isFinishing() || activity.isDestroyed()
-                        || activity.getDisplay() == null
-                        || activity.getDisplay().getDisplayId() != displayId
-                        || activity.getTaskId() != taskId) {
-                    continue;
-                }
-                final View focused = activity.getCurrentFocus();
-                if (focused != null && focused.onCheckIsTextEditor()) {
-                    return focused;
-                }
-            }
-        }
-        return null;
-    }
 
     static void finishAll(final Runnable completion) {
         final Runnable finish = () -> {

@@ -85,9 +85,6 @@ public final class PlatformCapabilitySnapshot {
                 features.inputRelay.diagnosticDetail());
         probe(entries, platform, PlatformCapabilityId.ABSOLUTE_POINTER,
                 () -> platform.pointer().isAvailable(), () -> "");
-        probe(entries, platform, PlatformCapabilityId.MIRROR_TEXT_INPUT,
-                () -> platform.textInput().isAvailable(),
-                () -> platform.textInput().runtimeState().detail);
         probe(entries, platform, PlatformCapabilityId.PHONE_UI,
                 () -> platform.phoneUi().isAvailable(), () -> "");
         probeAudioCapture(entries, platform);

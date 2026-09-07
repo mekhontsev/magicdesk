@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
-import io.github.mekhontsev.magicdesk.PlatformTextInputDriver;
 import io.github.mekhontsev.magicdesk.ShizukuCapabilityProbe;
 
 import android.content.Context;
@@ -50,7 +49,6 @@ final class NubiaCapabilityProbe {
                 "openScreenOffTP",
                 boolean.class);
         appendMousePositionApi(report);
-        appendMirrorInputApis(report);
         ShizukuCapabilityProbe.appendService(
                 report,
                 "vendor.redmagic_app_manager",
@@ -130,31 +128,6 @@ final class NubiaCapabilityProbe {
         }
     }
 
-    private static void appendMirrorInputApis(
-            final StringBuilder report) {
-        try {
-            NubiaMirrorTextInputDriver.INSTANCE.verifyApi();
-            ShizukuCapabilityProbe.append(
-                    report,
-                    "vendor.mirror_text_input",
-                    "present",
-                    "IDisplayManager and IDisplayMirrorWindow signatures");
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            ShizukuCapabilityProbe.append(
-                    report,
-                    "vendor.mirror_text_input",
-                    "missing",
-                    ShizukuCapabilityProbe.usefulMessage(error));
-        }
-
-        final PlatformTextInputDriver.RuntimeState runtime =
-                NubiaMirrorTextInputDriver.INSTANCE.runtimeState();
-        ShizukuCapabilityProbe.append(
-                report,
-                "runtime.mirror_text_input",
-                runtime.state,
-                runtime.detail);
-    }
 
     private static void appendHardwareNodes(final StringBuilder report) {
         int present = 0;

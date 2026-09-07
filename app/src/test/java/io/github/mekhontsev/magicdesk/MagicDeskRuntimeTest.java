@@ -324,26 +324,6 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public boolean updateDesktopTextInput(
-                final int displayId,
-                final int action,
-                final String text,
-                final int arg1,
-                final int arg2,
-                final int arg3) {
-            return true;
-        }
-
-        @Override
-        public boolean beginDesktopTextInput(final int displayId) {
-            return true;
-        }
-
-        @Override
-        public void endDesktopTextInput(final int displayId) {
-        }
-
-        @Override
         public boolean showStart() {
             startShown = true;
             return true;

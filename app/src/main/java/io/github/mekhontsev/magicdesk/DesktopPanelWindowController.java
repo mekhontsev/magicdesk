@@ -41,6 +41,7 @@ final class DesktopPanelWindowController {
     private final int mDisplayId;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final PanelVisibilityListener mPanelVisibilityListener;
+    private final DesktopPanelFocusGate mFocusGate;
     private final Rect mBounds = new Rect();
     private final Rect mChildBounds = new Rect();
     private final Rect mInteractionOwnerBounds = new Rect();
@@ -83,6 +84,11 @@ final class DesktopPanelWindowController {
             final PanelVisibilityListener panelVisibilityListener) {
         mDisplayId = displayId;
         mPanelVisibilityListener = panelVisibilityListener;
+        mFocusGate = new DesktopPanelFocusGate(
+                (focusable, callback) -> MagicDeskRuntime.setDesktopChromeFocusable(
+                        mDisplayId, mHostActivity.getTaskId(), focusable, callback),
+                this::attachRequestedWindows,
+                this::failHostLaunch);
         final DisplayManager displayManager = context.getSystemService(
                 DisplayManager.class);
         final Display display = displayManager == null
@@ -451,15 +457,6 @@ final class DesktopPanelWindowController {
                         || (panel == mVisiblePanel && mVisibleRequested));
     }
 
-    View focusedTextEditor() {
-        final View inputPanel = topInputPanel();
-        if (Looper.myLooper() != Looper.getMainLooper()
-                || inputPanel == null) {
-            return null;
-        }
-        final View focused = inputPanel.findFocus();
-        return focused != null && focused.onCheckIsTextEditor() ? focused : null;
-    }
 
     boolean contains(final float x, final float y) {
         final int roundedX = Math.round(x);
@@ -511,6 +508,7 @@ final class DesktopPanelWindowController {
         mVisibleAdded = false;
         mChildAdded = false;
         mTransientAdded = false;
+        mFocusGate.require(false);
         if (dialog != null) {
             dialog.setOnDismissListener(null);
             mDialog = null;
@@ -542,6 +540,7 @@ final class DesktopPanelWindowController {
     }
 
     private void clearHost() {
+        mFocusGate.reset();
         mHostActivity = null;
         mWindowManager = null;
         mWindowToken = null;
@@ -586,6 +585,9 @@ final class DesktopPanelWindowController {
         if (mWindowManager == null || mWindowToken == null) {
             return false;
         }
+        if (!updateHostFocus()) {
+            return true;
+        }
         boolean success = true;
         if (mVisibleRequested && !mVisibleAdded) {
             success &= addVisiblePanel();
@@ -599,7 +601,15 @@ final class DesktopPanelWindowController {
         if (mDialogFactory != null && mDialog == null) {
             success &= createDialog();
         }
+        updateHostFocus();
         return success;
+    }
+
+    private boolean updateHostFocus() {
+        return mHostActivity != null && mFocusGate.require(
+                (mVisibleRequested && mVisibleFocusable)
+                        || (mChildRequested && mChildFocusable)
+                        || mDialogFactory != null);
     }
 
     private boolean addVisiblePanel() {
@@ -657,6 +667,7 @@ final class DesktopPanelWindowController {
                 if (mDialog == dialog) {
                     mDialog = null;
                     mDialogFactory = null;
+                    updateHostFocus();
                 }
             });
             dialog.show();
@@ -750,6 +761,7 @@ final class DesktopPanelWindowController {
             dialog.setOnDismissListener(null);
             dialog.dismiss();
         }
+        updateHostFocus();
     }
 
     private void clearVisibleRequest(final boolean notifyHidden) {
@@ -765,6 +777,7 @@ final class DesktopPanelWindowController {
         mVisibleAdded = false;
         mVisibleFocusable = false;
         mBounds.setEmpty();
+        updateHostFocus();
         if (notifyHidden && wasRequested) {
             notifyPanelVisibilityChanged(panel, false);
         }
@@ -788,6 +801,7 @@ final class DesktopPanelWindowController {
         mChildFocusable = false;
         mOwnerFocusBeforeChild = null;
         mChildBounds.setEmpty();
+        updateHostFocus();
     }
 
     private void clearTransientRequest() {

@@ -50,10 +50,6 @@ public interface PlatformExtension {
         return null;
     }
 
-    default PlatformTextInputDriver textInput() {
-        return null;
-    }
-
     default PlatformSystemControls createSystemControls(
             final DesktopShellActivity activity,
             final DesktopUiFactory ui) {

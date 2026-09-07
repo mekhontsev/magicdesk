@@ -109,8 +109,26 @@ public final class DesktopPanelArchitectureTest {
         assertTrue(host.contains(
                 "setAlwaysOnTop(transaction, taskToken, true)"));
         assertTrue(host.contains("setFocusable(transaction, taskToken, false)"));
+        assertTrue(host.contains("HiddenTaskApi.getTaskToken(task), focusable"));
+        final String activity = read(
+                "src/main/java/io/github/mekhontsev/magicdesk/DesktopChromeActivity.java");
+        assertTrue(activity.contains("FLAG_NOT_FOCUSABLE"));
+        assertTrue(activity.contains("FLAG_NOT_TOUCHABLE"));
         assertTrue(host.contains("setBounds(transaction, taskToken, new Rect())"));
         assertFalse(host.contains("WINDOWING_MODE_FREEFORM"));
+    }
+
+    @Test
+    public void panelLifecycleOwnsHostFocusIncludingDialogs() throws IOException {
+        final String controller = read(
+                "src/main/java/io/github/mekhontsev/magicdesk/"
+                        + "DesktopPanelWindowController.java");
+        assertTrue(controller.contains("new DesktopPanelFocusGate("));
+        assertTrue(controller.contains("mVisibleRequested && mVisibleFocusable"));
+        assertTrue(controller.contains("mChildRequested && mChildFocusable"));
+        assertTrue(controller.contains("|| mDialogFactory != null"));
+        assertTrue(controller.contains("if (!updateHostFocus())"));
+        assertTrue(controller.contains("mFocusGate.reset()"));
     }
 
     @Test

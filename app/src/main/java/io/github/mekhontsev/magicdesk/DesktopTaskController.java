@@ -589,6 +589,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public void setDesktopChromeFocusable(final int displayId, final int taskId,
+            final boolean focusable, final TaskRepository.ActionCallback callback) {
+        mTaskWatcher.setDesktopChromeFocusable(displayId, taskId, focusable, callback);
+    }
+
+    @Override
     public List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final int displayId) {
         return isActiveOnDisplay(displayId)

@@ -146,11 +146,6 @@ public final class NubiaFirmwareDetector {
                     PlatformComponent.PHONE_UI,
                     "RedMagicAppManager phone-screen API detected");
         }
-        if (hasMirrorTextApi()) {
-            detected.put(
-                    PlatformComponent.TEXT_INPUT,
-                    "IDisplayManager mirror-text API detected");
-        }
         if (InternalAudioSourceCapability.current().availability
                 == PlatformAudioCaptureDriver.Availability.DECLARED) {
             detected.put(
@@ -172,16 +167,6 @@ public final class NubiaFirmwareDetector {
         try {
             NubiaDesktopPointerController.prepareMousePositionControl();
             NubiaDesktopPointerController.preparePointerPositionControl();
-            return true;
-        } catch (ReflectiveOperationException | RuntimeException
-                | LinkageError error) {
-            return false;
-        }
-    }
-
-    private static boolean hasMirrorTextApi() {
-        try {
-            NubiaMirrorTextInputDriver.INSTANCE.verifyApi();
             return true;
         } catch (ReflectiveOperationException | RuntimeException
                 | LinkageError error) {

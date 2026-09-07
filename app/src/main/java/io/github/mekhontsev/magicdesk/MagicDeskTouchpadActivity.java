@@ -23,6 +23,7 @@ import android.view.WindowInsets;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.Toast;
 import android.window.OnBackInvokedCallback;
@@ -47,12 +48,12 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private DisplayManager.DisplayListener mDisplayListener;
     private int mTargetDisplayId = Display.INVALID_DISPLAY;
     private boolean mPointerDragActive;
-    private final PhoneImeRequest mKeyboardRequest = new PhoneImeRequest();
-    private PhoneImeInputView mPhoneInput;
     private FrameLayout mContentContainer;
     private ImageButton mHelpButton;
     private ScrollView mHelpView;
     private OnBackInvokedCallback mBackCallback;
+    private PopupWindow mTouchSurface;
+    private boolean mStarted;
 
     static void open(final Context context, final int displayId) {
         if (context == null || displayId <= Display.DEFAULT_DISPLAY) {
@@ -148,7 +149,19 @@ public final class MagicDeskTouchpadActivity extends Activity {
         super.onCreate(savedInstanceState);
         mDisplayManager = getSystemService(DisplayManager.class);
         updateTargetDisplay(getIntent());
-        setContentView(createContent());
+        final FrameLayout host = new FrameLayout(this);
+        host.setBackgroundColor(DesktopUiFactory.COLOR_BACKGROUND);
+        setContentView(host);
+        // Touching this child must not take input focus from the external
+        // editor. The ordinary Activity remains a valid phone focus/Back host;
+        // INPUT_METHOD_NEEDED keeps the child below Android's keyboard.
+        mTouchSurface = new PopupWindow(createContent(),
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT, false);
+        mTouchSurface.setInputMethodMode(PopupWindow.INPUT_METHOD_NEEDED);
+        mTouchSurface.setIsLaidOutInScreen(true);
+        mTouchSurface.setIsClippedToScreen(true);
+        mTouchSurface.setAnimationStyle(0);
         mBackCallback = this::handleBack;
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -165,6 +178,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        mStarted = true;
         synchronized (STATE_LOCK) {
             sVisibleActivity = new WeakReference<>(this);
         }
@@ -172,19 +186,27 @@ public final class MagicDeskTouchpadActivity extends Activity {
         DesktopSelfTestPhoneUiObserver.noteTouchpadStarted(mTargetDisplayId);
         registerDisplayListener();
         finishIfTargetUnavailable();
+        showTouchSurface();
     }
 
     @Override
-    public void onWindowFocusChanged(final boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) {
-            showKeyboardIfReady();
+    public void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        showTouchSurface();
+    }
+
+    private void showTouchSurface() {
+        final View decor = getWindow().getDecorView();
+        if (mStarted && !isFinishing() && mTouchSurface != null
+                && !mTouchSurface.isShowing() && decor.getWindowToken() != null) {
+            mTouchSurface.showAtLocation(decor, Gravity.TOP | Gravity.LEFT, 0, 0);
         }
     }
 
     @Override
     protected void onStop() {
-        clearTextInputProxy();
+        mStarted = false;
+        mTouchSurface.dismiss();
         finishPointerDrag();
         DesktopSelfTestPhoneUiObserver.noteTouchpadStopped(mTargetDisplayId);
         synchronized (STATE_LOCK) {
@@ -224,7 +246,9 @@ public final class MagicDeskTouchpadActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        clearTextInputProxy();
+        if (mTouchSurface != null) {
+            mTouchSurface.dismiss();
+        }
         if (mBackCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(
                     mBackCallback);
@@ -241,12 +265,8 @@ public final class MagicDeskTouchpadActivity extends Activity {
         root.setBackgroundColor(DesktopUiFactory.COLOR_BACKGROUND);
         root.setOnApplyWindowInsetsListener((view, windowInsets) -> {
             final Insets bars = windowInsets.getInsets(
-                    WindowInsets.Type.systemBars());
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
-            if (mKeyboardRequest.wasDismissed(
-                    windowInsets.isVisible(WindowInsets.Type.ime()))) {
-                clearTextInputProxy();
-            }
             return windowInsets;
         });
 
@@ -310,39 +330,9 @@ public final class MagicDeskTouchpadActivity extends Activity {
         header.addView(mHelpButton, new LinearLayout.LayoutParams(
                 ui.dp(48), ui.dp(48)));
 
-        final ImageButton keyboard = new ImageButton(this);
-        keyboard.setImageResource(R.drawable.ic_keyboard);
-        keyboard.setColorFilter(DesktopUiFactory.COLOR_TEXT);
-        keyboard.setBackgroundColor(Color.TRANSPARENT);
-        keyboard.setContentDescription(
-                getString(R.string.touchpad_show_keyboard));
-        keyboard.setTooltipText(
-                getString(R.string.touchpad_show_keyboard));
-        keyboard.setOnClickListener(view -> {
-            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
-            hideHelp();
-            showPhoneKeyboard();
-        });
-        header.addView(keyboard, new LinearLayout.LayoutParams(
-                ui.dp(48), ui.dp(48)));
         root.addView(header, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        mPhoneInput = new PhoneImeInputView(
-                this,
-                mKeyboardRequest,
-                this::showKeyboardIfReady,
-                (action, text, arg1, arg2, arg3) ->
-                        MagicDeskRuntime
-                                .updateDesktopTextInput(
-                                        mTargetDisplayId,
-                                        action,
-                                        text,
-                                        arg1,
-                                        arg2,
-                                        arg3));
-        root.addView(mPhoneInput, new LinearLayout.LayoutParams(1, 1));
 
         final TouchSurface touchSurface = new TouchSurface(this);
         touchSurface.setBackground(ui.rounded(
@@ -407,7 +397,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         if (mContentContainer == null) {
             return;
         }
-        hidePhoneKeyboard();
         final DesktopUiFactory ui = new DesktopUiFactory(this);
         mHelpView = TouchpadHelpContent.create(this, ui);
         final FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
@@ -437,67 +426,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
             return;
         }
         dismissFromUser();
-    }
-
-    private void showPhoneKeyboard() {
-        if (mPhoneInput == null || mKeyboardRequest.isRequested()) {
-            return;
-        }
-        final boolean inputCaptured = MagicDeskRuntime
-                .beginDesktopTextInput(mTargetDisplayId);
-        Log.i(TAG, "phone keyboard requested display=" + mTargetDisplayId
-                + " inputCaptured=" + inputCaptured
-                + " windowFocus=" + hasWindowFocus());
-        if (!inputCaptured) {
-            Toast.makeText(this, R.string.touchpad_keyboard_unavailable,
-                    Toast.LENGTH_SHORT).show();
-            return;
-        }
-        mKeyboardRequest.begin();
-        mPhoneInput.updateFocusability();
-        if (!mPhoneInput.requestFocus()) {
-            clearTextInputProxy();
-            return;
-        }
-        if (!hasWindowFocus()) {
-            bringTaskToFront();
-        }
-        showKeyboardIfReady();
-    }
-
-    private void bringTaskToFront() {
-        try {
-            if (!bringRequestedTaskToFront(this, mTargetDisplayId)) {
-                Log.w(TAG, "touchpad task is unavailable");
-            }
-        } catch (SecurityException error) {
-            Log.w(TAG, "cannot focus touchpad task", error);
-        }
-    }
-
-    private void showKeyboardIfReady() {
-        if (!mKeyboardRequest.takeShowRequest(hasWindowFocus())) {
-            return;
-        }
-        Log.i(TAG, "show keyboard display=" + mTargetDisplayId);
-        getWindow().getInsetsController().show(WindowInsets.Type.ime());
-    }
-
-    private void hidePhoneKeyboard() {
-        Log.i(TAG, "hide keyboard display=" + mTargetDisplayId);
-        getWindow().getInsetsController().hide(WindowInsets.Type.ime());
-        clearTextInputProxy();
-    }
-
-    private void clearTextInputProxy() {
-        if (!mKeyboardRequest.isRequested()) {
-            return;
-        }
-        mKeyboardRequest.cancel();
-        if (mPhoneInput != null) {
-            mPhoneInput.updateFocusability();
-        }
-        MagicDeskRuntime.endDesktopTextInput(mTargetDisplayId);
     }
 
     private void finishPointerDrag() {
@@ -542,7 +470,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
         }
 
         finishPointerDrag();
-        clearTextInputProxy();
         mTargetDisplayId = targetDisplayId;
 
         if (visible && targetDisplayId > Display.DEFAULT_DISPLAY) {

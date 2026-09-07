@@ -259,34 +259,6 @@ public final class MagicDeskRuntimeService extends Service
                 && mDesktopInput.scrollPointer(displayId, amount);
     }
 
-    @Override
-    public boolean updateDesktopTextInput(
-            final int displayId,
-            final int action,
-            final String text,
-            final int arg1,
-            final int arg2,
-            final int arg3) {
-        return !mDestroyed
-                && mDesktopInput != null
-                && mDesktopInput.updateTextInput(
-                        displayId, action, text, arg1, arg2, arg3);
-    }
-
-    @Override
-    public boolean beginDesktopTextInput(final int displayId) {
-        return !mDestroyed
-                && mDesktopInput != null
-                && mDesktopInput.beginTextInput(displayId);
-    }
-
-    @Override
-    public void endDesktopTextInput(final int displayId) {
-        if (mDestroyed || mDesktopInput == null) {
-            return;
-        }
-        mDesktopInput.endTextInput(displayId);
-    }
 
     @Override
     public boolean showStart() {
@@ -408,7 +380,6 @@ public final class MagicDeskRuntimeService extends Service
                 mHandler,
                 mPlatform.features(),
                 mPlatform.pointer(),
-                mPhoneUi,
                 this::updateNotification);
         mDesktopInput.start();
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();

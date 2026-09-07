@@ -15,7 +15,6 @@ import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
 import io.github.mekhontsev.magicdesk.PlatformMatch;
 import io.github.mekhontsev.magicdesk.PlatformSystemControls;
-import io.github.mekhontsev.magicdesk.PlatformTextInputDriver;
 import io.github.mekhontsev.magicdesk.PlatformWallpaperDriver;
 import io.github.mekhontsev.magicdesk.PlatformWindowingDriver;
 
@@ -137,11 +136,6 @@ public final class NubiaPlatformDriver implements PlatformExtension {
     @Override
     public PlatformAudioCaptureDriver audioCapture() {
         return AUDIO_CAPTURE;
-    }
-
-    @Override
-    public PlatformTextInputDriver textInput() {
-        return NubiaMirrorTextInputDriver.INSTANCE;
     }
 
     @Override

@@ -41,17 +41,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             new ConcurrentHashMap<>();
     private final ShellTaskObserverManager mTaskObserverManager;
     private final PlatformPointerDriver mPointerDriver;
-    private final PlatformTextInputDriver mTextInputDriver;
     private final ShellDisplayRecordingSession mDisplayRecording;
     private final ShellDesktopDirectory mDesktopDirectory;
     private final ShellFileSystem mFileSystem;
     private final Object mInputRoutingLock = new Object();
-    private final Object mMirrorTextInputLock = new Object();
     private DesktopInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
     private IBinder.DeathRecipient mInputRoutingOwnerDeath;
-    private PlatformTextInputDriver.Session mMirrorTextInputSession;
-    private int mMirrorTextInputDisplayId = -1;
 
     public ShizukuCommandService() {
         this(null);
@@ -61,7 +57,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mContext = context;
         final PlatformDriver platform = PlatformDrivers.current();
         mPointerDriver = platform.pointer();
-        mTextInputDriver = platform.textInput();
         mTaskObserverManager = new ShellTaskObserverManager(
                 context,
                 platform.windowing(),
@@ -467,6 +462,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int displayId) {
         return mTaskObserverManager.prepareDesktopChromeHost(
                 callback, displayId);
+    }
+
+    @Override
+    public void setDesktopChromeFocusable(final ITaskObserverCallback callback,
+            final int displayId, final int taskId, final boolean focusable) {
+        mTaskObserverManager.setDesktopChromeFocusable(
+                callback, displayId, taskId, focusable);
     }
 
     @Override
@@ -904,90 +906,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 displayId, x, y, action, downTime);
     }
 
-    @Override
-    public boolean updateMirrorTextInput(
-            final int displayId,
-            final int action,
-            final String text,
-            final int arg1,
-            final int arg2,
-            final int arg3) {
-        if (displayId <= 0) {
-            return false;
-        }
-        final PlatformTextInputDriver.Session session;
-        synchronized (mMirrorTextInputLock) {
-            session = displayId == mMirrorTextInputDisplayId
-                    ? mMirrorTextInputSession : null;
-        }
-        if (session == null) {
-            return false;
-        }
-        try {
-            return session.dispatch(
-                    action, text, arg1, arg2, arg3);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.e(TAG, "mirror text input failed", error);
-            return false;
-        }
-    }
-
-    @Override
-    public boolean beginMirrorTextInput(final int displayId) {
-        if (displayId <= 0) {
-            return false;
-        }
-        synchronized (mMirrorTextInputLock) {
-            if (displayId == mMirrorTextInputDisplayId
-                    && mMirrorTextInputSession != null) {
-                return true;
-            }
-        }
-        synchronized (mInputRoutingLock) {
-            if (mInputRoutingSession == null
-                    || mInputRoutingSession.displayId() != displayId) {
-                return false;
-            }
-        }
-        try {
-            final PlatformTextInputDriver.Session session =
-                    mTextInputDriver.capture();
-            if (session == null) {
-                return false;
-            }
-            synchronized (mMirrorTextInputLock) {
-                mMirrorTextInputSession = session;
-                mMirrorTextInputDisplayId = displayId;
-            }
-            return true;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.e(TAG, "mirror text input capture failed", error);
-            return false;
-        }
-    }
-
-    @Override
-    public void endMirrorTextInput(final int displayId) {
-        synchronized (mMirrorTextInputLock) {
-            if (displayId != mMirrorTextInputDisplayId) {
-                return;
-            }
-            mMirrorTextInputSession = null;
-            mMirrorTextInputDisplayId = -1;
-        }
-    }
-
-    @Override
-    public boolean routeImeToPhone(final int displayId) {
-        try {
-            return DisplayImePolicyController.routeToPhone(displayId);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException(
-                    "cannot route the IME to the phone: "
-                            + usefulMessage(error),
-                    error);
-        }
-    }
 
     @Override
     public int[] startInputRouting(
@@ -1512,10 +1430,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         final IBinder owner = mInputRoutingOwner;
         final IBinder.DeathRecipient ownerDeath =
                 mInputRoutingOwnerDeath;
-        synchronized (mMirrorTextInputLock) {
-            mMirrorTextInputSession = null;
-            mMirrorTextInputDisplayId = -1;
-        }
         mInputRoutingSession = null;
         mInputRoutingOwner = null;
         mInputRoutingOwnerDeath = null;

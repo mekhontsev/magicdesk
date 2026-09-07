@@ -6,8 +6,6 @@ import android.content.Context;
 public interface PlatformPhoneUiDriver {
     boolean isAvailable();
 
-    boolean requiresPhoneImeRouting();
-
     /** Whether firmware Recents requests must open the active MagicDesk HOME. */
     boolean requiresRecentsRedirectToHome();
 

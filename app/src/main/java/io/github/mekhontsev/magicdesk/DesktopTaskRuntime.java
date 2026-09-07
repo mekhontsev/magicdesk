@@ -150,6 +150,9 @@ interface DesktopTaskRuntime {
     void prepareDesktopChromeHost(
             int displayId, TaskRepository.ActionCallback callback);
 
+    void setDesktopChromeFocusable(int displayId, int taskId,
+            boolean focusable, TaskRepository.ActionCallback callback);
+
     void disableExternalTaskMigrationProtection();
 
     void restoreExternalTaskMigrationProtection();

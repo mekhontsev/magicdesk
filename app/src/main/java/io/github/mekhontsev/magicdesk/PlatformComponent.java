@@ -9,7 +9,6 @@ public enum PlatformComponent {
     WALLPAPER("wallpaper"),
     DIAGNOSTICS("diagnostics"),
     AUDIO_CAPTURE("audioCapture"),
-    TEXT_INPUT("textInput"),
     EXTERNAL_INPUT("externalInput"),
     SYSTEM_CONTROLS("systemControls"),
     LAUNCH_TARGETS("launchTargets"),

@@ -188,6 +188,28 @@ final class DesktopTaskWatcher {
         });
     }
 
+    void setDesktopChromeFocusable(final int displayId, final int taskId,
+            final boolean focusable, final TaskRepository.ActionCallback callback) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            completeChromeHostPreparation(
+                    callback, false, "task observer is unavailable");
+            return;
+        }
+        // Enqueue before the panel's caller can submit an application launch.
+        // No main-thread Binder wait or independent focus worker is needed.
+        TaskCommandQueue.execute(() -> {
+            try {
+                handle.setDesktopChromeFocusable(displayId, taskId, focusable);
+                completeChromeHostPreparation(callback, true, "chrome focus updated");
+            } catch (IOException | RuntimeException error) {
+                Log.w(TAG, "failed to update desktop chrome focus", error);
+                completeChromeHostPreparation(
+                        callback, false, ShellAccess.usefulMessage(error));
+            }
+        });
+    }
+
     void prepareDesktopChromeHost(
             final int displayId,
             final TaskRepository.ActionCallback callback) {

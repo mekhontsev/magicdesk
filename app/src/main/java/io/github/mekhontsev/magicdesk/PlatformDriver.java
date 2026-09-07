@@ -31,8 +31,6 @@ public interface PlatformDriver {
 
     PlatformAudioCaptureDriver audioCapture();
 
-    PlatformTextInputDriver textInput();
-
     PlatformSystemControls createSystemControls(
             DesktopShellActivity activity,
             DesktopUiFactory ui);

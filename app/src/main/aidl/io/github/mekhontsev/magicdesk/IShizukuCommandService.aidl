@@ -117,14 +117,6 @@ interface IShizukuCommandService {
     boolean updateMousePosition(
         int displayId, int x, int y, int action, long downTime) = 36;
 
-    boolean updateMirrorTextInput(
-        int displayId, int action, String text,
-        int arg1, int arg2, int arg3) = 38;
-
-    boolean beginMirrorTextInput(int displayId) = 39;
-
-    void endMirrorTextInput(int displayId) = 40;
-
     void setPhoneTouchpadPreservation(
         ITaskObserverCallback callback, boolean enabled) = 41;
 
@@ -137,8 +129,6 @@ interface IShizukuCommandService {
     void writeDesktopWallpaper(in ParcelFileDescriptor source) = 45;
 
     boolean deleteDesktopWallpaper() = 46;
-
-    boolean routeImeToPhone(int displayId) = 47;
 
     void refreshTaskCaption(
         ITaskObserverCallback callback,
@@ -435,5 +425,11 @@ interface IShizukuCommandService {
         int densityDpi) = 116;
 
     void deleteVerifiedShellFile(String absolutePath, long deviceId, long inode) = 117;
+
+    void setDesktopChromeFocusable(
+        ITaskObserverCallback callback,
+        int displayId,
+        int taskId,
+        boolean focusable) = 118;
 
 }

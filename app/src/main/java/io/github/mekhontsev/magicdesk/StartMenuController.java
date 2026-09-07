@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.view.Display;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -82,7 +81,6 @@ final class StartMenuController implements StartMenuContent.Host {
         final int top = mActivity.getDesktopAreaTop() + Math.max(
                 0, mActivity.getDesktopAreaHeight() - mActivity.getTaskbarHeight() - height);
         if (!panels.show(mPanel, left, top, width, height, focusable,
-                mActivity.getCurrentDisplayId() == Display.DEFAULT_DISPLAY,
                 "MagicDesk Start")) {
             mActivity.setErrorStatus(
                     "PANEL-001", mActivity.getString(R.string.status_desktop_panel_unavailable));

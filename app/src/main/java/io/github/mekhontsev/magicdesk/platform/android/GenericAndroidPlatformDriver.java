@@ -14,7 +14,6 @@ import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
 import io.github.mekhontsev.magicdesk.PlatformSelection;
 import io.github.mekhontsev.magicdesk.PlatformSystemControls;
-import io.github.mekhontsev.magicdesk.PlatformTextInputDriver;
 import io.github.mekhontsev.magicdesk.PlatformWallpaperDriver;
 import io.github.mekhontsev.magicdesk.PlatformWindowingDriver;
 
@@ -43,8 +42,6 @@ public final class GenericAndroidPlatformDriver implements PlatformDriver {
             new GenericAndroidPlatformDiagnostics();
     private static final PlatformAudioCaptureDriver AUDIO_CAPTURE =
             new GenericAndroidAudioCaptureDriver();
-    private static final PlatformTextInputDriver TEXT_INPUT =
-            new GenericAndroidTextInputDriver();
 
     @Override
     public String id() {
@@ -105,11 +102,6 @@ public final class GenericAndroidPlatformDriver implements PlatformDriver {
     @Override
     public PlatformAudioCaptureDriver audioCapture() {
         return AUDIO_CAPTURE;
-    }
-
-    @Override
-    public PlatformTextInputDriver textInput() {
-        return TEXT_INPUT;
     }
 
     @Override

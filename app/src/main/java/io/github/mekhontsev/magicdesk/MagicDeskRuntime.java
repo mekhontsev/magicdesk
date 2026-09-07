@@ -156,6 +156,17 @@ public final class MagicDeskRuntime {
         tasks.prepareDesktopChromeHost(displayId, callback);
     }
 
+    static void setDesktopChromeFocusable(final int displayId, final int taskId,
+            final boolean focusable, final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            callback.onComplete(new TaskRepository.ActionResult(
+                    false, "desktop runtime is unavailable"));
+            return;
+        }
+        tasks.setDesktopChromeFocusable(displayId, taskId, focusable, callback);
+    }
+
     public static void refreshPlatformState() {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend != null) {
@@ -282,29 +293,6 @@ public final class MagicDeskRuntime {
                 && backend.scrollDesktopPointer(displayId, amount);
     }
 
-    static boolean updateDesktopTextInput(
-            final int displayId,
-            final int action,
-            final String text,
-            final int arg1,
-            final int arg2,
-            final int arg3) {
-        final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.updateDesktopTextInput(
-                displayId, action, text, arg1, arg2, arg3);
-    }
-
-    static boolean beginDesktopTextInput(final int displayId) {
-        final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.beginDesktopTextInput(displayId);
-    }
-
-    static void endDesktopTextInput(final int displayId) {
-        final MagicDeskRuntimeBackend backend = backend();
-        if (backend != null) {
-            backend.endDesktopTextInput(displayId);
-        }
-    }
 
     static boolean showStart() {
         final MagicDeskRuntimeBackend backend = backend();

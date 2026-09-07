@@ -10,11 +10,6 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     };
 
     @Override
-    public boolean requiresPhoneImeRouting() {
-        return true;
-    }
-
-    @Override
     public boolean requiresRecentsRedirectToHome() {
         // Nubia's fallback Quickstep crashes while binding desktop task groups
         // under a third-party HOME. Redirect Recents to that HOME for the same

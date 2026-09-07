@@ -86,6 +86,12 @@ final class ShellTaskObserverManager implements Closeable {
                 displayId, activityToken);
     }
 
+    void setDesktopChromeFocusable(final ITaskObserverCallback callback,
+            final int displayId, final int taskId, final boolean focusable) {
+        requireSession(callback).observer.setDesktopChromeFocusable(
+                displayId, taskId, focusable);
+    }
+
     int prepareDesktopChromeHost(
             final ITaskObserverCallback callback,
             final int displayId) {

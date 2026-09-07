@@ -66,13 +66,17 @@ The same topology is used on phone, simulated, wired, and wireless targets.
 `PhoneDesktopHomeActivity` remains primary HOME in Android's default task area;
 ordinary freeform tasks share the standard root workspace, while fullscreen
 tasks use independent planes under that workspace. Display chrome uses one
-transparent, non-focusable `MULTI_WINDOW` task in a root-level organizer area,
+transparent `MULTI_WINDOW` task in a root-level organizer area,
 a sibling of the standard task workspace. Both the area and its task use
 `MULTI_WINDOW` and `alwaysOnTop`: Android 15+ ignores the flag in fullscreen
 mode. Empty task bounds fill the area without making the task floating.
 Native DisplayArea ordering preserves chrome priority across application
 launches and panel relayout, below system windows and IME. Only bounded child
-application windows draw or receive input.
+application windows draw or receive input. The task allows focus only while a
+focusable panel or dialog is requested, so editor panels can establish Android
+IME connections without leaving an always-on-top focus target after dismissal.
+The panel lifecycle owns this change through the existing task command queue.
+Its transparent base window and taskbar remain non-focusable.
 
 Chrome must not be nested among application root tasks. Android 15+
 `ActivityStarter` calls `TaskDisplayArea.getRootTaskAbove`, which casts the

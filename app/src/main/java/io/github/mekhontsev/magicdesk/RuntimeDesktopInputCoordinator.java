@@ -22,7 +22,6 @@ final class RuntimeDesktopInputCoordinator {
     private final Handler mHandler;
     private final DesktopInputRelayPolicy mInputRelay;
     private final PlatformPointerDriver mPointer;
-    private final PlatformPhoneUiDriver mPhoneUi;
     private final Runnable mHardwareKeyboardChanged;
     private final RuntimeInputCoordinator mInputDevices;
     private final DesktopInputRelaySession mRelaySession;
@@ -45,22 +44,17 @@ final class RuntimeDesktopInputCoordinator {
     private boolean mLastReportedPointerReady;
     private boolean mPointerReleaseExpected;
     private String mPreviousShowImeWithHardKeyboard;
-    private int mPhoneImePolicyDisplayId = Display.INVALID_DISPLAY;
     private boolean mDestroyed;
-    private LocalTextInputSession mLocalTextInput;
-    private boolean mTextInputActive;
 
     RuntimeDesktopInputCoordinator(
             final Context context,
             final Handler handler,
             final PlatformFeatures platformFeatures,
             final PlatformPointerDriver pointer,
-            final PlatformPhoneUiDriver phoneUi,
             final Runnable hardwareKeyboardChanged) {
         mHandler = handler;
         mInputRelay = platformFeatures.inputRelay;
         mPointer = pointer;
-        mPhoneUi = phoneUi;
         mHardwareKeyboardChanged = hardwareKeyboardChanged;
         mInputDevices = new RuntimeInputCoordinator(
                 context, handler, this::handleInputStateChanged);
@@ -81,7 +75,6 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     void destroy() {
-        endTextInput(mDesktopDisplayId);
         mDestroyed = true;
         mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
         ++mInputSourceRefreshGeneration;
@@ -124,9 +117,6 @@ final class RuntimeDesktopInputCoordinator {
             return;
         }
         final int previousDisplayId = mDesktopDisplayId;
-        if (previousDisplayId != displayId) {
-            endTextInput(previousDisplayId);
-        }
         mDesktopDisplayId = displayId;
         if (displayId > Display.DEFAULT_DISPLAY) {
             mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
@@ -140,12 +130,10 @@ final class RuntimeDesktopInputCoordinator {
         }
         clearCompletedMouseBridgeSuspension(displayId);
         if (!ownershipChanged) {
-            updateExternalImePolicy();
             finalizePointerViewportRecovery();
             return;
         }
         updateShowImeOverride();
-        updateExternalImePolicy();
         updateInputBridges();
         if (ownsExternalDesktop()) {
             refreshDesktopInputSources();
@@ -297,56 +285,6 @@ final class RuntimeDesktopInputCoordinator {
                 && mRelaySession.scrollPointer(amount);
     }
 
-    boolean updateTextInput(
-            final int displayId,
-            final int action,
-            final String text,
-            final int arg1,
-            final int arg2,
-            final int arg3) {
-        if (!isActiveDesktopDisplay(displayId) || !mTextInputActive) {
-            return false;
-        }
-        if (mLocalTextInput != null) {
-            // A rejected operation does not change the keyboard's owner.
-            return mLocalTextInput.dispatch(action, text, arg1, arg2, arg3);
-        }
-        return ShellAccess.updateMirrorTextInput(
-                displayId, action, text, arg1, arg2, arg3);
-    }
-
-    boolean beginTextInput(final int displayId) {
-        if (!isActiveDesktopDisplay(displayId)) {
-            return false;
-        }
-        endTextInput(displayId);
-        mLocalTextInput = DesktopRuntimeBridge.captureLocalTextInput(displayId);
-        mTextInputActive = mLocalTextInput != null
-                || ShellAccess.beginMirrorTextInput(displayId);
-        return mTextInputActive;
-    }
-
-    void endTextInput(final int displayId) {
-        if (displayId == mDesktopDisplayId && mTextInputActive) {
-            mTextInputActive = false;
-            final LocalTextInputSession localSession = mLocalTextInput;
-            mLocalTextInput = null;
-            try {
-                if (localSession != null) {
-                    localSession.close();
-                } else {
-                    // The phone connection is already invalidated. Finish any
-                    // composing span before releasing its remote recipient.
-                    ShellAccess.updateMirrorTextInput(displayId,
-                            PlatformTextInputDriver.FINISH_COMPOSING, "", 0, 0, 0);
-                }
-            } catch (RuntimeException error) {
-                Log.w(TAG, "cannot finish desktop text input", error);
-            } finally {
-                ShellAccess.endMirrorTextInput(displayId);
-            }
-        }
-    }
 
     private boolean isActiveDesktopDisplay(final int displayId) {
         return !mDestroyed && displayId == mDesktopDisplayId;
@@ -606,34 +544,6 @@ final class RuntimeDesktopInputCoordinator {
         }
     }
 
-    private void updateExternalImePolicy() {
-        if (!ownsExternalDesktop()
-                || !mPhoneUi.requiresPhoneImeRouting()) {
-            mPhoneImePolicyDisplayId = Display.INVALID_DISPLAY;
-            return;
-        }
-        if (!ShellAccess.isReady()
-                || mPhoneImePolicyDisplayId == mDesktopDisplayId) {
-            return;
-        }
-        try {
-            if (!ShellAccess.routeImeToPhone(mDesktopDisplayId)) {
-                throw new IOException(
-                        "the phone fallback was not applied");
-            }
-            mPhoneImePolicyDisplayId = mDesktopDisplayId;
-            Log.i(TAG, "IME routed to phone for desktop display="
-                    + mDesktopDisplayId);
-        } catch (IOException error) {
-            Log.w(TAG, "could not route the IME to the phone", error);
-            CompatibilityDiagnostics.record(
-                    "INPUT-IME-003",
-                    "Could not keep the on-screen keyboard on the phone",
-                    "display=" + mDesktopDisplayId + " "
-                            + error.getMessage(),
-                    error);
-        }
-    }
 
     private void logInputState() {
         mInputDevices.logState(TAG);

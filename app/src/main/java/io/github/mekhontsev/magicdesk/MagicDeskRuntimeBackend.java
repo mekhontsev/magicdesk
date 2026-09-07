@@ -54,17 +54,6 @@ interface MagicDeskRuntimeBackend {
 
     boolean scrollDesktopPointer(int displayId, float amount);
 
-    boolean updateDesktopTextInput(
-            int displayId,
-            int action,
-            String text,
-            int arg1,
-            int arg2,
-            int arg3);
-
-    boolean beginDesktopTextInput(int displayId);
-
-    void endDesktopTextInput(int displayId);
 
     boolean showStart();
 

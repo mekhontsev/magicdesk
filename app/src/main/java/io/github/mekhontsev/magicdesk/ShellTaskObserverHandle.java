@@ -86,6 +86,12 @@ final class ShellTaskObserverHandle implements Closeable {
                 mCallback, displayId, activityToken));
     }
 
+    void setDesktopChromeFocusable(final int displayId, final int taskId,
+            final boolean focusable) throws IOException {
+        callService(() -> mService.setDesktopChromeFocusable(
+                mCallback, displayId, taskId, focusable));
+    }
+
     int prepareDesktopChromeHost(final int displayId) throws IOException {
         return callServiceForResult(() ->
                 mService.prepareDesktopChromeHost(mCallback, displayId));

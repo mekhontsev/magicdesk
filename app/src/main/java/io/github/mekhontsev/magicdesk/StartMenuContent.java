@@ -5,7 +5,6 @@ import android.app.Activity;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
-import android.view.Display;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -128,9 +127,7 @@ final class StartMenuContent {
         mSearch.setSingleLine(true);
         mSearch.setShowSoftInputOnFocus(false);
         mSearch.setOnTouchListener((view, event) -> {
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN
-                    && mActivity.getDisplay().getDisplayId()
-                            == Display.DEFAULT_DISPLAY) {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 mSearch.setShowSoftInputOnFocus(true);
             }
             return false;
@@ -172,14 +169,12 @@ final class StartMenuContent {
                 handleSearchKey(keyCode, event));
         mSearch.setOnClickListener(view -> {
             focusSearch();
-            if (mActivity.getDisplay().getDisplayId() == Display.DEFAULT_DISPLAY) {
-                mSearch.setShowSoftInputOnFocus(true);
-                final android.view.inputmethod.InputMethodManager keyboard =
-                        mActivity.getSystemService(android.view.inputmethod.InputMethodManager.class);
-                if (keyboard != null) {
-                    keyboard.showSoftInput(mSearch,
-                            android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
-                }
+            mSearch.setShowSoftInputOnFocus(true);
+            final android.view.inputmethod.InputMethodManager keyboard =
+                    mActivity.getSystemService(android.view.inputmethod.InputMethodManager.class);
+            if (keyboard != null) {
+                keyboard.showSoftInput(mSearch,
+                        android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
             }
         });
         mHost.automation().register(

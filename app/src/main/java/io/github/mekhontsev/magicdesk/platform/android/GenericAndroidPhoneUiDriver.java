@@ -8,11 +8,6 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     private static final String[] NO_SETTINGS = new String[0];
 
     @Override
-    public boolean requiresPhoneImeRouting() {
-        return false;
-    }
-
-    @Override
     public boolean requiresRecentsRedirectToHome() {
         return false;
     }

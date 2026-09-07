@@ -11,7 +11,6 @@ public enum PlatformCapabilityId {
     EXTERNAL_INPUT_BRIDGE(
             "input.externalBridge", PlatformComponent.EXTERNAL_INPUT),
     ABSOLUTE_POINTER("input.absolutePointer", PlatformComponent.POINTER),
-    MIRROR_TEXT_INPUT("input.mirrorText", PlatformComponent.TEXT_INPUT),
     PHONE_UI("phone.ui", PlatformComponent.PHONE_UI),
     INTERNAL_AUDIO_CAPTURE(
             "capture.internalAudio", PlatformComponent.AUDIO_CAPTURE),

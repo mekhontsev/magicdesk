@@ -20,6 +20,7 @@ final class ShellDesktopChromeHost implements AutoCloseable {
     private TaskDisplayAreaHandle mArea;
     private int mDisplayId = Display.INVALID_DISPLAY;
     private int mTaskId = -1;
+    private boolean mFocusable;
 
     ShellDesktopChromeHost(final Object service) {
         mService = service;
@@ -92,6 +93,32 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         return mTaskId;
     }
 
+    synchronized void setFocusable(final int displayId, final int taskId,
+            final boolean focusable) {
+        if (displayId != mDisplayId || taskId != mTaskId || mArea == null) {
+            throw new IllegalStateException("stale desktop chrome focus request");
+        }
+        if (mFocusable == focusable) {
+            return;
+        }
+        final Object task = findOwnedTask();
+        if (task == null) {
+            throw new IllegalStateException("desktop chrome task is unavailable");
+        }
+        try {
+            final FrameworkWindowingApi windowing =
+                    FrameworkRuntime.current().windowing();
+            final Object transaction = windowing.newTransaction();
+            windowing.setFocusable(
+                    transaction, HiddenTaskApi.getTaskToken(task), focusable);
+            ShellWindowTransitionExecutor.applyAtomic(
+                    mService, windowing.transactionClass(), transaction);
+            mFocusable = focusable;
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("cannot update desktop chrome focus", error);
+        }
+    }
+
     @Override
     public synchronized void close() {
         final TaskDisplayAreaHandle area = mArea;
@@ -148,6 +175,8 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         windowing.setForceTranslucent(transaction, taskToken, true);
         TaskCaptionInsetsCommand.addCaptionInsetOperation(
                 transaction, taskToken, true);
+        // A focusable always-on-top task blocks application focus even when
+        // its base window is non-focusable. Panels enable it only while needed.
         windowing.setFocusable(transaction, taskToken, false);
         windowing.setAlwaysOnTop(transaction, taskToken, true);
         windowing.reorder(transaction, taskToken, true);
@@ -212,5 +241,6 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         mArea = null;
         mDisplayId = Display.INVALID_DISPLAY;
         mTaskId = -1;
+        mFocusable = false;
     }
 }
