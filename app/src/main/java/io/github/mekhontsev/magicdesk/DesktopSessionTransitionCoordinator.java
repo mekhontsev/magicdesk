@@ -95,6 +95,11 @@ final class DesktopSessionTransitionCoordinator {
         complete(callback, success);
     }
 
+    boolean isSessionTransitionInProgress() {
+        return mGate.isActive(DesktopTransitionGate.Operation.START)
+                || mGate.isActive(DesktopTransitionGate.Operation.CLOSE);
+    }
+
     void updateCaptionTransport(final DesktopDisplayTarget target) {
         mOperations.execute(() -> {
             final PlatformProjectionDriver.Transport transport =
@@ -114,11 +119,9 @@ final class DesktopSessionTransitionCoordinator {
         // HOME ownership is the outer session lease. Release it before any
         // task, input, or display teardown so a partial close cannot trap the
         // user in a launcher that Android keeps restarting.
-        DesktopHomeRoleLease.RestoredHomePresentation homePresentation = null;
         boolean homeReleased = true;
         try {
-            homePresentation =
-                    DesktopHomeRoleLease.releaseForSessionClose(target);
+            DesktopHomeRoleLease.releaseForSessionClose(target);
         } catch (java.io.IOException | RuntimeException error) {
             homeReleased = false;
             Log.w(TAG, "Could not restore HOME before desktop close", error);
@@ -128,18 +131,15 @@ final class DesktopSessionTransitionCoordinator {
                     error.getMessage(),
                     error);
         }
-        final DesktopHomeRoleLease.RestoredHomePresentation presentation =
-                homePresentation;
         final boolean released = homeReleased;
         MagicDeskRuntime.releaseDesktopInput(target.displayId,
                 () -> mOperations.execute(() -> parkAndClose(
-                        target, mode, presentation, released, callback)));
+                        target, mode, released, callback)));
     }
 
     private void parkAndClose(
             final DesktopDisplayTarget target,
             final DesktopCloseMode mode,
-            final DesktopHomeRoleLease.RestoredHomePresentation presentation,
             final boolean homeReleased,
             final CompletionCallback callback) {
         try {
@@ -149,7 +149,7 @@ final class DesktopSessionTransitionCoordinator {
         }
         if (!mode.parkTasks) {
             finishDesktopSessionClose(
-                    target, mode, presentation, homeReleased, callback);
+                    target, mode, homeReleased, callback);
             return;
         }
         try {
@@ -158,20 +158,18 @@ final class DesktopSessionTransitionCoordinator {
                     Log.w(TAG, "Desktop close continues after partial task parking");
                 }
                 mOperations.execute(() -> finishDesktopSessionClose(
-                        target, mode, presentation, homeReleased, callback));
+                        target, mode, homeReleased, callback));
             });
         } catch (RuntimeException error) {
             recordCloseFailure("Could not park desktop tasks", error);
             finishDesktopSessionClose(
-                    target, mode, presentation, homeReleased, callback);
+                    target, mode, homeReleased, callback);
         }
     }
 
     private void finishDesktopSessionClose(
             final DesktopDisplayTarget target,
             final DesktopCloseMode mode,
-            final DesktopHomeRoleLease.RestoredHomePresentation
-                    homePresentation,
             final boolean homeReleased,
             final CompletionCallback callback) {
         boolean success = homeReleased;
@@ -219,11 +217,9 @@ final class DesktopSessionTransitionCoordinator {
             }
         }
         try {
-            if (homeReleased) {
-                DesktopHomeRoleLease.presentRestoredHome(homePresentation);
-            } else {
-                DesktopHomeRoleLease.releaseAfterSessionLoss(target.displayId);
-            }
+            final DesktopHomeRoleLease.RestoredHomePresentation presentation =
+                    DesktopHomeRoleLease.finishSessionClose(target);
+            DesktopHomeRoleLease.presentRestoredHome(presentation);
         } catch (java.io.IOException | RuntimeException error) {
             success = false;
             Log.w(TAG, "Could not present HOME after desktop close", error);

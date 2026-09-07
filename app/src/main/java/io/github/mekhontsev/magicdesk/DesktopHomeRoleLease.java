@@ -146,12 +146,8 @@ final class DesktopHomeRoleLease {
         void presentHome(int userId, String packageName) throws IOException;
     }
 
-    static AcquireResult acquire(final DesktopDisplayTarget target)
-            throws IOException {
-        return acquire(target, DesktopSessionPolicy.USER);
-    }
-
-    static AcquireResult acquire(
+    /** Persists recovery state and enables components without claiming HOME. */
+    static AcquireResult prepare(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) throws IOException {
         if (target == null || target.displayId < 0) {
@@ -177,19 +173,13 @@ final class DesktopHomeRoleLease {
                 final String holder = sBackend.getHomePackage(existing.userId);
                 if (MAGICDESK_PACKAGE.equals(holder)) {
                     sBackend.selectHomeSurface(surfaceFor(existing));
-                    final State active = existing.withPhase(Phase.ACTIVE);
-                    sStorage.write(active);
-                    sPhoneOverviewRoutingActive = true;
-                    if (shouldPresentMagicDeskHome(active)) {
-                        sBackend.presentHome(
-                                active.userId, MAGICDESK_PACKAGE);
-                    }
-                    return new AcquireResult(false, active);
+                    return new AcquireResult(false, existing);
                 }
                 if (existing.phase == Phase.PREPARED
                         && existing.previousHome.packageName.equals(holder)) {
                     try {
-                        return activatePrepared(existing);
+                        sBackend.selectHomeSurface(surfaceFor(existing));
+                        return new AcquireResult(true, existing);
                     } catch (IOException error) {
                         restorePreparedLease(existing, error);
                         throw error;
@@ -220,7 +210,8 @@ final class DesktopHomeRoleLease {
                     Phase.PREPARED);
             sStorage.write(prepared);
             try {
-                return activatePrepared(prepared);
+                sBackend.selectHomeSurface(surfaceFor(prepared));
+                return new AcquireResult(true, prepared);
             } catch (IOException error) {
                 restorePreparedLease(prepared, error);
                 throw error;
@@ -230,12 +221,41 @@ final class DesktopHomeRoleLease {
 
     static boolean release(final DesktopDisplayTarget target)
             throws IOException {
-        return release(target, false) != null;
+        synchronized (LOCK) {
+            final State state = requireTarget(target);
+            if (state == null) {
+                return false;
+            }
+            restoreOrAbandon(state);
+            return true;
+        }
     }
 
-    static RestoredHomePresentation releaseForSessionClose(
+    /** Hands HOME back without finishing Activity instances during task parking. */
+    static void releaseForSessionClose(
             final DesktopDisplayTarget target) throws IOException {
-        return release(target, true);
+        synchronized (LOCK) {
+            final State state = requireTarget(target);
+            if (state != null) {
+                beginRelease(state);
+                restoreRole(state);
+            }
+        }
+    }
+
+    /** Called by the close owner after task, host and owned-display teardown. */
+    static RestoredHomePresentation finishSessionClose(
+            final DesktopDisplayTarget target) throws IOException {
+        synchronized (LOCK) {
+            final State state = requireTarget(target);
+            if (state == null) {
+                return null;
+            }
+            if (state.phase != Phase.RELEASING) {
+                throw new IOException("HOME release has not started");
+            }
+            return finishRelease(state);
+        }
     }
 
     static void presentRestoredHome(
@@ -250,26 +270,20 @@ final class DesktopHomeRoleLease {
         }
     }
 
-    private static RestoredHomePresentation release(
-            final DesktopDisplayTarget target,
-            final boolean deferPresentation) throws IOException {
-        synchronized (LOCK) {
-            final State state = sStorage.read();
-            if (state == null) {
-                return null;
-            }
-            if (!state.matches(target)) {
-                throw new IOException("HOME lease target mismatch: leased="
-                        + state.targetKind + "/" + state.displayId
-                        + " requested=" + (target == null
-                                ? "none"
-                                : target.kind + "/" + target.displayId));
-            }
-            final State releasing = state.withPhase(Phase.RELEASING);
-            sStorage.write(releasing);
-            sPhoneOverviewRoutingActive = false;
-            return quiesceAndRestore(state, deferPresentation);
+    private static State requireTarget(
+            final DesktopDisplayTarget target) throws IOException {
+        final State state = sStorage.read();
+        if (state == null) {
+            return null;
         }
+        if (!state.matches(target)) {
+            throw new IOException("HOME lease target mismatch: leased="
+                    + state.targetKind + "/" + state.displayId
+                    + " requested=" + (target == null
+                            ? "none"
+                            : target.kind + "/" + target.displayId));
+        }
+        return state;
     }
 
     static void releaseAfterFailedStart(final AcquireResult acquisition)
@@ -333,20 +347,39 @@ final class DesktopHomeRoleLease {
     }
 
     static boolean isActiveForDisplay(final int displayId) {
+        return isForDisplay(displayId, Phase.ACTIVE);
+    }
+
+    static boolean isReleasingForDisplay(final int displayId) {
+        return isForDisplay(displayId, Phase.RELEASING);
+    }
+
+    private static boolean isForDisplay(final int displayId, final Phase phase) {
         synchronized (LOCK) {
             final State state = sStorage.read();
             return state != null
-                    && state.phase == Phase.ACTIVE
+                    && state.phase == phase
                     && state.displayId == displayId;
         }
     }
 
     static boolean isActiveForSurface(
             final DesktopHomeSurfaceRouter.Surface surface) {
+        return isForSurface(surface, Phase.ACTIVE);
+    }
+
+    static boolean isReleasingForSurface(
+            final DesktopHomeSurfaceRouter.Surface surface) {
+        return isForSurface(surface, Phase.RELEASING);
+    }
+
+    private static boolean isForSurface(
+            final DesktopHomeSurfaceRouter.Surface surface,
+            final Phase phase) {
         synchronized (LOCK) {
             final State state = sStorage.read();
             return state != null
-                    && state.phase == Phase.ACTIVE
+                    && state.phase == phase
                     && surfaceFor(state) == surface;
         }
     }
@@ -370,18 +403,38 @@ final class DesktopHomeRoleLease {
         requireHolder(state.userId, MAGICDESK_PACKAGE);
     }
 
-    private static AcquireResult activatePrepared(final State prepared)
+    /** Claims the role only after component and display preparation. */
+    static AcquireResult activate(final AcquireResult preparation)
             throws IOException {
-        final DesktopHomeSurfaceRouter.Surface surface = surfaceFor(prepared);
-        sBackend.selectHomeSurface(surface);
-        claim(prepared);
-        final State active = prepared.withPhase(Phase.ACTIVE);
-        sStorage.write(active);
-        sPhoneOverviewRoutingActive = true;
-        if (shouldPresentMagicDeskHome(prepared)) {
-            sBackend.presentHome(prepared.userId, MAGICDESK_PACKAGE);
+        synchronized (LOCK) {
+            final State prepared = requireTarget(preparation.state.target());
+            if (prepared == null || prepared.phase == Phase.RELEASING
+                    || prepared.policy != preparation.state.policy) {
+                throw new IOException("HOME preparation is no longer current");
+            }
+            try {
+                final String holder = sBackend.getHomePackage(prepared.userId);
+                if (!MAGICDESK_PACKAGE.equals(holder)) {
+                    if (prepared.phase != Phase.PREPARED
+                            || !prepared.previousHome.packageName.equals(holder)) {
+                        throw new IOException("HOME changed during preparation");
+                    }
+                    claim(prepared);
+                }
+                final State active = prepared.withPhase(Phase.ACTIVE);
+                sStorage.write(active);
+                sPhoneOverviewRoutingActive = true;
+                if (shouldPresentMagicDeskHome(active)) {
+                    sBackend.presentHome(active.userId, MAGICDESK_PACKAGE);
+                }
+                return new AcquireResult(preparation.created, active);
+            } catch (IOException error) {
+                if (preparation.created) {
+                    restorePreparedLease(prepared, error);
+                }
+                throw error;
+            }
         }
-        return new AcquireResult(true, active);
     }
 
     private static boolean shouldPresentMagicDeskHome(final State state) {
@@ -396,50 +449,50 @@ final class DesktopHomeRoleLease {
 
     private static void restoreOrAbandon(final State state)
             throws IOException {
+        beginRelease(state);
+        presentRestoredHome(finishRelease(state));
+    }
+
+    private static void beginRelease(final State state) throws IOException {
         sPhoneOverviewRoutingActive = false;
         if (state.phase != Phase.RELEASING) {
             sStorage.write(state.withPhase(Phase.RELEASING));
         }
-        quiesceAndRestore(state, false);
     }
 
-    private static RestoredHomePresentation quiesceAndRestore(
-            final State state,
-            final boolean deferPresentation)
+    private static void restoreRole(final State state) throws IOException {
+        final String holder = sBackend.getHomePackage(state.userId);
+        if (MAGICDESK_PACKAGE.equals(holder)
+                || (holder.isEmpty() && !state.previousHome.packageName.isEmpty())) {
+            restorePreviousHolder(state);
+        }
+    }
+
+    private static RestoredHomePresentation finishRelease(final State state)
             throws IOException {
-        IOException quiesceError = null;
+        IOException restoreError = null;
         try {
+            restoreRole(state);
+        } catch (IOException error) {
+            restoreError = error;
+        }
+        try {
+            // Disabling a live HOME Activity starts Android CLOSE transitions.
+            // Normal Close reaches here only after its workspace teardown.
+            // Recovery still disables components when role restoration fails.
             sBackend.disableHomeSurfaces();
         } catch (IOException error) {
-            // Restoring the role remains mandatory when component routing
-            // cannot be quiesced first.
-            quiesceError = error;
+            if (restoreError == null) {
+                restoreError = error;
+            } else {
+                restoreError.addSuppressed(error);
+            }
         }
-        try {
-            final String holder = sBackend.getHomePackage(state.userId);
-            if (MAGICDESK_PACKAGE.equals(holder) || holder.isEmpty()) {
-                restorePreviousHolder(state);
-            }
-            // RoleManager and HOME intent resolution can disagree. Keep our
-            // components disabled throughout idle, including an unassigned role.
-            if (quiesceError != null) {
-                throw quiesceError;
-            }
-            final RestoredHomePresentation presentation =
-                    new RestoredHomePresentation(state.userId);
-            if (!deferPresentation) {
-                sBackend.presentHome(
-                        state.userId,
-                        sBackend.getHomePackage(state.userId));
-            }
-            sStorage.clear();
-            return presentation;
-        } catch (IOException error) {
-            if (quiesceError != null && error != quiesceError) {
-                error.addSuppressed(quiesceError);
-            }
-            throw error;
+        if (restoreError != null) {
+            throw restoreError;
         }
+        sStorage.clear();
+        return new RestoredHomePresentation(state.userId);
     }
 
     private static void restorePreparedLease(
@@ -447,7 +500,8 @@ final class DesktopHomeRoleLease {
             final IOException acquisitionError) {
         sPhoneOverviewRoutingActive = false;
         try {
-            quiesceAndRestore(state, true);
+            beginRelease(state);
+            finishRelease(state);
         } catch (IOException restoreError) {
             acquisitionError.addSuppressed(restoreError);
         }

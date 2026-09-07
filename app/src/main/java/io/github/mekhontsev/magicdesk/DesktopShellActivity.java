@@ -803,6 +803,11 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
+        // A HOME handoff does not own this host's destruction. The close
+        // coordinator retains it until application tasks have left the workspace.
+        if (DesktopHomeRoleLease.isReleasingForDisplay(mExpectedDisplayId)) {
+            return;
+        }
         if (!hasRequiredHomeLease()) {
             Log.i(TAG, "finishing inactive primary HOME host");
             finishAndRemoveTask();

@@ -227,7 +227,8 @@ final class RuntimeDesktopSessionCoordinator {
     }
 
     private void reconcileHomeLease() {
-        if (mDestroyed || !ShellAccess.isReady()) {
+        if (mDestroyed || !ShellAccess.isReady()
+                || DesktopOperations.isSessionTransitionInProgress()) {
             return;
         }
         final DesktopHomeRoleLease.State lease =
@@ -301,6 +302,11 @@ final class RuntimeDesktopSessionCoordinator {
 
     private static void releaseHomeLeaseAfterSessionLoss(
             final int displayId) {
+        // The explicit transition owner also handles display loss during its
+        // start/close. Do not disable its HOME hosts from a second callback.
+        if (DesktopOperations.isSessionTransitionInProgress()) {
+            return;
+        }
         try {
             if (DesktopHomeRoleLease.releaseAfterSessionLoss(displayId)) {
                 Log.i(TAG, "released desktop HOME lease after display loss="

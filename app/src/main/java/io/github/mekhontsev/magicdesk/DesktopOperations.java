@@ -150,6 +150,10 @@ public final class DesktopOperations {
                 callback == null ? null : callback::onComplete);
     }
 
+    static boolean isSessionTransitionInProgress() {
+        return TRANSITIONS.isSessionTransitionInProgress();
+    }
+
     static void toggleDesktopWorkspace() {
         if (!MagicDeskRuntime.toggleDesktopWorkspace()) {
             showMagicDesk();

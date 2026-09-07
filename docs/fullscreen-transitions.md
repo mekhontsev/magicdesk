@@ -291,6 +291,15 @@ repaired safely by another task transaction; restart `system_server` or reboot.
 Restarting SystemUI may help on some builds but is not reliable after display
 removal.
 
+Returning the HOME role precedes teardown, but disabling HOME Activity
+components follows it. Component disable triggers Android's own asynchronous
+CLOSE transaction; doing this while parking applications can leave that
+transaction waiting for the desktop display to become ready. The session close
+owner retains HOME surfaces and the `RELEASING` lease through workspace cleanup
+and the display quiescence gate, then disables the components before presenting
+the previous launcher. Recovery callbacks do not compete with an explicit
+start/close owner. Startup prepares the components before acquiring the role.
+
 ## Activate and demote
 
 Task selection is modeled as z-order, not as a window-state transition:

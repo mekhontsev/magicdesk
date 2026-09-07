@@ -126,7 +126,7 @@ public final class RuntimeHomeLeaseAdmissionTest {
                     String holder=MAGICDESK_PACKAGE;
                     int currentUserId() { return 0; }
                     String getHomePackage(int user) { calls++; return holder; }
-                    void selectHomeSurface(Object surface) { calls++; }
+                    void selectHomeSurface(Object surface) throws IOException { calls++; }
                     void presentHome(int user, String holder) { calls++; }
                     void setHomePackage(int user, String packageName) { calls++; claims++; holder=packageName; }
                 }
@@ -149,7 +149,14 @@ public final class RuntimeHomeLeaseAdmissionTest {
                         check(sPhoneOverviewRoutingActive==previousRouting, "rejected admission changed overview routing");
                     }
                 }
-                """ + RuntimeSourceFixture.methods("DesktopHomeRoleLease", "acquire",
-                        "shouldPresentMagicDeskHome", "activatePrepared", "claim", "requireHolder");
+                static AcquireResult acquire(DesktopDisplayTarget target) throws IOException {
+                    return acquire(target, DesktopSessionPolicy.USER);
+                }
+                static AcquireResult acquire(DesktopDisplayTarget target, DesktopSessionPolicy policy)
+                        throws IOException {
+                    return activate(prepare(target, policy));
+                }
+                """ + RuntimeSourceFixture.methods("DesktopHomeRoleLease", "prepare", "requireTarget",
+                        "shouldPresentMagicDeskHome", "activate", "claim", "requireHolder");
     }
 }

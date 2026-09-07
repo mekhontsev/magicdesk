@@ -56,11 +56,12 @@ final class DesktopSessionController {
             return new ShowResult(true, false);
         }
         final DesktopHomeRoleLease.AcquireResult homeAcquisition =
-                DesktopHomeRoleLease.acquire(preparedTarget, resolvedPolicy);
-        DesktopRuntimeBridge.noteDesktopTarget(
-                preparedTarget, resolvedPolicy);
+                DesktopHomeRoleLease.prepare(preparedTarget, resolvedPolicy);
         try {
+            DesktopRuntimeBridge.noteDesktopTarget(
+                    preparedTarget, resolvedPolicy);
             prepareDisplayWindowing(preparedTarget);
+            DesktopHomeRoleLease.activate(homeAcquisition);
             final Boolean visibleTaskSnapshot =
                     MagicDeskRuntime.hasVisibleAppTaskSnapshot(
                             preparedTarget.displayId);

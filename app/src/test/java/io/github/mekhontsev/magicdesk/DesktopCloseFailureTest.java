@@ -34,8 +34,10 @@ public final class DesktopCloseFailureTest {
                 final Queue mOperations = new Queue();
                 static class DesktopHomeRoleLease {
                     static class RestoredHomePresentation {}
-                    static RestoredHomePresentation releaseForSessionClose(DesktopDisplayTarget target)
-                            throws IOException { step("home"); return new RestoredHomePresentation(); }
+                    static void releaseForSessionClose(DesktopDisplayTarget target)
+                            throws IOException { step("home"); }
+                    static RestoredHomePresentation finishSessionClose(DesktopDisplayTarget target)
+                            throws IOException { step("surfaces"); return new RestoredHomePresentation(); }
                     static void presentRestoredHome(RestoredHomePresentation p) throws IOException {
                         step("present");
                     }
@@ -70,7 +72,7 @@ public final class DesktopCloseFailureTest {
                 }
                 public static void verify() {
                     for (String fail : List.of("none", "home", "protection", "park", "close",
-                            "recover", "present", "panel", "remove")) {
+                            "recover", "surfaces", "present", "panel", "remove")) {
                         failure = fail; active = 7; completions = 0; events.clear();
                         Fixture f = new Fixture();
                         DesktopDisplayTarget target = new DesktopDisplayTarget();
@@ -80,6 +82,10 @@ public final class DesktopCloseFailureTest {
                         check(active == -1, "session retained after " + fail);
                         check(events.indexOf("home") < events.indexOf("input"), "HOME was not first");
                         check(events.indexOf("input") < events.indexOf("park"), "input survived into parking");
+                        check(events.indexOf("close") < events.indexOf("surfaces"),
+                                "HOME surfaces disabled before host close: " + events);
+                        if (fail.equals("remove")) check(events.indexOf("remove") < events.indexOf("surfaces"),
+                                "HOME surfaces disabled before display removal: " + events);
                         check(events.contains("recover") && events.contains("panel")
                                 && events.contains("finished"), "cleanup stopped after " + fail + ": " + events);
                     }

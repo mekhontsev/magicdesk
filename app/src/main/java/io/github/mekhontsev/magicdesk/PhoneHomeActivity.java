@@ -98,6 +98,10 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
     @Override
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
+        if (DesktopHomeRoleLease.isReleasingForSurface(
+                DesktopHomeSurfaceRouter.Surface.PHONE)) {
+            return;
+        }
         if (!hasActivePhoneHomeLease()) {
             finishAndRemoveTask();
             return;
@@ -132,6 +136,13 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
     @Override
     protected void onResume() {
         super.onResume();
+        // Keep the existing surface alive until the close owner disables it;
+        // losing the role alone must not start a competing CLOSE transition.
+        if (DesktopHomeRoleLease.isReleasingForSurface(
+                DesktopHomeSurfaceRouter.Surface.PHONE)) {
+            refreshCloseAction();
+            return;
+        }
         if (!hasActivePhoneHomeLease()) {
             finishAndRemoveTask();
             return;

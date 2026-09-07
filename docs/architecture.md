@@ -1699,9 +1699,18 @@ organizer hierarchy that is being removed. It also prevents Android from
 leaving the now-inactive `PhoneHomeActivity` task visible after the role itself
 has already changed.
 All MagicDesk HOME components are disabled outside a desktop session,
-including their manifest defaults. Acquisition enables the target primary surface
+including their manifest defaults. Preparation enables the target primary surface
 and, for an external session, `DesktopActivity` as `SECONDARY_HOME` in the same
-component batch. Close, rollback, and session loss leave all three disabled;
+component batch, before role acquisition and HOME presentation. Normal Close
+returns the role first but keeps existing HOME surfaces alive through task
+parking and host/display teardown. Only the final close phase disables the
+components and clears the `RELEASING` lease, before presenting restored HOME.
+Disabling a live Activity component itself starts Android CLOSE transitions;
+it is not a harmless way to update role eligibility while parking tasks.
+The runtime's existing start/close gate prevents recovery callbacks from
+finalizing that lease concurrently. Existing HOME instances ignore new HOME
+requests during release rather than destroying the host ahead of its owner.
+Close, rollback, and session loss leave all three disabled;
 neither primary nor secondary launcher choices may offer inactive MagicDesk.
 A missing role holder
 therefore reaches Android's launcher resolver without selecting inactive
@@ -2328,11 +2337,13 @@ continues to use the role-holder package as its authoritative identity.
 The lease enters `RELEASING` before that handoff so startup recovery can finish
 an interrupted release without treating it as an active desktop. If MagicDesk
 still owns HOME after process loss, the pre-Shizuku startup guard instead
-disables its HOME surfaces and discards the lease immediately. Once the previous
-HOME is confirmed during normal close, the routed components and persisted lease
-are restored immediately; a later task or display cleanup failure never claims
-HOME for MagicDesk again. Unexpected display loss performs the same restoration
-without waiting for a UI callback.
+disables its HOME surfaces and discards the lease immediately. During normal
+close the role handoff does not disable Activity components: the `RELEASING`
+record retains ownership of the remaining surface cleanup until the close
+coordinator finishes task, host and display teardown. It then disables the
+components and clears the lease. A later cleanup failure never claims HOME for
+MagicDesk again. Unexpected display loss outside an explicit transition restores
+the role and disables the surfaces without waiting for a UI callback.
 
 Close is one-way even when a cleanup operation fails. A failed HOME handoff
 does not skip input, task, and host release. A simulated display that cannot
@@ -2345,6 +2356,8 @@ common cleanup path:
 
 - hand HOME back to the package saved by the session lease;
 - release keyboard and mouse capture, display associations, and virtual devices;
+- keep HOME components enabled while parking tasks and removing the desktop host
+  or owned display, then disable them before presenting the restored launcher;
 - close display-scoped panel windows and stop task observation;
 - stop phone-display streams;
 - restore caption privacy and display geometry ownership;
