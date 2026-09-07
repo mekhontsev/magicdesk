@@ -377,6 +377,10 @@ final class DesktopSelfTestController {
     private static Map<String, Integer> inspectWindowTransitionPrecondition(
             final Context context,
             final DesktopSelfTestResult result) throws AbortSelfTest {
+        // Preserve the pre-run queue, without treating a one-shot busy sample
+        // as a failure or excusing it at the later strict idle barrier.
+        final String shellState = "; WMShell before test: "
+                + WindowTransitionHealthDiagnostics.captureShellTransitions();
         final WindowTransitionHealthDiagnostics.Snapshot snapshot =
                 WindowTransitionHealthDiagnostics.capture(context);
         if (!snapshot.available) {
@@ -385,7 +389,7 @@ final class DesktopSelfTestController {
                     "SELFTEST-SYSTEM-001",
                     "Window transition runtime health",
                     "cannot inspect SystemPerformanceHinter: "
-                            + snapshot.error);
+                            + snapshot.error + shellState);
         }
         if (snapshot.hasStaleTransitions()) {
             result.add(
@@ -396,7 +400,7 @@ final class DesktopSelfTestController {
                             + "missing displays: "
                             + snapshot.staleDetail()
                             + "; the test will continue and only newly created "
-                            + "sessions will fail cleanup");
+                            + "sessions will fail cleanup" + shellState);
             return snapshot.staleTransitionCounts();
         }
         result.add(
@@ -404,7 +408,7 @@ final class DesktopSelfTestController {
                 "SELFTEST-SYSTEM-001",
                 "Window transition runtime health",
                 "active=" + snapshot.sessions.size()
-                        + ", stale=0");
+                        + ", stale=0" + shellState);
         return Collections.emptyMap();
     }
 

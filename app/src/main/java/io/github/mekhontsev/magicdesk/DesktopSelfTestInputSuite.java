@@ -35,12 +35,6 @@ final class DesktopSelfTestInputSuite {
     private static final int SNAP_RIGHT_CENTER_FROM_MENU_RIGHT_DP = 44;
     private static final int SNAP_BUTTON_CENTER_FROM_MENU_TOP_DP = 46;
     private static final int WINDOWING_MODE_FREEFORM = 5;
-    private static final String SYSTEM_UI_DUMP =
-            "/system/bin/dumpsys activity service "
-                    + "com.android.systemui/.SystemUIService "
-                    + "| /system/bin/toybox sed -n "
-                    + "'/^    ShellTransitions$/,"
-                    + "/^    AppResourceProvider$/p'";
 
     private enum InputCoordinateSpace {
         DISPLAY,
@@ -607,15 +601,13 @@ final class DesktopSelfTestInputSuite {
     private static void waitForWmShellTransitionsIdle() throws IOException {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
-        WmShellTransitionStateParser.State lastState =
-                WmShellTransitionStateParser.State.UNAVAILABLE;
+        WmShellTransitionStateParser.Snapshot lastState;
         do {
-            lastState = WmShellTransitionStateParser.parse(
-                    ShellAccess.run(SYSTEM_UI_DUMP));
-            if (lastState == WmShellTransitionStateParser.State.IDLE) {
+            lastState = WindowTransitionHealthDiagnostics.captureShellTransitions();
+            if (lastState.state == WmShellTransitionStateParser.State.IDLE) {
                 return;
             }
-            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
+            BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.TRANSITION_HEALTH,
                     POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new IOException("WMShell transitions did not become idle; last="

@@ -22,8 +22,24 @@ final class WindowTransitionHealthDiagnostics {
             "/system/bin/dumpsys window | /system/bin/toybox sed -n "
                     + "'/SystemPerformanceHinter:/,$p' "
                     + "| /system/bin/toybox head -n 120";
+    private static final String SHELL_TRANSITIONS_COMMAND =
+            "/system/bin/dumpsys activity service "
+                    + "com.android.systemui/.SystemUIService "
+                    + "| /system/bin/toybox sed -n "
+                    + "'/^    ShellTransitions$/,/^    AppResourceProvider$/p'";
 
     private WindowTransitionHealthDiagnostics() {
+    }
+
+    /** One-shot WMShell queue state; performance sessions do not include pending tokens. */
+    static WmShellTransitionStateParser.Snapshot captureShellTransitions() {
+        try {
+            return WmShellTransitionStateParser.parse(
+                    ShellAccess.run(SHELL_TRANSITIONS_COMMAND));
+        } catch (IOException | RuntimeException error) {
+            return WmShellTransitionStateParser.Snapshot.unavailable(
+                    ShellAccess.usefulMessage(error));
+        }
     }
 
     static Snapshot capture(final Context context) {
@@ -135,6 +151,7 @@ final class WindowTransitionHealthDiagnostics {
             final Context context) {
         final Snapshot snapshot = capture(context);
         report.append("## Window transition runtime\n");
+        report.append("WMShell queue: ").append(captureShellTransitions()).append('\n');
         if (!snapshot.available) {
             report.append("Inspection unavailable: ")
                     .append(snapshot.error)

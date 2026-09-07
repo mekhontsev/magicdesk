@@ -517,6 +517,14 @@ optional `mode` is `full` by default. `fail_fast` stops the workflow after the
 first recorded FAIL, while still running task/display cleanup, restoring the
 phone orientation policy, and writing final transition diagnostics.
 
+The pre-run transition health entry records a one-shot WMShell queue snapshot,
+separately from WindowManager's transition-performance sessions. A window-setup
+idle timeout includes the final pending tokens, ready-during-sync queue, and
+active tracks. The same bounded snapshot is included in Compatibility reports.
+An old pending token is not ignored: the idle assertion remains strict. Comparing
+the before-test snapshot with the timeout distinguishes pre-existing SystemUI
+state from a transition created during the run, without background observation.
+
 Every self-test session uses an isolated workspace policy: it neither restores
 the saved user window stack nor persists test window state. The phone rotation
 is locked at its current value for the run and restored exactly afterward. If
