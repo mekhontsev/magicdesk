@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.Context;
 import android.os.IBinder;
 import android.os.SystemClock;
 
@@ -28,27 +27,15 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
     private Method mRemoveAssociation;
     private Object mAssociationTarget;
     private int mDisplayId = -1;
-    private int mKeyboardAssociationCount;
     private int mVirtualKeyboardCount;
-    private boolean mRouteKeyboards;
-    private boolean mRoutePhysicalMice;
-    private boolean mRouteVirtualMouse;
     private boolean mClosed;
 
     private DesktopInputRoutingSession() {
     }
 
     static DesktopInputRoutingSession open(
-            final Context context,
             final int displayId,
-            final int expectedVirtualKeyboardCount,
-            final boolean routeKeyboards,
-            final boolean routePhysicalMice,
-            final boolean routeVirtualMouse) throws Exception {
-        if (context == null) {
-            throw new IllegalArgumentException(
-                    "input routing requires a service context");
-        }
+            final int expectedVirtualKeyboardCount) throws Exception {
         if (displayId <= 0) {
             throw new IllegalArgumentException(
                     "input routing requires a secondary display");
@@ -57,39 +44,18 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             throw new IllegalArgumentException(
                     "virtual keyboard count must not be negative");
         }
-        if (!routeKeyboards && expectedVirtualKeyboardCount != 0) {
-            throw new IllegalArgumentException(
-                    "virtual keyboards require keyboard routing");
-        }
-        if (!routeKeyboards && !routePhysicalMice
-                && !routeVirtualMouse) {
-            throw new IllegalArgumentException(
-                    "input routing requires at least one relay");
-        }
         final List<DesktopKeyboardDevice> keyboards =
-                routeKeyboards
+                expectedVirtualKeyboardCount > 0
                         ? waitForVirtualKeyboards(
                                 expectedVirtualKeyboardCount)
                         : Collections.emptyList();
-        final List<DesktopMouseDevice> mice = routeVirtualMouse
-                ? waitForVirtualMouse(routePhysicalMice)
-                : routePhysicalMice
-                        ? DesktopInputDeviceDiscovery.findMice()
-                        : Collections.emptyList();
+        final List<DesktopMouseDevice> mice = waitForVirtualMouse();
         cleanupStaleAssociations();
         final DesktopInputRoutingSession session =
                 new DesktopInputRoutingSession();
         try {
-            session.start(
-                    context,
-                    displayId,
-                    keyboards,
-                    mice,
-                    routeKeyboards,
-                    routePhysicalMice,
-                    routeVirtualMouse);
-            session.mVirtualKeyboardCount =
-                    countVirtualKeyboards(keyboards);
+            session.start(displayId, keyboards, mice);
+            session.mVirtualKeyboardCount = keyboards.size();
             return session;
         } catch (Exception error) {
             session.close();
@@ -103,10 +69,6 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
 
     int associationCount() {
         return mAssociatedInputPorts.size();
-    }
-
-    int keyboardAssociationCount() {
-        return mKeyboardAssociationCount;
     }
 
     int virtualKeyboardCount() {
@@ -149,22 +111,15 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
     }
 
     private void start(
-            final Context context,
             final int displayId,
             final List<DesktopKeyboardDevice> keyboards,
-            final List<DesktopMouseDevice> mice,
-            final boolean routeKeyboards,
-            final boolean routePhysicalMice,
-            final boolean routeVirtualMouse) throws Exception {
+            final List<DesktopMouseDevice> mice) throws Exception {
         mInputManager = getService(
                 "input", "android.hardware.input.IInputManager");
         final Class<?> inputManagerInterface =
                 Class.forName("android.hardware.input.IInputManager");
         final RoutingTarget target = findRoutingTarget(displayId);
         mDisplayId = displayId;
-        mRouteKeyboards = routeKeyboards;
-        mRoutePhysicalMice = routePhysicalMice;
-        mRouteVirtualMouse = routeVirtualMouse;
         mAssociationTarget = target.associationTarget;
         if (target.physicalPort) {
             mAddAssociation = inputManagerInterface.getMethod(
@@ -179,6 +134,12 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
             mRemoveAssociation = inputManagerInterface.getMethod(
                     "removeUniqueIdAssociationByPort", String.class);
         }
+        associateRelayPorts(keyboards, mice);
+    }
+
+    private void associateRelayPorts(
+            final List<DesktopKeyboardDevice> keyboards,
+            final List<DesktopMouseDevice> mice) throws IOException, ReflectiveOperationException {
         final Set<String> requestedPorts = new LinkedHashSet<>();
         for (final DesktopKeyboardDevice keyboard : keyboards) {
             addRequestedPort(requestedPorts, keyboard.location);
@@ -188,62 +149,9 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         }
         DesktopInputRoutingOwnership.record(requestedPorts);
 
-        int keyboardAssociations = 0;
-        for (final DesktopKeyboardDevice keyboard : keyboards) {
-            if (associatePort(
-                    keyboard.location)) {
-                keyboardAssociations++;
-            }
+        for (final String port : requestedPorts) {
+            associatePort(port);
         }
-        mKeyboardAssociationCount = keyboardAssociations;
-        for (final DesktopMouseDevice mouse : mice) {
-            associatePort(mouse.location);
-        }
-    }
-
-    synchronized int refreshAssociations() throws Exception {
-        if (mClosed || mInputManager == null
-                || mAddAssociation == null || mAssociationTarget == null) {
-            return 0;
-        }
-        final List<DesktopKeyboardDevice> keyboards = mRouteKeyboards
-                ? DesktopInputDeviceDiscovery.findRoutableKeyboards()
-                : Collections.emptyList();
-        final List<DesktopMouseDevice> mice =
-                mRoutePhysicalMice || mRouteVirtualMouse
-                        ? selectRoutedMice(
-                                DesktopInputDeviceDiscovery
-                                        .findRoutableMice(),
-                                mRoutePhysicalMice,
-                                mRouteVirtualMouse)
-                        : Collections.emptyList();
-        final Set<String> requestedPorts = new LinkedHashSet<>(mAssociatedInputPorts);
-        for (final DesktopKeyboardDevice keyboard : keyboards) {
-            addRequestedPort(requestedPorts, keyboard.location);
-        }
-        for (final DesktopMouseDevice mouse : mice) {
-            addRequestedPort(requestedPorts, mouse.location);
-        }
-        if (!requestedPorts.equals(mAssociatedInputPorts)) {
-            // Retain recovery ownership even if a later hotplug association fails.
-            DesktopInputRoutingOwnership.record(requestedPorts);
-        }
-        int added = 0;
-        for (final DesktopKeyboardDevice keyboard : keyboards) {
-            if (associatePort(keyboard.location)) {
-                mKeyboardAssociationCount++;
-                added++;
-            }
-        }
-        for (final DesktopMouseDevice mouse : mice) {
-            if (associatePort(mouse.location)) {
-                added++;
-            }
-        }
-        if (added > 0) {
-            DesktopInputRoutingOwnership.record(mAssociatedInputPorts);
-        }
-        return added;
     }
 
     private boolean associatePort(final String location)
@@ -342,11 +250,7 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         mAssociatedInputPorts.clear();
         mDisplayId = -1;
         mAssociationTarget = null;
-        mKeyboardAssociationCount = 0;
         mVirtualKeyboardCount = 0;
-        mRouteKeyboards = false;
-        mRoutePhysicalMice = false;
-        mRouteVirtualMouse = false;
     }
 
     private static List<DesktopKeyboardDevice> waitForVirtualKeyboards(
@@ -356,8 +260,9 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                 + VIRTUAL_DEVICE_TIMEOUT_MILLIS;
         List<DesktopKeyboardDevice> keyboards;
         do {
-            keyboards = DesktopInputDeviceDiscovery.findRoutableKeyboards();
-            if (countVirtualKeyboards(keyboards) == expectedCount) {
+            keyboards = selectRelayKeyboards(
+                    DesktopInputDeviceDiscovery.findRoutableKeyboards());
+            if (keyboards.size() == expectedCount) {
                 return keyboards;
             }
             BoundedStateAwaiter.pauseInterruptibly(
@@ -369,19 +274,15 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                         + " MagicDesk virtual keyboards in EventHub");
     }
 
-    private static List<DesktopMouseDevice> waitForVirtualMouse(
-            final boolean includePhysicalMice)
+    private static List<DesktopMouseDevice> waitForVirtualMouse()
             throws IOException, InterruptedException {
         final long deadline = SystemClock.uptimeMillis()
                 + VIRTUAL_DEVICE_TIMEOUT_MILLIS;
         List<DesktopMouseDevice> mice;
         do {
-            mice = DesktopInputDeviceDiscovery.findRoutableMice();
-            for (final DesktopMouseDevice mouse : mice) {
-                if (VIRTUAL_MOUSE_LOCATION.equals(mouse.location)) {
-                    return selectRoutedMice(
-                            mice, includePhysicalMice, true);
-                }
+            mice = selectRelayMice(DesktopInputDeviceDiscovery.findRoutableMice());
+            if (mice.size() == 1) {
+                return mice;
             }
             BoundedStateAwaiter.pauseInterruptibly(
                     BoundedStateAwaiter.Reason.INPUT_DEVICE,
@@ -391,35 +292,29 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
                 "MagicDesk virtual mouse is missing from EventHub");
     }
 
-    static List<DesktopMouseDevice> selectRoutedMice(
-            final List<DesktopMouseDevice> mice,
-            final boolean includePhysicalMice,
-            final boolean includeVirtualMouse) {
-        if (mice == null || mice.isEmpty()) {
-            return Collections.emptyList();
-        }
+    static List<DesktopMouseDevice> selectRelayMice(
+            final List<DesktopMouseDevice> mice) {
         final List<DesktopMouseDevice> result = new ArrayList<>();
         for (final DesktopMouseDevice mouse : mice) {
-            final boolean virtual = VIRTUAL_MOUSE_LOCATION.equals(
-                    mouse.location);
-            if ((virtual && includeVirtualMouse)
-                    || (!virtual && includePhysicalMice)) {
+            if (VIRTUAL_MOUSE_LOCATION.equals(mouse.location)) {
                 result.add(mouse);
             }
         }
         return result;
     }
 
-    private static int countVirtualKeyboards(
+    static List<DesktopKeyboardDevice> selectRelayKeyboards(
             final List<DesktopKeyboardDevice> keyboards) {
-        int count = 0;
+        final List<DesktopKeyboardDevice> result = new ArrayList<>();
+        // EVIOCGRAB sources keep their system route. Associating them as well
+        // disables the physical keyboard on display loss, triggering a global
+        // configuration transition while WM is still removing that display.
         for (final DesktopKeyboardDevice keyboard : keyboards) {
-            if (keyboard.location.startsWith(
-                    VIRTUAL_KEYBOARD_LOCATION_PREFIX)) {
-                count++;
+            if (keyboard.location.startsWith(VIRTUAL_KEYBOARD_LOCATION_PREFIX)) {
+                result.add(keyboard);
             }
         }
-        return count;
+        return result;
     }
 
     private static void removeAssociations(

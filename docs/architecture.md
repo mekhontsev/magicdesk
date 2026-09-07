@@ -74,10 +74,9 @@ same-display fallback when an individual WMShell operation is unavailable.
 
 ### Forward the external input stream, not individual events
 
-RedMagic converts the external mouse's `BTN_RIGHT` to Android Back before an
-application receives it. Shell UID 2000 cannot change the physical keymap, but
-it can open external cursor devices read-only, acquire `EVIOCGRAB`, and create
-a `BUS_VIRTUAL` pointer through `/dev/uinput`.
+Shell UID 2000 can open external cursor devices read-only, acquire `EVIOCGRAB`,
+and create a `BUS_VIRTUAL` pointer through `/dev/uinput`. Android routes that
+pointer to the desktop through its display association.
 
 `DesktopInputRelaySession` is the single lifecycle owner for the mouse helper,
 keyboard helper, and Android display-routing lease. `DesktopMouseBridge`
@@ -87,13 +86,11 @@ therefore use the same relative pointer transport on every supported Android
 platform. The session's input-relay policy may additionally select physical
 EventHub devices marked `CURSOR | EXTERNAL`; only then does the native helper
 grab and forward their motion, wheel, and button state through that pointer.
-On RedMagic, `BTN_RIGHT` is the deliberate exception. The pointer extension's
-`requiresSecondaryClickInjection()` selects the helper's
-`--secondary-click-injection` policy: it consumes the physical sequence and
-requests one display-targeted Android secondary click, bypassing conversion to
-Back. The same policy handles touchpad secondary clicks. Without that explicit
-policy, the helper forwards native right-button state, including recovery after
-`SYN_DROPPED`; absolute-position availability does not select this behavior.
+`BTN_RIGHT` follows the same native button-state path, including shared ownership
+across physical sources and recovery after `SYN_DROPPED`. Touchpad secondary
+clicks emit a complete press/release sequence through that virtual mouse; they
+do not interrupt a right button already held by a physical source. Neither path
+requires an absolute-position API or a per-click round trip to the UserService.
 
 Host registration alone does not start input. The existing task observation
 publishes preparation once HOME has drawn, workspace ownership is configured,
@@ -127,7 +124,14 @@ their keys and buttons return to a neutral state, so a wake press is never
 split between the physical and virtual devices.
 `DesktopInputRoutingSession` associates those virtual devices with a physical
 display port for USB-C desktops or with the display unique ID for wireless and
-virtual desktops. `DesktopInputRelaySession` orders virtual-device readiness,
+virtual desktops. Physical sources retain their system routes: `EVIOCGRAB`
+already prevents their events from reaching InputReader while captured. Routing
+them as additional outputs needlessly disables physical keyboards when the
+desktop viewport disappears and can trigger configuration transitions on a
+retiring display. This also affects composite mouse/keyboard devices sharing a
+physical port, so neither source kind is associated. Routes are established once
+for the relay devices; physical hot-plug refreshes source descriptors, not
+display associations. `DesktopInputRelaySession` orders virtual-device readiness,
 the routing lease, capture, source refresh, and reverse-order teardown;
 `KeyboardShortcutWatcher` only decodes shortcuts outside that transport
 lifecycle. There is no separate vendor input-panel owner.
@@ -147,7 +151,7 @@ relative deltas. The shared native mouse relay forwards these deltas and button
 state through its virtual pointer; Android owns pointer acceleration, cursor
 visibility, hover shape, and window dragging. There is no additional motion
 smoothing or acceleration loop. Optional absolute-position APIs remain separate
-for explicit positioning, observation, and supported secondary-click handling.
+for explicit positioning and observation.
 
 A long press remains undecided until the finger either moves or is released.
 Movement starts a primary-button drag; release without movement becomes a
@@ -2503,10 +2507,10 @@ first character in the previous language.
 The shared mouse helper forwards captured physical movement, wheels, and
 buttons, and carries the phone touchpad's relative input independently of
 physical capture. Android owns cursor motion, acceleration, hover, and dragging.
-On Nubia, explicit secondary-click replacement reads the actual vendor cursor
-position at dispatch time. `Win+Backspace` remains the explicit system Back
-shortcut. Physical keyboards and pointing devices may be connected or removed
-while the session is active; the runtime updates their routes without
+Right clicks preserve native secondary-button semantics. `Win+Backspace`
+remains the explicit system Back shortcut. Physical keyboards and pointing
+devices may be connected or removed
+while the session is active; the runtime updates captured source descriptors without
 recreating the desktop or phone touchpad for keyboard-only configuration changes.
 
 Both helpers keep their virtual devices alive for the complete desktop session.

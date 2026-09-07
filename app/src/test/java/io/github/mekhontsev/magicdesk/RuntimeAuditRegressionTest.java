@@ -37,7 +37,7 @@ public final class RuntimeAuditRegressionTest {
     }
 
     @Test
-    public void hotplugFailureLeavesEveryAttemptJournaledBeforeAssociation() throws Exception {
+    public void routingFailureLeavesEveryAttemptJournaledBeforeAssociation() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Device { String location; Device(String p) { location = p; } }
                 static class DesktopKeyboardDevice extends Device {
@@ -46,55 +46,47 @@ public final class RuntimeAuditRegressionTest {
                 static class DesktopMouseDevice extends Device {
                     DesktopMouseDevice(String p) { super(p); }
                 }
-                static class DesktopInputDeviceDiscovery {
-                    static List<DesktopKeyboardDevice> findRoutableKeyboards() {
-                        return List.of(new DesktopKeyboardDevice("new-keyboard"));
-                    }
-                    static List<DesktopMouseDevice> findRoutableMice() {
-                        return List.of(new DesktopMouseDevice("new-mouse"));
-                    }
-                }
                 static class DesktopInputRoutingOwnership {
-                    static Set<String> journal = new LinkedHashSet<>(List.of("existing"));
+                    static Set<String> journal = new LinkedHashSet<>();
                     static boolean fail;
                     static void record(Set<String> ports) throws IOException {
                         if (fail) throw new IOException("journal failed");
                         journal = new LinkedHashSet<>(ports);
                     }
                 }
-                final Set<String> mAssociatedInputPorts = new LinkedHashSet<>(List.of("existing"));
+                final Set<String> mAssociatedInputPorts = new LinkedHashSet<>();
                 Object mInputManager = this, mAssociationTarget = "display";
                 Method mAddAssociation;
-                boolean mClosed, mRouteKeyboards = true, mRoutePhysicalMice = true, mRouteVirtualMouse;
-                int mKeyboardAssociationCount, calls;
+                int calls;
                 boolean journaledBefore = true;
                 public void add(String port, String target) throws IOException {
                     calls++;
                     journaledBefore &= DesktopInputRoutingOwnership.journal.contains(port);
-                    if (port.equals("new-mouse")) throw new IOException("second association failed");
+                    if (port.equals("magicdesk-mouse")) throw new IOException("second association failed");
                 }
-                List<DesktopMouseDevice> selectRoutedMice(List<DesktopMouseDevice> mice,
-                        boolean physical, boolean virtual) { return mice; }
                 public static void verify() throws Exception {
                     Fixture f = new Fixture();
                     f.mAddAssociation = Fixture.class.getMethod("add", String.class, String.class);
-                    try { f.refreshAssociations(); throw new AssertionError("failure expected"); }
+                    List<DesktopKeyboardDevice> keyboards = List.of(
+                            new DesktopKeyboardDevice("magicdesk-keyboard-0"));
+                    List<DesktopMouseDevice> mice = List.of(new DesktopMouseDevice("magicdesk-mouse"));
+                    try { f.associateRelayPorts(keyboards, mice); throw new AssertionError("failure expected"); }
                     catch (InvocationTargetException expected) {
                         check(expected.getCause() instanceof IOException, expected.getCause().toString());
                     }
-                    check(f.mAssociatedInputPorts.equals(Set.of("existing", "new-keyboard")),
+                    check(f.mAssociatedInputPorts.equals(Set.of("magicdesk-keyboard-0")),
                             "successful first association was lost");
-                    check(f.journaledBefore, "hotplug mutations preceded recovery journal");
+                    check(f.journaledBefore, "routing mutations preceded recovery journal");
                     check(DesktopInputRoutingOwnership.journal.containsAll(
-                            List.of("existing", "new-keyboard", "new-mouse")), "recovery ownership lost");
+                            List.of("magicdesk-keyboard-0", "magicdesk-mouse")), "recovery ownership lost");
                     DesktopInputRoutingOwnership.fail = true;
                     f.calls = 0;
-                    try { f.refreshAssociations(); throw new AssertionError("journal failure expected"); }
+                    try { f.associateRelayPorts(keyboards, mice); throw new AssertionError("journal failure expected"); }
                     catch (IOException expected) {}
                     check(f.calls == 0, "association ran despite journal failure");
                 }
                 """ + RuntimeSourceFixture.methods("DesktopInputRoutingSession",
-                "refreshAssociations", "associatePort", "addRequestedPort"));
+                "associateRelayPorts", "associatePort", "addRequestedPort"));
     }
 
     @Test

@@ -11,17 +11,10 @@ public interface PlatformPointerDriver extends AutoCloseable {
         return isAvailable();
     }
 
-    /** Firmware converts native secondary-button events instead of delivering them. */
-    default boolean requiresSecondaryClickInjection() {
-        return false;
-    }
-
     /** Current system cursor position, or {@code null} when not observable. */
     default Point observePosition(final int displayId) {
         return null;
     }
-
-    boolean injectClick(int displayId, int button);
 
     boolean updatePosition(
             int displayId,

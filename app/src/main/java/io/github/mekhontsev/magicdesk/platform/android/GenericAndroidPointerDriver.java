@@ -9,11 +9,6 @@ final class GenericAndroidPointerDriver implements PlatformPointerDriver {
     }
 
     @Override
-    public boolean injectClick(final int displayId, final int button) {
-        return false;
-    }
-
-    @Override
     public boolean updatePosition(
             final int displayId,
             final int x,

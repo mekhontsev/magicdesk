@@ -83,8 +83,8 @@ with the active Android desktop display and to implement global shortcuts:
   preserves normal input and repeat, consumes only MagicDesk shortcuts, and
   coordinates `Ctrl+Space` with Android's configured keyboard layouts.
 - `libmagicdesk_uinput_bridge.so` grabs only external cursor devices and
-  forwards their complete pointer stream through a virtual mouse. This prevents
-  RedMagic from converting `BTN_RIGHT` into Android Back.
+  forwards their complete pointer stream, including `BTN_RIGHT`, through a
+  virtual mouse associated with the desktop display.
 
 The UserService links each helper stream to an APK Binder owner. If the APK,
 UserService, or stream disappears, EOF or Binder death releases the physical

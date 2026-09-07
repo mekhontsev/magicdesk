@@ -419,7 +419,6 @@ final class RuntimeDesktopInputCoordinator {
         return new DesktopInputRelaySession(
                 mContext,
                 mInputRelay,
-                mPointer.requiresSecondaryClickInjection(),
                 () -> mHandler.post(this::handleRelaySessionStateChanged));
     }
 

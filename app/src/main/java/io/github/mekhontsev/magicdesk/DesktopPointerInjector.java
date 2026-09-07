@@ -4,7 +4,6 @@ import android.annotation.SuppressLint;
 import android.graphics.Point;
 import android.os.IBinder;
 import android.os.SystemClock;
-import android.view.Display;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyCharacterMap;
@@ -14,8 +13,6 @@ import java.lang.reflect.Method;
 
 /** Injects display-targeted pointer actions. */
 public final class DesktopPointerInjector {
-    private static final int MAGICDESK_VENDOR_ID = 0x4d44;
-    private static final int MAGICDESK_MOUSE_PRODUCT_ID = 0x0001;
     private static final int INJECTION_MODE_ASYNC = 0;
     private static final int INJECTION_MODE_WAIT_FOR_RESULT = 1;
     public static final int TOUCHPAD_HOVER = 0;
@@ -24,7 +21,6 @@ public final class DesktopPointerInjector {
     public static final int TOUCHPAD_DRAG_END = 3;
 
     private static volatile InjectionContext sInjectionContext;
-    private static volatile int sMagicDeskMouseDeviceId = -1;
 
     private DesktopPointerInjector() {
     }
@@ -250,7 +246,7 @@ public final class DesktopPointerInjector {
                     actionButton,
                     0.0f,
                     INJECTION_MODE_WAIT_FOR_RESULT,
-                    pointerDeviceId(displayId),
+                    inputDeviceId(InputDevice.SOURCE_MOUSE),
                     1.0f);
         }
 
@@ -269,7 +265,7 @@ public final class DesktopPointerInjector {
                     actionButton,
                     0.0f,
                     INJECTION_MODE_ASYNC,
-                    pointerDeviceId(displayId),
+                    inputDeviceId(InputDevice.SOURCE_MOUSE),
                     1.0f);
         }
 
@@ -292,7 +288,7 @@ public final class DesktopPointerInjector {
                     0,
                     0.0f,
                     INJECTION_MODE_ASYNC,
-                    pointerDeviceId(displayId),
+                    inputDeviceId(InputDevice.SOURCE_MOUSE),
                     toolType == MotionEvent.TOOL_TYPE_MOUSE ? 1.0f : 0.0f);
         }
 
@@ -327,7 +323,7 @@ public final class DesktopPointerInjector {
                     0,
                     0.0f,
                     INJECTION_MODE_WAIT_FOR_RESULT,
-                    pointerDeviceId(displayId),
+                    inputDeviceId(InputDevice.SOURCE_MOUSE),
                     1.0f);
         }
 
@@ -390,38 +386,6 @@ public final class DesktopPointerInjector {
         }
     }
 
-    private static int magicDeskMouseDeviceId() {
-        int deviceId = sMagicDeskMouseDeviceId;
-        if (isMagicDeskMouse(InputDevice.getDevice(deviceId))) {
-            return deviceId;
-        }
-        synchronized (DesktopPointerInjector.class) {
-            deviceId = sMagicDeskMouseDeviceId;
-            if (isMagicDeskMouse(InputDevice.getDevice(deviceId))) {
-                return deviceId;
-            }
-            for (final int candidateId : InputDevice.getDeviceIds()) {
-                if (isMagicDeskMouse(InputDevice.getDevice(candidateId))) {
-                    sMagicDeskMouseDeviceId = candidateId;
-                    return candidateId;
-                }
-            }
-        }
-        throw new IllegalStateException(
-                "MagicDesk mouse input device is unavailable");
-    }
-
-    private static int pointerDeviceId(final int displayId) {
-        // Secondary-click replacement must use the same virtual cursor as
-        // motion, even when physical capture is disabled for this session.
-        if (displayId != Display.DEFAULT_DISPLAY
-                && PlatformDrivers.current().pointer()
-                        .requiresSecondaryClickInjection()) {
-            return magicDeskMouseDeviceId();
-        }
-        return inputDeviceId(InputDevice.SOURCE_MOUSE);
-    }
-
     private static int inputDeviceId(final int source) {
         for (final int deviceId : InputDevice.getDeviceIds()) {
             final InputDevice device = InputDevice.getDevice(deviceId);
@@ -430,14 +394,6 @@ public final class DesktopPointerInjector {
             }
         }
         return 0;
-    }
-
-    private static boolean isMagicDeskMouse(final InputDevice device) {
-        return device != null
-                && device.getVendorId() == MAGICDESK_VENDOR_ID
-                && device.getProductId() == MAGICDESK_MOUSE_PRODUCT_ID
-                && (device.getSources() & InputDevice.SOURCE_MOUSE)
-                        == InputDevice.SOURCE_MOUSE;
     }
 
     private static Object getInputManager()

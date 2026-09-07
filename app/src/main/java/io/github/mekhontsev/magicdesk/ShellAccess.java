@@ -408,24 +408,6 @@ public final class ShellAccess {
         }
     }
 
-    static boolean injectPointerClick(
-            final int displayId,
-            final int button) {
-        if (!isReady() || displayId <= 0) {
-            return false;
-        }
-        final IShizukuCommandService service = connectedServiceOrConnect();
-        if (service == null) {
-            return false;
-        }
-        try {
-            return service.injectPointerClick(displayId, button);
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure(error);
-            return false;
-        }
-    }
-
     static boolean injectPointerHoverAt(
             final int displayId,
             final int x,
@@ -1148,8 +1130,7 @@ public final class ShellAccess {
 
     static ShellInputRoutingHandle openInputRouting(
             final int displayId,
-            final int expectedVirtualKeyboardCount,
-            final DesktopInputRelayPolicy relayPolicy) throws IOException {
+            final int expectedVirtualKeyboardCount) throws IOException {
         if (displayId <= 0) {
             throw new IOException(
                     "input routing requires a secondary display");
@@ -1158,23 +1139,14 @@ public final class ShellAccess {
             throw new IOException(
                     "virtual keyboard count must not be negative");
         }
-        final DesktopInputRelayPolicy policy = relayPolicy == null
-                ? DesktopInputRelayPolicy.NONE : relayPolicy;
-        if (!policy.keyboard && expectedVirtualKeyboardCount != 0) {
-            throw new IOException(
-                    "virtual keyboards require keyboard relay");
-        }
         final IShizukuCommandService service = requireService();
         final IBinder ownerToken = new Binder();
         try {
             final int[] state = service.startInputRouting(
                     displayId,
                     expectedVirtualKeyboardCount,
-                    policy.keyboard,
-                    policy.mouse,
-                    true,
                     ownerToken);
-            if (state == null || state.length != 4) {
+            if (state == null || state.length != 3) {
                 service.stopInputRouting(ownerToken);
                 throw new IOException("invalid input routing state");
             }

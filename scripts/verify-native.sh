@@ -72,8 +72,6 @@ for mode in paused queue-cleanup; do
     printf 'Run: input keyboard %s\n' "$mode"
     timeout --kill-after=2s 15s ./magicdesk_input_keyboard_test "$mode"
 done
-for mode in secondary-native secondary-injected; do
-    printf 'Run: input mouse %s\n' "$mode"
-    timeout --kill-after=2s 15s ./magicdesk_input_mouse_test "$mode"
-done
-printf 'Native host fixtures verified (23 runs).\n'
+printf 'Run: input mouse secondary-native\n'
+timeout --kill-after=2s 15s ./magicdesk_input_mouse_test secondary-native
+printf 'Native host fixtures verified (22 runs).\n'

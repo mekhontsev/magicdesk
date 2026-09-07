@@ -125,9 +125,8 @@ public final class HostScriptsTest {
         expected.add("magicdesk_input_keyboard_test:paused");
         expected.add("magicdesk_input_keyboard_test:queue-cleanup");
         expected.add("magicdesk_input_mouse_test:secondary-native");
-        expected.add("magicdesk_input_mouse_test:secondary-injected");
         assertEquals(expected, Files.readAllLines(fixture.log));
-        assertTrue(result.output.contains("verified (23 runs)"));
+        assertTrue(result.output.contains("verified (22 runs)"));
         assertEmptyDirectory(fixture.output);
     }
 

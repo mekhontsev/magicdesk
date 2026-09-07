@@ -39,7 +39,7 @@ community compatibility result, not the complete maintainer interface matrix.
 | --- | --- | --- | --- |
 | `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Production setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
 | `IDisplayManager` Nubia extensions | Read and command | Display state and `setCmdToDisplay` calls are accepted from the app UID. | Production uses only the physical-output refresh command; Android's existing display remains the desktop target. |
-| `IInputManager` Nubia mouse extensions | Shell read and command verified | `getMousePosition` and `setMousePosition` expose the firmware cursor position used by wired and wireless projection. | The Shizuku UserService uses these methods for position observation, explicit positioning, and secondary-click injection. Relative pointer transport and display routing use shared Android mechanisms. |
+| `IInputManager` Nubia mouse extensions | Shell read and command verified | `getMousePosition` and `setMousePosition` expose the firmware cursor position used by wired and wireless projection. | The Shizuku UserService uses these methods for position observation and explicit positioning. Relative pointer transport, buttons, and display routing use shared Android mechanisms. |
 | `IDisplayManager` text-input extension | Shell command verified | `getFocusMirrorWindow` returns the currently focused projected window. | The focused window is retained only for an explicit software-keyboard session. |
 | `IDisplayMirrorWindow` | Shell command verified | The focused window accepts composing text, committed text, deletion, and key events. | A bounded phone-side `InputConnection` forwards standard IME operations without selecting or embedding an IME. |
 | `SurfaceControl.setSFOption(1100/1102, ...)` | Write verified | The app UID can change wireless/wired privacy and caption visibility. No corresponding SurfaceFlinger getter was found. | Shizuku uses transport-aware lifecycle ownership and restores the separate preferences reported by Nubia's exported projection provider. |
@@ -241,10 +241,13 @@ converts secondary-button down/up into `KEYCODE_BACK`.
 
 MagicDesk's input-port association plus keyboard bridge is required for the
 correct target display, layout switching, shortcuts, and repeat.
-The mouse bridge remains required to keep physical motion and buttons on the
-target display. It consumes `BTN_RIGHT` and asks the UserService to inject one
-secondary click at the vendor-reported cursor position, preventing the
-firmware from translating either edge of the physical sequence into Back.
+The mouse bridge routes captured physical motion and buttons through its
+display-associated virtual mouse. On the current desktop path, native
+`BTN_RIGHT` works without conversion to Back in maintainer testing on
+`NX809J` / `20260204.221845`, including physical and phone-touchpad clicks.
+The firmware handler above is not evidence that this path needs button
+replacement. MagicDesk forwards the native sequence without querying vendor
+cursor coordinates.
 
 For phone-side text input, `IDisplayManager.getFocusMirrorWindow()` returns an
 `IDisplayMirrorWindow` Binder. Its text, composing-region, deletion, and key

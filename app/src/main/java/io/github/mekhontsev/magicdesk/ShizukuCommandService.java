@@ -823,13 +823,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public boolean injectPointerClick(
-            final int displayId,
-            final int button) {
-        return mPointerDriver.injectClick(displayId, button);
-    }
-
-    @Override
     public boolean injectPointerHoverAt(
             final int displayId,
             final int x,
@@ -889,9 +882,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     public int[] startInputRouting(
             final int displayId,
             final int expectedVirtualKeyboardCount,
-            final boolean routeKeyboards,
-            final boolean routePhysicalMice,
-            final boolean routeVirtualMouse,
             final IBinder ownerToken) {
         if (ownerToken == null) {
             throw new IllegalArgumentException(
@@ -904,12 +894,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             boolean ownerLinked = false;
             try {
                 session = DesktopInputRoutingSession.open(
-                        mContext,
                         displayId,
-                        expectedVirtualKeyboardCount,
-                        routeKeyboards,
-                        routePhysicalMice,
-                        routeVirtualMouse);
+                        expectedVirtualKeyboardCount);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);
                 ownerLinked = true;
@@ -919,7 +905,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 return new int[] {
                         session.displayId(),
                         session.associationCount(),
-                        session.keyboardAssociationCount(),
                         session.virtualKeyboardCount()
                 };
             } catch (Exception error) {
@@ -931,23 +916,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 }
                 throw new IllegalStateException(
                         "cannot start input routing: "
-                                + usefulMessage(error),
-                        error);
-            }
-        }
-    }
-
-    @Override
-    public int refreshInputRouting() {
-        synchronized (mInputRoutingLock) {
-            if (mInputRoutingSession == null) {
-                return 0;
-            }
-            try {
-                return mInputRoutingSession.refreshAssociations();
-            } catch (Exception error) {
-                throw new IllegalStateException(
-                        "cannot refresh input routing: "
                                 + usefulMessage(error),
                         error);
             }

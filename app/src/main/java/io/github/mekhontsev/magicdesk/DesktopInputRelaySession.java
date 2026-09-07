@@ -41,13 +41,12 @@ final class DesktopInputRelaySession {
     DesktopInputRelaySession(
             final Context context,
             final DesktopInputRelayPolicy policy,
-            final boolean secondaryClickInjection,
             final Runnable stateChanged) {
         mContext = context.getApplicationContext();
         mPolicy = policy == null ? DesktopInputRelayPolicy.NONE : policy;
         mStateChanged = stateChanged;
         mMouseBridge = new DesktopMouseBridge(
-                mContext, mPolicy.mouse, secondaryClickInjection, stateChanged);
+                mContext, mPolicy.mouse, stateChanged);
     }
 
     void reconcile(
@@ -106,13 +105,11 @@ final class DesktopInputRelaySession {
             final List<DesktopKeyboardDevice> keyboards,
             final List<DesktopMouseDevice> mice) {
         final ShellStreamHandle keyboardStream;
-        final ShellInputRoutingHandle inputRouting;
         synchronized (mLock) {
             if (!mRoutingRequested) {
                 return;
             }
             keyboardStream = mKeyboardStream;
-            inputRouting = mInputRouting;
         }
         if (keyboardStream != null) {
             try {
@@ -120,14 +117,6 @@ final class DesktopInputRelaySession {
             } catch (IOException error) {
                 InputBridgeDiagnostics.noteSourceRefreshFailure(error);
                 Log.w(TAG, "Could not refresh keyboard sources", error);
-            }
-        }
-        if (inputRouting != null) {
-            try {
-                inputRouting.refresh();
-            } catch (IOException error) {
-                InputBridgeDiagnostics.noteSourceRefreshFailure(error);
-                Log.w(TAG, "Could not refresh desktop input routing", error);
             }
         }
         if (mPolicy.mouse) {
@@ -341,7 +330,7 @@ final class DesktopInputRelaySession {
             }
 
             inputRouting = ShellAccess.openInputRouting(
-                    displayId, layoutCount, mPolicy);
+                    displayId, layoutCount);
             if (inputRouting.virtualKeyboardCount() != layoutCount) {
                 throw new IOException(
                         "virtual keyboard routing count mismatch");
@@ -378,7 +367,7 @@ final class DesktopInputRelaySession {
                     + ShellAccess.statusLabel()
                     + " display=" + displayId
                     + " keyboards="
-                    + inputRouting.keyboardAssociationCount()
+                    + inputRouting.virtualKeyboardCount()
                     + " associations="
                     + inputRouting.associationCount()
                     + " layouts=" + layoutCount);

@@ -26,7 +26,6 @@ public final class PlatformDriversTest {
         assertTrue(driver.features().wirelessDesktop);
         assertTrue(driver.features().defaultInputRelay.keyboard);
         assertTrue(driver.features().defaultInputRelay.mouse);
-        assertTrue(driver.pointer().requiresSecondaryClickInjection());
         assertFalse(driver.audioCapture().availability()
                 == PlatformAudioCaptureDriver.Availability.UNSUPPORTED);
         assertTrue(driver.pointer().isAvailable());
@@ -66,7 +65,6 @@ public final class PlatformDriversTest {
         assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRELESS));
         assertFalse(driver.features().defaultInputRelay.isEnabled());
-        assertFalse(driver.pointer().requiresSecondaryClickInjection());
         assertFalse(driver.audioCapture().isAvailable());
         assertFalse(driver.pointer().isAvailable());
         assertFalse(driver.projection().supportsOutputConfiguration());

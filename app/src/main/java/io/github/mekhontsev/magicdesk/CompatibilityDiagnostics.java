@@ -560,8 +560,6 @@ public final class CompatibilityDiagnostics {
                 .append(platform.audioCapture().isAvailable())
                 .append(", absolutePointer=")
                 .append(platform.pointer().isAvailable())
-                .append(", secondaryClickInjection=")
-                .append(platform.pointer().requiresSecondaryClickInjection())
                 .append(", outputControls=")
                 .append(platform.projection().supportsOutputConfiguration())
                 .append(", phoneUi=")

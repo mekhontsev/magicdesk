@@ -12,12 +12,6 @@ final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
     private static final String TAG = "MagicDeskPointer";
 
     @Override
-    public boolean requiresSecondaryClickInjection() {
-        // This firmware converts native right-button events to Android Back.
-        return true;
-    }
-
-    @Override
     public Point observePosition(final int displayId) {
         if (!supportsDisplay(displayId)) {
             return null;
@@ -27,20 +21,6 @@ final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.d(TAG, "system pointer position is unavailable", error);
             return null;
-        }
-    }
-
-    @Override
-    public boolean injectClick(final int displayId, final int button) {
-        try {
-            DesktopPointerInjector.injectClickAt(
-                    displayId,
-                    NubiaDesktopPointerController.getPosition(),
-                    button);
-            return true;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.e(TAG, "pointer click injection failed", error);
-            return false;
         }
     }
 

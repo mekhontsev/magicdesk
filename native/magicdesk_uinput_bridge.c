@@ -29,7 +29,6 @@ struct bridge_state {
     bool forwarded_down[KEY_MAX + 1];
     bool control_primary_down;
     bool capture_enabled;
-    bool secondary_click_injection;
     uint64_t physical_reports;
     uint64_t physical_motion_reports;
     uint64_t forwarded_reports;
@@ -140,7 +139,7 @@ static void emit_stats(
             " forwardedReports=%llu forwardedMotionReports=%llu"
             " writeErrors=%llu lastPhysicalMotionAgeMs=%lld"
             " lastForwardedMotionAgeMs=%lld sources=%d grabbed=%d"
-            " capture=%d secondaryClickInjection=%d",
+            " capture=%d",
             request_id,
             (unsigned long long)state->physical_reports,
             (unsigned long long)state->physical_motion_reports,
@@ -154,8 +153,7 @@ static void emit_stats(
             state->source_count,
             magicdesk_grabbed_source_count(
                     state->sources, state->source_count),
-            state->capture_enabled ? 1 : 0,
-            state->secondary_click_injection ? 1 : 0);
+            state->capture_enabled ? 1 : 0);
     emit_line(output);
 }
 
@@ -297,9 +295,6 @@ static int process_key_event(
         if (state->key_down_count[code]++ > 0) {
             return 0;
         }
-        if (code == BTN_RIGHT && state->secondary_click_injection) {
-            return 0;
-        }
         state->forwarded_down[code] = true;
         if (code == BTN_LEFT && state->control_primary_down) {
             return 0;
@@ -320,10 +315,6 @@ static int process_key_event(
     }
     if (state->key_down_count[code] > 0
             || !state->forwarded_down[code]) {
-        if (code == BTN_RIGHT && state->secondary_click_injection
-                && state->key_down_count[code] == 0) {
-            emit_line("MAGICDESK_MOUSE_SECONDARY_CLICK");
-        }
         return 0;
     }
     state->forwarded_down[code] = false;
@@ -361,8 +352,7 @@ static int reconcile_button_state(
         }
         source->key_down[code] = keys[code];
         if (keys[code]) {
-            if (state->key_down_count[code]++ > 0
-                    || (code == BTN_RIGHT && state->secondary_click_injection)) {
+            if (state->key_down_count[code]++ > 0) {
                 continue;
             }
             state->forwarded_down[code] = true;
@@ -375,8 +365,7 @@ static int reconcile_button_state(
             }
             state->forwarded_down[code] = false;
         }
-        // A state correction is not a secondary-click gesture, and a control
-        // drag remains owned independently from all physical sources.
+        // A control drag remains owned independently from physical sources.
         if (code == BTN_LEFT && state->control_primary_down) {
             continue;
         }
@@ -484,10 +473,6 @@ static int handle_control_line(
     }
     if (strcmp(line, "click-secondary") == 0) {
         if (state->key_down_count[BTN_RIGHT] > 0) {
-            return 0;
-        }
-        if (state->secondary_click_injection) {
-            emit_line("MAGICDESK_MOUSE_SECONDARY_CLICK");
             return 0;
         }
         return emit_click(state, state->uinput_fd, BTN_RIGHT);
@@ -645,12 +630,9 @@ static int forward_events(struct bridge_state *state) {
 }
 
 int main(int argc, char **argv) {
-    const bool secondary_click_injection = argc > 1
-            && strcmp(argv[1], "--secondary-click-injection") == 0;
-    const int first_source = secondary_click_injection ? 2 : 1;
-    if (argc < first_source || argc - first_source > MAX_SOURCES) {
+    if (argc < 1 || argc - 1 > MAX_SOURCES) {
         fprintf(stderr,
-                "usage: %s [--secondary-click-injection] [/dev/input/eventN ...]\n",
+                "usage: %s [/dev/input/eventN ...]\n",
                 argv[0]);
         return 64;
     }
@@ -659,7 +641,7 @@ int main(int argc, char **argv) {
     signal(SIGTERM, request_stop);
     signal(SIGPIPE, SIG_IGN);
 
-    const int source_count = argc - first_source;
+    const int source_count = argc - 1;
     struct source_device *sources =
             calloc(MAX_SOURCES, sizeof(*sources));
     if (sources == NULL) {
@@ -672,7 +654,7 @@ int main(int argc, char **argv) {
     if (magicdesk_open_sources(
                 sources,
                 source_count,
-                &argv[first_source],
+                &argv[1],
                 "MOUSE") < 0) {
         magicdesk_release_sources(sources, source_count);
         free(sources);
@@ -700,7 +682,6 @@ int main(int argc, char **argv) {
     }
 
     struct bridge_state state = {
-        .secondary_click_injection = secondary_click_injection,
         .sources = sources,
         .source_count = source_count,
         .uinput_fd = uinput_fd,

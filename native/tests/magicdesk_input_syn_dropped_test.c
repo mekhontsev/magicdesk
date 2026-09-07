@@ -282,7 +282,6 @@ static int shortcuts(void) {
 }
 #else
 static int shortcuts(void) {
-    state.secondary_click_injection = true;
     assert(set_control_primary(&state, true) == 0);
     assert(deliver(0, EV_KEY, BTN_LEFT, 1) == 0);
     assert(deliver(0, EV_KEY, BTN_RIGHT, 1) == 0);
@@ -291,40 +290,50 @@ static int shortcuts(void) {
     CHECK(state.control_primary_down && !state.forwarded_down[BTN_LEFT]
             && state.key_down_count[BTN_LEFT] == 0, "recovery lost control/physical ownership split");
     CHECK(emitted_key_count(BTN_LEFT, 0) == 0, "recovery released a control-owned button");
-    CHECK(protocol_length == 0, "lost physical release fabricated a secondary click");
+    CHECK(emitted_key_count(BTN_RIGHT, 1) == 1
+            && emitted_key_count(BTN_RIGHT, 0) == 1,
+            "lost secondary release was not forwarded");
+    CHECK(protocol_length == 0, "lost physical release generated a shell command");
     assert(set_control_primary(&state, false) == 0);
     CHECK(emitted_key_count(BTN_LEFT, 0) == 1, "control release did not release its button");
     assert(deliver(0, EV_KEY, BTN_RIGHT, 1) == 0);
     assert(deliver(0, EV_KEY, BTN_RIGHT, 0) == 0);
-    CHECK(strstr(protocol, "MAGICDESK_MOUSE_SECONDARY_CLICK") != NULL,
+    CHECK(emitted_key_count(BTN_RIGHT, 1) == 2
+            && emitted_key_count(BTN_RIGHT, 0) == 2,
             "normal secondary click no longer works after recovery");
     return 0;
 }
 
-static int secondary_clicks(bool injected) {
-    state.secondary_click_injection = injected;
+static int secondary_clicks(void) {
     assert(deliver(0, EV_KEY, BTN_RIGHT, 1) == 0);
     assert(deliver(1, EV_KEY, BTN_RIGHT, 1) == 0);
     assert(handle_control_line(&state, "click-secondary") == 0);
-    CHECK(protocol_length == 0, "control click interrupted a physical hold");
+    CHECK(protocol_length == 0 && emitted_key_count(BTN_RIGHT, 1) == 1
+            && emitted_key_count(BTN_RIGHT, 0) == 0,
+            "control click interrupted a physical hold");
     assert(deliver(0, EV_KEY, BTN_RIGHT, 0) == 0);
     CHECK(protocol_length == 0 && emitted_key_count(BTN_RIGHT, 0) == 0,
             "secondary button released before its last owner");
     assert(deliver(1, EV_KEY, BTN_RIGHT, 0) == 0);
-    CHECK(emitted_key_count(BTN_RIGHT, 1) == (injected ? 0U : 1U)
-            && emitted_key_count(BTN_RIGHT, 0) == (injected ? 0U : 1U),
-            "physical secondary button ignored the selected policy");
-    CHECK((strstr(protocol, "MAGICDESK_MOUSE_SECONDARY_CLICK") != NULL) == injected,
-            "secondary injection must be explicitly selected");
+    CHECK(emitted_key_count(BTN_RIGHT, 1) == 1
+            && emitted_key_count(BTN_RIGHT, 0) == 1,
+            "physical secondary button did not preserve its full sequence");
+    CHECK(protocol_length == 0, "physical secondary button generated a shell command");
 
     emitted_count = protocol_length = 0;
     protocol[0] = '\0';
     assert(handle_control_line(&state, "click-secondary") == 0);
-    CHECK(emitted_key_count(BTN_RIGHT, 1) == (injected ? 0U : 1U)
-            && emitted_key_count(BTN_RIGHT, 0) == (injected ? 0U : 1U),
-            "touchpad secondary click ignored the selected policy");
-    CHECK((strstr(protocol, "MAGICDESK_MOUSE_SECONDARY_CLICK") != NULL) == injected,
-            "touchpad and physical secondary clicks use different policies");
+    CHECK(emitted_key_count(BTN_RIGHT, 1) == 1
+            && emitted_key_count(BTN_RIGHT, 0) == 1,
+            "touchpad secondary click did not reach the virtual device");
+    CHECK(emitted_count == 4 && emitted[0].type == EV_KEY
+            && emitted[0].code == BTN_RIGHT && emitted[0].value == 1
+            && emitted[1].type == EV_SYN && emitted[1].code == SYN_REPORT
+            && emitted[2].type == EV_KEY && emitted[2].code == BTN_RIGHT
+            && emitted[2].value == 0
+            && emitted[3].type == EV_SYN && emitted[3].code == SYN_REPORT,
+            "touchpad secondary click lost report boundaries");
+    CHECK(protocol_length == 0, "touchpad secondary click generated a shell command");
 
     emitted_count = protocol_length = 0;
     protocol[0] = '\0';
@@ -334,10 +343,25 @@ static int secondary_clicks(bool injected) {
     memset(kernel_keys, 0, sizeof(kernel_keys));
     assert(deliver(0, EV_SYN, SYN_DROPPED, 0) == 0);
     assert(deliver(0, EV_SYN, SYN_REPORT, 0) == 0);
-    CHECK(emitted_key_count(BTN_RIGHT, 1) == (injected ? 0U : 1U)
-            && emitted_key_count(BTN_RIGHT, 0) == (injected ? 0U : 1U),
-            "secondary-button recovery ignored the selected policy");
-    CHECK(protocol_length == 0, "recovery invented a secondary-click request");
+    CHECK(emitted_key_count(BTN_RIGHT, 1) == 1
+            && emitted_key_count(BTN_RIGHT, 0) == 1,
+            "secondary-button recovery did not restore native state");
+    CHECK(protocol_length == 0, "recovery generated a shell command");
+
+    emitted_count = 0;
+    assert(deliver(0, EV_KEY, BTN_RIGHT, 1) == 0);
+    assert(deliver(1, EV_KEY, BTN_RIGHT, 1) == 0);
+    assert(clear_button_state(&state) == 0);
+    CHECK(state.key_down_count[BTN_RIGHT] == 0 && !state.forwarded_down[BTN_RIGHT]
+            && !sources[0].key_down[BTN_RIGHT] && !sources[1].key_down[BTN_RIGHT],
+            "source reset retained secondary-button ownership");
+    CHECK(emitted_key_count(BTN_RIGHT, 1) == 1
+            && emitted_key_count(BTN_RIGHT, 0) == 1,
+            "source reset did not release the secondary button exactly once");
+    assert(handle_control_line(&state, "click-secondary") == 0);
+    CHECK(emitted_key_count(BTN_RIGHT, 1) == 2
+            && emitted_key_count(BTN_RIGHT, 0) == 2,
+            "touchpad secondary click remained blocked after source reset");
     return 0;
 }
 #endif
@@ -370,8 +394,7 @@ int main(int argc, char **argv) {
     else if (strcmp(argv[1], "paused") == 0) result = paused_recovery();
     else if (strcmp(argv[1], "queue-cleanup") == 0) result = queue_cleanup();
 #else
-    else if (strcmp(argv[1], "secondary-native") == 0) result = secondary_clicks(false);
-    else if (strcmp(argv[1], "secondary-injected") == 0) result = secondary_clicks(true);
+    else if (strcmp(argv[1], "secondary-native") == 0) result = secondary_clicks();
 #endif
     else return 2;
     if (result == 0) {

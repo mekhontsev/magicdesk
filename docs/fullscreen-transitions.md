@@ -291,6 +291,38 @@ repaired safely by another task transaction; restart `system_server` or reboot.
 Restarting SystemUI may help on some builds but is not reliable after display
 removal.
 
+An idle queue before abrupt display loss does not prevent a new configuration
+transition afterward. In the inspected Android 16 framework, InputReader can
+disable keyboards associated with the removed viewport while WindowManager
+still retains that display's `DisplayContent`. Its configuration update starts
+a CHANGE transition on the retiring display. `Transition.finishTransition`
+calls `handleCompleteDeferredRemoval` before `updateAnimatingState`; the latter
+closes performance sessions only on displays still in the root container. This
+can leave a `SystemPerformanceHinter` session after WMShell itself becomes idle.
+The ordering also exists in AOSP Android 16's
+[`Transition`](https://github.com/aosp-mirror/platform_frameworks_base/blob/android16-release/services/core/java/com/android/server/wm/Transition.java)
+and
+[`TransitionController`](https://github.com/aosp-mirror/platform_frameworks_base/blob/android16-release/services/core/java/com/android/server/wm/TransitionController.java).
+A controlled experiment requiring
+the entire WMShell queue to be idle before removal did not prevent this residue;
+do not treat a longer pre-removal wait as its fix. Compare attached input devices
+and post-removal configuration events when a previously passing test hits this
+case. A simulated control with the physical keyboard disconnected passed the
+unchanged removal and cleanup assertions: the keyboard relay was absent, the
+virtual mouse remained, and no post-removal configuration transition or new
+orphaned session appeared. Connecting a keyboard therefore matters to this
+reproduction; successful pointer-only runs do not cover it.
+
+The relay now associates only its virtual outputs. `EVIOCGRAB` sources keep their
+system routes, including composite keyboard/mouse ports. In a focused A/B run
+with the same physical keyboard, routing both sources and outputs reproduced
+the configuration transition and orphan; routing only the virtual outputs
+passed the unchanged abrupt-removal and new-residue assertions. The input
+startup and shutdown order was identical. This removes a MagicDesk-created
+trigger, not the underlying framework defect: simultaneous physical keyboard
+removal remains a separate scenario. Keep the new-residue assertion and the
+abrupt-removal scenario intact.
+
 Returning the HOME role precedes teardown, but disabling HOME Activity
 components follows it. Component disable triggers Android's own asynchronous
 CLOSE transaction; doing this while parking applications can leave that
@@ -374,7 +406,15 @@ hierarchy non-empty until the reparent transition commits and lets the idle
 plane be reused without organizer deletion and recreation.
 After the application leaves, the plane becomes a non-focusable idle slot and
 is reused by a later fullscreen task. The anchor has a valid input channel for
-the brief task-removal boundary and accepts no pointer input. An explicit close
+the brief task-removal boundary and accepts no pointer input. `NOT_TOUCHABLE`
+alone is insufficient: Android's separate `ActivityRecordInputSink` can still
+block native mouse events before they reach HOME. The shell passes a narrow
+synchronous input-policy Binder in the anchor launch Intent. Before creating
+its content window, the anchor registers its Activity token and the shell
+disables that sink through the shared Android 15+ activity-input API. Missing
+or failed registration finishes the anchor rather than leaving an input
+blocker. Activity recreation repeats registration; plane reuse needs no new
+observer, timer, or transaction. An explicit close
 makes the source plane non-focusable, selects the successor, and confirms input
 focus before removing the now-background application task. Application-initiated
 removal submits the same handoff from `onTaskRemovalStarted` without waiting

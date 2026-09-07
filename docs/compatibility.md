@@ -35,8 +35,8 @@ evdev/uinput transport still needs the shell permissions shown in the capability
 probe; enabling the preference cannot grant them. The phone touchpad's relative
 input uses a virtual mouse independently of physical capture and does not
 require an absolute-position API. Software keyboard input is independent of
-both. Optional pointer observation, coordinate injection, and firmware-specific
-secondary-button handling remain separate capabilities.
+both. Right clicks use the same virtual mouse as movement; optional pointer
+observation and coordinate injection remain separate capabilities.
 
 Phone desktop availability is independent from external-display support.
 MagicDesk reports Android's live

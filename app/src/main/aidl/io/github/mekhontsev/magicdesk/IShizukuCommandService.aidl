@@ -66,17 +66,10 @@ interface IShizukuCommandService {
 
     void stopTaskObserver(ITaskObserverCallback callback) = 14;
 
-    boolean injectPointerClick(int displayId, int button) = 17;
-
     int[] startInputRouting(
         int displayId,
         int expectedVirtualKeyboardCount,
-        boolean routeKeyboards,
-        boolean routePhysicalMice,
-        boolean routeVirtualMouse,
         IBinder ownerToken) = 18;
-
-    int refreshInputRouting() = 19;
 
     void stopInputRouting(IBinder ownerToken) = 20;
 
