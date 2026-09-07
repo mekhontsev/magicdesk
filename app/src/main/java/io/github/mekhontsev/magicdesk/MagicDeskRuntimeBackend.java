@@ -35,9 +35,7 @@ interface MagicDeskRuntimeBackend {
 
     InputRelayRuntimeDiagnostics.Snapshot captureInputRelayDiagnostics();
 
-    boolean prepareDesktopDisplayRemoval(int displayId);
-
-    void cancelDesktopDisplayRemoval(int displayId);
+    void releaseDesktopInput(int displayId, Runnable completion);
 
     boolean moveDesktopPointer(int displayId, float deltaX, float deltaY);
 

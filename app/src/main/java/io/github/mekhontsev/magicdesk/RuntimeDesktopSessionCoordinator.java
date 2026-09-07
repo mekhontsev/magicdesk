@@ -89,12 +89,6 @@ final class RuntimeDesktopSessionCoordinator {
         return true;
     }
 
-    void cancelDisplayRemoval(final int displayId) {
-        if (mExpectedRemovedDisplayId == displayId) {
-            mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
-        }
-    }
-
     void reconcileFailedDesktopLaunch(final int displayId) {
         if (mDestroyed
                 || displayId <= Display.DEFAULT_DISPLAY

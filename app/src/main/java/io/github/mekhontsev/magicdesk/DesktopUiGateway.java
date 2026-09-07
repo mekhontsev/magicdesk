@@ -145,8 +145,7 @@ final class DesktopUiGateway {
         synchronized (mHostLock) {
             activity = usableDesktopLocked(false);
             final DesktopDisplayTarget target = mSession.snapshot().target();
-            if (activity == null
-                    || displayId < Display.DEFAULT_DISPLAY
+            if (displayId < Display.DEFAULT_DISPLAY
                     || target == null
                     || target.displayId != displayId) {
                 if (completion != null) {
@@ -174,15 +173,20 @@ final class DesktopUiGateway {
         };
         final Runnable closeHost = () -> {
             try {
-                activity.releaseDesktopUiWindows();
-                if (!activity.isFinishing()) {
-                    activity.finishAndRemoveTask();
+                if (activity != null) {
+                    try {
+                        activity.releaseDesktopUiWindows();
+                    } finally {
+                        if (!activity.isFinishing()) {
+                            activity.finishAndRemoveTask();
+                        }
+                    }
                 }
+            } finally {
                 MagicDeskRuntime.refreshDesktopTasks();
                 if (displayId == Display.DEFAULT_DISPLAY) {
                     MagicDeskRuntime.scheduleLocalDesktopCleanup();
                 }
-            } finally {
                 closePartFinished.run();
             }
         };
@@ -221,25 +225,14 @@ final class DesktopUiGateway {
         // is gone. Releasing it here empties the display before the platform
         // removal transition and can strand per-display framework state.
         TaskCommandQueue.execute(() -> {
-            flushWindowSessionState();
-            if (completion != null) {
-                completion.run();
+            try {
+                flushWindowSessionState();
+            } finally {
+                if (completion != null) {
+                    completion.run();
+                }
             }
         });
-    }
-
-    void resumeDesktopSessionAfterFailedRemoval(final int displayId) {
-        synchronized (mHostLock) {
-            final DesktopDisplayTarget target = mSession.snapshot().target();
-            if (usableDesktopLocked(false) == null
-                    || target == null
-                    || target.displayId != displayId) {
-                return;
-            }
-        }
-        AppWindowStateStore.beginSession(
-                sessionSnapshot().policy(), false);
-        MagicDeskRuntime.refreshDesktopTasks();
     }
 
     private static void flushWindowSessionState() {

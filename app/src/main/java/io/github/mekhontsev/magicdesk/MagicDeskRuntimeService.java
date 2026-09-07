@@ -173,30 +173,29 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
-    public boolean prepareDesktopDisplayRemoval(
-            final int displayId) {
-        if (mDestroyed || mDesktopInput == null
-                || mDesktopSession == null
-                || !mDesktopSession.prepareDisplayRemoval(displayId)) {
-            return false;
-        }
-        if (mDesktopInput.suspendMouseBridgeForDisplayRemoval(displayId)) {
-            return true;
-        }
-        mDesktopSession.cancelDisplayRemoval(displayId);
-        return false;
-    }
-
-    @Override
-    public void cancelDesktopDisplayRemoval(final int displayId) {
-        if (mDestroyed) {
-            return;
-        }
-        if (mDesktopSession != null) {
-            mDesktopSession.cancelDisplayRemoval(displayId);
-        }
-        if (mDesktopInput != null) {
-            mDesktopInput.cancelMouseBridgeDisplayRemoval(displayId);
+    public void releaseDesktopInput(
+            final int displayId, final Runnable completion) {
+        final Runnable release = () -> {
+            try {
+                if (!mDestroyed && mDesktopSession != null) {
+                    mDesktopSession.prepareDisplayRemoval(displayId);
+                }
+                if (!mDestroyed && mDesktopInput != null) {
+                    mDesktopInput.releaseForSessionClose(displayId);
+                }
+            } catch (RuntimeException error) {
+                CompatibilityDiagnostics.record("INPUT-CLOSE-001",
+                        "Could not release desktop input", error.getMessage(), error);
+            } finally {
+                completion.run();
+            }
+        };
+        if (mDestroyed || mHandler == null) {
+            completion.run();
+        } else if (Looper.myLooper() == Looper.getMainLooper()) {
+            release.run();
+        } else if (!mHandler.post(release)) {
+            completion.run();
         }
     }
 
@@ -385,7 +384,8 @@ public final class MagicDeskRuntimeService extends Service
                 this,
                 mHandler,
                 mWindowing,
-                mDesktopSession::onTaskStackChanged);
+                mDesktopSession::onTaskStackChanged,
+                mDesktopInput::onDesktopPrepared);
         mDesktopSession.start();
         mDisplayCoordinator.start();
         mDesktopInput.reconcileSoftwareKeyboardPolicy();

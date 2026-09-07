@@ -39,6 +39,7 @@ final class RuntimeDesktopInputCoordinator {
     private boolean mHasExternalMouse;
     private boolean mKeyboardWatcherRunning;
     private int mDesktopDisplayId = Display.INVALID_DISPLAY;
+    private boolean mDesktopPrepared;
     private int mMouseBridgeSuspendedDisplayId = Display.INVALID_DISPLAY;
     private int mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
     private int mInputSourceRefreshGeneration;
@@ -118,6 +119,9 @@ final class RuntimeDesktopInputCoordinator {
         }
         final int previousDisplayId = mDesktopDisplayId;
         selectInputPolicyForNewSession(displayId);
+        if (displayId != previousDisplayId) {
+            mDesktopPrepared = false;
+        }
         mDesktopDisplayId = displayId;
         if (displayId > Display.DEFAULT_DISPLAY) {
             mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
@@ -147,6 +151,9 @@ final class RuntimeDesktopInputCoordinator {
             return;
         }
         selectInputPolicyForNewSession(displayId);
+        if (displayId != mDesktopDisplayId || !ShellAccess.isReady()) {
+            mDesktopPrepared = false;
+        }
         mDesktopDisplayId = displayId;
         clearCompletedMouseBridgeSuspension(displayId);
         updateShowImeOverride();
@@ -207,26 +214,23 @@ final class RuntimeDesktopInputCoordinator {
                 pointer);
     }
 
-    boolean suspendMouseBridgeForDisplayRemoval(final int displayId) {
-        if (!isActiveDesktopDisplay(displayId)) {
-            return false;
-        }
-        mMouseBridgeSuspendedDisplayId = displayId;
-        // Release the physical source while its current display still exists.
-        // Waiting for the display callback leaves vendor pointer controllers
-        // processing virtual motion against an already removed display.
-        updateInputBridges();
-        return true;
-    }
-
-    void cancelMouseBridgeDisplayRemoval(final int displayId) {
-        if (mDestroyed || mMouseBridgeSuspendedDisplayId != displayId) {
+    void onDesktopPrepared(final int displayId) {
+        if (!isActiveDesktopDisplay(displayId) || mDesktopPrepared
+                || mMouseBridgeSuspendedDisplayId == displayId) {
             return;
         }
-        mMouseBridgeSuspendedDisplayId = Display.INVALID_DISPLAY;
-        if (mPointerViewportRecoveryDisplayId == displayId) {
-            mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
+        mDesktopPrepared = true;
+        updateInputBridges();
+    }
+
+    void releaseForSessionClose(final int displayId) {
+        if (!isActiveDesktopDisplay(displayId)) {
+            return;
         }
+        mMouseBridgeSuspendedDisplayId = displayId;
+        mDesktopPrepared = false;
+        // Close is one-way. Late preparation or device callbacks cannot
+        // reacquire physical input while tasks and displays are torn down.
         updateInputBridges();
     }
 
@@ -336,7 +340,7 @@ final class RuntimeDesktopInputCoordinator {
         final boolean shouldRun = shouldRunKeyboardWatcher(
                 ShellAccess.isReady(),
                 mHasHardwareKeyboard,
-                ownsExternalDesktop() && mInputRelay.keyboard);
+                relaysPhysicalInput() && mInputRelay.keyboard);
         if (shouldRun == mKeyboardWatcherRunning) {
             return;
         }
@@ -360,10 +364,12 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     private void updateInputBridges() {
+        final int relayDisplayId = mDesktopPrepared
+                ? mDesktopDisplayId : Display.INVALID_DISPLAY;
         final boolean mouseShouldRun =
                 DesktopInputRelaySession.shouldRunPointerBridge(
                         ShellAccess.isReady(),
-                        mDesktopDisplayId,
+                        relayDisplayId,
                         mMouseBridgeSuspendedDisplayId);
         if (mRelaySession.isMouseReady() && !mouseShouldRun) {
             mPointerReleaseExpected = true;
@@ -373,7 +379,7 @@ final class RuntimeDesktopInputCoordinator {
         } else {
             mRelaySession.reconcile(
                     ShellAccess.isReady(),
-                    mDesktopDisplayId,
+                    relayDisplayId,
                     mHasHardwareKeyboard,
                     mMouseBridgeSuspendedDisplayId);
             updateKeyboardWatcher();
@@ -381,7 +387,7 @@ final class RuntimeDesktopInputCoordinator {
         }
         mRelaySession.reconcile(
                 ShellAccess.isReady(),
-                mDesktopDisplayId,
+                relayDisplayId,
                 mHasHardwareKeyboard,
                 mMouseBridgeSuspendedDisplayId);
     }
@@ -451,7 +457,8 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     private boolean relaysPhysicalInput() {
-        return ownsExternalDesktop()
+        return ownsExternalDesktop() && mDesktopPrepared
+                && mMouseBridgeSuspendedDisplayId != mDesktopDisplayId
                 && mInputRelay.isEnabled();
     }
 

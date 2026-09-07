@@ -95,6 +95,15 @@ Back. The same policy handles touchpad secondary clicks. Without that explicit
 policy, the helper forwards native right-button state, including recovery after
 `SYN_DROPPED`; absolute-position availability does not select this behavior.
 
+Host registration alone does not start input. The existing task observation
+publishes preparation once HOME has drawn, workspace ownership is configured,
+and any parked-task restoration has completed its final workspace command.
+An individual application's restore failure is reported but does not leave
+input disabled. This adds no timer, polling source, or pointer-coordinate probe.
+Close releases input immediately after handing HOME back, before parking tasks
+or removing a display. Late preparation and device callbacks cannot reopen
+input for a closing session; the next session establishes its own readiness.
+
 The pointer helper starts passively. The runtime first waits until its virtual
 mouse is visible in EventHub. It then prepares any optional vendor pointer
 viewport, establishes Android's display associations as the final InputReader
@@ -2330,12 +2339,19 @@ are restored immediately; a later task or display cleanup failure never claims
 HOME for MagicDesk again. Unexpected display loss performs the same restoration
 without waiting for a UI callback.
 
+Close is one-way even when a cleanup operation fails. A failed HOME handoff
+does not skip input, task, and host release. A simulated display that cannot
+pass its existing transition-quiescence gate is not forcibly removed, but its
+desktop session is closed rather than resumed. Failures remain diagnostic
+errors; they never re-enable capture or migration protection.
+
 Physical display removal, **Close desktop**, and **Exit MagicDesk** share the
 common cleanup path:
 
 - hand HOME back to the package saved by the session lease;
+- release keyboard and mouse capture, display associations, and virtual devices;
 - close display-scoped panel windows and stop task observation;
-- stop keyboard, mouse, and phone-display streams;
+- stop phone-display streams;
 - restore caption privacy and display geometry ownership;
 - restore vendor hardware settings changed by MagicDesk;
 - remember the owned display before Nubia can move its desktop host to display

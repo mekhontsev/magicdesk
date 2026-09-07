@@ -64,7 +64,7 @@ final class DesktopInputRelaySession {
         }
 
         final boolean runRouting = shouldRunRouting(
-                shellReady,
+                shellReady && runMouse,
                 displayId,
                 mMouseBridge.isReady());
         reconcileRouting(runRouting, displayId, hardwareKeyboard);

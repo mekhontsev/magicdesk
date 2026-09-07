@@ -92,9 +92,6 @@ final class DesktopSessionTransitionCoordinator {
             final CompletionCallback callback,
             final boolean success) {
         mGate.finish(DesktopTransitionGate.Operation.CLOSE);
-        if (!success) {
-            MagicDeskRuntime.restoreExternalTaskMigrationProtection();
-        }
         complete(callback, success);
     }
 
@@ -117,34 +114,57 @@ final class DesktopSessionTransitionCoordinator {
         // HOME ownership is the outer session lease. Release it before any
         // task, input, or display teardown so a partial close cannot trap the
         // user in a launcher that Android keeps restarting.
-        final DesktopHomeRoleLease.RestoredHomePresentation homePresentation;
+        DesktopHomeRoleLease.RestoredHomePresentation homePresentation = null;
+        boolean homeReleased = true;
         try {
             homePresentation =
                     DesktopHomeRoleLease.releaseForSessionClose(target);
-        } catch (java.io.IOException error) {
+        } catch (java.io.IOException | RuntimeException error) {
+            homeReleased = false;
             Log.w(TAG, "Could not restore HOME before desktop close", error);
             CompatibilityDiagnostics.record(
                     "DESKTOP-HOME-002",
                     "Could not restore the previous Home app",
                     error.getMessage(),
                     error);
-            finishDesktopClose(callback, false);
-            return;
         }
-        MagicDeskRuntime.disableExternalTaskMigrationProtection();
+        final DesktopHomeRoleLease.RestoredHomePresentation presentation =
+                homePresentation;
+        final boolean released = homeReleased;
+        MagicDeskRuntime.releaseDesktopInput(target.displayId,
+                () -> mOperations.execute(() -> parkAndClose(
+                        target, mode, presentation, released, callback)));
+    }
+
+    private void parkAndClose(
+            final DesktopDisplayTarget target,
+            final DesktopCloseMode mode,
+            final DesktopHomeRoleLease.RestoredHomePresentation presentation,
+            final boolean homeReleased,
+            final CompletionCallback callback) {
+        try {
+            MagicDeskRuntime.disableExternalTaskMigrationProtection();
+        } catch (RuntimeException error) {
+            recordCloseFailure("Could not release desktop task protection", error);
+        }
         if (!mode.parkTasks) {
             finishDesktopSessionClose(
-                    target, mode, homePresentation, callback);
+                    target, mode, presentation, homeReleased, callback);
             return;
         }
-        MagicDeskRuntime.parkDesktopTasks(target, parked -> {
-            if (!parked) {
-                Log.w(TAG,
-                        "Desktop close continues after partial task parking");
-            }
-            mOperations.execute(() -> finishDesktopSessionClose(
-                    target, mode, homePresentation, callback));
-        });
+        try {
+            MagicDeskRuntime.parkDesktopTasks(target, parked -> {
+                if (!parked) {
+                    Log.w(TAG, "Desktop close continues after partial task parking");
+                }
+                mOperations.execute(() -> finishDesktopSessionClose(
+                        target, mode, presentation, homeReleased, callback));
+            });
+        } catch (RuntimeException error) {
+            recordCloseFailure("Could not park desktop tasks", error);
+            finishDesktopSessionClose(
+                    target, mode, presentation, homeReleased, callback);
+        }
     }
 
     private void finishDesktopSessionClose(
@@ -152,40 +172,59 @@ final class DesktopSessionTransitionCoordinator {
             final DesktopCloseMode mode,
             final DesktopHomeRoleLease.RestoredHomePresentation
                     homePresentation,
+            final boolean homeReleased,
             final CompletionCallback callback) {
-        boolean success;
+        boolean success = homeReleased;
         try {
             if (target.kind == DesktopDisplayTarget.Kind.SIMULATED) {
-                MagicDeskRuntime.prepareDesktopDisplayRemoval(
-                        target.displayId);
-                success = removeSimulatedDesktop(target.displayId);
+                success &= removeSimulatedDesktop(target.displayId);
             } else {
-                success = closeDesktopSessionAndWait(target.displayId);
+                success &= closeDesktopSessionAndWait(target.displayId);
             }
         } catch (RuntimeException error) {
-            Log.w(TAG, "Desktop close failed", error);
-            finishDesktopClose(callback, false);
-            return;
+            success = false;
+            recordCloseFailure("Desktop close failed", error);
+        } finally {
+            // A failed display removal is not a request to reopen its host.
+            // Keep the quiescence gate, but always release the local session.
+            if (DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                    == target.displayId) {
+                try {
+                    success &= closeDesktopSessionAndWait(target.displayId);
+                } catch (RuntimeException error) {
+                    success = false;
+                    recordCloseFailure("Could not release desktop host", error);
+                }
+            }
         }
-        if (success && mode.parkTasks
+        if (mode.parkTasks
                 && target.displayId > Display.DEFAULT_DISPLAY) {
             // A wired display can stay connected after Close. Reconcile its
             // returned phone tasks now, without relying on display removal.
-            final PhoneDesktopTaskRecovery.Result recovery =
-                    PhoneDesktopTaskRecovery.recoverBlocking(
-                            () -> !DesktopRuntimeBridge
-                                    .isLocalDesktopActiveOrStarting());
-            if (!recovery.success || recovery.cancelled) {
+            try {
+                final PhoneDesktopTaskRecovery.Result recovery =
+                        PhoneDesktopTaskRecovery.recoverBlocking(
+                                () -> !DesktopRuntimeBridge
+                                        .isLocalDesktopActiveOrStarting());
+                if (!recovery.success || recovery.cancelled) {
+                    success = false;
+                    CompatibilityDiagnostics.record(
+                            "PHONE-TASK-005",
+                            "Could not reconcile phone tasks after desktop close",
+                            recovery.message);
+                }
+            } catch (RuntimeException error) {
                 success = false;
-                CompatibilityDiagnostics.record(
-                        "PHONE-TASK-005",
-                        "Could not reconcile phone tasks after desktop close",
-                        recovery.message);
+                recordCloseFailure("Could not recover phone tasks", error);
             }
         }
         try {
-            DesktopHomeRoleLease.presentRestoredHome(homePresentation);
-        } catch (java.io.IOException error) {
+            if (homeReleased) {
+                DesktopHomeRoleLease.presentRestoredHome(homePresentation);
+            } else {
+                DesktopHomeRoleLease.releaseAfterSessionLoss(target.displayId);
+            }
+        } catch (java.io.IOException | RuntimeException error) {
             success = false;
             Log.w(TAG, "Could not present HOME after desktop close", error);
             CompatibilityDiagnostics.record(
@@ -194,12 +233,24 @@ final class DesktopSessionTransitionCoordinator {
                     error.getMessage(),
                     error);
         }
-        if (shouldOpenPhonePanel(
-                mode,
-                ControlActivity.isControlPanelVisible())) {
-            PhoneControlPanelLauncher.openOnPhoneWithShell();
+        try {
+            if (shouldOpenPhonePanel(
+                    mode, ControlActivity.isControlPanelVisible())) {
+                PhoneControlPanelLauncher.openOnPhoneWithShell();
+            }
+        } catch (RuntimeException error) {
+            success = false;
+            recordCloseFailure("Could not show phone control panel", error);
+        } finally {
+            finishDesktopClose(callback, success);
         }
-        finishDesktopClose(callback, success);
+    }
+
+    private static void recordCloseFailure(
+            final String message, final RuntimeException error) {
+        Log.w(TAG, message, error);
+        CompatibilityDiagnostics.record(
+                "DESKTOP-CLOSE-001", message, error.getMessage(), error);
     }
 
     private static boolean removeSimulatedDesktop(final int displayId) {
@@ -214,26 +265,14 @@ final class DesktopSessionTransitionCoordinator {
             Thread.currentThread().interrupt();
             Log.w(TAG, "Simulated display removal interrupted for display="
                     + displayId, error);
-            resumeAfterFailedDisplayRemoval(displayId);
             return false;
         }
         if (!ready) {
             Log.w(TAG, "Simulated display removal preparation timed out for "
                     + "display=" + displayId);
-            resumeAfterFailedDisplayRemoval(displayId);
             return false;
         }
-        if (SimulatedDesktopDisplayController.release(displayId)) {
-            return true;
-        }
-        resumeAfterFailedDisplayRemoval(displayId);
-        return false;
-    }
-
-    private static void resumeAfterFailedDisplayRemoval(
-            final int displayId) {
-        MagicDeskRuntime.cancelDesktopDisplayRemoval(displayId);
-        DesktopRuntimeBridge.resumeDesktopSessionAfterFailedRemoval(displayId);
+        return SimulatedDesktopDisplayController.release(displayId);
     }
 
     private static boolean closeDesktopSessionAndWait(

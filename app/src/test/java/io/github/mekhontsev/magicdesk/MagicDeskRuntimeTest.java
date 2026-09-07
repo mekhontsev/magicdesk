@@ -57,8 +57,8 @@ public final class MagicDeskRuntimeTest {
                 () -> mAttached.settingsRefreshCompleted = true);
         MagicDeskRuntime.releaseDesktopTaskSession(
                 () -> mAttached.desktopReleaseCompleted = true);
-        assertTrue(MagicDeskRuntime.prepareDesktopDisplayRemoval(7));
-        MagicDeskRuntime.cancelDesktopDisplayRemoval(7);
+        MagicDeskRuntime.releaseDesktopInput(7,
+                () -> mAttached.inputReleaseCompleted = true);
         MagicDeskRuntime.preserveDesktopTasks(7);
         MagicDeskRuntime.clearParkedDesktopTasks();
 
@@ -79,8 +79,8 @@ public final class MagicDeskRuntimeTest {
         assertTrue(mAttached.settingsRefreshCompleted);
         assertTrue(mAttached.desktopSessionReleased);
         assertTrue(mAttached.desktopReleaseCompleted);
-        assertEquals(7, mAttached.pointerSuspensionDisplayId);
-        assertEquals(7, mAttached.pointerSuspensionCancelledDisplayId);
+        assertEquals(7, mAttached.inputReleaseDisplayId);
+        assertTrue(mAttached.inputReleaseCompleted);
         assertEquals(7, mAttached.preservedDesktopDisplayId);
         assertTrue(mAttached.parkingCleared);
         assertTrue(mAttached.startShown);
@@ -142,8 +142,8 @@ public final class MagicDeskRuntimeTest {
         private boolean settingsRefreshCompleted;
         private boolean desktopSessionReleased;
         private boolean desktopReleaseCompleted;
-        private int pointerSuspensionDisplayId = -1;
-        private int pointerSuspensionCancelledDisplayId = -1;
+        private int inputReleaseDisplayId = -1;
+        private boolean inputReleaseCompleted;
         private int preservedDesktopDisplayId = -1;
         private boolean parkingCleared;
         private boolean startShown;
@@ -268,15 +268,10 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public boolean prepareDesktopDisplayRemoval(
-                final int displayId) {
-            pointerSuspensionDisplayId = displayId;
-            return true;
-        }
-
-        @Override
-        public void cancelDesktopDisplayRemoval(final int displayId) {
-            pointerSuspensionCancelledDisplayId = displayId;
+        public void releaseDesktopInput(
+                final int displayId, final Runnable completion) {
+            inputReleaseDisplayId = displayId;
+            completion.run();
         }
 
         @Override

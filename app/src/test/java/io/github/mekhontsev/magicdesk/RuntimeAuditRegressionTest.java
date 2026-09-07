@@ -20,7 +20,7 @@ public final class RuntimeAuditRegressionTest {
                 boolean mHasHardwareKeyboard = true, mKeyboardWatcherRunning, relay;
                 static class Policy { boolean keyboard = true; }
                 final Policy mInputRelay = new Policy();
-                boolean ownsExternalDesktop() { return relay; }
+                boolean relaysPhysicalInput() { return relay; }
                 public static void verify() {
                     Fixture f = new Fixture();
                     f.updateKeyboardWatcher();

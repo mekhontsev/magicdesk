@@ -28,9 +28,18 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     private Set<Integer> mObservedOwnedTaskIds = Collections.emptySet();
     private DesktopDisplayTarget mPendingTarget;
     private boolean mRestoreInProgress;
+    private int mRestoreCompletedHostTaskId = -1;
     private long mGeneration;
 
     DesktopTaskParkingController() {
+    }
+
+    boolean isWorkspacePrepared(final DesktopSessionSnapshot session) {
+        synchronized (mLock) {
+            return !session.policy().restoreWorkspace
+                    || (!mRestoreInProgress && (mParked.isEmpty()
+                            || mRestoreCompletedHostTaskId == session.hostTaskId()));
+        }
     }
 
     void observe(
@@ -100,6 +109,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                     mParked, mObservedTopFirst, false);
             mPendingTarget = null;
             mRestoreInProgress = false;
+            mRestoreCompletedHostTaskId = -1;
             saved = mObservedTopFirst.size();
         }
         Log.i(TAG, "preserved=" + saved + " display=" + displayId);
@@ -151,6 +161,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             mObservedOwnedTaskIds = Collections.emptySet();
             mPendingTarget = null;
             mRestoreInProgress = false;
+            mRestoreCompletedHostTaskId = -1;
         }
     }
 
@@ -268,7 +279,9 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         }
         final long generation;
         synchronized (mLock) {
-            if (mParked.isEmpty() || mRestoreInProgress) {
+            if (mParked.isEmpty() || mRestoreInProgress
+                    || mObservedDisplayId != target.displayId
+                    || !mObservedOwnershipReady) {
                 return;
             }
             mRestoreInProgress = true;
@@ -280,6 +293,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     private void restoreNow(
             final DesktopDisplayTarget target,
             final long generation) {
+        final int hostTaskId = DesktopRuntimeBridge.getSessionSnapshot().hostTaskId();
         final List<ParkedTask> saved;
         synchronized (mLock) {
             if (generation != mGeneration) {
@@ -337,32 +351,53 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             }
             if (isCurrentGeneration(generation)) {
                 restoreFreeformLayout(target, saved, restoredTaskIds);
-                restoreStackState(target.displayId, saved, restoredTaskIds);
             }
         } catch (IOException | RuntimeException error) {
             recordFailure("Could not restore parked desktop tasks",
                     error.getMessage());
-        } finally {
-            final boolean current;
-            synchronized (mLock) {
-                current = generation == mGeneration;
-                if (current) {
-                    for (final Integer taskId : completed) {
-                        mParked.remove(taskId);
-                    }
-                    if (mPendingTarget != null
-                            && mPendingTarget.displayId == target.displayId) {
-                        mPendingTarget = null;
-                    }
-                    mRestoreInProgress = false;
-                }
-            }
-            if (current && !restoredTaskIds.isEmpty()) {
-                MagicDeskRuntime.refreshDesktopTasks();
-            }
-            Log.i(TAG, "restored=" + restoredTaskIds.size()
-                    + " display=" + target.displayId);
         }
+        // Readiness follows the final workspace commit, not just the queued
+        // request. Failure still completes preparation so input remains usable.
+        if (!isCurrentGeneration(generation)) {
+            return;
+        }
+        try {
+            restoreStackState(target.displayId, saved, restoredTaskIds,
+                    () -> finishRestore(target, generation, hostTaskId,
+                            completed, restoredTaskIds.size()));
+        } catch (IOException | RuntimeException error) {
+            recordFailure("Could not restore desktop stack", error.getMessage());
+            finishRestore(target, generation, hostTaskId,
+                    completed, restoredTaskIds.size());
+        }
+    }
+
+    private void finishRestore(
+            final DesktopDisplayTarget target,
+            final long generation,
+            final int hostTaskId,
+            final Set<Integer> completed,
+            final int restoredCount) {
+        final boolean current;
+        synchronized (mLock) {
+            current = generation == mGeneration;
+            if (current) {
+                for (final Integer taskId : completed) {
+                    mParked.remove(taskId);
+                }
+                if (mPendingTarget != null
+                        && mPendingTarget.displayId == target.displayId) {
+                    mPendingTarget = null;
+                }
+                mRestoreInProgress = false;
+                mRestoreCompletedHostTaskId = hostTaskId;
+            }
+        }
+        if (current) {
+            MagicDeskRuntime.refreshDesktopTasks();
+        }
+        Log.i(TAG, "restored=" + restoredCount
+                + " display=" + target.displayId);
     }
 
     private boolean isCurrentGeneration(final long generation) {
@@ -446,8 +481,10 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     private static void restoreStackState(
             final int displayId,
             final List<ParkedTask> savedTopFirst,
-            final List<Integer> restoredTaskIds) throws IOException {
+            final List<Integer> restoredTaskIds,
+            final Runnable completion) throws IOException {
         if (restoredTaskIds.isEmpty()) {
+            completion.run();
             return;
         }
         final Set<Integer> restored = new HashSet<>(restoredTaskIds);
@@ -489,11 +526,14 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         if (!restoreOrder.isEmpty()) {
             MagicDeskRuntime.restoreDesktopWorkspace(
                     displayId, restoreOrder, result -> {
+                        completion.run();
                         if (!result.success) {
                             Log.w(TAG, "Could not restore desktop stack: "
                                     + result.message);
                         }
                     });
+        } else {
+            completion.run();
         }
     }
 

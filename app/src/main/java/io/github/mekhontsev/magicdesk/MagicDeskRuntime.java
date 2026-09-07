@@ -229,17 +229,13 @@ public final class MagicDeskRuntime {
                 : backend.captureInputRelayDiagnostics();
     }
 
-    static boolean prepareDesktopDisplayRemoval(
-            final int displayId) {
-        final MagicDeskRuntimeBackend backend = backend();
-        return backend != null
-                && backend.prepareDesktopDisplayRemoval(displayId);
-    }
-
-    static void cancelDesktopDisplayRemoval(final int displayId) {
+    static void releaseDesktopInput(
+            final int displayId, final Runnable completion) {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend != null) {
-            backend.cancelDesktopDisplayRemoval(displayId);
+            backend.releaseDesktopInput(displayId, completion);
+        } else {
+            completion.run();
         }
     }
 

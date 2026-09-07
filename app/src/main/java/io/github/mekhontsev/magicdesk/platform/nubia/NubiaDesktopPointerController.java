@@ -2,18 +2,10 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import android.graphics.Point;
 import android.os.IBinder;
-import android.os.Parcel;
-import android.os.RemoteException;
 
 import java.lang.reflect.Method;
 
 final class NubiaDesktopPointerController {
-    private static final int MOUSE_CMD_CREATE_OR_UPDATE = 0;
-    private static final String INPUT_MANAGER_DESCRIPTOR =
-            "android.hardware.input.IInputManager";
-    private static final String SEND_MOUSE_COMMAND_TRANSACTION =
-            "sendMouseCmd";
-    private static volatile int sSendMouseCommandTransaction;
     private static volatile MousePositionAccess sMousePositionAccess;
 
     private NubiaDesktopPointerController() {
@@ -37,27 +29,8 @@ final class NubiaDesktopPointerController {
 
     static void createOrUpdateViewport()
             throws ReflectiveOperationException {
-        final IBinder binder = getInputManagerBinder();
-        final int transaction = getSendMouseCommandTransaction();
-        final Parcel data = Parcel.obtain();
-        final Parcel reply = Parcel.obtain();
-        try {
-            data.writeInterfaceToken(INPUT_MANAGER_DESCRIPTOR);
-            data.writeInt(MOUSE_CMD_CREATE_OR_UPDATE);
-            // Nubia declares sendMouseCmd oneway. A synchronous transaction
-            // keeps capture from overtaking the service-side viewport request;
-            // InputReader may still apply the accepted update asynchronously.
-            if (!binder.transact(transaction, data, reply, 0)) {
-                throw new IllegalStateException(
-                        "vendor input service rejected viewport refresh");
-            }
-        } catch (RemoteException error) {
-            throw new IllegalStateException(
-                    "vendor input service is unavailable", error);
-        } finally {
-            reply.recycle();
-            data.recycle();
-        }
+        // Experiment: suppress vendor viewport updates from every caller,
+        // including phone-screen guard heartbeats; leave AOSP routing unchanged.
     }
 
     static Point getPosition() throws ReflectiveOperationException {
@@ -108,37 +81,6 @@ final class NubiaDesktopPointerController {
             throw new IllegalStateException("input service is unavailable");
         }
         return binder;
-    }
-
-    private static int findTransactionCode(final String name)
-            throws ReflectiveOperationException {
-        final Method transactionName = Class.forName(
-                "android.hardware.input.IInputManager$Stub")
-                .getMethod("getDefaultTransactionName", int.class);
-        for (int code = 1; code <= 256; ++code) {
-            if (name.equals(transactionName.invoke(null, code))) {
-                return code;
-            }
-        }
-        throw new NoSuchMethodException(
-                "missing IInputManager transaction " + name);
-    }
-
-    private static int getSendMouseCommandTransaction()
-            throws ReflectiveOperationException {
-        int transaction = sSendMouseCommandTransaction;
-        if (transaction != 0) {
-            return transaction;
-        }
-        synchronized (NubiaDesktopPointerController.class) {
-            transaction = sSendMouseCommandTransaction;
-            if (transaction == 0) {
-                transaction = findTransactionCode(
-                        SEND_MOUSE_COMMAND_TRANSACTION);
-                sSendMouseCommandTransaction = transaction;
-            }
-        }
-        return transaction;
     }
 
     private static MousePositionAccess mousePositionAccess()
