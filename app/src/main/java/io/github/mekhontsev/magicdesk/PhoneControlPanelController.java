@@ -19,7 +19,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
-import android.widget.Switch;
 import android.widget.TextView;
 
 import java.util.ArrayList;
@@ -39,8 +38,6 @@ final class PhoneControlPanelController {
         void showExternalDesktop();
 
         void connectWirelessDisplay();
-
-        void setFillExternalDisplay(boolean enabled);
 
         void setExternalOutputTiming(String outputTiming);
 
@@ -66,7 +63,6 @@ final class PhoneControlPanelController {
         final boolean phoneScreenControlAvailable;
         final boolean phoneTouchpadAvailable;
         final boolean externalOutputControlAvailable;
-        final boolean fillExternalDisplay;
         final PlatformProjectionDriver.ModeSelection externalModeSelection;
         final String externalDisplaySummary;
         final ExternalDisplayState externalDisplayState;
@@ -90,7 +86,6 @@ final class PhoneControlPanelController {
                 final boolean phoneScreenControlAvailable,
                 final boolean phoneTouchpadAvailable,
                 final boolean externalOutputControlAvailable,
-                final boolean fillExternalDisplay,
                 final PlatformProjectionDriver.ModeSelection externalModeSelection,
                 final String externalDisplaySummary,
                 final ExternalDisplayState externalDisplayState,
@@ -113,7 +108,6 @@ final class PhoneControlPanelController {
             this.phoneTouchpadAvailable = phoneTouchpadAvailable;
             this.externalOutputControlAvailable =
                     externalOutputControlAvailable;
-            this.fillExternalDisplay = fillExternalDisplay;
             this.externalModeSelection = externalModeSelection;
             this.externalDisplaySummary = externalDisplaySummary;
             this.externalDisplayState = externalDisplayState;
@@ -147,7 +141,6 @@ final class PhoneControlPanelController {
     private Button mTouchpad;
     private Button mPhoneScreen;
     private GridLayout mSessionActions;
-    private Switch mFillDisplay;
     private Spinner mOutputMode;
     private ArrayAdapter<String> mOutputModeAdapter;
     private List<PlatformProjectionDriver.Mode> mOutputModes =
@@ -264,8 +257,6 @@ final class PhoneControlPanelController {
                                 == ExternalDisplayState.CONNECTED;
         mExternalDisplayOptions.setVisibility(
                 canConfigureOutput ? View.VISIBLE : View.GONE);
-        mFillDisplay.setChecked(state.fillExternalDisplay);
-        mFillDisplay.setEnabled(canConfigureOutput);
         renderOutputModes(state.externalModeSelection);
         mOutputMode.setEnabled(canConfigureOutput
                 && mOutputModesConfigurable
@@ -443,21 +434,6 @@ final class PhoneControlPanelController {
     private void addExternalDisplayOptions(final LinearLayout parent) {
         mExternalDisplayOptions = new LinearLayout(mActivity);
         mExternalDisplayOptions.setOrientation(LinearLayout.VERTICAL);
-        final LinearLayout fitRow = optionRow();
-        fitRow.addView(optionLabel(R.string.external_display_fill),
-                new LinearLayout.LayoutParams(
-                        0,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        1));
-        mFillDisplay = new Switch(mActivity);
-        mFillDisplay.setOnCheckedChangeListener((button, checked) -> {
-            if (!mRendering) {
-                mActions.setFillExternalDisplay(checked);
-            }
-        });
-        fitRow.addView(mFillDisplay);
-        mExternalDisplayOptions.addView(fitRow);
-
         final LinearLayout resolutionRow = optionRow();
         resolutionRow.addView(optionLabel(R.string.external_display_resolution),
                 new LinearLayout.LayoutParams(

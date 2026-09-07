@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
-import io.github.mekhontsev.magicdesk.AppProcessCommand;
 import io.github.mekhontsev.magicdesk.BoundedStateAwaiter;
 import io.github.mekhontsev.magicdesk.ExternalDisplayController;
 import io.github.mekhontsev.magicdesk.ShellAccess;
@@ -25,17 +24,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class NubiaHdmiModeController {
-    static final int VENDOR_SIZE_UNCHANGED = -1;
-    static final int VENDOR_SIZE_1080 = 0;
-    static final int VENDOR_SIZE_1440 = 1;
-    static final int VENDOR_SIZE_2160 = 2;
-
     private static final String TAG = "MagicDeskHdmiMode";
     static final String EDID_MODES =
             "/sys/kernel/lcd_enhance/edid_modes";
     private static final String HPD = "/sys/kernel/lcd_enhance/hpd";
-    private static final String DISPLAY_COMMAND =
-            "io.github.mekhontsev.magicdesk.platform.nubia.NubiaDisplayRefreshCommand";
     private static final long MODE_TIMEOUT_MS = 10_000L;
     private static final long MODE_POLL_MS = 100L;
     private static final Pattern MODE_PATTERN = Pattern.compile(
@@ -261,13 +253,6 @@ final class NubiaHdmiModeController {
 
         boolean hpdLow = false;
         try {
-            final String refreshOutput = ShellAccess.run(
-                    AppProcessCommand.run(
-                            DISPLAY_COMMAND, "refresh -1")).trim();
-            if (!refreshOutput.contains("display-command=refresh")) {
-                throw new IOException(
-                        "Nubia display refresh was rejected: " + refreshOutput);
-            }
             ShellAccess.run("/system/bin/printf 0 > " + HPD);
             hpdLow = true;
             RuntimeDelays.pause(
@@ -328,94 +313,12 @@ final class NubiaHdmiModeController {
             return null;
         }
         final Mode current = modes.get(0);
-        final Mode nativeMode = bestNativeResolution(normalizeModes(modes));
-        final List<Mode> availableModes = normalizeModes(
-                consoleCompatibleModes(nativeMode, modes));
+        final List<Mode> availableModes = normalizeModes(modes);
         Mode target = findMode(availableModes, preferredTiming);
         if (target == null) {
             target = bestNativeResolution(availableModes);
         }
         return new Selection(current, target, availableModes);
-    }
-
-    static int resolveVendorSizeType(
-            final Mode target,
-            final List<Mode> modes) {
-        if (target == null || modes == null) {
-            return VENDOR_SIZE_UNCHANGED;
-        }
-        final int[] shortSides = {1080, 1440, 2160};
-        for (int sizeType = 0; sizeType < shortSides.length; sizeType++) {
-            final Mode preferred = findVendorPreferredMode(
-                    modes, shortSides[sizeType]);
-            if (target.sameResolution(preferred)) {
-                return sizeType;
-            }
-        }
-        return VENDOR_SIZE_UNCHANGED;
-    }
-
-    private static List<Mode> consoleCompatibleModes(
-            final Mode nativeMode,
-            final List<Mode> modes) {
-        final ArrayList<Mode> compatible = new ArrayList<>();
-        for (final Mode mode : modes) {
-            if (mode.sameResolution(nativeMode)
-                    || resolveVendorSizeType(mode, modes)
-                            != VENDOR_SIZE_UNCHANGED) {
-                compatible.add(mode);
-            }
-        }
-        return compatible;
-    }
-
-    private static Mode findVendorPreferredMode(
-            final List<Mode> modes,
-            final int shortSide) {
-        Mode preferred = null;
-        for (final Mode mode : modes) {
-            if (Math.min(mode.width, mode.height) != shortSide
-                    || mode.refreshRate < 60
-                    || mode.refreshRate > 120) {
-                continue;
-            }
-            if (preferred == null || vendorPrefers(mode, preferred, shortSide)) {
-                preferred = mode;
-            }
-        }
-        return preferred;
-    }
-
-    private static boolean vendorPrefers(
-            final Mode candidate,
-            final Mode current,
-            final int shortSide) {
-        final boolean candidate16By9 = is16By9(candidate);
-        final boolean current16By9 = is16By9(current);
-        if (candidate16By9 != current16By9) {
-            return candidate16By9;
-        }
-
-        final int candidateLongSide = Math.max(
-                candidate.width, candidate.height);
-        final int currentLongSide = Math.max(current.width, current.height);
-        if (candidateLongSide != currentLongSide) {
-            return candidateLongSide < currentLongSide;
-        }
-
-        if (candidate.refreshRate != current.refreshRate) {
-            if (shortSide == 1440 || shortSide == 2160) {
-                return candidate.refreshRate < current.refreshRate;
-            }
-            return candidate.refreshRate > current.refreshRate;
-        }
-        return candidate.pictureAspect > current.pictureAspect;
-    }
-
-    private static boolean is16By9(final Mode mode) {
-        final int longSide = Math.max(mode.width, mode.height);
-        final int shortSide = Math.min(mode.width, mode.height);
-        return longSide * 9 == shortSide * 16;
     }
 
     private static Selection publicSelection(
@@ -702,20 +605,6 @@ final class NubiaHdmiModeController {
             this.socBackendId = socBackendId == null ? "" : socBackendId;
         }
 
-        int vendorSizeType() {
-            return controlPath == ControlPath.VENDOR
-                    ? resolveVendorSizeType(target, availableModes)
-                    : VENDOR_SIZE_UNCHANGED;
-        }
-
-        boolean requiresDeferredMode() {
-            return (controlPath == ControlPath.VENDOR
-                    || controlPath == ControlPath.SOC)
-                    && target != null
-                    && (controlPath == ControlPath.SOC
-                            || vendorSizeType() == VENDOR_SIZE_UNCHANGED);
-        }
-
         boolean supportsSystemDefault() {
             return configurable && controlPath == ControlPath.SYSTEM;
         }
@@ -782,12 +671,6 @@ final class NubiaHdmiModeController {
                     && height == other.height
                     && refreshRate == other.refreshRate
                     && pictureAspect == other.pictureAspect;
-        }
-
-        boolean sameResolution(final Mode other) {
-            return other != null
-                    && width == other.width
-                    && height == other.height;
         }
 
         String timingKey() {

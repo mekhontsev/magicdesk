@@ -5,8 +5,6 @@ import io.github.mekhontsev.magicdesk.PlatformAudioCaptureDriver;
 import io.github.mekhontsev.magicdesk.PlatformComponent;
 import io.github.mekhontsev.magicdesk.PlatformDevice;
 
-import android.os.Bundle;
-
 import java.io.IOException;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -123,12 +121,12 @@ public final class NubiaFirmwareDetector {
         final EnumMap<PlatformComponent, String> detected =
                 new EnumMap<>(PlatformComponent.class);
         if (hasMethod(
-                "android.hardware.display.IDisplayManager",
-                "setCmdToDisplay",
-                int.class, int.class, int.class, Bundle.class)) {
+                "android.view.SurfaceControl",
+                "setSFOption",
+                int.class, int.class)) {
             detected.put(
                     PlatformComponent.PROJECTION,
-                    "IDisplayManager#setCmdToDisplay detected");
+                    "SurfaceControl#setSFOption detected");
         }
         if (hasPointerApi()) {
             detected.put(

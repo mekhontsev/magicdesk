@@ -58,7 +58,6 @@ public final class DesktopStateStoreTest {
                 new DisplayProfileStore.Profile("display:primary");
         profile.dpi = 160;
         profile.dpiExplicit = true;
-        profile.fillDisplay = false;
         profile.outputTiming = "2560x1440@120";
         profile.resetOutputModePending = true;
         source.displayProfiles.put(profile.key, profile);
@@ -97,7 +96,6 @@ public final class DesktopStateStoreTest {
                 decoded.displayProfiles.get("display:primary");
         assertEquals(160, decodedProfile.dpi);
         assertTrue(decodedProfile.dpiExplicit);
-        assertFalse(decodedProfile.fillDisplay);
         assertEquals("2560x1440@120", decodedProfile.outputTiming);
         assertTrue(decodedProfile.resetOutputModePending);
     }
@@ -320,18 +318,15 @@ public final class DesktopStateStoreTest {
         final DisplayProfileStore.Profile source =
                 new DisplayProfileStore.Profile("display:copy");
         source.dpi = 160;
-        source.fillDisplay = false;
         source.outputTiming = "1920x1080@60";
         source.resetOutputModePending = true;
 
         final DisplayProfileStore.Profile copy = DisplayProfileStore.copy(source);
         copy.dpi = 240;
-        copy.fillDisplay = true;
         copy.outputTiming = null;
         copy.resetOutputModePending = false;
 
         assertEquals(160, source.dpi);
-        assertFalse(source.fillDisplay);
         assertEquals("1920x1080@60", source.outputTiming);
         assertTrue(source.resetOutputModePending);
     }

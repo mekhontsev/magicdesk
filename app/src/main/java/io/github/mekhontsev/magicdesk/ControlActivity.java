@@ -370,16 +370,6 @@ public final class ControlActivity extends Activity
     }
 
     @Override
-    public void setFillExternalDisplay(final boolean enabled) {
-        if (mExternalDisplayProfile == null) {
-            return;
-        }
-        mExternalDisplayProfile.fillDisplay = enabled;
-        DisplayProfileStore.save(mExternalDisplayProfile);
-        refresh();
-    }
-
-    @Override
     public void setExternalOutputTiming(final String outputTiming) {
         if (mExternalDisplayProfile == null) {
             return;
@@ -544,8 +534,6 @@ public final class ControlActivity extends Activity
                 ShellAccess.isReady() && mPhoneUi.isAvailable(),
                 PlatformDrivers.current().pointer().isAvailable(),
                 mProjection.supportsOutputConfiguration(),
-                mExternalDisplayProfile == null
-                        || mExternalDisplayProfile.fillDisplay,
                 mExternalModeSelection,
                 mExternalDisplaySummary,
                 mExternalDisplayState,

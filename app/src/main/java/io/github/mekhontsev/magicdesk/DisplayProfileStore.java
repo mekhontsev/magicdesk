@@ -48,7 +48,6 @@ public final class DisplayProfileStore {
         final Profile copy = new Profile(source.key);
         copy.dpi = source.dpi;
         copy.dpiExplicit = source.dpiExplicit;
-        copy.fillDisplay = source.fillDisplay;
         copy.outputTiming = source.outputTiming;
         copy.resetOutputModePending = source.resetOutputModePending;
         return copy;
@@ -58,7 +57,6 @@ public final class DisplayProfileStore {
         public final String key;
         public int dpi;
         public boolean dpiExplicit;
-        public boolean fillDisplay = true;
         public String outputTiming;
         public boolean resetOutputModePending;
         Profile(final String key) {

@@ -233,7 +233,6 @@
     <string name="action_start_external_desktop">Start external desktop</string>
     <string name="action_connect_wireless_display">Wireless</string>
     <string name="action_show_external_desktop">Show external desktop</string>
-    <string name="external_display_fill">Fill display</string>
     <string name="external_display_resolution">Output mode</string>
     <string name="external_display_no_modes">No modes available</string>
     <string name="external_display_system_native">System / native</string>

@@ -100,7 +100,7 @@ is running:
 
 ## Display Size And DPI
 
-Output mode, Fill display, and DPI are stored per monitor. Desktop item and
+Output mode and DPI are stored per monitor. Desktop item and
 application-window positions use relative coordinates so a global layout can
 adapt to differently sized displays.
 

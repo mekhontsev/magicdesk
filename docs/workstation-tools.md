@@ -24,7 +24,7 @@ outside the Desktop directory.
 
 Desktop files, widgets, pins, shortcuts, and recent applications are global
 across displays. Positions are proportional to the active work area, while
-output mode, Fill display, and DPI remain per-monitor settings.
+output mode and DPI remain per-monitor settings.
 
 The desktop supports:
 

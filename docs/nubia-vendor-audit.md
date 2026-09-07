@@ -38,7 +38,7 @@ community compatibility result, not the complete maintainer interface matrix.
 | Interface | Ordinary app access | Finding | Production decision |
 | --- | --- | --- | --- |
 | `redmagic.app.manager` | Read and write | Its Binder accepts arbitrary system-property names without a permission check or key allowlist. | Production setup uses a closed two-property enum with boolean validation and read-after-write verification; never expose a generic property editor. |
-| `IDisplayManager` Nubia extensions | Read and command | Display state and `setCmdToDisplay` calls are accepted from the app UID. | Production sends command 10 before the HDMI HPD pulse. In the archived implementation this extends projection-removal grace, not a physical-display refresh. |
+| `/sys/kernel/lcd_enhance/edid_modes` and `hpd` | Firmware-dependent; shell UID 2000 denied on the maintainer device | Writing an advertised EDID timing and pulsing HPD changes physical output; a privileged differential test confirmed 1080p 120/60 Hz switching. | Use only when accessible to the configured shell service; otherwise fall back to the SoC backend or Android display modes. |
 | `IInputManager` Nubia mouse extensions | Shell read and command verified | `getMousePosition` and `setMousePosition` expose the firmware cursor position used by wired and wireless projection. | The Shizuku UserService uses these methods for position observation and explicit positioning. Relative pointer transport, buttons, and display routing use shared Android mechanisms. |
 | `SurfaceControl.setSFOption(1100/1102, ...)` | Write verified | The app UID can change wireless/wired privacy and caption visibility. No corresponding SurfaceFlinger getter was found. | The app-UID helper uses transport-aware lifecycle ownership and restores the separate preferences reported by Nubia's exported projection provider. |
 | `ZteScreenRefreshRate` | Binder accepted | The implementation selects `DisplayControl.getPhysicalDisplayIds()[0]`. | Do not present it as external-monitor refresh control. |
@@ -123,20 +123,13 @@ live or retained display-0 freeform state without extending HOME ownership.
 
 ## Physical Output And Caption Control
 
-The Nubia `IDisplayManager.setCmdToDisplay` addition has no local permission
-check.
-
-In the archived `DisplayMirrorCtrl` implementation, command 10 calls
-`otherMayChangeDisplayMode()`: it sets `mIsOtherChangeDisplayMode` for 10 seconds.
-While set, `getRemoveDelayTime()` extends removal of an existing `MirrorDisplay`
-from 500 to 2400 ms. The command does not apply a timing or refresh the physical
-display. This is an archived-source finding, not a fresh extraction of every
-supported firmware.
-
-MagicDesk still sends command 10 between its EDID write and HDMI HPD pulse.
-The EDID/HPD sequence changes the physical timing; the command's continued
-necessity requires a separate timing-change experiment. A startup with an
-already matching mode does not exercise that path.
+The vendor timing path writes an advertised mode to `edid_modes` and pulses
+`hpd`, restoring HPD even if the operation fails. MagicDesk waits for the
+requested physical mode and resolves the connected display again before
+attaching its desktop. The maintainer's privileged differential experiment
+confirmed switching 1920x1080 between 120 and 60 Hz with this sequence. Node
+access is a separate capability: shell UID 2000 remains the production baseline,
+with SoC and Android mode-selection fallbacks when the nodes are unavailable.
 
 The firmware uses SurfaceFlinger option `1100` for wireless privacy and `1102`
 for wired privacy. Value `1` hides external layers whose names include `Task=`,

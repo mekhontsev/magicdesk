@@ -57,7 +57,6 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
             report.append("not connected");
         } else {
             report.append("key=").append(displayProfile.key)
-                    .append(", fill=").append(displayProfile.fillDisplay)
                     .append(", output=")
                     .append(displayProfile.outputTiming == null
                             ? "system" : displayProfile.outputTiming)
@@ -70,23 +69,6 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                 .append(PhoneDisplayGuard.isActive())
                 .append(", protectedUids=")
                 .append(PhoneDisplayGuard.protectedUidSummary())
-                .append('\n')
-                .append("Nubia physical output settings: fit=")
-                .append(Settings.Global.getString(
-                        context.getContentResolver(),
-                        "app_mirror_fit_status"))
-                .append(", sizeType=")
-                .append(Settings.Global.getString(
-                        context.getContentResolver(),
-                        "app_mirror_size_type"))
-                .append(", support=")
-                .append(Settings.Global.getString(
-                        context.getContentResolver(),
-                        "nb_app_mirror_support_fit"))
-                .append(", current=")
-                .append(Settings.Global.getString(
-                        context.getContentResolver(),
-                        "nb_app_mirror_now_fit"))
                 .append('\n');
     }
 
@@ -131,8 +113,8 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
                     capabilities) {
         DesktopSelfTestCapabilityAudit.optional(
                 result, capabilities,
-                "vendor.display_command", "present",
-                "API-NUBIA-001", "RedMagic display command signature");
+                "vendor.caption_visibility", "present",
+                "API-NUBIA-008", "RedMagic caption visibility API");
         // Shell-restricted EDID access is reported by compatibility
         // diagnostics; it is not required by the desktop window workflow.
         DesktopSelfTestCapabilityAudit.optional(

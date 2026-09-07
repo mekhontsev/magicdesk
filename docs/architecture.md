@@ -1344,8 +1344,8 @@ close operation; transport-specific code stops at target preparation.
   `DesktopSessionController` directly on every platform. Closing the desktop
   returns its application tasks to the phone but does not disconnect or
   reconfigure the system-owned transport.
-- The Nubia projection extension may configure physical HDMI timing, output
-  fill, and native caption visibility. These are independent capabilities and
+- The Nubia projection extension may configure physical HDMI timing and
+  native caption visibility. These are independent capabilities and
   do not create or own a second logical display.
 - Starting an external desktop requires an existing Android secondary display.
   A separate **Wireless** action is exposed only when the
@@ -1769,8 +1769,8 @@ desktop therefore cancels stale cleanup before that desktop is launched, while
 ordinary taskbar operations cannot interleave with recovery commands.
 
 Each desktop target has a profile keyed by its Android display identity, never
-by the transient logical display ID. Profiles store only DPI, wired output
-timing, and the Fill display policy. Files and `.desktop` shortcuts under
+by the transient logical display ID. Profiles store only DPI and wired output
+timing. Files and `.desktop` shortcuts under
 `/storage/emulated/0/Desktop`, system-managed widget bindings, taskbar pins,
 desktop-item placement, application window state, and recent-app history are
 global across displays.
@@ -2240,13 +2240,12 @@ Normal starts use `DesktopSessionPolicy.USER`; diagnostics can select the
 non-restoring, non-persisting `ISOLATED_SELF_TEST` policy without adding
 display-specific restore exceptions.
 
-### Output timing and fill policy
+### Output timing
 
 Before activation, the phone control panel reads Nubia's current and available
-DisplayPort timings from `/sys/kernel/lcd_enhance/edid_modes`. It offers the
-sink's native resolution and the resolution classes supported by Nubia's
-desktop projection service, including every advertised refresh rate for those
-resolutions. A saved timing is used only while it remains in that list;
+DisplayPort timings from `/sys/kernel/lcd_enhance/edid_modes`. It offers all
+valid advertised resolutions and refresh rates, with duplicate timings
+normalized. A saved timing is used only while it remains in that list;
 otherwise MagicDesk chooses the highest native resolution, the highest refresh
 rate at that resolution, and avoids a cinema-aspect duplicate when a normal
 timing exists.
@@ -2259,31 +2258,18 @@ reported by Android `DisplayManager`. It applies a selected public mode through
 after a settlement timeout. Callers do not implement separate model checks or
 retry a permanently denied node on every control-panel refresh.
 
-Changing the physical timing uses Nubia's own sequence: write the selected
-EDID mode, send DisplayManager vendor command 10, pulse HDMI HPD, then wait for
-three stable observations of the requested mode. In the archived firmware,
-command 10 extends projection-removal grace during a temporary disconnect;
-it does not itself refresh physical displays. The source evidence and remaining
-verification are recorded in the
-[vendor audit](nubia-vendor-audit.md#physical-output-and-caption-control). The physical
-display id is resolved again afterward because the firmware can recreate it
+Changing the physical timing writes the selected EDID mode, pulses HDMI HPD,
+then waits for three stable observations of the requested mode. HPD is restored
+on failure so an interrupted mode change does not leave the connector disabled.
+The physical display id is resolved again because the firmware can recreate it
 during this transition. The operation runs before the desktop session starts,
 so no MagicDesk task is attached to a disappearing display.
 
-Output timing and **Fill display** are stored in the same per-display profile
-as DPI. **Fill display** maps to Nubia's projection-fit setting. MagicDesk
-temporarily enables the vendor fit bypass while preparing the session, writes
-the fit setting and, when applicable, the `1080P`, `1440P`, or `2160P`
-resolution profile consumed by the projection service, and restores the
-previous bypass property afterward. MagicDesk reproduces Nubia's EDID profile
-selection instead of assigning these values by numeric range. A non-standard
-native timing such as `1920x1200` is applied through Nubia's exact wired-mode
-path after the physical display exists. Modes below a 1080-pixel short edge
-are not offered as alternatives because RedMagic desktop activation resets
-them to 1080p; a lower mode remains available when it is the display's native
-resolution.
-Output timing changes real HDMI/DisplayPort geometry; desktop DPI remains an
-independent per-monitor UI scale.
+The per-display profile stores output timing independently from desktop DPI.
+`PlatformProjectionDriver.prepareExternalDisplay` applies the selected physical
+mode in one step before desktop activation. `WiredDisplayDriver` then resolves
+the connected display again and starts the desktop on that settled target.
+Output timing changes HDMI/DisplayPort geometry; desktop DPI changes UI scale.
 
 Selecting **System/native** relinquishes MagicDesk's Android display-mode
 preference once, when changing away from an explicit MagicDesk timing. Later

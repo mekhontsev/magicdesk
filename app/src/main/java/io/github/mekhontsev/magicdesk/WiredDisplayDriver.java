@@ -67,15 +67,13 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
         final DisplayProfileStore.Profile profile =
                 DisplayProfileController.loadPreparedProfile(
                         context, profiledTarget);
-        PlatformProjectionDriver.PreparedMode preparedMode = null;
         try {
             DesktopDisplayTarget readyTarget = profiledTarget;
             if (mProjection.supportsOutputConfiguration()) {
-                preparedMode = mProjection.prepareExternalDisplay(
+                mProjection.prepareExternalDisplay(
                         context,
                         profiledTarget.profileDisplayId,
                         profile);
-                preparedMode.applyDeferredMode();
                 final int currentDisplayId =
                         ExternalDisplayController.findExternalDisplayId();
                 if (currentDisplayId <= android.view.Display.DEFAULT_DISPLAY) {
@@ -99,10 +97,6 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                     "Could not prepare the wired display",
                     error.getMessage(),
                     error);
-        } finally {
-            if (preparedMode != null) {
-                preparedMode.close();
-            }
         }
     }
 

@@ -49,7 +49,7 @@ lifecycle.
 The same desktop implementation runs on the phone, on a simulated development
 display, or on a connected wired or wireless secondary display. Desktop
 items, pins, shortcuts, widgets, recent applications, and live task layout can
-follow the session while output mode, Fill display, and DPI remain specific to
+follow the session while output mode and DPI remain specific to
 each monitor.
 
 ### First-Class Multi-Window Termux
@@ -145,7 +145,7 @@ See [Workstation tools](docs/workstation-tools.md) and
   microphone, or no-audio selection according to detected capabilities.
 - Control media volume and connected audio output from the taskbar.
 - Select per-monitor DPI, set an application-specific interface scale, and,
-  where supported, choose output resolution, refresh rate, and Fill display.
+  where supported, choose output resolution and refresh rate.
 - Use optional platform features such as managed projection, phone-screen
   control, absolute pointer positioning, charging separation, cooling, and
   temperature readings without making them requirements for other devices.

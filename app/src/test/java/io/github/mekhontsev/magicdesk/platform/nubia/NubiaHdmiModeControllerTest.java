@@ -81,7 +81,7 @@ public final class NubiaHdmiModeControllerTest {
     }
 
     @Test
-    public void socFallbackChoosesAndDefersNativeUltrawideMode() {
+    public void socFallbackChoosesNativeUltrawideMode() {
         final NubiaHdmiModeController.Mode fullHd =
                 new NubiaHdmiModeController.Mode(1920, 1080, 75, 0);
         final NubiaHdmiModeController.Mode ultrawide =
@@ -98,7 +98,6 @@ public final class NubiaHdmiModeControllerTest {
         assertMode(selection.current, 1920, 1080, 75, 0);
         assertMode(selection.target, 2560, 1080, 75, 0);
         assertTrue(selection.configurable);
-        assertTrue(selection.requiresDeferredMode());
         assertFalse(selection.supportsSystemDefault());
         assertEquals("test-soc", selection.socBackendId);
     }
@@ -136,7 +135,7 @@ public final class NubiaHdmiModeControllerTest {
     }
 
     @Test
-    public void mapsOnlyModesReproducedByNubiaResolutionProfiles() {
+    public void explicitTimingSelectsAnyAdvertisedMode() {
         final NubiaHdmiModeController.Selection nativeSelection =
                 select(null, TV_MODES);
         final NubiaHdmiModeController.Selection fullHdSelection =
@@ -144,17 +143,13 @@ public final class NubiaHdmiModeControllerTest {
         final NubiaHdmiModeController.Selection cinemaSelection =
                 select("4096x2160@24", TV_MODES);
 
-        assertEquals(
-                NubiaHdmiModeController.VENDOR_SIZE_2160,
-                nativeSelection.vendorSizeType());
-        assertEquals(
-                NubiaHdmiModeController.VENDOR_SIZE_1080,
-                fullHdSelection.vendorSizeType());
-        assertMode(cinemaSelection.target, 3840, 2160, 60, 2);
+        assertMode(nativeSelection.target, 3840, 2160, 60, 2);
+        assertMode(fullHdSelection.target, 1920, 1080, 240, 0);
+        assertMode(cinemaSelection.target, 4096, 2160, 24, 4);
     }
 
     @Test
-    public void vendorListKeepsNativeResolutionAndOutputPresets() {
+    public void vendorListKeepsAllAdvertisedResolutions() {
         final NubiaHdmiModeController.Selection selection = select(
                 null,
                 "1920x1200 120 0\n"
@@ -164,14 +159,17 @@ public final class NubiaHdmiModeControllerTest {
                         + "1280x720 60 2\n"
                         + "640x480 60 1\n");
 
-        assertEquals(3, selection.availableModes.size());
+        assertEquals(6, selection.availableModes.size());
         assertMode(selection.availableModes.get(0), 1920, 1200, 120, 0);
         assertMode(selection.availableModes.get(1), 1920, 1200, 60, 0);
-        assertMode(selection.availableModes.get(2), 1920, 1080, 120, 2);
+        assertMode(selection.availableModes.get(2), 1600, 1200, 60, 0);
+        assertMode(selection.availableModes.get(3), 1920, 1080, 120, 2);
+        assertMode(selection.availableModes.get(4), 1280, 720, 60, 2);
+        assertMode(selection.availableModes.get(5), 640, 480, 60, 1);
     }
 
     @Test
-    public void temporaryLowResolutionIsNotOfferedForDesktopOutput() {
+    public void lowerAdvertisedResolutionRemainsSelectableWithoutChangingDefault() {
         final NubiaHdmiModeController.Selection selection = select(
                 null,
                 "1280x720 60 2\n"
@@ -179,9 +177,13 @@ public final class NubiaHdmiModeControllerTest {
                         + "1280x720 60 2\n"
                         + "640x480 60 1\n");
 
-        assertEquals(1, selection.availableModes.size());
+        assertEquals(3, selection.availableModes.size());
         assertMode(selection.availableModes.get(0), 1920, 1080, 120, 2);
         assertMode(selection.target, 1920, 1080, 120, 2);
+        assertMode(selection.withPreferredTiming("1280x720@60").target,
+                1280, 720, 60, 2);
+        assertMode(selection.withPreferredTiming("640x480@60").target,
+                640, 480, 60, 1);
     }
 
     @Test
@@ -193,7 +195,7 @@ public final class NubiaHdmiModeControllerTest {
     }
 
     @Test
-    public void nativeVitureModeIsDeferredPastNubiaOutputProfile() {
+    public void nativeModeRetainsNonstandardAspectRatio() {
         final NubiaHdmiModeController.Selection selection = select(
                 null,
                 "1920x1080 120 2\n"
@@ -202,14 +204,10 @@ public final class NubiaHdmiModeControllerTest {
 
         assertMode(selection.current, 1920, 1080, 120, 2);
         assertMode(selection.target, 1920, 1200, 120, 0);
-        assertEquals(
-                NubiaHdmiModeController.VENDOR_SIZE_UNCHANGED,
-                selection.vendorSizeType());
-        assertTrue(selection.requiresDeferredMode());
     }
 
     @Test
-    public void vitureFullHdModeUsesNubia1080Profile() {
+    public void savedFullHdTimingOverridesLargerNativeMode() {
         final NubiaHdmiModeController.Selection selection = select(
                 "1920x1080@120",
                 "1920x1200 120 0\n"
@@ -217,10 +215,46 @@ public final class NubiaHdmiModeControllerTest {
                         + "1920x1080 120 2\n");
 
         assertMode(selection.target, 1920, 1080, 120, 2);
-        assertEquals(
-                NubiaHdmiModeController.VENDOR_SIZE_1080,
-                selection.vendorSizeType());
-        assertFalse(selection.requiresDeferredMode());
+    }
+
+    @Test
+    public void vendorListPreservesExplicitWideTimingAndRefreshRate() {
+        final NubiaHdmiModeController.Selection selection = select(
+                "2560x1080@144",
+                "1920x1080 120 2\n"
+                        + "2560x1080 144 0\n"
+                        + "2560x1080 75 0\n"
+                        + "3440x1440 165 0\n");
+
+        assertEquals(4, selection.availableModes.size());
+        assertMode(selection.target, 2560, 1080, 144, 0);
+        assertMode(selection.withPreferredTiming(null).target,
+                3440, 1440, 165, 0);
+    }
+
+    @Test
+    public void systemDefaultDoesNotApplyOrClearPhysicalMode() throws Exception {
+        final NubiaHdmiModeController.Mode current =
+                new NubiaHdmiModeController.Mode(1920, 1080, 120, 0);
+        final NubiaHdmiModeController.Selection selection =
+                NubiaHdmiModeController.systemModeSelection(
+                        current, Arrays.asList(current), null);
+
+        // No context or shell is needed when the system owns the timing.
+        assertEquals(7, NubiaHdmiModeController.applyIfNeeded(null, 7, selection));
+    }
+
+    @Test
+    public void matchingTimingAndReadOnlyOutputNeedNoReconfiguration() throws Exception {
+        final NubiaHdmiModeController.Selection matching = select(
+                "1920x1080@120", TV_MODES.replace("240 0", "120 2"));
+        final NubiaHdmiModeController.Selection readOnly =
+                NubiaHdmiModeController.systemSelection(
+                        matching.current, "read only");
+
+        assertEquals(7, NubiaHdmiModeController.applyIfNeeded(null, 7, matching));
+        assertEquals(7, NubiaHdmiModeController.applyIfNeeded(null, 7, readOnly));
+        assertEquals(7, NubiaHdmiModeController.applyIfNeeded(null, 7, null));
     }
 
     @Test

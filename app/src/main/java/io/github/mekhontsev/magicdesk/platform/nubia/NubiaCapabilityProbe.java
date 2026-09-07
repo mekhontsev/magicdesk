@@ -4,7 +4,6 @@ import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
 import io.github.mekhontsev.magicdesk.ShizukuCapabilityProbe;
 
 import android.content.Context;
-import android.os.Bundle;
 import android.system.OsConstants;
 
 import java.io.BufferedReader;
@@ -30,13 +29,11 @@ final class NubiaCapabilityProbe {
             final Context context) {
         ShizukuCapabilityProbe.appendMethodPresence(
                 report,
-                "vendor.display_command",
-                "android.hardware.display.IDisplayManager",
-                "setCmdToDisplay",
+                "vendor.caption_visibility",
+                "android.view.SurfaceControl",
+                "setSFOption",
                 int.class,
-                int.class,
-                int.class,
-                Bundle.class);
+                int.class);
         ShizukuCapabilityProbe.appendOpenResult(
                 report,
                 "vendor.hdmi_modes.read",

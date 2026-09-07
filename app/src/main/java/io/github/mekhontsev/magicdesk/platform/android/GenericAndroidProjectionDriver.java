@@ -35,7 +35,7 @@ final class GenericAndroidProjectionDriver
     }
 
     @Override
-    public PreparedMode prepareExternalDisplay(
+    public void prepareExternalDisplay(
             final Context context,
             final int physicalDisplayId,
             final DisplayProfileStore.Profile profile) throws IOException {

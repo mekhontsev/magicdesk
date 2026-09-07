@@ -38,24 +38,24 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
     }
 
     @Override
-    public PreparedMode prepareExternalDisplay(
+    public void prepareExternalDisplay(
             final Context context,
             final int physicalDisplayId,
             final DisplayProfileStore.Profile profile) throws IOException {
-        final NubiaExternalDisplayModeController.PreparedMode prepared =
-                NubiaExternalDisplayModeController.prepare(
-                        context, physicalDisplayId, profile);
-        return new PreparedMode() {
-            @Override
-            public boolean applyDeferredMode() throws IOException {
-                return prepared.applyDeferredMode();
-            }
-
-            @Override
-            public void close() {
-                prepared.close();
-            }
-        };
+        if (profile != null && profile.resetOutputModePending) {
+            // Relinquish only a mode owned by MagicDesk; later System/native
+            // starts must leave the user's system-selected timing untouched.
+            releaseExternalDisplayMode(physicalDisplayId);
+            profile.resetOutputModePending = false;
+            DisplayProfileStore.save(profile);
+        }
+        final NubiaHdmiModeController.Selection selection =
+                NubiaHdmiModeController.readSelection(
+                        context,
+                        physicalDisplayId,
+                        profile == null ? null : profile.outputTiming);
+        NubiaHdmiModeController.applyIfNeeded(
+                context, physicalDisplayId, selection);
     }
 
     @Override

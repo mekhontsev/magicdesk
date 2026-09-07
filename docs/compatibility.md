@@ -239,7 +239,7 @@ the same operation works in the device's stock desktop or projection UI; that
 distinguishes a MagicDesk integration failure from a firmware limitation.
 
 For a display issue, include the monitor/glasses model, selected **Output
-mode**, **Fill display** state when those controls are available, and whether
+mode** when that control is available, and whether
 the same timing works in system projection settings. For an input issue,
 include the keyboard or
 pointing-device model. For a window issue, include the affected Android package

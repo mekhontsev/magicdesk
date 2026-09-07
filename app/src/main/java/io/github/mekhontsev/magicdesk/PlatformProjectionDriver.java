@@ -98,13 +98,6 @@ public interface PlatformProjectionDriver {
         }
     }
 
-    interface PreparedMode extends AutoCloseable {
-        boolean applyDeferredMode() throws IOException;
-
-        @Override
-        void close();
-    }
-
     /** Whether MagicDesk can configure this platform's external output. */
     boolean supportsOutputConfiguration();
 
@@ -121,7 +114,8 @@ public interface PlatformProjectionDriver {
     /** Relinquish a previously selected output mode to the system. */
     void releaseExternalDisplayMode(int displayId) throws IOException;
 
-    PreparedMode prepareExternalDisplay(
+    /** Apply the physical output mode before desktop tasks are launched. */
+    void prepareExternalDisplay(
             Context context,
             int physicalDisplayId,
             DisplayProfileStore.Profile profile) throws IOException;
