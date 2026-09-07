@@ -156,6 +156,29 @@ final class DesktopSelfTestPhoneUiObserver {
         }
     }
 
+    static void awaitTouchpadRestored(final int displayId, final long timeoutMillis)
+            throws IOException {
+        if (!PhoneTouchpadController.shouldRemainVisible(displayId)) {
+            return;
+        }
+        final long deadline = SystemClock.uptimeMillis() + timeoutMillis;
+        long eventId = DesktopAutomationEventJournal.latestId();
+        // Guard destruction can precede the uncovered touchpad's onStart.
+        // Observe that lifecycle commit; do not repair the state under test.
+        while (!MagicDeskTouchpadActivity.isVisible(displayId)) {
+            final long remaining = deadline - SystemClock.uptimeMillis();
+            if (remaining <= 0L) {
+                throw new IOException("phone touchpad did not become visible after guard close");
+            }
+            try {
+                eventId = DesktopAutomationEventJournal.awaitChange(eventId, remaining);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IOException("phone touchpad restoration wait interrupted", error);
+            }
+        }
+    }
+
     static synchronized Observation finish(final int displayId) {
         if (!isTarget(displayId)) {
             cancel();

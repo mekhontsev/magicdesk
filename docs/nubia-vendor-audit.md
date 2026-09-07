@@ -44,13 +44,12 @@ community compatibility result, not the complete maintainer interface matrix.
 | `ZteScreenRefreshRate` | Binder accepted | The implementation selects `DisplayControl.getPhysicalDisplayIds()[0]`. | Do not present it as external-monitor refresh control. |
 | `ColorfulLightService` | Binder discoverable; methods have no local permission check | It can preview and apply RedMagic lighting scenes. | Out of scope: it duplicates device settings and mutates unrelated hardware. |
 | `VendorPowerManagerService` | Binder discoverable | The interface contains no callable methods. | No use. |
-| `zte_backlight` | Read accepted | Current nits and normalized backlight are readable; setters also exist. | Use the stock RedMagic phone-screen controller instead of raw brightness writes. |
+| `zte_backlight` | Read accepted | Current nits and normalized backlight are readable; setters also exist. | Phone-screen control uses the DisplayManager power guard. |
 
 ## Desktop Provisioning
 
-`RedMagicAppManagerService` implements only these operations:
+Desktop provisioning uses these `RedMagicAppManagerService` operations:
 
-- `openScreenOffTP(boolean)`
 - `setSystemProperties(String, String)`
 - `getSystemProperties(String, String)`
 
@@ -185,9 +184,8 @@ nodes directly.
 ## Phone Screen Power
 
 The firmware also exposes `cmd display power-off 0` and
-`cmd display power-reset 0` to shell UID 2000. Unlike
-`RedMagicAppManager.openScreenOffTP(true)`, `power-off` requests the physical
-state directly and leaves vendor input-panel state untouched. A local test
+`cmd display power-reset 0` to shell UID 2000. `power-off` requests the physical
+state directly. A local test
 confirmed that display 0 reached the committed
 `OFF` state, `power-reset` restored the DisplayManager-owned state, and the
 physical power button could still wake the phone. This is the preferred
@@ -196,6 +194,11 @@ open: a heartbeat-bound helper always issues `power-reset` when the MagicDesk
 process, Shizuku service, or external desktop session ends. The helper is not restarted
 after an unexpected failure, so it cannot turn a user-restored screen off
 again.
+
+`DisplayPowerCommands` shares command resolution between the guard and
+diagnostics. The `display.power_off` and `display.power_restore` probe entries
+report command declarations, while `vendor.cpu_freezer` checks the service and
+method used below. These probes do not change display power or UID protection.
 
 The same firmware contains the Binder service `cfreezer`
 (`com.zte.performance.cfreezer.ICpuFreezerManager`). Turning display 0 off

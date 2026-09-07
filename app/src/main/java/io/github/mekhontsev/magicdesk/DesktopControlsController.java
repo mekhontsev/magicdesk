@@ -418,10 +418,6 @@ final class DesktopControlsController {
         registerSetting(DesktopShellActivity.HARDWARE_LAYOUT_STATE);
         registerSetting(DesktopShellActivity.HARDWARE_LAYOUT_LABEL_STATE);
         registerSetting(DesktopShellActivity.HARDWARE_LAYOUT_NAME_STATE);
-        for (final String setting : PlatformDrivers.current().phoneUi()
-                .observedSettingKeys()) {
-            registerSetting(setting);
-        }
         mInputMethodSubtypeObserver = new ContentObserver(
                 new Handler(Looper.getMainLooper())) {
             @Override

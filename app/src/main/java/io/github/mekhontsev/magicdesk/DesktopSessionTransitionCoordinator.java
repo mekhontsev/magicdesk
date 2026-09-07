@@ -18,19 +18,23 @@ final class DesktopSessionTransitionCoordinator {
     private final SerializedDesktopOperationQueue mOperations;
     private final PlatformFeatures mFeatures;
     private final PlatformProjectionDriver mProjection;
+    private final PlatformPhoneUiDriver mPhoneUi;
     private final DesktopTransitionGate mGate = new DesktopTransitionGate();
 
     DesktopSessionTransitionCoordinator(
             final SerializedDesktopOperationQueue operations,
             final PlatformFeatures features,
-            final PlatformProjectionDriver projection) {
-        if (operations == null || features == null || projection == null) {
+            final PlatformProjectionDriver projection,
+            final PlatformPhoneUiDriver phoneUi) {
+        if (operations == null || features == null || projection == null
+                || phoneUi == null) {
             throw new IllegalArgumentException(
                     "desktop transition dependencies are required");
         }
         mOperations = operations;
         mFeatures = features;
         mProjection = projection;
+        mPhoneUi = phoneUi;
     }
 
     void showPreferredDesktop() {
@@ -131,16 +135,30 @@ final class DesktopSessionTransitionCoordinator {
                     error.getMessage(),
                     error);
         }
-        final boolean released = homeReleased;
+        // Closing a still-connected external desktop must release its phone
+        // power override too; neither runtime shutdown nor display loss follows.
+        boolean phoneRestored = true;
+        try {
+            phoneRestored = !mPhoneUi.isPhoneScreenControlActive()
+                    || mPhoneUi.setPhoneScreenOff(false, Display.INVALID_DISPLAY);
+            if (!phoneRestored) {
+                recordCloseFailure("Could not restore phone screen",
+                        new IllegalStateException("phone screen restore failed"));
+            }
+        } catch (RuntimeException error) {
+            phoneRestored = false;
+            recordCloseFailure("Could not restore phone screen", error);
+        }
+        final boolean prepared = homeReleased && phoneRestored;
         MagicDeskRuntime.releaseDesktopInput(target.displayId,
                 () -> mOperations.execute(() -> parkAndClose(
-                        target, mode, released, callback)));
+                        target, mode, prepared, callback)));
     }
 
     private void parkAndClose(
             final DesktopDisplayTarget target,
             final DesktopCloseMode mode,
-            final boolean homeReleased,
+            final boolean prepared,
             final CompletionCallback callback) {
         try {
             MagicDeskRuntime.disableExternalTaskMigrationProtection();
@@ -149,7 +167,7 @@ final class DesktopSessionTransitionCoordinator {
         }
         if (!mode.parkTasks) {
             finishDesktopSessionClose(
-                    target, mode, homeReleased, callback);
+                    target, mode, prepared, callback);
             return;
         }
         try {
@@ -158,21 +176,21 @@ final class DesktopSessionTransitionCoordinator {
                     Log.w(TAG, "Desktop close continues after partial task parking");
                 }
                 mOperations.execute(() -> finishDesktopSessionClose(
-                        target, mode, homeReleased, callback));
+                        target, mode, prepared, callback));
             });
         } catch (RuntimeException error) {
             recordCloseFailure("Could not park desktop tasks", error);
             finishDesktopSessionClose(
-                    target, mode, homeReleased, callback);
+                    target, mode, prepared, callback);
         }
     }
 
     private void finishDesktopSessionClose(
             final DesktopDisplayTarget target,
             final DesktopCloseMode mode,
-            final boolean homeReleased,
+            final boolean prepared,
             final CompletionCallback callback) {
-        boolean success = homeReleased;
+        boolean success = prepared;
         try {
             if (target.kind == DesktopDisplayTarget.Kind.SIMULATED) {
                 success &= removeSimulatedDesktop(target.displayId);

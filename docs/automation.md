@@ -127,6 +127,11 @@ external session, not current device ownership. Native helper statistics and
 routing readiness remain the evidence for whether a selected transport actually
 started. These values are captured on demand, without another periodic query.
 
+Display-power diagnostics distinguish command declarations
+(`display.power_off`, `display.power_restore`) from the active phone-screen
+guard and its protected UIDs. On Nubia, `vendor.cpu_freezer` checks the actual
+protection interface. These probes change neither display power nor UID state.
+
 Task and application lists accept filters plus `limit` and `cursor`. Returned
 pages contain `count`, `total`, and a nullable `nextCursor`.
 
@@ -537,6 +542,12 @@ the saved user window stack nor persists test window state. The phone rotation
 is locked at its current value for the run and restored exactly afterward. If
 the tested desktop session closes, its existing lifecycle event cancels the run
 and cleanup begins; no background session polling is added.
+
+After closing the phone input guard, the test waits for an already-requested
+touchpad's visibility event before recording `PHONEUI-001`. Guard destruction
+does not imply that Android has started the uncovered Activity. This bounded
+event wait neither opens nor repairs the touchpad; failure to return remains a
+test failure.
 
 Window fixtures retain ordinary task lifetime and are not excluded from Android
 Recents. An excluded task staged behind HOME can be removed by Android's idle

@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
+import io.github.mekhontsev.magicdesk.DisplayPowerCommands;
 import io.github.mekhontsev.magicdesk.RuntimeDelays;
 import io.github.mekhontsev.magicdesk.ShellTaskUidReader;
 
@@ -24,8 +25,6 @@ public final class PhoneDisplayGuardCommand {
     static final String PROTECTED_UIDS = "MAGICDESK_PHONE_DISPLAY_UIDS";
     static final String HEARTBEAT = "ping";
     static final String RESTORE = "restore";
-    static final String POWER_RESET = "power-reset";
-    static final String POWER_ON = "power-on";
 
     private static final long HEARTBEAT_TIMEOUT_MILLIS = 4_000L;
     private static final long WATCHDOG_INTERVAL_MILLIS = 500L;
@@ -92,7 +91,7 @@ public final class PhoneDisplayGuardCommand {
         // Claim ownership before the command so every later exit path resets
         // even if the process dies immediately after DisplayManager accepts it.
         mDisplayOverrideActive.set(true);
-        if (!requestDisplayPower("power-off")) {
+        if (!requestDisplayPower(DisplayPowerCommands.POWER_OFF)) {
             throw new IOException("DisplayManager rejected power-off for display 0");
         }
         mLastHeartbeat.set(android.os.SystemClock.elapsedRealtime());
@@ -283,15 +282,11 @@ public final class PhoneDisplayGuardCommand {
     }
 
     private static String parseRestoreOperation(final String operation) {
-        if (!isRestoreOperation(operation)) {
+        if (!DisplayPowerCommands.isRestoreOperation(operation)) {
             throw new IllegalArgumentException(
                     "unsupported display restore operation " + operation);
         }
         return operation;
-    }
-
-    static boolean isRestoreOperation(final String operation) {
-        return POWER_RESET.equals(operation) || POWER_ON.equals(operation);
     }
 
     private static boolean requestDisplayPower(final String operation) {

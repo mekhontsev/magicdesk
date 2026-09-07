@@ -25,7 +25,8 @@ public final class DesktopOperations {
             new DesktopSessionTransitionCoordinator(
                     OPERATIONS,
                     PLATFORM.features(),
-                    PROJECTION);
+                    PROJECTION,
+                    PHONE_UI);
 
     private DesktopOperations() {
     }

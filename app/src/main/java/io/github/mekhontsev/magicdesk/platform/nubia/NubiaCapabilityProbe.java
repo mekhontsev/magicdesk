@@ -39,12 +39,7 @@ final class NubiaCapabilityProbe {
                 "vendor.hdmi_modes.read",
                 new File(NubiaHdmiModeController.EDID_MODES),
                 OsConstants.O_RDONLY);
-        ShizukuCapabilityProbe.appendMethodPresence(
-                report,
-                "vendor.phone_screen",
-                "com.redmagic.os.RedMagicAppManager$Trigger",
-                "openScreenOffTP",
-                boolean.class);
+        NubiaCpuFreezerWorkingState.appendCapabilityProbe(report);
         appendMousePositionApi(report);
         ShizukuCapabilityProbe.appendService(
                 report,

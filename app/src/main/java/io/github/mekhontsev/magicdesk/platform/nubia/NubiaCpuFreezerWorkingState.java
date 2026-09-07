@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
+import io.github.mekhontsev.magicdesk.ShizukuCapabilityProbe;
+
 import android.os.IBinder;
 
 import java.lang.reflect.InvocationTargetException;
@@ -14,6 +16,35 @@ final class NubiaCpuFreezerWorkingState {
     private static final String REASON = "service";
 
     private NubiaCpuFreezerWorkingState() {
+    }
+
+    static boolean isAvailable() {
+        try {
+            requireAvailable();
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError error) {
+            return false;
+        }
+    }
+
+    static void appendCapabilityProbe(final StringBuilder report) {
+        try {
+            requireAvailable();
+            ShizukuCapabilityProbe.append(report, "vendor.cpu_freezer", "present",
+                    SERVICE_NAME + " / " + INTERFACE_NAME
+                            + "#noteCpuFreezerUidWorking; no UID state changed");
+        } catch (ClassNotFoundException | NoSuchMethodException | IllegalStateException error) {
+            ShizukuCapabilityProbe.append(report, "vendor.cpu_freezer", "unavailable",
+                    ShizukuCapabilityProbe.usefulMessage(error));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError error) {
+            ShizukuCapabilityProbe.append(report, "vendor.cpu_freezer", "error",
+                    ShizukuCapabilityProbe.usefulMessage(error));
+        }
+    }
+
+    private static void requireAvailable() throws ReflectiveOperationException {
+        getService();
+        findMethod();
     }
 
     static Session begin(final int uid) throws ReflectiveOperationException {
@@ -35,9 +66,13 @@ final class NubiaCpuFreezerWorkingState {
             throw new IllegalStateException(
                     "RedMagic CPU-freezer service is unavailable");
         }
-        return Class.forName(INTERFACE_NAME + "$Stub")
+        final Object service = Class.forName(INTERFACE_NAME + "$Stub")
                 .getMethod("asInterface", IBinder.class)
                 .invoke(null, binder);
+        if (service == null) {
+            throw new IllegalStateException("CPU-freezer interface is unavailable");
+        }
+        return service;
     }
 
     private static Method findMethod() throws ReflectiveOperationException {

@@ -763,6 +763,15 @@ final class DesktopSelfTestController {
                     "Keep self-test input off the phone display",
                     inputGuard.detail);
         }
+        String restorationError = null;
+        try {
+            if (inputGuard.observed && inputGuard.closed) {
+                DesktopSelfTestPhoneUiObserver.awaitTouchpadRestored(
+                        displayId, STEP_TIMEOUT_MILLIS);
+            }
+        } catch (IOException error) {
+            restorationError = usefulMessage(error);
+        }
         try {
             DesktopSelfTestPhoneUiObserver.sampleCurrentTasks();
         } catch (IOException ignored) {
@@ -782,12 +791,13 @@ final class DesktopSelfTestController {
                                     ? "selected display does not use a phone touchpad"
                                     : "automatic phone touchpad is disabled");
         } else {
-            result.add(observation.touchpadStable()
+            result.add(observation.touchpadStable() && restorationError == null
                             ? DesktopSelfTestResult.State.PASS
                             : DesktopSelfTestResult.State.FAIL,
                     "PHONEUI-001",
                     "Restore the phone touchpad after task transitions",
-                    observation.detail);
+                    observation.detail + (restorationError == null
+                            ? "" : "; " + restorationError));
         }
         if (!observation.observed || displayId <= Display.DEFAULT_DISPLAY) {
             result.add(DesktopSelfTestResult.State.NOT_TESTED,

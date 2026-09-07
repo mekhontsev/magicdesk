@@ -62,6 +62,8 @@ public final class ShizukuCapabilityProbe {
                 .append(readFirstLine("/proc/self/attr/current")).append('\n');
 
         appendPermissions(report, context);
+        DisplayPowerCommands.probe((key, state, detail) ->
+                append(report, key, state, detail));
         appendCaptureBackends(report);
         appendRawInput(report);
         appendOpenResult(

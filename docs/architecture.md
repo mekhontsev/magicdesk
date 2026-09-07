@@ -2349,6 +2349,8 @@ Physical display removal, **Close desktop**, and **Exit MagicDesk** share the
 common cleanup path:
 
 - hand HOME back to the package saved by the session lease;
+- restore an active phone-display power guard before releasing input, even when
+  the external display stays connected and the foreground runtime stays alive;
 - release keyboard and mouse capture, display associations, and virtual devices;
 - keep HOME components enabled while parking tasks and removing the desktop host
   or owned display, then disable them before presenting the restored launcher;
@@ -2524,19 +2526,27 @@ only the virtual device receives key-up. No timing threshold is involved.
 
 ## Phone Screen And Touch Panel
 
-RedMagic's `nubia_screen_off_tp` path lets its text-input activity wake display
-0 whenever an external text field receives focus. MagicDesk instead uses the
-shell DisplayManager `power-off 0` contract. A heartbeat-owned
+MagicDesk uses the shell DisplayManager `power-off 0` contract. A heartbeat-owned
 `PhoneDisplayGuard` probes and uses the platform's matching restore operation
 (`power-on` on Android 15 or `power-reset` on Android 16) after normal or
 abnormal teardown.
 
+`DisplayPowerCommands` owns command discovery for both the guard and shell
+diagnostics. It reads help and, when a command is omitted, probes argument
+validation without a display ID. Diagnostics distinguish declared commands,
+missing commands and probe errors; discovery never changes display power.
+The guard publishes its process-local screen state through
+`MagicDeskRuntime.refreshPlatformState`; UI command completions and runtime
+notifications refresh the controls without a settings observer.
+
 While display 0 is off, RedMagic's independent `cfreezer` can freeze even a
 foreground-service HOME process. The same heartbeat refreshes the vendor's
 transient `noteCpuFreezerUidWorking` state for MagicDesk and the application
-UIDs owning live tasks on the desktop display. It removes stale task entries
-and clears the remaining state during restore. No persistent freezer whitelist
-is installed.
+UIDs owning live tasks on the desktop display. It retains the accumulated UID
+set for the screen-off interval, then clears it during restore. No persistent
+freezer whitelist is installed. The optional Nubia phone-UI component is
+detected from this service and method; diagnostics inspect the same API without
+changing any UID's working state.
 
 `MagicDeskTouchpadActivity` is the common phone-side input panel for external
 desktops. It remains an ordinary display-0 Activity and can be opened from the

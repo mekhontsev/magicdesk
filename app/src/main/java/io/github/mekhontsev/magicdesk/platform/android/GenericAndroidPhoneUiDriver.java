@@ -5,8 +5,6 @@ import android.content.Context;
 
 /** No-op phone UI integration for the Generic Android profile. */
 final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
-    private static final String[] NO_SETTINGS = new String[0];
-
     @Override
     public boolean requiresRecentsRedirectToHome() {
         return false;
@@ -31,11 +29,6 @@ final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
 
     @Override
     public void requestPhoneScreenRestore() {
-    }
-
-    @Override
-    public String[] observedSettingKeys() {
-        return NO_SETTINGS;
     }
 
     @Override

@@ -1,0 +1,40 @@
+[
+  {
+    "name": "Android 16 declared power commands",
+    "replies": {
+      "help": "  power-reset DISPLAY_ID\n    Turn the DISPLAY_ID power to a state the display supposed to have.\n  power-off DISPLAY_ID\n    Turn the display DISPLAY_ID power off.\n"
+    },
+    "restore": "power-reset",
+    "powerOff": "declared"
+  },
+  {
+    "name": "Android 15 declared power commands",
+    "replies": {
+      "help": "  power-on DISPLAY_ID\n  power-off DISPLAY_ID\n"
+    },
+    "restore": "power-on",
+    "powerOff": "declared"
+  },
+  {
+    "name": "Android 15 power commands omitted from help",
+    "replies": {
+      "help": "Display manager commands:\n  help\n    Print this help text.\n",
+      "power-reset": "Unknown command: power-reset\n",
+      "power-on": "Error: no displayId specified\n",
+      "power-off": "Error: no displayId specified\n"
+    },
+    "restore": "power-on",
+    "powerOff": "declared"
+  },
+  {
+    "name": "Power commands unavailable",
+    "replies": {
+      "help": "enable-display DISPLAY_ID\ndisable-display DISPLAY_ID\n",
+      "power-reset": "Unknown command: power-reset\n",
+      "power-on": "Unknown command: power-on\n",
+      "power-off": "Unknown command: power-off\n"
+    },
+    "restore": "",
+    "powerOff": "unavailable"
+  }
+]

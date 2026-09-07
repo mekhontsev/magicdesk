@@ -5,7 +5,6 @@ import android.app.Activity;
 import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.database.ContentObserver;
 import android.hardware.display.DeviceProductInfo;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
@@ -32,7 +31,6 @@ public final class ControlActivity extends Activity
 
     private PhoneControlPanelController mPanel;
     private MagicDeskSessionController mSessionController;
-    private ContentObserver mConsoleStateObserver;
     private DisplayManager mDisplayManager;
     private DisplayManager.DisplayListener mDisplayListener;
     private SessionProfile mSessionProfile;
@@ -170,9 +168,6 @@ public final class ControlActivity extends Activity
                 ? R.string.control_status_desktop_active
                 : R.string.control_status_ready);
         setContentView(mPanel.createView());
-        if (mPhoneUi.observedSettingKeys().length > 0) {
-            registerPhoneUiStateObserver();
-        }
         if (DesktopDisplayDrivers.isExternalDesktopSupported()) {
             registerDisplayListener();
         }
@@ -220,11 +215,6 @@ public final class ControlActivity extends Activity
             if (sActive.get() == this) {
                 sActive.clear();
             }
-        }
-        if (mConsoleStateObserver != null) {
-            getContentResolver().unregisterContentObserver(
-                    mConsoleStateObserver);
-            mConsoleStateObserver = null;
         }
         mDisplayProbeGeneration++;
         mMainHandler.removeCallbacks(mDisplayProbe);
@@ -546,27 +536,6 @@ public final class ControlActivity extends Activity
                 ShellAccess.statusLabel(),
                 currentDisplayId(),
                 externalDesktopDisplayId));
-    }
-
-    private void registerPhoneUiStateObserver() {
-        mConsoleStateObserver = new ContentObserver(
-                mMainHandler) {
-            @Override
-            public void onChange(final boolean selfChange) {
-                mStatus = getString(isExternalDesktopActive()
-                        ? R.string.control_status_desktop_active
-                        : R.string.control_status_ready);
-                scheduleExternalDisplayProbe(
-                        false, DISPLAY_PROBE_SETTLE_MILLIS);
-                refresh();
-            }
-        };
-        for (final String setting : mPhoneUi.observedSettingKeys()) {
-            getContentResolver().registerContentObserver(
-                    android.provider.Settings.Global.getUriFor(setting),
-                    false,
-                    mConsoleStateObserver);
-        }
     }
 
     private void registerDisplayListener() {

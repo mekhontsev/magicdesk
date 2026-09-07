@@ -133,13 +133,10 @@ public final class NubiaFirmwareDetector {
                     PlatformComponent.POINTER,
                     "Nubia IInputManager pointer API detected");
         }
-        if (hasMethod(
-                "com.redmagic.os.RedMagicAppManager$Trigger",
-                "openScreenOffTP",
-                boolean.class)) {
+        if (NubiaCpuFreezerWorkingState.isAvailable()) {
             detected.put(
                     PlatformComponent.PHONE_UI,
-                    "RedMagicAppManager phone-screen API detected");
+                    "CPU-freezer working-state API detected");
         }
         if (InternalAudioSourceCapability.current().availability
                 == PlatformAudioCaptureDriver.Availability.DECLARED) {

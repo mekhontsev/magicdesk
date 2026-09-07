@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.AppProcessCommand;
 import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
+import io.github.mekhontsev.magicdesk.DisplayPowerCommands;
 import io.github.mekhontsev.magicdesk.MagicDeskRuntime;
 import io.github.mekhontsev.magicdesk.ShellAccess;
 import io.github.mekhontsev.magicdesk.ShellStreamHandle;
@@ -20,8 +21,6 @@ final class PhoneDisplayGuard {
     private static final String TAG = "MagicDeskPhoneDisplay";
     private static final String GUARD_COMMAND =
             "io.github.mekhontsev.magicdesk.platform.nubia.PhoneDisplayGuardCommand";
-    private static final String DISPLAY_HELP =
-            "/system/bin/cmd display help";
     private static final String DISPLAY_COMMAND =
             "/system/bin/cmd display ";
     private static final long START_TIMEOUT_MILLIS = 6_000L;
@@ -30,6 +29,7 @@ final class PhoneDisplayGuard {
     private static Session sSession;
     private static int sGeneration;
     private static volatile String sRestoreOperation;
+    private static volatile boolean sScreenOff;
     private static volatile String sLastProtectedUidSummary = "none";
 
     private PhoneDisplayGuard() {
@@ -109,6 +109,10 @@ final class PhoneDisplayGuard {
         }
     }
 
+    static boolean isScreenOff() {
+        return sScreenOff;
+    }
+
     static String protectedUidSummary() {
         synchronized (LOCK) {
             if (sSession == null) {
@@ -180,20 +184,9 @@ final class PhoneDisplayGuard {
             return cached;
         }
         try {
-            String operation = selectRestoreOperation(
-                    ShellAccess.executeCommand(DISPLAY_HELP).output);
-            if (operation == null && isRecognizedRestoreProbe(
-                    ShellAccess.executeCommand(
-                            DISPLAY_COMMAND
-                                    + PhoneDisplayGuardCommand.POWER_RESET))) {
-                operation = PhoneDisplayGuardCommand.POWER_RESET;
-            }
-            if (operation == null && isRecognizedRestoreProbe(
-                    ShellAccess.executeCommand(
-                            DISPLAY_COMMAND
-                                    + PhoneDisplayGuardCommand.POWER_ON))) {
-                operation = PhoneDisplayGuardCommand.POWER_ON;
-            }
+            final String operation = DisplayPowerCommands.resolveRestoreOperation(
+                    command -> ShellAccess.executeCommand(
+                            DISPLAY_COMMAND + command).output);
             if (operation != null) {
                 sRestoreOperation = operation;
             }
@@ -204,33 +197,11 @@ final class PhoneDisplayGuard {
         }
     }
 
-    static String selectRestoreOperation(final String help) {
-        if (help == null) {
-            return null;
-        }
-        if (help.contains(PhoneDisplayGuardCommand.POWER_RESET)) {
-            return PhoneDisplayGuardCommand.POWER_RESET;
-        }
-        if (help.contains(PhoneDisplayGuardCommand.POWER_ON)) {
-            return PhoneDisplayGuardCommand.POWER_ON;
-        }
-        return null;
-    }
-
-    static boolean isRecognizedRestoreProbe(
-            final ShellAccess.CommandResult result) {
-        if (result == null || result.output == null) {
-            return false;
-        }
-        final String output = result.output.toLowerCase(java.util.Locale.ROOT);
-        return output.contains("no displayid specified")
-                && !output.contains("unknown command");
-    }
-
     private static void publishState(final boolean screenOff) {
-        if (!NubiaPhoneScreenState.setOff(screenOff)) {
+        if (sScreenOff == screenOff) {
             return;
         }
+        sScreenOff = screenOff;
         MagicDeskRuntime.refreshPlatformState();
     }
 

@@ -67,6 +67,8 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
         report.append('\n')
                 .append("Phone screen guard: active=")
                 .append(PhoneDisplayGuard.isActive())
+                .append(", screenOff=")
+                .append(PhoneDisplayGuard.isScreenOff())
                 .append(", protectedUids=")
                 .append(PhoneDisplayGuard.protectedUidSummary())
                 .append('\n');
@@ -119,8 +121,16 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
         // diagnostics; it is not required by the desktop window workflow.
         DesktopSelfTestCapabilityAudit.optional(
                 result, capabilities,
-                "vendor.phone_screen", "present",
-                "API-NUBIA-002", "RedMagic phone-screen trigger");
+                "display.power_off", "declared",
+                "API-POWER-002", "DisplayManager screen-off command");
+        DesktopSelfTestCapabilityAudit.optional(
+                result, capabilities,
+                "display.power_restore", "declared",
+                "API-POWER-003", "DisplayManager screen restoration command");
+        DesktopSelfTestCapabilityAudit.optional(
+                result, capabilities,
+                "vendor.cpu_freezer", "present",
+                "API-NUBIA-009", "RedMagic transient CPU-freezer protection");
         DesktopSelfTestCapabilityAudit.optional(
                 result, capabilities,
                 "vendor.redmagic_app_manager", "present",

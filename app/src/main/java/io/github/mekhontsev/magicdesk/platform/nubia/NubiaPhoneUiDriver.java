@@ -5,10 +5,6 @@ import android.content.Context;
 
 /** RedMagic phone UI integration used around external desktop sessions. */
 final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
-    private static final String[] OBSERVED_SETTINGS = {
-            NubiaPhoneScreenState.SETTING
-    };
-
     @Override
     public boolean requiresRecentsRedirectToHome() {
         // Nubia's fallback Quickstep crashes while binding desktop task groups
@@ -19,7 +15,7 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
 
     @Override
     public boolean isPhoneScreenOff(final Context context) {
-        return NubiaPhoneScreenState.isOff();
+        return PhoneDisplayGuard.isScreenOff();
     }
 
     @Override
@@ -39,11 +35,6 @@ final class NubiaPhoneUiDriver implements PlatformPhoneUiDriver {
     @Override
     public void requestPhoneScreenRestore() {
         PhoneDisplayGuard.requestRestore();
-    }
-
-    @Override
-    public String[] observedSettingKeys() {
-        return OBSERVED_SETTINGS.clone();
     }
 
     @Override

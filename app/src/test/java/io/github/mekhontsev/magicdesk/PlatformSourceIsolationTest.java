@@ -33,7 +33,6 @@ public final class PlatformSourceIsolationTest {
         "\"com.zte",
         "\"com.redmagic",
         "\"redmagic.app.manager",
-        "\"nubia_screen_off_tp",
         "\"setSFOption",
         "\"RedMagicAppManager",
         "\"ColorfulLightService",

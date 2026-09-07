@@ -14,7 +14,7 @@ public final class DesktopCloseFailureTest {
                     events.add(name);
                     if (name.equals(failure)) throw new IllegalStateException(name);
                 }
-                static class Display { static final int DEFAULT_DISPLAY = 0; }
+                static class Display { static final int DEFAULT_DISPLAY = 0, INVALID_DISPLAY = -1; }
                 interface CompletionCallback { void onComplete(boolean success); }
                 static class DesktopDisplayTarget {
                     enum Kind { WIRED, SIMULATED }
@@ -32,6 +32,15 @@ public final class DesktopCloseFailureTest {
                 final DesktopTransitionGate mGate = new DesktopTransitionGate();
                 static class Queue { void execute(Runnable r) { r.run(); } }
                 final Queue mOperations = new Queue();
+                static class PhoneUi {
+                    boolean isPhoneScreenControlActive() { return !failure.equals("screen-unowned"); }
+                    boolean setPhoneScreenOff(boolean off, int displayId) {
+                        check(!off && displayId == Display.INVALID_DISPLAY, "not a phone restore");
+                        step("phone");
+                        return !failure.equals("phone-result");
+                    }
+                }
+                final PhoneUi mPhoneUi = new PhoneUi();
                 static class DesktopHomeRoleLease {
                     static class RestoredHomePresentation {}
                     static void releaseForSessionClose(DesktopDisplayTarget target)
@@ -71,16 +80,30 @@ public final class DesktopCloseFailureTest {
                     active = -1; step("close"); return true;
                 }
                 public static void verify() {
-                    for (String fail : List.of("none", "home", "protection", "park", "close",
+                    for (String fail : List.of("none", "home", "phone", "phone-result",
+                            "screen-unowned", "protection", "park", "close",
                             "recover", "surfaces", "present", "panel", "remove")) {
                         failure = fail; active = 7; completions = 0; events.clear();
                         Fixture f = new Fixture();
                         DesktopDisplayTarget target = new DesktopDisplayTarget();
                         if (fail.equals("remove")) target.kind = DesktopDisplayTarget.Kind.SIMULATED;
-                        f.beginDesktopClose(target, new DesktopCloseMode(), ok -> completions++);
+                        boolean[] succeeded = {false};
+                        f.beginDesktopClose(target, new DesktopCloseMode(), ok -> {
+                            completions++; succeeded[0] = ok;
+                        });
                         check(completions == 1, "close did not complete once after " + fail);
                         check(active == -1, "session retained after " + fail);
                         check(events.indexOf("home") < events.indexOf("input"), "HOME was not first");
+                        if (fail.equals("screen-unowned")) {
+                            check(!events.contains("phone"), "changed unowned phone power");
+                        } else {
+                            check(events.indexOf("home") < events.indexOf("phone")
+                                    && events.indexOf("phone") < events.indexOf("input"),
+                                    "phone restore outside HOME/input boundary: " + events);
+                        }
+                        if (fail.equals("phone") || fail.equals("phone-result")) {
+                            check(!succeeded[0], "lost phone restore failure");
+                        }
                         check(events.indexOf("input") < events.indexOf("park"), "input survived into parking");
                         check(events.indexOf("close") < events.indexOf("surfaces"),
                                 "HOME surfaces disabled before host close: " + events);

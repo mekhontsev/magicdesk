@@ -16,6 +16,4 @@ public interface PlatformPhoneUiDriver {
     boolean setPhoneScreenOff(boolean screenOff, int desktopDisplayId);
 
     void requestPhoneScreenRestore();
-
-    String[] observedSettingKeys();
 }
