@@ -97,8 +97,7 @@ public final class DesktopHomeRoleLeaseTest {
         assertEquals(
                 List.of(
                         "surface:disabled",
-                        "home:" + LAUNCHER,
-                        "surface:default"),
+                        "home:" + LAUNCHER),
                 mBackend.releaseCalls);
     }
 
@@ -149,7 +148,7 @@ public final class DesktopHomeRoleLeaseTest {
         assertTrue(result.created);
         DesktopHomeRoleLease.releaseAfterFailedStart(result);
         assertEquals(LAUNCHER, mBackend.homePackage);
-        assertTrue(mBackend.homeSurfaceRestored);
+        assertNull(mBackend.homeSurface);
         assertNull(mStorage.state);
     }
 
@@ -176,7 +175,7 @@ public final class DesktopHomeRoleLeaseTest {
             fail("claim failure expected");
         } catch (IOException expected) {
             assertEquals(LAUNCHER, mBackend.homePackage);
-            assertTrue(mBackend.homeSurfaceRestored);
+            assertNull(mBackend.homeSurface);
             assertNull(mStorage.state);
         }
     }
@@ -195,8 +194,7 @@ public final class DesktopHomeRoleLeaseTest {
                 List.of(
                         "surface:disabled",
                         "home:" + LAUNCHER,
-                        "present:" + LAUNCHER,
-                        "surface:default"),
+                        "present:" + LAUNCHER),
                 mBackend.releaseCalls);
     }
 
@@ -214,8 +212,7 @@ public final class DesktopHomeRoleLeaseTest {
         assertEquals(
                 List.of(
                         "surface:disabled",
-                        "home:" + LAUNCHER,
-                        "surface:default"),
+                        "home:" + LAUNCHER),
                 mBackend.releaseCalls);
 
         DesktopHomeRoleLease.presentRestoredHome(presentation);
@@ -247,8 +244,7 @@ public final class DesktopHomeRoleLeaseTest {
         assertEquals(List.of(
                         "surface:disabled",
                         "home:<none>",
-                        "present:<none>",
-                        "surface:default"),
+                        "present:<none>"),
                 mBackend.releaseCalls);
         assertNull(mStorage.state);
     }
@@ -268,8 +264,7 @@ public final class DesktopHomeRoleLeaseTest {
         assertEquals(
                 List.of(
                         "surface:disabled",
-                        "home:" + LAUNCHER,
-                        "surface:default"),
+                        "home:" + LAUNCHER),
                 mBackend.releaseCalls);
     }
 
@@ -297,7 +292,7 @@ public final class DesktopHomeRoleLeaseTest {
                 DesktopDisplayTarget.simulated(7));
 
         assertEquals(LAUNCHER, mBackend.homePackage);
-        assertTrue(mBackend.homeSurfaceRestored);
+        assertNull(mBackend.homeSurface);
         assertNull(mStorage.state);
     }
 
@@ -307,24 +302,25 @@ public final class DesktopHomeRoleLeaseTest {
         DesktopHomeRoleLease.acquire(DesktopDisplayTarget.simulated(7));
         mBackend.failHomeSurfaceDisable = true;
 
-        assertTrue(DesktopHomeRoleLease.release(
-                DesktopDisplayTarget.simulated(7)));
-
-        assertEquals(LAUNCHER, mBackend.homePackage);
-        assertTrue(mBackend.homeSurfaceRestored);
-        assertNull(mStorage.state);
+        try {
+            DesktopHomeRoleLease.release(DesktopDisplayTarget.simulated(7));
+            fail("disabling our HOME surfaces is required");
+        } catch (IOException expected) {
+            assertEquals(LAUNCHER, mBackend.homePackage);
+            assertEquals(DesktopHomeRoleLease.Phase.RELEASING, mStorage.state.phase);
+        }
     }
 
     @Test
     public void interruptedReleaseRemainsRecoverableWithoutReclaimingHome()
             throws Exception {
         DesktopHomeRoleLease.acquire(DesktopDisplayTarget.simulated(7));
-        mBackend.failHomeSurfaceRestore = true;
+        mBackend.failHomeSurfaceDisable = true;
 
         try {
             DesktopHomeRoleLease.release(
                     DesktopDisplayTarget.simulated(7));
-            fail("HOME surface restore failure expected");
+            fail("HOME surface disable failure expected");
         } catch (IOException expected) {
             assertEquals(LAUNCHER, mBackend.homePackage);
             assertEquals(
@@ -332,7 +328,7 @@ public final class DesktopHomeRoleLeaseTest {
                     mStorage.state.phase);
         }
 
-        mBackend.failHomeSurfaceRestore = false;
+        mBackend.failHomeSurfaceDisable = false;
         assertTrue(DesktopHomeRoleLease.reconcile(false));
         assertEquals(LAUNCHER, mBackend.homePackage);
         assertNull(mStorage.state);
@@ -349,7 +345,7 @@ public final class DesktopHomeRoleLeaseTest {
 
         assertEquals("com.example.otherhome", mBackend.homePackage);
         assertEquals("com.example.otherhome", mBackend.presentedHomePackage);
-        assertTrue(mBackend.homeSurfaceRestored);
+        assertNull(mBackend.homeSurface);
         assertNull(mStorage.state);
     }
 
@@ -364,7 +360,7 @@ public final class DesktopHomeRoleLeaseTest {
                 DesktopHomeRoleLease.Phase.RELEASING,
                 mStorage.lastWrittenPhase);
         assertEquals(LAUNCHER, mBackend.homePackage);
-        assertTrue(mBackend.homeSurfaceRestored);
+        assertNull(mBackend.homeSurface);
         assertNull(mStorage.state);
     }
 
@@ -387,7 +383,7 @@ public final class DesktopHomeRoleLeaseTest {
         assertTrue(DesktopHomeRoleLease.reconcile(false));
 
         assertEquals(LAUNCHER, mBackend.homePackage);
-        assertTrue(mBackend.homeSurfaceRestored);
+        assertNull(mBackend.homeSurface);
         assertNull(mStorage.state);
     }
 
@@ -428,6 +424,28 @@ public final class DesktopHomeRoleLeaseTest {
                 result.state.previousHome.availability);
     }
 
+    @Test
+    public void deferredCloseWithoutDefaultHomeCannotSelectMagicDeskAgain()
+            throws Exception {
+        mBackend.homePackage = "";
+        final DesktopDisplayTarget target = DesktopDisplayTarget.simulated(7);
+        DesktopHomeRoleLease.acquire(target);
+        final DesktopHomeRoleLease.RestoredHomePresentation presentation =
+                DesktopHomeRoleLease.releaseForSessionClose(target);
+
+        assertNull(mStorage.state);
+        assertNull(mBackend.homeSurface);
+        DesktopHomeRoleLease.presentRestoredHome(presentation);
+        assertEquals("", mBackend.resolvedHomePackage);
+    }
+
+    @Test
+    public void idleReconciliationDoesNotEnableHomeSurfaces() throws Exception {
+        assertFalse(DesktopHomeRoleLease.reconcile(false));
+        assertNull(mBackend.homeSurface);
+        assertEquals(List.of("surface:disabled"), mBackend.releaseCalls);
+    }
+
     private final class FakeBackend implements DesktopHomeRoleLease.Backend {
         String homePackage;
         int setCalls;
@@ -435,13 +453,12 @@ public final class DesktopHomeRoleLeaseTest {
         boolean stateWasPreparedBeforeSet;
         boolean primaryHomePresented;
         boolean failHomeSurfaceDisable;
-        boolean failHomeSurfaceRestore;
         boolean failHomeResolution;
         int presentedUserId = -1;
         String presentedHomePackage;
+        String resolvedHomePackage;
         DesktopHomeSurfaceRouter.Surface homeSurface;
         DesktopHomeSurfaceRouter.Surface presentedSurface;
-        boolean homeSurfaceRestored;
         final List<String> releaseCalls = new ArrayList<>();
 
         FakeBackend(final String homePackage) {
@@ -472,7 +489,6 @@ public final class DesktopHomeRoleLeaseTest {
         public void selectHomeSurface(
                 final DesktopHomeSurfaceRouter.Surface surface) {
             homeSurface = surface;
-            homeSurfaceRestored = false;
         }
 
         @Override
@@ -481,18 +497,7 @@ public final class DesktopHomeRoleLeaseTest {
                 throw new IOException("HOME surface disable rejected");
             }
             homeSurface = null;
-            homeSurfaceRestored = false;
             releaseCalls.add("surface:disabled");
-        }
-
-        @Override
-        public void restoreHomeSurface() throws IOException {
-            if (failHomeSurfaceRestore) {
-                throw new IOException("surface restore rejected");
-            }
-            homeSurface = DesktopHomeSurfaceRouter.Surface.PHONE;
-            homeSurfaceRestored = true;
-            releaseCalls.add("surface:default");
         }
 
         @Override
@@ -531,6 +536,8 @@ public final class DesktopHomeRoleLeaseTest {
             primaryHomePresented = true;
             presentedUserId = userId;
             presentedHomePackage = packageName;
+            resolvedHomePackage = packageName == null || packageName.isEmpty()
+                    ? homeSurface == null ? "" : MAGICDESK : packageName;
             presentedSurface = homeSurface;
             if (!MAGICDESK.equals(packageName)) {
                 releaseCalls.add("present:"

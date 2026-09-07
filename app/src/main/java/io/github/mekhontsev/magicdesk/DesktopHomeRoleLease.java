@@ -142,8 +142,6 @@ final class DesktopHomeRoleLease {
 
         void disableHomeSurfaces() throws IOException;
 
-        void restoreHomeSurface() throws IOException;
-
         void setHomePackage(int userId, String packageName) throws IOException;
 
         void clearHomePackage(int userId, String packageName)
@@ -304,7 +302,7 @@ final class DesktopHomeRoleLease {
             final State state = sStorage.read();
             if (state == null) {
                 sPhoneOverviewRoutingActive = false;
-                sBackend.restoreHomeSurface();
+                sBackend.disableHomeSurfaces();
                 return false;
             }
             final String holder = sBackend.getHomePackage(state.userId);
@@ -430,6 +428,11 @@ final class DesktopHomeRoleLease {
             if (MAGICDESK_PACKAGE.equals(holder) || holder.isEmpty()) {
                 restorePreviousHolder(state);
             }
+            // RoleManager and HOME intent resolution can disagree. Keep our
+            // components disabled throughout idle, including an unassigned role.
+            if (quiesceError != null) {
+                throw quiesceError;
+            }
             final RestoredHomePresentation presentation =
                     new RestoredHomePresentation(
                             state.userId,
@@ -439,11 +442,10 @@ final class DesktopHomeRoleLease {
                         state.userId,
                         sBackend.getHomePackage(state.userId));
             }
-            sBackend.restoreHomeSurface();
             sStorage.clear();
             return presentation;
         } catch (IOException error) {
-            if (quiesceError != null) {
+            if (quiesceError != null && error != quiesceError) {
                 error.addSuppressed(quiesceError);
             }
             throw error;
@@ -455,12 +457,7 @@ final class DesktopHomeRoleLease {
             final IOException acquisitionError) {
         sPhoneOverviewRoutingActive = false;
         try {
-            final String holder = sBackend.getHomePackage(state.userId);
-            if (!state.previousHome.packageName.equals(holder)) {
-                restorePreviousHolder(state);
-            }
-            sBackend.restoreHomeSurface();
-            sStorage.clear();
+            quiesceAndRestore(state, true);
         } catch (IOException restoreError) {
             acquisitionError.addSuppressed(restoreError);
         }
@@ -561,11 +558,6 @@ final class DesktopHomeRoleLease {
         @Override
         public void disableHomeSurfaces() throws IOException {
             DesktopHomeSurfaceRouter.disableHomeSurfaces();
-        }
-
-        @Override
-        public void restoreHomeSurface() throws IOException {
-            DesktopHomeSurfaceRouter.restoreDefault();
         }
 
         @Override

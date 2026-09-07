@@ -4,6 +4,7 @@ import android.app.Application;
 import android.app.role.RoleManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ResolveInfo;
 import android.util.Log;
 
 import java.io.IOException;
@@ -29,18 +30,27 @@ final class DesktopHomeStartupGuard {
         // restart and must never release the HOME lease owned by the main
         // process.
         final RoleManager roles = context.getSystemService(RoleManager.class);
-        if (roles == null
-                || !roles.isRoleAvailable(RoleManager.ROLE_HOME)
-                || !roles.isRoleHeld(RoleManager.ROLE_HOME)) {
-            return false;
-        }
-
+        final boolean ownsRole = roles != null
+                && roles.isRoleAvailable(RoleManager.ROLE_HOME)
+                && roles.isRoleHeld(RoleManager.ROLE_HOME);
         final DesktopHomeRoleLease.State lease =
                 DesktopHomeRoleLease.snapshot();
+        final Intent homeIntent = new Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_HOME)
+                .addFlags(HOME_FLAGS);
+        final ResolveInfo home = context.getPackageManager().resolveActivity(
+                homeIntent, 0);
+        final boolean resolvesToUs = home != null && home.activityInfo != null
+                && context.getPackageName().equals(home.activityInfo.packageName);
         try {
+            // There cannot be a live session before the primary process starts.
+            // Role absence alone does not prove our HOME components are inactive.
             DesktopHomeSurfaceRouter.disableHomeSurfaces();
         } catch (IOException error) {
             Log.e(TAG, "could not disable MagicDesk HOME surfaces", error);
+            return false;
+        }
+        if (!ownsRole && lease == null && !resolvesToUs) {
             return false;
         }
         // Startup while holding HOME means the owning desktop process was
@@ -54,9 +64,7 @@ final class DesktopHomeStartupGuard {
         sRelinquishedOnProcessStart = true;
 
         try {
-            context.startActivity(new Intent(Intent.ACTION_MAIN)
-                    .addCategory(Intent.CATEGORY_HOME)
-                    .addFlags(HOME_FLAGS));
+            context.startActivity(homeIntent);
             Log.w(TAG, "relinquished stale HOME at process start"
                     + (lease == null ? " without a stored lease" : ""));
             return true;

@@ -7,7 +7,7 @@ import android.content.pm.PackageManager;
 import java.io.IOException;
 import java.util.Arrays;
 
-/** Selects the single primary HOME surface exposed by MagicDesk. */
+/** Exposes primary and secondary HOME surfaces only for their session. */
 final class DesktopHomeSurfaceRouter {
     enum Surface {
         PHONE,
@@ -38,12 +38,6 @@ final class DesktopHomeSurfaceRouter {
                         : PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
     }
 
-    static void restoreDefault() throws IOException {
-        apply(
-                PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
-                PackageManager.COMPONENT_ENABLED_STATE_DEFAULT);
-    }
-
     static void disableHomeSurfaces() throws IOException {
         apply(
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
@@ -59,9 +53,14 @@ final class DesktopHomeSurfaceRouter {
                 context, PhoneHomeActivity.class);
         final ComponentName desktop = new ComponentName(
                 context, PhoneDesktopHomeActivity.class);
+        final ComponentName secondary = new ComponentName(
+                context, DesktopActivity.class);
+        // External sessions use phone HOME and secondary HOME together. Both
+        // must disappear from Android's launcher choices when the lease ends.
         if (manager.getComponentEnabledSetting(phone) == phoneState
                 && manager.getComponentEnabledSetting(desktop)
-                        == desktopState) {
+                        == desktopState
+                && manager.getComponentEnabledSetting(secondary) == phoneState) {
             return;
         }
         try {
@@ -73,10 +72,14 @@ final class DesktopHomeSurfaceRouter {
                     new PackageManager.ComponentEnabledSetting(
                             desktop,
                             desktopState,
+                            PackageManager.DONT_KILL_APP),
+                    new PackageManager.ComponentEnabledSetting(
+                            secondary,
+                            phoneState,
                             PackageManager.DONT_KILL_APP)));
         } catch (RuntimeException error) {
             throw new IOException(
-                    "could not select primary HOME surface", error);
+                    "could not select HOME surfaces", error);
         }
     }
 }

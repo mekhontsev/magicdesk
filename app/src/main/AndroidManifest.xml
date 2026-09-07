@@ -177,7 +177,7 @@
             android:name=".PhoneHomeActivity"
             android:banner="@mipmap/ic_launcher"
             android:clearTaskOnLaunch="true"
-            android:enabled="true"
+            android:enabled="false"
             android:excludeFromRecents="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
@@ -217,6 +217,7 @@
         <activity
             android:name=".DesktopActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:enabled="false"
             android:exported="true"
             android:banner="@mipmap/ic_launcher"
             android:icon="@mipmap/ic_launcher"

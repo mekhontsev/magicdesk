@@ -1312,7 +1312,7 @@ the external-display host component.
 
 The lease is the only owner of HOME transitions and HOME-surface selection.
 Normal close quiesces MagicDesk's HOME entry points, restores the previous
-holder, and restores the default component state before
+holder, and leaves all HOME components disabled before
 session teardown; later cleanup failure never reclaims HOME for MagicDesk.
 Unexpected display loss releases a live lease through the same role boundary,
 and a user-selected third-party HOME is never overwritten. If a new MagicDesk
@@ -1685,6 +1685,16 @@ the later presentation avoids asking Android to start HOME through an
 organizer hierarchy that is being removed. It also prevents Android from
 leaving the now-inactive `PhoneHomeActivity` task visible after the role itself
 has already changed.
+All MagicDesk HOME components are disabled outside a desktop session,
+including their manifest defaults. Acquisition enables the target primary surface
+and, for an external session, `DesktopActivity` as `SECONDARY_HOME` in the same
+component batch. Close, rollback, and session loss leave all three disabled;
+neither primary nor secondary launcher choices may offer inactive MagicDesk.
+A missing role holder
+therefore reaches Android's launcher resolver without selecting inactive
+MagicDesk again. Process-start recovery disables the surfaces before Shizuku
+is needed, and detects both a stale lease and HOME resolution to MagicDesk,
+not just `RoleManager.isRoleHeld`.
 An isolated self-test restores and verifies the role but does not present the
 restored launcher, because returning foreground ownership belongs to the test
 harness rather than desktop-session cleanup.
