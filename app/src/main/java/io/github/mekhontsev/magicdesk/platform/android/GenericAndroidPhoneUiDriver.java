@@ -6,11 +6,6 @@ import android.content.Context;
 /** No-op phone UI integration for the Generic Android profile. */
 final class GenericAndroidPhoneUiDriver implements PlatformPhoneUiDriver {
     @Override
-    public boolean requiresRecentsRedirectToHome() {
-        return false;
-    }
-
-    @Override
     public boolean isPhoneScreenOff(final Context context) {
         return false;
     }

@@ -21,23 +21,6 @@ public final class DesktopInputRelayPolicy {
         return keyboard || mouse;
     }
 
-    public static DesktopInputRelayPolicy resolve(
-            final Boolean preference,
-            final DesktopInputRelayPolicy platformDefault) {
-        return preference == null ? platformDefault
-                : preference ? KEYBOARD_AND_MOUSE : NONE;
-    }
-
-    public DesktopInputRelayPolicy merge(
-            final DesktopInputRelayPolicy extension) {
-        if (extension == null || !extension.isEnabled()) {
-            return this;
-        }
-        return new DesktopInputRelayPolicy(
-                keyboard || extension.keyboard,
-                mouse || extension.mouse);
-    }
-
     public String diagnosticDetail() {
         return "keyboard=" + keyboard + ", mouse=" + mouse;
     }

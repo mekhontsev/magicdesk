@@ -325,7 +325,8 @@ final class MagicDeskSessionController {
 
     private void recoverPhoneTasksBeforeExit(
             final MagicDeskExitCoordinator.Callback continuation) {
-        PhoneDesktopTaskRecovery.recover(result -> {
+        PhoneDesktopTaskRecovery.recover(DesktopCompatibilitySettings.current().enabled(
+                DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY), result -> {
             if (!result.success) {
                 final String detail =
                         "Could not recover phone desktop tasks: "

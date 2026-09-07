@@ -120,10 +120,13 @@ Normal read tools include:
 - `magicdesk.capture_screenshot` and `magicdesk.sample_pixels`;
 - `magicdesk.get_recording_status`.
 
-Input diagnostics separate `defaultInputRelay`, the saved `relayPhysicalInput`
-preference (`platform-default` when unset), `nextSessionInputRelay`, and the
-active `physicalCapturePolicy`. Changing the preference affects the next
-external session, not current device ownership. Native helper statistics and
+Diagnostics separate `Compatibility defaults`, `Compatibility overrides`,
+`Compatibility next session`, and `Compatibility active session`. Missing
+overrides follow platform recommendations; `inactive` means no leased session.
+Input diagnostics additionally report `defaultInputRelay`,
+`nextSessionInputRelay`, and the active `physicalCapturePolicy`. Changing a
+compatibility preference affects the next session, not current ownership or
+pending cleanup. Native helper statistics and
 routing readiness remain the evidence for whether a selected transport actually
 started. These values are captured on demand, without another periodic query.
 

@@ -24,11 +24,11 @@ final class ShellPhoneOverviewRouter implements
     private static final String RECENTS_RESOURCE =
             "config_recentsComponentName";
 
-    private final boolean mRequired;
+    private final Context mContext;
     private final Object mTaskService;
     private final IActivityLaunchCallback mActivityLauncher;
     private final Listener mListener;
-    private final ComponentName mSystemRecents;
+    private ComponentName mSystemRecents;
     private final ExecutorService mLaunchExecutor =
             Executors.newSingleThreadExecutor(runnable -> {
                 final Thread thread = new Thread(
@@ -44,24 +44,26 @@ final class ShellPhoneOverviewRouter implements
     ShellPhoneOverviewRouter(
             final Context context,
             final Object taskService,
-            final boolean required,
             final IActivityLaunchCallback activityLauncher,
             final Listener listener) {
-        mRequired = required;
+        mContext = context;
         mTaskService = taskService;
         mActivityLauncher = activityLauncher;
         mListener = listener;
-        mSystemRecents = required
-                ? resolveSystemRecentsComponent(context) : null;
     }
 
-    synchronized void start() throws ReflectiveOperationException {
+    synchronized void start(final boolean required) throws ReflectiveOperationException {
         if (mClosed) {
             throw new IllegalStateException("phone Overview router is closed");
         }
-        if (mEnabled || !mRequired) {
+        if (!required) {
+            stop();
             return;
         }
+        if (mEnabled) {
+            return;
+        }
+        mSystemRecents = resolveSystemRecentsComponent(mContext);
         if (mActivityLauncher == null || mSystemRecents == null) {
             throw new IllegalStateException(
                     "system Overview routing is unavailable");

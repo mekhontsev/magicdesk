@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import io.github.mekhontsev.magicdesk.DisplayWindowingSnapshot;
+import io.github.mekhontsev.magicdesk.DesktopCompatibilityPolicy;
 
 import android.app.PendingIntent;
 import android.content.ComponentName;
@@ -64,7 +65,8 @@ interface IShizukuCommandService {
         int workTop,
         int workRight,
         int workBottom,
-        int desktopHostTaskId) = 12;
+        int desktopHostTaskId,
+        in DesktopCompatibilityPolicy compatibility) = 12;
 
     void stopTaskObserver(ITaskObserverCallback callback) = 14;
 

@@ -57,14 +57,14 @@ final class ShellDesktopFocusController implements AutoCloseable {
     private int mMissingWindowRepairTaskId = -1;
     private boolean mDrainScheduled;
     private boolean mAcceptingEvents = true;
-    private final boolean mRepairEnabled;
+    private final java.util.function.BooleanSupplier mRepairEnabled;
     private long mTaskSampleGeneration;
     private long mInputFocusRefreshGeneration;
     private int mInputFocusRefreshTaskId = -1;
 
     ShellDesktopFocusController(
             final Object taskService,
-            final boolean repairEnabled,
+            final java.util.function.BooleanSupplier repairEnabled,
             final FrameworkInputWindowObservationSource inputWindows,
             final Listener listener) {
         mTaskService = taskService;
@@ -204,7 +204,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
     private void enqueueFocusReconciliation(
             final int taskId,
             final boolean requestConfirmation) {
-        if (taskId < 0 || !mRepairEnabled) {
+        if (taskId < 0 || !mRepairEnabled.getAsBoolean()) {
             return;
         }
         synchronized (mPendingLock) {
@@ -426,7 +426,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
             // Affected firmware needs the HOME relayout after its task commit.
             // Without that repair, HOME uses the normal event-driven wait;
             // it must not be acknowledged just because it is the desktop host.
-            final boolean initiallyFocused = desktopHostTarget && mRepairEnabled
+            final boolean initiallyFocused = desktopHostTarget && mRepairEnabled.getAsBoolean()
                     ? isInputFocused(displayId, taskId)
                     : awaitCommittedInputFocus(
                             displayId,
@@ -439,7 +439,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
                 }
                 return true;
             }
-            if (!mRepairEnabled) {
+            if (!mRepairEnabled.getAsBoolean()) {
                 final String inputState = FrameworkInputSnapshotSource.readLocal();
                 Log.w(TAG, "desktop focus convergence expired without repair"
                         + " display=" + displayId + " task=" + taskId + "; "

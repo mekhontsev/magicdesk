@@ -4,18 +4,17 @@ package io.github.mekhontsev.magicdesk;
 public final class PlatformFeatures {
     public final boolean wiredDesktop;
     public final boolean wirelessDesktop;
-    public final DesktopInputRelayPolicy defaultInputRelay;
+    public final DesktopCompatibilityPolicy compatibilityDefaults;
     public final boolean vendorHardware;
 
     public PlatformFeatures(
             final boolean wiredDesktop,
             final boolean wirelessDesktop,
-            final DesktopInputRelayPolicy defaultInputRelay,
+            final DesktopCompatibilityPolicy compatibilityDefaults,
             final boolean vendorHardware) {
         this.wiredDesktop = wiredDesktop;
         this.wirelessDesktop = wirelessDesktop;
-        this.defaultInputRelay = defaultInputRelay == null
-                ? DesktopInputRelayPolicy.NONE : defaultInputRelay;
+        this.compatibilityDefaults = java.util.Objects.requireNonNull(compatibilityDefaults);
         this.vendorHardware = vendorHardware;
     }
 

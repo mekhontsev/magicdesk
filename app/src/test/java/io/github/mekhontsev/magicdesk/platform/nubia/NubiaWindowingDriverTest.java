@@ -11,7 +11,6 @@ public final class NubiaWindowingDriverTest {
     @Test
     public void configurationRequiresUserAndPrivilegedSettings() {
         final PlatformWindowingDriver windowing = new NubiaWindowingDriver();
-        assertTrue(windowing.protectsExternalSessionFromPhoneTaskMigration());
         assertTrue(windowing.isReady(true, true, true, true));
         assertFalse(windowing.isReady(true, true, false, true));
         assertFalse(windowing.isReady(true, true, true, false));

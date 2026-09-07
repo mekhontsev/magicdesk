@@ -73,8 +73,9 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
-    public void setRelayPhysicalInput(final boolean enabled) {
-        saveSetting(MagicDeskSettings.setRelayPhysicalInput(enabled));
+    public void setCompatibilityOption(
+            final DesktopCompatibilityPolicy.Option option, final boolean enabled) {
+        saveSetting(MagicDeskSettings.setCompatibilityOption(option, enabled));
     }
 
     @Override

@@ -83,7 +83,7 @@ public final class PlatformCapabilitySnapshot {
         add(entries, platform, PlatformCapabilityId.EXTERNAL_INPUT_BRIDGE,
                 true,
                 "shared evdev/uinput transport; shell access is probed separately; "
-                        + "default=" + features.defaultInputRelay.diagnosticDetail());
+                        + "default=" + features.compatibilityDefaults.inputRelay().diagnosticDetail());
         probe(entries, platform, PlatformCapabilityId.ABSOLUTE_POINTER,
                 () -> platform.pointer().isAvailable(), () -> "");
         probe(entries, platform, PlatformCapabilityId.PHONE_UI,

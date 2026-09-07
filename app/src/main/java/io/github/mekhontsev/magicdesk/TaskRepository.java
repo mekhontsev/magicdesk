@@ -366,8 +366,8 @@ public final class TaskRepository {
     }
 
     private static int captionRefreshArgument() {
-        return PlatformDrivers.current().windowing()
-                .requiresNativeFullscreenCaptionRefresh() ? 1 : 0;
+        return DesktopCompatibilitySettings.current().enabled(
+                DesktopCompatibilityPolicy.Option.CAPTION_REFRESH) ? 1 : 0;
     }
 
     static String createClientPreservingFullscreenTransitionCommand(

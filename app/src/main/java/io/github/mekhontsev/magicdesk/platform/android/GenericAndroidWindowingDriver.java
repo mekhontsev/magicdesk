@@ -8,31 +8,6 @@ import java.io.IOException;
 /** Standard Android desktop settings without firmware-specific properties. */
 final class GenericAndroidWindowingDriver implements PlatformWindowingDriver {
     @Override
-    public boolean requiresDesktopInputFocusRepair() {
-        return false;
-    }
-
-    @Override
-    public boolean protectsExternalSessionFromPhoneTaskMigration() {
-        return false;
-    }
-
-    @Override
-    public boolean requiresNativeFullscreenCaptionRefresh() {
-        return false;
-    }
-
-    @Override
-    public boolean requiresPhoneTaskRecovery() {
-        return false;
-    }
-
-    @Override
-    public boolean requiresStalePhoneFreeformTaskCleanup() {
-        return false;
-    }
-
-    @Override
     public String restrictionsPropertyKey() {
         return null;
     }

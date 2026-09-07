@@ -392,7 +392,7 @@ public final class ShizukuCapabilityProbe {
                                 == FrameworkWindowingCompat
                                         .ObservationProvenance.UNAVAILABLE
                         ? "local task InsetsSource API unavailable"
-                        : "sampled when platform caption repair is required");
+                        : "sampled when session caption repair is enabled");
     }
 
     public static void appendMethodPresence(

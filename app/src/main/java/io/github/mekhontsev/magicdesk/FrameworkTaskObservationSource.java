@@ -53,7 +53,7 @@ final class FrameworkTaskObservationSource implements Closeable {
             mCapabilities;
     private final ActivityManager mActivityManager;
     private final Listener mListener;
-    private final boolean mRefreshCaptionAfterNativeFullscreen;
+    private final java.util.function.BooleanSupplier mRefreshCaptionAfterNativeFullscreen;
     private final Object mLock = new Object();
     private final LatestOperationSerializer mPublications = new LatestOperationSerializer();
     private LatestOperationSerializer.Ticket mConfiguration;
@@ -79,7 +79,7 @@ final class FrameworkTaskObservationSource implements Closeable {
     FrameworkTaskObservationSource(
             final Context context,
             final Object service,
-            final boolean refreshCaptionAfterNativeFullscreen,
+            final java.util.function.BooleanSupplier refreshCaptionAfterNativeFullscreen,
             final Listener listener) throws ReflectiveOperationException {
         if (context == null) {
             throw new IllegalArgumentException("missing task observer context");
@@ -93,7 +93,7 @@ final class FrameworkTaskObservationSource implements Closeable {
         }
         mListener = listener;
         mRefreshCaptionAfterNativeFullscreen =
-                refreshCaptionAfterNativeFullscreen
+                () -> refreshCaptionAfterNativeFullscreen.getAsBoolean()
                         && mCapabilities.captionSource
                                 != FrameworkWindowingCompat
                                         .ObservationProvenance.UNAVAILABLE;
@@ -537,7 +537,7 @@ final class FrameworkTaskObservationSource implements Closeable {
                         mCaptionSourceIds.remove(taskId);
                         mCaptionCaptureAttempted.remove(taskId);
                     }
-                    if (mRefreshCaptionAfterNativeFullscreen
+                    if (mRefreshCaptionAfterNativeFullscreen.getAsBoolean()
                             && visibleTaskIds.contains(taskId)
                             && previous != null
                             && previous.intValue() == WINDOWING_MODE_FREEFORM

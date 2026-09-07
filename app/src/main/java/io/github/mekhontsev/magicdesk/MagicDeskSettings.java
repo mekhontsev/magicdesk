@@ -34,9 +34,10 @@ final class MagicDeskSettings {
                 state -> state.settings.openTouchpadAutomatically = enabled);
     }
 
-    static boolean setRelayPhysicalInput(final boolean enabled) {
+    static boolean setCompatibilityOption(
+            final DesktopCompatibilityPolicy.Option option, final boolean enabled) {
         return DesktopStateStore.update(
-                state -> state.settings.relayPhysicalInput = enabled);
+                state -> state.settings.compatibility.put(option, enabled));
     }
 
     static boolean setOpenFilesWithSingleClick(final boolean enabled) {
@@ -62,7 +63,7 @@ final class MagicDeskSettings {
                 "disableAdaptiveBrightnessOnExternalDesktop";
         private static final String OPEN_TOUCHPAD_AUTOMATICALLY =
                 "openTouchpadAutomatically";
-        private static final String RELAY_PHYSICAL_INPUT = "relayPhysicalInput";
+        private static final String COMPATIBILITY = "compatibility";
         private static final String OPEN_FILES_WITH_SINGLE_CLICK =
                 "openFilesWithSingleClick";
         private static final String TERMUX_X11_STARTUP_COMMAND =
@@ -73,7 +74,8 @@ final class MagicDeskSettings {
         boolean disableAdaptiveBrightnessOnExternalDesktop;
         boolean openTouchpadAutomatically;
         // Unset follows the platform recommendation without persisting it.
-        Boolean relayPhysicalInput;
+        final java.util.EnumMap<DesktopCompatibilityPolicy.Option, Boolean> compatibility =
+                new java.util.EnumMap<>(DesktopCompatibilityPolicy.Option.class);
         boolean openFilesWithSingleClick;
         String termuxX11StartupCommand;
 
@@ -95,8 +97,15 @@ final class MagicDeskSettings {
                         json.optBoolean(DISABLE_ADAPTIVE_BRIGHTNESS, false);
                 values.openTouchpadAutomatically = json.optBoolean(
                         OPEN_TOUCHPAD_AUTOMATICALLY, true);
-                values.relayPhysicalInput = json.isNull(RELAY_PHYSICAL_INPUT)
-                        ? null : json.optBoolean(RELAY_PHYSICAL_INPUT, false);
+                final JSONObject options = json.optJSONObject(COMPATIBILITY);
+                if (options != null) {
+                    for (final DesktopCompatibilityPolicy.Option option
+                            : DesktopCompatibilityPolicy.Option.values()) {
+                        if (options.opt(option.key) instanceof Boolean) {
+                            values.compatibility.put(option, options.optBoolean(option.key));
+                        }
+                    }
+                }
                 values.openFilesWithSingleClick = json.optBoolean(
                         OPEN_FILES_WITH_SINGLE_CLICK, false);
                 try {
@@ -119,7 +128,7 @@ final class MagicDeskSettings {
             copy.disableAdaptiveBrightnessOnExternalDesktop =
                     disableAdaptiveBrightnessOnExternalDesktop;
             copy.openTouchpadAutomatically = openTouchpadAutomatically;
-            copy.relayPhysicalInput = relayPhysicalInput;
+            copy.compatibility.putAll(compatibility);
             copy.openFilesWithSingleClick = openFilesWithSingleClick;
             copy.termuxX11StartupCommand = termuxX11StartupCommand;
             return copy;
@@ -135,7 +144,11 @@ final class MagicDeskSettings {
             json.put(
                     OPEN_TOUCHPAD_AUTOMATICALLY,
                     openTouchpadAutomatically);
-            json.put(RELAY_PHYSICAL_INPUT, relayPhysicalInput);
+            final JSONObject options = new JSONObject();
+            for (final DesktopCompatibilityPolicy.Option option : compatibility.keySet()) {
+                options.put(option.key, compatibility.get(option));
+            }
+            json.put(COMPATIBILITY, options);
             json.put(
                     OPEN_FILES_WITH_SINGLE_CLICK,
                     openFilesWithSingleClick);
@@ -145,10 +158,13 @@ final class MagicDeskSettings {
             return json;
         }
 
-        DesktopInputRelayPolicy inputRelayPolicy(
+        DesktopCompatibilityPolicy compatibilityPolicy(
                 final PlatformFeatures features) {
-            return DesktopInputRelayPolicy.resolve(
-                    relayPhysicalInput, features.defaultInputRelay);
+            DesktopCompatibilityPolicy result = features.compatibilityDefaults;
+            for (final DesktopCompatibilityPolicy.Option option : compatibility.keySet()) {
+                result = result.with(option, compatibility.get(option));
+            }
+            return result;
         }
     }
 }

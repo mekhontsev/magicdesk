@@ -6,9 +6,6 @@ import android.content.Context;
 public interface PlatformPhoneUiDriver {
     boolean isAvailable();
 
-    /** Whether firmware Recents requests must open the active MagicDesk HOME. */
-    boolean requiresRecentsRedirectToHome();
-
     boolean isPhoneScreenOff(Context context);
 
     boolean isPhoneScreenControlActive();

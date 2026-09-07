@@ -254,8 +254,8 @@ final class DesktopSelfTestCleanup {
             if (!DesktopRuntimeBridge.isLocalDesktopActiveOrStarting()
                     && requiresPhoneDesktopExitBeforeRemoval(
                     task.displayId, task.windowingMode,
-                    PlatformDrivers.current().windowing()
-                            .requiresPhoneTaskRecovery())) {
+                    DesktopCompatibilitySettings.current().enabled(
+                            DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY))) {
                 // Removing a phone freeform task directly leaves its ID in
                 // Nubia's DesktopRepository. Leave the desk before removal.
                 ShellAccess.run(

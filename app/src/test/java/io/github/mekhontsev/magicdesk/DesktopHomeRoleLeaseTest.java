@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertSame;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -38,7 +40,8 @@ public final class DesktopHomeRoleLeaseTest {
     public void preparationEnablesSurfacesWithoutTakingHome() throws Exception {
         final DesktopHomeRoleLease.AcquireResult preparation =
                 DesktopHomeRoleLease.prepare(
-                        DesktopDisplayTarget.simulated(7), DesktopSessionPolicy.USER);
+                        DesktopDisplayTarget.simulated(7), DesktopSessionPolicy.USER,
+                        DesktopCompatibilityPolicy.NONE);
         assertEquals(LAUNCHER, mBackend.homePackage);
         assertEquals(DesktopHomeSurfaceRouter.Surface.PHONE, mBackend.homeSurface);
         assertEquals(DesktopHomeRoleLease.Phase.PREPARED, mStorage.state.phase);
@@ -54,10 +57,30 @@ public final class DesktopHomeRoleLeaseTest {
     }
 
     @Test
+    public void compatibilityIsLatchedThroughReuseAndRelease() throws Exception {
+        final DesktopDisplayTarget target = DesktopDisplayTarget.simulated(7);
+        final DesktopCompatibilityPolicy selected = DesktopCompatibilityPolicy.NONE
+                .with(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, true)
+                .with(DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY, true);
+        final DesktopHomeRoleLease.AcquireResult preparation = DesktopHomeRoleLease.prepare(
+                target, DesktopSessionPolicy.USER, selected);
+        assertSame(selected, preparation.state.compatibility);
+        DesktopHomeRoleLease.activate(preparation);
+        assertSame(selected, mStorage.state.compatibility);
+        final DesktopHomeRoleLease.AcquireResult reused = DesktopHomeRoleLease.prepare(
+                target, DesktopSessionPolicy.USER, DesktopCompatibilityPolicy.NONE);
+        assertSame(selected, reused.state.compatibility);
+        DesktopHomeRoleLease.releaseForSessionClose(target);
+        assertSame(selected, mStorage.state.compatibility);
+        assertEquals(DesktopHomeRoleLease.Phase.RELEASING, mStorage.state.phase);
+    }
+
+    @Test
     public void abandonedPreparationDisablesComponentsWithoutClaimingHome() throws Exception {
         final DesktopHomeRoleLease.AcquireResult preparation =
                 DesktopHomeRoleLease.prepare(
-                        DesktopDisplayTarget.simulated(7), DesktopSessionPolicy.USER);
+                        DesktopDisplayTarget.simulated(7), DesktopSessionPolicy.USER,
+                        DesktopCompatibilityPolicy.NONE);
         DesktopHomeRoleLease.releaseAfterFailedStart(preparation);
         assertEquals(0, mBackend.setCalls);
         assertNull(mBackend.homeSurface);
@@ -170,6 +193,7 @@ public final class DesktopHomeRoleLeaseTest {
                 homeSelection(LAUNCHER),
                 DesktopDisplayTarget.simulated(7),
                 DesktopSessionPolicy.USER,
+                DesktopCompatibilityPolicy.NONE,
                 DesktopHomeRoleLease.Phase.PREPARED);
 
         final DesktopHomeRoleLease.AcquireResult result =
@@ -664,7 +688,8 @@ public final class DesktopHomeRoleLeaseTest {
     private static DesktopHomeRoleLease.AcquireResult acquire(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) throws IOException {
-        return DesktopHomeRoleLease.activate(DesktopHomeRoleLease.prepare(target, policy));
+        return DesktopHomeRoleLease.activate(DesktopHomeRoleLease.prepare(
+                target, policy, DesktopCompatibilityPolicy.NONE));
     }
 
     private static final class MemoryStorage

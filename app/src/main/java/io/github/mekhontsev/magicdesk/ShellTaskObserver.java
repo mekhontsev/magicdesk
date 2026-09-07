@@ -29,7 +29,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final Object mService;
     private final ITaskObserverCallback mCallback;
     private final Runnable mCallbackFailure;
-    private final PlatformWindowingDriver mWindowing;
+    // Updated only at the serialized session-configuration boundary, never
+    // from live UI preferences. Helpers read this same immutable selection.
+    private volatile DesktopCompatibilityPolicy mCompatibility = DesktopCompatibilityPolicy.NONE;
     private final AtomicBoolean mCallbackFailed = new AtomicBoolean();
     private final ShellFreeformTaskCleanup mFreeformCleanup;
     private final ShellDesktopFocusController mFocusController;
@@ -75,18 +77,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final Context context,
             final ITaskObserverCallback callback,
             final IActivityLaunchCallback activityLauncher,
-            final Runnable callbackFailure,
-            final PlatformWindowingDriver windowing,
-            final PlatformPhoneUiDriver phoneUi)
+            final Runnable callbackFailure)
             throws ReflectiveOperationException {
         if (callback == null) {
             throw new IllegalArgumentException("missing task observer callback");
-        }
-        if (windowing == null) {
-            throw new IllegalArgumentException("missing platform task policy");
-        }
-        if (phoneUi == null) {
-            throw new IllegalArgumentException("missing platform phone UI policy");
         }
         mService = HiddenTaskApi.getService();
         mCallback = callback;
@@ -111,7 +105,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         callCallback(() -> mCallback.onObserverError(error));
                     }
                 },
-                windowing.requiresNativeFullscreenCaptionRefresh());
+                this::refreshFullscreenCaption);
         mTaskLauncher = new ShellTaskLauncher(
                 mService,
                 context,
@@ -125,7 +119,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mDesktopOwnership, mSurfaceOrder);
         mDesktopChromeHost = new ShellDesktopChromeHost(mService);
         mSelfTestTaskStackGuard = new ShellSelfTestTaskStackGuard(mService);
-        mWindowing = windowing;
         mSystemDialogTracker = new ShellSystemDialogTracker(
                 ShellSystemDialogPolicy.create(context.getPackageManager()),
                 (displayId, visible) -> callCallback(() ->
@@ -136,13 +129,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         mSystemDialogTracker::onInputWindowsChanged);
         mFocusController = new ShellDesktopFocusController(
                 mService,
-                windowing.requiresDesktopInputFocusRepair(),
+                () -> mCompatibility.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR),
                 mInputWindowObservations,
                 taskId -> callCallback(() ->
                         mCallback.onInputFocusRefreshRequired(taskId)));
         mMigrationGuard = new ShellExternalTaskMigrationGuard(
                 mService,
-                windowing.requiresNativeFullscreenCaptionRefresh(),
+                this::refreshFullscreenCaption,
                 new ShellExternalTaskMigrationGuard.Listener() {
                     @Override
                     public void onError(final String error) {
@@ -183,7 +176,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mPhoneOverviewRouter = new ShellPhoneOverviewRouter(
                 context,
                 mService,
-                phoneUi.requiresRecentsRedirectToHome(),
                 activityLauncher,
                 error -> callCallback(() -> mCallback.onObserverError(error)));
         mPhoneWallpaperPolicy = new ShellPhoneDesktopWallpaperPolicy(
@@ -199,15 +191,13 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mSecondaryHomeStartPolicy,
                 mMigrationGuard,
                 mTaskActivityModeGuard);
-        // The platform policy decides whether stale phone-side freeform
-        // Recents entries require active cleanup.
         mFreeformCleanup = new ShellFreeformTaskCleanup(
                 mService,
                 error -> callCallback(() -> mCallback.onObserverError(error)));
         mTaskObservations = new FrameworkTaskObservationSource(
                 context,
                 mService,
-                windowing.requiresNativeFullscreenCaptionRefresh(),
+                this::refreshFullscreenCaption,
                 new FrameworkTaskObservationSource.Listener() {
                     @Override
                     public void onTasksSampled(
@@ -357,7 +347,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
-            final int desktopHostTaskId) {
+            final int desktopHostTaskId,
+            final DesktopCompatibilityPolicy compatibility) {
         if (mClosed) {
             throw new IllegalStateException("task observer is closed");
         }
@@ -387,10 +378,12 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             reportDesktopTaskOwnership();
             return;
         }
+        mCompatibility = java.util.Objects.requireNonNull(compatibility);
         mProcessFailureTracker.configure(displayId);
         try {
             mActivityStartController.start();
-            mPhoneOverviewRouter.start();
+            mPhoneOverviewRouter.start(mCompatibility.enabled(
+                    DesktopCompatibilityPolicy.Option.RECENTS_TO_HOME));
         } catch (ReflectiveOperationException | RuntimeException error) {
             mPhoneOverviewRouter.stop();
             mActivityStartController.close();
@@ -417,7 +410,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mMigrationGuard.configure(displayId, false);
         // External tasks must remain outside phone-side Recents cleanup.
         mFreeformCleanup.configure(
-                mWindowing.requiresStalePhoneFreeformTaskCleanup()
+                mCompatibility.enabled(DesktopCompatibilityPolicy.Option.STALE_RECENTS_CLEANUP)
                         && displayId == Display.DEFAULT_DISPLAY
                                 ? displayId : -1);
         mTaskActivityModeGuard.configure(displayId);
@@ -450,12 +443,17 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 Display.INVALID_DISPLAY,
                 new Rect(),
                 new Rect(),
-                -1);
+                -1, mCompatibility);
         return true;
     }
 
     void setExternalTaskMigrationProtection(final boolean enabled) {
-        mMigrationGuard.configure(mConfiguredDisplayId, enabled);
+        mMigrationGuard.configure(mConfiguredDisplayId, enabled
+                && mCompatibility.enabled(DesktopCompatibilityPolicy.Option.PHONE_TASK_ISOLATION));
+    }
+
+    private boolean refreshFullscreenCaption() {
+        return mCompatibility.enabled(DesktopCompatibilityPolicy.Option.CAPTION_REFRESH);
     }
 
     void executeWorkspaceCommand(
@@ -636,7 +634,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mService,
                 displayId,
                 taskId,
-                mWindowing.requiresNativeFullscreenCaptionRefresh(),
+                refreshFullscreenCaption(),
                 densityDpi);
         reportDesktopTaskOwnership();
         return entered;
@@ -1399,7 +1397,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             mService,
                             Display.DEFAULT_DISPLAY,
                             task,
-                            mWindowing.requiresNativeFullscreenCaptionRefresh())) {
+                            refreshFullscreenCaption())) {
                 Log.i(TAG, "restored unexpected phone freeform task="
                         + taskId);
             }

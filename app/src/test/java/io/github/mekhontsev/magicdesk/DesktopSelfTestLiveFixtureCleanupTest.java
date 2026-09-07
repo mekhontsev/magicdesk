@@ -155,10 +155,12 @@ public final class DesktopSelfTestLiveFixtureCleanupTest {
                     static boolean isReady() { return ready; }
                     static String run(String command) throws IOException { rawCommands.add(command); return ""; }
                 }
-                static class PlatformDrivers {
-                    static PlatformDrivers current() { return new PlatformDrivers(); }
-                    PlatformDrivers windowing() { return this; }
-                    boolean requiresPhoneTaskRecovery() { return true; }
+                static class DesktopCompatibilityPolicy {
+                    enum Option { PHONE_TASK_RECOVERY }
+                    boolean enabled(Option option) { return true; }
+                }
+                static class DesktopCompatibilitySettings {
+                    static DesktopCompatibilityPolicy current() { return new DesktopCompatibilityPolicy(); }
                 }
                 static class TaskStackParser { static class Entry { int taskId, displayId; String windowingMode; } }
                 interface TaskPredicate { boolean test(TaskStackParser.Entry entry); }

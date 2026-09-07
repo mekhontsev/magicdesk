@@ -248,8 +248,7 @@ public final class CompatibilityDiagnostics {
                 .append(" (").append(audit.platform.id()).append(")\n")
                 .append("Platform selection: ")
                 .append(PlatformDrivers.selectionDetail()).append('\n')
-                .append("Windowing policy: focusVerification=shared, focusRepair=")
-                .append(audit.platform.windowing().requiresDesktopInputFocusRepair())
+                .append("Windowing policy: focusVerification=shared")
                 .append(", secondaryDisplayFreeformDefault=shared")
                 .append('\n')
                 .append("Secondary display windowing: ")
@@ -395,8 +394,16 @@ public final class CompatibilityDiagnostics {
                         .snapshot().reportLine())
                 .append('\n');
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
-        final DesktopInputRelayPolicy requestedRelay = settings.inputRelayPolicy(
+        final DesktopCompatibilityPolicy requestedCompatibility = settings.compatibilityPolicy(
                 audit.platform.features());
+        final DesktopInputRelayPolicy requestedRelay = requestedCompatibility.inputRelay();
+        final DesktopHomeRoleLease.State lease = DesktopHomeRoleLease.snapshot();
+        report.append("Compatibility defaults: ")
+                .append(audit.platform.features().compatibilityDefaults).append('\n')
+                .append("Compatibility overrides: ").append(settings.compatibility).append('\n')
+                .append("Compatibility next session: ").append(requestedCompatibility).append('\n')
+                .append("Compatibility active session: ")
+                .append(lease == null ? "inactive" : lease.compatibility).append('\n');
         final boolean globalInput = ShellAccess.isReady()
                 && inputRelaySnapshot.runtime.physicalRelay.keyboard;
         appendCheck(report, "SHORTCUTS-001",
@@ -413,9 +420,6 @@ public final class CompatibilityDiagnostics {
                 .append(settings.taskbarAutoHide)
                 .append(", openTouchpadAutomatically=")
                 .append(settings.openTouchpadAutomatically)
-                .append(", relayPhysicalInput=")
-                .append(settings.relayPhysicalInput == null
-                        ? "platform-default" : settings.relayPhysicalInput)
                 .append(", nextSessionInputRelay={")
                 .append(requestedRelay.diagnosticDetail()).append('}')
                 .append(", keepDesktopAwake=")
@@ -560,7 +564,7 @@ public final class CompatibilityDiagnostics {
                 .append(features.wiredDesktop)
                 .append(", wireless=").append(features.wirelessDesktop)
                 .append(", defaultInputRelay={")
-                .append(features.defaultInputRelay.diagnosticDetail())
+                .append(features.compatibilityDefaults.inputRelay().diagnosticDetail())
                 .append('}')
                 .append(", internalAudioCapture=")
                 .append(platform.audioCapture().isAvailable())

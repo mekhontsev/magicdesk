@@ -46,6 +46,7 @@ final class DesktopHomeRoleLease {
         final String profileKey;
         final DesktopDisplayTarget.ActivationSource activationSource;
         final DesktopSessionPolicy policy;
+        final DesktopCompatibilityPolicy compatibility;
         final Phase phase;
 
         State(
@@ -53,11 +54,13 @@ final class DesktopHomeRoleLease {
                 final AndroidHomeSelection previousHome,
                 final DesktopDisplayTarget target,
                 final DesktopSessionPolicy policy,
+                final DesktopCompatibilityPolicy compatibility,
                 final Phase phase) {
             if (userId < 0
                     || target == null
                     || previousHome == null
                     || policy == null
+                    || compatibility == null
                     || phase == null) {
                 throw new IllegalArgumentException(
                         "complete HOME lease state is required");
@@ -70,6 +73,7 @@ final class DesktopHomeRoleLease {
             this.profileKey = target.profileKey;
             this.activationSource = target.activationSource;
             this.policy = policy;
+            this.compatibility = compatibility;
             this.phase = phase;
         }
 
@@ -79,6 +83,7 @@ final class DesktopHomeRoleLease {
                     previousHome,
                     target(),
                     policy,
+                    compatibility,
                     newPhase);
         }
 
@@ -149,7 +154,8 @@ final class DesktopHomeRoleLease {
     /** Persists recovery state and enables components without claiming HOME. */
     static AcquireResult prepare(
             final DesktopDisplayTarget target,
-            final DesktopSessionPolicy policy) throws IOException {
+            final DesktopSessionPolicy policy,
+            final DesktopCompatibilityPolicy compatibility) throws IOException {
         if (target == null || target.displayId < 0) {
             throw new IOException("desktop HOME target is invalid");
         }
@@ -207,6 +213,7 @@ final class DesktopHomeRoleLease {
                     previousHome,
                     target,
                     policy,
+                    compatibility,
                     Phase.PREPARED);
             sStorage.write(prepared);
             try {
@@ -669,6 +676,7 @@ final class DesktopHomeRoleLease {
         private static final String PROFILE_KEY = "profile_key";
         private static final String ACTIVATION_SOURCE = "activation_source";
         private static final String SESSION_POLICY = "session_policy";
+        private static final String COMPATIBILITY = "compatibility";
         private static final String PHASE = "phase";
 
         @Override
@@ -707,6 +715,8 @@ final class DesktopHomeRoleLease {
                         DesktopSessionPolicy.valueOf(
                                 requiredString(
                                         preferences, SESSION_POLICY)),
+                        DesktopCompatibilityPolicy.fromBits(
+                                preferences.getInt(COMPATIBILITY, 0)),
                         Phase.valueOf(requiredString(preferences, PHASE)));
             } catch (ClassCastException | IllegalArgumentException error) {
                 return null;
@@ -742,6 +752,7 @@ final class DesktopHomeRoleLease {
                                     ACTIVATION_SOURCE,
                                     state.activationSource.name())
                             .putString(SESSION_POLICY, state.policy.name())
+                            .putInt(COMPATIBILITY, state.compatibility.bits())
                             .putString(PHASE, state.phase.name())
                             .commit()) {
                 throw new IOException("could not persist desktop HOME lease");
@@ -771,6 +782,7 @@ final class DesktopHomeRoleLease {
                         && preferences.contains(PROFILE_KEY)
                         && preferences.contains(ACTIVATION_SOURCE)
                         && preferences.contains(SESSION_POLICY)
+                        && preferences.contains(COMPATIBILITY)
                         && preferences.contains(PHASE);
             } catch (ClassCastException error) {
                 return false;

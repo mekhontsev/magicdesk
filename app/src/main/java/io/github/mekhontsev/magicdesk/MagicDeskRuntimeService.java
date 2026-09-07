@@ -28,7 +28,6 @@ public final class MagicDeskRuntimeService extends Service
     private final PlatformPhoneUiDriver mPhoneUi = mPlatform.phoneUi();
     private final PlatformProjectionDriver mProjection =
             mPlatform.projection();
-    private final PlatformWindowingDriver mWindowing = mPlatform.windowing();
 
     private Handler mHandler;
     private RuntimeDesktopSessionCoordinator mDesktopSession;
@@ -357,7 +356,6 @@ public final class MagicDeskRuntimeService extends Service
         mDesktopInput = new RuntimeDesktopInputCoordinator(
                 this,
                 mHandler,
-                mPlatform.features(),
                 mPlatform.pointer(),
                 this::updateNotification);
         mDesktopInput.start();
@@ -383,7 +381,6 @@ public final class MagicDeskRuntimeService extends Service
         mDesktopTaskRuntime = new RuntimeDesktopTaskCoordinator(
                 this,
                 mHandler,
-                mWindowing,
                 mDesktopSession::onTaskStackChanged,
                 mDesktopInput::onDesktopPrepared);
         mDesktopSession.start();

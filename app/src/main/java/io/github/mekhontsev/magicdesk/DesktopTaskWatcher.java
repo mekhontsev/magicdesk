@@ -159,7 +159,8 @@ final class DesktopTaskWatcher {
                             displayId,
                             displayBounds,
                             workAreaBounds,
-                            desktopHostTaskId));
+                            desktopHostTaskId,
+                            DesktopCompatibilitySettings.current()));
         } catch (IOException error) {
             Log.w(TAG, "failed to configure task observer", error);
             recordFailure(

@@ -8,41 +8,6 @@ import java.io.IOException;
 /** Persistent desktop-windowing properties required by Nubia firmware. */
 final class NubiaWindowingDriver implements PlatformWindowingDriver {
     @Override
-    public boolean requiresDesktopInputFocusRepair() {
-        return true;
-    }
-
-    @Override
-    public boolean protectsExternalSessionFromPhoneTaskMigration() {
-        // Starting an already running desktop task from Nubia's phone launcher
-        // can tear down the external desktop task hierarchy instead of moving
-        // only that task. Reject the migration while the session is active
-        // and normalize system-driven moves that bypass the launch callback.
-        return true;
-    }
-
-    @Override
-    public boolean requiresNativeFullscreenCaptionRefresh() {
-        // Nubia removes the server-side caption source without relaying the
-        // removal to every application client, leaving a caption-height strip.
-        return true;
-    }
-
-    @Override
-    public boolean requiresPhoneTaskRecovery() {
-        // Nubia can retain moved or removed tasks in WMShell's desktop
-        // repository, which destabilizes Quickstep after returning to Home.
-        return true;
-    }
-
-    @Override
-    public boolean requiresStalePhoneFreeformTaskCleanup() {
-        // Nubia Quickstep can bind a stale DesktopTaskView after a phone-side
-        // freeform task has already disappeared.
-        return true;
-    }
-
-    @Override
     public String restrictionsPropertyKey() {
         return NubiaDesktopPropertyManager.Property.DEVICE_RESTRICTIONS.key;
     }

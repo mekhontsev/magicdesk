@@ -35,7 +35,7 @@ final class ShellExternalTaskMigrationGuard implements
 
     private final Object mService;
     private final Listener mListener;
-    private final boolean mRefreshFullscreenCaption;
+    private final java.util.function.BooleanSupplier mRefreshFullscreenCaption;
     private final Map<Integer, TaskState> mDesktopTasks = new HashMap<>();
     private final Set<Integer> mMigratingTasks = new HashSet<>();
     private final ExecutorService mMigrationExecutor =
@@ -50,7 +50,7 @@ final class ShellExternalTaskMigrationGuard implements
 
     ShellExternalTaskMigrationGuard(
             final Object service,
-            final boolean refreshFullscreenCaption,
+            final java.util.function.BooleanSupplier refreshFullscreenCaption,
             final Listener listener) {
         mService = service;
         mRefreshFullscreenCaption = refreshFullscreenCaption;
@@ -375,7 +375,7 @@ final class ShellExternalTaskMigrationGuard implements
                             mService,
                             Display.DEFAULT_DISPLAY,
                             task,
-                            mRefreshFullscreenCaption);
+                            mRefreshFullscreenCaption.getAsBoolean());
             Log.i(TAG, (normalized
                     ? "normalized phone task to fullscreen task="
                     : "phone task already fullscreen task=") + taskId);

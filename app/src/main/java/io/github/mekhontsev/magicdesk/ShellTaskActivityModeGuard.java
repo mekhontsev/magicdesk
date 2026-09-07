@@ -35,7 +35,7 @@ final class ShellTaskActivityModeGuard implements
 
     private final Object mService;
     private final Listener mListener;
-    private final boolean mRefreshFullscreenCaption;
+    private final java.util.function.BooleanSupplier mRefreshFullscreenCaption;
     private final Map<Integer, TaskRecord> mTasks = new HashMap<>();
     private final ArrayDeque<PendingStart> mPendingStarts = new ArrayDeque<>();
 
@@ -46,7 +46,7 @@ final class ShellTaskActivityModeGuard implements
     ShellTaskActivityModeGuard(
             final Object service,
             final Listener listener,
-            final boolean refreshFullscreenCaption) {
+            final java.util.function.BooleanSupplier refreshFullscreenCaption) {
         mService = service;
         mListener = listener;
         mRefreshFullscreenCaption = refreshFullscreenCaption;
@@ -297,7 +297,7 @@ final class ShellTaskActivityModeGuard implements
                 TaskFullscreenTransitionCommand.applyFullscreen(
                         correction.record.displayId,
                         correction.record.taskId,
-                        mRefreshFullscreenCaption);
+                        mRefreshFullscreenCaption.getAsBoolean());
             } else {
                 ShellPreparedTaskTransition.applyFreeform(
                         mService,

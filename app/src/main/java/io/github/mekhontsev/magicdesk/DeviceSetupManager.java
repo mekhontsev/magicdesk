@@ -185,7 +185,9 @@ public final class DeviceSetupManager {
 
         DeviceSetupRuntimeController.revoke(context);
         final PhoneDesktopTaskRecovery.Result taskRecovery =
-                PhoneDesktopTaskRecovery.recoverBlocking();
+                PhoneDesktopTaskRecovery.recoverBlocking(
+                        DesktopCompatibilitySettings.current().enabled(
+                                DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY));
         if (!taskRecovery.success) {
             CompatibilityDiagnostics.record(
                     "PLATFORM-DEFAULTS-001",

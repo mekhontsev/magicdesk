@@ -199,7 +199,7 @@ is no periodic input poll, and command success means both hierarchy order and
 usable input focus have converged.
 
 Commit verification is shared on every platform, independently of the optional
-`requiresDesktopInputFocusRepair` policy. Without repair, a failed input commit
+session's `FOCUS_REPAIR` compatibility option. Without repair, a failed input commit
 is a failed command, not a successful no-op. The same event-driven input wait
 also covers HOME when repair is disabled. Normal preparation sets HOME's final
 focusability independently of that policy; only repair pulses focusability or

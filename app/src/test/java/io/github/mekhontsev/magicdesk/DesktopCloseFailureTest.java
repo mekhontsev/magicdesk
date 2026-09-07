@@ -10,6 +10,7 @@ public final class DesktopCloseFailureTest {
                 static final List<String> events = new ArrayList<>();
                 static String failure;
                 static int active, completions;
+                static boolean selectedRecovery, expectedRecovery;
                 static void step(String name) {
                     events.add(name);
                     if (name.equals(failure)) throw new IllegalStateException(name);
@@ -44,7 +45,10 @@ public final class DesktopCloseFailureTest {
                 static class DesktopHomeRoleLease {
                     static class RestoredHomePresentation {}
                     static void releaseForSessionClose(DesktopDisplayTarget target)
-                            throws IOException { step("home"); }
+                            throws IOException {
+                        selectedRecovery = !expectedRecovery;
+                        step("home");
+                    }
                     static RestoredHomePresentation finishSessionClose(DesktopDisplayTarget target)
                             throws IOException { step("surfaces"); return new RestoredHomePresentation(); }
                     static void presentRestoredHome(RestoredHomePresentation p) throws IOException {
@@ -67,9 +71,17 @@ public final class DesktopCloseFailureTest {
                 }
                 static class PhoneDesktopTaskRecovery {
                     static class Result { boolean success = true, cancelled; String message = ""; }
-                    static Result recoverBlocking(java.util.function.BooleanSupplier inactive) {
+                    static Result recoverBlocking(boolean required, java.util.function.BooleanSupplier inactive) {
+                        check(required == expectedRecovery, "close reread next-session recovery setting");
                         step("recover"); return new Result();
                     }
+                }
+                static class DesktopCompatibilityPolicy {
+                    enum Option { PHONE_TASK_RECOVERY }
+                    boolean enabled(Option option) { return selectedRecovery; }
+                }
+                static class DesktopCompatibilitySettings {
+                    static DesktopCompatibilityPolicy current() { return new DesktopCompatibilityPolicy(); }
                 }
                 static class ControlActivity { static boolean isControlPanelVisible() { return false; } }
                 static class SecondaryDisplayWindowing {
@@ -91,6 +103,7 @@ public final class DesktopCloseFailureTest {
                             "recover", "display-mode", "display-mode-io",
                             "surfaces", "present", "panel", "remove")) {
                         failure = fail; active = 7; completions = 0; events.clear();
+                        selectedRecovery = expectedRecovery = true;
                         Fixture f = new Fixture();
                         DesktopDisplayTarget target = new DesktopDisplayTarget();
                         if (fail.equals("remove")) target.kind = DesktopDisplayTarget.Kind.SIMULATED;
@@ -125,6 +138,13 @@ public final class DesktopCloseFailureTest {
                         check(events.contains("recover") && events.contains("panel")
                                 && events.contains("finished"), "cleanup stopped after " + fail + ": " + events);
                     }
+                    failure = "none"; active = 7; events.clear();
+                    selectedRecovery = expectedRecovery = false;
+                    new Fixture().beginDesktopClose(new DesktopDisplayTarget(), new DesktopCloseMode(), ok -> {
+                        check(ok, "disabled recovery prevented normal close");
+                    });
+                    check(events.contains("park") && events.contains("close") && events.contains("finished"),
+                            "disabling optional recovery bypassed owned cleanup");
                 }
                 """ + RuntimeSourceFixture.methods("DesktopSessionTransitionCoordinator",
                         "beginDesktopClose", "parkAndClose", "finishDesktopSessionClose",

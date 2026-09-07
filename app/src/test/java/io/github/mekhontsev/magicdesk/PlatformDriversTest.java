@@ -24,20 +24,17 @@ public final class PlatformDriversTest {
                 .provider(PlatformComponent.PROJECTION).id);
         assertTrue(driver.features().wiredDesktop);
         assertTrue(driver.features().wirelessDesktop);
-        assertTrue(driver.features().defaultInputRelay.keyboard);
-        assertTrue(driver.features().defaultInputRelay.mouse);
+        assertTrue(driver.features().compatibilityDefaults.inputRelay().keyboard);
+        assertTrue(driver.features().compatibilityDefaults.inputRelay().mouse);
         assertFalse(driver.audioCapture().availability()
                 == PlatformAudioCaptureDriver.Availability.UNSUPPORTED);
         assertTrue(driver.pointer().isAvailable());
         assertTrue(driver.projection().supportsOutputConfiguration());
         assertTrue(driver.phoneUi().isAvailable());
-        assertTrue(driver.windowing()
-                .requiresDesktopInputFocusRepair());
-        assertTrue(driver.windowing()
-                .requiresNativeFullscreenCaptionRefresh());
-        assertTrue(driver.windowing().requiresPhoneTaskRecovery());
-        assertTrue(driver.windowing()
-                .requiresStalePhoneFreeformTaskCleanup());
+        assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
+        assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.CAPTION_REFRESH));
+        assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY));
+        assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.STALE_RECENTS_CLEANUP));
         assertEquals(
                 "persist.wm.debug.desktop_mode_enforce_device_restrictions",
                 driver.windowing().restrictionsPropertyKey());
@@ -64,7 +61,7 @@ public final class PlatformDriversTest {
                 DesktopDisplayTarget.Kind.WIRED));
         assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRELESS));
-        assertFalse(driver.features().defaultInputRelay.isEnabled());
+        assertFalse(driver.features().compatibilityDefaults.inputRelay().isEnabled());
         assertFalse(driver.audioCapture().isAvailable());
         assertFalse(driver.pointer().isAvailable());
         assertFalse(driver.projection().supportsOutputConfiguration());
@@ -75,13 +72,10 @@ public final class PlatformDriversTest {
         assertTrue(driver.projection().setCaptionTransport(
                 PlatformProjectionDriver.Transport.WIRELESS));
         assertFalse(driver.phoneUi().isAvailable());
-        assertFalse(driver.windowing()
-                .requiresDesktopInputFocusRepair());
-        assertFalse(driver.windowing()
-                .requiresNativeFullscreenCaptionRefresh());
-        assertFalse(driver.windowing().requiresPhoneTaskRecovery());
-        assertFalse(driver.windowing()
-                .requiresStalePhoneFreeformTaskCleanup());
+        assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
+        assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.CAPTION_REFRESH));
+        assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY));
+        assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.STALE_RECENTS_CLEANUP));
         assertTrue(driver.additionalLaunchTargets().isEmpty());
         assertNull(driver.windowing().restrictionsPropertyKey());
         assertNull(driver.windowing().roundedCornersPropertyKey());
@@ -150,9 +144,9 @@ public final class PlatformDriversTest {
                 device("nubia", "nubia", "NX809J", "NX809J", "NX809J"),
                 "", NubiaFirmwareDetector.fromDetectedComponents(detected));
         assertTrue(driver.pointer().isAvailable());
-        assertFalse(driver.features().defaultInputRelay.isEnabled());
-        assertTrue(DesktopInputRelayPolicy.resolve(true,
-                driver.features().defaultInputRelay).isEnabled());
+        assertFalse(driver.features().compatibilityDefaults.inputRelay().isEnabled());
+        assertTrue(driver.features().compatibilityDefaults.with(
+                DesktopCompatibilityPolicy.Option.INPUT_RELAY, true).inputRelay().isEnabled());
         assertEquals(PlatformCapabilityState.AVAILABLE,
                 PlatformCapabilitySnapshot.capture(driver)
                         .entry(PlatformCapabilityId.EXTERNAL_INPUT_BRIDGE).state);

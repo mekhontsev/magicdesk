@@ -19,7 +19,7 @@ public final class DesktopFocusVerificationTest {
                         boolean inputWindowEventsAvailable) {}
                 static class ShellDesktopFocusController {
                     final Object mPendingLock = new Object();
-                    boolean mRepairEnabled;
+                    java.util.function.BooleanSupplier mRepairEnabled = () -> false;
                     final FrameworkInputWindowObservationSource mInputWindowObservations =
                             new FrameworkInputWindowObservationSource();
                     final Executor mExecutor = new Executor();
@@ -33,7 +33,7 @@ public final class DesktopFocusVerificationTest {
                 public static void verify() {
                     for (boolean repair : new boolean[]{false, true}) {
                         final ShellDesktopFocusController controller = new ShellDesktopFocusController();
-                        controller.mRepairEnabled = repair;
+                        controller.mRepairEnabled = () -> repair;
                         final CommitBarrier barrier = controller.captureCommitBarrier();
                         check(barrier.taskSampleGeneration == 11, "task checkpoint lost");
                         check(barrier.inputWindowGeneration == 17 && barrier.inputWindowEventsAvailable,
@@ -83,7 +83,7 @@ public final class DesktopFocusVerificationTest {
                         boolean inputWindowEventsAvailable) {}
                 final Object mPendingLock = new Object(), mTaskService = new Object();
                 final InputWindows mInputWindowObservations = new InputWindows();
-                boolean mRepairEnabled;
+                java.util.function.BooleanSupplier mRepairEnabled = () -> false;
                 int mDisplayId = -1, mMissingWindowRepairTaskId = -1;
                 static boolean focused, taskExists = true, taskVisible = true, sampleReady = true,
                         homeTarget, repairSucceeds;
@@ -108,7 +108,7 @@ public final class DesktopFocusVerificationTest {
                     final CommitBarrier barrier = new CommitBarrier(0, 0, true);
                     final Runnable requestSample = () -> samples++;
                     for (boolean repair : new boolean[]{false, true}) {
-                        fixture.mRepairEnabled = repair;
+                        fixture.mRepairEnabled = () -> repair;
                         fixture.configureOnWorker(4);
                         check(fixture.mDisplayId == 4, "repair policy disabled verification display");
                         for (boolean home : new boolean[]{false, true}) {

@@ -33,11 +33,17 @@ shared policy from optional firmware focus repair and reports pending display
 mode restoration. Close restores a changed effective default; disconnected
 physical displays are reconciled by stable identity when they return.
 
-Compatibility reports distinguish the platform's default physical-input relay
-policy, the saved user preference, the current session's capture policy, and
-actual relay readiness. **Redirect physical keyboard and mouse to desktop
-(next session)** overrides the default on every platform. Stock Nubia firmware
-defaults to capture enabled; Standard Android defaults to disabled. The shared
+**Compatibility (next session)** groups physical-input redirection with six
+optional shared mechanisms: stalled-focus repair, stale fullscreen caption
+refresh, wired/wireless phone-task isolation, retained phone-task recovery,
+stale phone freeform Recents cleanup, and phone Recents redirection to Start.
+Every platform can override these individually. Stock Nubia firmware recommends
+all seven; Standard Android recommends none. Hybrid firmware inherits only
+the recommendations of its selected components. A session retains its selection
+through Close and display-loss cleanup; edits affect the next session.
+
+Reports distinguish defaults, saved overrides, next-session selection, active
+selection and actual input relay readiness. The shared
 evdev/uinput transport still needs the shell permissions shown in the capability
 probe; enabling the preference cannot grant them. The phone touchpad's relative
 input uses a virtual mouse independently of physical capture and does not

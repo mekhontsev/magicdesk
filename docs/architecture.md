@@ -135,11 +135,11 @@ display associations. `DesktopInputRelaySession` orders virtual-device readiness
 the routing lease, capture, source refresh, and reverse-order teardown;
 `KeyboardShortcutWatcher` only decodes shortcuts outside that transport
 lifecycle. There is no separate vendor input-panel owner.
-`PlatformFeatures.defaultInputRelay` recommends physical keyboard and mouse
+`PlatformFeatures.compatibilityDefaults` recommends physical keyboard and mouse
 capture. Settings can override it for every platform with one switch; an unset
 preference follows the extension default (enabled for stock Nubia firmware,
-disabled for Standard Android). `RuntimeDesktopInputCoordinator` resolves it
-once on external-session entry. Editing settings never changes live captures;
+disabled for Standard Android). `RuntimeDesktopInputCoordinator` consumes the
+HOME lease's compatibility selection on external-session entry. Editing settings never changes live captures;
 the next session takes the new preference. The virtual mouse and its routing
 remain independent, so disabling physical capture does not disable the phone
 touchpad. The routing session creates virtual keyboards only for selected
@@ -756,8 +756,8 @@ runtime integration and are not distributed through the same release path.
   stack traces and ANR process dumps do not cross into application diagnostics.
 - `ShellDesktopFocusController` verifies task and input commits on every
   platform. A missing task sample, inactive controller, or unconfirmed input
-  target cannot acknowledge command success. The independent platform policy
-  `requiresDesktopInputFocusRepair` enables recovery when
+  target cannot acknowledge command success. The independent session option
+  `FOCUS_REPAIR` enables recovery when
   task focus changes but the InputDispatcher window remains stale. It reports
   only confirmed mismatches on the current input display. A remembered
   desktop task without a focused window is normal while the phone owns input;
@@ -1031,13 +1031,12 @@ isolated behind these boundaries.
   `PlatformDriver` exposes only existing variation points.
   `PlatformWindowingDriver` owns provisioning properties;
   `PlatformProjectionDriver` owns output modes, wireless-launch integration,
-  and caption transport; `PlatformPhoneUiDriver` owns phone-screen controls,
-  launcher reconciliation, and local-navigation policy;
+  and caption transport; `PlatformPhoneUiDriver` owns phone-screen power control;
   `PlatformPointerDriver` owns optional absolute-pointer integration. On Nubia
   firmware this is implemented by `NubiaDesktopPointerDriver`, the MagicDesk
   pointer backend over the hidden vendor positioning API. Physical input
   routing itself stays in the shared Android implementation and uses standard
-  port or unique-id display associations. `PlatformFeatures.defaultInputRelay`
+  port or unique-id display associations. `PlatformFeatures.compatibilityDefaults`
   supplies the default physical-capture policy, overridden by the user's
   session preference; it does not imply absolute-pointer support. Detecting
   only an optional pointer API on a custom ROM does not enable physical capture.
@@ -1091,6 +1090,24 @@ isolated behind these boundaries.
 - `DesktopDisplayTarget` is the immutable identity of the active display
   environment. `DesktopRuntimeBridge` retains that target as one value so a
   display ID and its transport cannot become separate, stale state.
+- `DesktopCompatibilityPolicy` is the immutable selection of seven optional
+  shared mechanisms: physical-input capture, input-focus repair, stale caption
+  refresh, phone-task isolation during wired/wireless sessions, retained
+  phone-task recovery, stale phone freeform Recents cleanup, and Recents routing
+  to the leased phone HOME. `PlatformFeatures.compatibilityDefaults` supplies
+  recommendations only; `MagicDeskSettings` stores independent user overrides.
+  The Compatibility settings section is available on every platform. Enabling
+  an option neither grants privileges nor guarantees framework support.
+  `DesktopSessionController` resolves the selection;
+  `DesktopHomeRoleLease.prepare` persists it before HOME activation.
+  Repeated Open, settings refresh and host recreation reuse
+  it. The typed observer configuration carries that selection to shell;
+  helper policy suppliers read only this session snapshot, never preferences.
+  Explicit close captures its recovery decision before releasing HOME. Display
+  removal retains its own decision; deferred local cleanup persists that
+  decision with its pending marker. New preferences cannot rewrite old cleanup.
+  No extra observer, poller or worker is introduced. Input commit verification,
+  owned-task parking and ordinary session cleanup remain unconditional.
 - `DesktopRuntimeBridge` is only the stable process-local facade.
   `DesktopSessionRegistry` owns the immutable target/host snapshot, while
   `DesktopUiGateway` alone owns weak references to the live desktop Activity

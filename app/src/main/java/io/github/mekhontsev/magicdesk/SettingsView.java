@@ -23,7 +23,7 @@ final class SettingsView {
 
         void setOpenTouchpadAutomatically(boolean enabled);
 
-        void setRelayPhysicalInput(boolean enabled);
+        void setCompatibilityOption(DesktopCompatibilityPolicy.Option option, boolean enabled);
 
         void setOpenFilesWithSingleClick(boolean enabled);
 
@@ -57,7 +57,8 @@ final class SettingsView {
     private Switch mKeepDesktopAwake;
     private Switch mDisableAdaptiveBrightness;
     private Switch mOpenTouchpadAutomatically;
-    private Switch mRelayPhysicalInput;
+    private final java.util.EnumMap<DesktopCompatibilityPolicy.Option, Switch> mCompatibility =
+            new java.util.EnumMap<>(DesktopCompatibilityPolicy.Option.class);
     private Switch mOpenFilesWithSingleClick;
     private Switch mMcpEnabled;
     private Switch mMcpDeveloperTools;
@@ -119,13 +120,6 @@ final class SettingsView {
                         mActions.setOpenTouchpadAutomatically(checked);
                     }
                 });
-        mRelayPhysicalInput = addSwitch(
-                content, R.string.settings_relay_physical_input);
-        mRelayPhysicalInput.setOnCheckedChangeListener((button, checked) -> {
-            if (!mRendering) {
-                mActions.setRelayPhysicalInput(checked);
-            }
-        });
         mKeepDesktopAwake = addSwitch(
                 content, R.string.settings_keep_desktop_awake);
         mKeepDesktopAwake.setOnCheckedChangeListener((button, checked) -> {
@@ -143,6 +137,18 @@ final class SettingsView {
                                 checked);
                     }
                 });
+
+        addSection(content, R.string.settings_section_compatibility, 14);
+        for (final DesktopCompatibilityPolicy.Option option
+                : DesktopCompatibilityPolicy.Option.values()) {
+            final Switch control = addSwitch(content, compatibilityLabel(option));
+            mCompatibility.put(option, control);
+            control.setOnCheckedChangeListener((button, checked) -> {
+                if (!mRendering) {
+                    mActions.setCompatibilityOption(option, checked);
+                }
+            });
+        }
 
         addSection(content, R.string.settings_section_automation, 14);
         mMcpEnabled = addSwitch(content, R.string.settings_mcp_enabled);
@@ -237,7 +243,6 @@ final class SettingsView {
                 || mKeepDesktopAwake == null
                 || mDisableAdaptiveBrightness == null
                 || mOpenTouchpadAutomatically == null
-                || mRelayPhysicalInput == null
                 || mOpenFilesWithSingleClick == null
                 || mcp == null || runtime == null
                 || mMcpEnabled == null || mMcpDeveloperTools == null
@@ -251,8 +256,11 @@ final class SettingsView {
                 settings.openFilesWithSingleClick);
         mOpenTouchpadAutomatically.setChecked(
                 settings.openTouchpadAutomatically);
-        mRelayPhysicalInput.setChecked(settings.inputRelayPolicy(
-                PlatformDrivers.current().features()).isEnabled());
+        final DesktopCompatibilityPolicy compatibility = settings.compatibilityPolicy(
+                PlatformDrivers.current().features());
+        for (final DesktopCompatibilityPolicy.Option option : mCompatibility.keySet()) {
+            mCompatibility.get(option).setChecked(compatibility.enabled(option));
+        }
         mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);
         mDisableAdaptiveBrightness.setChecked(
                 settings.disableAdaptiveBrightnessOnExternalDesktop);
@@ -296,6 +304,18 @@ final class SettingsView {
         titleParams.setMargins(dp(10), 0, 0, 0);
         header.addView(title, titleParams);
         return header;
+    }
+
+    private static int compatibilityLabel(final DesktopCompatibilityPolicy.Option option) {
+        return switch (option) {
+            case INPUT_RELAY -> R.string.settings_relay_physical_input;
+            case FOCUS_REPAIR -> R.string.settings_compat_focus_repair;
+            case CAPTION_REFRESH -> R.string.settings_compat_caption_refresh;
+            case PHONE_TASK_ISOLATION -> R.string.settings_compat_phone_isolation;
+            case PHONE_TASK_RECOVERY -> R.string.settings_compat_phone_recovery;
+            case STALE_RECENTS_CLEANUP -> R.string.settings_compat_stale_recents;
+            case RECENTS_TO_HOME -> R.string.settings_compat_recents_home;
+        };
     }
 
     private void addSection(

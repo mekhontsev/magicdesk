@@ -23,6 +23,8 @@ final class RuntimeDesktopSessionCoordinator {
     private final IntPredicate mDisplayExists;
     private final Listener mListener;
     private int mDesktopDisplayId = Display.INVALID_DISPLAY;
+    private boolean mRecoverPhoneTasks;
+    private boolean mRecoverRemovedDisplayTasks;
     private boolean mPhoneTaskRecoveryInFlight;
     private boolean mPhoneTaskRecoveryAgain;
     private boolean mAllowUnsettledDisplayRecovery;
@@ -97,6 +99,7 @@ final class RuntimeDesktopSessionCoordinator {
             return;
         }
         mRemovedDesktopDisplayId = displayId;
+        mRecoverRemovedDisplayTasks = mRecoverPhoneTasks;
         scheduleDisplayRemovalWatchdog();
         schedulePhoneTaskRecovery();
     }
@@ -123,6 +126,9 @@ final class RuntimeDesktopSessionCoordinator {
             mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
         }
         if (displayRemoved) {
+            if (externalDesktopRemoved) {
+                mRecoverRemovedDisplayTasks = mRecoverPhoneTasks;
+            }
             if (externalDesktopRemoved && !expectedDesktopRemoval) {
                 mRestorePhonePanelAfterRecovery = true;
                 releaseHomeLeaseAfterSessionLoss(displayId);
@@ -149,6 +155,10 @@ final class RuntimeDesktopSessionCoordinator {
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
         final int desktopDisplayId = session.activeDisplayId();
+        if (session.target() != null) {
+            mRecoverPhoneTasks = DesktopCompatibilitySettings.current().enabled(
+                    DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY);
+        }
         if (mExpectedRemovedDisplayId > Display.DEFAULT_DISPLAY
                 && desktopDisplayId != mExpectedRemovedDisplayId
                 && mDisplayExists.test(mExpectedRemovedDisplayId)) {
@@ -379,10 +389,10 @@ final class RuntimeDesktopSessionCoordinator {
                 });
         if (allowUnsettledDisplayRecovery) {
             PhoneDesktopTaskRecovery.recoverRemovedDisplayAfterTimeout(
-                    removedDisplayId, callback);
+                    mRecoverRemovedDisplayTasks, removedDisplayId, callback);
         } else {
             PhoneDesktopTaskRecovery.recoverRemovedDisplay(
-                    removedDisplayId, callback);
+                    mRecoverRemovedDisplayTasks, removedDisplayId, callback);
         }
     }
 
@@ -402,6 +412,7 @@ final class RuntimeDesktopSessionCoordinator {
         }
         mLocalDesktopCleanupInFlight = true;
         PhoneDesktopTaskRecovery.recover(
+                LocalDesktopSessionState.requiresTaskRecovery(mContext),
                 () -> !DesktopRuntimeBridge.isLocalDesktopActiveOrStarting(),
                 result -> mHandler.post(() -> {
                     mLocalDesktopCleanupInFlight = false;

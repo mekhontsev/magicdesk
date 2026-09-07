@@ -56,7 +56,8 @@ final class DesktopSessionController {
             return new ShowResult(true, false);
         }
         final DesktopHomeRoleLease.AcquireResult homeAcquisition =
-                DesktopHomeRoleLease.prepare(preparedTarget, resolvedPolicy);
+                DesktopHomeRoleLease.prepare(preparedTarget, resolvedPolicy,
+                        DesktopCompatibilitySettings.nextSession());
         try {
             DesktopRuntimeBridge.noteDesktopTarget(
                     preparedTarget, resolvedPolicy);

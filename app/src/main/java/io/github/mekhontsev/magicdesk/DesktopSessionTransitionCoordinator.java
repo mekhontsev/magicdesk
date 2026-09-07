@@ -120,6 +120,8 @@ final class DesktopSessionTransitionCoordinator {
             final DesktopDisplayTarget target,
             final DesktopCloseMode mode,
             final CompletionCallback callback) {
+        final boolean recoverPhoneTasks = DesktopCompatibilitySettings.current().enabled(
+                DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY);
         // HOME ownership is the outer session lease. Release it before any
         // task, input, or display teardown so a partial close cannot trap the
         // user in a launcher that Android keeps restarting.
@@ -152,13 +154,14 @@ final class DesktopSessionTransitionCoordinator {
         final boolean prepared = homeReleased && phoneRestored;
         MagicDeskRuntime.releaseDesktopInput(target.displayId,
                 () -> mOperations.execute(() -> parkAndClose(
-                        target, mode, prepared, callback)));
+                        target, mode, prepared, recoverPhoneTasks, callback)));
     }
 
     private void parkAndClose(
             final DesktopDisplayTarget target,
             final DesktopCloseMode mode,
             final boolean prepared,
+            final boolean recoverPhoneTasks,
             final CompletionCallback callback) {
         try {
             MagicDeskRuntime.disableExternalTaskMigrationProtection();
@@ -167,7 +170,7 @@ final class DesktopSessionTransitionCoordinator {
         }
         if (!mode.parkTasks) {
             finishDesktopSessionClose(
-                    target, mode, prepared, callback);
+                    target, mode, prepared, recoverPhoneTasks, callback);
             return;
         }
         try {
@@ -176,12 +179,12 @@ final class DesktopSessionTransitionCoordinator {
                     Log.w(TAG, "Desktop close continues after partial task parking");
                 }
                 mOperations.execute(() -> finishDesktopSessionClose(
-                        target, mode, prepared, callback));
+                        target, mode, prepared, recoverPhoneTasks, callback));
             });
         } catch (RuntimeException error) {
             recordCloseFailure("Could not park desktop tasks", error);
             finishDesktopSessionClose(
-                    target, mode, prepared, callback);
+                    target, mode, prepared, recoverPhoneTasks, callback);
         }
     }
 
@@ -189,6 +192,7 @@ final class DesktopSessionTransitionCoordinator {
             final DesktopDisplayTarget target,
             final DesktopCloseMode mode,
             final boolean prepared,
+            final boolean recoverPhoneTasks,
             final CompletionCallback callback) {
         boolean success = prepared;
         try {
@@ -220,6 +224,7 @@ final class DesktopSessionTransitionCoordinator {
             try {
                 final PhoneDesktopTaskRecovery.Result recovery =
                         PhoneDesktopTaskRecovery.recoverBlocking(
+                                recoverPhoneTasks,
                                 () -> !DesktopRuntimeBridge
                                         .isLocalDesktopActiveOrStarting());
                 if (!recovery.success || recovery.cancelled) {

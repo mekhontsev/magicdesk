@@ -3,7 +3,8 @@ package io.github.mekhontsev.magicdesk.platform.nubia;
 import io.github.mekhontsev.magicdesk.AppLaunchTarget;
 import io.github.mekhontsev.magicdesk.DesktopShellActivity;
 import io.github.mekhontsev.magicdesk.DesktopUiFactory;
-import io.github.mekhontsev.magicdesk.DesktopInputRelayPolicy;
+import io.github.mekhontsev.magicdesk.DesktopCompatibilityPolicy;
+import io.github.mekhontsev.magicdesk.DesktopCompatibilityPolicy.Option;
 import io.github.mekhontsev.magicdesk.PlatformAudioCaptureDriver;
 import io.github.mekhontsev.magicdesk.PlatformComponent;
 import io.github.mekhontsev.magicdesk.PlatformDevice;
@@ -91,13 +92,26 @@ public final class NubiaPlatformDriver implements PlatformExtension {
 
     @Override
     public PlatformFeatures extendFeatures(final PlatformFeatures baseline) {
+        DesktopCompatibilityPolicy defaults = baseline.compatibilityDefaults;
+        if (components().contains(PlatformComponent.WINDOWING)) {
+            // These shared mechanisms address observed task/focus failures in
+            // stock firmware. Optional vendor APIs alone do not select them.
+            defaults = defaults.with(Option.FOCUS_REPAIR, true)
+                    .with(Option.CAPTION_REFRESH, true)
+                    .with(Option.PHONE_TASK_ISOLATION, true)
+                    .with(Option.PHONE_TASK_RECOVERY, true)
+                    .with(Option.STALE_RECENTS_CLEANUP, true);
+        }
+        if (components().contains(PlatformComponent.PHONE_UI)) {
+            defaults = defaults.with(Option.RECENTS_TO_HOME, true);
+        }
+        if (components().contains(PlatformComponent.EXTERNAL_INPUT)) {
+            defaults = defaults.with(Option.INPUT_RELAY, true);
+        }
         return new PlatformFeatures(
                 baseline.wiredDesktop,
                 baseline.wirelessDesktop,
-                baseline.defaultInputRelay.merge(
-                        components().contains(PlatformComponent.EXTERNAL_INPUT)
-                                ? DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE
-                                : DesktopInputRelayPolicy.NONE),
+                defaults,
                 baseline.vendorHardware
                         || components().contains(
                                 PlatformComponent.SYSTEM_CONTROLS));

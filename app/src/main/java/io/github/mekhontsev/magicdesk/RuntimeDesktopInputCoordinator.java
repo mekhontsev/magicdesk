@@ -21,7 +21,6 @@ final class RuntimeDesktopInputCoordinator {
 
     private final Handler mHandler;
     private final Context mContext;
-    private final PlatformFeatures mPlatformFeatures;
     private DesktopInputRelayPolicy mInputRelay = DesktopInputRelayPolicy.NONE;
     private final PlatformPointerDriver mPointer;
     private final Runnable mHardwareKeyboardChanged;
@@ -51,12 +50,10 @@ final class RuntimeDesktopInputCoordinator {
     RuntimeDesktopInputCoordinator(
             final Context context,
             final Handler handler,
-            final PlatformFeatures platformFeatures,
             final PlatformPointerDriver pointer,
             final Runnable hardwareKeyboardChanged) {
         mHandler = handler;
         mContext = context.getApplicationContext();
-        mPlatformFeatures = platformFeatures;
         mPointer = pointer;
         mHardwareKeyboardChanged = hardwareKeyboardChanged;
         mInputDevices = new RuntimeInputCoordinator(
@@ -426,8 +423,8 @@ final class RuntimeDesktopInputCoordinator {
         if (ownsExternalDesktop() || displayId <= Display.DEFAULT_DISPLAY) {
             return;
         }
-        final DesktopInputRelayPolicy selected = MagicDeskSettings.load()
-                .inputRelayPolicy(mPlatformFeatures);
+        final DesktopInputRelayPolicy selected =
+                DesktopCompatibilitySettings.current().inputRelay();
         if (selected.keyboard == mInputRelay.keyboard
                 && selected.mouse == mInputRelay.mouse) {
             return;

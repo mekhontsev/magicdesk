@@ -20,7 +20,8 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 public static void verify() throws Exception {
                     DesktopDisplayTarget target=new DesktopDisplayTarget();
                     for (DesktopSessionPolicy policy : DesktopSessionPolicy.values()) {
-                        State original=new State(0,new AndroidHomeSelection(),target,policy,Phase.RELEASING);
+                        State original=new State(0,new AndroidHomeSelection(),target,policy,
+                                DesktopCompatibilityPolicy.NONE,Phase.RELEASING);
                         sStorage.state=original;
                         assertRejected(target, policy, "releasing", original);
                     }
@@ -34,7 +35,7 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 public static void verify() throws Exception {
                     DesktopDisplayTarget target=new DesktopDisplayTarget();
                     sStorage.state=new State(0,new AndroidHomeSelection(),target,
-                            DesktopSessionPolicy.USER,Phase.ACTIVE);
+                            DesktopSessionPolicy.USER,DesktopCompatibilityPolicy.NONE,Phase.ACTIVE);
                     for (int attempt=0; attempt<2; attempt++) {
                         AcquireResult result=acquire(target);
                         check(!result.created, "same USER lease was reacquired");
@@ -54,7 +55,8 @@ public final class RuntimeHomeLeaseAdmissionTest {
                     for (DesktopSessionPolicy policy : DesktopSessionPolicy.values()) {
                         for (boolean alreadyClaimed : new boolean[]{false,true}) {
                             sBackend=new Backend();
-                            State prepared=new State(0,new AndroidHomeSelection(),target,policy,Phase.PREPARED);
+                            State prepared=new State(0,new AndroidHomeSelection(),target,policy,
+                                    DesktopCompatibilityPolicy.NONE,Phase.PREPARED);
                             sStorage.state=prepared;
                             sBackend.holder=alreadyClaimed ? MAGICDESK_PACKAGE : prepared.previousHome.packageName;
                             AcquireResult result=acquire(target,policy);
@@ -75,7 +77,7 @@ public final class RuntimeHomeLeaseAdmissionTest {
                     DesktopDisplayTarget target=new DesktopDisplayTarget();
                     for (Phase phase : new Phase[]{Phase.ACTIVE,Phase.PREPARED}) {
                         State original=new State(0,new AndroidHomeSelection(),target,
-                                DesktopSessionPolicy.%s,phase);
+                                DesktopSessionPolicy.%s,DesktopCompatibilityPolicy.NONE,phase);
                         sStorage.state=original;
                         assertRejected(target,DesktopSessionPolicy.%s,"policy",original);
                         sBackend.holder=original.previousHome.packageName;
@@ -93,6 +95,9 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 static boolean sPhoneOverviewRoutingActive;
                 enum Phase { PREPARED, ACTIVE, RELEASING }
                 enum DesktopSessionPolicy { USER, ISOLATED_SELF_TEST }
+                static class DesktopCompatibilityPolicy {
+                    static final DesktopCompatibilityPolicy NONE = new DesktopCompatibilityPolicy();
+                }
                 static class DesktopDisplayTarget {
                     enum Kind { PHONE, SIMULATED }
                     Kind kind=Kind.SIMULATED; int displayId=7;
@@ -104,9 +109,11 @@ public final class RuntimeHomeLeaseAdmissionTest {
                     AndroidHomeSelection previousHome;
                     DesktopDisplayTarget target;
                     DesktopSessionPolicy policy; Phase phase;
+                    DesktopCompatibilityPolicy compatibility;
                     State(int user, AndroidHomeSelection previous, DesktopDisplayTarget t,
-                            DesktopSessionPolicy p, Phase ph) {
+                            DesktopSessionPolicy p, DesktopCompatibilityPolicy c, Phase ph) {
                         userId=user; previousHome=previous; target=t; policy=p; phase=ph;
+                        compatibility=c;
                         displayId=t.displayId; targetKind=t.kind;
                     }
                     DesktopDisplayTarget target() { return target; }
@@ -154,7 +161,7 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 }
                 static AcquireResult acquire(DesktopDisplayTarget target, DesktopSessionPolicy policy)
                         throws IOException {
-                    return activate(prepare(target, policy));
+                    return activate(prepare(target, policy, DesktopCompatibilityPolicy.NONE));
                 }
                 """ + RuntimeSourceFixture.methods("DesktopHomeRoleLease", "prepare", "requireTarget",
                         "shouldPresentMagicDeskHome", "activate", "claim", "requireHolder");

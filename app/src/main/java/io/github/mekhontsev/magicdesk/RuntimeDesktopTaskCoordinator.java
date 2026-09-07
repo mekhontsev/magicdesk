@@ -25,7 +25,6 @@ final class RuntimeDesktopTaskCoordinator {
     RuntimeDesktopTaskCoordinator(
             final Context context,
             final Handler handler,
-            final PlatformWindowingDriver windowing,
             final Runnable taskStackChanged,
             final IntConsumer desktopPrepared) {
         mTasks = new DesktopTaskController(
@@ -46,8 +45,7 @@ final class RuntimeDesktopTaskCoordinator {
                         mPreparedHostTaskId = hostTaskId;
                         desktopPrepared.accept(displayId);
                     }
-                },
-                windowing);
+                });
     }
 
     void reconcile(

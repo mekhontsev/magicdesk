@@ -50,7 +50,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private final DesktopTaskWatcher mTaskWatcher;
     private final DesktopWorkspaceQueue mWorkspaceQueue;
     private final PhoneTouchpadReconciler mPhoneTouchpadReconciler;
-    private final PlatformWindowingDriver mWindowing;
     private final DesktopDisplayTaskState mDisplayTaskState;
     private final DesktopTaskRuntimeRegistry mTaskRuntimeStates;
     private final NativeWindowBoundsController mNativeWindowBounds;
@@ -86,14 +85,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             final Context context,
             final Handler handler,
             final Runnable taskStackChanged,
-            final SnapshotListener snapshotListener,
-            final PlatformWindowingDriver windowing) {
+            final SnapshotListener snapshotListener) {
         mApplicationContext = context.getApplicationContext();
         mHandler = handler;
         mWorkspaceQueue = new DesktopWorkspaceQueue(handler::post);
         mTaskStackChanged = taskStackChanged;
         mSnapshotListener = snapshotListener;
-        mWindowing = windowing;
         mPhoneTouchpadReconciler = new PhoneTouchpadReconciler();
         mAppWindowStates = new AppWindowStateTracker(handler);
         mDisplayTaskState = new DesktopDisplayTaskState();
@@ -1893,8 +1890,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 DesktopRuntimeBridge.getDesktopTarget(mDisplayId);
         return target != null
                 && (target.kind == DesktopDisplayTarget.Kind.WIRED
-                        || target.kind == DesktopDisplayTarget.Kind.WIRELESS)
-                && mWindowing.protectsExternalSessionFromPhoneTaskMigration();
+                        || target.kind == DesktopDisplayTarget.Kind.WIRELESS);
     }
 
     @Override

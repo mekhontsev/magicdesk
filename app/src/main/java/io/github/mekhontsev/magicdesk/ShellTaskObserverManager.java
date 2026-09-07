@@ -17,18 +17,11 @@ final class ShellTaskObserverManager implements Closeable {
 
     private final Object mLock = new Object();
     private final Context mContext;
-    private final PlatformWindowingDriver mWindowing;
-    private final PlatformPhoneUiDriver mPhoneUi;
 
     private Session mSession;
 
-    ShellTaskObserverManager(
-            final Context context,
-            final PlatformWindowingDriver windowing,
-            final PlatformPhoneUiDriver phoneUi) {
+    ShellTaskObserverManager(final Context context) {
         mContext = context;
-        mWindowing = windowing;
-        mPhoneUi = phoneUi;
     }
 
     void start(
@@ -70,12 +63,13 @@ final class ShellTaskObserverManager implements Closeable {
             final int displayId,
             final Rect displayBounds,
             final Rect workAreaBounds,
-            final int desktopHostTaskId) {
+            final int desktopHostTaskId,
+            final DesktopCompatibilityPolicy compatibility) {
         requireSession(callback).observer.configure(
                 displayId,
                 displayBounds,
                 workAreaBounds,
-                desktopHostTaskId);
+                desktopHostTaskId, compatibility);
     }
 
     void configureDesktopActivityInput(
@@ -422,9 +416,7 @@ final class ShellTaskObserverManager implements Closeable {
                     mContext,
                     callback,
                     activityLauncher,
-                    this::ownerDisconnected,
-                    mWindowing,
-                    mPhoneUi);
+                    this::ownerDisconnected);
         }
 
         synchronized void start()

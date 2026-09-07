@@ -84,35 +84,39 @@ final class PhoneDesktopTaskRecovery {
         return REPOSITORY_DUMP;
     }
 
-    static void recover(final Callback callback) {
-        recover(-1, false, ALWAYS_CONTINUE, callback);
+    static void recover(final boolean required, final Callback callback) {
+        recover(required, -1, false, ALWAYS_CONTINUE, callback);
     }
 
     static void recover(
+            final boolean required,
             final Continuation continuation,
             final Callback callback) {
-        recover(-1, false, continuation, callback);
+        recover(required, -1, false, continuation, callback);
     }
 
     static void recoverRemovedDisplay(
+            final boolean required,
             final int removedDisplayId,
             final Callback callback) {
-        recover(removedDisplayId, false, ALWAYS_CONTINUE, callback);
+        recover(required, removedDisplayId, false, ALWAYS_CONTINUE, callback);
     }
 
     static void recoverRemovedDisplayAfterTimeout(
+            final boolean required,
             final int removedDisplayId,
             final Callback callback) {
-        recover(removedDisplayId, true, ALWAYS_CONTINUE, callback);
+        recover(required, removedDisplayId, true, ALWAYS_CONTINUE, callback);
     }
 
     private static void recover(
+            final boolean required,
             final int removedDisplayId,
             final boolean allowUnsettledRemoval,
             final Continuation continuation,
             final Callback callback) {
         TaskCommandQueue.execute(() -> {
-            final Result result = requiresRecovery()
+            final Result result = required
                     ? recoverNow(
                             removedDisplayId,
                             allowUnsettledRemoval,
@@ -127,12 +131,12 @@ final class PhoneDesktopTaskRecovery {
         });
     }
 
-    static Result recoverBlocking() {
-        return recoverBlocking(ALWAYS_CONTINUE);
+    static Result recoverBlocking(final boolean required) {
+        return recoverBlocking(required, ALWAYS_CONTINUE);
     }
 
-    static Result recoverBlocking(final Continuation continuation) {
-        if (!requiresRecovery()) {
+    static Result recoverBlocking(final boolean required, final Continuation continuation) {
+        if (!required) {
             return Result.success("phone desktop recovery is not required");
         }
         try {
@@ -145,11 +149,6 @@ final class PhoneDesktopTaskRecovery {
             Log.w(TAG, "phone desktop recovery queue failed", error);
             return Result.failure(usefulMessage(error));
         }
-    }
-
-    private static boolean requiresRecovery() {
-        return PlatformDrivers.current().windowing()
-                .requiresPhoneTaskRecovery();
     }
 
     static Result recoverForTest(

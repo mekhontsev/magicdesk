@@ -57,10 +57,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mContext = context;
         final PlatformDriver platform = PlatformDrivers.current();
         mPointerDriver = platform.pointer();
-        mTaskObserverManager = new ShellTaskObserverManager(
-                context,
-                platform.windowing(),
-                platform.phoneUi());
+        mTaskObserverManager = new ShellTaskObserverManager(context);
         mDisplayRecording = new ShellDisplayRecordingSession(context);
         mDesktopDirectory = new ShellDesktopDirectory();
         mFileSystem = new ShellFileSystem();
@@ -457,13 +454,14 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int workTop,
             final int workRight,
             final int workBottom,
-            final int desktopHostTaskId) {
+            final int desktopHostTaskId,
+            final DesktopCompatibilityPolicy compatibility) {
         mTaskObserverManager.configure(
                 callback,
                 displayId,
                 new Rect(displayLeft, displayTop, displayRight, displayBottom),
                 new Rect(workLeft, workTop, workRight, workBottom),
-                desktopHostTaskId);
+                desktopHostTaskId, compatibility);
     }
 
     @Override

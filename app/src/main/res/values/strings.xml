@@ -538,6 +538,13 @@
     <string name="settings_title">Settings</string>
     <string name="settings_section_desktop">Desktop</string>
     <string name="settings_section_session">Session</string>
+    <string name="settings_section_compatibility">Compatibility (next session)</string>
+    <string name="settings_compat_focus_repair">Repair stalled desktop input focus</string>
+    <string name="settings_compat_caption_refresh">Clear stale fullscreen caption insets</string>
+    <string name="settings_compat_phone_isolation">Isolate phone tasks during wired and wireless desktop</string>
+    <string name="settings_compat_phone_recovery">Reconcile retained desktop tasks on return to phone</string>
+    <string name="settings_compat_stale_recents">Clean stale phone freeform entries from Recents</string>
+    <string name="settings_compat_recents_home">Open phone Start instead of system Recents</string>
     <string name="settings_section_automation">Automation</string>
     <string name="settings_section_integrations">Integrations</string>
     <string name="settings_section_support">Support</string>
@@ -550,7 +557,7 @@
     <string name="settings_taskbar_auto_hide">Automatically hide taskbar</string>
     <string name="settings_open_files_single_click">Open desktop and Files items with a single click</string>
     <string name="settings_open_touchpad_automatically">Open touchpad automatically</string>
-    <string name="settings_relay_physical_input">Redirect physical keyboard and mouse to desktop (next session)</string>
+    <string name="settings_relay_physical_input">Redirect physical keyboard and mouse to desktop</string>
     <string name="settings_keep_desktop_awake">Keep desktop session awake</string>
     <string name="settings_disable_adaptive_brightness">Disable adaptive brightness during external desktop</string>
     <string name="settings_mcp_enabled">Local MCP automation server</string>
