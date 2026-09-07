@@ -80,16 +80,6 @@ public final class PointerEdgeRevealStateTest {
         assertFalse(state.isRevealed());
     }
 
-    @Test
-    public void bottomBoundaryExitIsCausedByTaskbarRelayout() {
-        assertTrue(DesktopTaskbarRevealController.isBottomEdgeExit(
-                0, 1920, 1080, 400f, 1080f));
-        assertFalse(DesktopTaskbarRevealController.isBottomEdgeExit(
-                0, 1920, 1080, 400f, 1016f));
-        assertFalse(DesktopTaskbarRevealController.isBottomEdgeExit(
-                0, 1920, 1080, 1920f, 1080f));
-    }
-
     private static PointerEdgeRevealState armedState() {
         final PointerEdgeRevealState state = new PointerEdgeRevealState();
         state.setArmed(true);

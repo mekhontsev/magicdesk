@@ -157,15 +157,6 @@ final class DesktopTaskbarRevealController {
                 applyTimerAction(mPointerState.onPointerEntered());
                 break;
             case MotionEvent.ACTION_HOVER_EXIT:
-                if (isRelayoutExit(event)) {
-                    // Nubia's touch panel ends the old hover stream when the
-                    // taskbar window moves up, although the pointer remains
-                    // inside the newly exposed taskbar.
-                    applyTimerAction(mPointerState.onPointerEntered());
-                    break;
-                }
-                applyTimerAction(mPointerState.onPointerExited());
-                break;
             case MotionEvent.ACTION_CANCEL:
             case MotionEvent.ACTION_OUTSIDE:
                 applyTimerAction(mPointerState.onPointerExited());
@@ -173,28 +164,6 @@ final class DesktopTaskbarRevealController {
             default:
                 break;
         }
-    }
-
-    private boolean isRelayoutExit(final MotionEvent event) {
-        if (!mPointerState.isRevealed()) {
-            return false;
-        }
-        final Rect bounds = mActivity.getTaskbarBounds();
-        return isBottomEdgeExit(
-                bounds.left,
-                bounds.right,
-                bounds.bottom,
-                event.getRawX(),
-                event.getRawY());
-    }
-
-    static boolean isBottomEdgeExit(
-            final int left,
-            final int right,
-            final int bottom,
-            final float x,
-            final float y) {
-        return x >= left && x < right && y >= bottom;
     }
 
     private void applyTimerAction(
