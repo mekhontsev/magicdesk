@@ -1384,12 +1384,9 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
             final int focusedTaskId = taskIds.get(
                     taskIds.size() - 1).intValue();
-            if (mWindowing.requiresDesktopInputFocusSynchronization()) {
-                // Affected firmware can leave input focus on the host while
-                // reporting the raised client task as focused.
-                DesktopRuntimeBridge.prepareTaskFocus(
-                        displayId, focusedTaskId);
-            }
+            // Set the host's intended focusability on every platform. This is
+            // normal ownership, not the optional stale-focus relayout pulse.
+            DesktopRuntimeBridge.prepareTaskFocus(displayId, focusedTaskId);
             final int[] physicalOrder = new int[taskIds.size()];
             for (int index = 0; index < taskIds.size(); index++) {
                 physicalOrder[index] = taskIds.get(index).intValue();

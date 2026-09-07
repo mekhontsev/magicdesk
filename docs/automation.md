@@ -132,6 +132,10 @@ Display-power diagnostics distinguish command declarations
 guard and its protected UIDs. On Nubia, `vendor.cpu_freezer` checks the actual
 protection interface. These probes change neither display power nor UID state.
 
+The `Windowing policy` report line separates shared focus verification,
+optional stale-focus repair, and secondary display freeform-default preparation.
+Disabling repair does not remove the workspace command's input postcondition.
+
 Task and application lists accept filters plus `limit` and `cursor`. Returned
 pages contain `count`, `total`, and a nullable `nextCursor`.
 

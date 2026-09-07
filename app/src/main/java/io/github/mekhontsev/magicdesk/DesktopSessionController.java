@@ -248,7 +248,7 @@ final class DesktopSessionController {
             final DesktopDisplayTarget target) throws IOException {
         if (target.displayId <= 0
                 || !PlatformDrivers.current().windowing()
-                        .requiresDesktopInputFocusSynchronization()) {
+                        .requiresSecondaryDisplayFreeformDefault()) {
             return;
         }
         ShellAccess.run(AppProcessCommand.run(

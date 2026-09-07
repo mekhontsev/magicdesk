@@ -4,7 +4,11 @@ import java.io.IOException;
 
 /** Firmware-specific part of desktop windowing provisioning. */
 public interface PlatformWindowingDriver {
-    boolean requiresDesktopInputFocusSynchronization();
+    /** Whether confirmed stale input focus needs host relayout/hierarchy repair. */
+    boolean requiresDesktopInputFocusRepair();
+
+    /** Whether secondary desktop startup requires a freeform display default. */
+    boolean requiresSecondaryDisplayFreeformDefault();
 
     /** Whether moving one desktop task to the phone can destroy the display host. */
     boolean protectsExternalSessionFromPhoneTaskMigration();

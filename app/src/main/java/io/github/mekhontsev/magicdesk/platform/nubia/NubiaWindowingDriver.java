@@ -8,7 +8,12 @@ import java.io.IOException;
 /** Persistent desktop-windowing properties required by Nubia firmware. */
 final class NubiaWindowingDriver implements PlatformWindowingDriver {
     @Override
-    public boolean requiresDesktopInputFocusSynchronization() {
+    public boolean requiresDesktopInputFocusRepair() {
+        return true;
+    }
+
+    @Override
+    public boolean requiresSecondaryDisplayFreeformDefault() {
         return true;
     }
 

@@ -136,7 +136,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         mSystemDialogTracker::onInputWindowsChanged);
         mFocusController = new ShellDesktopFocusController(
                 mService,
-                windowing.requiresDesktopInputFocusSynchronization(),
+                windowing.requiresDesktopInputFocusRepair(),
                 mInputWindowObservations,
                 taskId -> callCallback(() ->
                         mCallback.onInputFocusRefreshRequired(taskId)));

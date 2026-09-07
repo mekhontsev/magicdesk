@@ -754,7 +754,10 @@ runtime integration and are not distributed through the same release path.
   display. It preserves Android's normal crash/ANR response and reports only a
   bounded process summary, task/display context, and top activity; third-party
   stack traces and ANR process dumps do not cross into application diagnostics.
-- `ShellDesktopFocusController` handles a Nubia secondary-display defect where
+- `ShellDesktopFocusController` verifies task and input commits on every
+  platform. A missing task sample, inactive controller, or unconfirmed input
+  target cannot acknowledge command success. The independent platform policy
+  `requiresDesktopInputFocusRepair` enables recovery when
   task focus changes but the InputDispatcher window remains stale. It reports
   only confirmed mismatches on the current input display. A remembered
   desktop task without a focused window is normal while the phone owns input;
@@ -788,7 +791,10 @@ runtime integration and are not distributed through the same release path.
   A topology-owned fullscreen plane close first commits survivor focus and then
   removes the background task, while package force-stop first commits the
   surviving desktop task and only then stops the package.
-  Pre-focus host relayout is enabled only by the selected windowing driver.
+  Pre-focus preparation sets HOME's intended focusability on every platform;
+  it does not pulse that state. Only confirmed stale-focus repair requests the
+  optional relayout pulse. Callback-driven repair is not scheduled when that
+  policy is disabled; command verification still uses the shared event source.
 - `DesktopTaskParkingController` continuously derives a lightweight workspace
   snapshot from the task state already read by `DesktopTaskController`; it does
   not run a second task poll. A normal desktop close refreshes that snapshot
@@ -2239,6 +2245,13 @@ all converge on this boundary before the common session controller runs.
 Normal starts use `DesktopSessionPolicy.USER`; diagnostics can select the
 non-restoring, non-persisting `ISOLATED_SELF_TEST` policy without adding
 display-specific restore exceptions.
+
+`requiresSecondaryDisplayFreeformDefault` separately controls the current
+secondary display-default preparation before HOME activation. It is not an
+input-focus policy. The existing command changes WindowManager's display
+override without a paired restoration; removing or adding lifecycle ownership
+to this mutation requires a known pre-session override baseline, not a focus
+repair experiment on an already configured monitor.
 
 ### Output timing
 

@@ -32,7 +32,8 @@ public final class PlatformDriversTest {
         assertTrue(driver.projection().supportsOutputConfiguration());
         assertTrue(driver.phoneUi().isAvailable());
         assertTrue(driver.windowing()
-                .requiresDesktopInputFocusSynchronization());
+                .requiresDesktopInputFocusRepair());
+        assertTrue(driver.windowing().requiresSecondaryDisplayFreeformDefault());
         assertTrue(driver.windowing()
                 .requiresNativeFullscreenCaptionRefresh());
         assertTrue(driver.windowing().requiresPhoneTaskRecovery());
@@ -76,7 +77,8 @@ public final class PlatformDriversTest {
                 PlatformProjectionDriver.Transport.WIRELESS));
         assertFalse(driver.phoneUi().isAvailable());
         assertFalse(driver.windowing()
-                .requiresDesktopInputFocusSynchronization());
+                .requiresDesktopInputFocusRepair());
+        assertFalse(driver.windowing().requiresSecondaryDisplayFreeformDefault());
         assertFalse(driver.windowing()
                 .requiresNativeFullscreenCaptionRefresh());
         assertFalse(driver.windowing().requiresPhoneTaskRecovery());

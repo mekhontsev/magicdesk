@@ -57,20 +57,21 @@ final class ShellDesktopFocusController implements AutoCloseable {
     private int mMissingWindowRepairTaskId = -1;
     private boolean mDrainScheduled;
     private boolean mAcceptingEvents = true;
-    private boolean mAvailable;
+    private final boolean mRepairEnabled;
     private long mTaskSampleGeneration;
     private long mInputFocusRefreshGeneration;
     private int mInputFocusRefreshTaskId = -1;
 
     ShellDesktopFocusController(
             final Object taskService,
-            final boolean enabled,
+            final boolean repairEnabled,
             final FrameworkInputWindowObservationSource inputWindows,
             final Listener listener) {
         mTaskService = taskService;
         mListener = listener;
-        mAvailable = enabled;
-        mInputWindowObservations = enabled ? inputWindows : null;
+        mRepairEnabled = repairEnabled;
+        // Verification is a shared command postcondition, even without repair.
+        mInputWindowObservations = inputWindows;
     }
 
     void configure(final int displayId) {
@@ -203,7 +204,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
     private void enqueueFocusReconciliation(
             final int taskId,
             final boolean requestConfirmation) {
-        if (taskId < 0) {
+        if (taskId < 0 || !mRepairEnabled) {
             return;
         }
         synchronized (mPendingLock) {
@@ -247,8 +248,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
     }
 
     private void configureOnWorker(final int displayId) {
-        final int desktopDisplayId = mAvailable
-                && displayId >= Display.DEFAULT_DISPLAY
+        final int desktopDisplayId = displayId >= Display.DEFAULT_DISPLAY
                 ? displayId : Display.INVALID_DISPLAY;
         if (mDisplayId == desktopDisplayId) {
             return;
@@ -402,7 +402,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
             final Runnable sampleRequester) {
         final int displayId = mDisplayId;
         if (displayId == Display.INVALID_DISPLAY) {
-            return true;
+            return false;
         }
         try {
             final Object task = HiddenTaskApi.findTask(
@@ -410,7 +410,11 @@ final class ShellDesktopFocusController implements AutoCloseable {
             if (task == null) {
                 return false;
             }
-            awaitTaskSample(barrier.taskSampleGeneration);
+            if (!awaitTaskSample(barrier.taskSampleGeneration)) {
+                Log.w(TAG, "desktop task commit sample expired display="
+                        + displayId + " task=" + taskId);
+                return false;
+            }
             final ComponentName topActivity =
                     HiddenTaskApi.getTaskTopActivity(task);
             final boolean desktopHostTarget = isDesktopHostTarget(
@@ -419,10 +423,10 @@ final class ShellDesktopFocusController implements AutoCloseable {
                             ? null : topActivity.getPackageName(),
                     topActivity == null
                             ? null : topActivity.getClassName());
-            // The host cannot acquire input while it is behind an application.
-            // Once its task commit is observed, stale focus requires the
-            // existing relayout repair rather than the normal convergence wait.
-            final boolean initiallyFocused = desktopHostTarget
+            // Affected firmware needs the HOME relayout after its task commit.
+            // Without that repair, HOME uses the normal event-driven wait;
+            // it must not be acknowledged just because it is the desktop host.
+            final boolean initiallyFocused = desktopHostTarget && mRepairEnabled
                     ? isInputFocused(displayId, taskId)
                     : awaitCommittedInputFocus(
                             displayId,
@@ -434,6 +438,13 @@ final class ShellDesktopFocusController implements AutoCloseable {
                     mMissingWindowRepairTaskId = -1;
                 }
                 return true;
+            }
+            if (!mRepairEnabled) {
+                final String inputState = FrameworkInputSnapshotSource.readLocal();
+                Log.w(TAG, "desktop focus convergence expired without repair"
+                        + " display=" + displayId + " task=" + taskId + "; "
+                        + TaskInputWindowParser.describeFocus(inputState, displayId));
+                return false;
             }
             final long repairInputWindowGeneration =
                     inputWindowGeneration();
@@ -490,7 +501,7 @@ final class ShellDesktopFocusController implements AutoCloseable {
             final CommitBarrier barrier) {
         final int displayId = mDisplayId;
         if (displayId == Display.INVALID_DISPLAY) {
-            return true;
+            return false;
         }
         try {
             if (!awaitTaskSample(barrier.taskSampleGeneration)) {
