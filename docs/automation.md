@@ -545,6 +545,18 @@ of the window transaction. Fixture cleanup explicitly removes the test tasks;
 it does not rely on that system trimming. Permission protection, production
 launch paths, and hierarchy/visibility assertions remain unchanged.
 
+Cleanup closes only the captured fixture tasks through the production task
+controller, then awaits the common Close-to-HOME coordinator. It does not
+release HOME or the desktop host through a separate test-only close path.
+`CLEANUP-HOME-001` checks that the resolved primary HOME component is visible
+and focused on display 0 after Close-to-HOME, before the harness restores Diagnostics.
+When the display-removal suite already destroyed the display, the required
+destination is instead Control Panel, matching production display-loss recovery.
+This expectation comes from display lifecycle, not the observed foreground window.
+The check distinguishes a secondary launcher from the same package. If Android needs
+a user choice because HOME is unassigned, this component check is NOT_TESTED;
+it never chooses a launcher for the user. All waits are confined to the test.
+
 `ACTIVITY-RESULT-001` exercises an ordinary app-owned `startActivityForResult`
 within a freeform task, rather than launching another task through MagicDesk.
 It checks the child's first frame, unchanged task identity/mode/bounds, the

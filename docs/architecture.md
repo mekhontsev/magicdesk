@@ -1717,9 +1717,13 @@ therefore reaches Android's launcher resolver without selecting inactive
 MagicDesk again. Process-start recovery disables the surfaces before Shizuku
 is needed, and detects both a stale lease and HOME resolution to MagicDesk,
 not just `RoleManager.isRoleHeld`.
-An isolated self-test restores and verifies the role but does not present the
-restored launcher, because returning foreground ownership belongs to the test
-harness rather than desktop-session cleanup.
+An isolated self-test closes its own fixtures through the production task
+controller before calling the common Close-to-HOME coordinator. Workspace
+isolation does not suppress restored HOME presentation. The harness verifies
+the concrete primary HOME component on display 0 before restoring its report;
+a secondary launcher from the same package is not an equivalent result. If the
+display-removal suite already completed production display-loss recovery, the
+expected phone destination is Control Panel instead.
 The routed request launches an ordinary, package-scoped HOME Intent on display
 0. During an external session it selects Recent within the existing phone
 Start; during a phone-desktop session Android selects the desktop HOME and its

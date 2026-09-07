@@ -93,11 +93,12 @@ public final class DesktopHomeRoleLeaseTest {
         assertTrue(DesktopHomeRoleLease.release(target));
 
         assertEquals(LAUNCHER, mBackend.homePackage);
-        assertEquals(MAGICDESK, mBackend.presentedHomePackage);
+        assertEquals(LAUNCHER, mBackend.presentedHomePackage);
         assertEquals(
                 List.of(
                         "surface:disabled",
-                        "home:" + LAUNCHER),
+                        "home:" + LAUNCHER,
+                        "present:" + LAUNCHER),
                 mBackend.releaseCalls);
     }
 
@@ -250,7 +251,7 @@ public final class DesktopHomeRoleLeaseTest {
     }
 
     @Test
-    public void isolatedExternalReleaseDoesNotPresentPhoneHome()
+    public void isolatedExternalClosePresentsHomeAfterTeardown()
             throws Exception {
         final DesktopDisplayTarget target =
                 DesktopDisplayTarget.simulated(7);
@@ -258,14 +259,20 @@ public final class DesktopHomeRoleLeaseTest {
                 target,
                 DesktopSessionPolicy.ISOLATED_SELF_TEST);
 
-        assertTrue(DesktopHomeRoleLease.release(target));
+        final DesktopHomeRoleLease.RestoredHomePresentation presentation =
+                DesktopHomeRoleLease.releaseForSessionClose(target);
 
         assertNull(mBackend.presentedHomePackage);
+        assertNull(mStorage.state);
         assertEquals(
                 List.of(
                         "surface:disabled",
                         "home:" + LAUNCHER),
                 mBackend.releaseCalls);
+        DesktopHomeRoleLease.presentRestoredHome(presentation);
+        assertEquals(LAUNCHER, mBackend.presentedHomePackage);
+        assertEquals(List.of("surface:disabled", "home:" + LAUNCHER,
+                "present:" + LAUNCHER), mBackend.releaseCalls);
     }
 
     @Test

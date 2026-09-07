@@ -79,11 +79,12 @@ public final class DesktopSelfTestLiveFixtureCleanupTest {
     @Test
     public void postSessionRecoveryRetainsPhoneExitAndRepositoryChecks() throws Exception {
         verify("""
+                DesktopRuntimeBridge.active = false;
                 Set<Integer> phoneIds = new LinkedHashSet<>();
                 removeFixtureTasks(phoneIds, Set.of(42));
                 check(phoneIds.equals(Set.of(42)), "post-session fixture identity lost");
-                check(rawCommands.equals(List.of("fullscreen:42", "remove 42")), "post-session recovery changed: " + rawCommands);
-                check(events.equals(List.of("mode:42", "repository:42", "repository:42")), "repository checks changed: " + events);
+                check(rawCommands.equals(List.of("fullscreen:42")), "post-session recovery bypassed production close: " + rawCommands);
+                check(events.equals(List.of("mode:42", "repository:42", "close:42", "ack:42", "absent:42", "repository:42")), "repository checks changed: " + events);
                 """);
     }
 
@@ -96,6 +97,10 @@ public final class DesktopSelfTestLiveFixtureCleanupTest {
                 static Runnable pendingAcknowledgement;
                 static final long STEP_TIMEOUT_MILLIS = 1000;
                 static class Display { static final int DEFAULT_DISPLAY = 0; }
+                static class DesktopRuntimeBridge {
+                    static boolean active = true;
+                    static boolean isLocalDesktopActiveOrStarting() { return active; }
+                }
                 static class TaskRepository {
                     static class TaskEntry {
                         final int taskId, displayId; final String windowingMode; final boolean fixture;
@@ -155,7 +160,6 @@ public final class DesktopSelfTestLiveFixtureCleanupTest {
                     PlatformDrivers windowing() { return this; }
                     boolean requiresPhoneTaskRecovery() { return true; }
                 }
-                static class AppProcessCommand { static String run(String owner, String command) { return command; } }
                 static class TaskStackParser { static class Entry { int taskId, displayId; String windowingMode; } }
                 interface TaskPredicate { boolean test(TaskStackParser.Entry entry); }
                 static void waitForTask(int display, String name, TaskPredicate predicate) {
@@ -163,7 +167,6 @@ public final class DesktopSelfTestLiveFixtureCleanupTest {
                     check(predicate.test(entry), "phone recovery predicate changed"); events.add("mode:" + entry.taskId);
                 }
                 static String fixtureClass(TaskRepository.TaskEntry task) { return "fixture"; }
-                static boolean taskExists(int task) { return taskRemains; }
                 static void waitForTaskAbsentFromDesktopRepository(int display, int task) {
                     check(display == 0, "repository check escaped phone display"); events.add("repository:" + task);
                 }
@@ -174,6 +177,6 @@ public final class DesktopSelfTestLiveFixtureCleanupTest {
                 public static void verify() throws IOException {
                     tasks.add(new TaskRepository.TaskEntry(42, 0, "freeform", true));
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods("DesktopSelfTestCleanup",
-                "removeFixtureTasks", "captureFixtureTaskIds", "requiresPhoneDesktopExitBeforeRemoval", "requireShell"));
+                "removeFixtureTasks", "closeFixture", "captureFixtureTaskIds", "requiresPhoneDesktopExitBeforeRemoval", "requireShell"));
     }
 }

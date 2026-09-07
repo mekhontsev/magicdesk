@@ -110,13 +110,9 @@ final class DesktopHomeRoleLease {
 
     static final class RestoredHomePresentation {
         final int userId;
-        final boolean required;
 
-        private RestoredHomePresentation(
-                final int userId,
-                final boolean required) {
+        private RestoredHomePresentation(final int userId) {
             this.userId = userId;
-            this.required = required;
         }
     }
 
@@ -244,7 +240,7 @@ final class DesktopHomeRoleLease {
 
     static void presentRestoredHome(
             final RestoredHomePresentation presentation) throws IOException {
-        if (presentation == null || !presentation.required) {
+        if (presentation == null) {
             return;
         }
         synchronized (LOCK) {
@@ -393,10 +389,6 @@ final class DesktopHomeRoleLease {
                 || state.policy != DesktopSessionPolicy.ISOLATED_SELF_TEST;
     }
 
-    private static boolean shouldPresentRestoredHome(final State state) {
-        return state.policy != DesktopSessionPolicy.ISOLATED_SELF_TEST;
-    }
-
     private static DesktopHomeSurfaceRouter.Surface surfaceFor(
             final State state) {
         return DesktopHomeSurfaceRouter.forTarget(state.targetKind);
@@ -434,10 +426,8 @@ final class DesktopHomeRoleLease {
                 throw quiesceError;
             }
             final RestoredHomePresentation presentation =
-                    new RestoredHomePresentation(
-                            state.userId,
-                            shouldPresentRestoredHome(state));
-            if (!deferPresentation && presentation.required) {
+                    new RestoredHomePresentation(state.userId);
+            if (!deferPresentation) {
                 sBackend.presentHome(
                         state.userId,
                         sBackend.getHomePackage(state.userId));
@@ -598,6 +588,7 @@ final class DesktopHomeRoleLease {
                     : " -p " + ShellCommandLine.quote(packageName);
             ShellAccess.run(
                     "/system/bin/am start --user " + userId
+                            + " --display 0"
                             + " -f 0x"
                             + Integer.toHexString(HOME_ACTIVITY_FLAGS)
                             + " -a android.intent.action.MAIN"
