@@ -84,12 +84,16 @@ keyboard helper, and Android display-routing lease. `DesktopMouseBridge`
 creates one stable virtual pointer for every external desktop session and
 routes it independently from physical input. The phone touchpad and automation
 therefore use the same relative pointer transport on every supported Android
-platform. A platform input-relay policy may additionally select physical
+platform. The session's input-relay policy may additionally select physical
 EventHub devices marked `CURSOR | EXTERNAL`; only then does the native helper
 grab and forward their motion, wheel, and button state through that pointer.
-On RedMagic, `BTN_RIGHT` is the deliberate exception: the helper consumes the
-physical sequence and requests one display-targeted Android secondary click,
-bypassing the firmware conversion to Back.
+On RedMagic, `BTN_RIGHT` is the deliberate exception. The pointer extension's
+`requiresSecondaryClickInjection()` selects the helper's
+`--secondary-click-injection` policy: it consumes the physical sequence and
+requests one display-targeted Android secondary click, bypassing conversion to
+Back. The same policy handles touchpad secondary clicks. Without that explicit
+policy, the helper forwards native right-button state, including recovery after
+`SYN_DROPPED`; absolute-position availability does not select this behavior.
 
 The pointer helper starts passively. The runtime first waits until its virtual
 mouse is visible in EventHub. It then prepares any optional vendor pointer
@@ -127,10 +131,15 @@ virtual desktops. `DesktopInputRelaySession` orders virtual-device readiness,
 the routing lease, capture, source refresh, and reverse-order teardown;
 `KeyboardShortcutWatcher` only decodes shortcuts outside that transport
 lifecycle. There is no separate vendor input-panel owner.
-`DesktopInputRelayPolicy` declares keyboard and mouse relay independently.
-The routing session waits for and associates only the virtual device classes
-selected by that policy; `PlatformPointerDriver` remains a separate capability
-and is never inferred from relay availability.
+`PlatformFeatures.defaultInputRelay` recommends physical keyboard and mouse
+capture. Settings can override it for every platform with one switch; an unset
+preference follows the extension default (enabled for stock Nubia firmware,
+disabled for Standard Android). `RuntimeDesktopInputCoordinator` resolves it
+once on external-session entry. Editing settings never changes live captures;
+the next session takes the new preference. The virtual mouse and its routing
+remain independent, so disabling physical capture does not disable the phone
+touchpad. The routing session creates virtual keyboards only for selected
+keyboard capture. `PlatformPointerDriver` remains a separate capability.
 
 MagicDesk uses one phone-side `MagicDeskTouchpadActivity` for every external
 transport. `TouchpadPointerMotion` converts successive finger coordinates into
@@ -192,10 +201,8 @@ keyboard preference is imposed during setup.
 
 MagicDesk does not package or link a Nubia binary library. The vendor surface
 used for desktop input consists of private Binder methods added to framework
-interfaces on RedMagic firmware:
-
-- `IInputManager.getMousePosition`, `setMousePosition`, and `sendMouseCmd`;
-- the wired-only `dumpsys display dmctrl inputSource` control.
+interfaces on RedMagic firmware: `IInputManager.getMousePosition`,
+`setMousePosition`, and `sendMouseCmd`.
 
 These signatures are resolved reflectively inside the shell UserService and
 are never exposed as a generic command surface. Diagnostics and the self-test
@@ -1001,7 +1008,7 @@ isolated behind these boundaries.
   vendor implementation. A stock Nubia or REDMAGIC fingerprint or the
   `redmagic.app.manager` service selects the complete Nubia extension. On an
   AOSP-derived ROM for Nubia hardware, passive probes select only independently
-  present projection, pointer, mirrored-input, internal-audio, diagnostics,
+  present projection, pointer, internal-audio, diagnostics,
   and hardware-control components; all others remain on the Standard Android
   baseline. The probes run under the ordinary application UID, do not require
   Shizuku, and do not invoke the detected operations. In particular, absence
@@ -1016,9 +1023,10 @@ isolated behind these boundaries.
   firmware this is implemented by `NubiaDesktopPointerDriver`, the MagicDesk
   pointer backend over the hidden vendor positioning API. Physical input
   routing itself stays in the shared Android implementation and uses standard
-  port or unique-id display associations. `DesktopInputRelayPolicy`, carried
-  by `PlatformFeatures`, independently selects complete keyboard and mouse
-  relays; it does not imply absolute-pointer support.
+  port or unique-id display associations. `PlatformFeatures.defaultInputRelay`
+  supplies the default physical-capture policy, overridden by the user's
+  session preference; it does not imply absolute-pointer support. Detecting
+  only an optional pointer API on a custom ROM does not enable physical capture.
   `PlatformDiagnostics` contributes only the probes for the selected platform.
   A selected `SYSTEM_CONTROLS` provider identifies the platform integration,
   not every optional hardware control. Nubia cooling settings are read through
@@ -1103,8 +1111,9 @@ isolated behind these boundaries.
 - `DesktopInputRelaySession` owns external input transport and routing;
   `KeyboardShortcutWatcher` decodes shortcuts, and
   `HardwareKeyboardLayoutController` owns layout selection.
-- `PhoneTouchpadController` starts and repairs the phone touchpad when the
-  selected platform provides absolute pointer positioning.
+- `PhoneTouchpadController` starts and repairs the phone touchpad for an owned
+  external target whose display driver permits it. The shared transport checks
+  virtual-mouse and routing readiness before delivering input.
 - `RedmagicHardwareController` owns capability probing, stock fan/pump policy,
   monitoring, and baseline restoration.
 - `DesktopNotificationListenerService` owns Android notification-listener state;
@@ -1344,9 +1353,9 @@ close operation; transport-specific code stops at target preparation.
   exercises the standard desktop Activity and task placement without adding a
   viewer or virtual-display product mode.
 
-When a new wired or wireless desktop task is ready and the selected platform
-provides absolute pointer positioning, `PhoneTouchpadController` opens
-`MagicDeskTouchpadActivity` on display 0.
+When a new external desktop task is ready and automatic touchpad opening is
+enabled, `PhoneTouchpadController` opens `MagicDeskTouchpadActivity` on display 0
+if that display driver permits it. No absolute-position API is required.
 
 The runtime asks the selected platform to expose native captions for wired and
 wireless desktops. The Nubia driver applies its matching privacy filter;
@@ -2463,18 +2472,14 @@ keyboard, and updates the taskbar label. The bridge holds subsequent input only
 until InputManager confirms the new layout, avoiding both a fixed delay and a
 first character in the previous language.
 
-The mouse helper forwards physical movement, wheels, and buttons. It exists
-specifically because RedMagic consumes physical `BTN_RIGHT` as Back.
-`Win+Backspace` remains the explicit system Back shortcut. The phone touchpad
-uses Nubia's absolute mouse-position API for motion and the same virtual pointer
-for clicks and scrolling. A shell-injected click queries the vendor's current
-pointer position at dispatch time, so a hardware mouse and the phone touchpad
-share one authoritative location. Its velocity curve matches the stock Touch
-Panel and re-anchors whenever the acceleration factor changes, avoiding
-accumulated relative-motion error. Physical keyboards and pointing devices may
-be connected or removed while the session is active; the runtime updates their
-routes without recreating the desktop or phone touchpad for keyboard-only
-configuration changes.
+The shared mouse helper forwards captured physical movement, wheels, and
+buttons, and carries the phone touchpad's relative input independently of
+physical capture. Android owns cursor motion, acceleration, hover, and dragging.
+On Nubia, explicit secondary-click replacement reads the actual vendor cursor
+position at dispatch time. `Win+Backspace` remains the explicit system Back
+shortcut. Physical keyboards and pointing devices may be connected or removed
+while the session is active; the runtime updates their routes without
+recreating the desktop or phone touchpad for keyboard-only configuration changes.
 
 Both helpers keep their virtual devices alive for the complete desktop session.
 InputManager inventory changes replace only the physical source descriptors,

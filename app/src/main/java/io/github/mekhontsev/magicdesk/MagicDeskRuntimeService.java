@@ -12,7 +12,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.graphics.Point;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -199,25 +198,6 @@ public final class MagicDeskRuntimeService extends Service
         if (mDesktopInput != null) {
             mDesktopInput.cancelMouseBridgeDisplayRemoval(displayId);
         }
-    }
-
-    @Override
-    public Point getDesktopPointerPosition(final int displayId) {
-        return !mDestroyed && mDesktopInput != null
-                ? mDesktopInput.getPointerPosition(displayId) : null;
-    }
-
-    @Override
-    public boolean updateDesktopPointerPosition(
-            final int displayId,
-            final int x,
-            final int y,
-            final int action,
-            final long downTime) {
-        return !mDestroyed
-                && mDesktopInput != null
-                && mDesktopInput.updatePointerPosition(
-                        displayId, x, y, action, downTime);
     }
 
     @Override

@@ -551,6 +551,7 @@
     <string name="settings_taskbar_auto_hide">Automatically hide taskbar</string>
     <string name="settings_open_files_single_click">Open desktop and Files items with a single click</string>
     <string name="settings_open_touchpad_automatically">Open touchpad automatically</string>
+    <string name="settings_relay_physical_input">Redirect physical keyboard and mouse to desktop (next session)</string>
     <string name="settings_keep_desktop_awake">Keep desktop session awake</string>
     <string name="settings_disable_adaptive_brightness">Disable adaptive brightness during external desktop</string>
     <string name="settings_mcp_enabled">Local MCP automation server</string>

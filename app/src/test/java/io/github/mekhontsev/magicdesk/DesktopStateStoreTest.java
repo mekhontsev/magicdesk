@@ -49,6 +49,7 @@ public final class DesktopStateStoreTest {
         source.settings.keepDesktopAwake = true;
         source.settings.disableAdaptiveBrightnessOnExternalDesktop = true;
         source.settings.openTouchpadAutomatically = false;
+        source.settings.relayPhysicalInput = true;
         source.settings.openFilesWithSingleClick = true;
         source.settings.termuxX11StartupCommand =
                 "termux-x11 :2 -xstartup \"openbox-session\"";
@@ -87,6 +88,7 @@ public final class DesktopStateStoreTest {
         assertTrue(decoded.settings.keepDesktopAwake);
         assertTrue(decoded.settings.disableAdaptiveBrightnessOnExternalDesktop);
         assertFalse(decoded.settings.openTouchpadAutomatically);
+        assertEquals(Boolean.TRUE, decoded.settings.relayPhysicalInput);
         assertTrue(decoded.settings.openFilesWithSingleClick);
         assertEquals(
                 source.settings.termuxX11StartupCommand,
@@ -98,6 +100,16 @@ public final class DesktopStateStoreTest {
         assertFalse(decodedProfile.fillDisplay);
         assertEquals("2560x1440@120", decodedProfile.outputTiming);
         assertTrue(decodedProfile.resetOutputModePending);
+    }
+
+    @Test
+    public void inputRelayPreferencePreservesUnsetAndExplicitOff() throws Exception {
+        final MagicDeskSettings.Values defaults = MagicDeskSettings.Values.defaults();
+        assertNull(MagicDeskSettings.Values.fromJson(defaults.toJson()).relayPhysicalInput);
+        defaults.relayPhysicalInput = false;
+        assertEquals(Boolean.FALSE, defaults.copy().relayPhysicalInput);
+        assertEquals(Boolean.FALSE,
+                MagicDeskSettings.Values.fromJson(defaults.toJson()).relayPhysicalInput);
     }
 
     @Test

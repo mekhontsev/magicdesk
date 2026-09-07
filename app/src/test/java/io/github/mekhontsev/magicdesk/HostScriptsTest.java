@@ -124,8 +124,10 @@ public final class HostScriptsTest {
         }
         expected.add("magicdesk_input_keyboard_test:paused");
         expected.add("magicdesk_input_keyboard_test:queue-cleanup");
+        expected.add("magicdesk_input_mouse_test:secondary-native");
+        expected.add("magicdesk_input_mouse_test:secondary-injected");
         assertEquals(expected, Files.readAllLines(fixture.log));
-        assertTrue(result.output.contains("verified (21 runs)"));
+        assertTrue(result.output.contains("verified (23 runs)"));
         assertEmptyDirectory(fixture.output);
     }
 
@@ -142,7 +144,7 @@ public final class HostScriptsTest {
         final var testResult = nativeVerifier(testFailure, "fragmented", false);
         assertEquals(testResult.output, 9, testResult.exitCode);
         assertEquals(3, Files.readAllLines(testFailure.log).size());
-        assertTrue(!testResult.output.contains("verified (21 runs)"));
+        assertTrue(!testResult.output.contains("verified (23 runs)"));
         assertEmptyDirectory(testFailure.output);
 
         final var inputFailure = nativeVerifierFixture();

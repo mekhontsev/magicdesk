@@ -120,6 +120,13 @@ Normal read tools include:
 - `magicdesk.capture_screenshot` and `magicdesk.sample_pixels`;
 - `magicdesk.get_recording_status`.
 
+Input diagnostics separate `defaultInputRelay`, the saved `relayPhysicalInput`
+preference (`platform-default` when unset), `nextSessionInputRelay`, and the
+active `physicalCapturePolicy`. Changing the preference affects the next
+external session, not current device ownership. Native helper statistics and
+routing readiness remain the evidence for whether a selected transport actually
+started. These values are captured on demand, without another periodic query.
+
 Task and application lists accept filters plus `limit` and `cursor`. Returned
 pages contain `count`, `total`, and a nullable `nextCursor`.
 

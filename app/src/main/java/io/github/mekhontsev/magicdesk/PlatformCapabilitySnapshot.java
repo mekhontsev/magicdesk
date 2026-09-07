@@ -81,8 +81,9 @@ public final class PlatformCapabilitySnapshot {
                 () -> platform.projection().supportsOutputConfiguration(),
                 () -> "");
         add(entries, platform, PlatformCapabilityId.EXTERNAL_INPUT_BRIDGE,
-                features.inputRelay.isRequired(),
-                features.inputRelay.diagnosticDetail());
+                true,
+                "shared evdev/uinput transport; shell access is probed separately; "
+                        + "default=" + features.defaultInputRelay.diagnosticDetail());
         probe(entries, platform, PlatformCapabilityId.ABSOLUTE_POINTER,
                 () -> platform.pointer().isAvailable(), () -> "");
         probe(entries, platform, PlatformCapabilityId.PHONE_UI,

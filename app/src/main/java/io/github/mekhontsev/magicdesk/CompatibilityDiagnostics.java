@@ -388,9 +388,11 @@ public final class CompatibilityDiagnostics {
                 .append(TaskActivityModeDiagnostics
                         .snapshot().reportLine())
                 .append('\n');
+        final MagicDeskSettings.Values settings = MagicDeskSettings.load();
+        final DesktopInputRelayPolicy requestedRelay = settings.inputRelayPolicy(
+                audit.platform.features());
         final boolean globalInput = ShellAccess.isReady()
-                && audit.platform.features().inputRelay.keyboard
-                && DesktopRuntimeBridge.getActiveDesktopDisplayId() > 0;
+                && inputRelaySnapshot.runtime.physicalRelay.keyboard;
         appendCheck(report, "SHORTCUTS-001",
                 !globalInput
                         || MagicDeskRuntime.isFullKeyboardShortcutMode(),
@@ -398,15 +400,18 @@ public final class CompatibilityDiagnostics {
                 globalInput
                         ? (MagicDeskRuntime.isFullKeyboardShortcutMode()
                                 ? "running" : "not running")
-                        : audit.platform.features().inputRelay.keyboard
-                                ? "idle; an external desktop is required"
-                                : "not required by the selected platform");
+                        : "not active; selected for next session="
+                                + requestedRelay.keyboard);
         inputRelaySnapshot.appendReport(report);
-        final MagicDeskSettings.Values settings = MagicDeskSettings.load();
         report.append("MagicDesk settings: taskbarAutoHide=")
                 .append(settings.taskbarAutoHide)
                 .append(", openTouchpadAutomatically=")
                 .append(settings.openTouchpadAutomatically)
+                .append(", relayPhysicalInput=")
+                .append(settings.relayPhysicalInput == null
+                        ? "platform-default" : settings.relayPhysicalInput)
+                .append(", nextSessionInputRelay={")
+                .append(requestedRelay.diagnosticDetail()).append('}')
                 .append(", keepDesktopAwake=")
                 .append(settings.keepDesktopAwake)
                 .append(", disableAdaptiveBrightnessOnExternalDesktop=")
@@ -548,13 +553,15 @@ public final class CompatibilityDiagnostics {
         report.append("Platform features: wired=")
                 .append(features.wiredDesktop)
                 .append(", wireless=").append(features.wirelessDesktop)
-                .append(", inputRelay={")
-                .append(features.inputRelay.diagnosticDetail())
+                .append(", defaultInputRelay={")
+                .append(features.defaultInputRelay.diagnosticDetail())
                 .append('}')
                 .append(", internalAudioCapture=")
                 .append(platform.audioCapture().isAvailable())
                 .append(", absolutePointer=")
                 .append(platform.pointer().isAvailable())
+                .append(", secondaryClickInjection=")
+                .append(platform.pointer().requiresSecondaryClickInjection())
                 .append(", outputControls=")
                 .append(platform.projection().supportsOutputConfiguration())
                 .append(", phoneUi=")

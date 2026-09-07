@@ -23,6 +23,8 @@ final class SettingsView {
 
         void setOpenTouchpadAutomatically(boolean enabled);
 
+        void setRelayPhysicalInput(boolean enabled);
+
         void setOpenFilesWithSingleClick(boolean enabled);
 
         void setMcpEnabled(boolean enabled);
@@ -55,6 +57,7 @@ final class SettingsView {
     private Switch mKeepDesktopAwake;
     private Switch mDisableAdaptiveBrightness;
     private Switch mOpenTouchpadAutomatically;
+    private Switch mRelayPhysicalInput;
     private Switch mOpenFilesWithSingleClick;
     private Switch mMcpEnabled;
     private Switch mMcpDeveloperTools;
@@ -116,6 +119,13 @@ final class SettingsView {
                         mActions.setOpenTouchpadAutomatically(checked);
                     }
                 });
+        mRelayPhysicalInput = addSwitch(
+                content, R.string.settings_relay_physical_input);
+        mRelayPhysicalInput.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) {
+                mActions.setRelayPhysicalInput(checked);
+            }
+        });
         mKeepDesktopAwake = addSwitch(
                 content, R.string.settings_keep_desktop_awake);
         mKeepDesktopAwake.setOnCheckedChangeListener((button, checked) -> {
@@ -227,6 +237,7 @@ final class SettingsView {
                 || mKeepDesktopAwake == null
                 || mDisableAdaptiveBrightness == null
                 || mOpenTouchpadAutomatically == null
+                || mRelayPhysicalInput == null
                 || mOpenFilesWithSingleClick == null
                 || mcp == null || runtime == null
                 || mMcpEnabled == null || mMcpDeveloperTools == null
@@ -240,6 +251,8 @@ final class SettingsView {
                 settings.openFilesWithSingleClick);
         mOpenTouchpadAutomatically.setChecked(
                 settings.openTouchpadAutomatically);
+        mRelayPhysicalInput.setChecked(settings.inputRelayPolicy(
+                PlatformDrivers.current().features()).isEnabled());
         mKeepDesktopAwake.setChecked(settings.keepDesktopAwake);
         mDisableAdaptiveBrightness.setChecked(
                 settings.disableAdaptiveBrightnessOnExternalDesktop);
@@ -313,7 +326,6 @@ final class SettingsView {
         label.setText(labelResId);
         label.setTextColor(DesktopUiFactory.COLOR_TEXT);
         label.setTextSize(14);
-        label.setMaxLines(2);
         row.addView(label, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 

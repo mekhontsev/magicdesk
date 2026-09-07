@@ -18,7 +18,9 @@ public final class RuntimeAuditRegressionTest {
                 }
                 static final String TAG = "test";
                 boolean mHasHardwareKeyboard = true, mKeyboardWatcherRunning, relay;
-                boolean requiresInputRouting() { return relay; }
+                static class Policy { boolean keyboard = true; }
+                final Policy mInputRelay = new Policy();
+                boolean ownsExternalDesktop() { return relay; }
                 public static void verify() {
                     Fixture f = new Fixture();
                     f.updateKeyboardWatcher();
@@ -26,6 +28,9 @@ public final class RuntimeAuditRegressionTest {
                     f.relay = true;
                     f.updateKeyboardWatcher();
                     check(!KeyboardShortcutWatcher.active, "watcher competes with relay ownership");
+                    f.mInputRelay.keyboard = false;
+                    f.updateKeyboardWatcher();
+                    check(KeyboardShortcutWatcher.active, "mouse-only relay suppressed keyboard watcher");
                 }
                 """ + RuntimeSourceFixture.methods("RuntimeDesktopInputCoordinator",
                 "updateKeyboardWatcher", "shouldRunKeyboardWatcher"));

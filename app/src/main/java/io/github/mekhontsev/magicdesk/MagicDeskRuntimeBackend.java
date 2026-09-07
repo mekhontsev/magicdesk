@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.graphics.Point;
 
 /** Process-local operations supplied while the Android runtime service lives. */
 interface MagicDeskRuntimeBackend {
@@ -39,11 +38,6 @@ interface MagicDeskRuntimeBackend {
     boolean prepareDesktopDisplayRemoval(int displayId);
 
     void cancelDesktopDisplayRemoval(int displayId);
-
-    Point getDesktopPointerPosition(int displayId);
-
-    boolean updateDesktopPointerPosition(
-            int displayId, int x, int y, int action, long downTime);
 
     boolean moveDesktopPointer(int displayId, float deltaX, float deltaY);
 

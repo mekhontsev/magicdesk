@@ -483,24 +483,6 @@ public final class ShellAccess {
         }
     }
 
-    public static Point getMousePosition(final int displayId) {
-        if (!isReady() || displayId <= 0) {
-            return null;
-        }
-        final IShizukuCommandService service = connectedServiceOrConnect();
-        if (service == null) {
-            return null;
-        }
-        try {
-            final int[] position = service.getMousePosition(displayId);
-            return position != null && position.length == 2
-                    ? new Point(position[0], position[1]) : null;
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure(error);
-            return null;
-        }
-    }
-
     static Point observeMousePosition(final int displayId) {
         if (!isReady() || displayId <= 0) {
             return null;
@@ -518,29 +500,6 @@ public final class ShellAccess {
             return null;
         }
     }
-
-    public static boolean updateMousePosition(
-            final int displayId,
-            final int x,
-            final int y,
-            final int action,
-            final long downTime) {
-        if (!isReady() || displayId <= 0) {
-            return false;
-        }
-        final IShizukuCommandService service = connectedServiceOrConnect();
-        if (service == null) {
-            return false;
-        }
-        try {
-            return service.updateMousePosition(
-                    displayId, x, y, action, downTime);
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure(error);
-            return false;
-        }
-    }
-
 
     static ParcelFileDescriptor openSystemWallpaper() throws IOException {
         try {

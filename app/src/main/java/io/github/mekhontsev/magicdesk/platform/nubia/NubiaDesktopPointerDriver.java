@@ -12,17 +12,9 @@ final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
     private static final String TAG = "MagicDeskPointer";
 
     @Override
-    public int[] getPosition(final int displayId) {
-        try {
-            NubiaDesktopPointerController.prepareMousePositionControl();
-            NubiaDesktopPointerController.createOrUpdateViewport();
-            final Point position =
-                    NubiaDesktopPointerController.getPosition(displayId);
-            return new int[] {position.x, position.y};
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            throw new IllegalStateException(
-                    "absolute mouse position is unavailable", error);
-        }
+    public boolean requiresSecondaryClickInjection() {
+        // This firmware converts native right-button events to Android Back.
+        return true;
     }
 
     @Override

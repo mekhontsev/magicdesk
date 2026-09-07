@@ -119,11 +119,6 @@ public final class PlatformCompositionTest {
         }
 
         @Override
-        public int[] getPosition(final int displayId) {
-            return null;
-        }
-
-        @Override
         public boolean injectClick(final int displayId, final int button) {
             return false;
         }

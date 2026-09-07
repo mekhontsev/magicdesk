@@ -20,11 +20,13 @@ final class RuntimeDesktopInputCoordinator {
             "show_ime_with_hard_keyboard";
 
     private final Handler mHandler;
-    private final DesktopInputRelayPolicy mInputRelay;
+    private final Context mContext;
+    private final PlatformFeatures mPlatformFeatures;
+    private DesktopInputRelayPolicy mInputRelay = DesktopInputRelayPolicy.NONE;
     private final PlatformPointerDriver mPointer;
     private final Runnable mHardwareKeyboardChanged;
     private final RuntimeInputCoordinator mInputDevices;
-    private final DesktopInputRelaySession mRelaySession;
+    private DesktopInputRelaySession mRelaySession;
     private final ExecutorService mInputSourceWorker =
             Executors.newSingleThreadExecutor(runnable -> {
                 final Thread thread = new Thread(
@@ -53,15 +55,13 @@ final class RuntimeDesktopInputCoordinator {
             final PlatformPointerDriver pointer,
             final Runnable hardwareKeyboardChanged) {
         mHandler = handler;
-        mInputRelay = platformFeatures.inputRelay;
+        mContext = context.getApplicationContext();
+        mPlatformFeatures = platformFeatures;
         mPointer = pointer;
         mHardwareKeyboardChanged = hardwareKeyboardChanged;
         mInputDevices = new RuntimeInputCoordinator(
                 context, handler, this::handleInputStateChanged);
-        mRelaySession = new DesktopInputRelaySession(
-                context,
-                mInputRelay,
-                () -> mHandler.post(this::handleRelaySessionStateChanged));
+        mRelaySession = createRelaySession();
     }
 
     void start() {
@@ -117,6 +117,7 @@ final class RuntimeDesktopInputCoordinator {
             return;
         }
         final int previousDisplayId = mDesktopDisplayId;
+        selectInputPolicyForNewSession(displayId);
         mDesktopDisplayId = displayId;
         if (displayId > Display.DEFAULT_DISPLAY) {
             mPointerViewportRecoveryDisplayId = Display.INVALID_DISPLAY;
@@ -145,6 +146,7 @@ final class RuntimeDesktopInputCoordinator {
         if (mDestroyed) {
             return;
         }
+        selectInputPolicyForNewSession(displayId);
         mDesktopDisplayId = displayId;
         clearCompletedMouseBridgeSuspension(displayId);
         updateShowImeOverride();
@@ -170,13 +172,11 @@ final class RuntimeDesktopInputCoordinator {
             final int displayId,
             final String provider) {
         final boolean active = isActiveDesktopDisplay(displayId);
-        final boolean relayRequired = active && requiresMouseRelay();
+        final boolean relayRequired = active && ownsExternalDesktop();
         final boolean relayReady = active
                 && mRelaySession.isPointerReady(displayId);
         final boolean routingReady = active
-                && (!requiresInputRouting()
-                        || mRelaySession.isRoutingReady(
-                                displayId));
+                && mRelaySession.isRoutingReady(displayId);
         final Point position = active && supportsAbsolutePointer(displayId)
                 ? ShellAccess.observeMousePosition(displayId) : null;
         return new DesktopPointerState(
@@ -199,8 +199,9 @@ final class RuntimeDesktopInputCoordinator {
                 displayId, pointerProvider);
         return new InputRelayRuntimeDiagnostics.Snapshot(
                 displayId,
+                ownsExternalDesktop() ? mInputRelay : DesktopInputRelayPolicy.NONE,
                 mRelaySession.captureMouseDiagnostics(),
-                requiresInputRouting()
+                ownsExternalDesktop() && mInputRelay.keyboard
                         ? mRelaySession.captureKeyboardDiagnostics()
                         : KeyboardShortcutWatcher.captureDiagnostics(),
                 pointer);
@@ -229,24 +230,6 @@ final class RuntimeDesktopInputCoordinator {
         updateInputBridges();
     }
 
-    Point getPointerPosition(final int displayId) {
-        return isActiveDesktopDisplay(displayId)
-                && supportsAbsolutePointer(displayId)
-                ? ShellAccess.getMousePosition(displayId) : null;
-    }
-
-    boolean updatePointerPosition(
-            final int displayId,
-            final int x,
-            final int y,
-            final int action,
-            final long downTime) {
-        return isActiveDesktopDisplay(displayId)
-                && supportsAbsolutePointer(displayId)
-                && ShellAccess.updateMousePosition(
-                        displayId, x, y, action, downTime);
-    }
-
     boolean movePointer(
             final int displayId,
             final float deltaX,
@@ -273,10 +256,7 @@ final class RuntimeDesktopInputCoordinator {
         if (!mRelaySession.isPointerReady(displayId)) {
             return false;
         }
-        return button == MotionEvent.BUTTON_SECONDARY
-                && supportsAbsolutePointer(displayId)
-                        ? ShellAccess.injectPointerClick(displayId, button)
-                        : mRelaySession.clickPointer(button);
+        return mRelaySession.clickPointer(button);
     }
 
     boolean scrollPointer(final int displayId, final float amount) {
@@ -308,7 +288,7 @@ final class RuntimeDesktopInputCoordinator {
             mHardwareKeyboardChanged.run();
         }
         updateInputBridges();
-        if (requiresInputRouting()) {
+        if (relaysPhysicalInput()) {
             refreshDesktopInputSources();
             return;
         }
@@ -356,7 +336,7 @@ final class RuntimeDesktopInputCoordinator {
         final boolean shouldRun = shouldRunKeyboardWatcher(
                 ShellAccess.isReady(),
                 mHasHardwareKeyboard,
-                requiresInputRouting());
+                ownsExternalDesktop() && mInputRelay.keyboard);
         if (shouldRun == mKeyboardWatcherRunning) {
             return;
         }
@@ -388,7 +368,7 @@ final class RuntimeDesktopInputCoordinator {
         if (mRelaySession.isMouseReady() && !mouseShouldRun) {
             mPointerReleaseExpected = true;
         }
-        if (requiresInputRouting()) {
+        if (relaysPhysicalInput()) {
             updateKeyboardWatcher();
         } else {
             mRelaySession.reconcile(
@@ -432,7 +412,7 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     private void refreshDesktopInputSources() {
-        if (mDestroyed || !requiresInputRouting()
+        if (mDestroyed || !relaysPhysicalInput()
                 || !ShellAccess.isReady()) {
             return;
         }
@@ -452,7 +432,7 @@ final class RuntimeDesktopInputCoordinator {
                                         inputDump)
                                 : java.util.Collections.emptyList();
                 mHandler.post(() -> {
-                    if (mDestroyed || !requiresInputRouting()
+                    if (mDestroyed || !relaysPhysicalInput()
                             || generation != mInputSourceRefreshGeneration) {
                         return;
                     }
@@ -470,13 +450,35 @@ final class RuntimeDesktopInputCoordinator {
         return mDesktopDisplayId > Display.DEFAULT_DISPLAY;
     }
 
-    private boolean requiresInputRouting() {
+    private boolean relaysPhysicalInput() {
         return ownsExternalDesktop()
-                && mInputRelay.isRequired();
+                && mInputRelay.isEnabled();
     }
 
-    private boolean requiresMouseRelay() {
-        return ownsExternalDesktop() && mInputRelay.mouse;
+    private DesktopInputRelaySession createRelaySession() {
+        return new DesktopInputRelaySession(
+                mContext,
+                mInputRelay,
+                mPointer.requiresSecondaryClickInjection(),
+                () -> mHandler.post(this::handleRelaySessionStateChanged));
+    }
+
+    private void selectInputPolicyForNewSession(final int displayId) {
+        if (ownsExternalDesktop() || displayId <= Display.DEFAULT_DISPLAY) {
+            return;
+        }
+        final DesktopInputRelayPolicy selected = MagicDeskSettings.load()
+                .inputRelayPolicy(mPlatformFeatures);
+        if (selected.keyboard == mInputRelay.keyboard
+                && selected.mouse == mInputRelay.mouse) {
+            return;
+        }
+        // Preferences are latched at session entry. Never tear down live
+        // capture or change device ownership in response to a settings edit.
+        ++mInputSourceRefreshGeneration;
+        mRelaySession.stop();
+        mInputRelay = selected;
+        mRelaySession = createRelaySession();
     }
 
     private boolean supportsAbsolutePointer(final int displayId) {

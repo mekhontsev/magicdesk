@@ -34,6 +34,11 @@ final class MagicDeskSettings {
                 state -> state.settings.openTouchpadAutomatically = enabled);
     }
 
+    static boolean setRelayPhysicalInput(final boolean enabled) {
+        return DesktopStateStore.update(
+                state -> state.settings.relayPhysicalInput = enabled);
+    }
+
     static boolean setOpenFilesWithSingleClick(final boolean enabled) {
         return DesktopStateStore.update(
                 state -> state.settings.openFilesWithSingleClick = enabled);
@@ -57,6 +62,7 @@ final class MagicDeskSettings {
                 "disableAdaptiveBrightnessOnExternalDesktop";
         private static final String OPEN_TOUCHPAD_AUTOMATICALLY =
                 "openTouchpadAutomatically";
+        private static final String RELAY_PHYSICAL_INPUT = "relayPhysicalInput";
         private static final String OPEN_FILES_WITH_SINGLE_CLICK =
                 "openFilesWithSingleClick";
         private static final String TERMUX_X11_STARTUP_COMMAND =
@@ -66,6 +72,8 @@ final class MagicDeskSettings {
         boolean keepDesktopAwake;
         boolean disableAdaptiveBrightnessOnExternalDesktop;
         boolean openTouchpadAutomatically;
+        // Unset follows the platform recommendation without persisting it.
+        Boolean relayPhysicalInput;
         boolean openFilesWithSingleClick;
         String termuxX11StartupCommand;
 
@@ -87,6 +95,8 @@ final class MagicDeskSettings {
                         json.optBoolean(DISABLE_ADAPTIVE_BRIGHTNESS, false);
                 values.openTouchpadAutomatically = json.optBoolean(
                         OPEN_TOUCHPAD_AUTOMATICALLY, true);
+                values.relayPhysicalInput = json.isNull(RELAY_PHYSICAL_INPUT)
+                        ? null : json.optBoolean(RELAY_PHYSICAL_INPUT, false);
                 values.openFilesWithSingleClick = json.optBoolean(
                         OPEN_FILES_WITH_SINGLE_CLICK, false);
                 try {
@@ -109,6 +119,7 @@ final class MagicDeskSettings {
             copy.disableAdaptiveBrightnessOnExternalDesktop =
                     disableAdaptiveBrightnessOnExternalDesktop;
             copy.openTouchpadAutomatically = openTouchpadAutomatically;
+            copy.relayPhysicalInput = relayPhysicalInput;
             copy.openFilesWithSingleClick = openFilesWithSingleClick;
             copy.termuxX11StartupCommand = termuxX11StartupCommand;
             return copy;
@@ -124,6 +135,7 @@ final class MagicDeskSettings {
             json.put(
                     OPEN_TOUCHPAD_AUTOMATICALLY,
                     openTouchpadAutomatically);
+            json.put(RELAY_PHYSICAL_INPUT, relayPhysicalInput);
             json.put(
                     OPEN_FILES_WITH_SINGLE_CLICK,
                     openFilesWithSingleClick);
@@ -131,6 +143,12 @@ final class MagicDeskSettings {
                     TERMUX_X11_STARTUP_COMMAND,
                     termuxX11StartupCommand);
             return json;
+        }
+
+        DesktopInputRelayPolicy inputRelayPolicy(
+                final PlatformFeatures features) {
+            return DesktopInputRelayPolicy.resolve(
+                    relayPhysicalInput, features.defaultInputRelay);
         }
     }
 }

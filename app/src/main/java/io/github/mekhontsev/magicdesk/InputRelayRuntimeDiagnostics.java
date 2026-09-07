@@ -45,6 +45,7 @@ final class InputRelayRuntimeDiagnostics {
 
     static final class Snapshot {
         final int displayId;
+        final DesktopInputRelayPolicy physicalRelay;
         final BridgeSnapshot mouse;
         final BridgeSnapshot keyboard;
         final String pointerProvider;
@@ -55,10 +56,12 @@ final class InputRelayRuntimeDiagnostics {
 
         Snapshot(
                 final int displayId,
+                final DesktopInputRelayPolicy physicalRelay,
                 final BridgeSnapshot mouse,
                 final BridgeSnapshot keyboard,
                 final DesktopPointerState pointer) {
             this.displayId = displayId;
+            this.physicalRelay = physicalRelay;
             this.mouse = mouse;
             this.keyboard = keyboard;
             pointerProvider = pointer == null
@@ -74,7 +77,8 @@ final class InputRelayRuntimeDiagnostics {
         static Snapshot unavailable() {
             final BridgeSnapshot unavailable = new BridgeSnapshot(
                     false, false, false, -1, "", "runtime unavailable");
-            return new Snapshot(-1, unavailable, unavailable, null);
+            return new Snapshot(-1, DesktopInputRelayPolicy.NONE,
+                    unavailable, unavailable, null);
         }
     }
 

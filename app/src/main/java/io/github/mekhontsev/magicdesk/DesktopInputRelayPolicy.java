@@ -1,6 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Platform policy for relaying physical input through MagicDesk devices. */
+/** Physical input selected for capture; independent of the virtual pointer. */
 public final class DesktopInputRelayPolicy {
     public static final DesktopInputRelayPolicy NONE =
             new DesktopInputRelayPolicy(false, false);
@@ -17,13 +17,20 @@ public final class DesktopInputRelayPolicy {
         this.mouse = mouse;
     }
 
-    public boolean isRequired() {
+    public boolean isEnabled() {
         return keyboard || mouse;
+    }
+
+    public static DesktopInputRelayPolicy resolve(
+            final Boolean preference,
+            final DesktopInputRelayPolicy platformDefault) {
+        return preference == null ? platformDefault
+                : preference ? KEYBOARD_AND_MOUSE : NONE;
     }
 
     public DesktopInputRelayPolicy merge(
             final DesktopInputRelayPolicy extension) {
-        if (extension == null || !extension.isRequired()) {
+        if (extension == null || !extension.isEnabled()) {
             return this;
         }
         return new DesktopInputRelayPolicy(

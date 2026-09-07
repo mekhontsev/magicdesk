@@ -26,12 +26,17 @@ projection, optional absolute-pointer access, external-display input routing,
 WMShell desktop commands, and several task transitions can still depend on
 firmware behavior.
 
-Compatibility reports expose keyboard relay, mouse relay, and absolute-pointer
-support separately. A vendor can therefore require a complete keyboard stream
-without replacing mouse routing, or expose absolute-pointer observation and
-explicit positioning independently of either native relay. The phone touchpad's
-relative-motion path requires the mouse relay, not an absolute-position API.
-Missing one input capability must not disable or start the others.
+Compatibility reports distinguish the platform's default physical-input relay
+policy, the saved user preference, the current session's capture policy, and
+actual relay readiness. **Redirect physical keyboard and mouse to desktop
+(next session)** overrides the default on every platform. Stock Nubia firmware
+defaults to capture enabled; Standard Android defaults to disabled. The shared
+evdev/uinput transport still needs the shell permissions shown in the capability
+probe; enabling the preference cannot grant them. The phone touchpad's relative
+input uses a virtual mouse independently of physical capture and does not
+require an absolute-position API. Software keyboard input is independent of
+both. Optional pointer observation, coordinate injection, and firmware-specific
+secondary-button handling remain separate capabilities.
 
 Phone desktop availability is independent from external-display support.
 MagicDesk reports Android's live

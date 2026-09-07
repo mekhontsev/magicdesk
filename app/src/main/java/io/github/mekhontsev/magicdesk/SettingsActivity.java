@@ -73,6 +73,11 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void setRelayPhysicalInput(final boolean enabled) {
+        saveSetting(MagicDeskSettings.setRelayPhysicalInput(enabled));
+    }
+
+    @Override
     public void setOpenFilesWithSingleClick(final boolean enabled) {
         saveSetting(MagicDeskSettings.setOpenFilesWithSingleClick(enabled));
     }

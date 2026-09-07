@@ -282,6 +282,7 @@ static int shortcuts(void) {
 }
 #else
 static int shortcuts(void) {
+    state.secondary_click_injection = true;
     assert(set_control_primary(&state, true) == 0);
     assert(deliver(0, EV_KEY, BTN_LEFT, 1) == 0);
     assert(deliver(0, EV_KEY, BTN_RIGHT, 1) == 0);
@@ -297,6 +298,46 @@ static int shortcuts(void) {
     assert(deliver(0, EV_KEY, BTN_RIGHT, 0) == 0);
     CHECK(strstr(protocol, "MAGICDESK_MOUSE_SECONDARY_CLICK") != NULL,
             "normal secondary click no longer works after recovery");
+    return 0;
+}
+
+static int secondary_clicks(bool injected) {
+    state.secondary_click_injection = injected;
+    assert(deliver(0, EV_KEY, BTN_RIGHT, 1) == 0);
+    assert(deliver(1, EV_KEY, BTN_RIGHT, 1) == 0);
+    assert(handle_control_line(&state, "click-secondary") == 0);
+    CHECK(protocol_length == 0, "control click interrupted a physical hold");
+    assert(deliver(0, EV_KEY, BTN_RIGHT, 0) == 0);
+    CHECK(protocol_length == 0 && emitted_key_count(BTN_RIGHT, 0) == 0,
+            "secondary button released before its last owner");
+    assert(deliver(1, EV_KEY, BTN_RIGHT, 0) == 0);
+    CHECK(emitted_key_count(BTN_RIGHT, 1) == (injected ? 0U : 1U)
+            && emitted_key_count(BTN_RIGHT, 0) == (injected ? 0U : 1U),
+            "physical secondary button ignored the selected policy");
+    CHECK((strstr(protocol, "MAGICDESK_MOUSE_SECONDARY_CLICK") != NULL) == injected,
+            "secondary injection must be explicitly selected");
+
+    emitted_count = protocol_length = 0;
+    protocol[0] = '\0';
+    assert(handle_control_line(&state, "click-secondary") == 0);
+    CHECK(emitted_key_count(BTN_RIGHT, 1) == (injected ? 0U : 1U)
+            && emitted_key_count(BTN_RIGHT, 0) == (injected ? 0U : 1U),
+            "touchpad secondary click ignored the selected policy");
+    CHECK((strstr(protocol, "MAGICDESK_MOUSE_SECONDARY_CLICK") != NULL) == injected,
+            "touchpad and physical secondary clicks use different policies");
+
+    emitted_count = protocol_length = 0;
+    protocol[0] = '\0';
+    snapshot_down(0, BTN_RIGHT);
+    assert(deliver(0, EV_SYN, SYN_DROPPED, 0) == 0);
+    assert(deliver(0, EV_SYN, SYN_REPORT, 0) == 0);
+    memset(kernel_keys, 0, sizeof(kernel_keys));
+    assert(deliver(0, EV_SYN, SYN_DROPPED, 0) == 0);
+    assert(deliver(0, EV_SYN, SYN_REPORT, 0) == 0);
+    CHECK(emitted_key_count(BTN_RIGHT, 1) == (injected ? 0U : 1U)
+            && emitted_key_count(BTN_RIGHT, 0) == (injected ? 0U : 1U),
+            "secondary-button recovery ignored the selected policy");
+    CHECK(protocol_length == 0, "recovery invented a secondary-click request");
     return 0;
 }
 #endif
@@ -328,6 +369,9 @@ int main(int argc, char **argv) {
 #ifdef FIXTURE_KEYBOARD
     else if (strcmp(argv[1], "paused") == 0) result = paused_recovery();
     else if (strcmp(argv[1], "queue-cleanup") == 0) result = queue_cleanup();
+#else
+    else if (strcmp(argv[1], "secondary-native") == 0) result = secondary_clicks(false);
+    else if (strcmp(argv[1], "secondary-injected") == 0) result = secondary_clicks(true);
 #endif
     else return 2;
     if (result == 0) {

@@ -9,12 +9,6 @@ final class GenericAndroidPointerDriver implements PlatformPointerDriver {
     }
 
     @Override
-    public int[] getPosition(final int displayId) {
-        throw new IllegalStateException(
-                "absolute pointer control is unavailable on this platform");
-    }
-
-    @Override
     public boolean injectClick(final int displayId, final int button) {
         return false;
     }

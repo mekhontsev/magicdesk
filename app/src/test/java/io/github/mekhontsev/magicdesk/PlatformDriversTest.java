@@ -24,8 +24,9 @@ public final class PlatformDriversTest {
                 .provider(PlatformComponent.PROJECTION).id);
         assertTrue(driver.features().wiredDesktop);
         assertTrue(driver.features().wirelessDesktop);
-        assertTrue(driver.features().inputRelay.keyboard);
-        assertTrue(driver.features().inputRelay.mouse);
+        assertTrue(driver.features().defaultInputRelay.keyboard);
+        assertTrue(driver.features().defaultInputRelay.mouse);
+        assertTrue(driver.pointer().requiresSecondaryClickInjection());
         assertFalse(driver.audioCapture().availability()
                 == PlatformAudioCaptureDriver.Availability.UNSUPPORTED);
         assertTrue(driver.pointer().isAvailable());
@@ -64,7 +65,8 @@ public final class PlatformDriversTest {
                 DesktopDisplayTarget.Kind.WIRED));
         assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRELESS));
-        assertFalse(driver.features().inputRelay.isRequired());
+        assertFalse(driver.features().defaultInputRelay.isEnabled());
+        assertFalse(driver.pointer().requiresSecondaryClickInjection());
         assertFalse(driver.audioCapture().isAvailable());
         assertFalse(driver.pointer().isAvailable());
         assertFalse(driver.projection().supportsOutputConfiguration());
@@ -139,6 +141,23 @@ public final class PlatformDriversTest {
                 .provider(PlatformComponent.PROJECTION).id);
         assertFalse(driver.projection().supportsOutputConfiguration());
         assertNull(driver.windowing().restrictionsPropertyKey());
+    }
+
+    @Test
+    public void optionalPointerDoesNotRequirePhysicalCapture() {
+        final EnumMap<PlatformComponent, String> detected =
+                new EnumMap<>(PlatformComponent.class);
+        detected.put(PlatformComponent.POINTER, "pointer API detected");
+        final PlatformDriver driver = PlatformDrivers.resolve(
+                device("nubia", "nubia", "NX809J", "NX809J", "NX809J"),
+                "", NubiaFirmwareDetector.fromDetectedComponents(detected));
+        assertTrue(driver.pointer().isAvailable());
+        assertFalse(driver.features().defaultInputRelay.isEnabled());
+        assertTrue(DesktopInputRelayPolicy.resolve(true,
+                driver.features().defaultInputRelay).isEnabled());
+        assertEquals(PlatformCapabilityState.AVAILABLE,
+                PlatformCapabilitySnapshot.capture(driver)
+                        .entry(PlatformCapabilityId.EXTERNAL_INPUT_BRIDGE).state);
     }
 
     @Test

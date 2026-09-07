@@ -22,6 +22,7 @@ final class DesktopMouseBridge {
     private final Object mLock = new Object();
     private final Context mContext;
     private final boolean mRelayPhysicalMice;
+    private final boolean mSecondaryClickInjection;
     private final Runnable mStateChanged;
     private final NativeInputBridgeStatsClient mStatsClient =
             new NativeInputBridgeStatsClient("MAGICDESK_MOUSE_STATS");
@@ -41,9 +42,11 @@ final class DesktopMouseBridge {
     DesktopMouseBridge(
             final Context context,
             final boolean relayPhysicalMice,
+            final boolean secondaryClickInjection,
             final Runnable stateChanged) {
         mContext = context.getApplicationContext();
         mRelayPhysicalMice = relayPhysicalMice;
+        mSecondaryClickInjection = secondaryClickInjection;
         mStateChanged = stateChanged;
     }
 
@@ -344,6 +347,9 @@ final class DesktopMouseBridge {
         final StringBuilder command =
                 new StringBuilder("exec ").append(ShellCommandLine.quote(
                         helper.getAbsolutePath()));
+        if (mSecondaryClickInjection) {
+            command.append(" --secondary-click-injection");
+        }
         for (final DesktopMouseDevice mouse : mice) {
             command.append(' ').append(ShellCommandLine.quote(mouse.path));
         }
@@ -434,6 +440,9 @@ final class DesktopMouseBridge {
             return;
         }
         if (line.startsWith("MAGICDESK_MOUSE_SECONDARY_CLICK")) {
+            if (!mSecondaryClickInjection || !isActive(generation)) {
+                return;
+            }
             final int displayId = DesktopRuntimeBridge
                     .getActiveDesktopDisplayId();
             if (displayId > 0) {

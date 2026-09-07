@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Point;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.os.UserHandle;
@@ -242,23 +241,6 @@ public final class MagicDeskRuntime {
         if (backend != null) {
             backend.cancelDesktopDisplayRemoval(displayId);
         }
-    }
-
-    static Point getDesktopPointerPosition(final int displayId) {
-        final MagicDeskRuntimeBackend backend = backend();
-        return backend == null
-                ? null : backend.getDesktopPointerPosition(displayId);
-    }
-
-    static boolean updateDesktopPointerPosition(
-            final int displayId,
-            final int x,
-            final int y,
-            final int action,
-            final long downTime) {
-        final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.updateDesktopPointerPosition(
-                displayId, x, y, action, downTime);
     }
 
     static boolean moveDesktopPointer(

@@ -86,7 +86,6 @@ final class PhoneTouchpadController {
         final DesktopDisplayTarget target =
                 DesktopRuntimeBridge.getDesktopTarget(displayId);
         return target != null
-                && PlatformDrivers.current().pointer().isAvailable()
                 && DesktopDisplayDrivers.forTarget(target)
                         .features().phoneTouchpad;
     }

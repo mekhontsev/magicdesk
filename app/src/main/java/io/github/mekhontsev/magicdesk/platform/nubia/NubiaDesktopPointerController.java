@@ -13,13 +13,8 @@ final class NubiaDesktopPointerController {
             "android.hardware.input.IInputManager";
     private static final String SEND_MOUSE_COMMAND_TRANSACTION =
             "sendMouseCmd";
-    private static final String SET_POINTER_POSITION_TRANSACTION =
-            "setPointerPosition";
     private static volatile int sSendMouseCommandTransaction;
-    private static volatile int sSetPointerPositionTransaction;
     private static volatile MousePositionAccess sMousePositionAccess;
-    private static int sKnownMouseDisplayId = -1;
-    private static Point sKnownMousePosition;
 
     private NubiaDesktopPointerController() {
     }
@@ -38,7 +33,6 @@ final class NubiaDesktopPointerController {
         access.setMousePosition.invoke(access.inputManager,
                         Integer.valueOf(position.x),
                         Integer.valueOf(position.y));
-        rememberPosition(displayId, position);
     }
 
     static void createOrUpdateViewport()
@@ -75,29 +69,6 @@ final class NubiaDesktopPointerController {
         return position;
     }
 
-    static Point getPosition(final int displayId)
-            throws ReflectiveOperationException {
-        if (displayId <= 0) {
-            throw new IllegalArgumentException("missing mouse display");
-        }
-        final Point displaySize = getLogicalDisplaySize(displayId);
-        Point position = null;
-        synchronized (NubiaDesktopPointerController.class) {
-            if (sKnownMouseDisplayId == displayId
-                    && sKnownMousePosition != null) {
-                position = new Point(sKnownMousePosition);
-            }
-        }
-        if (position == null) {
-            position = new Point(
-                    (displaySize.x - 1) / 2,
-                    (displaySize.y - 1) / 2);
-        }
-        position.x = clamp(position.x, displaySize.x - 1);
-        position.y = clamp(position.y, displaySize.y - 1);
-        return position;
-    }
-
     private static Point queryPosition()
             throws ReflectiveOperationException {
         final Point position = new Point();
@@ -109,48 +80,6 @@ final class NubiaDesktopPointerController {
             return null;
         }
         return position;
-    }
-
-    private static Point getLogicalDisplaySize(final int displayId)
-            throws ReflectiveOperationException {
-        final Object displayManager = Class.forName(
-                "android.hardware.display.IDisplayManager$Stub")
-                .getMethod("asInterface", IBinder.class)
-                .invoke(null, getServiceBinder("display"));
-        final Object displayInfo = Class.forName(
-                "android.hardware.display.IDisplayManager")
-                .getMethod("getDisplayInfo", int.class)
-                .invoke(displayManager, Integer.valueOf(displayId));
-        if (displayInfo == null) {
-            throw new IllegalStateException(
-                    "mouse display is unavailable: " + displayId);
-        }
-        final int width = ((Number) displayInfo.getClass()
-                .getField("logicalWidth").get(displayInfo)).intValue();
-        final int height = ((Number) displayInfo.getClass()
-                .getField("logicalHeight").get(displayInfo)).intValue();
-        if (width <= 0 || height <= 0) {
-            throw new IllegalStateException(
-                    "mouse display has invalid bounds: "
-                            + width + "x" + height);
-        }
-        return new Point(width, height);
-    }
-
-    static synchronized void rememberPosition(
-            final int displayId,
-            final Point position) {
-        sKnownMouseDisplayId = displayId;
-        sKnownMousePosition = new Point(position);
-    }
-
-    private static int clamp(final int value, final int maximum) {
-        return Math.max(0, Math.min(maximum, value));
-    }
-
-    static void preparePointerPositionControl()
-            throws ReflectiveOperationException {
-        getSetPointerPositionTransaction();
     }
 
     static void prepareMousePositionControl()
@@ -193,23 +122,6 @@ final class NubiaDesktopPointerController {
         }
         throw new NoSuchMethodException(
                 "missing IInputManager transaction " + name);
-    }
-
-    private static int getSetPointerPositionTransaction()
-            throws ReflectiveOperationException {
-        int transaction = sSetPointerPositionTransaction;
-        if (transaction != 0) {
-            return transaction;
-        }
-        synchronized (NubiaDesktopPointerController.class) {
-            transaction = sSetPointerPositionTransaction;
-            if (transaction == 0) {
-                transaction = findTransactionCode(
-                        SET_POINTER_POSITION_TRANSACTION);
-                sSetPointerPositionTransaction = transaction;
-            }
-        }
-        return transaction;
     }
 
     private static int getSendMouseCommandTransaction()

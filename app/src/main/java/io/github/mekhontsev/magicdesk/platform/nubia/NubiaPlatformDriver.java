@@ -94,7 +94,7 @@ public final class NubiaPlatformDriver implements PlatformExtension {
         return new PlatformFeatures(
                 baseline.wiredDesktop,
                 baseline.wirelessDesktop,
-                baseline.inputRelay.merge(
+                baseline.defaultInputRelay.merge(
                         components().contains(PlatformComponent.EXTERNAL_INPUT)
                                 ? DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE
                                 : DesktopInputRelayPolicy.NONE),

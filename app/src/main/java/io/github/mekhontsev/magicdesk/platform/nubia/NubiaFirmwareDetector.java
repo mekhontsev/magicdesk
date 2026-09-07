@@ -134,9 +134,6 @@ public final class NubiaFirmwareDetector {
             detected.put(
                     PlatformComponent.POINTER,
                     "Nubia IInputManager pointer API detected");
-            detected.put(
-                    PlatformComponent.EXTERNAL_INPUT,
-                    "MagicDesk external input bridge uses Nubia pointer API");
         }
         if (hasMethod(
                 "com.redmagic.os.RedMagicAppManager$Trigger",
@@ -166,7 +163,6 @@ public final class NubiaFirmwareDetector {
     private static boolean hasPointerApi() {
         try {
             NubiaDesktopPointerController.prepareMousePositionControl();
-            NubiaDesktopPointerController.preparePointerPositionControl();
             return true;
         } catch (ReflectiveOperationException | RuntimeException
                 | LinkageError error) {

@@ -32,7 +32,6 @@ public final class MagicDeskRuntimeTest {
         assertFalse(MagicDeskRuntime.isSessionWakeLockHeld());
         assertFalse(MagicDeskRuntime.isDesktopMouseBridgeReady());
         assertFalse(MagicDeskRuntime.isFullKeyboardShortcutMode());
-        assertNull(MagicDeskRuntime.getDesktopPointerPosition(7));
         assertFalse(MagicDeskRuntime.showStart());
         assertFalse(MagicDeskRuntime.toggleDesktopWorkspace());
         assertFalse(MagicDeskRuntime.restoreLastVisibleWindows());
@@ -278,21 +277,6 @@ public final class MagicDeskRuntimeTest {
         @Override
         public void cancelDesktopDisplayRemoval(final int displayId) {
             pointerSuspensionCancelledDisplayId = displayId;
-        }
-
-        @Override
-        public Point getDesktopPointerPosition(final int displayId) {
-            return new Point(10, 20);
-        }
-
-        @Override
-        public boolean updateDesktopPointerPosition(
-                final int displayId,
-                final int x,
-                final int y,
-                final int action,
-                final long downTime) {
-            return true;
         }
 
         @Override

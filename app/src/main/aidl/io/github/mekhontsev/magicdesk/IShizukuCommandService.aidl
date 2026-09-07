@@ -112,11 +112,6 @@ interface IShizukuCommandService {
 
     DesktopFileInfo getDesktopFileInfo(String relativePath) = 33;
 
-    int[] getMousePosition(int displayId) = 35;
-
-    boolean updateMousePosition(
-        int displayId, int x, int y, int action, long downTime) = 36;
-
     void setPhoneTouchpadPreservation(
         ITaskObserverCallback callback, boolean enabled) = 41;
 

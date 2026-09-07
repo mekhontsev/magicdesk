@@ -125,6 +125,8 @@ final class InputRelayReportSnapshot {
     void appendReport(final StringBuilder report) {
         report.append("Input relay runtime: ")
                 .append(lifecycle.reportLine())
+                .append(", physicalCapturePolicy={")
+                .append(runtime.physicalRelay.diagnosticDetail()).append('}')
                 .append('\n')
                 .append("Mouse relay snapshot: ")
                 .append(runtime.mouse.reportLine())

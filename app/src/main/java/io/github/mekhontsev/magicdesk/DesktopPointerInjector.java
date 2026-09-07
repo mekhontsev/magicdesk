@@ -412,11 +412,11 @@ public final class DesktopPointerInjector {
     }
 
     private static int pointerDeviceId(final int displayId) {
-        // Nubia's external cursor path needs MagicDesk's uinput mouse. The
-        // standard platform can inject a display-targeted synthetic mouse.
+        // Secondary-click replacement must use the same virtual cursor as
+        // motion, even when physical capture is disabled for this session.
         if (displayId != Display.DEFAULT_DISPLAY
-                && PlatformDrivers.current().features()
-                        .inputRelay.mouse) {
+                && PlatformDrivers.current().pointer()
+                        .requiresSecondaryClickInjection()) {
             return magicDeskMouseDeviceId();
         }
         return inputDeviceId(InputDevice.SOURCE_MOUSE);

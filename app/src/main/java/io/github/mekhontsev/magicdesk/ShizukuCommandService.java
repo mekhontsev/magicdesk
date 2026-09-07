@@ -884,28 +884,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public int[] getMousePosition(final int displayId) {
-        return mPointerDriver.getPosition(displayId);
-    }
-
-    @Override
     public int[] observeMousePosition(final int displayId) {
         final Point position = mPointerDriver.observePosition(displayId);
         return position == null ? null
                 : new int[] {position.x, position.y};
     }
-
-    @Override
-    public boolean updateMousePosition(
-            final int displayId,
-            final int x,
-            final int y,
-            final int action,
-            final long downTime) {
-        return mPointerDriver.updatePosition(
-                displayId, x, y, action, downTime);
-    }
-
 
     @Override
     public int[] startInputRouting(

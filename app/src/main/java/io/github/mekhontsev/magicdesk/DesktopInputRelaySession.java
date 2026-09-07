@@ -41,12 +41,13 @@ final class DesktopInputRelaySession {
     DesktopInputRelaySession(
             final Context context,
             final DesktopInputRelayPolicy policy,
+            final boolean secondaryClickInjection,
             final Runnable stateChanged) {
         mContext = context.getApplicationContext();
         mPolicy = policy == null ? DesktopInputRelayPolicy.NONE : policy;
         mStateChanged = stateChanged;
         mMouseBridge = new DesktopMouseBridge(
-                mContext, mPolicy.mouse, stateChanged);
+                mContext, mPolicy.mouse, secondaryClickInjection, stateChanged);
     }
 
     void reconcile(
