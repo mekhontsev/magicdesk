@@ -256,7 +256,7 @@ final class DesktopWorkspaceController {
                 false,
                 "",
                 DesktopMimeTypes.empty(),
-                action.id));
+                action.id).withApplication(app.identity));
     }
 
     private DesktopFile findDefaultApplicationShortcut(final AppItem app) {
@@ -267,6 +267,8 @@ final class DesktopWorkspaceController {
             final DesktopApplicationShortcut shortcut =
                     file.applicationShortcut();
             if (shortcut != null
+                    && (shortcut.application == null
+                            || app.identity.equals(shortcut.application))
                     && app.launchTarget.equals(shortcut.launchTarget)
                     && (shortcut.defaultLaunch
                             || DesktopLaunchIntegrationRegistry
@@ -303,7 +305,7 @@ final class DesktopWorkspaceController {
                     DesktopExecBackend.SHELL,
                     false);
         }
-        storeApplicationShortcut(shortcut);
+        storeApplicationShortcut(shortcut.withApplication(app.identity));
     }
 
     private void storeApplicationShortcut(

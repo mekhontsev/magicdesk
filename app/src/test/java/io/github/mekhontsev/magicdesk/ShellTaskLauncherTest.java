@@ -30,13 +30,13 @@ public final class ShellTaskLauncherTest {
         assertTrue(ShellTaskLauncher.launchContractViolation(
                 task,
                 LaunchActivityIdentity.packageScoped(
-                        "com.example.app", null),
+                        0, "com.example.app", null),
                 DISPLAY_ID,
                 FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM).isEmpty());
         assertTrue(ShellTaskLauncher.launchContractViolation(
                 task,
                 LaunchActivityIdentity.packageScoped(
-                        "com.example.other", null),
+                        0, "com.example.other", null),
                 DISPLAY_ID,
                 FrameworkTaskSnapshot.WINDOWING_MODE_FREEFORM)
                 .contains("identity"));
@@ -93,6 +93,6 @@ public final class ShellTaskLauncherTest {
                 new Rect(0, 0, 1000, 700),
                 true,
                 true,
-                null);
+                null, null, 0);
     }
 }

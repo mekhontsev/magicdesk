@@ -10,7 +10,7 @@ import org.junit.Test;
 
 public final class PhoneAppLauncherTest {
     private static final LaunchActivityIdentity APP =
-            LaunchActivityIdentity.packageScoped("com.example.app", null);
+            LaunchActivityIdentity.packageScoped(0, "com.example.app", null);
 
     @Test
     public void transfersAnExistingExternalTask() {
@@ -44,6 +44,7 @@ public final class PhoneAppLauncherTest {
             final int id, final int displayId, final String packageName, final boolean home) {
         return new TaskRepository.TaskEntry(id, id, displayId, packageName,
                 packageName + "/.MainActivity", packageName + "/.MainActivity",
-                displayId == 0 ? "fullscreen" : "freeform", null, home, true, true);
+                displayId == 0 ? "fullscreen" : "freeform", null, -1, -1,
+                home, true, true, 0);
     }
 }

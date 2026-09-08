@@ -610,7 +610,7 @@ final class DesktopContextMenuController {
         }
         final TaskRepository.TaskEntry task = exactTask != null
                 ? exactTask
-                : mActivity.findFirstTask(app.launchTarget);
+                : mActivity.findFirstTask(app);
         showAppMenu(new AppMenuState(
                 x,
                 y,

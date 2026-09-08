@@ -310,6 +310,13 @@ require Termux, Termux:X11, the Termux external-command setting, and the
 
 ## Android Integration
 
+Task rows include the actual Android `userId` (`-1` when unavailable).
+`list_apps` remains scoped to the current profile and includes `userId`,
+`profileSerialNumber`, and the durable `appIdentity` key on each row. These
+are identity metadata, not a claim that cross-profile launches are supported.
+An Android Desktop Entry that explicitly references a different profile fails
+before execution instead of falling back to the current profile.
+
 `list_android_actions` and `invoke_android_action` expose the same bounded
 semantic action catalog used by desktop UI and Android App Functions. It
 currently includes document open/create, application details, notification

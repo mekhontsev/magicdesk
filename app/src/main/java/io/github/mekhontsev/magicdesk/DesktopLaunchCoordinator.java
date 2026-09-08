@@ -55,6 +55,9 @@ final class DesktopLaunchCoordinator {
         }
         final DesktopLaunchRequest request;
         try {
+            if (source.application != null) {
+                source.application.requireProfile(AppProfile.current(mContext.activity()));
+            }
             request = DesktopLaunchIntegrationRegistry.prepare(
                     mContext.activity(), source.prepareExec());
         } catch (IllegalArgumentException error) {

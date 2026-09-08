@@ -14,7 +14,7 @@ import java.util.List;
 public final class DesktopTaskLaunchObservationTest {
     private static final int DISPLAY_ID = 7;
     private static final LaunchActivityIdentity TARGET =
-            LaunchActivityIdentity.packageScoped("com.example.app", null);
+            LaunchActivityIdentity.packageScoped(0, "com.example.app", null);
 
     @Test
     public void acceptsMatchingStandardTaskAndPrefersReceiptTask() {
@@ -143,8 +143,10 @@ public final class DesktopTaskLaunchObservationTest {
                 mode,
                 new Rect(10, 20, 300, 400),
                 activityType,
+                -1,
                 false,
                 visible,
-                active);
+                active,
+                0);
     }
 }

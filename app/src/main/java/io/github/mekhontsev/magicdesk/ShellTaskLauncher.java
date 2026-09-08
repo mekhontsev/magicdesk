@@ -131,6 +131,7 @@ final class ShellTaskLauncher {
                 ShellShortcutGateway.launchIntent(mContext, shortcut);
         return launchPendingActivityWindowed(
                 LaunchActivityIdentity.packageScoped(
+                        FrameworkUserApi.userId(user),
                         shortcut.getPackage(), component),
                 displayId,
                 shortcut.getPackage(),
@@ -153,7 +154,7 @@ final class ShellTaskLauncher {
             final int densityDpi) throws ReflectiveOperationException {
         return launchPendingActivityWindowed(
                 pendingActivityIdentity(
-                        expectedPackage, expectedComponent),
+                        pendingIntent, expectedPackage, expectedComponent),
                 displayId,
                 expectedPackage,
                 pendingIntent,
@@ -229,6 +230,7 @@ final class ShellTaskLauncher {
                 ShellShortcutGateway.launchIntent(mContext, shortcut);
         return launchPendingActivityFullscreen(
                 LaunchActivityIdentity.packageScoped(
+                        FrameworkUserApi.userId(user),
                         shortcut.getPackage(), component),
                 displayId,
                 shortcut.getPackage(),
@@ -245,7 +247,7 @@ final class ShellTaskLauncher {
             final Object taskAreaToken) throws ReflectiveOperationException {
         return launchPendingActivityFullscreen(
                 pendingActivityIdentity(
-                        expectedPackage, expectedComponent),
+                        pendingIntent, expectedPackage, expectedComponent),
                 displayId,
                 expectedPackage,
                 pendingIntent,
@@ -305,6 +307,7 @@ final class ShellTaskLauncher {
                 displayId,
                 taskId,
                 LaunchActivityIdentity.packageScoped(
+                        FrameworkUserApi.userId(user),
                         packageName,
                         ShellShortcutGateway.targetComponent(shortcut)),
                 ShellShortcutGateway.launchIntent(mContext, shortcut),
@@ -319,7 +322,7 @@ final class ShellTaskLauncher {
             final PendingIntent pendingIntent)
             throws ReflectiveOperationException {
         final LaunchActivityIdentity identity = pendingActivityIdentity(
-                expectedPackage, expectedComponent);
+                pendingIntent, expectedPackage, expectedComponent);
         launchPendingActivityInTask(
                 displayId,
                 taskId,
@@ -408,7 +411,9 @@ final class ShellTaskLauncher {
             final int densityDpi,
             final TaskStarter starter) throws ReflectiveOperationException {
         return launchPreparedTask(
-                LaunchActivityIdentity.resolve(mPackageManager, component),
+                LaunchActivityIdentity.resolve(
+                        FrameworkUserApi.userId(android.os.Process.myUserHandle()),
+                        mPackageManager, component),
                 displayId,
                 bounds,
                 windowingMode,
@@ -508,6 +513,7 @@ final class ShellTaskLauncher {
     }
 
     private LaunchActivityIdentity pendingActivityIdentity(
+            final PendingIntent pendingIntent,
             final String expectedPackage,
             final ComponentName expectedComponent) {
         if (expectedPackage == null || expectedPackage.isEmpty()
@@ -517,10 +523,12 @@ final class ShellTaskLauncher {
             throw new IllegalArgumentException(
                     "invalid pending Activity identity");
         }
+        final int userId = FrameworkUserApi.userId(
+                pendingIntent.getCreatorUserHandle());
         return expectedComponent == null
-                ? LaunchActivityIdentity.packageScoped(expectedPackage, null)
+                ? LaunchActivityIdentity.packageScoped(userId, expectedPackage, null)
                 : LaunchActivityIdentity.resolve(
-                        mPackageManager, expectedComponent);
+                        userId, mPackageManager, expectedComponent);
     }
 
     private ComponentName observedComponent(

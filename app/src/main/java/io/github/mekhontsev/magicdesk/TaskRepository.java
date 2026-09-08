@@ -423,6 +423,8 @@ public final class TaskRepository {
         }
         for (final TaskEntry currentTask : currentTasks) {
             if (currentTask.taskId == savedTask.taskId
+                    && savedTask.userId >= 0
+                    && currentTask.userId == savedTask.userId
                     && currentTask.packageName.equals(savedTask.packageName)
                     && isRestorableTask(currentTask)) {
                 return currentTask;
@@ -466,7 +468,8 @@ public final class TaskRepository {
                     snapshot.densityDpi,
                     home,
                     snapshot.visible,
-                    active));
+                    active,
+                    snapshot.userId));
         }
         return tasks;
     }
@@ -534,6 +537,7 @@ public final class TaskRepository {
 
         public final int rootTaskId;
         public final int taskId;
+        public final int userId;
         public final int displayId;
         public final String packageName;
         public final String componentName;
@@ -596,8 +600,20 @@ public final class TaskRepository {
                 final int densityDpi,
                 final boolean home, final boolean visible,
                 final boolean active) {
+            this(rootTaskId, taskId, displayId, packageName, componentName,
+                    topActivityName, windowingMode, bounds, activityType,
+                    densityDpi, home, visible, active, AppProfile.UNKNOWN_USER_ID);
+        }
+
+        public TaskEntry(final int rootTaskId, final int taskId, final int displayId,
+                final String packageName, final String componentName,
+                final String topActivityName, final String windowingMode,
+                final Rect bounds, final int activityType, final int densityDpi,
+                final boolean home, final boolean visible, final boolean active,
+                final int userId) {
             this.rootTaskId = rootTaskId;
             this.taskId = taskId;
+            this.userId = userId;
             this.displayId = displayId;
             this.packageName = packageName;
             this.componentName = componentName;

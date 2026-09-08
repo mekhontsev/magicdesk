@@ -114,6 +114,7 @@ final class WindowedAppLauncher {
                         launchTarget.packageName, displayId);
         return launch(
                 launchTarget,
+                FrameworkUserApi.userId(android.os.Process.myUserHandle()),
                 displayId,
                 preservedTaskIds,
                 explicitWindowed,
@@ -147,6 +148,7 @@ final class WindowedAppLauncher {
                         shortcut.packageName, displayId);
         return launch(
                 shortcut.taskTarget(),
+                FrameworkUserApi.userId(shortcut.user),
                 displayId,
                 preservedTaskIds,
                 explicitWindowed,
@@ -197,6 +199,7 @@ final class WindowedAppLauncher {
                         launchTarget.packageName, displayId);
         return launch(
                 launchTarget,
+                FrameworkUserApi.userId(pendingIntent.getCreatorUserHandle()),
                 displayId,
                 preservedTaskIds,
                 explicitWindowed,
@@ -228,6 +231,7 @@ final class WindowedAppLauncher {
 
     private static LaunchResult launch(
             final AppLaunchTarget launchTarget,
+            final int userId,
             final int displayId,
             final int[] preservedTaskIds,
             final boolean explicitWindowed,
@@ -251,6 +255,7 @@ final class WindowedAppLauncher {
             final ExistingTaskController.ReuseResult existing = reuse(
                     nativeDesktop,
                     launchTarget,
+                    userId,
                     displayId,
                     preservedTaskIds,
                     false,
@@ -338,6 +343,7 @@ final class WindowedAppLauncher {
     private static ExistingTaskController.ReuseResult reuse(
             final boolean nativeDesktop,
             final AppLaunchTarget launchTarget,
+            final int userId,
             final int displayId,
             final int[] preservedTaskIds,
             final boolean waitForTask,
@@ -348,6 +354,7 @@ final class WindowedAppLauncher {
             final int densityDpi) throws IOException {
         return nativeDesktop
                 ? ExistingTaskController.reuseNativeDesktopIfExists(
+                        userId,
                         launchTarget,
                         displayId,
                         preservedTaskIds,
@@ -358,6 +365,7 @@ final class WindowedAppLauncher {
                         launchLease,
                         densityDpi)
                 : ExistingTaskController.reuseFreeformIfExists(
+                        userId,
                         launchTarget,
                         displayId,
                         preservedTaskIds,

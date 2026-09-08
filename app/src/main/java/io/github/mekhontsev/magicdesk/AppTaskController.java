@@ -778,7 +778,7 @@ final class AppTaskController {
                                 AppWindowState.Mode.WINDOWED)
                         : null;
         final TaskRepository.TaskEntry existingTask =
-                mActivity.findFirstTask(app.launchTarget);
+                mActivity.findFirstTask(app);
         if (instancePolicy == DesktopTaskInstancePolicy.REUSE_EXISTING
                 && preferredTaskId < 0
                 && existingTask != null
@@ -1164,6 +1164,7 @@ final class AppTaskController {
                         == DesktopTaskInstancePolicy.REUSE_EXISTING) {
             final ExistingTaskController.ReuseResult reuseResult =
                     ExistingTaskController.reuseIfExists(
+                            app.profile.userId,
                             taskSource.launchTarget(),
                             displayId,
                             false,

@@ -682,6 +682,46 @@ runtime integration and are not distributed through the same release path.
   Unknown publication leaves visibility unchanged and remains unavailable.
   Replies requested before activation also recheck the current session.
 
+### Application profiles
+
+The profile foundation separates three identities:
+
+- `AppProfile` is a resolved Android user id plus its stable user serial.
+  Runtime task matching uses the id; durable references use the serial, which
+  Android does not recycle when a profile is deleted.
+- `AppIdentity` is a profile serial plus a package. `AppItem` retains both this
+  durable identity and the resolved profile. `AppLaunchTarget` only describes
+  an entry point (package, component, action); it is not a complete app identity.
+- `LaunchActivityIdentity` binds an entry point or a package-scoped system
+  surface to an explicit user id before task lookup. Direct launches bind at
+  the current-user ingress; shortcut and PendingIntent launches retain the
+  publisher/creator user. Reuse and launch confirmation never match another
+  user's task just because its package and component agree.
+
+`HiddenTaskApi` reads `TaskInfo.userId`; `FrameworkTaskSnapshot` carries it over
+Binder into `TaskRepository.TaskEntry`, including published copies and parked
+task records. Missing framework identity remains `-1`, not user 0. These fields
+reuse existing snapshots and add no profile polling. The diagnostics task list
+and MCP task rows expose the observed user id.
+
+Generated Android Desktop Entries retain `AppIdentity` in
+`X-MagicDesk-AppIdentity`. `DesktopLaunchRequest` preserves it through command
+expansion and integration preparation. The coordinator rejects a reference
+outside the supported current profile before any Android or Exec action; it
+does not reinterpret it as the current user's same-package application.
+Portable Desktop Entries without this field are current-context launch
+descriptions, not durable references to a particular Android profile.
+
+This is an identity foundation, not multi-profile support. The launcher catalog
+still enumerates only the current profile. Profile discovery/availability,
+badged icons, work-profile quiet mode, Private Space policy, cross-profile URI
+grants and launch permissions are not implemented. Before widening the catalog,
+taskbar pins, launch history, window-state and DPI preference keys must also be
+changed from their current single-profile namespace to `AppIdentity`-scoped
+storage. Do not widen enumeration alone, persist a runtime user id, or add a
+package-only fallback when resolving an unavailable profile. No Private Space
+permission or additional profile UI is declared by this foundation.
+
 ### Tasks and windows
 
 - `TaskRepository` reads exact tasks and performs narrow shell operations.

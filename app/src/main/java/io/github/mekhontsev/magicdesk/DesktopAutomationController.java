@@ -470,6 +470,7 @@ final class DesktopAutomationController {
         final DesktopTaskLaunchObservation observation =
                 DesktopTaskLaunchObservation.await(
                         LaunchActivityIdentity.resolve(
+                                FrameworkUserApi.userId(android.os.Process.myUserHandle()),
                                 mContext.getPackageManager(), target),
                         presentation.mode,
                         displayId,

@@ -33,6 +33,7 @@ public final class FrameworkTaskSnapshot implements Parcelable {
     final Integer requestedVisibleTypes;
     public final int rootTaskId;
     public final int taskId;
+    public final int userId;
     public final int displayId;
     public final int displayAreaFeatureId;
     public final int windowingMode;
@@ -118,11 +119,30 @@ public final class FrameworkTaskSnapshot implements Parcelable {
             final boolean focused,
             final Integer requestedVisibleTypes,
             final TaskConfiguration taskConfiguration) {
+        this(rawTask, rootTaskId, taskId, displayId, displayAreaFeatureId,
+                windowingMode, activityType, component, topActivity,
+                componentName, topActivityName, packageName, topPackage,
+                topUid, topProcessName, bounds, visible, focused,
+                requestedVisibleTypes, taskConfiguration, AppProfile.UNKNOWN_USER_ID);
+    }
+
+    FrameworkTaskSnapshot(
+            final Object rawTask, final int rootTaskId, final int taskId,
+            final int displayId, final int displayAreaFeatureId,
+            final int windowingMode, final int activityType,
+            final ComponentName component, final ComponentName topActivity,
+            final String componentName, final String topActivityName,
+            final String packageName, final String topPackage,
+            final int topUid, final String topProcessName, final Rect bounds,
+            final boolean visible, final boolean focused,
+            final Integer requestedVisibleTypes,
+            final TaskConfiguration taskConfiguration, final int userId) {
         task = rawTask;
         rootComponent = component;
         topComponent = topActivity;
         this.rootTaskId = rootTaskId;
         this.taskId = taskId;
+        this.userId = userId;
         this.displayId = displayId;
         this.displayAreaFeatureId = displayAreaFeatureId;
         this.windowingMode = windowingMode;
@@ -155,6 +175,7 @@ public final class FrameworkTaskSnapshot implements Parcelable {
         task = null;
         rootTaskId = source.readInt();
         taskId = source.readInt();
+        userId = source.readInt();
         displayId = source.readInt();
         displayAreaFeatureId = source.readInt();
         windowingMode = source.readInt();
@@ -212,6 +233,7 @@ public final class FrameworkTaskSnapshot implements Parcelable {
     public void writeToParcel(final Parcel destination, final int flags) {
         destination.writeInt(rootTaskId);
         destination.writeInt(taskId);
+        destination.writeInt(userId);
         destination.writeInt(displayId);
         destination.writeInt(displayAreaFeatureId);
         destination.writeInt(windowingMode);

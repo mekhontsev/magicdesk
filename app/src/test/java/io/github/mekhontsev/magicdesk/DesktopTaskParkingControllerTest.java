@@ -51,6 +51,7 @@ public final class DesktopTaskParkingControllerTest {
         final DesktopTaskParkingController.ParkedTask parked =
                 new DesktopTaskParkingController.ParkedTask(
                         20,
+                        0,
                         "org.example.app",
                         false,
                         true,
@@ -90,6 +91,7 @@ public final class DesktopTaskParkingControllerTest {
         final DesktopTaskParkingController.ParkedTask exact =
                 new DesktopTaskParkingController.ParkedTask(
                         20,
+                        0,
                         "org.example.app",
                         false,
                         true,
@@ -97,6 +99,7 @@ public final class DesktopTaskParkingControllerTest {
         final DesktopTaskParkingController.ParkedTask observed =
                 new DesktopTaskParkingController.ParkedTask(
                         20,
+                        0,
                         "org.example.app",
                         false,
                         true,
@@ -156,9 +159,12 @@ public final class DesktopTaskParkingControllerTest {
                 component,
                 mode,
                 bounds,
+                -1,
+                -1,
                 false,
                 visible,
-                visible);
+                visible,
+                0);
     }
 
     private static Rect rect(

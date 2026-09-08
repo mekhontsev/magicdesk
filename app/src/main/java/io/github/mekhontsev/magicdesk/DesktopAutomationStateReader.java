@@ -246,6 +246,7 @@ final class DesktopAutomationStateReader {
         final int limit = pageLimit(args);
         final int offset = pageOffset(args);
         final List<AppRow> rows = new ArrayList<>();
+        final AppProfile profile = AppProfile.current(mContext);
         final LauncherApps launcherApps =
                 mContext.getSystemService(LauncherApps.class);
         if (launcherApps != null) {
@@ -286,6 +287,9 @@ final class DesktopAutomationStateReader {
             final AppRow row = rows.get(index);
             result.put(new JSONObject()
                     .put("package", row.packageName)
+                    .put("userId", profile.userId)
+                    .put("profileSerialNumber", profile.serialNumber)
+                    .put("appIdentity", profile.application(row.packageName).persistentKey())
                     .put("component", row.component)
                     .put("label", row.label));
         }
@@ -464,6 +468,7 @@ final class DesktopAutomationStateReader {
         return new JSONObject()
                 .put("rootTaskId", task.rootTaskId)
                 .put("taskId", task.taskId)
+                .put("userId", task.userId)
                 .put("displayId", task.displayId)
                 .put("package", task.packageName)
                 .put("component", task.componentName)

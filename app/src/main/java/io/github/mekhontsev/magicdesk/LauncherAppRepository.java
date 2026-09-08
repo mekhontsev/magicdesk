@@ -27,12 +27,14 @@ final class LauncherAppRepository {
     private final PackageManager mPackageManager;
     private final LauncherApps mLauncherApps;
     private final LauncherIconRenderer mIconRenderer;
+    private final AppProfile mProfile;
 
     LauncherAppRepository(final Context context) {
         mContext = context.getApplicationContext();
         mPackageManager = context.getPackageManager();
         mLauncherApps = context.getSystemService(LauncherApps.class);
         mIconRenderer = new LauncherIconRenderer(context.getResources());
+        mProfile = AppProfile.current(context);
     }
 
     List<AppItem> load(final boolean universalFreeform) {
@@ -40,18 +42,21 @@ final class LauncherAppRepository {
                 ? Collections.<LauncherActivityInfo>emptyList()
                 : mLauncherApps.getActivityList(null, Process.myUserHandle());
         final List<AppItem> result = new ArrayList<>();
-        final Set<String> addedPackages = new HashSet<>();
+        final Set<AppIdentity> addedPackages = new HashSet<>();
         final String ownPackage = mContext.getPackageName();
 
         for (final LauncherActivityInfo launcherInfo : activities) {
             if (launcherInfo == null || launcherInfo.getComponentName() == null) {
                 continue;
             }
+            if (!Process.myUserHandle().equals(launcherInfo.getUser())) {
+                continue;
+            }
             final String packageName =
                     launcherInfo.getComponentName().getPackageName();
             if (packageName == null
                     || ownPackage.equals(packageName)
-                    || !addedPackages.add(packageName)) {
+                    || !addedPackages.add(mProfile.application(packageName))) {
                 continue;
             }
             final CharSequence labelChars =
@@ -64,6 +69,7 @@ final class LauncherAppRepository {
                     launcherInfo.getActivityInfo();
             final Drawable icon = loadIcon(activityInfo, applicationInfo);
             result.add(new AppItem(
+                    mProfile,
                     label,
                     packageName,
                     universalFreeform,
@@ -88,6 +94,10 @@ final class LauncherAppRepository {
         return result;
     }
 
+    boolean owns(final TaskRepository.TaskEntry task) {
+        return task != null && mProfile.owns(task.userId);
+    }
+
     AppItem findOrLoad(
             final List<AppItem> apps,
             final String packageName,
@@ -101,6 +111,7 @@ final class LauncherAppRepository {
         if (launcherInfo != null) {
             final CharSequence label = launcherInfo.getLabel();
             return new AppItem(
+                    mProfile,
                     label == null ? packageName : label.toString(),
                     packageName,
                     universalFreeform,
@@ -119,6 +130,7 @@ final class LauncherAppRepository {
                     resolveLauncherActivityInfo(packageName);
             final CharSequence label = info.loadLabel(mPackageManager);
             return new AppItem(
+                    mProfile,
                     label == null ? packageName : label.toString(),
                     packageName,
                     universalFreeform,
@@ -169,6 +181,7 @@ final class LauncherAppRepository {
                             ? applicationLabel.toString()
                             : target.packageName;
             return new AppItem(
+                    mProfile,
                     label,
                     target.packageName,
                     universalFreeform,
@@ -184,11 +197,11 @@ final class LauncherAppRepository {
 
     private void addPlatformEntryPoints(
             final List<AppItem> result,
-            final Set<String> addedPackages,
+            final Set<AppIdentity> addedPackages,
             final boolean universalFreeform) {
         for (final AppLaunchTarget target
                 : PlatformDrivers.current().additionalLaunchTargets()) {
-            if (addedPackages.contains(target.packageName)) {
+            if (addedPackages.contains(mProfile.application(target.packageName))) {
                 continue;
             }
             try {
@@ -217,13 +230,14 @@ final class LauncherAppRepository {
                                 ? applicationLabel.toString()
                                 : target.packageName;
                 result.add(new AppItem(
+                        mProfile,
                         label,
                         target.packageName,
                         universalFreeform,
                         fullscreenPreference(activityInfo, applicationInfo),
                         loadIcon(activityInfo, applicationInfo),
                         target));
-                addedPackages.add(target.packageName);
+                addedPackages.add(mProfile.application(target.packageName));
             } catch (PackageManager.NameNotFoundException error) {
                 Log.d(TAG, "Optional platform entry point is unavailable: "
                         + target.packageName);
@@ -233,7 +247,7 @@ final class LauncherAppRepository {
 
     private void addMagicDeskEntryPoints(
             final List<AppItem> result,
-            final Set<String> addedPackages,
+            final Set<AppIdentity> addedPackages,
             final boolean universalFreeform) {
         for (final BuiltInDesktopAppCatalog.Entry entry
                 : BuiltInDesktopAppCatalog.launcherEntries()) {
@@ -253,6 +267,7 @@ final class LauncherAppRepository {
                 final CharSequence label =
                         activityInfo.loadLabel(mPackageManager);
                 result.add(new AppItem(
+                        mProfile,
                         label == null || label.length() == 0
                                 ? mContext.getString(
                                         entry.fallbackLabelResId)
@@ -264,7 +279,7 @@ final class LauncherAppRepository {
                                 activityInfo,
                                 activityInfo.applicationInfo),
                         target));
-                addedPackages.add(target.packageName);
+                addedPackages.add(mProfile.application(target.packageName));
             } catch (PackageManager.NameNotFoundException error) {
                 Log.w(TAG, "Built-in desktop activity is unavailable: "
                         + target.activityClassName, error);

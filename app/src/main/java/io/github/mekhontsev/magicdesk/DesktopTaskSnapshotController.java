@@ -250,37 +250,16 @@ final class DesktopTaskSnapshotController {
         });
     }
 
-    TaskRepository.TaskEntry findFirstTask(final String packageName) {
-        for (final TaskRepository.TaskEntry task : mSnapshot.tasks) {
-            if (isTaskbarTask(task)
-                    && packageName.equals(task.packageName)) {
-                return task;
-            }
-        }
-        return null;
-    }
-
-    TaskRepository.TaskEntry findFirstTask(final AppLaunchTarget target) {
-        if (target == null) {
+    TaskRepository.TaskEntry findFirstTask(final AppItem app) {
+        if (app == null) {
             return null;
         }
         for (final TaskRepository.TaskEntry task : mSnapshot.tasks) {
-            if (isTaskbarTask(task) && target.matchesTask(task)) {
+            if (isTaskbarTask(task) && app.matchesTask(task)) {
                 return task;
             }
         }
         return null;
-    }
-
-    List<TaskRepository.TaskEntry> findTasks(final String packageName) {
-        final List<TaskRepository.TaskEntry> result = new ArrayList<>();
-        for (final TaskRepository.TaskEntry task : mSnapshot.tasks) {
-            if (isTaskbarTask(task)
-                    && packageName.equals(task.packageName)) {
-                result.add(task);
-            }
-        }
-        return result;
     }
 
     boolean isTaskbarTask(final TaskRepository.TaskEntry task) {

@@ -17,6 +17,24 @@ import org.junit.Test;
 
 public final class DesktopEntryFileTest {
     @Test
+    public void androidProfileSurvivesDesktopEntryAndLaunchPreparation() {
+        final AppIdentity identity = new AppIdentity(19, "example.application");
+        final DesktopApplicationShortcut shortcut = new DesktopApplicationShortcut(
+                "Example", "", "example-command", AppLaunchTarget.packageDefault(
+                        identity.packageName), "", DesktopLaunchMode.AUTO,
+                false, DesktopExecBackend.SHELL, false).withApplication(identity);
+        final DesktopApplicationShortcut parsed = (DesktopApplicationShortcut)
+                DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(shortcut));
+        assertNotNull(parsed);
+        assertEquals(identity, parsed.application);
+        assertEquals(identity, DesktopLaunchRequest.from(parsed).prepareExec().application);
+        assertNull(DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(shortcut)
+                .replace("19|example.application", "19|example.other")));
+        assertNull(DesktopEntryFile.parse(DesktopEntryFile.encodeApplication(shortcut)
+                .replace("19|example.application", "example.application")));
+    }
+
+    @Test
     public void streamReaderHonorsExactUtf8LimitAndCallerOwnership() throws Exception {
         final String encoded = "\u044f".repeat(32 * 1024);
         final var input = new EntryInput(encoded);

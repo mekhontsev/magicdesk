@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 /** Immutable description shared by every Desktop Entry launch surface. */
 final class DesktopLaunchRequest {
     final String name;
+    final AppIdentity application;
     final String icon;
     final AndroidLaunchSpec androidLaunch;
     final AndroidShortcutSpec androidShortcut;
@@ -20,6 +21,18 @@ final class DesktopLaunchRequest {
             final DesktopLaunchPresentation presentation,
             final DesktopLaunchArguments arguments,
             final String desktopFilePath) {
+        this(name, icon, androidLaunch, androidShortcut, exec, presentation,
+                arguments, desktopFilePath, null);
+    }
+
+    private DesktopLaunchRequest(
+            final String name, final String icon,
+            final AndroidLaunchSpec androidLaunch,
+            final AndroidShortcutSpec androidShortcut,
+            final DesktopExecSpec exec,
+            final DesktopLaunchPresentation presentation,
+            final DesktopLaunchArguments arguments,
+            final String desktopFilePath, final AppIdentity application) {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("missing launch request name");
         }
@@ -31,6 +44,7 @@ final class DesktopLaunchRequest {
                     "ambiguous Android launch request");
         }
         this.name = name.trim();
+        this.application = application;
         this.icon = icon == null ? "" : icon;
         this.androidLaunch = androidLaunch;
         this.androidShortcut = androidShortcut;
@@ -93,7 +107,8 @@ final class DesktopLaunchRequest {
                 exec,
                 DesktopLaunchPresentation.forMode(shortcut.launchMode),
                 arguments,
-                desktopFilePath);
+                desktopFilePath,
+                shortcut.application);
     }
 
     DesktopLaunchRequest withExec(final DesktopExecSpec value) {
@@ -105,7 +120,8 @@ final class DesktopLaunchRequest {
                 value,
                 presentation,
                 arguments,
-                desktopFilePath);
+                desktopFilePath,
+                application);
     }
 
     DesktopLaunchRequest prepareExec() {

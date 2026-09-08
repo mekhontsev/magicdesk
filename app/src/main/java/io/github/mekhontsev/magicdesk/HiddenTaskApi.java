@@ -342,6 +342,12 @@ final class HiddenTaskApi {
         return value instanceof Number ? ((Number) value).intValue() : -1;
     }
 
+    static int getTaskUserId(final Object task) {
+        final Object value = getOptionalField(task, "userId");
+        return value instanceof Integer && ((Integer) value).intValue() >= 0
+                ? ((Integer) value).intValue() : AppProfile.UNKNOWN_USER_ID;
+    }
+
     static void registerTaskStackListener(
             final Object service,
             final TaskStackListener listener)

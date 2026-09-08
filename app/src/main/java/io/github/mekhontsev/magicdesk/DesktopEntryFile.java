@@ -129,6 +129,10 @@ final class DesktopEntryFile {
         append(encoded, "Exec", shortcut.exec);
         append(encoded, "Path", shortcut.workingDirectory);
         append(encoded, "MimeType", shortcut.mimeTypes.encode());
+        if (shortcut.application != null) {
+            append(encoded, "X-MagicDesk-AppIdentity",
+                    shortcut.application.persistentKey());
+        }
         if (shortcut.terminal) {
             append(encoded, "Terminal", "true");
         }
@@ -305,7 +309,11 @@ final class DesktopEntryFile {
                             value(values, "Terminal")),
                     value(values, "Path"),
                     DesktopMimeTypes.parse(value(values, "MimeType")),
-                    appShortcutId);
+                    appShortcutId).withApplication(
+                            values.containsKey("X-MagicDesk-AppIdentity")
+                                    ? AppIdentity.fromPersistentKey(value(
+                                            values, "X-MagicDesk-AppIdentity"))
+                                    : null);
         } catch (IllegalArgumentException error) {
             return null;
         }

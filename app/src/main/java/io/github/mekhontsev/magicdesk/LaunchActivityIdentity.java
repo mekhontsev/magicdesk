@@ -7,16 +7,18 @@ import android.content.pm.PackageManager;
 /** Matches an Android launch entry point and its activity-alias target. */
 final class LaunchActivityIdentity {
     private final String mPackageName;
+    private final int mUserId;
     private final ComponentName mRequestedComponent;
     private final ComponentName mResolvedComponent;
     private final boolean mPackageScoped;
 
     private LaunchActivityIdentity(
+            final int userId,
             final String packageName,
             final ComponentName requestedComponent,
             final ComponentName resolvedComponent,
             final boolean packageScoped) {
-        if (packageName == null || packageName.isEmpty()
+        if (userId < 0 || packageName == null || packageName.isEmpty()
                 || (!packageScoped
                         && (requestedComponent == null
                                 || resolvedComponent == null))
@@ -29,12 +31,14 @@ final class LaunchActivityIdentity {
             throw new IllegalArgumentException("invalid launch identity");
         }
         mPackageName = packageName;
+        mUserId = userId;
         mRequestedComponent = requestedComponent;
         mResolvedComponent = resolvedComponent;
         mPackageScoped = packageScoped;
     }
 
     static LaunchActivityIdentity resolve(
+            final int userId,
             final PackageManager packageManager,
             final ComponentName requestedComponent) {
         ComponentName resolvedComponent = requestedComponent;
@@ -52,6 +56,7 @@ final class LaunchActivityIdentity {
             // Exact component matching remains valid for unresolved entries.
         }
         return new LaunchActivityIdentity(
+                userId,
                 requestedComponent.getPackageName(),
                 requestedComponent,
                 resolvedComponent,
@@ -59,6 +64,7 @@ final class LaunchActivityIdentity {
     }
 
     static LaunchActivityIdentity resolve(
+            final int userId,
             final PackageManager packageManager,
             final AppLaunchTarget target) {
         if (packageManager == null || target == null) {
@@ -66,16 +72,18 @@ final class LaunchActivityIdentity {
                     "package manager and launch target are required");
         }
         if (target.activityClassName.isEmpty()) {
-            return packageScoped(target.packageName, null);
+            return packageScoped(userId, target.packageName, null);
         }
-        return resolve(packageManager, new ComponentName(
+        return resolve(userId, packageManager, new ComponentName(
                 target.packageName, target.activityClassName));
     }
 
     static LaunchActivityIdentity packageScoped(
+            final int userId,
             final String packageName,
             final ComponentName publishedComponent) {
         return new LaunchActivityIdentity(
+                userId,
                 packageName,
                 publishedComponent,
                 publishedComponent,
@@ -107,7 +115,8 @@ final class LaunchActivityIdentity {
     }
 
     boolean matchesTask(final TaskRepository.TaskEntry task) {
-        if (task == null || !matchesPackage(task.packageName)) {
+        if (task == null || task.userId != mUserId
+                || !matchesPackage(task.packageName)) {
             return false;
         }
         return mPackageScoped
@@ -116,7 +125,7 @@ final class LaunchActivityIdentity {
     }
 
     boolean matchesTask(final FrameworkTaskSnapshot task) {
-        if (task == null) {
+        if (task == null || task.userId != mUserId) {
             return false;
         }
         if (mPackageScoped) {

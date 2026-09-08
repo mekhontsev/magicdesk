@@ -90,9 +90,11 @@ final class DesktopDisplayTaskState {
                     task.windowingMode,
                     task.bounds,
                     task.activityType,
+                    task.densityDpi,
                     task.home,
                     task.visible,
-                    task.active));
+                    task.active,
+                    task.userId));
         }
         return copies;
     }

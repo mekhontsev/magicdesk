@@ -1396,12 +1396,8 @@ public abstract class DesktopShellActivity extends Activity
                 .create());
     }
 
-    TaskRepository.TaskEntry findFirstTask(final String packageName) {
-        return mTaskSnapshots.findFirstTask(packageName);
-    }
-
-    TaskRepository.TaskEntry findFirstTask(final AppLaunchTarget target) {
-        return mTaskSnapshots.findFirstTask(target);
+    TaskRepository.TaskEntry findFirstTask(final AppItem app) {
+        return mTaskSnapshots.findFirstTask(app);
     }
 
     static TaskRepository.TaskEntry findTask(
@@ -1543,10 +1539,6 @@ public abstract class DesktopShellActivity extends Activity
         mTaskSnapshots.refresh();
     }
 
-    List<TaskRepository.TaskEntry> findTasks(final String packageName) {
-        return mTaskSnapshots.findTasks(packageName);
-    }
-
     boolean isTaskbarTask(final TaskRepository.TaskEntry task) {
         return mTaskSnapshots.isTaskbarTask(task);
     }
@@ -1565,6 +1557,9 @@ public abstract class DesktopShellActivity extends Activity
     AppItem findOrLoadApp(
             final List<AppItem> apps,
             final TaskRepository.TaskEntry task) {
+        if (!mLauncherApps.owns(task)) {
+            return null;
+        }
         final BuiltInDesktopAppCatalog.Entry builtIn =
                 BuiltInDesktopAppCatalog.find(task);
         return builtIn != null

@@ -33,7 +33,8 @@ final class PhoneRecentApps {
             final String key = BuiltInDesktopAppCatalog.appIdentityKey(task);
             // The catalog excludes shell surfaces and activities that have no
             // launcher entry, while retaining distinct built-in applications.
-            if (LauncherAppRepository.findByIdentityKey(apps, key) != null) {
+            final AppItem app = LauncherAppRepository.findByIdentityKey(apps, key);
+            if (app != null && app.profile.owns(task.userId)) {
                 keys.add(key);
             }
         }

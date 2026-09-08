@@ -180,7 +180,8 @@ final class FrameworkTaskSnapshotSource {
                 visible && includeClientState
                         ? compat.readRequestedVisibleTypes(task) : null,
                 includeTaskConfiguration
-                        ? readTaskConfiguration(task) : null);
+                        ? readTaskConfiguration(task) : null,
+                HiddenTaskApi.getTaskUserId(task));
     }
 
     private static FrameworkTaskSnapshot.TaskConfiguration

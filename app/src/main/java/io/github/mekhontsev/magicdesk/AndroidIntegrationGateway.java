@@ -750,6 +750,7 @@ final class AndroidIntegrationGateway {
         try {
             observation = DesktopTaskLaunchObservation.await(
                     LaunchActivityIdentity.packageScoped(
+                            FrameworkUserApi.userId(android.os.Process.myUserHandle()),
                             shortcut.publisher.packageName, null),
                     action.presentation.mode,
                     displayId,
@@ -976,6 +977,7 @@ final class AndroidIntegrationGateway {
             } else {
                 observation = DesktopTaskLaunchObservation.await(
                         LaunchActivityIdentity.resolve(
+                                FrameworkUserApi.userId(android.os.Process.myUserHandle()),
                                 mPackageManager, taskTarget),
                         request.presentation.mode,
                         displayId,

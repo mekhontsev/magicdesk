@@ -19,18 +19,18 @@ final class ExistingTaskController {
     private ExistingTaskController() {
     }
 
-    static ReuseResult reuseIfExists(final AppLaunchTarget target,
+    static ReuseResult reuseIfExists(final int userId, final AppLaunchTarget target,
             final int targetDisplayId,
             final boolean targetFreeform) throws IOException {
-        return reuseIfExists(target, targetDisplayId, targetFreeform, -1);
+        return reuseIfExists(userId, target, targetDisplayId, targetFreeform, -1);
     }
 
-    static ReuseResult reuseIfExists(final AppLaunchTarget target,
+    static ReuseResult reuseIfExists(final int userId, final AppLaunchTarget target,
             final int targetDisplayId,
             final boolean targetFreeform,
             final int preferredTaskId) throws IOException {
         return reuseIfExists(
-                target,
+                userId, target,
                 targetDisplayId,
                 targetFreeform,
                 preferredTaskId,
@@ -38,18 +38,18 @@ final class ExistingTaskController {
                         target.packageName, targetDisplayId));
     }
 
-    static ReuseResult reuseIfExists(final AppLaunchTarget target,
+    static ReuseResult reuseIfExists(final int userId, final AppLaunchTarget target,
             final int targetDisplayId,
             final boolean targetFreeform,
             final int preferredTaskId,
             final int densityDpi) throws IOException {
-        return reuseIfExists(target, targetDisplayId, targetFreeform,
+        return reuseIfExists(userId, target, targetDisplayId, targetFreeform,
                 null, false, false, false, null, preferredTaskId, null,
                 densityDpi);
     }
 
     static ReuseResult reuseNativeDesktopIfExists(
-            final AppLaunchTarget target,
+            final int userId, final AppLaunchTarget target,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask,
             final boolean explicitWindowed,
@@ -57,14 +57,14 @@ final class ExistingTaskController {
             final int preferredTaskId,
             final WindowedTaskLaunchLease launchLease,
             final int densityDpi) throws IOException {
-        return reuseIfExists(target, targetDisplayId, true,
+        return reuseIfExists(userId, target, targetDisplayId, true,
                 preservedTopFirstTaskIds, true, waitForTask,
                 explicitWindowed, targetBounds, preferredTaskId, launchLease,
                 densityDpi);
     }
 
     static ReuseResult reuseFreeformIfExists(
-            final AppLaunchTarget target,
+            final int userId, final AppLaunchTarget target,
             final int targetDisplayId, final int[] preservedTopFirstTaskIds,
             final boolean waitForTask,
             final boolean explicitWindowed,
@@ -72,21 +72,21 @@ final class ExistingTaskController {
             final int preferredTaskId,
             final WindowedTaskLaunchLease launchLease,
             final int densityDpi) throws IOException {
-        return reuseIfExists(target, targetDisplayId, true,
+        return reuseIfExists(userId, target, targetDisplayId, true,
                 preservedTopFirstTaskIds, false, waitForTask,
                 explicitWindowed, targetBounds, preferredTaskId, launchLease,
                 densityDpi);
     }
 
-    static boolean taskExists(final String packageName, final int targetDisplayId)
+    static boolean taskExists(final int userId, final String packageName, final int targetDisplayId)
             throws IOException {
         return findBestTask(
-                AppLaunchTarget.packageDefault(packageName),
+                userId, AppLaunchTarget.packageDefault(packageName),
                 targetDisplayId,
                 true) != null;
     }
 
-    private static ReuseResult reuseIfExists(final AppLaunchTarget target,
+    private static ReuseResult reuseIfExists(final int userId, final AppLaunchTarget target,
             final int targetDisplayId, final boolean targetFreeform,
             final int[] preservedTopFirstTaskIds, final boolean nativeDesktop,
             final boolean waitForTask,
@@ -96,12 +96,12 @@ final class ExistingTaskController {
             final WindowedTaskLaunchLease outerLaunchLease,
             final int densityDpi) throws IOException {
         TaskInfo task = preferredTaskId > 0
-                ? findMatchingTask(target, preferredTaskId)
+                ? findMatchingTask(userId, target, preferredTaskId)
                 : waitForTask
                         ? waitForBestTask(
-                                target, targetDisplayId, targetFreeform)
+                                userId, target, targetDisplayId, targetFreeform)
                         : findBestTask(
-                                target, targetDisplayId, targetFreeform);
+                                userId, target, targetDisplayId, targetFreeform);
         if (task == null) {
             Log.i(TAG, "no existing task package=" + target.packageName);
             return ReuseResult.notFound();
@@ -211,14 +211,14 @@ final class ExistingTaskController {
         }
     }
 
-    private static TaskInfo waitForBestTask(final AppLaunchTarget target,
+    private static TaskInfo waitForBestTask(final int userId, final AppLaunchTarget target,
             final int targetDisplayId, final boolean targetFreeform) throws IOException {
         return BoundedStateAwaiter.awaitIo(
                 BoundedStateAwaiter.Reason.TASK_APPEARANCE,
                 TASK_APPEAR_TIMEOUT_MILLIS,
                 TASK_STATE_POLL_MILLIS,
                 () -> findBestTask(
-                        target, targetDisplayId, targetFreeform),
+                        userId, target, targetDisplayId, targetFreeform),
                 task -> task != null && task.visible);
     }
 
@@ -296,10 +296,10 @@ final class ExistingTaskController {
     }
 
     private static TaskInfo findBestTask(
-            final AppLaunchTarget target,
+            final int userId, final AppLaunchTarget target,
             final int targetDisplayId,
             final boolean targetFreeform) throws IOException {
-        final List<TaskInfo> tasks = findTasks(target);
+        final List<TaskInfo> tasks = findTasks(userId, target);
         if (tasks.isEmpty()) {
             return null;
         }
@@ -323,9 +323,9 @@ final class ExistingTaskController {
     }
 
     private static TaskInfo findMatchingTask(
-            final AppLaunchTarget target,
+            final int userId, final AppLaunchTarget target,
             final int taskId) throws IOException {
-        for (final TaskInfo task : findTasks(target)) {
+        for (final TaskInfo task : findTasks(userId, target)) {
             if (task.taskId == taskId) {
                 return task;
             }
@@ -333,13 +333,13 @@ final class ExistingTaskController {
         return null;
     }
 
-    private static List<TaskInfo> findTasks(final AppLaunchTarget target)
+    private static List<TaskInfo> findTasks(final int userId, final AppLaunchTarget target)
             throws IOException {
         ensureOffMainThread();
         final List<TaskInfo> result = new ArrayList<>();
         for (final FrameworkTaskSnapshot task :
                 ShellAccess.readTaskSnapshots(-1, 200)) {
-            if (target.matchesTask(
+            if (userId >= 0 && task.userId == userId && target.matchesTask(
                     task.packageName,
                     task.componentName,
                     task.topActivityName)) {

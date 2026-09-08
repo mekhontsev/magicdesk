@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 /** Type=Application entry with an Android or command launch descriptor. */
 final class DesktopApplicationShortcut extends DesktopEntry {
     final AppLaunchTarget launchTarget;
+    final AppIdentity application;
     final String intentUri;
     final String appShortcutId;
     final DesktopLaunchMode launchMode;
@@ -101,7 +102,24 @@ final class DesktopApplicationShortcut extends DesktopEntry {
             final String workingDirectory,
             final DesktopMimeTypes mimeTypes,
             final String appShortcutId) {
+        this(name, icon, exec, launchTarget, intentUri, launchMode,
+                defaultLaunch, execBackend, terminal, workingDirectory,
+                mimeTypes, appShortcutId, null);
+    }
+
+    private DesktopApplicationShortcut(
+            final String name, final String icon, final String exec,
+            final AppLaunchTarget launchTarget, final String intentUri,
+            final DesktopLaunchMode launchMode, final boolean defaultLaunch,
+            final DesktopExecBackend execBackend, final boolean terminal,
+            final String workingDirectory, final DesktopMimeTypes mimeTypes,
+            final String appShortcutId, final AppIdentity application) {
         super(name, icon, exec);
+        if (application != null && (launchTarget == null
+                || !application.packageName.equals(launchTarget.packageName))) {
+            throw new IllegalArgumentException("shortcut application mismatch");
+        }
+        this.application = application;
         final String normalizedShortcutId = appShortcutId == null
                 ? "" : appShortcutId.trim();
         if ((intentUri == null || intentUri.isEmpty())
@@ -138,6 +156,12 @@ final class DesktopApplicationShortcut extends DesktopEntry {
 
     boolean hasIntentLaunch() {
         return !intentUri.isEmpty();
+    }
+
+    DesktopApplicationShortcut withApplication(final AppIdentity identity) {
+        return new DesktopApplicationShortcut(name, icon, exec, launchTarget,
+                intentUri, launchMode, defaultLaunch, execBackend, terminal,
+                workingDirectory, mimeTypes, appShortcutId, identity);
     }
 
     boolean hasAppShortcutLaunch() {

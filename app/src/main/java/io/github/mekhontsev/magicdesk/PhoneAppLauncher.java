@@ -23,11 +23,13 @@ final class PhoneAppLauncher {
         final Intent intent;
         final LaunchActivityIdentity identity;
         try {
+            app.identity.requireProfile(AppProfile.current(activity));
             intent = app.launchTarget.resolve(activity.getPackageManager());
             if (intent == null) {
                 throw new IllegalStateException("launcher activity is unavailable");
             }
             identity = LaunchActivityIdentity.resolve(
+                    app.profile.userId,
                     activity.getPackageManager(), app.launchTarget);
         } catch (RuntimeException error) {
             onFailure.accept(error);

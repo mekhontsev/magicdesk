@@ -395,7 +395,7 @@ final class TaskbarController {
                 continue;
             }
             final List<TaskRepository.TaskEntry> packageTasks =
-                    findTasks(orderedTasks, app.launchTarget);
+                    findTasks(orderedTasks, app);
             if (packageTasks.isEmpty()) {
                 items.add(new TaskbarOverflowController.Entry(app, null));
                 continue;
@@ -481,10 +481,10 @@ final class TaskbarController {
 
     private static List<TaskRepository.TaskEntry> findTasks(
             final List<TaskRepository.TaskEntry> tasks,
-            final AppLaunchTarget target) {
+            final AppItem app) {
         final List<TaskRepository.TaskEntry> result = new ArrayList<>();
         for (final TaskRepository.TaskEntry task : tasks) {
-            if (target.matchesTask(task)) {
+            if (app.matchesTask(task)) {
                 result.add(task);
             }
         }

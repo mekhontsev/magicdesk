@@ -596,6 +596,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             }
             result.add(new ParkedTask(
                     task.taskId,
+                    task.userId,
                     task.packageName,
                     !task.isFreeform(),
                     task.visible,
@@ -646,6 +647,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         }
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task.taskId == parked.taskId
+                    && parked.userId >= 0 && task.userId == parked.userId
                     && parked.packageName.equals(task.packageName)
                     && DesktopManagedTaskPolicy.isManagedApplicationTask(task)) {
                 return task;
@@ -704,6 +706,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
 
     static final class ParkedTask {
         final int taskId;
+        final int userId;
         final String packageName;
         final boolean fullscreen;
         final boolean visible;
@@ -711,11 +714,13 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
 
         ParkedTask(
                 final int taskId,
+                final int userId,
                 final String packageName,
                 final boolean fullscreen,
                 final boolean visible,
                 final RelativeWindowBounds bounds) {
             this.taskId = taskId;
+            this.userId = userId;
             this.packageName = packageName;
             this.fullscreen = fullscreen;
             this.visible = visible;

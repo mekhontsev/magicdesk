@@ -56,6 +56,7 @@ final class DesktopTaskConfigurationReport {
         final DesktopTaskLaunchDiagnostics.Entry launch =
                 DesktopTaskLaunchDiagnostics.find(task.taskId);
         report.append("- task=").append(task.taskId)
+                .append(" user=").append(task.userId)
                 .append(" root=").append(task.rootTaskId)
                 .append(" display=").append(task.displayId)
                 .append(" area=").append(task.displayAreaFeatureId)

@@ -94,20 +94,20 @@ public final class PhoneRecentAppsTest {
     }
 
     private static AppItem app(final AppLaunchTarget target) {
-        return new AppItem(target.packageName, target.packageName, false,
+        return new AppItem(new AppProfile(0, 0), target.packageName, target.packageName, false,
                 AppItem.FULLSCREEN_REASON_NONE, null, target);
     }
 
     private static TaskRepository.TaskEntry task(final int id, final AppLaunchTarget target) {
         final String component = target.packageName + "/" + target.activityClassName;
         return new TaskRepository.TaskEntry(id, id, 0, target.packageName,
-                component, component, "fullscreen", null, false, true, false);
+                component, component, "fullscreen", null, -1, -1, false, true, false, 0);
     }
 
     private static TaskRepository.TaskEntry task(final int root, final int id,
             final int display, final String packageName, final String mode, final boolean home) {
         return new TaskRepository.TaskEntry(root, id, display, packageName,
                 packageName + "/.MainActivity", packageName + "/.MainActivity",
-                mode, null, home, true, false);
+                mode, null, -1, -1, home, true, false, 0);
     }
 }
