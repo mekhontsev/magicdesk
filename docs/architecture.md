@@ -1748,10 +1748,10 @@ display remains an ownership boundary of its own, so every standard task
 observed there is published regardless of mode.
 
 Task snapshots and windowing commands issued through `TaskRepository` share a
-single `TaskCommandQueue` with phone-task recovery. Recovery observes the
-local-session generation before every mutation. A request to open a newer phone
-desktop therefore cancels stale cleanup before that desktop is launched, while
-ordinary taskbar operations cannot interleave with recovery commands.
+single `TaskCommandQueue` with phone-task recovery. Recovery checks session
+ownership before every mutation. Removed-display recovery is cancelled when a
+new phone or external target is prepared, without waiting for its HOME host.
+Ordinary taskbar operations cannot interleave with recovery commands.
 
 Each desktop target has a profile keyed by its Android display identity, never
 by the transient logical display ID. Profiles store only DPI and wired output
@@ -2375,6 +2375,17 @@ common cleanup path:
 
 A `DisplayManager.DisplayListener` validates actual display lifecycle instead
 of trusting only Nubia's global state values.
+
+Explicit Close owns both task parking and the subsequent phone-task
+reconciliation; an expected display-removal callback does not enqueue a second
+recovery. If the display was removed, Close also reconciles its retained
+SystemUI entries within the existing bounded recovery, before returning its
+result. All returned freeform user tasks are normalized to fullscreen on
+display 0. Unexpected loss owns one cancellable recovery request, using task
+events and the bounded display-removal watchdog only while migration is pending.
+Success, cancellation, and failure are terminal, including an unavailable task
+ID retained by SystemUI. Events caused by recovery itself cannot restart a
+completed request, and its late callback cannot affect a newer request or session.
 
 ## Window Transitions
 

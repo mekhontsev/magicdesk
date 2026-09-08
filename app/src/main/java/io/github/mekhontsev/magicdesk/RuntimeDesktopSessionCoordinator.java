@@ -24,23 +24,15 @@ final class RuntimeDesktopSessionCoordinator {
     private final Listener mListener;
     private int mDesktopDisplayId = Display.INVALID_DISPLAY;
     private boolean mRecoverPhoneTasks;
-    private boolean mRecoverRemovedDisplayTasks;
-    private boolean mPhoneTaskRecoveryInFlight;
-    private boolean mPhoneTaskRecoveryAgain;
-    private boolean mAllowUnsettledDisplayRecovery;
-    private int mRemovedDesktopDisplayId = Display.INVALID_DISPLAY;
+    private RemovedDisplayRecovery mRemovedDisplayRecovery;
     private int mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
-    private boolean mRestorePhonePanelAfterRecovery;
     private boolean mLocalDesktopCleanupInFlight;
     private boolean mHomeLeaseRecoveryInFlight;
     private boolean mDestroyed;
     private final Runnable mPhoneTaskRecoveryRunnable =
             this::recoverTasksAfterDisplayRemoval;
-    private final Runnable mDisplayRemovalWatchdogRunnable = () -> {
-        if (mRemovedDesktopDisplayId > Display.DEFAULT_DISPLAY) {
-            schedulePhoneTaskRecovery(true);
-        }
-    };
+    private final Runnable mDisplayRemovalWatchdogRunnable =
+            () -> schedulePhoneTaskRecovery(true);
     private final Runnable mLocalDesktopCleanupRunnable =
             this::cleanupClosedLocalDesktop;
     private final Runnable mHomeLeaseReconciliationRunnable =
@@ -69,8 +61,7 @@ final class RuntimeDesktopSessionCoordinator {
     void destroy() {
         mDestroyed = true;
         mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
-        mHandler.removeCallbacks(mPhoneTaskRecoveryRunnable);
-        mHandler.removeCallbacks(mDisplayRemovalWatchdogRunnable);
+        clearRemovedDisplayRecovery();
         mHandler.removeCallbacks(mLocalDesktopCleanupRunnable);
         mHandler.removeCallbacks(mHomeLeaseReconciliationRunnable);
     }
@@ -98,10 +89,7 @@ final class RuntimeDesktopSessionCoordinator {
                 || mDisplayExists.test(displayId)) {
             return;
         }
-        mRemovedDesktopDisplayId = displayId;
-        mRecoverRemovedDisplayTasks = mRecoverPhoneTasks;
-        scheduleDisplayRemovalWatchdog();
-        schedulePhoneTaskRecovery();
+        beginRemovedDisplayRecovery(displayId, false);
     }
 
     void handleDisplayStateChanged(
@@ -121,16 +109,13 @@ final class RuntimeDesktopSessionCoordinator {
                 desktopTarget,
                 activeDesktopRemoved);
         final boolean expectedDesktopRemoval = displayRemoved
-                && mExpectedRemovedDisplayId == displayId;
+                && (mExpectedRemovedDisplayId == displayId
+                        || DesktopOperations.isSessionTransitionInProgress());
         if (expectedDesktopRemoval) {
             mExpectedRemovedDisplayId = Display.INVALID_DISPLAY;
         }
         if (displayRemoved) {
-            if (externalDesktopRemoved) {
-                mRecoverRemovedDisplayTasks = mRecoverPhoneTasks;
-            }
             if (externalDesktopRemoved && !expectedDesktopRemoval) {
-                mRestorePhonePanelAfterRecovery = true;
                 releaseHomeLeaseAfterSessionLoss(displayId);
             }
             PhoneTouchpadController.release(displayId);
@@ -140,9 +125,10 @@ final class RuntimeDesktopSessionCoordinator {
                             == DesktopDisplayTarget.Kind.SIMULATED) {
                 SimulatedDesktopDisplayController.release(displayId);
             }
-            if (externalDesktopRemoved) {
-                mRemovedDesktopDisplayId = displayId;
-                scheduleDisplayRemovalWatchdog();
+            if (externalDesktopRemoved && !expectedDesktopRemoval) {
+                // Explicit Close already returns and reconciles phone tasks
+                // before completing. Only unexpected loss needs event recovery.
+                beginRemovedDisplayRecovery(displayId, true);
             }
         }
         refreshOwnership();
@@ -154,6 +140,10 @@ final class RuntimeDesktopSessionCoordinator {
     void refreshOwnership() {
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
+        if (mRemovedDisplayRecovery != null
+                && !mRemovedDisplayRecovery.shouldContinue(session)) {
+            clearRemovedDisplayRecovery();
+        }
         final int desktopDisplayId = session.activeDisplayId();
         if (session.target() != null) {
             mRecoverPhoneTasks = DesktopCompatibilitySettings.current().enabled(
@@ -178,9 +168,7 @@ final class RuntimeDesktopSessionCoordinator {
     }
 
     void onTaskStackChanged() {
-        if (mRemovedDesktopDisplayId > Display.DEFAULT_DISPLAY) {
-            schedulePhoneTaskRecovery();
-        }
+        schedulePhoneTaskRecovery();
     }
 
     void onShellReady() {
@@ -208,24 +196,41 @@ final class RuntimeDesktopSessionCoordinator {
 
     private void schedulePhoneTaskRecovery(
             final boolean allowUnsettledDisplayRecovery) {
-        if (mDestroyed || !ShellAccess.isReady()
-                || mRemovedDesktopDisplayId <= Display.DEFAULT_DISPLAY) {
+        final RemovedDisplayRecovery recovery = mRemovedDisplayRecovery;
+        if (mDestroyed || recovery == null || !ShellAccess.isReady()) {
             return;
         }
-        mAllowUnsettledDisplayRecovery |=
-                allowUnsettledDisplayRecovery;
+        if (!recovery.shouldContinue(DesktopRuntimeBridge.getSessionSnapshot())) {
+            clearRemovedDisplayRecovery();
+            return;
+        }
+        recovery.allowUnsettled |= allowUnsettledDisplayRecovery;
         mHandler.removeCallbacks(mPhoneTaskRecoveryRunnable);
         mHandler.post(mPhoneTaskRecoveryRunnable);
     }
 
-    private void scheduleDisplayRemovalWatchdog() {
-        if (mDestroyed) {
+    private void beginRemovedDisplayRecovery(
+            final int displayId, final boolean restorePhonePanel) {
+        if (mDestroyed || (mRemovedDisplayRecovery != null
+                && mRemovedDisplayRecovery.displayId == displayId)) {
             return;
         }
-        mHandler.removeCallbacks(mDisplayRemovalWatchdogRunnable);
+        clearRemovedDisplayRecovery();
+        mRemovedDisplayRecovery = new RemovedDisplayRecovery(
+                displayId, mRecoverPhoneTasks, restorePhonePanel);
         mHandler.postDelayed(
                 mDisplayRemovalWatchdogRunnable,
                 DISPLAY_REMOVAL_WATCHDOG_MILLIS);
+        schedulePhoneTaskRecovery();
+    }
+
+    private void clearRemovedDisplayRecovery() {
+        if (mRemovedDisplayRecovery != null) {
+            mRemovedDisplayRecovery.cancel();
+            mRemovedDisplayRecovery = null;
+        }
+        mHandler.removeCallbacks(mPhoneTaskRecoveryRunnable);
+        mHandler.removeCallbacks(mDisplayRemovalWatchdogRunnable);
     }
 
     private void scheduleHomeLeaseReconciliation() {
@@ -336,63 +341,50 @@ final class RuntimeDesktopSessionCoordinator {
     }
 
     private void recoverTasksAfterDisplayRemoval() {
-        if (mDestroyed || !ShellAccess.isReady()) {
+        final RemovedDisplayRecovery recovery = mRemovedDisplayRecovery;
+        if (mDestroyed || recovery == null || !ShellAccess.isReady()) {
             return;
         }
-        if (mPhoneTaskRecoveryInFlight) {
-            mPhoneTaskRecoveryAgain = true;
+        if (!recovery.shouldContinue(DesktopRuntimeBridge.getSessionSnapshot())) {
+            clearRemovedDisplayRecovery();
             return;
         }
-        final int removedDisplayId = mRemovedDesktopDisplayId;
-        if (removedDisplayId <= Display.DEFAULT_DISPLAY) {
+        if (!recovery.begin()) {
             return;
         }
-        mPhoneTaskRecoveryInFlight = true;
-        final boolean allowUnsettledDisplayRecovery =
-                mAllowUnsettledDisplayRecovery;
-        final PhoneDesktopTaskRecovery.Callback callback = result ->
-                mHandler.post(() -> {
-                    mPhoneTaskRecoveryInFlight = false;
-                    if (!result.success && !result.pending) {
-                        Log.w(TAG, "removed-display task recovery failed: "
-                                + result.message);
-                        CompatibilityDiagnostics.record(
-                                "PHONE-TASK-003",
-                                "Could not recover tasks after desktop display loss",
-                                result.message);
-                    }
-                    final boolean recoveryComplete =
-                            isPhoneRecoveryComplete(
-                                    result.success && !result.pending,
-                                    mPhoneTaskRecoveryAgain);
-                    final boolean restorePhonePanel =
-                            mRestorePhonePanelAfterRecovery
-                                    && mRemovedDesktopDisplayId
-                                            == removedDisplayId
-                                    && recoveryComplete;
-                    if (!mDestroyed && recoveryComplete
-                            && mRemovedDesktopDisplayId == removedDisplayId) {
-                        mRemovedDesktopDisplayId = Display.INVALID_DISPLAY;
-                        mAllowUnsettledDisplayRecovery = false;
-                        mHandler.removeCallbacks(
-                                mDisplayRemovalWatchdogRunnable);
-                    }
-                    if (!mDestroyed && restorePhonePanel) {
-                        mRestorePhonePanelAfterRecovery = false;
-                        DesktopOperations
-                                .restorePhoneAfterExternalDesktop();
-                    }
-                    if (!mDestroyed && mPhoneTaskRecoveryAgain) {
-                        mPhoneTaskRecoveryAgain = false;
-                        schedulePhoneTaskRecovery();
-                    }
-                });
-        if (allowUnsettledDisplayRecovery) {
-            PhoneDesktopTaskRecovery.recoverRemovedDisplayAfterTimeout(
-                    mRecoverRemovedDisplayTasks, removedDisplayId, callback);
-        } else {
-            PhoneDesktopTaskRecovery.recoverRemovedDisplay(
-                    mRecoverRemovedDisplayTasks, removedDisplayId, callback);
+        PhoneDesktopTaskRecovery.recoverRemovedDisplay(
+                recovery.required, recovery.displayId, recovery.allowUnsettled,
+                () -> recovery.shouldContinue(DesktopRuntimeBridge.getSessionSnapshot()),
+                result -> mHandler.post(() -> finishRemovedDisplayRecovery(recovery, result)));
+    }
+
+    private void finishRemovedDisplayRecovery(
+            final RemovedDisplayRecovery recovery,
+            final PhoneDesktopTaskRecovery.Result result) {
+        if (mDestroyed || mRemovedDisplayRecovery != recovery) {
+            return;
+        }
+        if (!recovery.shouldContinue(DesktopRuntimeBridge.getSessionSnapshot())) {
+            clearRemovedDisplayRecovery();
+            return;
+        }
+        final boolean rerun = recovery.finish(result);
+        if (result.pending && !result.cancelled) {
+            if (rerun) {
+                schedulePhoneTaskRecovery();
+            }
+            return;
+        }
+        clearRemovedDisplayRecovery();
+        if (!result.success && !result.cancelled) {
+            Log.w(TAG, "removed-display task recovery failed: " + result.message);
+            CompatibilityDiagnostics.record(
+                    "PHONE-TASK-003",
+                    "Could not recover tasks after desktop display loss",
+                    result.message);
+        }
+        if (!result.cancelled && recovery.restorePhonePanel) {
+            DesktopOperations.restorePhoneAfterExternalDesktop();
         }
     }
 
@@ -462,9 +454,58 @@ final class RuntimeDesktopSessionCoordinator {
                         activeDesktopRemoved);
     }
 
-    static boolean isPhoneRecoveryComplete(
-            final boolean settled,
-            final boolean rerunQueued) {
-        return settled && !rerunQueued;
+    /** One removal owns its callbacks; only unsettled migration can request another pass. */
+    static final class RemovedDisplayRecovery {
+        final int displayId;
+        final boolean required;
+        final boolean restorePhonePanel;
+        boolean allowUnsettled;
+        private boolean mInFlight;
+        private boolean mAgain;
+        private volatile boolean mCancelled;
+
+        RemovedDisplayRecovery(
+                final int displayId, final boolean required, final boolean restorePhonePanel) {
+            this.displayId = displayId;
+            this.required = required;
+            this.restorePhonePanel = restorePhonePanel;
+        }
+
+        boolean shouldContinue(final DesktopSessionSnapshot session) {
+            if ((session.target() != null && session.target().displayId != displayId)
+                    || (session.hasHost() && session.activeDisplayId() != displayId)) {
+                // Checked on the task queue before each mutation as well as on
+                // lifecycle callbacks, including before a new host is ready.
+                cancel();
+            }
+            return !mCancelled;
+        }
+
+        void cancel() {
+            mCancelled = true;
+        }
+
+        boolean begin() {
+            if (mCancelled) {
+                return false;
+            }
+            if (mInFlight) {
+                mAgain = true;
+                return false;
+            }
+            mInFlight = true;
+            mAgain = false;
+            return true;
+        }
+
+        boolean finish(final PhoneDesktopTaskRecovery.Result result) {
+            mInFlight = false;
+            // Task changes caused by recovery itself must not turn a terminal
+            // failure (for example a dead SystemUI task ID) into an endless retry.
+            if (!result.pending || result.cancelled) {
+                cancel();
+            }
+            return !mCancelled && mAgain;
+        }
     }
 }

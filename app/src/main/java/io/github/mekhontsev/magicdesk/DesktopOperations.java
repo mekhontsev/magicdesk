@@ -209,11 +209,7 @@ public final class DesktopOperations {
     }
 
     static void restorePhoneAfterExternalDesktop() {
-        OPERATIONS.execute(() -> {
-            PHONE_UI.setPhoneScreenOff(
-                    false, android.view.Display.INVALID_DISPLAY);
-            PhoneControlPanelLauncher.openOnPhoneWithShell();
-        });
+        TRANSITIONS.restorePhoneAfterExternalDesktop();
     }
 
     static void updateExternalTaskCaptionTarget(

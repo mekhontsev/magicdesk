@@ -69,11 +69,20 @@ public final class DesktopCloseFailureTest {
                     static int getActiveDesktopDisplayId() { return active; }
                     static boolean isLocalDesktopActiveOrStarting() { return false; }
                 }
+                static class ExternalDisplayController {
+                    static boolean displayExists(int id) { return !failure.equals("removed-display"); }
+                }
                 static class PhoneDesktopTaskRecovery {
                     static class Result { boolean success = true, cancelled; String message = ""; }
-                    static Result recoverBlocking(boolean required, java.util.function.BooleanSupplier inactive) {
+                    static Result recoverBlocking(boolean required, int removedDisplayId,
+                            java.util.function.BooleanSupplier inactive) {
                         check(required == expectedRecovery, "close reread next-session recovery setting");
-                        step("recover"); return new Result();
+                        check(removedDisplayId == (failure.equals("removed-display") ? 7 : -1),
+                                "Close omitted removed-display recovery or recovered a connected display");
+                        step("recover");
+                        Result result = new Result();
+                        result.success = !failure.equals("recovery-result");
+                        return result;
                     }
                 }
                 static class DesktopCompatibilityPolicy {
@@ -101,7 +110,7 @@ public final class DesktopCloseFailureTest {
                     for (String fail : List.of("none", "home", "phone", "phone-result",
                             "screen-unowned", "protection", "park", "close",
                             "recover", "display-mode", "display-mode-io",
-                            "surfaces", "present", "panel", "remove")) {
+                            "surfaces", "present", "panel", "remove", "removed-display", "recovery-result")) {
                         failure = fail; active = 7; completions = 0; events.clear();
                         selectedRecovery = expectedRecovery = true;
                         Fixture f = new Fixture();
@@ -132,6 +141,9 @@ public final class DesktopCloseFailureTest {
                                 "display default restored outside teardown boundary: " + events);
                         if (fail.startsWith("display-mode")) {
                             check(!succeeded[0], "lost display default restoration failure");
+                        }
+                        if (fail.equals("recovery-result")) {
+                            check(!succeeded[0], "lost terminal recovery failure");
                         }
                         if (fail.equals("remove")) check(events.indexOf("remove") < events.indexOf("surfaces"),
                                 "HOME surfaces disabled before display removal: " + events);

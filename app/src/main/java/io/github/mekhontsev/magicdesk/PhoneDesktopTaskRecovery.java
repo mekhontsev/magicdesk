@@ -98,15 +98,11 @@ final class PhoneDesktopTaskRecovery {
     static void recoverRemovedDisplay(
             final boolean required,
             final int removedDisplayId,
+            final boolean allowUnsettledRemoval,
+            final Continuation continuation,
             final Callback callback) {
-        recover(required, removedDisplayId, false, ALWAYS_CONTINUE, callback);
-    }
-
-    static void recoverRemovedDisplayAfterTimeout(
-            final boolean required,
-            final int removedDisplayId,
-            final Callback callback) {
-        recover(required, removedDisplayId, true, ALWAYS_CONTINUE, callback);
+        recover(required, removedDisplayId, allowUnsettledRemoval,
+                continuation, callback);
     }
 
     private static void recover(
@@ -136,13 +132,20 @@ final class PhoneDesktopTaskRecovery {
     }
 
     static Result recoverBlocking(final boolean required, final Continuation continuation) {
+        return recoverBlocking(required, -1, continuation);
+    }
+
+    static Result recoverBlocking(
+            final boolean required,
+            final int removedDisplayId,
+            final Continuation continuation) {
         if (!required) {
             return Result.success("phone desktop recovery is not required");
         }
         try {
             return TaskCommandQueue.call(() -> recoverNow(
-                    -1,
-                    false,
+                    removedDisplayId,
+                    removedDisplayId > 0,
                     continuation == null ? ALWAYS_CONTINUE : continuation,
                     SYSTEM_ENVIRONMENT));
         } catch (RuntimeException error) {

@@ -102,6 +102,43 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
     }
 
     @Test
+    public void closeNormalizesLivePhoneFreeformEvenWithoutRepositoryEntry() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.repositoryContainsTask = false;
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverForTest(() -> true, environment);
+
+        assertTrue(result.success);
+        assertTrue(environment.hasFullscreenTransition());
+        assertFalse(environment.freeform);
+    }
+
+    @Test
+    public void newSessionAfterRemovedDisplayDiscoveryPreventsTaskMutation() {
+        final FakeEnvironment environment = new FakeEnvironment(true);
+        environment.repositoryContainsTask = false;
+        environment.removedRepositoryContainsTask = true;
+        final RuntimeDesktopSessionCoordinator.RemovedDisplayRecovery recovery =
+                new RuntimeDesktopSessionCoordinator.RemovedDisplayRecovery(95, true, true);
+        assertTrue(recovery.begin());
+
+        final PhoneDesktopTaskRecovery.Result result =
+                PhoneDesktopTaskRecovery.recoverRemovedDisplayForTest(
+                        95, () -> recovery.shouldContinue(environment.commands.size() < 2
+                                ? DesktopSessionSnapshot.empty()
+                                : DesktopSessionSnapshot.empty().noteTarget(
+                                        DesktopDisplayTarget.phone())), environment);
+
+        assertTrue(result.cancelled);
+        assertEquals(2, environment.commands.size());
+        assertFalse(environment.hasFullscreenTransition());
+        assertFalse(environment.hasMoveToDeskCommand());
+        assertFalse(recovery.finish(result));
+        assertFalse(recovery.begin());
+    }
+
+    @Test
     public void missingRepositoryTaskIsRevivedBeforeTransition() {
         final FakeEnvironment environment = new FakeEnvironment(false);
 

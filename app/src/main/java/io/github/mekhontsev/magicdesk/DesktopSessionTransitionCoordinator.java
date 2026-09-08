@@ -104,6 +104,18 @@ final class DesktopSessionTransitionCoordinator {
                 || mGate.isActive(DesktopTransitionGate.Operation.CLOSE);
     }
 
+    void restorePhoneAfterExternalDesktop() {
+        mOperations.execute(() -> {
+            // A new Start may have been queued after the removal callback.
+            final DesktopSessionSnapshot session = DesktopRuntimeBridge.getSessionSnapshot();
+            if (isSessionTransitionInProgress() || session.target() != null || session.hasHost()) {
+                return;
+            }
+            mPhoneUi.setPhoneScreenOff(false, Display.INVALID_DISPLAY);
+            PhoneControlPanelLauncher.openOnPhoneWithShell();
+        });
+    }
+
     void updateCaptionTransport(final DesktopDisplayTarget target) {
         mOperations.execute(() -> {
             final PlatformProjectionDriver.Transport transport =
@@ -219,12 +231,15 @@ final class DesktopSessionTransitionCoordinator {
         }
         if (mode.parkTasks
                 && target.displayId > Display.DEFAULT_DISPLAY) {
-            // A wired display can stay connected after Close. Reconcile its
-            // returned phone tasks now, without relying on display removal.
+            // Close owns recovery through its terminal result. If the display
+            // disappeared, include tasks still retained there by SystemUI;
+            // the recovery's bounded waits cover their late migration too.
             try {
                 final PhoneDesktopTaskRecovery.Result recovery =
                         PhoneDesktopTaskRecovery.recoverBlocking(
                                 recoverPhoneTasks,
+                                ExternalDisplayController.displayExists(target.displayId)
+                                        ? Display.INVALID_DISPLAY : target.displayId,
                                 () -> !DesktopRuntimeBridge
                                         .isLocalDesktopActiveOrStarting());
                 if (!recovery.success || recovery.cancelled) {
