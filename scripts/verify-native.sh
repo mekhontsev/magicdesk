@@ -36,22 +36,10 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-for fixture in magicdesk_pty_working_directory_test magicdesk_pty_lifecycle_test; do
+for fixture in magicdesk_pty_working_directory_test magicdesk_pty_lifecycle_test magicdesk_virtual_mouse_test; do
     printf 'Compile: %s (%s)\n' "$fixture" "$compiler"
     "$compiler" -std=c17 -D_GNU_SOURCE -O2 -Wall -Wextra -UNDEBUG \
         "$project_dir/native/tests/$fixture.c" -o "$work/$fixture"
-done
-
-for bridge in mouse keyboard; do
-    printf 'Compile: input SYN_DROPPED (%s, %s)\n' "$bridge" "$compiler"
-    if [ "$bridge" = keyboard ]; then
-        set -- -DFIXTURE_KEYBOARD
-    else
-        set --
-    fi
-    "$compiler" -std=c17 -D_GNU_SOURCE -O2 -Wall -Wextra -UNDEBUG "$@" \
-        "$project_dir/native/tests/magicdesk_input_syn_dropped_test.c" \
-        -o "$work/magicdesk_input_${bridge}_test"
 done
 
 # Fixtures use only their own PTYs/processes; keep their files under this owner.
@@ -62,16 +50,5 @@ timeout --kill-after=2s 15s ./magicdesk_pty_working_directory_test
 for mode in pressure fragmented metadata hup signal oversized; do
     timeout --kill-after=2s 15s ./magicdesk_pty_lifecycle_test "$mode"
 done
-for bridge in mouse keyboard; do
-    for mode in lost multiple discard failure held shortcuts; do
-        printf 'Run: input %s %s\n' "$bridge" "$mode"
-        timeout --kill-after=2s 15s "./magicdesk_input_${bridge}_test" "$mode"
-    done
-done
-for mode in paused queue-cleanup; do
-    printf 'Run: input keyboard %s\n' "$mode"
-    timeout --kill-after=2s 15s ./magicdesk_input_keyboard_test "$mode"
-done
-printf 'Run: input mouse secondary-native\n'
-timeout --kill-after=2s 15s ./magicdesk_input_mouse_test secondary-native
-printf 'Native host fixtures verified (22 runs).\n'
+timeout --kill-after=2s 15s ./magicdesk_virtual_mouse_test
+printf 'Native host fixtures verified (8 runs).\n'

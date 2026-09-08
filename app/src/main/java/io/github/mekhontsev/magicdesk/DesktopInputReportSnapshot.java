@@ -8,34 +8,30 @@ import java.util.Map;
 import java.util.Set;
 
 /** One-shot input observation captured at the start of report generation. */
-final class InputRelayReportSnapshot {
+final class DesktopInputReportSnapshot {
     private static final String MAGICDESK_MOUSE_PORT = "magicdesk-mouse";
-    private static final String MAGICDESK_KEYBOARD_PREFIX =
-            "magicdesk-keyboard-";
 
-    final InputBridgeDiagnostics.Snapshot lifecycle;
-    final InputRelayRuntimeDiagnostics.Snapshot runtime;
+    final InputSessionDiagnostics.Snapshot lifecycle;
+    final DesktopInputDiagnostics.Snapshot runtime;
     final boolean touchpadRequested;
     final boolean touchpadVisible;
     final int physicalMice;
     final int virtualMice;
     final int physicalKeyboards;
-    final int virtualKeyboards;
     final Set<String> ownedPorts;
     final Map<String, String> activeAssociations;
     final Set<String> missingAssociations;
     final Set<String> unexpectedAssociations;
     final String inputStateError;
 
-    private InputRelayReportSnapshot(
-            final InputBridgeDiagnostics.Snapshot lifecycle,
-            final InputRelayRuntimeDiagnostics.Snapshot runtime,
+    private DesktopInputReportSnapshot(
+            final InputSessionDiagnostics.Snapshot lifecycle,
+            final DesktopInputDiagnostics.Snapshot runtime,
             final boolean touchpadRequested,
             final boolean touchpadVisible,
             final int physicalMice,
             final int virtualMice,
             final int physicalKeyboards,
-            final int virtualKeyboards,
             final Set<String> ownedPorts,
             final Map<String, String> activeAssociations,
             final Set<String> missingAssociations,
@@ -48,7 +44,6 @@ final class InputRelayReportSnapshot {
         this.physicalMice = physicalMice;
         this.virtualMice = virtualMice;
         this.physicalKeyboards = physicalKeyboards;
-        this.virtualKeyboards = virtualKeyboards;
         this.ownedPorts = ownedPorts;
         this.activeAssociations = activeAssociations;
         this.missingAssociations = missingAssociations;
@@ -56,11 +51,11 @@ final class InputRelayReportSnapshot {
         this.inputStateError = inputStateError;
     }
 
-    static InputRelayReportSnapshot capture() {
-        final InputBridgeDiagnostics.Snapshot lifecycle =
-                InputBridgeDiagnostics.snapshot();
-        final InputRelayRuntimeDiagnostics.Snapshot runtime =
-                MagicDeskRuntime.captureInputRelayDiagnostics();
+    static DesktopInputReportSnapshot capture() {
+        final InputSessionDiagnostics.Snapshot lifecycle =
+                InputSessionDiagnostics.snapshot();
+        final DesktopInputDiagnostics.Snapshot runtime =
+                MagicDeskRuntime.captureInputDiagnostics();
         final boolean touchpadRequested = runtime.displayId > 0
                 && MagicDeskTouchpadActivity.isRequested(runtime.displayId);
         final boolean touchpadVisible = runtime.displayId > 0
@@ -69,7 +64,6 @@ final class InputRelayReportSnapshot {
         int physicalMice = -1;
         int virtualMice = -1;
         int physicalKeyboards = -1;
-        int virtualKeyboards = -1;
         Set<String> ownedPorts = new LinkedHashSet<>();
         Map<String, String> activeAssociations = new LinkedHashMap<>();
         Set<String> missingAssociations = new LinkedHashSet<>();
@@ -85,16 +79,14 @@ final class InputRelayReportSnapshot {
                         DesktopInputDeviceDiscovery.findRoutableMice(
                                 inputDump);
                 final List<DesktopKeyboardDevice> keyboards =
-                        DesktopInputDeviceDiscovery.findRoutableKeyboards(
+                        DesktopInputDeviceDiscovery.findKeyboards(
                                 inputDump);
                 virtualMice = countMousePorts(mice, true);
                 physicalMice = mice.size() - virtualMice;
-                virtualKeyboards = countKeyboardPorts(keyboards, true);
-                physicalKeyboards = keyboards.size() - virtualKeyboards;
-                ownedPorts = DesktopInputRoutingOwnership.read();
+                physicalKeyboards = keyboards.size();
+                ownedPorts = ShellAccess.ownedInputPorts();
                 final Map<String, String> allAssociations =
-                        DesktopInputRoutingOwnership
-                                .findActiveAssociationTargets(inputDump);
+                        FrameworkInputRoutingSnapshot.parse(inputDump).labels();
                 final AssociationState associationState =
                         classifyAssociations(ownedPorts, allAssociations);
                 activeAssociations = associationState.active;
@@ -104,7 +96,7 @@ final class InputRelayReportSnapshot {
                 inputStateError = usefulMessage(error);
             }
         }
-        return new InputRelayReportSnapshot(
+        return new DesktopInputReportSnapshot(
                 lifecycle,
                 runtime,
                 touchpadRequested,
@@ -112,7 +104,6 @@ final class InputRelayReportSnapshot {
                 physicalMice,
                 virtualMice,
                 physicalKeyboards,
-                virtualKeyboards,
                 ownedPorts,
                 activeAssociations,
                 missingAssociations,
@@ -121,15 +112,14 @@ final class InputRelayReportSnapshot {
     }
 
     void appendReport(final StringBuilder report) {
-        report.append("Input relay runtime: ")
+        report.append("Input runtime: ")
                 .append(lifecycle.reportLine())
-                .append(", physicalCapturePolicy={")
-                .append(runtime.physicalRelay.diagnosticDetail()).append('}')
+                .append(", physicalInput=android-direct")
                 .append('\n')
-                .append("Mouse relay snapshot: ")
+                .append("Virtual mouse snapshot: ")
                 .append(runtime.mouse.reportLine())
                 .append('\n')
-                .append("Keyboard relay snapshot: ")
+                .append("Keyboard shortcut snapshot: ")
                 .append(runtime.keyboard.reportLine())
                 .append('\n')
                 .append("Input routing snapshot: display=")
@@ -138,8 +128,6 @@ final class InputRelayReportSnapshot {
                 .append(", virtualMice=").append(countLabel(virtualMice))
                 .append(", physicalKeyboards=")
                 .append(countLabel(physicalKeyboards))
-                .append(", virtualKeyboards=")
-                .append(countLabel(virtualKeyboards))
                 .append(", ownedPorts=").append(ownedPorts)
                 .append(", activeAssociations=")
                 .append(activeAssociations)
@@ -183,19 +171,6 @@ final class InputRelayReportSnapshot {
         return count;
     }
 
-    private static int countKeyboardPorts(
-            final List<DesktopKeyboardDevice> keyboards,
-            final boolean magicDesk) {
-        int count = 0;
-        for (final DesktopKeyboardDevice keyboard : keyboards) {
-            if (keyboard.location.startsWith(
-                    MAGICDESK_KEYBOARD_PREFIX) == magicDesk) {
-                count++;
-            }
-        }
-        return count;
-    }
-
     static AssociationState classifyAssociations(
             final Set<String> ownedPorts,
             final Map<String, String> associations) {
@@ -218,8 +193,7 @@ final class InputRelayReportSnapshot {
     }
 
     private static boolean isMagicDeskVirtualPort(final String port) {
-        return MAGICDESK_MOUSE_PORT.equals(port)
-                || port.startsWith(MAGICDESK_KEYBOARD_PREFIX);
+        return MAGICDESK_MOUSE_PORT.equals(port);
     }
 
     static final class AssociationState {

@@ -343,7 +343,6 @@ final class SettingsView {
 
     private static int compatibilityLabel(final DesktopCompatibilityPolicy.Option option) {
         return switch (option) {
-            case INPUT_RELAY -> R.string.settings_relay_physical_input;
             case FOCUS_REPAIR -> R.string.settings_compat_focus_repair;
             case CAPTION_REFRESH -> R.string.settings_compat_caption_refresh;
             case PHONE_TASK_ISOLATION -> R.string.settings_compat_phone_isolation;

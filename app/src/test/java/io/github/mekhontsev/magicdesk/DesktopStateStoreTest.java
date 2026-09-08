@@ -49,7 +49,7 @@ public final class DesktopStateStoreTest {
         source.settings.keepDesktopAwake = true;
         source.settings.disableAdaptiveBrightnessOnExternalDesktop = true;
         source.settings.openTouchpadAutomatically = false;
-        source.settings.compatibility.put(DesktopCompatibilityPolicy.Option.INPUT_RELAY, true);
+        source.settings.compatibility.put(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, true);
         source.settings.openFilesWithSingleClick = true;
         source.settings.termuxX11StartupCommand =
                 "termux-x11 :2 -xstartup \"openbox-session\"";
@@ -87,7 +87,7 @@ public final class DesktopStateStoreTest {
         assertTrue(decoded.settings.keepDesktopAwake);
         assertTrue(decoded.settings.disableAdaptiveBrightnessOnExternalDesktop);
         assertFalse(decoded.settings.openTouchpadAutomatically);
-        assertEquals(Boolean.TRUE, decoded.settings.compatibility.get(DesktopCompatibilityPolicy.Option.INPUT_RELAY));
+        assertEquals(Boolean.TRUE, decoded.settings.compatibility.get(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertTrue(decoded.settings.openFilesWithSingleClick);
         assertEquals(
                 source.settings.termuxX11StartupCommand,
@@ -103,11 +103,11 @@ public final class DesktopStateStoreTest {
     @Test
     public void inputRelayPreferencePreservesUnsetAndExplicitOff() throws Exception {
         final MagicDeskSettings.Values defaults = MagicDeskSettings.Values.defaults();
-        assertNull(MagicDeskSettings.Values.fromJson(defaults.toJson()).compatibility.get(DesktopCompatibilityPolicy.Option.INPUT_RELAY));
-        defaults.compatibility.put(DesktopCompatibilityPolicy.Option.INPUT_RELAY, false);
-        assertEquals(Boolean.FALSE, defaults.copy().compatibility.get(DesktopCompatibilityPolicy.Option.INPUT_RELAY));
+        assertNull(MagicDeskSettings.Values.fromJson(defaults.toJson()).compatibility.get(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
+        defaults.compatibility.put(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, false);
+        assertEquals(Boolean.FALSE, defaults.copy().compatibility.get(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertEquals(Boolean.FALSE,
-                MagicDeskSettings.Values.fromJson(defaults.toJson()).compatibility.get(DesktopCompatibilityPolicy.Option.INPUT_RELAY));
+                MagicDeskSettings.Values.fromJson(defaults.toJson()).compatibility.get(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
     }
 
     @Test

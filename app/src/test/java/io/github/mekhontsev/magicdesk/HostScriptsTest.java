@@ -47,7 +47,7 @@ public final class HostScriptsTest {
 
     @Test
     public void coreApkRequiresEveryShellHelper() throws Exception {
-        final var helpers = List.of("uinput_bridge", "keyboard_bridge", "pty_bridge");
+        final var helpers = List.of("uinput_bridge", "pty_bridge");
         for (final String omitted : helpers) {
             final Path apk = coreApk(helpers.stream()
                     .filter(helper -> !helper.equals(omitted)).toList());
@@ -71,7 +71,7 @@ public final class HostScriptsTest {
             zip.closeEntry();
         }
         final var result = run("verify-apks.sh", Map.of(),
-                coreApk(List.of("uinput_bridge", "keyboard_bridge", "pty_bridge"))
+                coreApk(List.of("uinput_bridge", "pty_bridge"))
                         .toString(), addon.toString());
         assertEquals(result.output, 1, result.exitCode);
         assertTrue(result.output.contains("must not contain a shell helper"));
@@ -116,17 +116,9 @@ public final class HostScriptsTest {
                 "magicdesk_pty_lifecycle_test:hup",
                 "magicdesk_pty_lifecycle_test:signal",
                 "magicdesk_pty_lifecycle_test:oversized"));
-        for (final String bridge : List.of("mouse", "keyboard")) {
-            for (final String mode : List.of("lost", "multiple", "discard", "failure",
-                    "held", "shortcuts")) {
-                expected.add("magicdesk_input_" + bridge + "_test:" + mode);
-            }
-        }
-        expected.add("magicdesk_input_keyboard_test:paused");
-        expected.add("magicdesk_input_keyboard_test:queue-cleanup");
-        expected.add("magicdesk_input_mouse_test:secondary-native");
+        expected.add("magicdesk_virtual_mouse_test:cwd");
         assertEquals(expected, Files.readAllLines(fixture.log));
-        assertTrue(result.output.contains("verified (22 runs)"));
+        assertTrue(result.output.contains("verified (8 runs)"));
         assertEmptyDirectory(fixture.output);
     }
 
@@ -143,13 +135,13 @@ public final class HostScriptsTest {
         final var testResult = nativeVerifier(testFailure, "fragmented", false);
         assertEquals(testResult.output, 9, testResult.exitCode);
         assertEquals(3, Files.readAllLines(testFailure.log).size());
-        assertTrue(!testResult.output.contains("verified (23 runs)"));
+        assertTrue(!testResult.output.contains("verified (8 runs)"));
         assertEmptyDirectory(testFailure.output);
 
         final var inputFailure = nativeVerifierFixture();
-        final var inputResult = nativeVerifier(inputFailure, "paused", false);
+        final var inputResult = nativeVerifier(inputFailure, "magicdesk_virtual_mouse_test", false);
         assertEquals(inputResult.output, 9, inputResult.exitCode);
-        assertEquals(20, Files.readAllLines(inputFailure.log).size());
+        assertEquals(8, Files.readAllLines(inputFailure.log).size());
         assertEmptyDirectory(inputFailure.output);
     }
 
@@ -169,7 +161,7 @@ public final class HostScriptsTest {
                 + "test -n \"$output\" || exit 18\n"
                 + "printf '#!%s\\n' \"$NATIVE_TEST_SHELL\" > \"$output\"\n"
                 + "printf '%s\\n' 'printf \"%s:%s\\n\" \"${0##*/}\" \"${1:-cwd}\" >> \"$NATIVE_RUN_LOG\"' "
-                + "'if [ \"${1:-cwd}\" = \"$NATIVE_FAIL_MODE\" ]; then exit 9; fi' >> \"$output\"\n"
+                + "'if [ \"${1:-cwd}\" = \"$NATIVE_FAIL_MODE\" ] || [ \"${0##*/}\" = \"$NATIVE_FAIL_MODE\" ]; then exit 9; fi' >> \"$output\"\n"
                 + "chmod +x \"$output\"\n");
         assertTrue(compiler.toFile().setExecutable(true));
         return new NativeVerifierFixture(project, compiler,

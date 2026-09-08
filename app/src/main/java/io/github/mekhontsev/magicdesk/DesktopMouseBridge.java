@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
-import android.os.SystemClock;
 import android.util.Log;
 import android.view.MotionEvent;
 
@@ -10,26 +9,20 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.Collections;
-import java.util.List;
 
 final class DesktopMouseBridge {
     private static final String TAG = "MagicDeskMouse";
     private static final String HELPER_NAME =
             "libmagicdesk_uinput_bridge.so";
     private static final long RESTART_DELAY_MILLIS = 1_000L;
-    private static final long CAPTURE_STOP_TIMEOUT_MILLIS = 1_000L;
     private final Object mLock = new Object();
     private final Context mContext;
-    private final boolean mRelayPhysicalMice;
     private final Runnable mStateChanged;
     private final NativeInputBridgeStatsClient mStatsClient =
             new NativeInputBridgeStatsClient("MAGICDESK_MOUSE_STATS");
 
     private boolean mRequested;
     private boolean mReady;
-    private boolean mCaptureRequested;
-    private boolean mCaptureStopPending;
     private int mGeneration;
     private Thread mSupervisorThread;
     private ShellStreamHandle mStream;
@@ -40,10 +33,8 @@ final class DesktopMouseBridge {
 
     DesktopMouseBridge(
             final Context context,
-            final boolean relayPhysicalMice,
             final Runnable stateChanged) {
         mContext = context.getApplicationContext();
-        mRelayPhysicalMice = relayPhysicalMice;
         mStateChanged = stateChanged;
     }
 
@@ -66,7 +57,6 @@ final class DesktopMouseBridge {
 
     void stop() {
         setPrimaryButtonPressed(false);
-        setCaptureEnabled(false);
         final ShellStreamHandle stream;
         final Thread supervisor;
         final boolean notifyStateChanged;
@@ -77,8 +67,6 @@ final class DesktopMouseBridge {
             mRequested = false;
             notifyStateChanged = mReady;
             mReady = false;
-            mCaptureRequested = false;
-            mCaptureStopPending = false;
             mMoveRemainderX = 0.0f;
             mMoveRemainderY = 0.0f;
             mScrollRemainder = 0.0f;
@@ -108,81 +96,6 @@ final class DesktopMouseBridge {
     boolean isRunning() {
         synchronized (mLock) {
             return mRequested;
-        }
-    }
-
-    void setCaptureEnabled(final boolean enabled) {
-        final ShellStreamHandle stream;
-        synchronized (mLock) {
-            if (mCaptureRequested == enabled) {
-                return;
-            }
-            mCaptureRequested = enabled;
-            stream = mRequested && mReady ? mStream : null;
-            mCaptureStopPending = !enabled && stream != null;
-        }
-        Log.i(TAG, "physical capture enabled=" + enabled);
-        if (stream == null) {
-            return;
-        }
-        if (!writeControl(stream, enabled ? "start" : "stop")) {
-            synchronized (mLock) {
-                if (mStream == stream) {
-                    mCaptureStopPending = false;
-                    mLock.notifyAll();
-                }
-            }
-            return;
-        }
-        if (!enabled) {
-            awaitCaptureStopped(stream);
-        }
-    }
-
-    private void awaitCaptureStopped(final ShellStreamHandle stream) {
-        final long deadline = SystemClock.uptimeMillis()
-                + CAPTURE_STOP_TIMEOUT_MILLIS;
-        synchronized (mLock) {
-            while (mStream == stream && mCaptureStopPending) {
-                final long remaining = deadline
-                        - SystemClock.uptimeMillis();
-                if (remaining <= 0L) {
-                    Log.w(TAG,
-                            "Timed out waiting for physical capture release");
-                    return;
-                }
-                try {
-                    EventDrivenWaits.await(
-                            mLock,
-                            EventDrivenWaits.Reason.INPUT_CAPTURE_RELEASE,
-                            remaining);
-                } catch (InterruptedException error) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-            }
-        }
-    }
-
-    void refreshSources(final List<DesktopMouseDevice> mice) {
-        final ShellStreamHandle stream;
-        synchronized (mLock) {
-            if (!mRequested) {
-                return;
-            }
-            stream = mStream;
-        }
-        if (stream == null) {
-            return;
-        }
-        final StringBuilder command = new StringBuilder("sources");
-        for (final DesktopMouseDevice mouse : mice) {
-            command.append(' ').append(mouse.path);
-        }
-        try {
-            stream.writeLine(command.toString());
-        } catch (IOException error) {
-            Log.w(TAG, "Could not refresh mouse sources", error);
         }
     }
 
@@ -261,7 +174,7 @@ final class DesktopMouseBridge {
                 || writePointerControl(stream, "scroll " + steps);
     }
 
-    InputRelayRuntimeDiagnostics.BridgeSnapshot captureDiagnostics() {
+    DesktopInputDiagnostics.BridgeSnapshot captureDiagnostics() {
         final ShellStreamHandle stream;
         final boolean running;
         final boolean ready;
@@ -275,10 +188,9 @@ final class DesktopMouseBridge {
         final NativeInputBridgeStatsClient.Result stats =
                 mStatsClient.request(stream);
         synchronized (mLock) {
-            return new InputRelayRuntimeDiagnostics.BridgeSnapshot(
+            return new DesktopInputDiagnostics.BridgeSnapshot(
                     running,
                     mRequested && mReady && mStream == stream,
-                    stream != null && mCaptureRequested,
                     generation,
                     stats.detail,
                     running ? stats.error : "not running");
@@ -325,14 +237,6 @@ final class DesktopMouseBridge {
     }
 
     private void runOnce(final int generation) throws IOException {
-        final List<DesktopMouseDevice> mice;
-        if (mRelayPhysicalMice) {
-            final String inputDump =
-                    FrameworkInputSnapshotSource.readRemote();
-            mice = DesktopInputDeviceDiscovery.findMice(inputDump);
-        } else {
-            mice = Collections.emptyList();
-        }
         final File helper = new File(
                 mContext.getApplicationInfo().nativeLibraryDir,
                 HELPER_NAME);
@@ -344,9 +248,6 @@ final class DesktopMouseBridge {
         final StringBuilder command =
                 new StringBuilder("exec ").append(ShellCommandLine.quote(
                         helper.getAbsolutePath()));
-        for (final DesktopMouseDevice mouse : mice) {
-            command.append(' ').append(ShellCommandLine.quote(mouse.path));
-        }
 
         final ShellStreamHandle stream =
                 ShellAccess.openOwnedStream(command.toString());
@@ -376,8 +277,6 @@ final class DesktopMouseBridge {
                     mStream = null;
                     notifyStateChanged = mReady;
                     mReady = false;
-                    mCaptureRequested = false;
-                    mCaptureStopPending = false;
                     mPrimaryButtonPressed = false;
                     mLock.notifyAll();
                 } else {
@@ -396,7 +295,6 @@ final class DesktopMouseBridge {
             final ShellStreamHandle stream,
             final int generation) {
         if (line.startsWith("MAGICDESK_MOUSE_READY")) {
-            final boolean capturePointer;
             final boolean notifyStateChanged;
             synchronized (mLock) {
                 if (isActiveLocked(generation) && mStream == stream) {
@@ -405,23 +303,10 @@ final class DesktopMouseBridge {
                 } else {
                     notifyStateChanged = false;
                 }
-                capturePointer = mCaptureRequested;
-            }
-            if (capturePointer) {
-                writeControl(stream, "start");
             }
             Log.i(TAG, line);
             if (notifyStateChanged) {
                 mStateChanged.run();
-            }
-            return;
-        }
-        if (line.startsWith("MAGICDESK_MOUSE_CAPTURE_STOPPED")) {
-            synchronized (mLock) {
-                if (mStream == stream) {
-                    mCaptureStopPending = false;
-                    mLock.notifyAll();
-                }
             }
             return;
         }
@@ -448,18 +333,6 @@ final class DesktopMouseBridge {
 
     private boolean isActiveLocked(final int generation) {
         return mRequested && mGeneration == generation;
-    }
-
-    private static boolean writeControl(
-            final ShellStreamHandle stream,
-            final String command) {
-        try {
-            stream.writeLine(command);
-            return true;
-        } catch (IOException error) {
-            Log.w(TAG, "Could not configure mouse bridge", error);
-            return false;
-        }
     }
 
     private static boolean writePointerControl(

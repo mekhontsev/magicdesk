@@ -261,9 +261,9 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public InputRelayRuntimeDiagnostics.Snapshot
-                captureInputRelayDiagnostics() {
-            return InputRelayRuntimeDiagnostics.Snapshot.unavailable();
+        public DesktopInputDiagnostics.Snapshot
+                captureInputDiagnostics() {
+            return DesktopInputDiagnostics.Snapshot.unavailable();
         }
 
         @Override

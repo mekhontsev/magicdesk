@@ -293,7 +293,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final HardwareKeyboardLayoutCommand.Result result =
                     HardwareKeyboardLayoutCommand.execute(
                             mode, currentDescriptor);
-            if (result.isAvailable() && !"catalog".equals(mode)) {
+            if (result.isAvailable()) {
                 persistHardwareKeyboardLayout(result);
             }
             return result.format();
@@ -880,7 +880,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public int[] startInputRouting(
             final int displayId,
-            final int expectedVirtualKeyboardCount,
             final IBinder ownerToken) {
         if (ownerToken == null) {
             throw new IllegalArgumentException(
@@ -892,9 +891,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             IBinder.DeathRecipient ownerDeath = null;
             boolean ownerLinked = false;
             try {
-                session = DesktopInputRoutingSession.open(
-                        displayId,
-                        expectedVirtualKeyboardCount);
+                session = DesktopInputRoutingSession.open(displayId);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);
                 ownerLinked = true;
@@ -903,20 +900,38 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 mInputRoutingOwnerDeath = ownerDeath;
                 return new int[] {
                         session.displayId(),
-                        session.associationCount(),
-                        session.virtualKeyboardCount()
+                        session.associationCount()
                 };
             } catch (Exception error) {
                 if (ownerLinked) {
                     ownerToken.unlinkToDeath(ownerDeath, 0);
                 }
                 if (session != null) {
-                    session.close();
+                    try {
+                        session.close();
+                    } catch (IOException cleanup) {
+                        error.addSuppressed(cleanup);
+                    }
                 }
                 throw new IllegalStateException(
                         "cannot start input routing: "
                                 + usefulMessage(error),
                         error);
+            }
+        }
+    }
+
+    @Override
+    public void refreshInputRouting(final IBinder ownerToken) {
+        synchronized (mInputRoutingLock) {
+            if (ownerToken == null || !ownerToken.equals(mInputRoutingOwner)
+                    || mInputRoutingSession == null) {
+                throw new IllegalStateException("input routing owner is no longer active");
+            }
+            try {
+                mInputRoutingSession.refresh();
+            } catch (IOException error) {
+                throw new IllegalStateException("cannot refresh input routing", error);
             }
         }
     }
@@ -943,6 +958,26 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                                 + usefulMessage(error),
                         error);
             }
+        }
+    }
+
+    @Override
+    public String[] getOwnedInputPorts() {
+        synchronized (mInputRoutingLock) {
+            try {
+                return DesktopInputRoutingOwnership.ports().toArray(new String[0]);
+            } catch (IOException error) {
+                throw new IllegalStateException("cannot read input routing ownership", error);
+            }
+        }
+    }
+
+    @Override
+    public int[] getRoutedKeyboardDeviceIds(final int displayId) {
+        try {
+            return FrameworkRuntime.current().inputRouting().keyboardDeviceIds(displayId);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("cannot observe routed keyboard devices", error);
         }
     }
 
@@ -1346,9 +1381,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mDisplayRecording.close();
         mDesktopDirectory.close();
         mFileSystem.close();
-        synchronized (mInputRoutingLock) {
-            stopInputRoutingLocked(null);
-        }
+        stopInputRoutingForOwner(null);
         mTaskObserverManager.close();
         for (final OwnedStreamSession session
                 : new ArrayList<>(mStreams.values())) {
@@ -1359,7 +1392,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     private void stopInputRoutingForOwner(final IBinder ownerToken) {
         synchronized (mInputRoutingLock) {
-            stopInputRoutingLocked(ownerToken);
+            try {
+                stopInputRoutingLocked(ownerToken);
+            } catch (RuntimeException error) {
+                Log.e(TAG, "Input routing owner cleanup failed; journal retained", error);
+            }
         }
     }
 
@@ -1373,14 +1410,18 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         final IBinder owner = mInputRoutingOwner;
         final IBinder.DeathRecipient ownerDeath =
                 mInputRoutingOwnerDeath;
+        if (session != null) {
+            try {
+                session.close();
+            } catch (IOException error) {
+                throw new IllegalStateException("cannot restore input routing", error);
+            }
+        }
         mInputRoutingSession = null;
         mInputRoutingOwner = null;
         mInputRoutingOwnerDeath = null;
         if (owner != null && ownerDeath != null) {
             owner.unlinkToDeath(ownerDeath, 0);
-        }
-        if (session != null) {
-            session.close();
         }
     }
 

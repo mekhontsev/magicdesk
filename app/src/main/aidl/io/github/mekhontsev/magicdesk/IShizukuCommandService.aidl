@@ -72,12 +72,17 @@ interface IShizukuCommandService {
 
     int[] startInputRouting(
         int displayId,
-        int expectedVirtualKeyboardCount,
         IBinder ownerToken) = 18;
+
+    void refreshInputRouting(IBinder ownerToken) = 19;
 
     void stopInputRouting(IBinder ownerToken) = 20;
 
     int cleanupInputRouting() = 21;
+
+    String[] getOwnedInputPorts() = 22;
+
+    int[] getRoutedKeyboardDeviceIds(int displayId) = 23;
 
     String startDisplayRecording(
         String physicalDisplayId,

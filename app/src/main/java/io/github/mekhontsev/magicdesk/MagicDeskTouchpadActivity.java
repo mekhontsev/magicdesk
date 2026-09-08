@@ -10,7 +10,6 @@ import android.graphics.Color;
 import android.graphics.Insets;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 import android.view.GestureDetector;
@@ -37,8 +36,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
     private static final String EXTRA_TARGET_DISPLAY_ID =
             "io.github.mekhontsev.magicdesk.extra.TOUCHPAD_DISPLAY_ID";
-    private static final float BASE_POINTER_SCALE = 1.0f;
-    private static final float POINTER_SPEED_STEP = 0.1f;
     private static final Object STATE_LOCK = new Object();
     private static WeakReference<MagicDeskTouchpadActivity> sVisibleActivity =
             new WeakReference<>(null);
@@ -726,8 +723,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         private boolean startPointerMotion(final MotionEvent event) {
             mPointerMotion.start(
                     event.getX(),
-                    event.getY(),
-                    pointerScale());
+                    event.getY());
             return true;
         }
 
@@ -764,14 +760,6 @@ public final class MagicDeskTouchpadActivity extends Activity {
 
         private void stopPointerMotion() {
             mPointerMotion.stop();
-        }
-
-        private float pointerScale() {
-            final int speed = Settings.System.getInt(
-                    getContentResolver(), "pointer_speed", 0);
-            return Math.max(
-                    0.3f,
-                    BASE_POINTER_SCALE + speed * POINTER_SPEED_STEP);
         }
 
         private float averageX(final MotionEvent event) {

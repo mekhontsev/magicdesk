@@ -1,157 +1,80 @@
 package io.github.mekhontsev.magicdesk;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
+import android.view.KeyEvent;
 import org.junit.Test;
+import static org.junit.Assert.*;
+import static io.github.mekhontsev.magicdesk.KeyboardShortcutStateMachine.Action.*;
 
 public final class KeyboardShortcutStateMachineTest {
-    private static String key(final String name, final String action) {
-        return "[ 1.000] /dev/input/event1: EV_KEY " + name + " " + action;
+    @Test public void altTabConsumesBothTabEdgesAndCommitsOnlyOnFinalAltRelease() {
+        final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
+        assertFalse(s.accept(KeyEvent.KEYCODE_ALT_LEFT, true, 0, false, true, false, false).consumed);
+        var r = s.accept(KeyEvent.KEYCODE_TAB, true, 0, false, true, false, false);
+        assertTrue(r.consumed);
+        assertEquals(ALT_TAB_FORWARD, r.action);
+        assertTrue(s.accept(KeyEvent.KEYCODE_TAB, false, 0, false, true, false, false).consumed);
+        assertEquals(NONE, s.accept(KeyEvent.KEYCODE_ALT_LEFT, false, 0, false, true, false, false).action);
+        assertEquals(ALT_TAB_COMMIT, s.accept(KeyEvent.KEYCODE_ALT_RIGHT, false, 0, false, false, false, false).action);
+        assertEquals(NONE, s.accept(KeyEvent.KEYCODE_ALT_RIGHT, false, 0, false, false, false, false).action);
     }
 
-    @Test
-    public void ctrlSpaceWorksInLimitedMode() {
-        final KeyboardShortcutStateMachine state =
-                new KeyboardShortcutStateMachine();
-        state.accept(key("KEY_LEFTCTRL", "DOWN"), false);
-
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.TOGGLE_LAYOUT,
-                state.accept(key("KEY_SPACE", "DOWN"), false));
+    @Test public void reverseCycleAndDisconnectCancelAreIndependent() {
+        final KeyboardShortcutStateMachine a = new KeyboardShortcutStateMachine();
+        final KeyboardShortcutStateMachine b = new KeyboardShortcutStateMachine();
+        assertEquals(ALT_TAB_REVERSE, a.accept(KeyEvent.KEYCODE_TAB, true, 0, false, true, true, false).action);
+        assertFalse(b.reset());
+        assertTrue(a.reset());
+        assertFalse(a.reset());
     }
 
-    @Test
-    public void windowCommandsRequireFullMode() {
-        final KeyboardShortcutStateMachine state =
-                new KeyboardShortcutStateMachine();
-        state.accept(key("KEY_LEFTMETA", "DOWN"), false);
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.NONE,
-                state.accept(key("KEY_UP", "DOWN"), false));
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.FULLSCREEN,
-                state.accept(key("KEY_UP", "DOWN"), true));
+    @Test public void shortcutRepeatsAreConsumedWithoutRepeatedCommands() {
+        final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
+        assertEquals(RESTORE, s.accept(KeyEvent.KEYCODE_DPAD_DOWN, true, 0, false, false, false, true).action);
+        var repeat = s.accept(KeyEvent.KEYCODE_DPAD_DOWN, true, 1, false, false, false, true);
+        assertTrue(repeat.consumed);
+        assertEquals(NONE, repeat.action);
+        // The modifier may be released before its key; that key-up is still ours.
+        assertTrue(s.accept(KeyEvent.KEYCODE_DPAD_DOWN, false, 0, false, false, false, false).consumed);
+        assertFalse(s.accept(KeyEvent.KEYCODE_DPAD_DOWN, true, 0, false, false, false, false).consumed);
     }
 
-    @Test
-    public void releasingAltCommitsActiveAltTab() {
-        final KeyboardShortcutStateMachine state =
-                new KeyboardShortcutStateMachine();
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.ALT_TAB_FORWARD,
-                state.accept("MAGICDESK_ALT_TAB_ADVANCE forward", true));
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.ALT_TAB_COMMIT,
-                state.accept(key("KEY_LEFTALT", "UP"), true));
+    @Test public void ordinaryTextAndApplicationShortcutsPassUnchanged() {
+        final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
+        for (int repeat = 0; repeat < 3; repeat++) {
+            var r = s.accept(KeyEvent.KEYCODE_C, true, repeat, true, false, false, false);
+            assertFalse(r.consumed);
+            assertEquals(NONE, r.action);
+        }
+        assertFalse(s.accept(KeyEvent.KEYCODE_C, false, 0, false, false, false, false).consumed);
+        var escape = s.accept(KeyEvent.KEYCODE_ESCAPE, true, 0, false, false, false, false);
+        assertFalse(escape.consumed);
+        assertEquals(DISMISS, escape.action);
+        assertEquals(NONE, s.accept(KeyEvent.KEYCODE_DPAD_UP, true, 0, false, false, true, true).action);
     }
 
-    @Test
-    public void resetReportsPendingAltTab() {
-        final KeyboardShortcutStateMachine state =
-                new KeyboardShortcutStateMachine();
-        state.accept("MAGICDESK_ALT_TAB_ADVANCE reverse", true);
-
-        assertTrue(state.reset());
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.NONE,
-                state.accept("MAGICDESK_ALT_TAB_COMMIT", true));
+    @Test public void metaIsBalancedAndCannotTriggerTheSystemAssistant() {
+        final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
+        assertTrue(s.accept(KeyEvent.KEYCODE_META_LEFT, true, 0, false, false, false, true).consumed);
+        assertTrue(s.accept(KeyEvent.KEYCODE_META_LEFT, false, 0, false, false, false, false).consumed);
     }
 
-    @Test
-    public void limitedModeKeepsOnlyGlobalShortcuts() {
-        final KeyboardShortcutStateMachine state =
-                new KeyboardShortcutStateMachine();
-
-        state.accept(key("KEY_LEFTMETA", "DOWN"), false);
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.SHOW_DESKTOP,
-                state.accept(key("KEY_D", "DOWN"), false));
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.NONE,
-                state.accept(key("KEY_N", "DOWN"), false));
-        state.accept(key("KEY_LEFTMETA", "UP"), false);
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.DISMISS,
-                state.accept(key("KEY_ESC", "DOWN"), false));
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.NONE,
-                state.accept("MAGICDESK_ALT_TAB_ADVANCE forward", false));
-    }
-
-    @Test
-    public void fullModeMapsWindowAndSystemShortcuts() {
-        final KeyboardShortcutStateMachine state =
-                new KeyboardShortcutStateMachine();
-
-        assertMetaAction(state, "KEY_BACKSPACE",
-                KeyboardShortcutStateMachine.Action.BACK);
-        assertMetaAction(state, "KEY_L",
-                KeyboardShortcutStateMachine.Action.LOCK);
-        assertMetaAction(state, "KEY_N",
-                KeyboardShortcutStateMachine.Action.NOTIFICATIONS);
-        assertMetaAction(state, "KEY_Q",
-                KeyboardShortcutStateMachine.Action.SYSTEM);
-        assertMetaAction(state, "KEY_I",
-                KeyboardShortcutStateMachine.Action.SETTINGS);
-        assertMetaAction(state, "KEY_UP",
-                KeyboardShortcutStateMachine.Action.FULLSCREEN);
-        assertMetaAction(state, "KEY_DOWN",
-                KeyboardShortcutStateMachine.Action.RESTORE);
-        assertMetaAction(state, "KEY_LEFT",
-                KeyboardShortcutStateMachine.Action.SNAP_LEFT);
-        assertMetaAction(state, "KEY_RIGHT",
-                KeyboardShortcutStateMachine.Action.SNAP_RIGHT);
-        assertMetaAction(state, "KEY_SYSRQ",
-                KeyboardShortcutStateMachine.Action.SCREENSHOT);
-        assertMetaAction(state, "KEY_SLASH",
-                KeyboardShortcutStateMachine.Action.SHORTCUT_HELP);
-
-        state.reset();
-        state.accept(key("KEY_LEFTALT", "DOWN"), true);
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.CLOSE,
-                state.accept(key("KEY_F4", "DOWN"), true));
-    }
-
-    @Test
-    public void repeatsAndExtraModifiersDoNotTriggerShortcuts() {
-        final KeyboardShortcutStateMachine state =
-                new KeyboardShortcutStateMachine();
-        state.accept(key("KEY_LEFTMETA", "DOWN"), true);
-
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.NONE,
-                state.accept(key("KEY_UP", "REPEAT"), true));
-        state.accept(key("KEY_LEFTSHIFT", "DOWN"), true);
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.NONE,
-                state.accept(key("KEY_UP", "DOWN"), true));
-        assertFalse(state.reset());
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.NONE,
-                state.accept(key("KEY_D", "DOWN"), true));
-    }
-
-    @Test
-    public void metaShiftPrintScreenTogglesRecording() {
-        final KeyboardShortcutStateMachine state =
-                new KeyboardShortcutStateMachine();
-        state.accept(key("KEY_LEFTMETA", "DOWN"), true);
-        state.accept(key("KEY_LEFTSHIFT", "DOWN"), true);
-
-        assertEquals(
-                KeyboardShortcutStateMachine.Action.SCREEN_RECORDING,
-                state.accept(key("KEY_SYSRQ", "DOWN"), true));
-    }
-
-    private static void assertMetaAction(
-            final KeyboardShortcutStateMachine state,
-            final String keyName,
-            final KeyboardShortcutStateMachine.Action expected) {
-        state.reset();
-        state.accept(key("KEY_LEFTMETA", "DOWN"), true);
-        assertEquals(expected, state.accept(key(keyName, "DOWN"), true));
+    @Test public void allWindowAndSystemActionsRemainAvailable() {
+        final int[] keys = {KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_L, KeyEvent.KEYCODE_N,
+                KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_I, KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+                KeyEvent.KEYCODE_D, KeyEvent.KEYCODE_SYSRQ, KeyEvent.KEYCODE_SLASH};
+        final KeyboardShortcutStateMachine.Action[] actions = {BACK, LOCK, NOTIFICATIONS,
+                SYSTEM, SETTINGS, FULLSCREEN, RESTORE, SNAP_LEFT, SNAP_RIGHT, SHOW_DESKTOP,
+                SCREENSHOT, SHORTCUT_HELP};
+        for (int i = 0; i < keys.length; i++) {
+            final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
+            assertEquals(actions[i], s.accept(keys[i], true, 0, false, false, false, true).action);
+        }
+        assertEquals(TOGGLE_LAYOUT, new KeyboardShortcutStateMachine().accept(
+                KeyEvent.KEYCODE_SPACE, true, 0, true, false, false, false).action);
+        assertEquals(CLOSE, new KeyboardShortcutStateMachine().accept(
+                KeyEvent.KEYCODE_F4, true, 0, false, true, false, false).action);
+        assertEquals(SCREEN_RECORDING, new KeyboardShortcutStateMachine().accept(
+                KeyEvent.KEYCODE_SYSRQ, true, 0, false, false, true, true).action);
     }
 }

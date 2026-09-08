@@ -16,13 +16,6 @@ final class HardwareKeyboardLayoutController {
             "magicdesk_hardware_keyboard_layout_name";
     private static final AtomicBoolean REFRESH_IN_PROGRESS =
             new AtomicBoolean();
-    private static final Object LAYOUT_SINK_LOCK = new Object();
-    private static LayoutSink sLayoutSink;
-
-    interface LayoutSink {
-        void select(int index) throws IOException;
-    }
-
     private HardwareKeyboardLayoutController() {
     }
 
@@ -50,10 +43,6 @@ final class HardwareKeyboardLayoutController {
     }
 
     static void refresh(final Runnable completion) {
-        runRefresh(hasLayoutSink() ? "catalog" : "sync", completion);
-    }
-
-    static void configureVirtualLayouts(final Runnable completion) {
         runRefresh("sync", completion);
     }
 
@@ -85,50 +74,6 @@ final class HardwareKeyboardLayoutController {
         });
     }
 
-    static int catalogLayoutCount() throws IOException {
-        final String current = Settings.Global.getString(
-                MagicDeskApplication.applicationContext()
-                        .getContentResolver(),
-                LAYOUT_STATE);
-        final String output = ShellAccess.updateHardwareKeyboardLayout(
-                "catalog", current).trim();
-        if (isNoExternalKeyboard(output)) {
-            return 0;
-        }
-        final String count = parseOutputValue(output, "layouts");
-        try {
-            final int parsed = count == null ? -1 : Integer.parseInt(count);
-            if (parsed <= 0) {
-                throw new NumberFormatException("non-positive layout count");
-            }
-            return parsed;
-        } catch (NumberFormatException error) {
-            throw new IOException(
-                    "invalid hardware keyboard catalog: " + output,
-                    error);
-        }
-    }
-
-    static void attachLayoutSink(final LayoutSink sink) {
-        synchronized (LAYOUT_SINK_LOCK) {
-            sLayoutSink = sink;
-        }
-    }
-
-    static void detachLayoutSink(final LayoutSink sink) {
-        synchronized (LAYOUT_SINK_LOCK) {
-            if (sLayoutSink == sink) {
-                sLayoutSink = null;
-            }
-        }
-    }
-
-    private static boolean hasLayoutSink() {
-        synchronized (LAYOUT_SINK_LOCK) {
-            return sLayoutSink != null;
-        }
-    }
-
     private static void runCompletion(final Runnable completion) {
         if (completion != null) {
             completion.run();
@@ -156,46 +101,16 @@ final class HardwareKeyboardLayoutController {
                 parseOutputValue(output, "descriptor");
         final String code = parseOutputValue(output, "code");
         final String name64 = parseOutputValue(output, "name64");
-        final String indexValue = parseOutputValue(output, "index");
         if (descriptor == null || code == null
-                || name64 == null || indexValue == null) {
+                || name64 == null) {
             Log.w(TAG,
                     "hardware keyboard layout command failed output="
                             + output);
             return;
         }
-        final int index;
-        try {
-            index = Integer.parseInt(indexValue);
-        } catch (NumberFormatException error) {
-            Log.w(TAG,
-                    "invalid hardware keyboard layout index output="
-                            + output,
-                    error);
-            return;
-        }
-
-        selectVirtualLayout(index);
         Log.i(TAG,
                 "hardware keyboard "
                         + output.replace('\n', ' '));
-    }
-
-    private static void selectVirtualLayout(final int index) {
-        final LayoutSink sink;
-        synchronized (LAYOUT_SINK_LOCK) {
-            sink = sLayoutSink;
-        }
-        if (sink == null) {
-            return;
-        }
-        try {
-            sink.select(index);
-        } catch (IOException error) {
-            Log.w(TAG,
-                    "cannot select virtual keyboard layout " + index,
-                    error);
-        }
     }
 
     private static String parseOutputValue(

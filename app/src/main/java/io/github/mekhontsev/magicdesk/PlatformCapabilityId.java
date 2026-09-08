@@ -8,8 +8,8 @@ public enum PlatformCapabilityId {
     DESKTOP_WIRELESS("desktop.wireless", PlatformComponent.PROJECTION),
     OUTPUT_CONFIGURATION(
             "projection.outputConfiguration", PlatformComponent.PROJECTION),
-    EXTERNAL_INPUT_BRIDGE(
-            "input.externalBridge", PlatformComponent.EXTERNAL_INPUT),
+    EXTERNAL_INPUT_ROUTING(
+            "input.externalRouting", PlatformComponent.EXTERNAL_INPUT),
     POINTER_OBSERVATION("input.pointerObservation", PlatformComponent.POINTER),
     PHONE_UI("phone.ui", PlatformComponent.PHONE_UI),
     INTERNAL_AUDIO_CAPTURE(

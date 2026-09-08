@@ -48,22 +48,21 @@ shared policy from optional firmware focus repair and reports pending display
 mode restoration. Close restores a changed effective default; disconnected
 physical displays are reconciled by stable identity when they return.
 
-**Compatibility (next session)** groups physical-input redirection with six
+**Compatibility (next session)** groups six
 optional shared mechanisms: stalled-focus repair, stale fullscreen caption
 refresh, wired/wireless phone-task isolation, retained phone-task recovery,
 stale phone freeform Recents cleanup, and phone Recents redirection to Start.
 Every platform can override these individually. Stock Nubia firmware recommends
-all seven; Standard Android recommends none. Hybrid firmware inherits only
+all six; Standard Android recommends none. Hybrid firmware inherits only
 the recommendations of its selected components. A session retains its selection
 through Close and display-loss cleanup; edits affect the next session.
 
 Reports distinguish defaults, saved overrides, next-session selection, active
-selection and actual input relay readiness. The shared
-evdev/uinput transport still needs the shell permissions shown in the capability
-probe; enabling the preference cannot grant them. The phone touchpad's relative
-input uses a virtual mouse independently of physical capture and does not
-require an absolute-position API. Software keyboard input is independent of
-both. Right clicks use the same virtual mouse as movement; optional pointer
+selection. Physical input uses shared Android location-to-display associations,
+not a compatibility preference. Diagnostics report actual routing and key-filter
+readiness. The phone touchpad uses its own relative virtual mouse; neither it
+nor physical right clicks require an absolute-position API. Software keyboard
+input is independent. Optional pointer
 observation and coordinate injection remain separate. Coordinate automation
 uses Android display-targeted mouse events; it does not move a global vendor
 cursor. A position query without a display identity is reported separately as
@@ -182,7 +181,7 @@ The report includes:
 - a read-only check for the current static system wallpaper image;
 - notification-listener and WMShell desktopmode probes;
 - current displays and external input-device descriptors;
-- a one-shot input-relay snapshot with aggregate native event flow, MagicDesk
+- a one-shot input snapshot with aggregate virtual-pointer activity, MagicDesk
   virtual-device presence, current routing associations, and observed pointer
   position;
 - a read-only vendor cooling-settings snapshot that distinguishes the selected
@@ -241,9 +240,8 @@ through the baseline. Display drivers remain independent, so vendor support is
 not multiplied into phone/wired/wireless/simulated driver combinations.
 
 `raw_input.write` reports whether an event node can be opened with `O_RDWR`.
-It does not test exclusive capture: the input bridge opens physical devices
-read-only and applies `EVIOCGRAB` only when a real external input session
-starts. Direct writes to raw input devices are not required by MagicDesk.
+This is diagnostic permission evidence only. MagicDesk routes physical devices
+through Android; it does not open or write their event nodes.
 
 After confirmed Shizuku Device Setup and reboot, the issue report should show
 global freeform and resizable-activity settings enabled, both reviewed

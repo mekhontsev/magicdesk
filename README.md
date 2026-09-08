@@ -218,9 +218,12 @@ The full installation, session, update, and removal workflow is in
 
 ## Keyboard Shortcuts
 
+MagicDesk shortcuts are active only during a desktop session. The key-only
+filter is released on Close; normal Android shortcuts apply outside the session.
+
 | Shortcut | Action |
 | --- | --- |
-| `Win+D` | Start/reveal the desktop or restore the previous window layout |
+| `Win+D` | Show the desktop or restore the previous window layout |
 | `Win+Up` | Move the active task to true fullscreen |
 | `Win+Down` | Restore a fullscreen/maximized task; press again to minimize |
 | `Win+Left` / `Win+Right` | Snap the active task to either half |

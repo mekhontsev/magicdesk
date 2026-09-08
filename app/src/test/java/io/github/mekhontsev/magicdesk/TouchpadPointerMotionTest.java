@@ -9,7 +9,7 @@ import org.junit.Test;
 public final class TouchpadPointerMotionTest {
     @Test
     public void deltasAreCalculatedFromStableGestureAnchor() {
-        final TouchpadPointerMotion motion = startedMotion(1.0f);
+        final TouchpadPointerMotion motion = startedMotion();
 
         assertTrue(motion.move(110.0f, 96.0f));
         assertEquals(10.0f, motion.deltaX(), 0.001f);
@@ -21,26 +21,25 @@ public final class TouchpadPointerMotionTest {
     }
 
     @Test
-    public void sensitivityIsAppliedWithoutScreenCoordinates() {
-        final TouchpadPointerMotion motion = startedMotion(0.5f);
+    public void subpixelMotionIsPreservedWithoutAdditionalGain() {
+        final TouchpadPointerMotion motion = startedMotion();
 
-        motion.move(102.0f, 96.0f);
-        assertEquals(1.0f, motion.deltaX(), 0.001f);
-        assertEquals(-2.0f, motion.deltaY(), 0.001f);
+        motion.move(100.25f, 99.5f);
+        assertEquals(0.25f, motion.deltaX(), 0.001f);
+        assertEquals(-0.5f, motion.deltaY(), 0.001f);
     }
 
     @Test
     public void stoppedMotionRejectsUpdates() {
-        final TouchpadPointerMotion motion = startedMotion(1.0f);
+        final TouchpadPointerMotion motion = startedMotion();
         motion.stop();
 
         assertFalse(motion.move(110.0f, 100.0f));
     }
 
-    private static TouchpadPointerMotion startedMotion(
-            final float sensitivity) {
+    private static TouchpadPointerMotion startedMotion() {
         final TouchpadPointerMotion motion = new TouchpadPointerMotion();
-        motion.start(100.0f, 100.0f, sensitivity);
+        motion.start(100.0f, 100.0f);
         return motion;
     }
 }

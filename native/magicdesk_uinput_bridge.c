@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,7 +14,6 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#include "magicdesk_input_sources.h"
 
 #define CONTROL_BUFFER_SIZE 2048
 #define MAGICDESK_VENDOR_ID 0x4d44
@@ -22,21 +22,10 @@
 #define WHEEL_HI_RES_UNITS_PER_STEP 120
 
 struct bridge_state {
-    struct source_device *sources;
-    int source_count;
     int uinput_fd;
-    uint16_t key_down_count[KEY_MAX + 1];
-    bool forwarded_down[KEY_MAX + 1];
     bool control_primary_down;
-    bool capture_enabled;
-    uint64_t physical_reports;
-    uint64_t physical_motion_reports;
-    uint64_t forwarded_reports;
-    uint64_t forwarded_motion_reports;
     uint64_t write_errors;
-    struct timeval last_physical_motion;
-    struct timeval last_forwarded_motion;
-    bool report_has_motion;
+    uint64_t reports;
 };
 
 static volatile sig_atomic_t stop_requested;
@@ -54,6 +43,7 @@ static int write_event(
         const struct input_event *event) {
     const ssize_t bytes = write(uinput_fd, event, sizeof(*event));
     if (bytes == (ssize_t)sizeof(*event)) {
+        if (event->type == EV_SYN && event->code == SYN_REPORT) state->reports++;
         return 0;
     }
     state->write_errors++;
@@ -120,6 +110,8 @@ static int emit_wheel_steps(
     if (steps == 0) {
         return 0;
     }
+    if (steps > INT_MAX / WHEEL_HI_RES_UNITS_PER_STEP
+            || steps < INT_MIN / WHEEL_HI_RES_UNITS_PER_STEP) return -1;
     return emit_relative(
                     state,
                     uinput_fd,
@@ -129,32 +121,12 @@ static int emit_wheel_steps(
             || emit_sync(state, uinput_fd) < 0 ? -1 : 0;
 }
 
-static void emit_stats(
-        const struct bridge_state *state,
+static void emit_stats(const struct bridge_state *state,
         const unsigned long long request_id) {
-    char output[512];
-    snprintf(output, sizeof(output),
-            "MAGICDESK_MOUSE_STATS request=%llu"
-            " physicalReports=%llu physicalMotionReports=%llu"
-            " forwardedReports=%llu forwardedMotionReports=%llu"
-            " writeErrors=%llu lastPhysicalMotionAgeMs=%lld"
-            " lastForwardedMotionAgeMs=%lld sources=%d grabbed=%d"
-            " capture=%d",
-            request_id,
-            (unsigned long long)state->physical_reports,
-            (unsigned long long)state->physical_motion_reports,
-            (unsigned long long)state->forwarded_reports,
-            (unsigned long long)state->forwarded_motion_reports,
-            (unsigned long long)state->write_errors,
-            (long long)magicdesk_input_event_age_millis(
-                    state->last_physical_motion),
-            (long long)magicdesk_input_event_age_millis(
-                    state->last_forwarded_motion),
-            state->source_count,
-            magicdesk_grabbed_source_count(
-                    state->sources, state->source_count),
-            state->capture_enabled ? 1 : 0);
-    emit_line(output);
+    printf("MAGICDESK_MOUSE_STATS request=%llu reports=%llu writeErrors=%llu\n",
+            request_id, (unsigned long long)state->reports,
+            (unsigned long long)state->write_errors);
+    fflush(stdout);
 }
 
 static void emit_line(const char *line) {
@@ -198,232 +170,11 @@ static int create_virtual_mouse(const int uinput_fd) {
     return 0;
 }
 
-static int clear_button_state(void *context) {
-    struct bridge_state *state = context;
-    bool released = false;
-    for (unsigned int code = 0; code <= KEY_MAX; ++code) {
-        if (!state->forwarded_down[code]) {
-            continue;
-        }
-        if (code == BTN_LEFT && state->control_primary_down) {
-            continue;
-        }
-        if (emit_key(
-                    state,
-                    state->uinput_fd,
-                    (unsigned short)code,
-                    0) < 0) {
-            return -1;
-        }
-        released = true;
-    }
-    if (released && emit_sync(state, state->uinput_fd) < 0) {
-        return -1;
-    }
-    memset(state->key_down_count, 0, sizeof(state->key_down_count));
-    memset(state->forwarded_down, 0, sizeof(state->forwarded_down));
-    for (int index = 0; index < state->source_count; ++index) {
-        memset(state->sources[index].key_down, 0,
-                sizeof(state->sources[index].key_down));
-    }
-    return 0;
-}
-
-static int reconcile_sources(
-        struct bridge_state *state,
-        const char *value) {
-    const int result = magicdesk_reconcile_sources(
-            state->sources,
-            &state->source_count,
-            value,
-            false,
-            clear_button_state,
-            state,
-            "MOUSE");
-    if (result < 0) {
-        return -1;
-    }
-    if (result > 0) {
-        if (state->capture_enabled
-                && magicdesk_grab_sources(
-                        state->sources,
-                        state->source_count,
-                        "MOUSE") < 0) {
-            return -1;
-        }
-        char output[96];
-        snprintf(output, sizeof(output),
-                "MAGICDESK_MOUSE_SOURCES count=%d",
-                state->source_count);
-        emit_line(output);
-    }
-    return 0;
-}
-
-static int remove_source(
-        struct bridge_state *state,
-        const int source_index) {
-    if (magicdesk_remove_source(
-                state->sources,
-                &state->source_count,
-                source_index,
-                clear_button_state,
-                state) < 0) {
-        return -1;
-    }
-    char output[96];
-    snprintf(output, sizeof(output),
-            "MAGICDESK_MOUSE_SOURCES count=%d",
-            state->source_count);
-    emit_line(output);
-    return 0;
-}
-
-static int process_key_event(
-        struct bridge_state *state,
-        struct source_device *source,
-        const struct input_event *event) {
-    const unsigned short code = event->code;
-    if (code > KEY_MAX) {
-        return 0;
-    }
-    if (event->value == 1) {
-        if (source->key_down[code]) {
-            return 0;
-        }
-        source->key_down[code] = true;
-        if (state->key_down_count[code]++ > 0) {
-            return 0;
-        }
-        state->forwarded_down[code] = true;
-        if (code == BTN_LEFT && state->control_primary_down) {
-            return 0;
-        }
-        return write_event(state, state->uinput_fd, event);
-    }
-    if (event->value == 2) {
-        return source->key_down[code]
-                && state->forwarded_down[code]
-                ? write_event(state, state->uinput_fd, event) : 0;
-    }
-    if (event->value != 0 || !source->key_down[code]) {
-        return 0;
-    }
-    source->key_down[code] = false;
-    if (state->key_down_count[code] > 0) {
-        state->key_down_count[code]--;
-    }
-    if (state->key_down_count[code] > 0
-            || !state->forwarded_down[code]) {
-        return 0;
-    }
-    state->forwarded_down[code] = false;
-    if (code == BTN_LEFT && state->control_primary_down) {
-        return 0;
-    }
-    return write_event(state, state->uinput_fd, event);
-}
-
-static int set_control_primary(
-        struct bridge_state *state,
-        const bool pressed) {
-    if (state->control_primary_down == pressed) {
-        return 0;
-    }
+static int set_control_primary(struct bridge_state *state, const bool pressed) {
+    if (state->control_primary_down == pressed) return 0;
+    if (emit_key(state, state->uinput_fd, BTN_LEFT, pressed ? 1 : 0) < 0
+            || emit_sync(state, state->uinput_fd) < 0) return -1;
     state->control_primary_down = pressed;
-    if (state->forwarded_down[BTN_LEFT]) {
-        return 0;
-    }
-    return emit_key(
-                    state,
-                    state->uinput_fd,
-                    BTN_LEFT,
-                    pressed ? 1 : 0) < 0
-            || emit_sync(state, state->uinput_fd) < 0 ? -1 : 0;
-}
-
-static int reconcile_button_state(
-        struct bridge_state *state,
-        struct source_device *source,
-        const bool keys[KEY_MAX + 1]) {
-    for (unsigned int code = 0; code <= KEY_MAX; ++code) {
-        if (source->key_down[code] == keys[code]) {
-            continue;
-        }
-        source->key_down[code] = keys[code];
-        if (keys[code]) {
-            if (state->key_down_count[code]++ > 0) {
-                continue;
-            }
-            state->forwarded_down[code] = true;
-        } else {
-            if (state->key_down_count[code] > 0) {
-                state->key_down_count[code]--;
-            }
-            if (state->key_down_count[code] > 0 || !state->forwarded_down[code]) {
-                continue;
-            }
-            state->forwarded_down[code] = false;
-        }
-        // A control drag remains owned independently from physical sources.
-        if (code == BTN_LEFT && state->control_primary_down) {
-            continue;
-        }
-        if (emit_key(state, state->uinput_fd, (unsigned short) code,
-                    keys[code] ? 1 : 0) < 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
-
-static int process_event(
-        struct bridge_state *state,
-        const int source_index,
-        const struct input_event *event) {
-    struct source_device *source = &state->sources[source_index];
-    bool keys[KEY_MAX + 1];
-    const int filtered = magicdesk_filter_source_event(source, event, keys);
-    if (filtered < 0 || filtered == MAGICDESK_SOURCE_EVENT_DISCARD) {
-        return filtered < 0 ? -1 : 0;
-    }
-    if (filtered == MAGICDESK_SOURCE_STATE_READY
-            && reconcile_button_state(state, source, keys) < 0) {
-        return -1;
-    }
-    if (event->type == EV_KEY) {
-        return process_key_event(
-                state, &state->sources[source_index], event);
-    }
-    if (event->type == EV_REL) {
-        if ((event->code == REL_X || event->code == REL_Y)
-                && event->value != 0) {
-            state->report_has_motion = true;
-        }
-        return write_event(state, state->uinput_fd, event);
-    }
-    if (event->type == EV_SYN) {
-        const bool report_complete = event->code == SYN_REPORT;
-        if (report_complete) {
-            state->physical_reports++;
-            if (state->report_has_motion) {
-                state->physical_motion_reports++;
-                state->last_physical_motion = event->time;
-            }
-        }
-        if (write_event(state, state->uinput_fd, event) < 0) {
-            return -1;
-        }
-        if (report_complete) {
-            state->forwarded_reports++;
-            if (state->report_has_motion) {
-                state->forwarded_motion_reports++;
-                state->last_forwarded_motion = event->time;
-            }
-            state->report_has_motion = false;
-        }
-        return 0;
-    }
     return 0;
 }
 
@@ -432,30 +183,6 @@ static int handle_control_line(
         const char *line) {
     int first = 0;
     int second = 0;
-    if (strcmp(line, "start") == 0) {
-        // The virtual device must be associated with the desktop before a
-        // physical report is captured and forwarded through it.
-        state->capture_enabled = true;
-        return magicdesk_grab_sources(
-                state->sources, state->source_count, "MOUSE");
-    }
-    if (strcmp(line, "stop") == 0) {
-        state->capture_enabled = false;
-        if (set_control_primary(state, false) < 0
-                || clear_button_state(state) < 0) {
-            return -1;
-        }
-        magicdesk_ungrab_sources(
-                state->sources, state->source_count);
-        emit_line("MAGICDESK_MOUSE_CAPTURE_STOPPED");
-        return 0;
-    }
-    if (strcmp(line, "sources") == 0) {
-        return reconcile_sources(state, "");
-    }
-    if (strncmp(line, "sources ", 8) == 0) {
-        return reconcile_sources(state, line + 8);
-    }
     if (sscanf(line, "move %d %d", &first, &second) == 2) {
         if (emit_relative(state, state->uinput_fd, REL_X, first) < 0
                 || emit_relative(state, state->uinput_fd, REL_Y, second) < 0) {
@@ -465,16 +192,12 @@ static int handle_control_line(
                 ? emit_sync(state, state->uinput_fd) : 0;
     }
     if (strcmp(line, "click-primary") == 0) {
-        if (state->control_primary_down
-                || state->forwarded_down[BTN_LEFT]) {
+        if (state->control_primary_down) {
             return 0;
         }
         return emit_click(state, state->uinput_fd, BTN_LEFT);
     }
     if (strcmp(line, "click-secondary") == 0) {
-        if (state->key_down_count[BTN_RIGHT] > 0) {
-            return 0;
-        }
         return emit_click(state, state->uinput_fd, BTN_RIGHT);
     }
     if (strcmp(line, "primary-down") == 0) {
@@ -491,7 +214,7 @@ static int handle_control_line(
     if (sscanf(line, "scroll %d", &first) == 1) {
         return emit_wheel_steps(state, state->uinput_fd, first);
     }
-    return 0;
+    return -1;
 }
 
 static int read_control(
@@ -501,7 +224,7 @@ static int read_control(
     char bytes[256];
     const ssize_t count = read(STDIN_FILENO, bytes, sizeof(bytes));
     if (count <= 0) {
-        return -1;
+        return count < 0 && errno == EINTR ? 0 : -1;
     }
     for (ssize_t index = 0; index < count; ++index) {
         const char value = bytes[index];
@@ -517,186 +240,41 @@ static int read_control(
             continue;
         }
         if (*control_length + 1 >= CONTROL_BUFFER_SIZE) {
-            *control_length = 0;
-            continue;
+            return -1;
         }
         control_buffer[(*control_length)++] = value;
     }
     return 0;
 }
 
-static int forward_events(struct bridge_state *state) {
-    char control_buffer[CONTROL_BUFFER_SIZE];
-    size_t control_length = 0;
-    struct input_event events[64];
-    int result = 0;
-    while (!stop_requested) {
-        struct pollfd poll_descriptors[MAX_SOURCES + 1] = {0};
-        const int descriptor_count = state->source_count + 1;
-        poll_descriptors[0].fd = STDIN_FILENO;
-        poll_descriptors[0].events = POLLIN | POLLHUP;
-        for (int index = 0; index < state->source_count; ++index) {
-            poll_descriptors[index + 1].fd = state->sources[index].fd;
-            poll_descriptors[index + 1].events =
-                    POLLIN | POLLHUP | POLLERR;
-        }
-
-        const int poll_result =
-                poll(poll_descriptors, (nfds_t)descriptor_count, -1);
-        if (poll_result < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            result = -1;
-            break;
-        }
-        if ((poll_descriptors[0].revents & (POLLHUP | POLLERR)) != 0) {
-            break;
-        }
-        if ((poll_descriptors[0].revents & POLLIN) != 0) {
-            if (read_control(
-                    state,
-                    control_buffer,
-                    &control_length) < 0) {
-                break;
-            }
-            continue;
-        }
-
-        for (int index = 0; index < state->source_count; ++index) {
-            const short revents = poll_descriptors[index + 1].revents;
-            if ((revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) {
-                if (remove_source(state, index) < 0) {
-                    result = -1;
-                    stop_requested = 1;
-                }
-                break;
-            }
-            if ((revents & POLLIN) == 0) {
-                continue;
-            }
-            const ssize_t bytes = read(
-                    state->sources[index].fd, events, sizeof(events));
-            if (bytes < 0) {
-                if (errno == EAGAIN || errno == EINTR) {
-                    continue;
-                }
-                if (remove_source(state, index) < 0) {
-                    result = -1;
-                    stop_requested = 1;
-                }
-                break;
-            }
-            if (bytes == 0) {
-                if (remove_source(state, index) < 0) {
-                    result = -1;
-                    stop_requested = 1;
-                }
-                break;
-            }
-            const size_t event_count =
-                    (size_t)bytes / sizeof(events[0]);
-            if (!state->sources[index].grabbed) {
-                const int grabbed = state->capture_enabled
-                        ? magicdesk_try_grab_source(
-                                &state->sources[index])
-                        : 0;
-                if (grabbed < 0
-                        && remove_source(state, index) < 0) {
-                    result = -1;
-                    stop_requested = 1;
-                }
-                break;
-            }
-            for (size_t event_index = 0;
-                    event_index < event_count;
-                    ++event_index) {
-                const unsigned short type = events[event_index].type;
-                if (type != EV_SYN && type != EV_KEY && type != EV_REL) {
-                    continue;
-                }
-                if (process_event(
-                            state,
-                            index,
-                            &events[event_index]) < 0) {
-                    result = -1;
-                    stop_requested = 1;
-                    break;
-                }
-            }
-        }
-    }
-    return result;
-}
-
-int main(int argc, char **argv) {
-    if (argc < 1 || argc - 1 > MAX_SOURCES) {
-        fprintf(stderr,
-                "usage: %s [/dev/input/eventN ...]\n",
-                argv[0]);
-        return 64;
-    }
-
-    signal(SIGINT, request_stop);
-    signal(SIGTERM, request_stop);
+int main(void) {
+    struct sigaction action = {.sa_handler = request_stop};
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGINT, &action, NULL);
+    sigaction(SIGTERM, &action, NULL);
     signal(SIGPIPE, SIG_IGN);
-
-    const int source_count = argc - 1;
-    struct source_device *sources =
-            calloc(MAX_SOURCES, sizeof(*sources));
-    if (sources == NULL) {
-        perror("allocate sources");
+    const int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0 || create_virtual_mouse(fd) < 0) {
+        fprintf(stderr, "MAGICDESK_MOUSE_ERROR create=%s\n", strerror(errno));
+        if (fd >= 0) close(fd);
         return 1;
     }
-    for (int index = 0; index < MAX_SOURCES; ++index) {
-        sources[index].fd = -1;
+    struct bridge_state state = {.uinput_fd = fd};
+    emit_line("MAGICDESK_MOUSE_READY");
+    char buffer[CONTROL_BUFFER_SIZE];
+    size_t length = 0;
+    while (!stop_requested) {
+        struct pollfd input = {.fd = STDIN_FILENO, .events = POLLIN};
+        const int result = poll(&input, 1, -1);
+        if (result < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if ((input.revents & POLLIN) && read_control(&state, buffer, &length) < 0) break;
+        if (input.revents & (POLLHUP | POLLERR | POLLNVAL)) break;
     }
-    if (magicdesk_open_sources(
-                sources,
-                source_count,
-                &argv[1],
-                "MOUSE") < 0) {
-        magicdesk_release_sources(sources, source_count);
-        free(sources);
-        return 1;
-    }
-
-    const int uinput_fd =
-            open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
-    if (uinput_fd < 0) {
-        fprintf(stderr,
-                "MAGICDESK_MOUSE_ERROR uinput=open error=%s\n",
-                strerror(errno));
-        magicdesk_release_sources(sources, source_count);
-        free(sources);
-        return 1;
-    }
-    if (create_virtual_mouse(uinput_fd) < 0) {
-        fprintf(stderr,
-                "MAGICDESK_MOUSE_ERROR uinput=create error=%s\n",
-                strerror(errno));
-        close(uinput_fd);
-        magicdesk_release_sources(sources, source_count);
-        free(sources);
-        return 1;
-    }
-
-    struct bridge_state state = {
-        .sources = sources,
-        .source_count = source_count,
-        .uinput_fd = uinput_fd,
-    };
-    printf("MAGICDESK_MOUSE_READY sources=%d uid=%d\n",
-            source_count,
-            getuid());
-    fflush(stdout);
-
-    const int result = forward_events(&state);
     set_control_primary(&state, false);
-    clear_button_state(&state);
-    ioctl(uinput_fd, UI_DEV_DESTROY);
-    close(uinput_fd);
-    magicdesk_release_sources(sources, state.source_count);
-    free(sources);
-    return result == 0 ? 0 : 1;
+    ioctl(fd, UI_DEV_DESTROY);
+    close(fd);
+    return 0;
 }

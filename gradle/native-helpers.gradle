@@ -3,10 +3,6 @@ def termuxCompiler = termuxPrefix == null
         ? null : file("${termuxPrefix}/bin/clang")
 def nativeOutputRoot = layout.buildDirectory
         .dir('generated/magicdeskNative').get().asFile
-def inputSourcesSource =
-        rootProject.file('native/magicdesk_input_sources.c')
-def inputSourcesHeader =
-        rootProject.file('native/magicdesk_input_sources.h')
 
 android.sourceSets.main.jniLibs.srcDir nativeOutputRoot
 
@@ -77,20 +73,15 @@ def resolveNativeCompilerCommand = {
 }
 
 def registerNativeHelper = { String taskName, String sourceName,
-        String outputName, boolean includeInputSources = true ->
+        String outputName ->
     def source = rootProject.file("native/${sourceName}")
     def output = new File(nativeOutputRoot, "arm64-v8a/${outputName}")
     tasks.register(taskName, Exec) {
-        inputs.files(includeInputSources
-                ? [source, inputSourcesSource, inputSourcesHeader]
-                : [source])
+        inputs.file(source)
         outputs.file(output)
         doFirst {
             output.parentFile.mkdirs()
             def sources = [source.absolutePath]
-            if (includeInputSources) {
-                sources.add(inputSourcesSource.absolutePath)
-            }
             commandLine resolveNativeCompilerCommand() + [
                     '-std=c17', '-O2', '-Wall', '-Wextra', '-Werror',
                     '-fPIE', '-pie', '-Wl,-z,noexecstack',
@@ -103,16 +94,11 @@ def uinputTask = registerNativeHelper(
         'buildMagicDeskUinputBridge',
         'magicdesk_uinput_bridge.c',
         'libmagicdesk_uinput_bridge.so')
-def keyboardTask = registerNativeHelper(
-        'buildMagicDeskKeyboardBridge',
-        'magicdesk_keyboard_bridge.c',
-        'libmagicdesk_keyboard_bridge.so')
 def ptyTask = registerNativeHelper(
         'buildMagicDeskPtyBridge',
         'magicdesk_pty_bridge.c',
-        'libmagicdesk_pty_bridge.so',
-        false)
+        'libmagicdesk_pty_bridge.so')
 
 tasks.named('preBuild').configure {
-    dependsOn uinputTask, keyboardTask, ptyTask
+    dependsOn uinputTask, ptyTask
 }

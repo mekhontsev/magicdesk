@@ -43,7 +43,7 @@ public final class DesktopCompatibilityPolicyTest {
     @Test
     public void malformedOverridesDoNotDisablePlatformDefaults() throws Exception {
         final MagicDeskSettings.Values preferences = MagicDeskSettings.Values.fromJson(
-                new JSONObject("{\"compatibility\":{\"focusRepair\":\"false\",\"inputRelay\":null}}"));
+                new JSONObject("{\"compatibility\":{\"focusRepair\":\"false\",\"captionRefresh\":null}}"));
         assertTrue(preferences.compatibility.isEmpty());
         assertTrue(preferences.compatibilityPolicy(features(DesktopCompatibilityPolicy.NONE.with(
                 DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, true)))
@@ -59,9 +59,6 @@ public final class DesktopCompatibilityPolicyTest {
             assertFalse(DesktopCompatibilityPolicy.NONE.enabled(option));
             assertFalse(selected.with(option, false).enabled(option));
         }
-        assertTrue(selected.inputRelay().keyboard);
-        assertTrue(selected.inputRelay().mouse);
-        assertFalse(selected.with(DesktopCompatibilityPolicy.Option.INPUT_RELAY, false).inputRelay().isEnabled());
     }
 
     @Test(expected = IllegalArgumentException.class)

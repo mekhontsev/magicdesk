@@ -1149,29 +1149,28 @@ public final class ShellAccess {
     }
 
     static ShellInputRoutingHandle openInputRouting(
-            final int displayId,
-            final int expectedVirtualKeyboardCount) throws IOException {
-        if (displayId <= 0) {
+            final int displayId) throws IOException {
+        if (displayId < 0) {
             throw new IOException(
-                    "input routing requires a secondary display");
-        }
-        if (expectedVirtualKeyboardCount < 0) {
-            throw new IOException(
-                    "virtual keyboard count must not be negative");
+                    "input routing requires an active display");
         }
         final IShizukuCommandService service = requireService();
         final IBinder ownerToken = new Binder();
         try {
             final int[] state = service.startInputRouting(
                     displayId,
-                    expectedVirtualKeyboardCount,
                     ownerToken);
-            if (state == null || state.length != 3) {
+            if (state == null || state.length != 2 || state[0] != displayId) {
                 service.stopInputRouting(ownerToken);
                 throw new IOException("invalid input routing state");
             }
             return new ShellInputRoutingHandle(service, ownerToken, state);
         } catch (RemoteException | RuntimeException error) {
+            try {
+                service.stopInputRouting(ownerToken);
+            } catch (RemoteException | RuntimeException cleanup) {
+                error.addSuppressed(cleanup);
+            }
             handleServiceFailure(error);
             throw new IOException(
                     "Shizuku input routing failed: "
@@ -1189,6 +1188,22 @@ public final class ShellAccess {
                     "Shizuku input routing cleanup failed: "
                             + usefulMessage(error),
                     error);
+        }
+    }
+
+    static java.util.Set<String> ownedInputPorts() throws IOException {
+        try {
+            return java.util.Set.of(requireService().getOwnedInputPorts());
+        } catch (RemoteException | RuntimeException error) {
+            throw new IOException("cannot read input routing ownership", error);
+        }
+    }
+
+    static int[] routedKeyboardDeviceIds(final int displayId) throws IOException {
+        try {
+            return requireService().getRoutedKeyboardDeviceIds(displayId);
+        } catch (RemoteException | RuntimeException error) {
+            throw new IOException("cannot observe routed keyboards", error);
         }
     }
 

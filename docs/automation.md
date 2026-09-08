@@ -123,12 +123,12 @@ Normal read tools include:
 Diagnostics separate `Compatibility defaults`, `Compatibility overrides`,
 `Compatibility next session`, and `Compatibility active session`. Missing
 overrides follow platform recommendations; `inactive` means no leased session.
-Input diagnostics additionally report `defaultInputRelay`,
-`nextSessionInputRelay`, and the active `physicalCapturePolicy`. Changing a
-compatibility preference affects the next session, not current ownership or
-pending cleanup. Native helper statistics and
-routing readiness remain the evidence for whether a selected transport actually
-started. These values are captured on demand, without another periodic query.
+Input diagnostics report direct physical-device routing, the virtual phone
+pointer, and the key-only shortcut filter separately. The routing snapshot
+includes owned ports, active associations, and missing or unexpected routes.
+Changing a compatibility preference affects the next session, not current
+ownership or pending cleanup. Native pointer statistics and routing snapshots
+are collected on demand, without another periodic query.
 
 Display-power diagnostics distinguish command declarations
 (`display.power_off`, `display.power_restore`) from the active phone-screen

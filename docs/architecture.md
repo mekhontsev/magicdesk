@@ -52,12 +52,10 @@ stack. These constraints preserve behavior established through device testing.
 ### Keep physical input independent of the IME
 
 Do not select an IME, hardcode Gboard or a project-specific keyboard, or enable
-shortcuts only while a particular IME is active. Accessibility key filtering
-is not a reliable display-wide contract for physical events routed through
-Nubia's external desktop display.
-
-Physical layout switching, repeat, and global shortcuts belong in the input
-bridge. The user's on-screen IME remains an independent Android setting.
+shortcuts only while a particular IME is active. Android owns physical event
+delivery, repeat, modifiers and keyboard layouts. The key-only
+`DesktopShortcutService` handles desktop combinations before system policy;
+it never requests accessibility window content or editor text.
 
 ### Use WMShell instead of WindowReply
 
@@ -72,78 +70,41 @@ identity, and supports applications outside that allowlist. Direct
 ActivityTaskManager and WindowOrganizer transactions provide a bounded
 same-display fallback when an individual WMShell operation is unavailable.
 
-### Forward the external input stream, not individual events
+### Route devices through Android
 
-Shell UID 2000 can open external cursor devices read-only, acquire `EVIOCGRAB`,
-and create a `BUS_VIRTUAL` pointer through `/dev/uinput`. Android routes that
-pointer to the desktop through its display association.
+`DesktopInputSession` serializes ownership on one worker. Physical keyboards
+and mice remain Android InputReader devices; MagicDesk does not read or forward
+their event streams. `DesktopInputRoutingSession`, hosted by Shizuku, binds
+their input locations to the desktop's stable display unique ID through
+`FrameworkInputRoutingApi`. The API boundary supports Android 15 and newer.
 
-`DesktopInputRelaySession` is the single lifecycle owner for the mouse helper,
-keyboard helper, and Android display-routing lease. `DesktopMouseBridge`
-creates one stable virtual pointer for every external desktop session and
-routes it independently from physical input. The phone touchpad and automation
-therefore use the same relative pointer transport on every supported Android
-platform. The session's input-relay policy may additionally select physical
-EventHub devices marked `CURSOR | EXTERNAL`; only then does the native helper
-grab and forward their motion, wheel, and button state through that pointer.
-`BTN_RIGHT` follows the same native button-state path, including shared ownership
-across physical sources and recovery after `SYN_DROPPED`. Touchpad secondary
-clicks emit a complete press/release sequence through that virtual mouse; they
-do not interrupt a right button already held by a physical source. Neither path
-requires an absolute-position API or a per-click round trip to the UserService.
+A composite keyboard/mouse sharing one location receives one association.
+`InputRoutingLease` journals previous runtime port and unique-ID associations
+before changing either map. It restores only values still owned by the session,
+preserves concurrent foreign assignments, and refuses to override static routes.
+The durable journal is boot-scoped because Android runtime associations do not
+survive reboot. Binder owner death releases routes; interrupted cleanup remains
+retryable. Unknown or incomplete input inventory is an error, not an empty list.
 
-Host registration alone does not start input. The existing task observation
-publishes preparation once HOME has drawn, workspace ownership is configured,
-and any parked-task restoration has completed its final workspace command.
-An individual application's restore failure is reported but does not leave
-input disabled. This adds no timer, polling source, or pointer-coordinate probe.
-Close releases input immediately after handing HOME back, before parking tasks
-or removing a display. Late preparation and device callbacks cannot reopen
-input for a closing session; the next session establishes its own readiness.
+Existing input-device callbacks reconcile hot-plugged locations. There is no
+periodic input inventory query. A key-only Accessibility service receives only
+confirmed desktop keyboard IDs, observed through device-generation callbacks.
+It consumes MagicDesk combinations and dispatches them through the same
+`DesktopOperations` and task-controller gateways as the UI. Ordinary key
+events continue through Android unchanged. Service enablement has its own
+shell-owned journal and preserves other Accessibility services.
 
-The pointer helper starts passively. The runtime first waits until its virtual
-mouse is visible in EventHub, establishes Android's display associations,
-and only then enables physical capture. Capture acquires every neutral source
-immediately. Hot-plugged sources enter the same neutral-state protocol.
-Android's InputReader owns the pointer viewport through those associations;
-the routing session is independent of optional cursor observation.
-Teardown reverses that order: the helper
-releases every `EVIOCGRAB` and acknowledges completion before the routing
-session removes its associations. A helper restart repeats the same protocol
-instead of inheriting capture permission from a destroyed virtual device.
-This ordering prevents physical and virtual cursor mappers from observing a
-partially constructed or partially removed route.
+Host registration alone does not start input. Preparation is published after
+HOME draws, workspace ownership is configured and parked-task restoration
+finishes. Routes are acquired first; the phone pointer's location can be
+associated before its virtual device exists. `DesktopMouseBridge` then creates
+one virtual relative mouse for the phone touchpad on external desktops.
 
-The keyboard bridge follows the same ownership model. Forwarding the complete
-stream preserves key repeat, modifier state, hot-plug behavior, and the first
-key after a layout change more reliably than synthetic one-key injection. It
-creates one stable virtual keyboard per Android layout and switches the active
-device only after the native stream is paused, the system layout is applied,
-and the bridge is resumed. Newly connected sources are acquired only after
-their keys and buttons return to a neutral state, so a wake press is never
-split between the physical and virtual devices.
-`DesktopInputRoutingSession` associates those virtual devices with a physical
-display port for USB-C desktops or with the display unique ID for wireless and
-virtual desktops. Physical sources retain their system routes: `EVIOCGRAB`
-already prevents their events from reaching InputReader while captured. Routing
-them as additional outputs needlessly disables physical keyboards when the
-desktop viewport disappears and can trigger configuration transitions on a
-retiring display. This also affects composite mouse/keyboard devices sharing a
-physical port, so neither source kind is associated. Routes are established once
-for the relay devices; physical hot-plug refreshes source descriptors, not
-display associations. `DesktopInputRelaySession` orders virtual-device readiness,
-the routing lease, capture, source refresh, and reverse-order teardown;
-`KeyboardShortcutWatcher` only decodes shortcuts outside that transport
-lifecycle. There is no separate vendor input-panel owner.
-`PlatformFeatures.compatibilityDefaults` recommends physical keyboard and mouse
-capture. Settings can override it for every platform with one switch; an unset
-preference follows the extension default (enabled for stock Nubia firmware,
-disabled for Standard Android). `RuntimeDesktopInputCoordinator` consumes the
-HOME lease's compatibility selection on external-session entry. Editing settings never changes live captures;
-the next session takes the new preference. The virtual mouse and its routing
-remain independent, so disabling physical capture does not disable the phone
-touchpad. The routing session creates virtual keyboards only for selected
-keyboard capture. `PlatformPointerDriver` provides separate read-only observation.
+Close invalidates input readiness before queuing teardown. The same worker
+finishes any in-flight acquisition, destroys the phone pointer and restores
+shortcut enablement and device associations before display removal. A stale
+start completion cannot reopen input. Each session creates a fresh virtual
+mouse; hardware mice keep their Android identities throughout.
 
 MagicDesk uses one phone-side `MagicDeskTouchpadActivity` for every external
 transport. `TouchpadPointerMotion` converts successive finger coordinates into
@@ -216,17 +177,11 @@ all platforms. They inject mouse events but do not reposition the hardware
 cursor. Phone touchpad movement remains relative native input.
 A missing optional package or method disables
 the corresponding operation rather than changing unrelated device state. In
-contrast,
-`libmagicdesk_keyboard_bridge.so` and `libmagicdesk_uinput_bridge.so` are
-MagicDesk-owned native helpers compiled from repository C sources by every
-local and CI build.
-
-Both relays handle evdev `SYN_DROPPED` at the shared source boundary: discard
-tainted events through the next `SYN_REPORT`, then read that source's key state
-once. Each relay reconciles its own forwarding policy without releasing
-another source's keys or a control-owned drag. Keyboard recovery preserves
-its position in the existing paused queue and never invents shortcut presses.
-There is no periodic device-state query.
+contrast, `libmagicdesk_uinput_bridge.so` is a MagicDesk-owned virtual mouse
+helper compiled from repository C source by every local and CI build.
+Its bounded stdin protocol carries relative motion, buttons, scrolling and
+on-demand aggregate counters. EOF releases held buttons and destroys the
+virtual device. Physical device recovery remains Android's responsibility.
 
 ### Do not draw replacement application captions
 
@@ -397,8 +352,7 @@ component.
 | Phone desktop wallpaper policy | `ShellPhoneDesktopWallpaperPolicy` | Keeps the MagicDesk HOME surface visible below standard freeform tasks |
 | Fullscreen topology | `ShellFullscreenTaskArea` | Owns per-task fullscreen planes on every desktop target |
 | Hidden API stubs | `hidden-api-stubs/` | Compile-time signatures only; never packaged |
-| Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned external-to-virtual pointer forwarding |
-| Keyboard helper | `native/magicdesk_keyboard_bridge.c` | Binder-owned keyboard forwarding and shortcut interception |
+| Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned relative phone pointer |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |
 
 The main APK contains no `.ko`, kernel loader, root command path, or reference
@@ -461,7 +415,7 @@ runtime integration and are not distributed through the same release path.
   `DesktopSessionSnapshot` per decision, so the host display and the prepared
   display target cannot come from different lifecycle transitions.
   `RuntimeDesktopInputCoordinator` composes
-  input-device discovery, keyboard and mouse bridges, desktop text routing,
+  input-device routing, the phone pointer and shortcut filter, desktop text routing,
   and software-keyboard policy. `RuntimeDesktopTaskCoordinator` owns the
   process-level `DesktopTaskController`, keeps task observation available
   while shell access is ready, and binds display-scoped task reconciliation to
@@ -714,7 +668,7 @@ runtime integration and are not distributed through the same release path.
   `DesktopChromeActivity` token also used by the taskbar. There is no transient
   panel task or panel-specific organizer hierarchy.
 - `DesktopInputController` handles shell UI input and delegates global physical
-  shortcuts to the keyboard bridge.
+  shortcuts to the key-only Accessibility service.
 - `DesktopRuntimeBridge` is the weak-reference, main-thread boundary through
   which services reach the active desktop. Host registration and display
   target changes are serialized into one immutable `DesktopSessionSnapshot`;
@@ -1038,10 +992,8 @@ isolated behind these boundaries.
   firmware this is implemented by `NubiaDesktopPointerDriver` over the hidden
   global position query. Physical input
   routing itself stays in the shared Android implementation and uses standard
-  port or unique-id display associations. `PlatformFeatures.compatibilityDefaults`
-  supplies the default physical-capture policy, overridden by the user's
-  session preference; it does not imply cursor-observation support. Detecting
-  only an optional pointer API on a custom ROM does not enable physical capture.
+  input-location to display-unique-ID associations. Cursor observation is
+  independent of device routing and shortcut filtering.
   `PlatformDiagnostics` contributes only the probes for the selected platform.
   A selected `SYSTEM_CONTROLS` provider identifies the platform integration,
   not every optional hardware control. Nubia cooling settings are read through
@@ -1092,8 +1044,8 @@ isolated behind these boundaries.
 - `DesktopDisplayTarget` is the immutable identity of the active display
   environment. `DesktopRuntimeBridge` retains that target as one value so a
   display ID and its transport cannot become separate, stale state.
-- `DesktopCompatibilityPolicy` is the immutable selection of seven optional
-  shared mechanisms: physical-input capture, input-focus repair, stale caption
+- `DesktopCompatibilityPolicy` is the immutable selection of six optional
+  shared mechanisms: input-focus repair, stale caption
   refresh, phone-task isolation during wired/wireless sessions, retained
   phone-task recovery, stale phone freeform Recents cleanup, and Recents routing
   to the leased phone HOME. `PlatformFeatures.compatibilityDefaults` supplies
@@ -1141,8 +1093,8 @@ isolated behind these boundaries.
   `DesktopRuntimeBridge` and publish state changes through the runtime rather
   than reaching a desktop Activity.
 - `ExternalDisplayController` discovers dynamic display IDs and fixes geometry.
-- `DesktopInputRelaySession` owns external input transport and routing;
-  `KeyboardShortcutWatcher` decodes shortcuts, and
+- `DesktopInputSession` owns input routing and the virtual phone pointer;
+  `DesktopShortcutService` filters desktop shortcuts, and
   `HardwareKeyboardLayoutController` owns layout selection.
 - `PhoneTouchpadController` starts and repairs the phone touchpad for an owned
   external target whose display driver permits it. The shared transport checks
@@ -1177,7 +1129,7 @@ the framework listener without a child `app_process` or textual protocol.
 Other long-lived operations use `ParcelFileDescriptor` streams owned by an APK
 Binder token:
 
-- keyboard forwarding and shortcut events;
+- input routing and shortcut service ownership;
 - mouse forwarding;
 - phone-display power ownership.
 
@@ -1393,10 +1345,10 @@ if that display driver permits it. No absolute-position API is required.
 The runtime asks the selected platform to expose native captions for wired and
 wireless desktops. The Nubia driver applies its matching privacy filter;
 standard Android and simulated displays do not modify vendor SurfaceFlinger
-state. Android associates input by physical port on wired displays and by
-stable display unique ID on Miracast and simulated displays. Simulated sessions deliberately exercise
-the same phone IME policy, keyboard watcher, and virtual input lifecycle as a
-real desktop. Virtual input remains scoped to the session and cleanup waits for
+state. Android associates input locations with stable display unique IDs on
+every target. Simulated sessions exercise the same phone IME policy, shortcut
+filter and virtual phone-pointer lifecycle as a physical desktop.
+Virtual input remains scoped to the session and cleanup waits for
 its removal before the test completes. The test inspects WMShell's caption and
 resize input windows after a cross-display move, including their display ID,
 frame, input channel, token, and
@@ -2039,10 +1991,9 @@ surface. Desktop placement updates still use the fixed-folder API, while
 general copy/move work remains in `ShellFileSystem`, so UI integration does not
 widen the automatic desktop-filesystem boundary.
 
-File rows receive ordinary Android pointer meta state. The keyboard bridge
-forwards `Ctrl` and `Shift` immediately through its virtual keyboard so
-modifier-click selection works consistently in Files and third-party apps;
-`Alt` and `Meta` remain deferred while global shortcuts are classified. Files
+File rows receive ordinary Android pointer meta state. Android delivers
+physical `Ctrl` and `Shift` directly, including modifier-click selection.
+The shortcut filter consumes desktop commands without forwarding text. Files
 and desktop files/folders use double-click to open by default, with one shared
 optional single-click mode in Settings.
 
@@ -2245,7 +2196,7 @@ request.
 
 ## External Desktop Activation
 
-On **Start external desktop** or `Win+D`, MagicDesk:
+On **Start external desktop**, MagicDesk:
 
 1. discovers Android's connected wired, wireless, or overlay display;
 2. loads the profile keyed by that display's stable identity;
@@ -2398,7 +2349,7 @@ Close is one-way even when a cleanup operation fails. A failed HOME handoff
 does not skip input, task, and host release. A simulated display that cannot
 pass its existing transition-quiescence gate is not forcibly removed, but its
 desktop session is closed rather than resumed. Failures remain diagnostic
-errors; they never re-enable capture or migration protection.
+errors; they never reopen input routing or migration protection.
 
 Physical display removal, **Close desktop**, and **Exit MagicDesk** share the
 common cleanup path:
@@ -2406,7 +2357,7 @@ common cleanup path:
 - hand HOME back to the package saved by the session lease;
 - restore an active phone-display power guard before releasing input, even when
   the external display stays connected and the foreground runtime stays alive;
-- release keyboard and mouse capture, display associations, and virtual devices;
+- release shortcut filtering, display associations, and the virtual phone pointer;
 - keep HOME components enabled while parking tasks and removing the desktop host
   or owned display, then disable them before presenting the restored launcher;
 - close display-scoped panel windows and stop task observation;
@@ -2532,52 +2483,23 @@ recreates the Activity. Details and rejected alternatives are in
 
 ## Physical Input
 
-The keyboard helper consumes only the global MagicDesk combinations listed in
-README. Ordinary key events preserve scan code, modifier state, and device
-identity through the virtual external keyboard.
+Hardware events travel through Android's physical devices and their explicit
+desktop display associations. Android owns repeat, modifiers, cursor motion,
+acceleration, hover, dragging and secondary-button semantics.
+`DesktopShortcutService` consumes only MagicDesk shortcuts; each physical
+keyboard has its own `KeyboardShortcutStateMachine`. Consumed key-down/up
+pairs remain balanced across modifier release and repeated keys. Unplugging a
+keyboard cancels its pending Alt+Tab selection.
 
-RedMagic disables evdev repeat on physical keyboards, then reinjects keys for
-the external display with Android's `POLICY_FLAG_DISABLE_KEY_REPEAT`. While a
-source is exclusively captured, the bridge temporarily enables kernel repeat
-on that source and translates each repeat into a complete release/press cycle.
-This keeps kernel timing without a polling thread or software timer and survives
-Nubia's reinjection path. The original evdev repeat values are restored before
-the source is released; the virtual keyboard does not generate a second repeat
-stream.
+`Ctrl+Space` uses `HardwareKeyboardLayoutController` to select the next
+configured Android layout for connected physical keyboards and update the
+taskbar label. No virtual keyboard identities or copied key streams are involved.
 
-`Ctrl+Space` queries `IInputManager` for layouts associated with enabled IME
-subtypes, selects the next configured layout for every connected physical
-keyboard, and updates the taskbar label. The bridge holds subsequent input only
-until InputManager confirms the new layout, avoiding both a fixed delay and a
-first character in the previous language.
-
-The shared mouse helper forwards captured physical movement, wheels, and
-buttons, and carries the phone touchpad's relative input independently of
-physical capture. Android owns cursor motion, acceleration, hover, and dragging.
-Right clicks preserve native secondary-button semantics. `Win+Backspace`
-remains the explicit system Back shortcut. Physical keyboards and pointing
-devices may be connected or removed
-while the session is active; the runtime updates captured source descriptors without
-recreating the desktop or phone touchpad for keyboard-only configuration changes.
-
-Both helpers keep their virtual devices alive for the complete desktop session.
-InputManager inventory changes replace only the physical source descriptors,
-so Android does not deliver keyboard/navigation configuration changes to every
-foreground application. This matters for older SDL applications that cannot
-safely recreate their rendering state during an input hot-plug.
-
-The mouse helper does not capture a physical source merely because its process
-is alive. Capture begins only after the virtual pointer has appeared in
-EventHub and the shared input-routing session reports ready. On shutdown, a
-native acknowledgement confirms that all sources have been released before
-that session closes. The acknowledgement is an ordering barrier, not a pacing
-delay; a bounded timeout exists only for a failed helper.
-
-A newly opened source is captured only after `EVIOCGKEY` reports a neutral
-state both before and after `EVIOCGRAB`. Until then Android receives the whole
-physical key or button sequence and the helper discards its duplicate copy.
-This prevents a wake key from being split so that Android sees key-down while
-only the virtual device receives key-up. No timing threshold is involved.
+The phone touchpad emits relative movement and native buttons through its
+session-owned virtual mouse. Its input location is independently associated
+with the desktop. The shared `pointer_speed` setting is applied by Android,
+not multiplied a second time in Java. Hardware touchpads recognized as native
+touchpads use Android's separate touchpad-speed setting.
 
 ## Phone Screen And Touch Panel
 
@@ -2714,7 +2636,7 @@ the external display; some firmware may require a restart. Neither is a startup
 gate in MagicDesk. Close Desktop leaves the value unchanged;
 Restore defaults removes the override. The flag affects external HOME, system
 decorations and input policy, but does not prove correct physical-input routing.
-Physical-input capture remains an independent compatibility preference.
+Physical-input routing is owned by the shared Android input session.
 
 The Nubia/REDMAGIC platform additionally audits:
 
@@ -2764,12 +2686,11 @@ desktop settings, Shizuku UID/domain/capability probes, and MagicDesk-only
 logcat. It excludes user files, accounts, notification content, clipboard, and
 the installed-app catalog.
 
-Input bridge diagnostics are event-driven lifecycle counters: startup attempts,
-ready or pointer-only sessions, source-refresh failures, bridge anomalies, and
-the last routing display. The native relays also keep aggregate physical and
-forwarded event counts, write failures, and the timestamp of the last mouse
-motion or keyboard event. They do not emit per-event diagnostics, record key
-codes, or retain typed text. At the start of explicit compatibility-report
+Input diagnostics are event-driven lifecycle counters: startup attempts,
+ready sessions, refresh failures and the last routing display. The virtual mouse
+keeps aggregate protocol and write-error counters; the shortcut service reports
+connection state, routed device IDs and command counts. Neither records key
+codes or typed text. At the start of explicit compatibility-report
 generation, MagicDesk requests one native statistics frame and one bounded
 `FrameworkInputSnapshotSource` snapshot. The resulting report compares owned
 MagicDesk ports with current InputManager associations and records the observed
@@ -2889,8 +2810,8 @@ The Gradle project has three modules:
 - `hidden-api-stubs`: compile-only framework signatures;
 - `kernel-fixes`: independent optional APK.
 
-Every main-app build compiles three native helpers from source: keyboard relay,
-mouse relay, and PTY transport. CI verifies that the main APK contains all three
+Every main-app build compiles two native helpers from source: the virtual mouse
+and PTY transport. CI verifies that the main APK contains both
 and no `.ko`, and that the Kernel Fixes APK contains exactly the reviewed module
 and no main-app native helper.
 
@@ -2902,8 +2823,8 @@ replace, the Android device self-tests.
 
 `scripts/verify-native.sh` builds and runs Linux host fixtures against the real
 native sources. PTY fixtures exercise bidirectional backpressure, partial
-frames, metadata and shutdown; input fixtures replace only device I/O to
-exercise lost-event recovery, shared key ownership and paused queue cleanup.
+frames, metadata and shutdown; virtual-pointer fixtures replace only device I/O
+to exercise motion, buttons, scrolling, protocol validation and write errors.
 They use bounded subprocess lifetimes and a temporary directory, without
 physical input access. Linux CI runs them in addition to Gradle verification.
 

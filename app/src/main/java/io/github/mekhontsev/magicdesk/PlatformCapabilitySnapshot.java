@@ -80,10 +80,9 @@ public final class PlatformCapabilitySnapshot {
         probe(entries, platform, PlatformCapabilityId.OUTPUT_CONFIGURATION,
                 () -> platform.projection().supportsOutputConfiguration(),
                 () -> "");
-        add(entries, platform, PlatformCapabilityId.EXTERNAL_INPUT_BRIDGE,
+        add(entries, platform, PlatformCapabilityId.EXTERNAL_INPUT_ROUTING,
                 true,
-                "shared evdev/uinput transport; shell access is probed separately; "
-                        + "default=" + features.compatibilityDefaults.inputRelay().diagnosticDetail());
+                "Android port associations and key-only shortcut filter; shell access is probed separately");
         probe(entries, platform, PlatformCapabilityId.POINTER_OBSERVATION,
                 () -> platform.pointer().isAvailable(),
                 () -> "read-only; display identity may be unavailable");

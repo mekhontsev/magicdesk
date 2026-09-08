@@ -105,9 +105,6 @@ public final class NubiaPlatformDriver implements PlatformExtension {
         if (components().contains(PlatformComponent.PHONE_UI)) {
             defaults = defaults.with(Option.RECENTS_TO_HOME, true);
         }
-        if (components().contains(PlatformComponent.EXTERNAL_INPUT)) {
-            defaults = defaults.with(Option.INPUT_RELAY, true);
-        }
         return new PlatformFeatures(
                 baseline.wiredDesktop,
                 baseline.wirelessDesktop,

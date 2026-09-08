@@ -6,7 +6,6 @@ import android.os.Parcelable;
 /** Immutable selection of optional shared mechanisms for one desktop session. */
 public final class DesktopCompatibilityPolicy implements Parcelable {
     public enum Option {
-        INPUT_RELAY("inputRelay"),
         FOCUS_REPAIR("focusRepair"),
         CAPTION_REFRESH("captionRefresh"),
         PHONE_TASK_ISOLATION("phoneTaskIsolation"),
@@ -38,11 +37,6 @@ public final class DesktopCompatibilityPolicy implements Parcelable {
     public DesktopCompatibilityPolicy with(final Option option, final boolean enabled) {
         final int bit = 1 << option.ordinal();
         return new DesktopCompatibilityPolicy(enabled ? mBits | bit : mBits & ~bit);
-    }
-
-    DesktopInputRelayPolicy inputRelay() {
-        return enabled(Option.INPUT_RELAY)
-                ? DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE : DesktopInputRelayPolicy.NONE;
     }
 
     int bits() {

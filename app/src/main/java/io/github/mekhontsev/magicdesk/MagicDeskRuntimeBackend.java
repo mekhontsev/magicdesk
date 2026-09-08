@@ -33,7 +33,7 @@ interface MagicDeskRuntimeBackend {
 
     DesktopPointerState getDesktopPointerState(int displayId);
 
-    InputRelayRuntimeDiagnostics.Snapshot captureInputRelayDiagnostics();
+    DesktopInputDiagnostics.Snapshot captureInputDiagnostics();
 
     void releaseDesktopInput(int displayId, Runnable completion);
 

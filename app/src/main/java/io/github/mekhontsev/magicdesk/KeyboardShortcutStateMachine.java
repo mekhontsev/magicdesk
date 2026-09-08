@@ -1,5 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.view.KeyEvent;
+
+import java.util.HashSet;
+import java.util.Set;
+
+/** One keyboard's balanced shortcut stream, independent of transport and windows. */
 final class KeyboardShortcutStateMachine {
     enum Action {
         NONE,
@@ -24,186 +30,98 @@ final class KeyboardShortcutStateMachine {
         SHORTCUT_HELP
     }
 
-    private boolean mCtrlDown;
-    private boolean mAltDown;
-    private boolean mShiftDown;
-    private boolean mMetaDown;
+
+    static final class Result {
+        final boolean consumed;
+        final Action action;
+        Result(final boolean consumed, final Action action) {
+            this.consumed = consumed;
+            this.action = action;
+        }
+    }
+
+    private final Set<Integer> mConsumed = new HashSet<>();
     private boolean mAltTabActive;
 
-    synchronized Action accept(final String line, final boolean fullShortcutMode) {
-        if (line == null) {
-            return Action.NONE;
+    Result accept(final int key, final boolean down, final int repeats,
+            final boolean ctrl, final boolean alt, final boolean shift, final boolean meta) {
+        if (!down) {
+            final boolean consumed = mConsumed.remove(key);
+            if ((key == KeyEvent.KEYCODE_ALT_LEFT || key == KeyEvent.KEYCODE_ALT_RIGHT)
+                    && !alt && mAltTabActive) {
+                mAltTabActive = false;
+                return new Result(consumed, Action.ALT_TAB_COMMIT);
+            }
+            return new Result(consumed, Action.NONE);
         }
-        if (!fullShortcutMode && line.startsWith("MAGICDESK_")) {
-            return Action.NONE;
+        if (mConsumed.contains(key)) {
+            return new Result(true, Action.NONE);
         }
-        if (line.startsWith("MAGICDESK_ALT_TAB_ADVANCE ")) {
+        // Suppress the system's standalone Meta action along with our Meta chords.
+        if (key == KeyEvent.KEYCODE_META_LEFT || key == KeyEvent.KEYCODE_META_RIGHT) {
+            mConsumed.add(key);
+            return new Result(true, Action.NONE);
+        }
+        if (repeats != 0) {
+            return new Result(false, Action.NONE);
+        }
+        final Action action = action(key, ctrl, alt, shift, meta);
+        if (action == Action.ALT_TAB_FORWARD || action == Action.ALT_TAB_REVERSE) {
             mAltTabActive = true;
-            return line.endsWith("reverse")
-                    ? Action.ALT_TAB_REVERSE : Action.ALT_TAB_FORWARD;
         }
-        if ("MAGICDESK_ALT_TAB_COMMIT".equals(line)) {
-            return finishAltTab();
+        // Escape continues to the focused app, as well as dismissing our transient UI.
+        final boolean consumed = action != Action.NONE && action != Action.DISMISS;
+        if (consumed) {
+            mConsumed.add(key);
         }
-        if (line.indexOf(" EV_KEY ") < 0) {
-            return Action.NONE;
-        }
-
-        final String keyName = parseKeyName(line);
-        final int keyAction = parseKeyAction(line);
-        if (keyName == null || keyAction < 0 || keyAction == 2) {
-            return Action.NONE;
-        }
-        if (isMetaKey(keyName)) {
-            mMetaDown = keyAction == 1;
-            return Action.NONE;
-        }
-        if (isCtrlKey(keyName)) {
-            mCtrlDown = keyAction == 1;
-            return Action.NONE;
-        }
-        if (isAltKey(keyName)) {
-            mAltDown = keyAction == 1;
-            return keyAction == 0 ? finishAltTab() : Action.NONE;
-        }
-        if (isShiftKey(keyName)) {
-            mShiftDown = keyAction == 1;
-            return Action.NONE;
-        }
-        if (keyAction != 1) {
-            return Action.NONE;
-        }
-        if ("KEY_SPACE".equals(keyName) && ctrlOnly()) {
-            return Action.TOGGLE_LAYOUT;
-        }
-        if ("KEY_ESC".equals(keyName) && noModifiers()) {
-            return Action.DISMISS;
-        }
-        if ("KEY_D".equals(keyName) && metaOnly()) {
-            return Action.SHOW_DESKTOP;
-        }
-        if (!fullShortcutMode) {
-            return Action.NONE;
-        }
-        if ("KEY_F4".equals(keyName) && altOnly()) {
-            return Action.CLOSE;
-        }
-        if (isPrintKey(keyName) && metaShiftOnly()) {
-            return Action.SCREEN_RECORDING;
-        }
-        if (!metaOnly()) {
-            return Action.NONE;
-        }
-        switch (keyName) {
-            case "KEY_BACKSPACE":
-                return Action.BACK;
-            case "KEY_L":
-                return Action.LOCK;
-            case "KEY_N":
-                return Action.NOTIFICATIONS;
-            case "KEY_Q":
-                return Action.SYSTEM;
-            case "KEY_I":
-                return Action.SETTINGS;
-            case "KEY_UP":
-                return Action.FULLSCREEN;
-            case "KEY_DOWN":
-                return Action.RESTORE;
-            case "KEY_LEFT":
-                return Action.SNAP_LEFT;
-            case "KEY_RIGHT":
-                return Action.SNAP_RIGHT;
-            case "KEY_SYSRQ":
-            case "KEY_PRINT":
-            case "KEY_PRINTSCREEN":
-                return Action.SCREENSHOT;
-            case "KEY_SLASH":
-                return Action.SHORTCUT_HELP;
-            default:
-                return Action.NONE;
-        }
+        return new Result(consumed, action);
     }
 
-    synchronized boolean reset() {
-        final boolean cancelAltTab = mAltTabActive;
-        mCtrlDown = false;
-        mAltDown = false;
-        mShiftDown = false;
-        mMetaDown = false;
+    boolean reset() {
+        final boolean cancel = mAltTabActive;
         mAltTabActive = false;
-        return cancelAltTab;
+        mConsumed.clear();
+        return cancel;
     }
 
-    private Action finishAltTab() {
-        if (!mAltTabActive) {
-            return Action.NONE;
-        }
-        mAltTabActive = false;
-        return Action.ALT_TAB_COMMIT;
-    }
-
-    private boolean ctrlOnly() {
-        return mCtrlDown && !mAltDown && !mShiftDown && !mMetaDown;
-    }
-
-    private boolean altOnly() {
-        return mAltDown && !mCtrlDown && !mShiftDown && !mMetaDown;
-    }
-
-    private boolean metaOnly() {
-        return mMetaDown && !mCtrlDown && !mAltDown && !mShiftDown;
-    }
-
-    private boolean metaShiftOnly() {
-        return mMetaDown && mShiftDown && !mCtrlDown && !mAltDown;
-    }
-
-    private boolean noModifiers() {
-        return !mCtrlDown && !mAltDown && !mShiftDown && !mMetaDown;
-    }
-
-    static String parseKeyName(final String line) {
-        final String[] parts = line.trim().split("\\s+");
-        for (final String part : parts) {
-            if (part.startsWith("KEY_")) {
-                return part;
+    private static Action action(final int key, final boolean ctrl, final boolean alt,
+            final boolean shift, final boolean meta) {
+        if (alt && !ctrl && !meta) {
+            if (key == KeyEvent.KEYCODE_TAB) {
+                return shift ? Action.ALT_TAB_REVERSE : Action.ALT_TAB_FORWARD;
+            }
+            if (!shift && key == KeyEvent.KEYCODE_F4) {
+                return Action.CLOSE;
             }
         }
-        return null;
-    }
-
-    static int parseKeyAction(final String line) {
-        if (line.endsWith(" DOWN") || line.indexOf(" DOWN") >= 0) {
-            return 1;
+        if (ctrl && !alt && !shift && !meta && key == KeyEvent.KEYCODE_SPACE) {
+            return Action.TOGGLE_LAYOUT;
         }
-        if (line.endsWith(" UP") || line.indexOf(" UP") >= 0) {
-            return 0;
+        if (!ctrl && !alt && !shift && !meta && key == KeyEvent.KEYCODE_ESCAPE) {
+            return Action.DISMISS;
         }
-        if (line.endsWith(" REPEAT") || line.indexOf(" REPEAT") >= 0) {
-            return 2;
+        if (!meta || ctrl || alt) {
+            return Action.NONE;
         }
-        return -1;
-    }
-
-    private static boolean isCtrlKey(final String key) {
-        return "KEY_LEFTCTRL".equals(key) || "KEY_RIGHTCTRL".equals(key);
-    }
-
-    private static boolean isPrintKey(final String key) {
-        return "KEY_SYSRQ".equals(key)
-                || "KEY_PRINT".equals(key)
-                || "KEY_PRINTSCREEN".equals(key);
-    }
-
-    private static boolean isAltKey(final String key) {
-        return "KEY_LEFTALT".equals(key) || "KEY_RIGHTALT".equals(key);
-    }
-
-    private static boolean isShiftKey(final String key) {
-        return "KEY_LEFTSHIFT".equals(key) || "KEY_RIGHTSHIFT".equals(key);
-    }
-
-    private static boolean isMetaKey(final String key) {
-        return "KEY_LEFTMETA".equals(key) || "KEY_RIGHTMETA".equals(key);
+        if (key == KeyEvent.KEYCODE_SYSRQ) {
+            return shift ? Action.SCREEN_RECORDING : Action.SCREENSHOT;
+        }
+        if (shift) {
+            return Action.NONE;
+        }
+        return switch (key) {
+            case KeyEvent.KEYCODE_DEL -> Action.BACK;
+            case KeyEvent.KEYCODE_L -> Action.LOCK;
+            case KeyEvent.KEYCODE_N -> Action.NOTIFICATIONS;
+            case KeyEvent.KEYCODE_Q -> Action.SYSTEM;
+            case KeyEvent.KEYCODE_I -> Action.SETTINGS;
+            case KeyEvent.KEYCODE_DPAD_UP -> Action.FULLSCREEN;
+            case KeyEvent.KEYCODE_DPAD_DOWN -> Action.RESTORE;
+            case KeyEvent.KEYCODE_DPAD_LEFT -> Action.SNAP_LEFT;
+            case KeyEvent.KEYCODE_DPAD_RIGHT -> Action.SNAP_RIGHT;
+            case KeyEvent.KEYCODE_D -> Action.SHOW_DESKTOP;
+            case KeyEvent.KEYCODE_SLASH -> Action.SHORTCUT_HELP;
+            default -> Action.NONE;
+        };
     }
 }

@@ -60,9 +60,6 @@ public final class DesktopSelfTestCapabilityAudit {
         optional(result, capabilities,
                 "raw_input.read", "granted",
                 "API-INPUT-002", "Read physical input events");
-        result.add(DesktopSelfTestResult.State.NOT_TESTED,
-                "API-INPUT-003", "Exclusive physical input capture",
-                "tested only when an external input bridge starts");
         optional(result, capabilities,
                 "input.uinput", "granted",
                 "API-INPUT-004", "Create virtual input devices");

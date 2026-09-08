@@ -5,6 +5,7 @@ final class FrameworkRuntime {
     private final FrameworkWindowingCompat mWindowingCompat;
     private final FrameworkWindowingApi mWindowingApi;
     private FrameworkDisplayWindowingApi mDisplayWindowingApi;
+    private FrameworkInputRoutingApi mInputRoutingApi;
 
     private FrameworkRuntime() {
         mWindowingCompat = FrameworkWindowingCompat.current();
@@ -33,6 +34,13 @@ final class FrameworkRuntime {
 
     FrameworkWindowingCompat.Capabilities capabilities() {
         return mWindowingCompat.capabilities();
+    }
+
+    synchronized FrameworkInputRoutingApi inputRouting() throws ReflectiveOperationException {
+        if (mInputRoutingApi == null) {
+            mInputRoutingApi = new FrameworkInputRoutingApi();
+        }
+        return mInputRoutingApi;
     }
 
     String diagnosticDetail() {

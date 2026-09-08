@@ -58,7 +58,7 @@ On the verified firmware, shell UID 2000 can:
   sessions through built-in Console windows;
 - install a user-confirmed APK through Android's shell package-manager command;
 - change physical-keyboard layouts;
-- read and grab external input devices and create `/dev/uinput` devices;
+- associate input devices with displays and create a virtual phone pointer;
 - use stock RedMagic bypass-charging, fan, pump, and thermal interfaces.
 
 `ShellAccess` owns an immutable cached state. Binder-received, Binder-dead,
@@ -75,36 +75,26 @@ leaving a separate `app_process` behind.
 
 ## Input Streams
 
-MagicDesk uses two lifecycle-bound native helpers to associate physical input
-with the active Android desktop display and to implement global shortcuts:
+Physical keyboards and mice remain native Android input devices. The
+shell-owned `DesktopInputRoutingSession` associates input locations with the
+desktop display unique ID and journals their previous runtime associations.
+Composite devices sharing a location share one association. Hot-plug callbacks
+reconcile routes without reading or forwarding physical event streams.
 
-- `libmagicdesk_keyboard_bridge.so` forwards physical keyboard events through
-  a virtual external keyboard associated with the active desktop display. It
-  preserves normal input and repeat, consumes only MagicDesk shortcuts, and
-  coordinates `Ctrl+Space` with Android's configured keyboard layouts.
-- `libmagicdesk_uinput_bridge.so` grabs only external cursor devices and
-  forwards their complete pointer stream, including `BTN_RIGHT`, through a
-  virtual mouse associated with the desktop display.
+`DesktopShortcutService` is a key-only Accessibility filter, independent of
+the user's IME. Shizuku enables it for the desktop session and restores that
+enablement on Close, preserving other services. It consumes desktop shortcuts
+only from keyboards confirmed on the target display; ordinary input continues
+through Android. No accessibility window content or editor text is requested.
 
-The UserService links each helper stream to an APK Binder owner. If the APK,
-UserService, or stream disappears, EOF or Binder death releases the physical
-devices and destroys the virtual device; idle helpers do not send keepalives.
-During a live RedMagic external desktop session, input hot-plug updates the
-physical source descriptors inside the existing helpers. Their virtual device
-identity remains stable, avoiding application configuration changes. A source
-is grabbed only after it reaches a neutral key/button state, so a wake sequence
-cannot be divided between Android and the virtual device.
+`libmagicdesk_uinput_bridge.so` provides a virtual relative mouse solely for
+the phone touchpad. Its location is associated before creation. EOF or Binder
+owner death destroys that device; there is no idle keepalive.
 
-The mouse helper remains passive until its virtual device is visible and the
-UserService has associated the input route with the desktop display. During
-teardown it acknowledges releasing the physical sources before those
-associations are removed. This keeps exclusive capture and display routing
-within one ordered lifecycle.
-
-The standard Android platform does not start these routing helpers or grab
-physical input devices. It leaves already-correct system input routing intact;
-the full routing bridge is a platform capability, not a requirement of the
-common desktop.
+One serialized input owner orders startup, hot-plug and teardown on every
+platform. Close destroys the phone pointer and restores input associations
+before display removal. Durable ownership journals make cleanup retryable after
+process loss without overwriting unrelated system routes.
 
 Layout selection follows Android's enabled IME subtype order. MagicDesk never
 selects an IME or hardcodes a language. An IME that keeps languages internally

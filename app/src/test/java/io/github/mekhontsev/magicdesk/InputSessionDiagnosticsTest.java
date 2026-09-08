@@ -9,21 +9,21 @@ import org.junit.Test;
 
 import java.io.IOException;
 
-public final class InputBridgeDiagnosticsTest {
+public final class InputSessionDiagnosticsTest {
     @After
     public void reset() {
-        InputBridgeDiagnostics.resetForTests();
+        InputSessionDiagnostics.resetForTests();
     }
 
     @Test
-    public void recordsOnlyBridgeLifecycleState() {
-        InputBridgeDiagnostics.noteAttempt(4);
-        InputBridgeDiagnostics.noteReady(true);
-        InputBridgeDiagnostics.noteSourceRefreshFailure(
+    public void recordsOnlySessionLifecycleState() {
+        InputSessionDiagnostics.noteAttempt(4);
+        InputSessionDiagnostics.noteReady();
+        InputSessionDiagnostics.noteSourceRefreshFailure(
                 new IOException("input refresh failed\nwithout event data"));
 
-        final InputBridgeDiagnostics.Snapshot snapshot =
-                InputBridgeDiagnostics.snapshot();
+        final InputSessionDiagnostics.Snapshot snapshot =
+                InputSessionDiagnostics.snapshot();
         assertEquals(1, snapshot.attempts);
         assertEquals(1, snapshot.readySessions);
         assertEquals(1, snapshot.sourceRefreshFailures);

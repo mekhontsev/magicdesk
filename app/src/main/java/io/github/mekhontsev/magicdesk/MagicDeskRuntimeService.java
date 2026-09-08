@@ -160,10 +160,10 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
-    public InputRelayRuntimeDiagnostics.Snapshot
-            captureInputRelayDiagnostics() {
+    public DesktopInputDiagnostics.Snapshot
+            captureInputDiagnostics() {
         if (mDestroyed || mDesktopInput == null) {
-            return InputRelayRuntimeDiagnostics.Snapshot.unavailable();
+            return DesktopInputDiagnostics.Snapshot.unavailable();
         }
         final PlatformSelection.Provider provider = mPlatform.selection()
                 .provider(PlatformComponent.POINTER);
@@ -180,14 +180,14 @@ public final class MagicDeskRuntimeService extends Service
                     mDesktopSession.prepareDisplayRemoval(displayId);
                 }
                 if (!mDestroyed && mDesktopInput != null) {
-                    mDesktopInput.releaseForSessionClose(displayId);
+                    mDesktopInput.releaseForSessionClose(displayId, completion);
+                    return;
                 }
             } catch (RuntimeException error) {
                 CompatibilityDiagnostics.record("INPUT-CLOSE-001",
                         "Could not release desktop input", error.getMessage(), error);
-            } finally {
-                completion.run();
             }
+            completion.run();
         };
         if (mDestroyed || mHandler == null) {
             completion.run();

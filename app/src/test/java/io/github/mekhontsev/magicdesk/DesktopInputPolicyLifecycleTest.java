@@ -5,51 +5,6 @@ import org.junit.Test;
 /** Runs production policy boundaries without Android services or input devices. */
 public final class DesktopInputPolicyLifecycleTest {
     @Test
-    public void settingsAreLatchedOnlyAtExternalSessionEntry() throws Exception {
-        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
-                static class Display { static final int DEFAULT_DISPLAY = 0; }
-                static class DesktopCompatibilitySettings {
-                    static int reads;
-                    static DesktopInputRelayPolicy selected = DesktopInputRelayPolicy.KEYBOARD_AND_MOUSE;
-                    static DesktopCompatibilitySettings current() { reads++; return new DesktopCompatibilitySettings(); }
-                    DesktopInputRelayPolicy inputRelay() { return selected; }
-                }
-                static class Relay {
-                    int stops;
-                    void stop() { stops++; }
-                }
-                int mDesktopDisplayId = -1, mInputSourceRefreshGeneration, creates;
-                DesktopInputRelayPolicy mInputRelay = DesktopInputRelayPolicy.NONE;
-                Relay mRelaySession = new Relay();
-                Relay createRelaySession() { creates++; return new Relay(); }
-                public static void verify() {
-                    Fixture f = new Fixture();
-                    f.selectInputPolicyForNewSession(0);
-                    check(DesktopCompatibilitySettings.reads == 0, "phone desktop read external policy");
-                    Relay idle = f.mRelaySession;
-                    f.selectInputPolicyForNewSession(7);
-                    f.mDesktopDisplayId = 7;
-                    check(f.mInputRelay.keyboard && f.mInputRelay.mouse, "default was not applied");
-                    check(idle.stops == 1 && f.creates == 1, "previous owner was not released once");
-                    Relay active = f.mRelaySession;
-                    DesktopCompatibilitySettings.selected = DesktopInputRelayPolicy.NONE;
-                    f.selectInputPolicyForNewSession(7);
-                    f.selectInputPolicyForNewSession(8);
-                    check(DesktopCompatibilitySettings.reads == 1 && active.stops == 0,
-                            "live capture changed after editing settings or changing display");
-                    f.mDesktopDisplayId = -1;
-                    f.selectInputPolicyForNewSession(9);
-                    check(f.mInputRelay == DesktopInputRelayPolicy.NONE, "next session ignored preference");
-                    check(active.stops == 1 && f.creates == 2, "next session reused wrong capture policy");
-                    f.selectInputPolicyForNewSession(9);
-                    check(f.creates == 2, "unchanged policy recreated transport");
-                }
-                """ + RuntimeSourceFixture.methods("RuntimeDesktopInputCoordinator",
-                        "selectInputPolicyForNewSession", "ownsExternalDesktop"),
-                "DesktopInputRelayPolicy");
-    }
-
-    @Test
     public void touchpadEligibilityDoesNotRequireVendorPositioning() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Display { static final int DEFAULT_DISPLAY = 0; }

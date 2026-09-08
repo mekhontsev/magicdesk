@@ -55,7 +55,7 @@ Run the complete local verification before submitting a change:
 ./gradlew verifyDevelopment
 ```
 
-On Linux or Termux, also run the native PTY and input recovery fixtures:
+On Linux or Termux, also run the native PTY and virtual-pointer protocol fixtures:
 
 ```sh
 sh scripts/verify-native.sh

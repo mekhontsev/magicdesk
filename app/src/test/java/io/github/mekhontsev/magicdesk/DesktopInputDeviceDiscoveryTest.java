@@ -44,16 +44,16 @@ public final class DesktopInputDeviceDiscoveryTest {
     }
 
     @Test
-    public void separatesPhysicalAndVirtualRoutableKeyboards()
+    public void excludesInternalKeyboards()
             throws Exception {
         final String dump =
                 "Input Manager State:\n"
                         + "Event Hub State:\n"
                         + "  Devices:\n"
-                        + "    18: MagicDesk Keyboard 0\n"
-                        + "      Classes: KEYBOARD | ALPHAKEY | EXTERNAL\n"
+                        + "    18: Internal Keyboard\n"
+                        + "      Classes: KEYBOARD | ALPHAKEY\n"
                         + "      Path: /dev/input/event18\n"
-                        + "      Location: magicdesk-keyboard-0\n"
+                        + "      Location: internal-keyboard\n"
                         + "      Identifier: bus=0x0005, vendor=0x3554, "
                         + "product=0xf603, version=0x0101\n"
                         + "    11: ProtoArc Keyboard\n"
@@ -66,14 +66,12 @@ public final class DesktopInputDeviceDiscoveryTest {
 
         final List<DesktopKeyboardDevice> physical =
                 DesktopInputDeviceDiscovery.findKeyboards(dump);
-        final List<DesktopKeyboardDevice> routable =
-                DesktopInputDeviceDiscovery.findRoutableKeyboards(dump);
-
         assertEquals(1, physical.size());
         assertEquals("/dev/input/event10", physical.get(0).path);
-        assertEquals(2, routable.size());
-        assertEquals(
-                "magicdesk-keyboard-0",
-                routable.get(0).location);
+    }
+
+    @Test(expected = java.io.IOException.class)
+    public void truncatedInventoryIsNotAnEmptyDeviceList() throws Exception {
+        DesktopInputDeviceDiscovery.findKeyboards("Event Hub State:\n  Devices:\n");
     }
 }

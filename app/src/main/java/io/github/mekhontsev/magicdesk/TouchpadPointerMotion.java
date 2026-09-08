@@ -4,20 +4,17 @@ package io.github.mekhontsev.magicdesk;
 final class TouchpadPointerMotion {
     private float mPreviousFingerX;
     private float mPreviousFingerY;
-    private float mSensitivity = 1.0f;
     private float mDeltaX;
     private float mDeltaY;
     private boolean mActive;
 
     void start(
             final float fingerX,
-            final float fingerY,
-            final float sensitivity) {
+            final float fingerY) {
         mPreviousFingerX = fingerX;
         mPreviousFingerY = fingerY;
         mDeltaX = 0.0f;
         mDeltaY = 0.0f;
-        mSensitivity = Math.max(0.1f, sensitivity);
         mActive = true;
     }
 
@@ -27,8 +24,9 @@ final class TouchpadPointerMotion {
         if (!mActive) {
             return false;
         }
-        mDeltaX = (fingerX - mPreviousFingerX) * mSensitivity;
-        mDeltaY = (fingerY - mPreviousFingerY) * mSensitivity;
+        // InputReader applies pointer speed and acceleration to the virtual mouse.
+        mDeltaX = fingerX - mPreviousFingerX;
+        mDeltaY = fingerY - mPreviousFingerY;
         mPreviousFingerX = fingerX;
         mPreviousFingerY = fingerY;
         return true;

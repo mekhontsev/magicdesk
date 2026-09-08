@@ -9,9 +9,8 @@ public final class DesktopInputSessionBoundaryTest {
         RuntimeSourceFixture.verify("""
                 static class Display { static final int INVALID_DISPLAY = -1; }
                 boolean mDestroyed, mDesktopPrepared;
-                int mDesktopDisplayId = -1, mMouseBridgeSuspendedDisplayId = -1;
+                int mDesktopDisplayId = -1, mClosingInputDisplayId = -1;
                 final List<String> events = new ArrayList<>();
-                void selectInputPolicyForNewSession(int display) { events.add("policy"); }
                 void updateShowImeOverride() { events.add("ime"); }
                 void updateInputBridges() { events.add("bridges"); }
                 void refreshDesktopInputSources() { events.add("sources"); }
@@ -19,23 +18,23 @@ public final class DesktopInputSessionBoundaryTest {
                 public static void verify() {
                     Fixture f = new Fixture();
                     f.setDesktopDisplay(7, true);
-                    check(f.events.equals(List.of("policy", "ime", "bridges", "sources")),
+                    check(f.events.equals(List.of("ime", "bridges", "sources")),
                             "external input setup changed: " + f.events);
                     f.mDesktopPrepared = true;
                     f.events.clear();
                     f.setDesktopDisplay(7, false);
-                    check(f.mDesktopPrepared && f.events.equals(List.of("policy")),
+                    check(f.mDesktopPrepared && f.events.isEmpty(),
                             "unchanged ownership restarted input");
-                    f.mMouseBridgeSuspendedDisplayId = 7;
+                    f.mClosingInputDisplayId = 7;
                     f.events.clear();
                     f.setDesktopDisplay(-1, true);
-                    check(!f.mDesktopPrepared && f.mMouseBridgeSuspendedDisplayId == -1,
+                    check(!f.mDesktopPrepared && f.mClosingInputDisplayId == -1,
                             "closed desktop retained readiness or suspension");
-                    check(f.events.equals(List.of("policy", "ime", "bridges")),
+                    check(f.events.equals(List.of("ime", "bridges")),
                             "close skipped shared cleanup: " + f.events);
                     f.events.clear();
                     f.setDesktopDisplay(0, true);
-                    check(f.events.equals(List.of("policy", "ime", "bridges")),
+                    check(f.events.equals(List.of("ime", "bridges")),
                             "phone desktop started external routing");
                     f.events.clear();
                     f.mDestroyed = true;
@@ -43,7 +42,7 @@ public final class DesktopInputSessionBoundaryTest {
                     check(f.events.isEmpty(), "destroyed runtime accepted ownership");
                 }
                 """ + RuntimeSourceFixture.methods("RuntimeDesktopInputCoordinator",
-                        "setDesktopDisplay", "clearCompletedMouseBridgeSuspension"));
+                        "setDesktopDisplay", "clearCompletedInputClose"));
     }
 
     @Test
@@ -53,8 +52,11 @@ public final class DesktopInputSessionBoundaryTest {
                     static final int INVALID_DISPLAY = -1, DEFAULT_DISPLAY = 0;
                 }
                 boolean mDestroyed, mDesktopPrepared;
-                int mDesktopDisplayId = 7, mMouseBridgeSuspendedDisplayId = -1;
+                int mDesktopDisplayId = 7, mClosingInputDisplayId = -1;
                 int updates;
+                boolean mPointerReleaseExpected;
+                final Session mInputSession = new Session();
+                class Session { void stop(Runnable done) { updates++; done.run(); } }
                 void updateInputBridges() { updates++; }
                 public static void verify() {
                     Fixture f = new Fixture();
@@ -63,59 +65,26 @@ public final class DesktopInputSessionBoundaryTest {
                     f.onDesktopPrepared(7);
                     f.onDesktopPrepared(7);
                     check(f.mDesktopPrepared && f.updates == 1, "preparation restarted input");
-                    f.releaseForSessionClose(8);
+                    f.releaseForSessionClose(8, () -> {});
                     check(f.updates == 1, "foreign close stopped input");
-                    f.releaseForSessionClose(7);
+                    f.releaseForSessionClose(7, () -> {});
                     check(!f.mDesktopPrepared && f.updates == 2, "close did not stop input");
                     f.onDesktopPrepared(7);
                     check(!f.mDesktopPrepared && f.updates == 2, "late readiness reopened input");
                     f.mDesktopDisplayId = -1;
                     f.onDesktopPrepared(-1);
                     check(f.updates == 2, "inactive display accepted preparation");
-                    f.clearCompletedMouseBridgeSuspension(-1);
+                    f.clearCompletedInputClose(-1);
                     f.mDesktopDisplayId = 7;
                     f.onDesktopPrepared(7);
                     check(f.mDesktopPrepared && f.updates == 3, "next session cannot acquire input");
                     f.mDestroyed = true;
-                    f.releaseForSessionClose(7);
+                    f.releaseForSessionClose(7, () -> {});
                     check(f.updates == 3, "destroyed runtime accepted close");
                 }
                 """ + RuntimeSourceFixture.methods("RuntimeDesktopInputCoordinator",
                         "onDesktopPrepared", "releaseForSessionClose",
-                        "isActiveDesktopDisplay", "clearCompletedMouseBridgeSuspension"));
-    }
-
-    @Test
-    public void stoppedPointerReleasesRoutingBeforeDeviceDestruction() throws Exception {
-        RuntimeSourceFixture.verify("""
-                static class Display { static final int DEFAULT_DISPLAY = 0; }
-                static final List<String> events = new ArrayList<>();
-                static class Mouse {
-                    boolean ready = true;
-                    void start() { events.add("start"); }
-                    boolean isReady() { return ready; }
-                    void stop() { events.add("stop"); ready = false; }
-                }
-                final Mouse mMouseBridge = new Mouse();
-                void reconcileRouting(boolean enabled, int display, boolean keyboard) {
-                    events.add(enabled ? "route" : "unroute");
-                }
-                public static void verify() {
-                    Fixture f = new Fixture();
-                    f.reconcile(true, 7, true, 7);
-                    check(events.equals(List.of("unroute", "stop")),
-                            "suspended but ready mouse kept its routes: " + events);
-                    events.clear();
-                    f.reconcile(true, 7, true, -1);
-                    check(events.equals(List.of("start", "unroute")),
-                            "capture routed before native readiness");
-                    events.clear();
-                    f.mMouseBridge.ready = true;
-                    f.reconcile(true, 7, true, -1);
-                    check(events.equals(List.of("start", "route")), "ready pointer was not routed");
-                }
-                """ + RuntimeSourceFixture.methods("DesktopInputRelaySession",
-                        "reconcile", "shouldRunPointerBridge", "shouldRunRouting"));
+                        "isActiveDesktopDisplay", "clearCompletedInputClose"));
     }
 
     @Test

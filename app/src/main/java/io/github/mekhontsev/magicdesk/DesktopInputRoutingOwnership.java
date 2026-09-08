@@ -1,141 +1,128 @@
 package io.github.mekhontsev.magicdesk;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.io.StringReader;
+import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-final class DesktopInputRoutingOwnership {
-    private static final File OWNERSHIP_FILE = new File(
-            "/data/local/tmp/magicdesk-input-routing-ports");
-    private static final Pattern RUNTIME_ASSOCIATION = Pattern.compile(
-            "^\\s*port:\\s+(.+?)\\s+display:\\s+(\\d+)\\s*$");
-    private static final Pattern UNIQUE_ID_ASSOCIATION = Pattern.compile(
-            "^\\s*port:\\s+(.+?)\\s+uniqueId:\\s+(.+?)\\s*$");
-    private static final int MAX_PORTS = 32;
-    private static final int MAX_PORT_LENGTH = 256;
+/** Crash journal for transient Android input associations, scoped to this boot. */
+final class DesktopInputRoutingOwnership implements InputRoutingLease.Storage {
+    private static final Path FILE = Path.of("/data/local/tmp/magicdesk-input-routing.json");
+    private static final Path BOOT_ID = Path.of("/proc/sys/kernel/random/boot_id");
+    private static final int MAX_ENTRIES = 64;
+    private static final int MAX_BYTES = 128 * 1024;
 
-    private DesktopInputRoutingOwnership() {
+    @Override
+    public Map<String, InputRoutingLease.Entry> read() throws IOException {
+        if (!Files.exists(FILE)) {
+            return new LinkedHashMap<>();
+        }
+        if (Files.size(FILE) > MAX_BYTES) {
+            throw new IOException("input association journal exceeds size limit");
+        }
+        return decode(new String(Files.readAllBytes(FILE), StandardCharsets.UTF_8), bootId());
     }
 
-    static void record(final Set<String> ports) throws IOException {
-        final File temporary = new File(
-                OWNERSHIP_FILE.getParentFile(),
-                OWNERSHIP_FILE.getName() + ".tmp");
-        try (OutputStreamWriter writer = new OutputStreamWriter(
-                new FileOutputStream(temporary, false),
-                StandardCharsets.UTF_8)) {
-            for (final String port : ports) {
-                if (isValidPort(port)) {
-                    writer.write(port);
-                    writer.write('\n');
-                }
-            }
+    @Override
+    public void write(final Map<String, InputRoutingLease.Entry> entries) throws IOException {
+        if (entries.isEmpty()) {
+            Files.deleteIfExists(FILE);
+            return;
         }
-        if (OWNERSHIP_FILE.exists() && !OWNERSHIP_FILE.delete()) {
-            temporary.delete();
-            throw new IOException(
-                    "failed to replace input routing ownership file");
+        final String encoded = encode(entries, bootId());
+        final Path temporary = FILE.resolveSibling(FILE.getFileName() + ".tmp");
+        try (FileOutputStream output = new FileOutputStream(temporary.toFile())) {
+            output.write(encoded.getBytes(StandardCharsets.UTF_8));
+            output.getFD().sync();
         }
-        if (!temporary.renameTo(OWNERSHIP_FILE)) {
-            temporary.delete();
-            throw new IOException(
-                    "failed to publish input routing ownership file");
-        }
+        Files.move(temporary, FILE, StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING);
     }
 
-    static Set<String> read() throws IOException {
-        final Set<String> ports = new LinkedHashSet<>();
-        if (!OWNERSHIP_FILE.isFile()) {
-            return ports;
-        }
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(
-                        new FileInputStream(OWNERSHIP_FILE),
-                        StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null
-                    && ports.size() < MAX_PORTS) {
-                final String port = line.trim();
-                if (isValidPort(port)) {
-                    ports.add(port);
-                }
-            }
-        }
-        return ports;
+    static Set<String> ports() throws IOException {
+        return new DesktopInputRoutingOwnership().read().keySet();
     }
 
-    static void clear() throws IOException {
-        if (OWNERSHIP_FILE.exists() && !OWNERSHIP_FILE.delete()) {
-            throw new IOException(
-                    "failed to clear input routing ownership file");
-        }
+    private static String bootId() throws IOException {
+        return new String(Files.readAllBytes(BOOT_ID), StandardCharsets.UTF_8).trim();
     }
 
-    static Set<String> findActiveAssociations(final String inputDump)
+    static Map<String, InputRoutingLease.Entry> decode(final String json, final String bootId)
             throws IOException {
-        return new LinkedHashSet<>(
-                findActiveAssociationTargets(inputDump).keySet());
-    }
-
-    static Map<String, String> findActiveAssociationTargets(
-            final String inputDump) throws IOException {
-        final Map<String, String> associations = new LinkedHashMap<>();
-        boolean inOwnedAssociations = false;
-        try (BufferedReader reader = new BufferedReader(
-                new StringReader(inputDump))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                final String trimmed = line.trim();
-                if ("Runtime Associations:".equals(trimmed)
-                        || "Unique Id Associations:".equals(trimmed)) {
-                    inOwnedAssociations = true;
-                    continue;
+        try {
+            final JSONObject document = new JSONObject(json);
+            final Map<String, InputRoutingLease.Entry> entries = new LinkedHashMap<>();
+            if (!bootId.equals(document.getString("bootId"))) {
+                // InputManager's runtime maps never survive a system restart.
+                return entries;
+            }
+            final JSONArray values = document.getJSONArray("ports");
+            if (values.length() > MAX_ENTRIES) {
+                throw new IOException("too many owned input ports");
+            }
+            for (int i = 0; i < values.length(); ++i) {
+                final JSONObject value = values.getJSONObject(i);
+                final String port = value.getString("port");
+                final String target = value.getString("target");
+                validate(port);
+                validate(target);
+                final String previousId = value.isNull("previousUniqueId") ? null
+                        : value.getString("previousUniqueId");
+                if (previousId != null) {
+                    validate(previousId);
                 }
-                if (!inOwnedAssociations) {
-                    continue;
+                final Integer previousPort = value.isNull("previousDisplayPort") ? null
+                        : value.getInt("previousDisplayPort");
+                if (previousPort != null && (previousPort < 0 || previousPort > 255)) {
+                    throw new IOException("invalid previous physical display port");
                 }
-                if (trimmed.endsWith(":")
-                        && !trimmed.startsWith("port:")) {
-                    inOwnedAssociations = false;
-                    continue;
-                }
-                final Matcher association =
-                        RUNTIME_ASSOCIATION.matcher(line);
-                if (association.matches()) {
-                    associations.put(
-                            association.group(1),
-                            "display:" + association.group(2));
-                    continue;
-                }
-                final Matcher uniqueIdAssociation =
-                        UNIQUE_ID_ASSOCIATION.matcher(line);
-                if (uniqueIdAssociation.matches()) {
-                    associations.put(
-                            uniqueIdAssociation.group(1),
-                            "uniqueId:" + uniqueIdAssociation.group(2));
+                if (entries.put(port, new InputRoutingLease.Entry(target, previousId,
+                        previousPort)) != null) {
+                    throw new IOException("duplicate owned input port");
                 }
             }
+            return entries;
+        } catch (JSONException error) {
+            throw new IOException("invalid input association journal", error);
         }
-        return associations;
     }
 
-    private static boolean isValidPort(final String port) {
-        return port != null
-                && !port.isEmpty()
-                && port.length() <= MAX_PORT_LENGTH
-                && port.indexOf('\n') < 0
-                && port.indexOf('\r') < 0;
+    static String encode(final Map<String, InputRoutingLease.Entry> entries, final String bootId)
+            throws IOException {
+        if (entries.size() > MAX_ENTRIES || bootId.isEmpty()) {
+            throw new IOException("invalid input association journal state");
+        }
+        try {
+            final JSONArray values = new JSONArray();
+            for (final Map.Entry<String, InputRoutingLease.Entry> item : entries.entrySet()) {
+                validate(item.getKey());
+                final InputRoutingLease.Entry entry = item.getValue();
+                validate(entry.target);
+                values.put(new JSONObject().put("port", item.getKey()).put("target", entry.target)
+                        .put("previousUniqueId", entry.previousUniqueId == null
+                                ? JSONObject.NULL : entry.previousUniqueId)
+                        .put("previousDisplayPort", entry.previousDisplayPort == null
+                                ? JSONObject.NULL : entry.previousDisplayPort));
+            }
+            return new JSONObject().put("bootId", bootId).put("ports", values).toString();
+        } catch (JSONException error) {
+            throw new IOException("cannot encode input association journal", error);
+        }
+    }
+
+    private static void validate(final String value) throws IOException {
+        if (value == null || value.isEmpty() || value.length() > 256
+                || value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0) {
+            throw new IOException("invalid input association identity");
+        }
     }
 }

@@ -1,100 +1,62 @@
 package io.github.mekhontsev.magicdesk;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
-import android.view.Display;
-
 import org.junit.Test;
-
-import java.util.Arrays;
-import java.util.List;
+import java.util.Set;
+import static org.junit.Assert.assertEquals;
 
 public final class RuntimeDesktopInputCoordinatorTest {
-    @Test
-    public void pointerRoutingRequiresShellExternalDisplayAndPointer() {
-        assertTrue(DesktopInputRelaySession.shouldRunRouting(
-                true, 7, true));
-        assertFalse(DesktopInputRelaySession.shouldRunRouting(
-                false, 7, true));
-        assertFalse(DesktopInputRelaySession.shouldRunRouting(
-                true, Display.DEFAULT_DISPLAY, true));
-        assertFalse(DesktopInputRelaySession.shouldRunRouting(
-                true, 7, false));
+    @Test public void compositeKeyboardAndMouseShareOneRoute() throws Exception {
+        final String dump = """
+                Event Hub State:
+                  1: Keyboard
+                    Classes: KEYBOARD | ALPHAKEY | EXTERNAL
+                    Path: /dev/input/event1
+                    Location: shared-port
+                    Identifier: vendor=0x1234, product=0x5678
+                  2: Mouse
+                    Classes: CURSOR | EXTERNAL
+                    Path: /dev/input/event2
+                    Location: shared-port
+                    Identifier: vendor=0x1234, product=0x5678
+                Input Reader State:
+                """;
+        assertEquals(Set.of("shared-port", "magicdesk-mouse"),
+                DesktopInputRoutingSession.selectPorts(dump));
     }
 
-    @Test
-    public void passiveKeyboardWatcherDoesNotCompeteWithRelaySession() {
-        assertFalse(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                false, true, false));
-        assertFalse(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                true, false, false));
-        assertTrue(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                true, true, false));
-        assertFalse(RuntimeDesktopInputCoordinator.shouldRunKeyboardWatcher(
-                true, true, true));
+    @Test public void virtualMouseCanBeAssociatedBeforeDeviceRegistration() throws Exception {
+        assertEquals(Set.of("magicdesk-mouse"),
+                DesktopInputRoutingSession.selectPorts("Event Hub State:\nInput Reader State:\n"));
     }
 
-    @Test
-    public void pointerBridgeRequiresShellAndExternalDesktop() {
-        assertTrue(DesktopInputRelaySession.shouldRunPointerBridge(
-                true, 7, Display.INVALID_DISPLAY));
-        assertFalse(DesktopInputRelaySession.shouldRunPointerBridge(
-                false, 7, Display.INVALID_DISPLAY));
-        assertFalse(DesktopInputRelaySession.shouldRunPointerBridge(
-                true, Display.DEFAULT_DISPLAY,
-                Display.INVALID_DISPLAY));
-        assertFalse(DesktopInputRelaySession.shouldRunPointerBridge(
-                true, 7, 7));
-        assertTrue(DesktopInputRelaySession.shouldRunPointerBridge(
-                true, 8, 7));
-    }
-
-    @Test
-    public void virtualPointerCanRouteWithoutPhysicalMice() {
-        final DesktopMouseDevice physical = new DesktopMouseDevice(
-                "/dev/input/event1", "usb-mouse", 1, 2);
-        final DesktopMouseDevice virtual = new DesktopMouseDevice(
-                "/dev/input/event2", "magicdesk-mouse", 0x4d44, 1);
-
-        final List<DesktopMouseDevice> selected =
-                DesktopInputRoutingSession.selectRelayMice(
-                        Arrays.asList(physical, virtual));
-
-        assertEquals(1, selected.size());
-        assertEquals("magicdesk-mouse", selected.get(0).location);
-    }
-
-    @Test
-    public void capturedKeyboardAndCompositePointerKeepTheirSystemRoute() {
-        final String sharedPort = "bluetooth-controller-port";
-        final DesktopKeyboardDevice physicalKeyboard = new DesktopKeyboardDevice(
-                "/dev/input/event1", sharedPort, 1, 2);
-        final DesktopMouseDevice physicalPointer = new DesktopMouseDevice(
-                "/dev/input/event2", sharedPort, 1, 2);
-        final DesktopKeyboardDevice first = new DesktopKeyboardDevice(
-                "/dev/input/event3", "magicdesk-keyboard-0", 0x4d44, 0x4b00);
-        final DesktopKeyboardDevice second = new DesktopKeyboardDevice(
-                "/dev/input/event4", "magicdesk-keyboard-1", 0x4d44, 0x4b01);
-        final DesktopMouseDevice mouse = new DesktopMouseDevice(
-                "/dev/input/event5", "magicdesk-mouse", 0x4d44, 1);
-
-        assertEquals(Arrays.asList(first, second),
-                DesktopInputRoutingSession.selectRelayKeyboards(
-                        Arrays.asList(physicalKeyboard, first, second)));
-        assertEquals(Arrays.asList(mouse),
-                DesktopInputRoutingSession.selectRelayMice(
-                        Arrays.asList(physicalPointer, mouse)));
-    }
-
-    @Test
-    public void missingVirtualDevicesCannotFallBackToPhysicalSources() {
-        assertTrue(DesktopInputRoutingSession.selectRelayKeyboards(Arrays.asList(
-                new DesktopKeyboardDevice("/dev/input/event1", "usb-keyboard", 1, 2)))
-                .isEmpty());
-        assertTrue(DesktopInputRoutingSession.selectRelayMice(Arrays.asList(
-                new DesktopMouseDevice("/dev/input/event2", "usb-mouse", 1, 2)))
-                .isEmpty());
+    @Test public void preparationAndClosingStateGateEveryReconcile() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Display { static final int INVALID_DISPLAY = -1; }
+                static class ShellAccess { static boolean ready = true; static boolean isReady() { return ready; } }
+                boolean mDesktopPrepared, mPointerReleaseExpected;
+                int mDesktopDisplayId = 7, mClosingInputDisplayId = -1;
+                final Session mInputSession = new Session();
+                static class Session {
+                    int requested = -1;
+                    boolean isPointerReady(int id) { return requested == id; }
+                    void reconcile(int id) { requested = id; }
+                }
+                public static void verify() {
+                    Fixture f = new Fixture();
+                    f.updateInputBridges();
+                    check(f.mInputSession.requested == -1, "input preceded preparation");
+                    f.mDesktopPrepared = true;
+                    f.updateInputBridges();
+                    check(f.mInputSession.requested == 7, "ready session did not route");
+                    f.mClosingInputDisplayId = 7;
+                    f.updateInputBridges();
+                    check(f.mInputSession.requested == -1 && f.mPointerReleaseExpected,
+                            "close allowed input reacquisition");
+                    f.mClosingInputDisplayId = -1;
+                    ShellAccess.ready = false;
+                    f.updateInputBridges();
+                    check(f.mInputSession.requested == -1, "shell loss retained routes");
+                }
+                """ + RuntimeSourceFixture.methods("RuntimeDesktopInputCoordinator", "updateInputBridges"));
     }
 }

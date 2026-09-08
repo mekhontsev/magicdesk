@@ -206,7 +206,7 @@ final class TaskOverviewController {
     }
 
     boolean showAltTabPanel() {
-        // Alt+Tab is driven by the global keyboard bridge. Keeping its panel
+        // Alt+Tab is driven by the desktop shortcut filter. Keeping its panel
         // non-focusable avoids activating the desktop host behind a fullscreen
         // application while still allowing the normal mouse-driven overview
         // to remain interactive.

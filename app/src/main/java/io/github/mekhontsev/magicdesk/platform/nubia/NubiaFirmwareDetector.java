@@ -78,6 +78,7 @@ public final class NubiaFirmwareDetector {
     public static Result complete(final String evidence) {
         final EnumSet<PlatformComponent> components =
                 EnumSet.allOf(PlatformComponent.class);
+        components.remove(PlatformComponent.EXTERNAL_INPUT);
         final EnumMap<PlatformComponent, String> componentEvidence =
                 new EnumMap<>(PlatformComponent.class);
         for (final PlatformComponent component : components) {

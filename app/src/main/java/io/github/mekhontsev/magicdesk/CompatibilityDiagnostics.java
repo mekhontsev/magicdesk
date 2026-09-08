@@ -150,8 +150,8 @@ public final class CompatibilityDiagnostics {
 
     static String buildReport(final Context context) {
         final Context appContext = context.getApplicationContext();
-        final InputRelayReportSnapshot inputRelaySnapshot =
-                InputRelayReportSnapshot.capture();
+        final DesktopInputReportSnapshot inputSnapshot =
+                DesktopInputReportSnapshot.capture();
         final DeviceSetupManager.Audit audit =
                 DeviceSetupManager.audit(appContext, SessionProfile.load(appContext));
         final CompatibilitySnapshot snapshot =
@@ -167,7 +167,7 @@ public final class CompatibilityDiagnostics {
 
         appendDevice(report);
         appendCompatibility(
-                report, appContext, audit, inputRelaySnapshot);
+                report, appContext, audit, inputSnapshot);
         snapshot.appendSelection(report);
         appendShizukuProbe(report, audit);
         CaptureDiagnostics.appendReport(report, appContext);
@@ -236,7 +236,7 @@ public final class CompatibilityDiagnostics {
     private static void appendCompatibility(final StringBuilder report,
             final Context context,
             final DeviceSetupManager.Audit audit,
-            final InputRelayReportSnapshot inputRelaySnapshot) {
+            final DesktopInputReportSnapshot inputSnapshot) {
         final SessionProfile profile = audit.sessionProfile == null
                 ? SessionProfile.load(context) : audit.sessionProfile;
         final DesktopSessionSnapshot desktopSession =
@@ -403,7 +403,6 @@ public final class CompatibilityDiagnostics {
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
         final DesktopCompatibilityPolicy requestedCompatibility = settings.compatibilityPolicy(
                 audit.platform.features());
-        final DesktopInputRelayPolicy requestedRelay = requestedCompatibility.inputRelay();
         final DesktopHomeRoleLease.State lease = DesktopHomeRoleLease.snapshot();
         report.append("Compatibility defaults: ")
                 .append(audit.platform.features().compatibilityDefaults).append('\n')
@@ -411,24 +410,20 @@ public final class CompatibilityDiagnostics {
                 .append("Compatibility next session: ").append(requestedCompatibility).append('\n')
                 .append("Compatibility active session: ")
                 .append(lease == null ? "inactive" : lease.compatibility).append('\n');
-        final boolean globalInput = ShellAccess.isReady()
-                && inputRelaySnapshot.runtime.physicalRelay.keyboard;
+        final boolean globalInput = inputSnapshot.runtime.displayId >= 0;
         appendCheck(report, "SHORTCUTS-001",
                 !globalInput
                         || MagicDeskRuntime.isFullKeyboardShortcutMode(),
-                "Global keyboard/input bridge",
+                "Global keyboard shortcuts",
                 globalInput
                         ? (MagicDeskRuntime.isFullKeyboardShortcutMode()
                                 ? "running" : "not running")
-                        : "not active; selected for next session="
-                                + requestedRelay.keyboard);
-        inputRelaySnapshot.appendReport(report);
+                        : "no desktop session");
+        inputSnapshot.appendReport(report);
         report.append("MagicDesk settings: taskbarAutoHide=")
                 .append(settings.taskbarAutoHide)
                 .append(", openTouchpadAutomatically=")
                 .append(settings.openTouchpadAutomatically)
-                .append(", nextSessionInputRelay={")
-                .append(requestedRelay.diagnosticDetail()).append('}')
                 .append(", keepDesktopAwake=")
                 .append(settings.keepDesktopAwake)
                 .append(", disableAdaptiveBrightnessOnExternalDesktop=")
@@ -570,9 +565,6 @@ public final class CompatibilityDiagnostics {
         report.append("Platform features: wired=")
                 .append(features.wiredDesktop)
                 .append(", wireless=").append(features.wirelessDesktop)
-                .append(", defaultInputRelay={")
-                .append(features.compatibilityDefaults.inputRelay().diagnosticDetail())
-                .append('}')
                 .append(", internalAudioCapture=")
                 .append(platform.audioCapture().isAvailable())
                 .append(", pointerObservation=")

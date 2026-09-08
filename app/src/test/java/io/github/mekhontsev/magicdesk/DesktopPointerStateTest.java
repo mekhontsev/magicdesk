@@ -37,9 +37,9 @@ public final class DesktopPointerStateTest {
     @Test
     public void reportSnapshotPreservesUnknownScopeIndependentlyOfRoutingReadiness() {
         final PointerPosition global = new PointerPosition(-1, 749, 1275);
-        final InputRelayRuntimeDiagnostics.Snapshot snapshot =
-                new InputRelayRuntimeDiagnostics.Snapshot(
-                        133, DesktopInputRelayPolicy.NONE, null, null, state(133, global));
+        final DesktopInputDiagnostics.Snapshot snapshot =
+                new DesktopInputDiagnostics.Snapshot(
+                        133, null, null, state(133, global));
         assertTrue(snapshot.pointerRoutingReady);
         assertNull(snapshot.pointerPosition);
         assertSame(global, snapshot.pointerObservation);

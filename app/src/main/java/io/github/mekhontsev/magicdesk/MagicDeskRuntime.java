@@ -221,12 +221,12 @@ public final class MagicDeskRuntime {
                 ? null : backend.getDesktopPointerState(displayId);
     }
 
-    static InputRelayRuntimeDiagnostics.Snapshot
-            captureInputRelayDiagnostics() {
+    static DesktopInputDiagnostics.Snapshot
+            captureInputDiagnostics() {
         final MagicDeskRuntimeBackend backend = backend();
         return backend == null
-                ? InputRelayRuntimeDiagnostics.Snapshot.unavailable()
-                : backend.captureInputRelayDiagnostics();
+                ? DesktopInputDiagnostics.Snapshot.unavailable()
+                : backend.captureInputDiagnostics();
     }
 
     static void releaseDesktopInput(

@@ -1,14 +1,14 @@
 # Nubia Vendor Interface Audit
 
 This is an inventory of the mechanisms used by MagicDesk, checked against
-source baseline `19a0974a` on 2026-09-08. It covers shared compatibility
+the current source on 2026-09-08. It covers shared compatibility
 policies, active vendor integrations, their owners, and known limitations.
 Test runs and their results belong in compatibility reports, not this inventory.
 
 Android 15 / API 35 is the minimum baseline. Shared Android mechanisms include
 hidden framework APIs used through the authorized Shizuku shell UserService
 (UID 2000); they are not necessarily public application SDK APIs. Linux
-evdev/uinput is also shared transport. Conversely, a method in an `android.*`
+uinput is also the shared phone-pointer transport. Conversely, a method in an `android.*`
 class, a Settings key, or an ordinary Intent can still have vendor-defined
 semantics.
 
@@ -44,20 +44,19 @@ to `FrameworkRuntime` and its adapters.
 
 ### Shared Compatibility Policies
 
-The seven options are available on every platform in Settings' Compatibility
+The six options are available on every platform in Settings' Compatibility
 section. An unset preference follows the platform recommendation. A complete
-Nubia extension recommends all seven enabled; Standard Android recommends them
+Nubia extension recommends all six enabled; Standard Android recommends them
 disabled. Partial extension selection supplies only the defaults associated
 with its detected components.
 
 The HOME lease captures the policy for each session. A settings edit applies
-to the next session, not to live input capture or window operations. Diagnostics
+to the next session, not to live window operations. Diagnostics
 distinguishes the active selection from the next-session selection and reports
-actual input-relay readiness separately.
+actual input-routing and shortcut-filter readiness separately.
 
 | Option | Nubia component supplying the default | Shared implementation and scope |
 | --- | --- | --- |
-| `INPUT_RELAY` | `EXTERNAL_INPUT` | Physical keyboard/mouse capture through evdev/uinput and Android display associations during external sessions. |
 | `FOCUS_REPAIR` | `WINDOWING` | Callback-driven focus reconciliation and post-command relayout/hierarchy repair. Task/input verification remains active without repair. |
 | `CAPTION_REFRESH` | `WINDOWING` | Refresh stale application-client caption insets through framework window transactions. |
 | `PHONE_TASK_ISOLATION` | `WINDOWING` | Phone-side launch/migration interception and freeform normalization during wired/wireless sessions. |
@@ -192,25 +191,11 @@ vendor setter must not become a generic property editor or automation surface.
 
 ## Input
 
-`DesktopInputRelaySession`, `DesktopInputRoutingSession`, and
-`DesktopMouseBridge` own the shared input transport. A virtual mouse serves
-the phone touchpad and automation on every supported external-desktop platform,
-independently of the physical-capture option. With `INPUT_RELAY` selected,
-physical sources are grabbed through `EVIOCGRAB` and forwarded through virtual
-mouse/keyboard devices. Only virtual outputs receive desktop display
-associations; captured physical sources retain their system routes.
-
-Native relative motion, button state, and keyboard streams preserve Android's
-cursor, repeat, and layout behavior. Input starts after desktop preparation;
-teardown releases capture before removing its routes. Pointer recreation at
-session boundaries is part of this shared lifecycle.
-
-Without capture, physical devices retain Android's routing: they can follow the
-system mouse-display default or an explicit device association. The relay's
-virtual output is explicitly associated with the desktop. Motion remaining on
-display 0 does not by itself establish a rendering defect or explain a cursor
-stuck in one corner. Inspect the device mapper, associations and pointer
-controller's actual viewport before attributing the behavior to firmware.
+Physical keyboards and mice use the shared Android display-routing session.
+`FrameworkInputRoutingApi` binds input locations to display unique IDs; this
+does not depend on Nubia APIs or compatibility defaults. The phone touchpad
+has one separately routed virtual relative mouse. A key-only Accessibility
+filter provides desktop shortcuts independently of the selected IME.
 
 `NubiaDesktopPointerController` resolves `IInputManager.getMousePosition(Point)`
 for read-only diagnostics. Its cached controller can belong to display 0, and

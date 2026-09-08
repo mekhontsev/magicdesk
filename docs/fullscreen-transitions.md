@@ -315,21 +315,15 @@ A controlled experiment requiring
 the entire WMShell queue to be idle before removal did not prevent this residue;
 do not treat a longer pre-removal wait as its fix. Compare attached input devices
 and post-removal configuration events when a previously passing test hits this
-case. A simulated control with the physical keyboard disconnected passed the
-unchanged removal and cleanup assertions: the keyboard relay was absent, the
-virtual mouse remained, and no post-removal configuration transition or new
-orphaned session appeared. Connecting a keyboard therefore matters to this
-reproduction; successful pointer-only runs do not cover it.
+case. Connecting a keyboard matters to this reproduction; successful
+pointer-only runs do not cover it.
 
-The relay now associates only its virtual outputs. `EVIOCGRAB` sources keep their
-system routes, including composite keyboard/mouse ports. In a focused A/B run
-with the same physical keyboard, routing both sources and outputs reproduced
-the configuration transition and orphan; routing only the virtual outputs
-passed the unchanged abrupt-removal and new-residue assertions. The input
-startup and shutdown order was identical. This removes a MagicDesk-created
-trigger, not the underlying framework defect: simultaneous physical keyboard
-removal remains a separate scenario. Keep the new-residue assertion and the
-abrupt-removal scenario intact.
+`DesktopInputSession` releases input-location associations before production
+display removal. Physical composite devices retain their identities and regain
+their previous routes while the desktop viewport still exists. This ordering
+avoids a MagicDesk-created removal trigger, not the underlying framework
+defect: abrupt physical disconnect can still precede cleanup. Keep the
+new-residue assertion and the abrupt-removal scenario intact.
 
 Returning the HOME role precedes teardown, but disabling HOME Activity
 components follows it. Component disable triggers Android's own asynchronous

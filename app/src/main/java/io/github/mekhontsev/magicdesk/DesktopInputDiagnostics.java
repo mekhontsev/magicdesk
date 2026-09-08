@@ -1,11 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Immutable, explicitly requested snapshot of the live input relays. */
-final class InputRelayRuntimeDiagnostics {
+/** Immutable, explicitly requested snapshot of desktop input endpoints. */
+final class DesktopInputDiagnostics {
     static final class BridgeSnapshot {
         final boolean running;
         final boolean ready;
-        final boolean capture;
         final long generation;
         final String nativeStats;
         final String statsError;
@@ -13,13 +12,11 @@ final class InputRelayRuntimeDiagnostics {
         BridgeSnapshot(
                 final boolean running,
                 final boolean ready,
-                final boolean capture,
                 final long generation,
                 final String nativeStats,
                 final String statsError) {
             this.running = running;
             this.ready = ready;
-            this.capture = capture;
             this.generation = generation;
             this.nativeStats = clean(nativeStats);
             this.statsError = clean(statsError);
@@ -29,7 +26,6 @@ final class InputRelayRuntimeDiagnostics {
             final StringBuilder line = new StringBuilder()
                     .append("running=").append(running)
                     .append(", ready=").append(ready)
-                    .append(", capture=").append(capture)
                     .append(", generation=").append(generation);
             if (!nativeStats.isEmpty()) {
                 line.append(", ").append(nativeStats);
@@ -43,7 +39,6 @@ final class InputRelayRuntimeDiagnostics {
 
     static final class Snapshot {
         final int displayId;
-        final DesktopInputRelayPolicy physicalRelay;
         final BridgeSnapshot mouse;
         final BridgeSnapshot keyboard;
         final String pointerProvider;
@@ -55,12 +50,10 @@ final class InputRelayRuntimeDiagnostics {
 
         Snapshot(
                 final int displayId,
-                final DesktopInputRelayPolicy physicalRelay,
                 final BridgeSnapshot mouse,
                 final BridgeSnapshot keyboard,
                 final DesktopPointerState pointer) {
             this.displayId = displayId;
-            this.physicalRelay = physicalRelay;
             this.mouse = mouse;
             this.keyboard = keyboard;
             pointerProvider = pointer == null
@@ -75,13 +68,13 @@ final class InputRelayRuntimeDiagnostics {
 
         static Snapshot unavailable() {
             final BridgeSnapshot unavailable = new BridgeSnapshot(
-                    false, false, false, -1, "", "runtime unavailable");
-            return new Snapshot(-1, DesktopInputRelayPolicy.NONE,
+                    false, false, -1, "", "runtime unavailable");
+            return new Snapshot(-1,
                     unavailable, unavailable, null);
         }
     }
 
-    private InputRelayRuntimeDiagnostics() {
+    private DesktopInputDiagnostics() {
     }
 
     private static String clean(final String value) {

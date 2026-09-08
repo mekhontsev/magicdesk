@@ -119,7 +119,7 @@ final class InputMethodMenuController {
             try {
                 ShellAccess.run("/system/bin/ime set "
                         + ShellCommandLine.quote(id));
-                HardwareKeyboardLayoutController.configureVirtualLayouts(null);
+                HardwareKeyboardLayoutController.refresh();
             } catch (Exception error) {
                 Log.w(TAG, "Could not select input method", error);
             }

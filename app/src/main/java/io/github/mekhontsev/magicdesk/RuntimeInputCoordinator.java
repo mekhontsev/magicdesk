@@ -21,7 +21,6 @@ final class RuntimeInputCoordinator implements InputManager.InputDeviceListener 
     }
 
     private static final long CHANGE_DEBOUNCE_MILLIS = 600;
-    private static final String KEYBOARD_NAME = "MagicDesk Keyboard";
     private static final String MOUSE_NAME = "MagicDesk Mouse";
 
     private final Context mContext;
@@ -126,8 +125,7 @@ final class RuntimeInputCoordinator implements InputManager.InputDeviceListener 
                 magicDeskMouse = true;
                 continue;
             }
-            if (isMagicDeskDevice(device)
-                    || device.isVirtual() || !device.isExternal()) {
+            if (device.isVirtual() || !device.isExternal()) {
                 continue;
             }
             keyboard |= isAlphabeticKeyboard(device);
@@ -157,11 +155,6 @@ final class RuntimeInputCoordinator implements InputManager.InputDeviceListener 
                         == InputDevice.SOURCE_KEYBOARD
                 && device.getKeyboardType()
                         == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
-    }
-
-    private static boolean isMagicDeskDevice(final InputDevice device) {
-        final String name = device.getName();
-        return name.startsWith(KEYBOARD_NAME) || MOUSE_NAME.equals(name);
     }
 
     static final class Snapshot {

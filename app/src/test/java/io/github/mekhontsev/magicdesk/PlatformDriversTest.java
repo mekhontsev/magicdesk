@@ -24,8 +24,6 @@ public final class PlatformDriversTest {
                 .provider(PlatformComponent.PROJECTION).id);
         assertTrue(driver.features().wiredDesktop);
         assertTrue(driver.features().wirelessDesktop);
-        assertTrue(driver.features().compatibilityDefaults.inputRelay().keyboard);
-        assertTrue(driver.features().compatibilityDefaults.inputRelay().mouse);
         assertFalse(driver.audioCapture().availability()
                 == PlatformAudioCaptureDriver.Availability.UNSUPPORTED);
         assertTrue(driver.pointer().isAvailable());
@@ -61,7 +59,6 @@ public final class PlatformDriversTest {
                 DesktopDisplayTarget.Kind.WIRED));
         assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayTarget.Kind.WIRELESS));
-        assertFalse(driver.features().compatibilityDefaults.inputRelay().isEnabled());
         assertFalse(driver.audioCapture().isAvailable());
         assertFalse(driver.pointer().isAvailable());
         assertFalse(driver.projection().supportsOutputConfiguration());
@@ -136,7 +133,7 @@ public final class PlatformDriversTest {
     }
 
     @Test
-    public void optionalPointerDoesNotRequirePhysicalCapture() {
+    public void optionalPointerDoesNotSelectInputRouting() {
         final EnumMap<PlatformComponent, String> detected =
                 new EnumMap<>(PlatformComponent.class);
         detected.put(PlatformComponent.POINTER, "pointer API detected");
@@ -144,12 +141,9 @@ public final class PlatformDriversTest {
                 device("nubia", "nubia", "NX809J", "NX809J", "NX809J"),
                 "", NubiaFirmwareDetector.fromDetectedComponents(detected));
         assertTrue(driver.pointer().isAvailable());
-        assertFalse(driver.features().compatibilityDefaults.inputRelay().isEnabled());
-        assertTrue(driver.features().compatibilityDefaults.with(
-                DesktopCompatibilityPolicy.Option.INPUT_RELAY, true).inputRelay().isEnabled());
         assertEquals(PlatformCapabilityState.AVAILABLE,
                 PlatformCapabilitySnapshot.capture(driver)
-                        .entry(PlatformCapabilityId.EXTERNAL_INPUT_BRIDGE).state);
+                        .entry(PlatformCapabilityId.EXTERNAL_INPUT_ROUTING).state);
     }
 
     @Test

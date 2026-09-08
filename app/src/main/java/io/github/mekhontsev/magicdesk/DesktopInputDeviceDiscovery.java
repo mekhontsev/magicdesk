@@ -19,44 +19,12 @@ final class DesktopInputDeviceDiscovery {
     private DesktopInputDeviceDiscovery() {
     }
 
-    static List<DesktopKeyboardDevice> findKeyboards()
-            throws IOException, InterruptedException {
-        final List<DeviceRecord> records = readEventHubDevices();
-        return findKeyboards(records, false);
-    }
-
-    static List<DesktopKeyboardDevice> findRoutableKeyboards()
-            throws IOException, InterruptedException {
-        final List<DeviceRecord> records = readEventHubDevices();
-        return findKeyboards(records, true);
-    }
-
     static List<DesktopKeyboardDevice> findKeyboards(
             final String inputDump) throws IOException {
         try (BufferedReader reader =
                 new BufferedReader(new StringReader(inputDump))) {
-            return findKeyboards(readEventHubDevices(reader), false);
+            return findKeyboards(readEventHubDevices(reader));
         }
-    }
-
-    static List<DesktopKeyboardDevice> findRoutableKeyboards(
-            final String inputDump) throws IOException {
-        try (BufferedReader reader =
-                new BufferedReader(new StringReader(inputDump))) {
-            return findKeyboards(readEventHubDevices(reader), true);
-        }
-    }
-
-    static List<DesktopMouseDevice> findMice()
-            throws IOException, InterruptedException {
-        final List<DeviceRecord> records = readEventHubDevices();
-        return findMice(records, false);
-    }
-
-    static List<DesktopMouseDevice> findRoutableMice()
-            throws IOException, InterruptedException {
-        final List<DeviceRecord> records = readEventHubDevices();
-        return findMice(records, true);
     }
 
     static List<DesktopMouseDevice> findMice(final String inputDump)
@@ -101,16 +69,12 @@ final class DesktopInputDeviceDiscovery {
     }
 
     private static List<DesktopKeyboardDevice> findKeyboards(
-            final List<DeviceRecord> records,
-            final boolean includeMagicDeskKeyboard) {
+            final List<DeviceRecord> records) {
         final List<DesktopKeyboardDevice> result = new ArrayList<>();
         for (final DeviceRecord record : records) {
             if (record.classes.contains("KEYBOARD")
                     && record.classes.contains("ALPHAKEY")
-                    && record.classes.contains("EXTERNAL")
-                    && (includeMagicDeskKeyboard
-                            || !record.name.startsWith(
-                                    "MagicDesk Keyboard"))) {
+                    && record.classes.contains("EXTERNAL")) {
                 result.add(new DesktopKeyboardDevice(
                         record.path,
                         record.location,
@@ -119,14 +83,6 @@ final class DesktopInputDeviceDiscovery {
             }
         }
         return result;
-    }
-
-    private static List<DeviceRecord> readEventHubDevices()
-            throws IOException, InterruptedException {
-        try (BufferedReader reader = new BufferedReader(new StringReader(
-                FrameworkInputSnapshotSource.readLocal()))) {
-            return readEventHubDevices(reader);
-        }
     }
 
     private static List<DeviceRecord> readEventHubDevices(
@@ -158,7 +114,7 @@ final class DesktopInputDeviceDiscovery {
                         location,
                         vendorId,
                         productId);
-                break;
+                return result;
             }
             final Matcher deviceHeader =
                     EVENT_HUB_DEVICE.matcher(line);
@@ -194,7 +150,7 @@ final class DesktopInputDeviceDiscovery {
                 }
             }
         }
-        return result;
+        throw new IOException("incomplete EventHub inventory");
     }
 
     private static void addRecord(

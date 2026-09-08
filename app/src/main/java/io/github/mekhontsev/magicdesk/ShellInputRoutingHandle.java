@@ -4,13 +4,13 @@ import android.os.IBinder;
 import android.os.RemoteException;
 
 import java.io.Closeable;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.io.IOException;
 
 final class ShellInputRoutingHandle implements Closeable {
     private final IShizukuCommandService mService;
     private final IBinder mOwnerToken;
     private final int[] mInitialState;
-    private final AtomicBoolean mClosed = new AtomicBoolean();
+    private boolean mClosed;
 
     ShellInputRoutingHandle(
             final IShizukuCommandService service,
@@ -29,19 +29,27 @@ final class ShellInputRoutingHandle implements Closeable {
         return mInitialState[1];
     }
 
-    int virtualKeyboardCount() {
-        return mInitialState[2];
+    synchronized void refresh() throws IOException {
+        if (mClosed) {
+            return;
+        }
+        try {
+            mService.refreshInputRouting(mOwnerToken);
+        } catch (RemoteException | RuntimeException error) {
+            throw new IOException("input routing refresh failed", error);
+        }
     }
 
     @Override
-    public void close() {
-        if (!mClosed.compareAndSet(false, true)) {
+    public synchronized void close() throws IOException {
+        if (mClosed) {
             return;
         }
         try {
             mService.stopInputRouting(mOwnerToken);
-        } catch (RemoteException | RuntimeException ignored) {
-            // A disconnected UserService has already released the routing session.
+            mClosed = true;
+        } catch (RemoteException | RuntimeException error) {
+            throw new IOException("input routing restoration failed", error);
         }
     }
 }
