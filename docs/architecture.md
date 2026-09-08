@@ -1711,7 +1711,15 @@ and production Close. An explicit HOME launch releases the existing touchpad
 request so its recovery mechanism cannot cover the requested phone Start.
 It registers a display-0 automation surface without registering a desktop host.
 
-The Nubia Overview router may remain registered while task teardown is still
+The optional `ShellPhoneOverviewRouter` starts independently of the main
+activity-start observer. When `RECENTS_TO_HOME` is enabled, routing becomes
+active only after resolving the system Recents component and preparing its
+existing tasks. Missing capabilities or preparation failures leave routing
+disabled and report the reason through `TASK-OBSERVER-RUNTIME-001`; they do not
+disable task observation or intercept the ordinary system Recents request.
+There is no background retry.
+
+The Overview router may remain registered while task teardown is still
 finishing, but it cancels the firmware Recents launch only after the app-side
 callback confirms an `ACTIVE` HOME lease. The lease enters `RELEASING` before
 HOME is transferred on normal close, failed start, self-test cleanup, or
@@ -1756,8 +1764,9 @@ The routed request launches an ordinary, package-scoped HOME Intent on display
 Start; during a phone-desktop session Android selects the desktop HOME and its
 normal workspace presentation. There is no separate phone Overview Activity.
 Managed tasks remain available through the desktop taskbar, task overview and
-Alt+Tab. Platforms with working system Recents retain their native gesture;
-the redirection is declared only by the phone UI provider that requires it.
+Alt+Tab. With `RECENTS_TO_HOME` disabled, the system retains its native gesture.
+This common compatibility preference uses the platform provider's recommended
+default and can be overridden by the user for the next session.
 
 Returning to an already active desktop is display-scoped and does not restart
 the session. `PRESENT_WORKSPACE` orders every managed fullscreen plane below

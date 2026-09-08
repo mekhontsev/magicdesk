@@ -52,28 +52,32 @@ final class ShellPhoneOverviewRouter implements
         mListener = listener;
     }
 
-    synchronized void start(final boolean required) throws ReflectiveOperationException {
+    synchronized void start(final boolean requested) {
         if (mClosed) {
             throw new IllegalStateException("phone Overview router is closed");
         }
-        if (!required) {
+        if (!requested) {
             stop();
             return;
         }
         if (mEnabled) {
             return;
         }
-        mSystemRecents = resolveSystemRecentsComponent(mContext);
-        if (mActivityLauncher == null || mSystemRecents == null) {
-            throw new IllegalStateException(
-                    "system Overview routing is unavailable");
-        }
-        mEnabled = true;
         try {
+            mSystemRecents = resolveSystemRecentsComponent(mContext);
+            if (mSystemRecents == null || mActivityLauncher == null) {
+                report("phone Overview routing unavailable: "
+                        + (mSystemRecents == null
+                                ? "system Recents component not found"
+                                : "HOME launch callback not available"));
+                return;
+            }
             removeExistingSystemOverviewTasks();
+            mEnabled = true;
         } catch (ReflectiveOperationException | RuntimeException error) {
-            mEnabled = false;
-            throw error;
+            // Optional gesture routing must not disable task/start observation.
+            stop();
+            report("phone Overview routing disabled: " + usefulMessage(error));
         }
     }
 
@@ -226,25 +230,20 @@ final class ShellPhoneOverviewRouter implements
         return component == null ? null : component.flattenToString();
     }
 
-    static ComponentName resolveSystemRecentsComponent(
+    private static ComponentName resolveSystemRecentsComponent(
             final Context context) {
         if (context == null) {
             return null;
         }
-        try {
-            final Resources resources = context.getResources();
-            final int resourceId = resources.getIdentifier(
-                    RECENTS_RESOURCE, "string", "android");
-            if (resourceId == 0) {
-                return null;
-            }
-            final String flattened = resources.getString(resourceId).trim();
-            return flattened.isEmpty()
-                    ? null : ComponentName.unflattenFromString(flattened);
-        } catch (RuntimeException error) {
-            Log.w(TAG, "system Overview component is unavailable", error);
+        final Resources resources = context.getResources();
+        final int resourceId = resources.getIdentifier(
+                RECENTS_RESOURCE, "string", "android");
+        if (resourceId == 0) {
             return null;
         }
+        final String flattened = resources.getString(resourceId).trim();
+        return flattened.isEmpty()
+                ? null : ComponentName.unflattenFromString(flattened);
     }
 
     private void report(final String message) {

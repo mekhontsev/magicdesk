@@ -382,8 +382,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mProcessFailureTracker.configure(displayId);
         try {
             mActivityStartController.start();
-            mPhoneOverviewRouter.start(mCompatibility.enabled(
-                    DesktopCompatibilityPolicy.Option.RECENTS_TO_HOME));
         } catch (ReflectiveOperationException | RuntimeException error) {
             mPhoneOverviewRouter.stop();
             mActivityStartController.close();
@@ -393,6 +391,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             + usefulMessage(error),
                     error);
         }
+        mPhoneOverviewRouter.start(mCompatibility.enabled(
+                DesktopCompatibilityPolicy.Option.RECENTS_TO_HOME));
         mDesktopOwnership.configure(displayId);
         if (desktopHostTaskId >= 0) {
             mDesktopOwnership.markDesktopHost(desktopHostTaskId);
