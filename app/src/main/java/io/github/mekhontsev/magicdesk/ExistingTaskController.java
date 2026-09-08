@@ -35,7 +35,8 @@ final class ExistingTaskController {
                 targetFreeform,
                 preferredTaskId,
                 DesktopTaskPresentationPolicy.resolveDensityDpi(
-                        target.packageName, targetDisplayId));
+                        AppProfile.current(MagicDeskApplication.applicationContext())
+                                .applicationForUser(userId, target.packageName), targetDisplayId));
     }
 
     static ReuseResult reuseIfExists(final int userId, final AppLaunchTarget target,

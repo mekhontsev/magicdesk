@@ -882,9 +882,14 @@ final class DesktopWorkspaceController {
                     file.applicationShortcut();
             final AppItem app = shortcut == null
                     || shortcut.launchTarget == null
+                    || (shortcut.application != null && shortcut.application.profileSerialNumber
+                            != mActivity.appProfile().serialNumber)
                     ? null
                     : mActivity.findOrLoadApp(
-                            mApps, shortcut.launchTarget);
+                            mApps, shortcut.application == null
+                                    ? mActivity.appProfile().application(shortcut.launchTarget.packageName)
+                                    : shortcut.application,
+                            shortcut.launchTarget);
             entries.add(app == null
                     ? Entry.file(fileItemId(file.relativePath), file)
                     : Entry.app(

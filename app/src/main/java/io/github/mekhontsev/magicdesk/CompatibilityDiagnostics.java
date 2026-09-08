@@ -822,10 +822,10 @@ public final class CompatibilityDiagnostics {
 
     private static void appendApplicationPresentationProfiles(
             final StringBuilder report) {
-        final Map<String, AppPresentationProfile> profiles =
+        final Map<AppIdentity, AppPresentationProfile> profiles =
                 AppPresentationProfileStore.loadAll();
-        final List<String> packages = new ArrayList<>(profiles.keySet());
-        Collections.sort(packages);
+        final List<AppIdentity> packages = new ArrayList<>(profiles.keySet());
+        packages.sort(java.util.Comparator.comparing(AppIdentity::persistentKey));
         report.append("Application presentation profiles: count=")
                 .append(packages.size());
         if (!packages.isEmpty()) {
@@ -837,8 +837,8 @@ public final class CompatibilityDiagnostics {
                 if (index > 0) {
                     report.append(',');
                 }
-                final String packageName = packages.get(index);
-                report.append(packageName)
+                final AppIdentity packageName = packages.get(index);
+                report.append(packageName.persistentKey())
                         .append('=')
                         .append(profiles.get(packageName).scalePercent)
                         .append('%');

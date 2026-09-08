@@ -134,11 +134,20 @@ Name=Example
 Icon=com.example.application
 Exec=/system/bin/am start --user current "intent:#Intent;component=com.example.application/.MainActivity;end"
 X-MagicDesk-Package=com.example.application
+X-MagicDesk-AppIdentity=0|com.example.application
 X-MagicDesk-Activity=com.example.application.MainActivity
 X-MagicDesk-Action=android.intent.action.MAIN
 X-MagicDesk-Intent=intent:#Intent;component=com.example.application/.MainActivity;end
 X-MagicDesk-WindowMode=windowed
 ```
+
+The serial in `X-MagicDesk-AppIdentity` identifies an Android profile, not a
+display or a runtime user id. The example uses serial 0; generated entries use
+the actual resolved serial. The Desktop folder itself stays shared, and file
+positions remain path-based. Two entries may launch the same package in
+different profiles once those profiles are supported. An explicit unavailable
+profile fails before launch or Exec fallback. A portable entry without this
+field is resolved in the current context.
 
 Unless `X-MagicDesk-Default=true` explicitly requests the package's current
 default launcher activity, `X-MagicDesk-Intent` takes priority and `Exec` is

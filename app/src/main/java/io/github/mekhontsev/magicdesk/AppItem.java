@@ -11,6 +11,7 @@ final class AppItem {
     final String label;
     final AppProfile profile;
     final AppIdentity identity;
+    final AppReference reference;
     final String packageName;
     final boolean canFloat;
     final String fullscreenReason;
@@ -32,6 +33,7 @@ final class AppItem {
         this.label = label;
         this.profile = profile;
         this.identity = profile.application(packageName);
+        this.reference = profile.reference(launchTarget);
         this.packageName = packageName;
         this.canFloat = canFloat;
         this.fullscreenReason = fullscreenReason;

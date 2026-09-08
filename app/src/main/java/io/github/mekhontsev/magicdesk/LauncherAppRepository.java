@@ -94,15 +94,21 @@ final class LauncherAppRepository {
         return result;
     }
 
+    AppProfile profile() {
+        return mProfile;
+    }
+
     boolean owns(final TaskRepository.TaskEntry task) {
         return task != null && mProfile.owns(task.userId);
     }
 
     AppItem findOrLoad(
             final List<AppItem> apps,
-            final String packageName,
+            final AppIdentity application,
             final boolean universalFreeform) {
-        final AppItem known = find(apps, packageName);
+        application.requireProfile(mProfile);
+        final String packageName = application.packageName;
+        final AppItem known = findApplication(apps, application);
         if (known != null) {
             return known;
         }
@@ -145,20 +151,22 @@ final class LauncherAppRepository {
 
     AppItem findOrLoad(
             final List<AppItem> apps,
+            final AppIdentity application,
             final AppLaunchTarget target,
             final boolean universalFreeform) {
-        if (target == null) {
+        application.requireProfile(mProfile);
+        if (target == null || !application.packageName.equals(target.packageName)) {
             return null;
         }
         if (apps != null) {
             for (final AppItem app : apps) {
-                if (target.equals(app.launchTarget)) {
+                if (application.equals(app.identity) && target.equals(app.launchTarget)) {
                     return app;
                 }
             }
         }
         if (target.activityClassName.length() == 0) {
-            return findOrLoad(apps, target.packageName, universalFreeform);
+            return findOrLoad(apps, application, universalFreeform);
         }
         try {
             final ActivityInfo activityInfo =
@@ -299,27 +307,26 @@ final class LauncherAppRepository {
         return activities.isEmpty() ? null : activities.get(0);
     }
 
-    static AppItem find(final List<AppItem> apps, final String packageName) {
-        if (apps == null || packageName == null) {
+    static AppItem findApplication(final List<AppItem> apps, final AppIdentity application) {
+        if (apps == null || application == null) {
             return null;
         }
         for (final AppItem app : apps) {
-            if (packageName.equals(app.packageName)) {
+            if (application.equals(app.identity)) {
                 return app;
             }
         }
         return null;
     }
 
-    static AppItem findByIdentityKey(
+    static AppItem find(
             final List<AppItem> apps,
-            final String identityKey) {
-        if (apps == null || identityKey == null) {
+            final AppReference reference) {
+        if (apps == null || reference == null) {
             return null;
         }
         for (final AppItem app : apps) {
-            if (identityKey.equals(BuiltInDesktopAppCatalog.appIdentityKey(
-                    app.launchTarget))) {
+            if (reference.equals(app.reference)) {
                 return app;
             }
         }

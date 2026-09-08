@@ -416,7 +416,8 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                         target.displayId, parked.bounds);
         final int densityDpi =
                 DesktopTaskPresentationPolicy.resolveDensityDpi(
-                        parked.packageName, target.displayId);
+                        AppProfile.current(MagicDeskApplication.applicationContext())
+                                .applicationForUser(parked.userId, parked.packageName), target.displayId);
         if (parked.fullscreen) {
             DesktopTaskTransfer.moveFullscreen(
                     live.taskId,
@@ -447,7 +448,8 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                         target.displayId,
                         parked.taskId,
                         DesktopTaskPresentationPolicy.resolveDensityDpi(
-                                parked.packageName, target.displayId))) {
+                                AppProfile.current(MagicDeskApplication.applicationContext())
+                                .applicationForUser(parked.userId, parked.packageName), target.displayId))) {
             throw new IOException(
                     "could not attach restored fullscreen task="
                             + parked.taskId);
@@ -470,7 +472,8 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                     task.taskId,
                     bounds,
                     DesktopTaskPresentationPolicy.resolveDensityDpi(
-                            parked.packageName, target.displayId))) {
+                            AppProfile.current(MagicDeskApplication.applicationContext())
+                                .applicationForUser(parked.userId, parked.packageName), target.displayId))) {
                 throw new IOException(
                         "could not attach restored windowed task="
                                 + task.taskId);

@@ -305,20 +305,19 @@ final class DesktopAutomationStateReader {
 
     JSONObject appPresentation(final JSONObject arguments)
             throws JSONException {
-        final String packageName = arguments == null
-                ? "" : arguments.optString("package", "").trim();
-        return appPresentation(packageName);
+        return appPresentation(AutomationJsonArguments.requiredApplication(mContext, arguments));
     }
 
-    JSONObject appPresentation(final String packageName)
+    JSONObject appPresentation(final AppIdentity application)
             throws JSONException {
-        AppPresentationProfileManager.requireUserApplication(packageName);
+        AppPresentationProfileManager.requireUserApplication(application);
         final AppPresentationProfile profile =
-                AppPresentationProfileStore.load(packageName);
+                AppPresentationProfileStore.load(application);
         final int displayId = DesktopRuntimeBridge
                 .getActiveDesktopDisplayId();
         final JSONObject result = new JSONObject()
-                .put("package", packageName)
+                .put("package", application.packageName)
+                .put("appIdentity", application.persistentKey())
                 .put("mode", profile == null ? "system" : "custom")
                 .put("scalePercent", profile == null
                         ? JSONObject.NULL : profile.scalePercent)

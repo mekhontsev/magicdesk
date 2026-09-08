@@ -43,10 +43,7 @@ final class DesktopTaskWatcher {
                 boolean backgroundAppFullscreenReleased);
         void onFreeformBoundsChanged(
                 int generation,
-                int taskId,
-                String stateKey,
-                int displayId,
-                Rect bounds);
+                FrameworkTaskSnapshot task);
         void onInputFocusRefreshRequired(
                 int generation, int focusedTaskId);
         void onTaskFocusChanged(
@@ -897,19 +894,8 @@ final class DesktopTaskWatcher {
     }
 
     private void onFreeformBoundsChanged(
-            final int generation,
-            final int taskId,
-            final String stateKey,
-            final int displayId,
-            final Rect bounds) {
-        final Rect snapshot = bounds == null ? null : new Rect(bounds);
-        postIfActive(generation, () ->
-                mListener.onFreeformBoundsChanged(
-                        generation,
-                        taskId,
-                        stateKey,
-                        displayId,
-                        snapshot));
+            final int generation, final FrameworkTaskSnapshot task) {
+        postIfActive(generation, () -> mListener.onFreeformBoundsChanged(generation, task));
     }
 
     private void onWorkspaceCommandResult(
@@ -1201,20 +1187,8 @@ final class DesktopTaskWatcher {
         }
 
         @Override
-        public void onFreeformBoundsChanged(
-                final int taskId,
-                final String stateKey,
-                final int displayId,
-                final int left,
-                final int top,
-                final int right,
-                final int bottom) throws RemoteException {
-            mOwner.onFreeformBoundsChanged(
-                    mGeneration,
-                    taskId,
-                    stateKey,
-                    displayId,
-                    new Rect(left, top, right, bottom));
+        public void onFreeformBoundsChanged(final FrameworkTaskSnapshot task) {
+            mOwner.onFreeformBoundsChanged(mGeneration, task);
         }
 
         @Override

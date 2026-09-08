@@ -21,16 +21,19 @@ final class AppPresentationRuntimeController {
 
     private static final String TAG = "MagicDeskPresentation";
 
+    private final AppProfile mAppProfile;
     private final DensityApplier mDensityApplier;
     private final Runnable mRefresh;
     private final Map<Integer, AppliedState> mApplied = new LinkedHashMap<>();
 
-    private Map<String, AppPresentationProfile> mProfiles =
+    private Map<AppIdentity, AppPresentationProfile> mProfiles =
             Collections.emptyMap();
 
     AppPresentationRuntimeController(
+            final AppProfile profile,
             final DensityApplier densityApplier,
             final Runnable refresh) {
+        mAppProfile = profile;
         mDensityApplier = densityApplier;
         mRefresh = refresh;
     }
@@ -69,7 +72,7 @@ final class AppPresentationRuntimeController {
                 continue;
             }
             final AppPresentationProfile profile =
-                    mProfiles.get(task.packageName);
+                    mProfiles.get(mAppProfile.application(task));
             if (profile == null) {
                 continue;
             }
@@ -81,13 +84,13 @@ final class AppPresentationRuntimeController {
             if (task.densityDpi == desiredDensity
                     || (applied != null
                             && applied.matches(
-                                    task.packageName,
+                                    mAppProfile.application(task),
                                     desiredDensity,
                                     task.densityDpi))) {
                 mApplied.put(
                         Integer.valueOf(task.taskId),
                         new AppliedState(
-                                task.packageName,
+                                mAppProfile.application(task),
                                 desiredDensity,
                                 task.densityDpi));
                 continue;
@@ -102,8 +105,8 @@ final class AppPresentationRuntimeController {
         }
     }
 
-    boolean applyStoredPackage(
-            final String packageName,
+    boolean applyStoredApplication(
+            final AppIdentity application,
             final int densityDpi,
             final List<TaskRepository.TaskEntry> tasks,
             final TaskRepository.ActionCallback callback) {
@@ -112,7 +115,7 @@ final class AppPresentationRuntimeController {
         if (tasks != null) {
             for (final TaskRepository.TaskEntry task : tasks) {
                 if (isApplicationTask(task)
-                        && packageName.equals(task.packageName)) {
+                        && application.equals(mAppProfile.application(task))) {
                     matchingTasks.add(task);
                     mApplied.remove(Integer.valueOf(task.taskId));
                 }
@@ -171,7 +174,8 @@ final class AppPresentationRuntimeController {
         final Set<Integer> liveTaskIds = new HashSet<>();
         if (tasks != null) {
             for (final TaskRepository.TaskEntry task : tasks) {
-                if (task != null && task.taskId >= 0) {
+                if (task != null && task.taskId >= 0
+                        && mAppProfile.owns(task.userId)) {
                     liveTaskIds.add(Integer.valueOf(task.taskId));
                 }
             }
@@ -186,16 +190,17 @@ final class AppPresentationRuntimeController {
             mApplied.put(
                     Integer.valueOf(task.taskId),
                     new AppliedState(
-                            task.packageName,
+                            mAppProfile.application(task),
                             densityDpi,
                             task.densityDpi));
         }
     }
 
-    private static boolean isApplicationTask(
+    private boolean isApplicationTask(
             final TaskRepository.TaskEntry task) {
         return task != null
                 && task.taskId >= 0
+                && mAppProfile.owns(task.userId)
                 && !BuildConfig.APPLICATION_ID.equals(task.packageName)
                 && DesktopManagedTaskPolicy
                         .isControllableApplicationTask(task);
@@ -221,24 +226,24 @@ final class AppPresentationRuntimeController {
     }
 
     private static final class AppliedState {
-        final String packageName;
+        final AppIdentity application;
         final int densityDpi;
         final int observedDensityDpi;
 
         AppliedState(
-                final String packageName,
+                final AppIdentity application,
                 final int densityDpi,
                 final int observedDensityDpi) {
-            this.packageName = packageName;
+            this.application = application;
             this.densityDpi = densityDpi;
             this.observedDensityDpi = observedDensityDpi;
         }
 
         boolean matches(
-                final String candidatePackage,
+                final AppIdentity candidateApplication,
                 final int candidateDensityDpi,
                 final int candidateObservedDensityDpi) {
-            return packageName.equals(candidatePackage)
+            return application.equals(candidateApplication)
                     && densityDpi == candidateDensityDpi
                     && observedDensityDpi == candidateObservedDensityDpi;
         }

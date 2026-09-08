@@ -30,7 +30,7 @@ public final class AndroidDesktopActionCatalogTest {
                 .optBoolean("returnsActivityResult"));
         assertFalse(byId.get("sound-settings")
                 .optBoolean("returnsActivityResult"));
-        assertEquals("package", byId.get("app-details")
+        assertEquals("appIdentity", byId.get("app-details")
                 .optJSONArray("requiredParameters").optString(0));
         assertTrue(contains(
                 byId.get("open-document")

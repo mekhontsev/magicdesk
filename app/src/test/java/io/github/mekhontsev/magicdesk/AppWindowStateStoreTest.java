@@ -9,6 +9,9 @@ import org.junit.Test;
 import java.util.Collections;
 
 public final class AppWindowStateStoreTest {
+    private static final AppReference APP = new AppProfile(0, 0)
+            .reference(AppLaunchTarget.packageDefault("example.application"));
+
     @After
     public void restoreStorage() {
         AppWindowStateStore.clearPendingModeUpdatesForTests();
@@ -18,7 +21,7 @@ public final class AppWindowStateStoreTest {
     @Test
     public void pendingModeIsVisibleBeforePersistentCommit() {
         DesktopStateStore.useStorageForTests(memoryStorage());
-        final String stateKey = "example.application";
+        final AppReference stateKey = APP;
         assertTrue(AppWindowStateStore.rememberMode(
                 stateKey, AppWindowState.Mode.WINDOWED));
 
@@ -38,7 +41,7 @@ public final class AppWindowStateStoreTest {
     @Test
     public void olderCompletionDoesNotHideNewerPendingMode() {
         DesktopStateStore.useStorageForTests(memoryStorage());
-        final String stateKey = "example.application";
+        final AppReference stateKey = APP;
         final AppWindowStateStore.PendingModeUpdate older =
                 AppWindowStateStore.beginModeUpdate(
                         stateKey, AppWindowState.Mode.FULLSCREEN);
@@ -72,7 +75,7 @@ public final class AppWindowStateStoreTest {
         if (session) {
             AppWindowStateStore.beginSession();
         }
-        final String key = "example.application";
+        final AppReference key = APP;
         final AppWindowStateStore.PendingModeUpdate older =
                 AppWindowStateStore.beginModeUpdate(
                         key, AppWindowState.Mode.FULLSCREEN);
@@ -94,7 +97,7 @@ public final class AppWindowStateStoreTest {
     @Test
     public void cancelledPendingModeRestoresPersistedChoice() {
         DesktopStateStore.useStorageForTests(memoryStorage());
-        final String stateKey = "example.application";
+        final AppReference stateKey = APP;
         assertTrue(AppWindowStateStore.rememberMode(
                 stateKey, AppWindowState.Mode.WINDOWED));
         final AppWindowStateStore.PendingModeUpdate update =
@@ -112,7 +115,7 @@ public final class AppWindowStateStoreTest {
     public void desktopSessionFlushesCombinedWindowStateOnce() {
         final RecordingStorage storage = new RecordingStorage();
         DesktopStateStore.useStorageForTests(storage);
-        final String stateKey = "example.application";
+        final AppReference stateKey = APP;
         final RelativeWindowBounds bounds =
                 new RelativeWindowBounds(2000, 1500, 6000, 7000);
         AppWindowStateStore.beginSession();
@@ -149,7 +152,7 @@ public final class AppWindowStateStoreTest {
     public void isolatedSessionDiscardsOnlyItsWindowStateChanges() {
         final RecordingStorage storage = new RecordingStorage();
         DesktopStateStore.useStorageForTests(storage);
-        final String stateKey = "example.application";
+        final AppReference stateKey = APP;
         assertTrue(AppWindowStateStore.rememberMode(
                 stateKey, AppWindowState.Mode.WINDOWED));
         final int writesBeforeTest = storage.writeCount;
@@ -189,19 +192,19 @@ public final class AppWindowStateStoreTest {
                 new RelativeWindowBounds(2500, 5000, 5000, 4000);
 
         assertTrue(AppWindowStateStore.rememberWindowBounds(
-                Collections.singletonMap("example.application", bounds)));
+                Collections.singletonMap(APP, bounds)));
         assertTrue(AppWindowStateStore.rememberMode(
-                "example.application", AppWindowState.Mode.FULLSCREEN));
+                APP, AppWindowState.Mode.FULLSCREEN));
         final RelativeWindowBounds updatedBounds =
                 new RelativeWindowBounds(7500, 1000, 4000, 6000);
         assertTrue(AppWindowStateStore.rememberWindowBounds(
                 Collections.singletonMap(
-                        "example.application", updatedBounds)));
+                        APP, updatedBounds)));
 
         assertEquals(
                 new AppWindowState(
                         AppWindowState.Mode.FULLSCREEN, updatedBounds),
-                AppWindowStateStore.load("example.application"));
+                AppWindowStateStore.load(APP));
     }
 
     @Test
@@ -221,9 +224,9 @@ public final class AppWindowStateStoreTest {
                     }
                 };
         DesktopStateStore.useStorageForTests(storage);
-        final String filesKey = BuiltInDesktopAppCatalog.appIdentityKey(
+        final AppReference filesKey = new AppProfile(0, 0).reference(
                 BuiltInDesktopAppCatalog.filesTarget());
-        final String consoleKey = BuiltInDesktopAppCatalog.appIdentityKey(
+        final AppReference consoleKey = new AppProfile(0, 0).reference(
                 BuiltInDesktopAppCatalog.consoleTarget());
         final RelativeWindowBounds filesBounds =
                 new RelativeWindowBounds(2000, 3000, 5000, 6000);

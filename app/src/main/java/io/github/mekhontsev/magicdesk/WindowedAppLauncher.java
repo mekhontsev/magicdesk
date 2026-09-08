@@ -111,7 +111,8 @@ final class WindowedAppLauncher {
                 == null ? "desktop-window" : "built-in-window";
         final int densityDpi =
                 DesktopTaskPresentationPolicy.resolveDensityDpi(
-                        launchTarget.packageName, displayId);
+                        AppProfile.current(MagicDeskApplication.applicationContext())
+                                .application(launchTarget.packageName), displayId);
         return launch(
                 launchTarget,
                 FrameworkUserApi.userId(android.os.Process.myUserHandle()),
@@ -145,7 +146,8 @@ final class WindowedAppLauncher {
         }
         final int densityDpi =
                 DesktopTaskPresentationPolicy.resolveDensityDpi(
-                        shortcut.packageName, displayId);
+                        AppProfile.current(MagicDeskApplication.applicationContext())
+                                .applicationForUser(FrameworkUserApi.userId(shortcut.user), shortcut.packageName), displayId);
         return launch(
                 shortcut.taskTarget(),
                 FrameworkUserApi.userId(shortcut.user),
@@ -196,7 +198,9 @@ final class WindowedAppLauncher {
         }
         final int densityDpi =
                 DesktopTaskPresentationPolicy.resolveDensityDpi(
-                        launchTarget.packageName, displayId);
+                        AppProfile.current(MagicDeskApplication.applicationContext())
+                                .applicationForUser(FrameworkUserApi.userId(pendingIntent.getCreatorUserHandle()),
+                                        launchTarget.packageName), displayId);
         return launch(
                 launchTarget,
                 FrameworkUserApi.userId(pendingIntent.getCreatorUserHandle()),

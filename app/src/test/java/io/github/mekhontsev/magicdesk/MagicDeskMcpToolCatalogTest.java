@@ -261,6 +261,18 @@ public final class MagicDeskMcpToolCatalogTest {
     }
 
     @Test
+    public void applicationActionsRequireProfileIdentity() throws Exception {
+        final JSONArray tools = MagicDeskMcpToolCatalog.create(true);
+        for (final String name : new String[]{"launch_app", "get_app_presentation",
+                "set_app_presentation", "reset_app_presentation", "force_stop_app",
+                "list_app_actions", "invoke_app_action"}) {
+            final JSONObject input = tool(tools, name).getJSONObject("inputSchema");
+            assertTrue(name, contains(input.getJSONArray("required"), "appIdentity"));
+            assertFalse(name, input.getJSONObject("properties").has("package"));
+        }
+    }
+
+    @Test
     public void namesAreUniqueAndSchemasAreClosed() throws Exception {
         final JSONArray tools = MagicDeskMcpToolCatalog.create(true);
         final Set<String> names = new HashSet<>();
@@ -368,7 +380,7 @@ public final class MagicDeskMcpToolCatalogTest {
         assertEquals(4, bounds.getJSONArray("required").length());
         final JSONArray required = schema.getJSONArray("required");
         assertEquals(1, required.length());
-        assertEquals("package", required.getString(0));
+        assertEquals("appIdentity", required.getString(0));
     }
 
     @Test

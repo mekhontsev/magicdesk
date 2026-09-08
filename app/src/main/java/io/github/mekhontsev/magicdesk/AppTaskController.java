@@ -422,7 +422,7 @@ final class AppTaskController {
                                         bounds,
                                         DesktopTaskPresentationPolicy
                                                 .resolveDensityDpi(
-                                                        intentTarget.packageName,
+                                                        app.identity,
                                                         displayId))
                         : null,
                 (displayId, taskId, reused) -> {
@@ -627,7 +627,7 @@ final class AppTaskController {
                     AndroidDesktopActionCatalog.create(
                             "app-details",
                             new JSONObject()
-                                    .put("package", app.packageName)
+                                    .put("appIdentity", app.identity.persistentKey())
                                     .put("mode", "windowed")
                                     .put("instance", "new"),
                             "app-context-menu"),
@@ -653,8 +653,7 @@ final class AppTaskController {
         final AppWindowState saved =
                 BuiltInDesktopAppCatalog.remembersWindowState(launchTarget)
                         ? AppWindowStateStore.load(
-                                BuiltInDesktopAppCatalog.appIdentityKey(
-                                        launchTarget))
+                                mActivity.appProfile().reference(launchTarget))
                         : null;
         if (!canControlWindowing()) {
             final ActivityOptions options = ActivityOptions.makeBasic();
@@ -1091,7 +1090,7 @@ final class AppTaskController {
             try {
                 final int densityDpi =
                         DesktopTaskPresentationPolicy.resolveDensityDpi(
-                                app.packageName, displayId);
+                                app.identity, displayId);
                 MagicDeskRuntime.beginFullscreenTransition(
                         displayId, visibleTasks, excludedTaskId);
                 final PreparedFullscreenTask prepared =
@@ -1574,7 +1573,7 @@ final class AppTaskController {
             if (bounds != null) {
                 AppWindowStateStore.rememberWindowBounds(
                         Collections.singletonMap(
-                                BuiltInDesktopAppCatalog.appIdentityKey(task),
+                                mActivity.appProfile().reference(task),
                                 bounds));
             }
         } catch (IOException ignored) {
@@ -1645,10 +1644,10 @@ final class AppTaskController {
                 : null;
     }
 
-    private static String windowStateKey(final AppItem app) {
+    private static AppReference windowStateKey(final AppItem app) {
         return app == null
                 ? null
-                : BuiltInDesktopAppCatalog.appIdentityKey(app.launchTarget);
+                : app.reference;
     }
 
     private static boolean remembersWindowState(final AppItem app) {
@@ -1684,8 +1683,8 @@ final class AppTaskController {
         mActivity.hideAllPanels();
         mActivity.setStatus(mActivity.getString(
                 R.string.status_force_stopping, app.label));
-        MagicDeskRuntime.forceStopPackage(
-                app.packageName,
+        MagicDeskRuntime.forceStopApplication(
+                app.identity,
                 result -> mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {
                         return;

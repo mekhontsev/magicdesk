@@ -1,7 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
-import android.content.SharedPreferences;
+import org.json.JSONArray;
+import org.json.JSONException;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -10,125 +11,98 @@ import java.util.List;
 final class DesktopPreferences {
     static final int SYSTEM_DESKTOP_DPI = 0;
     static final int DEFAULT_DESKTOP_DPI = 192;
-
-    private static final String PREFS = "magicdesk";
-    private static final String RECENT_PACKAGES = "recent_packages";
-    private static final int MAX_RECENT_PACKAGES = 24;
+    private static final int MAX_RECENT_APPS = 24;
+    private static final String RECENT_APPS = "recent_apps";
 
     private DesktopPreferences() {
     }
 
-    static List<String> taskbarPackages() {
-        return DesktopStateStore.read(
-                state -> new ArrayList<>(state.taskbarPackages),
+    static List<AppReference> taskbarApps() {
+        return DesktopStateStore.read(state -> new ArrayList<>(state.taskbarApps),
                 new ArrayList<>());
     }
 
-    static void saveTaskbarPackages(
-            final Collection<String> packages) {
-        final List<String> stored = new ArrayList<>();
-        if (packages != null) {
-            for (final String packageName : packages) {
-                if (PackageNameValidator.isSafe(packageName)
-                        && !stored.contains(packageName)) {
-                    stored.add(packageName);
+    static void saveTaskbarApps(final Collection<AppReference> apps) {
+        final List<AppReference> stored = new ArrayList<>();
+        if (apps != null) {
+            for (final AppReference app : apps) {
+                if (app != null && !stored.contains(app)
+                        && BuiltInDesktopAppCatalog.isPinnable(app.launchTarget())) {
+                    stored.add(app);
                 }
             }
         }
         DesktopStateStore.update(state -> {
-            state.taskbarPackages.clear();
-            state.taskbarPackages.addAll(stored);
+            state.taskbarApps.clear();
+            state.taskbarApps.addAll(stored);
         });
     }
 
-    static List<String> recentAppKeys(final Context context) {
-        return decodeRecentAppKeys(preferences(context).getString(
-                RECENT_PACKAGES, ""));
+    static List<AppReference> recentApps(final Context context) {
+        return decodeRecentApps(context.getSharedPreferences("magicdesk", Context.MODE_PRIVATE)
+                .getString(RECENT_APPS, "[]"));
     }
 
     static synchronized boolean recordRecentApp(
-            final Context context,
-            final String appKey) {
-        if (context == null
-                || !isLaunchableAppKey(context, appKey)) {
+            final Context context, final AppReference app) {
+        if (app == null) {
             return false;
         }
-        final List<String> previous = recentAppKeys(context);
-        final List<String> updated = updateRecentAppKeys(
-                previous, appKey, MAX_RECENT_PACKAGES);
+        final List<AppReference> previous = recentApps(context);
+        final List<AppReference> updated = updateRecentApps(previous, app, MAX_RECENT_APPS);
         if (updated.equals(previous)) {
             return false;
         }
-        preferences(context).edit()
-                .putString(RECENT_PACKAGES, encodePackages(updated))
-                .apply();
+        // History changes with task focus; keep disk I/O off the UI thread.
+        context.getSharedPreferences("magicdesk", Context.MODE_PRIVATE).edit()
+                .putString(RECENT_APPS, encodeRecentApps(updated)).apply();
         return true;
     }
 
-    static List<String> updateRecentAppKeys(
-            final List<String> previous,
-            final String appKey,
-            final int limit) {
-        final List<String> updated = new ArrayList<>();
-        if (appKey != null && appKey.length() > 0 && limit > 0) {
-            updated.add(appKey);
+    static String encodeRecentApps(final List<AppReference> apps) {
+        final JSONArray encoded = new JSONArray();
+        for (final AppReference app : apps) {
+            encoded.put(app.persistentKey());
+        }
+        return encoded.toString();
+    }
+
+    static List<AppReference> decodeRecentApps(final String encoded) {
+        final List<AppReference> apps = new ArrayList<>();
+        try {
+            final JSONArray values = new JSONArray(encoded);
+            for (int index = 0; index < values.length() && apps.size() < MAX_RECENT_APPS; index++) {
+                try {
+                    final AppReference app = AppReference.fromPersistentKey(values.getString(index));
+                    if (!apps.contains(app)) {
+                        apps.add(app);
+                    }
+                } catch (IllegalArgumentException | JSONException ignored) {
+                    // Unresolved entries must never become current-profile applications.
+                }
+            }
+        } catch (JSONException ignored) {
+            return apps;
+        }
+        return apps;
+    }
+
+    static List<AppReference> updateRecentApps(
+            final List<AppReference> previous, final AppReference app, final int limit) {
+        final List<AppReference> updated = new ArrayList<>();
+        if (app != null && limit > 0) {
+            updated.add(app);
         }
         if (previous != null) {
-            for (final String candidate : previous) {
+            for (final AppReference candidate : previous) {
                 if (updated.size() >= limit) {
                     break;
                 }
-                if (candidate != null
-                        && candidate.length() > 0
-                        && !updated.contains(candidate)) {
+                if (candidate != null && !updated.contains(candidate)) {
                     updated.add(candidate);
                 }
             }
         }
         return updated;
-    }
-
-    private static String encodePackages(final Collection<String> packages) {
-        final StringBuilder encoded = new StringBuilder();
-        for (final String packageName : packages) {
-            if (encoded.length() > 0) {
-                encoded.append('\n');
-            }
-            encoded.append(packageName);
-        }
-        return encoded.toString();
-    }
-
-    private static List<String> decodeRecentAppKeys(final String encoded) {
-        final List<String> appKeys = new ArrayList<>();
-        if (encoded != null && encoded.length() > 0) {
-            for (final String appKey : encoded.split("\\n")) {
-                if ((PackageNameValidator.isSafe(appKey)
-                        || BuiltInDesktopAppCatalog.isAppIdentityKey(appKey))
-                        && !appKeys.contains(appKey)) {
-                    appKeys.add(appKey);
-                }
-            }
-        }
-        if (appKeys.size() > MAX_RECENT_PACKAGES) {
-            return new ArrayList<>(appKeys.subList(0, MAX_RECENT_PACKAGES));
-        }
-        return appKeys;
-    }
-
-    private static boolean isLaunchableAppKey(
-            final Context context,
-            final String appKey) {
-        if (BuiltInDesktopAppCatalog.isAppIdentityKey(appKey)) {
-            return true;
-        }
-        return PackageNameValidator.isSafe(appKey)
-                && !context.getPackageName().equals(appKey)
-                && context.getPackageManager()
-                        .getLaunchIntentForPackage(appKey) != null;
-    }
-
-    private static SharedPreferences preferences(final Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 }

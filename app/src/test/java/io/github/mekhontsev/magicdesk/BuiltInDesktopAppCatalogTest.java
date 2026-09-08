@@ -80,41 +80,34 @@ public final class BuiltInDesktopAppCatalogTest {
 
     @Test
     public void builtInsHaveIndependentWindowStateKeys() {
-        final Set<String> keys = new HashSet<>();
-        keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
+        final Set<AppReference> keys = new HashSet<>();
+        keys.add(new AppProfile(0, 0).reference(
                 BuiltInDesktopAppCatalog.filesTarget()));
-        keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
+        keys.add(new AppProfile(0, 0).reference(
                 BuiltInDesktopAppCatalog.settingsTarget()));
-        keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
+        keys.add(new AppProfile(0, 0).reference(
                 BuiltInDesktopAppCatalog.consoleTarget()));
-        keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
+        keys.add(new AppProfile(0, 0).reference(
                 BuiltInDesktopAppCatalog.taskManagerTarget()));
-        keys.add(BuiltInDesktopAppCatalog.appIdentityKey(
+        keys.add(new AppProfile(0, 0).reference(
                 BuiltInDesktopAppCatalog.diagnosticsTarget()));
 
         assertEquals(5, keys.size());
-        for (final String key : keys) {
-            assertTrue(BuiltInDesktopAppCatalog.isAppIdentityKey(key));
+        for (final AppReference key : keys) {
+            assertEquals(key, AppReference.fromPersistentKey(key.persistentKey()));
         }
         assertEquals(
-                "com.example",
-                BuiltInDesktopAppCatalog.appIdentityKey(
+                new AppProfile(0, 0).reference(AppLaunchTarget.packageDefault("com.example")),
+                new AppProfile(0, 0).reference(
                         AppLaunchTarget.packageDefault("com.example")));
     }
 
     @Test
-    public void resolvesObservedBuiltInComponentToItsStateKey() {
-        final AppLaunchTarget console =
-                BuiltInDesktopAppCatalog.consoleTarget();
-
-        assertEquals(
-                BuiltInDesktopAppCatalog.appIdentityKey(console),
-                BuiltInDesktopAppCatalog.appIdentityKey(
-                        BuildConfig.APPLICATION_ID,
-                        BuildConfig.APPLICATION_ID
-                                + "/.CommandConsoleActivity"));
-        assertNull(BuiltInDesktopAppCatalog.appIdentityKey(
-                BuildConfig.APPLICATION_ID,
-                BuildConfig.APPLICATION_ID + "/.DesktopShellActivity"));
+    public void resolvesObservedBuiltInComponent() {
+        final AppLaunchTarget console = BuiltInDesktopAppCatalog.consoleTarget();
+        assertEquals(console, BuiltInDesktopAppCatalog.findComponent(
+                console.activityClassName).launchTarget);
+        assertNull(BuiltInDesktopAppCatalog.findComponent(
+                BuildConfig.APPLICATION_ID + ".DesktopShellActivity"));
     }
 }

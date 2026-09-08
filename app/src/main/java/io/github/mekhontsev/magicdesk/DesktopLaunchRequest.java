@@ -81,7 +81,7 @@ final class DesktopLaunchRequest {
         } else if (shortcut.hasAppShortcutLaunch()) {
             androidLaunch = null;
             androidShortcut = new AndroidShortcutSpec(
-                    shortcut.launchTarget, shortcut.appShortcutId);
+                    shortcut.application, shortcut.launchTarget, shortcut.appShortcutId);
             exec = null;
         } else if (shortcut.hasIntentLaunch()) {
             androidLaunch = AndroidLaunchSpec.intent(

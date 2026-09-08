@@ -386,7 +386,7 @@ runtime integration and are not distributed through the same release path.
   separates user-facing MagicDesk tasks such as Files, Settings, and
   Diagnostics from shell
   infrastructure. It also records whether an internal window can have multiple
-  tasks, appear in the launcher or taskbar pins, and share package-level window
+  tasks, appear in the launcher or taskbar pins, and share profile-scoped application window
   state. Settings is a singleton reusable task with compact centered default
   bounds. A single constrained, scrollable `SettingsView` uses the same dense
   visual language on phone and desktop. The phone opens it normally, while the
@@ -684,7 +684,7 @@ runtime integration and are not distributed through the same release path.
 
 ### Application profiles
 
-The profile foundation separates three identities:
+Application identity has four explicit levels:
 
 - `AppProfile` is a resolved Android user id plus its stable user serial.
   Runtime task matching uses the id; durable references use the serial, which
@@ -692,6 +692,9 @@ The profile foundation separates three identities:
 - `AppIdentity` is a profile serial plus a package. `AppItem` retains both this
   durable identity and the resolved profile. `AppLaunchTarget` only describes
   an entry point (package, component, action); it is not a complete app identity.
+- `AppReference` combines `AppIdentity` with an optional built-in tool entry.
+  Files, Settings, and Console retain separate identities despite sharing one
+  APK. Ordinary Android applications remain grouped by profile and package.
 - `LaunchActivityIdentity` binds an entry point or a package-scoped system
   surface to an explicit user id before task lookup. Direct launches bind at
   the current-user ingress; shortcut and PendingIntent launches retain the
@@ -716,11 +719,27 @@ This is an identity foundation, not multi-profile support. The launcher catalog
 still enumerates only the current profile. Profile discovery/availability,
 badged icons, work-profile quiet mode, Private Space policy, cross-profile URI
 grants and launch permissions are not implemented. Before widening the catalog,
-taskbar pins, launch history, window-state and DPI preference keys must also be
-changed from their current single-profile namespace to `AppIdentity`-scoped
-storage. Do not widen enumeration alone, persist a runtime user id, or add a
-package-only fallback when resolving an unavailable profile. No Private Space
-permission or additional profile UI is declared by this foundation.
+profile resolution and permission-aware launching must be extended together.
+The catalog, taskbar pins, recent history and window state exchange typed
+`AppReference` values; DPI and application actions exchange `AppIdentity`.
+Persistence alone serializes them as stable keys. Unbound or malformed stored
+keys are skipped, never assigned to the current profile. There is no
+package-only compatibility lookup.
+
+`DesktopStateStore` stores pins, geometry and DPI; recent history keeps its
+asynchronous SharedPreferences write path with a structured array of typed
+references. No additional observer, timer or synchronous focus-time disk write
+is introduced. Bounds callbacks carry `FrameworkTaskSnapshot`, so shell
+observation does not need application-storage keys or profile serial lookup.
+Unknown and unsupported task users cannot overwrite current-profile geometry
+or receive its DPI. Application details, shortcuts and force-stop resolve the
+explicit profile before dispatch; force-stop uses its resolved user id.
+
+The Desktop directory remains a single shared MagicDesk workspace, not a
+separate directory per application profile. File placement is path-based, while an Android application's profile is stored
+inside its Desktop Entry. This does not grant access to another profile's
+files or URIs. No Private Space permission or additional profile UI is declared
+by this foundation.
 
 ### Tasks and windows
 
@@ -2448,18 +2467,18 @@ Android version. It selects Android 15's `desktopmode moveToDesktop` or Android
 16's `desktopmode moveTaskToDesk` command when present, and otherwise uses the
 direct `WindowContainerTransaction` path.
 
-`AppWindowStateStore` keeps one stable record per package: the last explicit
+`AppWindowStateStore` keeps one stable record per `AppReference`: the last explicit
 Windowed or Fullscreen choice and, independently, the last confirmed freeform
 bounds. Auto launch honors an explicit choice first and otherwise retains the
 existing application-compatibility policy. The existing Shell task watcher
-emits an event only when the top visible freeform bounds for a package change;
+emits an event when a task\'s observed freeform bounds or identity change;
 `AppWindowStateTracker` converts that event to relative bounds and coalesces a
 completed move or resize into one state write. This adds no polling loop.
 Bounds are resolved against the active desktop work area when a task is
 launched, restored, or moved to another display.
 
 `AppPresentationProfileStore` independently keeps an optional interface-scale
-percentage per application package. An absent profile means System: the task
+percentage per profile-scoped `AppIdentity`. An absent profile means System: the task
 inherits its display density. A custom profile, including an explicit 100%, is
 resolved from the active display density when a task is launched, moved,
 restored, or changes window mode. The resulting exact task density is carried
@@ -2470,7 +2489,7 @@ so moving between windowed and fullscreen does not change application scale.
 `AppPresentationRuntimeController` applies profile edits to already running
 tasks and reconciles a newly observed task once. It consumes the existing
 typed 150 ms task snapshot and display context; it neither reads task state nor
-starts a timer of its own. Attempts are keyed by task, package, and resolved
+starts a timer of its own. Attempts are keyed by task, profile-scoped application, and resolved
 density, so an unsupported or rejected override cannot become a retry loop.
 Observer reconnection, a profile edit, or a display-density change creates a
 new bounded attempt. When a task leaves the desktop or the session closes,

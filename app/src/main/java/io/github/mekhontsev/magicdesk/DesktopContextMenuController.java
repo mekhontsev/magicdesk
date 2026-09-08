@@ -700,7 +700,7 @@ final class DesktopContextMenuController {
                 view -> showWindowMenu(state));
 
         if (BuiltInDesktopAppCatalog.isPinnable(state.app.launchTarget)) {
-            final boolean pinned = mActivity.getPinnedPackages()
+            final boolean pinned = mActivity.getPinnedApps()
                     .contains(state.app.packageName);
             addAction(
                     pinned ? R.string.action_unpin : R.string.action_pin,
@@ -745,7 +745,7 @@ final class DesktopContextMenuController {
                     DesktopUiFactory.COLOR_PANEL_ALT,
                     true,
                     view -> mActivity.openApplicationSettings(
-                            state.app.packageName));
+                            state.app.identity));
         }
         addAction(
                 R.string.action_app_info,

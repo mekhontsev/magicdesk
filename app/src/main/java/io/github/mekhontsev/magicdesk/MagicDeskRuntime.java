@@ -493,20 +493,20 @@ public final class MagicDeskRuntime {
     }
 
     static boolean applyAppPresentation(
-            final String packageName,
+            final AppIdentity application,
             final TaskRepository.ActionCallback callback) {
         final DesktopTaskRuntime tasks = desktopTasks();
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
         if (tasks == null || !session.hasHost()
-                || !PackageNameValidator.isSafe(packageName)) {
+                || application == null) {
             return false;
         }
         final int densityDpi =
                 DesktopTaskPresentationPolicy.resolveDensityDpi(
-                        packageName, session.activeDisplayId());
+                        application, session.activeDisplayId());
         return tasks.applyAppPresentation(
-                packageName, densityDpi, callback);
+                application, densityDpi, callback);
     }
 
     static void noteTaskLaunchFocus(
@@ -544,13 +544,13 @@ public final class MagicDeskRuntime {
         return tasks != null && tasks.makeTaskFullscreen(task, callback);
     }
 
-    static void forceStopPackage(
-            final String packageName,
+    static void forceStopApplication(
+            final AppIdentity application,
             final TaskRepository.ActionCallback callback) {
         final DesktopTaskRuntime tasks = desktopTasks();
         if (tasks == null
-                || !tasks.forceStopPackage(packageName, callback)) {
-            TaskRepository.forceStop(packageName, callback);
+                || !tasks.forceStopApplication(application, callback)) {
+            TaskRepository.forceStop(application, callback);
         }
     }
 

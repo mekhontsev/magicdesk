@@ -266,7 +266,7 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
     }
 
     @Override public List<AppItem> apps() { return mApps; }
-    @Override public List<String> recentApps() {
+    @Override public List<AppReference> recentApps() {
         final DesktopHomeRoleLease.State lease = activeLease();
         return lease == null ? Collections.emptyList()
                 : PhoneRecentApps.select(mRecentTasks, mApps, lease.previousHome.packageName);

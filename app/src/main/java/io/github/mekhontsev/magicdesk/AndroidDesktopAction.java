@@ -10,6 +10,7 @@ final class AndroidDesktopAction {
         SHORTCUT
     }
 
+    final AppIdentity application;
     final Kind kind;
     final String id;
     final String source;
@@ -19,6 +20,7 @@ final class AndroidDesktopAction {
     final DesktopLaunchPresentation presentation;
 
     private AndroidDesktopAction(
+            final AppIdentity application,
             final Kind kind,
             final String id,
             final String source,
@@ -32,6 +34,7 @@ final class AndroidDesktopAction {
                 || (kind == Kind.SHORTCUT) != (shortcut != null)) {
             throw new IllegalArgumentException("invalid Android action payload");
         }
+        this.application = application;
         this.kind = kind;
         this.id = clean(id, "android-action");
         this.source = clean(source, "application");
@@ -50,7 +53,7 @@ final class AndroidDesktopAction {
             throw new IllegalArgumentException("Android request is required");
         }
         return new AndroidDesktopAction(
-                Kind.REQUEST,
+                null, Kind.REQUEST,
                 id,
                 source,
                 request,
@@ -68,7 +71,7 @@ final class AndroidDesktopAction {
             throw new IllegalArgumentException("PendingIntent is required");
         }
         return new AndroidDesktopAction(
-                Kind.PENDING_INTENT,
+                null, Kind.PENDING_INTENT,
                 id,
                 source,
                 null,
@@ -86,13 +89,18 @@ final class AndroidDesktopAction {
             throw new IllegalArgumentException("Android shortcut is required");
         }
         return new AndroidDesktopAction(
-                Kind.SHORTCUT,
+                null, Kind.SHORTCUT,
                 id,
                 source,
                 null,
                 null,
                 shortcut,
                 presentation);
+    }
+
+    AndroidDesktopAction forApplication(final AppIdentity application) {
+        return new AndroidDesktopAction(java.util.Objects.requireNonNull(application), kind,
+                id, source, request, pendingIntent, shortcut, presentation);
     }
 
     private static String clean(final String value, final String fallback) {

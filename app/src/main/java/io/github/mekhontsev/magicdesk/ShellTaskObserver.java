@@ -276,23 +276,11 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     }
 
                     @Override
-                    public void onFreeformBoundsChanged(
-                            final int taskId,
-                            final String stateKey,
-                            final int displayId,
-                            final Rect bounds) {
-                        if (!mDesktopOwnership.isRememberedDesktopTask(
-                                taskId)) {
+                    public void onFreeformBoundsChanged(final FrameworkTaskSnapshot task) {
+                        if (!mDesktopOwnership.isRememberedDesktopTask(task.taskId)) {
                             return;
                         }
-                        callCallback(() -> mCallback.onFreeformBoundsChanged(
-                                taskId,
-                                stateKey,
-                                displayId,
-                                bounds.left,
-                                bounds.top,
-                                bounds.right,
-                                bounds.bottom));
+                        callCallback(() -> mCallback.onFreeformBoundsChanged(task));
                     }
 
                     @Override

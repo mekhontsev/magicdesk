@@ -74,7 +74,7 @@ public final class FrameworkTaskObservationSourceTest {
         assertTrue(bounds.containsKey(Integer.valueOf(10)));
         assertTrue(bounds.containsKey(Integer.valueOf(11)));
         assertEquals("example.app",
-                bounds.get(Integer.valueOf(10)).stateKey);
+                bounds.get(Integer.valueOf(10)).task.packageName);
     }
 
     @Test
@@ -89,7 +89,7 @@ public final class FrameworkTaskObservationSourceTest {
                         Collections.singletonList(task));
 
         assertTrue(bounds.containsKey(Integer.valueOf(10)));
-        assertEquals("", bounds.get(Integer.valueOf(10)).stateKey);
+        assertEquals(task, bounds.get(Integer.valueOf(10)).task);
     }
 
     @Test

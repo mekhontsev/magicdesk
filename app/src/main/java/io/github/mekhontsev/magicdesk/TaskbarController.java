@@ -383,14 +383,14 @@ final class TaskbarController {
         final List<TaskbarOverflowController.Entry> items = new ArrayList<>();
         final List<AppItem> availableApps = apps == null
                 ? new ArrayList<>() : apps;
-        final List<String> pinnedPackages = mActivity.getPinnedPackages();
+        final List<AppReference> pinnedApps = mActivity.getPinnedApps();
         final Set<Integer> renderedTaskIds = new HashSet<>();
         final List<TaskRepository.TaskEntry> orderedTasks =
                 getOrderedTaskbarTasks();
 
-        for (final String packageName : pinnedPackages) {
+        for (final AppReference reference : pinnedApps) {
             final AppItem app = LauncherAppRepository.find(
-                    availableApps, packageName);
+                    availableApps, reference);
             if (app == null) {
                 continue;
             }
@@ -420,20 +420,20 @@ final class TaskbarController {
         return items;
     }
 
-    List<String> getPinnedPackages() {
-        return DesktopPreferences.taskbarPackages();
+    List<AppReference> getPinnedApps() {
+        return DesktopPreferences.taskbarApps();
     }
 
     void togglePinned(final AppItem app) {
-        final List<String> pinned = getPinnedPackages();
+        final List<AppReference> pinned = getPinnedApps();
         final boolean nowPinned;
-        if (pinned.remove(app.packageName)) {
+        if (pinned.remove(app.reference)) {
             nowPinned = false;
         } else {
-            pinned.add(app.packageName);
+            pinned.add(app.reference);
             nowPinned = true;
         }
-        DesktopPreferences.saveTaskbarPackages(pinned);
+        DesktopPreferences.saveTaskbarApps(pinned);
         renderPins(mActivity.getLauncherApps());
         mActivity.renderStartMenuContent();
         mActivity.setStatus(mActivity.getString(

@@ -52,7 +52,7 @@ interface DesktopTaskRuntime {
             int existingTaskId) throws IOException;
 
     boolean applyAppPresentation(
-            String packageName,
+            AppIdentity application,
             int densityDpi,
             TaskRepository.ActionCallback callback);
 
@@ -69,8 +69,8 @@ interface DesktopTaskRuntime {
             TaskRepository.TaskEntry task,
             TaskRepository.ActionCallback callback);
 
-    boolean forceStopPackage(
-            String packageName,
+    boolean forceStopApplication(
+            AppIdentity application,
             TaskRepository.ActionCallback callback);
 
     List<TaskRepository.TaskEntry> getVisibleFreeformTasks(int displayId);

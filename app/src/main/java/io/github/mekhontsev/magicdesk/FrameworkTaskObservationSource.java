@@ -39,10 +39,7 @@ final class FrameworkTaskObservationSource implements Closeable {
                 int previousCaptionSourceId,
                 boolean focused);
         void onFreeformBoundsChanged(
-                int taskId,
-                String stateKey,
-                int displayId,
-                Rect bounds);
+                FrameworkTaskSnapshot task);
         void onError(String error);
     }
 
@@ -485,12 +482,8 @@ final class FrameworkTaskObservationSource implements Closeable {
                             && !state.packageName.equals(state.topPackage))) {
                 continue;
             }
-            final String stateKey = BuiltInDesktopAppCatalog.appIdentityKey(
-                    state.packageName,
-                    state.rootComponent == null
-                            ? null
-                            : state.rootComponent.flattenToString());
-            if (!AppWindowStateStore.isSafeStateKey(stateKey)) {
+            if (!BuiltInDesktopAppCatalog.isUserApplication(state.packageName,
+                    state.rootComponent == null ? null : state.rootComponent.flattenToString())) {
                 continue;
             }
             final Integer taskKey = Integer.valueOf(state.taskId);
@@ -590,10 +583,7 @@ final class FrameworkTaskObservationSource implements Closeable {
         }
         for (final FreeformBoundsEvent event : boundsChanges) {
             mPublications.executeIfCurrent(configuration, () -> mListener.onFreeformBoundsChanged(
-                    event.taskId,
-                    event.state.stateKey,
-                    displayId,
-                    event.state.bounds));
+                    event.state.task));
         }
         for (final WindowingModeEvent event : modeChanges) {
             mPublications.executeIfCurrent(configuration, () -> mListener.onWindowingModeChanged(
@@ -622,27 +612,19 @@ final class FrameworkTaskObservationSource implements Closeable {
                     || !PackageNameValidator.isSafe(state.packageName)) {
                 continue;
             }
-            final String stateKey = BuiltInDesktopAppCatalog.appIdentityKey(
-                    state.packageName,
-                    state.rootComponent == null
-                            ? null
+            final boolean application = BuiltInDesktopAppCatalog.isUserApplication(
+                    state.packageName, state.rootComponent == null ? null
                             : state.rootComponent.flattenToString());
             final boolean fixture = DesktopSelfTestComponents
                     .isFixtureComponent(state.componentName)
                     || DesktopSelfTestComponents
                             .isFixtureComponent(state.topActivityName);
-            if (!AppWindowStateStore.isSafeStateKey(stateKey) && !fixture) {
+            if (!application && !fixture) {
                 continue;
             }
-            final boolean persistable = AppWindowStateStore.isSafeStateKey(
-                    stateKey)
-                    && (state.topPackage == null
-                            || state.packageName.equals(state.topPackage));
             result.put(
                     Integer.valueOf(state.taskId),
-                    new FreeformBoundsState(
-                            persistable ? stateKey : "",
-                            state.bounds));
+                    new FreeformBoundsState(state));
         }
         return result;
     }
@@ -735,14 +717,10 @@ final class FrameworkTaskObservationSource implements Closeable {
     }
 
     static final class FreeformBoundsState {
-        final String stateKey;
-        final Rect bounds;
+        final FrameworkTaskSnapshot task;
 
-        FreeformBoundsState(
-                final String observedStateKey,
-                final Rect bounds) {
-            stateKey = observedStateKey;
-            this.bounds = new Rect(bounds);
+        FreeformBoundsState(final FrameworkTaskSnapshot task) {
+            this.task = task;
         }
 
         @Override
@@ -755,13 +733,17 @@ final class FrameworkTaskObservationSource implements Closeable {
             }
             final FreeformBoundsState state =
                     (FreeformBoundsState) other;
-            return stateKey.equals(state.stateKey)
-                    && bounds.equals(state.bounds);
+            return task.userId == state.task.userId
+                    && java.util.Objects.equals(task.packageName, state.task.packageName)
+                    && java.util.Objects.equals(task.rootComponent, state.task.rootComponent)
+                    && java.util.Objects.equals(task.topPackage, state.task.topPackage)
+                    && task.bounds.equals(state.task.bounds);
         }
 
         @Override
         public int hashCode() {
-            return 31 * stateKey.hashCode() + bounds.hashCode();
+            return java.util.Objects.hash(task.userId, task.packageName,
+                    task.rootComponent, task.topPackage, task.bounds);
         }
     }
 

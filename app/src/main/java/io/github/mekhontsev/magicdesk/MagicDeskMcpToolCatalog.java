@@ -71,9 +71,9 @@ final class MagicDeskMcpToolCatalog {
                         "Get application presentation",
                         "Read the saved interface scale and resolved task density for an Android application.",
                         objectSchema(new JSONObject().put(
-                                "package", stringProperty(
-                                        "Android package name.")),
-                                "package")))
+                                "appIdentity", stringProperty(
+                                        "Profile-scoped identity returned by list_apps.")),
+                                "appIdentity")))
                 .put(readTool(
                         "list_ui_elements",
                         "List desktop UI elements",
@@ -128,8 +128,8 @@ final class MagicDeskMcpToolCatalog {
                         "Launch application",
                         "Launch an Android application through the native MagicDesk window pipeline.",
                         objectSchema(new JSONObject()
-                                        .put("package", stringProperty(
-                                                "Android package name."))
+                                        .put("appIdentity", stringProperty(
+                                                "Profile-scoped identity returned by list_apps."))
                                         .put("component", stringProperty(
                                                 "Optional flattened activity component."))
                                         .put("mode", enumProperty(
@@ -144,29 +144,29 @@ final class MagicDeskMcpToolCatalog {
                                                 "Active desktop display id."))
                                         .put("bounds", relativeBoundsProperty(
                                                 "Initial bounds within the desktop work area.")),
-                                "package")))
+                                "appIdentity")))
                 .put(actionTool(
                         "set_app_presentation",
                         "Set application presentation",
                         "Set an application interface scale and apply it to its live desktop tasks in one window transaction.",
                         objectSchema(new JSONObject()
-                                        .put("package", stringProperty(
-                                                "Android package name."))
+                                        .put("appIdentity", stringProperty(
+                                                "Profile-scoped identity returned by list_apps."))
                                         .put("scalePercent", integerRangeProperty(
                                                 "Interface scale from 50 to 200 percent.",
                                                 AppPresentationProfile
                                                         .MIN_SCALE_PERCENT,
                                                 AppPresentationProfile
                                                         .MAX_SCALE_PERCENT)),
-                                "package", "scalePercent")))
+                                "appIdentity", "scalePercent")))
                 .put(actionTool(
                         "reset_app_presentation",
                         "Reset application presentation",
                         "Restore Android's inherited display density for an application and its live desktop tasks.",
                         objectSchema(new JSONObject().put(
-                                "package", stringProperty(
-                                        "Android package name.")),
-                                "package")))
+                                "appIdentity", stringProperty(
+                                        "Profile-scoped identity returned by list_apps.")),
+                                "appIdentity")))
                 .put(actionTool(
                         "focus_task",
                         "Focus task",
@@ -404,9 +404,9 @@ final class MagicDeskMcpToolCatalog {
                         "Force stop application",
                         "Force-stop an Android package. Developer automation only.",
                         objectSchema(new JSONObject().put(
-                                "package", stringProperty(
-                                        "Android package name.")),
-                                "package")))
+                                "appIdentity", stringProperty(
+                                        "Profile-scoped identity returned by list_apps.")),
+                                "appIdentity")))
                 .put(actionTool(
                         "send_broadcast",
                         "Send Android broadcast",
@@ -755,15 +755,15 @@ final class MagicDeskMcpToolCatalog {
     private static JSONObject appTargetSchema(final boolean actionId)
             throws JSONException {
         final JSONObject properties = new JSONObject()
-                .put("package", stringProperty("Android package name."))
+                .put("appIdentity", stringProperty("Profile-scoped identity returned by list_apps."))
                 .put("component", stringProperty(
                         "Optional flattened activity component."));
         if (actionId) {
             properties.put("actionId", stringProperty(
                     "Action id returned by list_app_actions."));
-            return objectSchema(properties, "package", "actionId");
+            return objectSchema(properties, "appIdentity", "actionId");
         }
-        return objectSchema(properties, "package");
+        return objectSchema(properties, "appIdentity");
     }
 
     private static JSONObject intentSchema(final boolean includeKind)
@@ -913,8 +913,8 @@ final class MagicDeskMcpToolCatalog {
                                 "Allow multiple documents."))
                         .put("suggestedName", stringProperty(
                                 "Suggested created document name."))
-                        .put("package", stringProperty(
-                                "Package for app-details."))
+                        .put("appIdentity", stringProperty(
+                                "Profile-scoped application identity for app-details."))
                         .put("listenerComponent", stringProperty(
                                 "Notification listener component."))
                         .put("mode", enumProperty(
@@ -1133,6 +1133,7 @@ final class MagicDeskMcpToolCatalog {
             case "reset_app_presentation":
                 properties.put("package", stringProperty(
                                 "Android package name."))
+                        .put("appIdentity", stringProperty("Profile-scoped application identity."))
                         .put("mode", enumProperty(
                                 "Presentation profile mode.",
                                 "system", "custom"))
@@ -1207,6 +1208,7 @@ final class MagicDeskMcpToolCatalog {
                 break;
             case "list_app_actions":
                 properties.put("package", stringProperty("Package."))
+                        .put("appIdentity", stringProperty("Profile-scoped application identity."))
                         .put("actions", arrayProperty(
                                 "Available actions.",
                                 openObjectProperty("Application action.")));
@@ -1223,7 +1225,8 @@ final class MagicDeskMcpToolCatalog {
                                 openObjectProperty("Handler.")));
                 break;
             case "launch_app":
-                properties.put("package", stringProperty("Target package."));
+                properties.put("package", stringProperty("Target package."))
+                        .put("appIdentity", stringProperty("Profile-scoped application identity."));
                 taskLaunchResultProperties(properties);
                 break;
             case "launch_intent":

@@ -203,7 +203,7 @@ Normal commands include:
 
 Use `tools/list` as the authoritative command and argument catalog.
 
-`magicdesk.set_app_presentation` accepts an Android package and a scale from
+`magicdesk.set_app_presentation` accepts an `appIdentity` from `list_apps` and a scale from
 50 through 200 percent. The percentage is display-independent; MagicDesk
 resolves it against the active target's density on every launch or move.
 `magicdesk.reset_app_presentation` restores System mode (`densityDpi=0`,
@@ -313,7 +313,13 @@ require Termux, Termux:X11, the Termux external-command setting, and the
 Task rows include the actual Android `userId` (`-1` when unavailable).
 `list_apps` remains scoped to the current profile and includes `userId`,
 `profileSerialNumber`, and the durable `appIdentity` key on each row. These
-are identity metadata, not a claim that cross-profile launches are supported.
+are explicit identities, not a claim that cross-profile launches are supported.
+Application-specific tools (`launch_app`, `list_app_actions`,
+`invoke_app_action`, presentation get/set/reset, and `force_stop_app`) require
+`appIdentity`, not a bare package. The `app-details` action and Android
+App Function `launchApp` use the same parameter. A component, when supplied,
+must belong to that application. Unknown profiles fail before dispatch.
+Package filters and generic Intent routing retain their separate semantics.
 An Android Desktop Entry that explicitly references a different profile fails
 before execution instead of falling back to the current profile.
 

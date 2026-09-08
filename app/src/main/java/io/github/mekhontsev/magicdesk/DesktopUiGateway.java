@@ -393,12 +393,16 @@ final class DesktopUiGateway {
     }
 
     boolean launchApplication(
+            final AppIdentity application,
             final AppLaunchTarget target,
             final DesktopLaunchPresentation presentation,
             final int displayId) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
+                || application == null
+                || application.profileSerialNumber != activity.appProfile().serialNumber
                 || target == null
+                || !application.packageName.equals(target.packageName)
                 || presentation == null
                 || activity.getCurrentDisplayId() != displayId) {
             return false;
@@ -408,7 +412,7 @@ final class DesktopUiGateway {
         mMainHandler.post(() -> {
             if (isUsable(activity) && !activity.isActivityUnavailable()) {
                 final AppItem app = activity.findOrLoadApp(
-                        activity.getLauncherApps(), target);
+                        activity.getLauncherApps(), application, target);
                 if (app != null) {
                     activity.launchForPresentation(
                             app, presentation, null, null);
@@ -421,13 +425,17 @@ final class DesktopUiGateway {
     }
 
     DesktopActivityLaunchResult launchApplicationObserved(
+            final AppIdentity application,
             final AppLaunchTarget target,
             final DesktopLaunchPresentation presentation,
             final int displayId,
             final long timeoutMillis) {
         final DesktopShellActivity activity = usableDesktop(false);
         if (activity == null
+                || application == null
+                || application.profileSerialNumber != activity.appProfile().serialNumber
                 || target == null
+                || !application.packageName.equals(target.packageName)
                 || presentation == null
                 || activity.getCurrentDisplayId() != displayId) {
             return DesktopActivityLaunchResult.failed(
@@ -447,7 +455,7 @@ final class DesktopUiGateway {
                 return;
             }
             final AppItem app = activity.findOrLoadApp(
-                    activity.getLauncherApps(), target);
+                    activity.getLauncherApps(), application, target);
             if (app == null) {
                 completion.onComplete(DesktopActivityLaunchResult.failed(
                         "application launcher is unavailable"));
@@ -463,6 +471,7 @@ final class DesktopUiGateway {
     }
 
     DesktopActivityLaunchResult invokeAppActionObserved(
+            final AppIdentity application,
             final AppLaunchTarget target,
             final String actionId,
             final DesktopLaunchPresentation presentation,
@@ -474,7 +483,10 @@ final class DesktopUiGateway {
             return DesktopActivityLaunchResult.failed(error.getMessage());
         }
         final DesktopShellActivity activity = usableDesktop(false);
-        if (activity == null || target == null
+        if (activity == null || application == null
+                || application.profileSerialNumber != activity.appProfile().serialNumber
+                || target == null
+                || !application.packageName.equals(target.packageName)
                 || actionId == null || actionId.isEmpty()
                 || activity.getCurrentDisplayId() != displayId) {
             return DesktopActivityLaunchResult.failed(
@@ -486,7 +498,7 @@ final class DesktopUiGateway {
         }
         final List<AppShortcutAction> shortcuts;
         try {
-            shortcuts = new AppShortcutRepository(activity).loadAll(target);
+            shortcuts = new AppShortcutRepository(activity).loadAll(application, target);
         } catch (RuntimeException error) {
             Log.w(TAG, "Cannot load published application shortcuts", error);
             return DesktopActivityLaunchResult.failed(ShellAccess.usefulMessage(error));
@@ -501,7 +513,7 @@ final class DesktopUiGateway {
                 return;
             }
             final AppItem app = activity.findOrLoadApp(
-                    activity.getLauncherApps(), target);
+                    activity.getLauncherApps(), application, target);
             if (app == null) {
                 completion.onComplete(DesktopActivityLaunchResult.failed(
                         "application launcher is unavailable"));
@@ -703,13 +715,13 @@ final class DesktopUiGateway {
         return true;
     }
 
-    boolean openApplicationSettings(final String packageName) {
+    boolean openApplicationSettings(final AppIdentity application) {
         final DesktopShellActivity activity = usableDesktop(true);
         if (activity == null) {
             return false;
         }
         activity.runOnUiThread(() ->
-                activity.openApplicationSettings(packageName));
+                activity.openApplicationSettings(application));
         return true;
     }
 

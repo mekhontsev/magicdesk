@@ -35,10 +35,11 @@ public final class AppPresentationScaleInputTest {
                     void setProgress(int value) { progress = value; onProgressChanged(this, value, false); }
                 }
                 static class Mode { boolean isChecked() { return true; } }
-                class Actions { void setCustomScale(String name, int scale) { check(name.equals("example.app"), "wrong package"); saved.add(scale); } }
+                class Actions { void setCustomScale(AppIdentity app, int scale) { check(app.equals(new AppIdentity(0, "example.app")), "wrong package"); saved.add(scale); } }
                 final SeekBar slider = new SeekBar(); final Mode mCustomMode = new Mode();
                 final Actions mActions = new Actions(); final List<Integer> saved = new ArrayList<>();
-                String mPackageName = "example.app";
+                record AppIdentity(long serial, String name) {}
+                AppIdentity mApplication = new AppIdentity(0, "example.app");
                 boolean mRendering, mTrackingScaleTouch, mEnabled = true;
                 static final int SCALE_STEP = 5;
                 void updateScaleValue(int scale) {}

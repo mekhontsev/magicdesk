@@ -12,9 +12,9 @@ final class AppWindowStateTracker {
 
     private final Handler mHandler;
     private final Runnable mFlush = this::flush;
-    private final Map<String, RelativeWindowBounds> mLastObserved =
+    private final Map<AppReference, RelativeWindowBounds> mLastObserved =
             new LinkedHashMap<>();
-    private final Map<String, RelativeWindowBounds> mPending =
+    private final Map<AppReference, RelativeWindowBounds> mPending =
             new LinkedHashMap<>();
 
     AppWindowStateTracker(final Handler handler) {
@@ -22,12 +22,12 @@ final class AppWindowStateTracker {
     }
 
     void observe(
-            final String stateKey,
+            final AppReference stateKey,
             final int displayId,
             final Rect bounds,
             final Rect workArea,
             final Rect fullscreenBounds) {
-        if (!AppWindowStateStore.isSafeStateKey(stateKey)
+        if (stateKey == null
                 || displayId < 0
                 || bounds == null || bounds.isEmpty()
                 || bounds.equals(fullscreenBounds)
@@ -56,13 +56,13 @@ final class AppWindowStateTracker {
         if (mPending.isEmpty()) {
             return;
         }
-        final Map<String, RelativeWindowBounds> pending =
+        final Map<AppReference, RelativeWindowBounds> pending =
                 new LinkedHashMap<>(mPending);
         mPending.clear();
         if (AppWindowStateStore.rememberWindowBounds(pending)) {
             return;
         }
-        for (final String stateKey : pending.keySet()) {
+        for (final AppReference stateKey : pending.keySet()) {
             mLastObserved.remove(stateKey);
         }
     }

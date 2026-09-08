@@ -1039,8 +1039,8 @@ public abstract class DesktopShellActivity extends Activity
             return;
         }
 
-        final AppItem app = LauncherAppRepository.find(
-                mLastApps, resolved.activityInfo.packageName);
+        final AppItem app = LauncherAppRepository.findApplication(
+                mLastApps, appProfile().application(resolved.activityInfo.packageName));
         hideAllPanels();
         if (app != null) {
             launchFloating(app);
@@ -1158,7 +1158,7 @@ public abstract class DesktopShellActivity extends Activity
     void chooseDesktopWallpaper() {
         hideAllPanels();
         final AppItem files = findOrLoadApp(
-                mLastApps, FileManagerActivity.launchTarget(this));
+                mLastApps, appProfile().application(getPackageName()), FileManagerActivity.launchTarget(this));
         if (files == null) {
             setErrorStatus(
                     "FILES-003",
@@ -1549,9 +1549,13 @@ public abstract class DesktopShellActivity extends Activity
                         && DesktopSelfTestComponents.isFixtureTask(task));
     }
 
-    AppItem findOrLoadApp(final List<AppItem> apps, final String packageName) {
+    AppProfile appProfile() {
+        return mLauncherApps.profile();
+    }
+
+    AppItem findOrLoadApp(final List<AppItem> apps, final AppIdentity application) {
         return mLauncherApps.findOrLoad(
-                apps, packageName, isUniversalFreeformEnabled());
+                apps, application, isUniversalFreeformEnabled());
     }
 
     AppItem findOrLoadApp(
@@ -1565,20 +1569,22 @@ public abstract class DesktopShellActivity extends Activity
         return builtIn != null
                 ? mLauncherApps.findOrLoad(
                         apps,
+                        appProfile().application(task),
                         builtIn.launchTarget,
                         isUniversalFreeformEnabled())
-                : findOrLoadApp(apps, task.packageName);
+                : findOrLoadApp(apps, appProfile().application(task));
     }
 
     AppItem findOrLoadApp(
             final List<AppItem> apps,
+            final AppIdentity application,
             final AppLaunchTarget target) {
         return mLauncherApps.findOrLoad(
-                apps, target, isUniversalFreeformEnabled());
+                apps, application, target, isUniversalFreeformEnabled());
     }
 
-    List<String> getPinnedPackages() {
-        return mTaskbarController.getPinnedPackages();
+    List<AppReference> getPinnedApps() {
+        return mTaskbarController.getPinnedApps();
     }
 
     void togglePinned(final AppItem app) {
@@ -1716,8 +1722,8 @@ public abstract class DesktopShellActivity extends Activity
         mSystemActions.openSettings();
     }
 
-    void openApplicationSettings(final String packageName) {
-        mSystemActions.openApplicationSettings(packageName);
+    void openApplicationSettings(final AppIdentity application) {
+        mSystemActions.openApplicationSettings(application);
     }
 
     void openFiles() {

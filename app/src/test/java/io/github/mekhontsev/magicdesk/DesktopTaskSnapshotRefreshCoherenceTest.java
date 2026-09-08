@@ -116,6 +116,7 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                     boolean isActivityUnavailable() { return unavailable; }
                     void runOnUiThread(Runnable action) { action.run(); }
                     void updateDesktopControls() { updates++; }
+                    AppProfile appProfile() { return new AppProfile(); }
                     Object getLauncherApps() { return null; }
                     void renderTaskbarPins(Object apps) {}
                     boolean isTaskbarVisible() { return visible; }
@@ -126,8 +127,9 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                 static class DesktopTaskController { static boolean isDesktopHostTask(TaskRepository.TaskEntry task) { return false; } }
                 static class DesktopInfrastructureTasks { static boolean isTask(TaskRepository.TaskEntry task) { return false; } }
                 static class DesktopManagedTaskPolicy { static boolean isControllableApplicationTask(TaskRepository.TaskEntry task) { return true; } }
-                static class DesktopPreferences { static void recordRecentApp(Activity activity, String key) {} }
-                static class BuiltInDesktopAppCatalog { static String appIdentityKey(TaskRepository.TaskEntry task) { return "fixture"; } }
+                static class DesktopPreferences { static void recordRecentApp(Activity activity, AppReference key) {} }
+                record AppReference(String key) {}
+                static class AppProfile { AppReference reference(Object task) { return new AppReference("0|fixture"); } }
                 static boolean isTaskbarTask(TaskRepository.TaskEntry task) { return true; }
                 final Activity mActivity = new Activity();
                 final DesktopTaskbarDialogHold mSystemDialogHold = new DesktopTaskbarDialogHold();

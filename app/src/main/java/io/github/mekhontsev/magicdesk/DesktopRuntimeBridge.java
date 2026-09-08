@@ -141,33 +141,36 @@ public final class DesktopRuntimeBridge {
     }
 
     static boolean launchApplication(
+            final AppIdentity application,
             final AppLaunchTarget target,
             final DesktopLaunchPresentation presentation,
             final int displayId) {
         return UI.launchApplication(
-                target, presentation, displayId);
+                application, target, presentation, displayId);
     }
 
     static DesktopActivityLaunchResult launchApplicationObserved(
+            final AppIdentity application,
             final AppLaunchTarget target,
             final DesktopLaunchPresentation presentation,
             final int displayId,
             final long timeoutMillis) {
         return UI.launchApplicationObserved(
-                target,
+                application, target,
                 presentation,
                 displayId,
                 timeoutMillis);
     }
 
     static DesktopActivityLaunchResult invokeAppActionObserved(
+            final AppIdentity application,
             final AppLaunchTarget target,
             final String actionId,
             final DesktopLaunchPresentation presentation,
             final int displayId,
             final long timeoutMillis) {
         return UI.invokeAppActionObserved(
-                target,
+                application, target,
                 actionId,
                 presentation,
                 displayId,
@@ -250,8 +253,8 @@ public final class DesktopRuntimeBridge {
         return UI.openSettings();
     }
 
-    static boolean openApplicationSettings(final String packageName) {
-        return UI.openApplicationSettings(packageName);
+    static boolean openApplicationSettings(final AppIdentity application) {
+        return UI.openApplicationSettings(application);
     }
 
     static boolean openBuiltin(final String builtin) {

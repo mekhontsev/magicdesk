@@ -13,11 +13,11 @@ final class PhoneRecentApps {
     private PhoneRecentApps() {
     }
 
-    static List<String> select(
+    static List<AppReference> select(
             final List<TaskRepository.TaskEntry> tasks,
             final List<AppItem> apps,
             final String previousHomePackage) {
-        final Set<String> keys = new LinkedHashSet<>();
+        final Set<AppReference> keys = new LinkedHashSet<>();
         final Set<Integer> roots = new HashSet<>();
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task == null
@@ -30,12 +30,12 @@ final class PhoneRecentApps {
                     || !roots.add(task.rootTaskId)) {
                 continue;
             }
-            final String key = BuiltInDesktopAppCatalog.appIdentityKey(task);
-            // The catalog excludes shell surfaces and activities that have no
-            // launcher entry, while retaining distinct built-in applications.
-            final AppItem app = LauncherAppRepository.findByIdentityKey(apps, key);
-            if (app != null && app.profile.owns(task.userId)) {
-                keys.add(key);
+            // Catalog membership retains profile and built-in identity together.
+            for (final AppItem app : apps) {
+                if (app.matchesTask(task) && app.reference != null) {
+                    keys.add(app.reference);
+                    break;
+                }
             }
         }
         return new ArrayList<>(keys);

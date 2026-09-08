@@ -162,13 +162,13 @@ final class DesktopSystemActionsController {
         }
     }
 
-    void openApplicationSettings(final String packageName) {
+    void openApplicationSettings(final AppIdentity application) {
         mActivity.hideAllPanels();
         try {
-            final Intent intent = packageName == null
+            final Intent intent = application == null
                     ? AppPresentationSettingsActivity.createIntent(mActivity)
                     : AppPresentationSettingsActivity.createIntent(
-                            mActivity, packageName);
+                            mActivity, application);
             mActivity.launchInternalWindow(
                     intent,
                     AppPresentationSettingsActivity.launchTarget(),

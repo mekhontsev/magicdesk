@@ -81,12 +81,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private Set<Integer> mShowDesktopNewlyConcealedTaskIds =
             Collections.emptySet();
 
+    private final AppProfile mAppProfile;
+
     DesktopTaskController(
             final Context context,
             final Handler handler,
             final Runnable taskStackChanged,
             final SnapshotListener snapshotListener) {
         mApplicationContext = context.getApplicationContext();
+        mAppProfile = AppProfile.current(context);
         mHandler = handler;
         mWorkspaceQueue = new DesktopWorkspaceQueue(handler::post);
         mTaskStackChanged = taskStackChanged;
@@ -131,6 +134,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
                 });
         mWindowTransitions = new DesktopWindowTransitionController(
+                mAppProfile,
                 mHandler,
                 mNativeWindowBounds,
                 mDisplayTaskState,
@@ -297,14 +301,14 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     @Override
                     public void onFreeformBoundsChanged(
                             final int generation,
-                            final int taskId,
-                            final String stateKey,
-                            final int displayId,
-                            final Rect bounds) {
+                            final FrameworkTaskSnapshot task) {
+                        final int displayId = task.displayId;
+                        final Rect bounds = task.bounds;
+                        final AppReference stateKey = mAppProfile.reference(task);
                         if (!mRunning || displayId != mDisplayId) {
                             return;
                         }
-                        if (AppWindowStateStore.isSafeStateKey(stateKey)
+                        if (stateKey != null
                                 && !mNativeWindowBounds
                                         .isNativeCaptionSnapOutsideWorkArea(
                                                 bounds)) {
@@ -427,6 +431,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                     }
                 });
         mAppPresentations = new AppPresentationRuntimeController(
+                mAppProfile,
                 (taskIds, densityDpi, callback) ->
                         mTaskWatcher.setDesktopTaskDensity(
                                 mDisplayId,
@@ -687,24 +692,24 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
-    public boolean forceStopPackage(
-            final String packageName,
+    public boolean forceStopApplication(
+            final AppIdentity application,
             final TaskRepository.ActionCallback callback) {
-        if (!PackageNameValidator.isSafe(packageName)
-                || MAGICDESK_PACKAGE.equals(packageName)
+        if (application == null
+                || MAGICDESK_PACKAGE.equals(application.packageName)
                 || !mRunning
                 || !mTaskWatcherReady) {
             return false;
         }
         final List<TaskRepository.TaskEntry> visibleTasks =
                 mDisplayTaskState.visibleTasks();
-        if (!containsPackageTask(visibleTasks, packageName)) {
+        if (!visibleTasks.stream().anyMatch(task -> application.equals(mAppProfile.application(task)))) {
             return false;
         }
         final int displayId = mDisplayId;
         final int generation = mGeneration;
         mHandler.post(() -> {
-            TaskRepository.forceStop(packageName, result -> {
+            TaskRepository.forceStop(application, result -> {
                 if (mRunning
                         && generation == mGeneration
                         && displayId == mDisplayId) {
@@ -804,20 +809,6 @@ final class DesktopTaskController implements DesktopTaskRuntime {
             }
         }
         return hostTaskId;
-    }
-
-    private static boolean containsPackageTask(
-            final List<TaskRepository.TaskEntry> visibleTasks,
-            final String packageName) {
-        if (visibleTasks == null) {
-            return false;
-        }
-        for (final TaskRepository.TaskEntry task : visibleTasks) {
-            if (task != null && packageName.equals(task.packageName)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     static List<TaskRepository.TaskEntry> selectVisibleFreeformTasks(
@@ -1978,15 +1969,15 @@ final class DesktopTaskController implements DesktopTaskRuntime {
 
     @Override
     public boolean applyAppPresentation(
-            final String packageName,
+            final AppIdentity application,
             final int densityDpi,
             final TaskRepository.ActionCallback callback) {
         if (!mRunning || !mTaskWatcherReady
-                || !PackageNameValidator.isSafe(packageName)) {
+                || application == null) {
             return false;
         }
-        return mAppPresentations.applyStoredPackage(
-                packageName,
+        return mAppPresentations.applyStoredApplication(
+                application,
                 densityDpi,
                 mLatestTasks,
                 callback);

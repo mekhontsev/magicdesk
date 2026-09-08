@@ -68,11 +68,13 @@ final class DesktopNotificationMapper {
             }
         }
 
+        final int userId = FrameworkUserApi.userId(statusBarNotification.getUser());
         return new DesktopNotificationListenerService.Entry(
                 statusBarNotification.getKey(),
                 statusBarNotification.getPackageName(),
+                userId,
                 loadApplicationLabel(
-                        context, statusBarNotification.getPackageName()),
+                        context, userId, statusBarNotification.getPackageName()),
                 trimText(
                         extras.getCharSequence(Notification.EXTRA_TITLE), 160),
                 getNotificationText(extras),
@@ -92,8 +94,11 @@ final class DesktopNotificationMapper {
     }
 
     private static String loadApplicationLabel(
-            final Context context, final String packageName) {
+            final Context context, final int userId, final String packageName) {
         try {
+            if (!AppProfile.current(context).owns(userId)) {
+                return packageName;
+            }
             return context.getPackageManager()
                     .getApplicationInfo(packageName, 0)
                     .loadLabel(context.getPackageManager())

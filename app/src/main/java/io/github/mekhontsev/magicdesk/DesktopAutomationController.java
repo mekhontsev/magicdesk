@@ -177,7 +177,7 @@ final class DesktopAutomationController {
                     result = closeTask(requiredInt(args, "taskId"));
                     break;
                 case FORCE_STOP_APP:
-                    result = forceStopApp(requiredString(args, "package"));
+                    result = forceStopApp(AutomationJsonArguments.requiredApplication(mContext, args));
                     break;
                 case SET_WINDOW_MODE:
                     result = setRawWindowMode(args);
@@ -432,8 +432,9 @@ final class DesktopAutomationController {
 
     private DesktopAutomationResult launchApp(final JSONObject args)
             throws IOException, JSONException, InterruptedException {
-        final String packageName = requiredString(args, "package");
-        final AppLaunchTarget target = appTarget(args);
+        final AppIdentity application = AutomationJsonArguments.requiredApplication(mContext, args);
+        final String packageName = application.packageName;
+        final AppLaunchTarget target = AutomationJsonArguments.applicationTarget(application, args);
         final int activeDisplayId =
                 DesktopRuntimeBridge.getActiveDesktopDisplayId();
         final int displayId = args.has("displayId")
@@ -449,7 +450,7 @@ final class DesktopAutomationController {
                         args, DesktopTaskInstancePolicy.REUSE_EXISTING);
         final DesktopActivityLaunchResult result =
                 DesktopRuntimeBridge.launchApplicationObserved(
-                        target,
+                        application, target,
                         presentation,
                         displayId,
                         LAUNCH_OBSERVE_TIMEOUT_MILLIS);
@@ -470,7 +471,7 @@ final class DesktopAutomationController {
         final DesktopTaskLaunchObservation observation =
                 DesktopTaskLaunchObservation.await(
                         LaunchActivityIdentity.resolve(
-                                FrameworkUserApi.userId(android.os.Process.myUserHandle()),
+                                AppProfile.requireCurrent(mContext, application).userId,
                                 mContext.getPackageManager(), target),
                         presentation.mode,
                         displayId,
@@ -483,12 +484,14 @@ final class DesktopAutomationController {
                     true,
                     new JSONObject()
                             .put("package", packageName)
+                .put("appIdentity", application.persistentKey())
                             .put("displayId", displayId)
                             .put("taskId", result.taskId));
         }
         final TaskRepository.TaskEntry launchedTask = observation.task;
         final JSONObject data = new JSONObject()
                 .put("package", packageName)
+                .put("appIdentity", application.persistentKey())
                 .put("displayId", displayId)
                 .put("mode", presentation.mode.wireName)
                 .put("instance", presentation.instancePolicy.wireName)
@@ -516,9 +519,9 @@ final class DesktopAutomationController {
 
     private DesktopAutomationResult setAppPresentation(final JSONObject args)
             throws InterruptedException, JSONException {
-        final String packageName = requiredString(args, "package");
+        final AppIdentity application = AutomationJsonArguments.requiredApplication(mContext, args);
         final int scalePercent = requiredInt(args, "scalePercent");
-        AppPresentationProfileManager.requireUserApplication(packageName);
+        AppPresentationProfileManager.requireUserApplication(application);
         if (!AppPresentationProfile.isValidScale(scalePercent)) {
             throw new IllegalArgumentException(
                     "scalePercent must be between "
@@ -528,28 +531,28 @@ final class DesktopAutomationController {
         }
         final DesktopAutomationResult applied = awaitTaskAction(callback ->
                 AppPresentationProfileManager.setScale(
-                        packageName, scalePercent, callback));
-        return withAppPresentation(applied, packageName);
+                        application, scalePercent, callback));
+        return withAppPresentation(applied, application);
     }
 
     private DesktopAutomationResult resetAppPresentation(
             final JSONObject args) throws InterruptedException, JSONException {
-        final String packageName = requiredString(args, "package");
-        AppPresentationProfileManager.requireUserApplication(packageName);
+        final AppIdentity application = AutomationJsonArguments.requiredApplication(mContext, args);
+        AppPresentationProfileManager.requireUserApplication(application);
         final DesktopAutomationResult applied = awaitTaskAction(callback ->
-                AppPresentationProfileManager.reset(packageName, callback));
-        return withAppPresentation(applied, packageName);
+                AppPresentationProfileManager.reset(application, callback));
+        return withAppPresentation(applied, application);
     }
 
     private DesktopAutomationResult withAppPresentation(
             final DesktopAutomationResult result,
-            final String packageName) throws JSONException {
+            final AppIdentity application) throws JSONException {
         if (!result.success) {
             return result;
         }
         return DesktopAutomationResult.success(
                 result.message,
-                mState.appPresentation(packageName));
+                mState.appPresentation(application));
     }
 
     private DesktopAutomationResult launchDesktopEntry(final JSONObject args)
@@ -674,13 +677,13 @@ final class DesktopAutomationController {
                 MagicDeskRuntime.closeTask(task, callback));
     }
 
-    private DesktopAutomationResult forceStopApp(final String packageName)
+    private DesktopAutomationResult forceStopApp(final AppIdentity application)
             throws InterruptedException {
-        if (!PackageNameValidator.isSafe(packageName)) {
+        if (application == null) {
             throw new IllegalArgumentException("invalid package");
         }
         return awaitTaskAction(callback ->
-                MagicDeskRuntime.forceStopPackage(packageName, callback));
+                MagicDeskRuntime.forceStopApplication(application, callback));
     }
 
     private DesktopAutomationResult setRawWindowMode(final JSONObject args)
@@ -1562,22 +1565,6 @@ final class DesktopAutomationController {
         return bounds;
     }
 
-    private static AppLaunchTarget appTarget(final JSONObject args) {
-        final String packageName = requiredString(args, "package");
-        final String componentValue = optionalString(args, "component", "");
-        if (componentValue.isEmpty()) {
-            return AppLaunchTarget.packageDefault(packageName);
-        }
-        final ComponentName component = ComponentName.unflattenFromString(
-                componentValue);
-        if (component == null
-                || !packageName.equals(component.getPackageName())) {
-            throw new IllegalArgumentException(
-                    "component must belong to package");
-        }
-        return AppLaunchTarget.explicit(
-                packageName, component.getClassName(), Intent.ACTION_MAIN);
-    }
 
     private static String requiredString(
             final JSONObject object, final String key) {

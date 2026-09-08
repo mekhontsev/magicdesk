@@ -20,6 +20,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class DesktopStateStoreTest {
+    private static AppReference app(final String name) {
+        return new AppProfile(0, 0).reference(AppLaunchTarget.packageDefault(name));
+    }
+
     @After
     public void restoreStorage() {
         DesktopStateStore.useStorageForTests(null);
@@ -28,22 +32,22 @@ public final class DesktopStateStoreTest {
     @Test
     public void stateRoundTripPreservesDesktopConfiguration() throws Exception {
         final DesktopStateStore.State source = new DesktopStateStore.State();
-        source.taskbarPackages.add("example.application");
+        source.taskbarApps.add(app("example.application"));
         source.desktopPlacements.put(
                 "file:Example.desktop",
                 new GlobalDesktopPlacement(7500, 2500, 1, 2));
         source.appWindows.put(
-                "example.application",
+                app("example.application"),
                 new AppWindowState(
                         AppWindowState.Mode.FULLSCREEN,
                         new RelativeWindowBounds(8000, 1000, 4000, 6000)));
         source.appWindows.put(
-                "example.bounds",
+                app("example.bounds"),
                 new AppWindowState(
                         null,
                         new RelativeWindowBounds(1000, 2000, 3000, 4000)));
         source.appPresentations.put(
-                "example.application",
+                app("example.application").application,
                 new AppPresentationProfile(125));
         source.settings.taskbarAutoHide = true;
         source.settings.keepDesktopAwake = true;
@@ -65,7 +69,7 @@ public final class DesktopStateStoreTest {
         final DesktopStateStore.State decoded = DesktopStateStore.decode(
                 DesktopStateStore.encode(source));
 
-        assertEquals(source.taskbarPackages, decoded.taskbarPackages);
+        assertEquals(source.taskbarApps, decoded.taskbarApps);
         assertEquals(
                 new GlobalDesktopPlacement(7500, 2500, 1, 2),
                 decoded.desktopPlacements.get("file:Example.desktop"));
@@ -73,16 +77,16 @@ public final class DesktopStateStoreTest {
                 new AppWindowState(
                         AppWindowState.Mode.FULLSCREEN,
                         new RelativeWindowBounds(8000, 1000, 4000, 6000)),
-                decoded.appWindows.get("example.application"));
+                decoded.appWindows.get(app("example.application")));
         assertEquals(
                 new AppWindowState(
                         null,
                         new RelativeWindowBounds(1000, 2000, 3000, 4000)),
-                decoded.appWindows.get("example.bounds"));
+                decoded.appWindows.get(app("example.bounds")));
         assertEquals(
                 125,
                 decoded.appPresentations.get(
-                        "example.application").scalePercent);
+                        app("example.application").application).scalePercent);
         assertTrue(decoded.settings.taskbarAutoHide);
         assertTrue(decoded.settings.keepDesktopAwake);
         assertTrue(decoded.settings.disableAdaptiveBrightnessOnExternalDesktop);
@@ -127,7 +131,7 @@ public final class DesktopStateStoreTest {
                         + "\"displayProfiles\":{\"wrong-key\":{"
                         + "\"key\":\"display:primary\"}}}" );
 
-        assertTrue(decoded.taskbarPackages.isEmpty());
+        assertTrue(decoded.taskbarApps.isEmpty());
         assertTrue(decoded.desktopPlacements.isEmpty());
         assertTrue(decoded.appWindows.isEmpty());
         assertTrue(decoded.appPresentations.isEmpty());
@@ -161,7 +165,7 @@ public final class DesktopStateStoreTest {
                 try {
                     assertTrue(start.await(5L, TimeUnit.SECONDS));
                     assertTrue(DesktopStateStore.update(state ->
-                            state.taskbarPackages.add(packageName)));
+                            state.taskbarApps.add(app(packageName))));
                 } catch (Throwable error) {
                     failures.add(error);
                 } finally {
@@ -174,8 +178,8 @@ public final class DesktopStateStoreTest {
         assertTrue(complete.await(10L, TimeUnit.SECONDS));
 
         assertTrue(failures.toString(), failures.isEmpty());
-        final List<String> packages = DesktopStateStore.read(
-                state -> new ArrayList<>(state.taskbarPackages),
+        final List<AppReference> packages = DesktopStateStore.read(
+                state -> new ArrayList<>(state.taskbarApps),
                 Collections.emptyList());
         assertEquals(workerCount, packages.size());
     }
@@ -185,18 +189,18 @@ public final class DesktopStateStoreTest {
         final MemoryStorage storage = new MemoryStorage();
         DesktopStateStore.useStorageForTests(storage);
         assertTrue(DesktopStateStore.update(state ->
-                state.taskbarPackages.add("example.before")));
+                state.taskbarApps.add(app("example.before"))));
         storage.failWrites = true;
 
         assertFalse(DesktopStateStore.update(state -> {
-            state.taskbarPackages.clear();
-            state.taskbarPackages.add("example.after");
+            state.taskbarApps.clear();
+            state.taskbarApps.add(app("example.after"));
         }));
 
         assertEquals(
-                Collections.singletonList("example.before"),
+                Collections.singletonList(app("example.before")),
                 DesktopStateStore.read(
-                        state -> new ArrayList<>(state.taskbarPackages),
+                        state -> new ArrayList<>(state.taskbarApps),
                         Collections.emptyList()));
     }
 
@@ -230,7 +234,7 @@ public final class DesktopStateStoreTest {
             }
         });
         assertTrue(DesktopStateStore.update(state ->
-                state.taskbarPackages.add("example.before")));
+                state.taskbarApps.add(app("example.before"))));
         holdNextRead.set(true);
         final ExecutorService worker = Executors.newFixedThreadPool(2);
         final CountDownLatch updating = new CountDownLatch(1);
@@ -242,7 +246,7 @@ public final class DesktopStateStoreTest {
                 updating.countDown();
                 return DesktopStateStore.update(state -> {
                     mutated.countDown();
-                    state.taskbarPackages.add("example.after");
+                    state.taskbarApps.add(app("example.after"));
                 });
             });
             assertTrue(updating.await(2L, TimeUnit.SECONDS));
@@ -251,10 +255,10 @@ public final class DesktopStateStoreTest {
             assertFalse(reload.get(2L, TimeUnit.SECONDS));
             assertTrue(update.get(2L, TimeUnit.SECONDS));
 
-            final List<String> expected = List.of("example.before", "example.after");
+            final List<AppReference> expected = List.of(app("example.before"), app("example.after"));
             assertEquals(expected, DesktopStateStore.read(
-                    state -> state.taskbarPackages, List.of()));
-            assertEquals(expected, DesktopStateStore.decode(storage.read()).taskbarPackages);
+                    state -> state.taskbarApps, List.of()));
+            assertEquals(expected, DesktopStateStore.decode(storage.read()).taskbarApps);
         } finally {
             releaseRead.countDown();
             worker.shutdownNow();
@@ -266,33 +270,33 @@ public final class DesktopStateStoreTest {
     public void uncommittedMutationDoesNotChangePublishedState() {
         DesktopStateStore.useStorageForTests(new MemoryStorage());
         assertTrue(DesktopStateStore.update(state ->
-                state.taskbarPackages.add("example.before")));
+                state.taskbarApps.add(app("example.before"))));
 
         assertTrue(DesktopStateStore.update(state -> {
-            state.taskbarPackages.add("example.after");
-            assertEquals(List.of("example.before"), DesktopStateStore.read(
-                    published -> published.taskbarPackages, List.of()));
+            state.taskbarApps.add(app("example.after"));
+            assertEquals(List.of(app("example.before")), DesktopStateStore.read(
+                    published -> published.taskbarApps, List.of()));
         }));
-        assertEquals(List.of("example.before", "example.after"), DesktopStateStore.read(
-                state -> state.taskbarPackages, List.of()));
+        assertEquals(List.of(app("example.before"), app("example.after")), DesktopStateStore.read(
+                state -> state.taskbarApps, List.of()));
     }
 
     @Test
     public void failedMutationAndEncodingLeavePublishedStateUnchanged() {
         DesktopStateStore.useStorageForTests(new MemoryStorage());
         assertTrue(DesktopStateStore.update(state ->
-                state.taskbarPackages.add("example.before")));
+                state.taskbarApps.add(app("example.before"))));
 
         assertFalse(DesktopStateStore.update(state -> {
-            state.taskbarPackages.clear();
+            state.taskbarApps.clear();
             throw new IllegalArgumentException("invalid mutation");
         }));
         assertFalse(DesktopStateStore.update(state -> {
-            state.taskbarPackages.clear();
+            state.taskbarApps.clear();
             state.settings = null;
         }));
-        assertEquals(List.of("example.before"), DesktopStateStore.read(
-                state -> state.taskbarPackages, List.of()));
+        assertEquals(List.of(app("example.before")), DesktopStateStore.read(
+                state -> state.taskbarApps, List.of()));
     }
 
     @Test
@@ -300,17 +304,17 @@ public final class DesktopStateStoreTest {
         final MemoryStorage storage = new MemoryStorage();
         DesktopStateStore.useStorageForTests(storage);
         assertTrue(DesktopStateStore.update(state ->
-                state.taskbarPackages.add("example.before")));
+                state.taskbarApps.add(app("example.before"))));
         final DesktopStateStore.State external = new DesktopStateStore.State();
-        external.taskbarPackages.add("example.external");
+        external.taskbarApps.add(app("example.external"));
         storage.write(DesktopStateStore.encode(external));
 
         assertTrue(DesktopStateStore.reload());
         assertFalse(DesktopStateStore.reload());
         storage.write("{invalid");
         assertFalse(DesktopStateStore.reload());
-        assertEquals(List.of("example.external"), DesktopStateStore.read(
-                state -> state.taskbarPackages, List.of()));
+        assertEquals(List.of(app("example.external")), DesktopStateStore.read(
+                state -> state.taskbarApps, List.of()));
     }
 
     @Test
@@ -353,17 +357,17 @@ public final class DesktopStateStoreTest {
     public void readsCannotMutateStoredState() {
         DesktopStateStore.useStorageForTests(new MemoryStorage());
         assertTrue(DesktopStateStore.update(state ->
-                state.taskbarPackages.add("example.saved")));
+                state.taskbarApps.add(app("example.saved"))));
 
         DesktopStateStore.read(state -> {
-            state.taskbarPackages.clear();
+            state.taskbarApps.clear();
             return null;
         }, null);
 
         assertEquals(
-                Collections.singletonList("example.saved"),
+                Collections.singletonList(app("example.saved")),
                 DesktopStateStore.read(
-                        state -> new ArrayList<>(state.taskbarPackages),
+                        state -> new ArrayList<>(state.taskbarApps),
                         Collections.emptyList()));
     }
 

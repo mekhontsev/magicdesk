@@ -9,6 +9,29 @@ final class AutomationJsonArguments {
     private AutomationJsonArguments() {
     }
 
+    static AppIdentity requiredApplication(
+            final android.content.Context context, final JSONObject arguments) {
+        final AppIdentity application = AppIdentity.fromPersistentKey(
+                arguments == null ? null : arguments.optString("appIdentity", null));
+        AppProfile.requireCurrent(context, application);
+        return application;
+    }
+
+    static AppLaunchTarget applicationTarget(
+            final AppIdentity application, final JSONObject arguments) {
+        final String componentValue = arguments.optString("component", "").trim();
+        if (componentValue.isEmpty()) {
+            return AppLaunchTarget.packageDefault(application.packageName);
+        }
+        final android.content.ComponentName component =
+                android.content.ComponentName.unflattenFromString(componentValue);
+        if (component == null || !application.packageName.equals(component.getPackageName())) {
+            throw new IllegalArgumentException("component must belong to application");
+        }
+        return AppLaunchTarget.explicit(application.packageName, component.getClassName(),
+                android.content.Intent.ACTION_MAIN);
+    }
+
     static int requiredInt(final JSONObject object, final String key) {
         final long value = requiredLong(object, key);
         if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {

@@ -32,10 +32,12 @@ final class AppShortcutRepository {
     private static final int MAX_ACTIONS = 4;
     private static final int MAX_DISCOVERED_ACTIONS = 64;
 
+    private final AppProfile mProfile;
     private final PackageManager mPackageManager;
     private final int mDensityDpi;
 
     AppShortcutRepository(final Context context) {
+        mProfile = AppProfile.current(context);
         mPackageManager = context.getPackageManager();
         mDensityDpi = context.getResources()
                 .getDisplayMetrics().densityDpi;
@@ -45,17 +47,13 @@ final class AppShortcutRepository {
         if (app == null) {
             return java.util.Collections.emptyList();
         }
-        return load(app.launchTarget);
+        return trim(loadAll(app.identity, app.launchTarget), MAX_ACTIONS);
     }
 
-    List<AppShortcutAction> load(final AppLaunchTarget target) {
-        return target == null
-                ? java.util.Collections.emptyList()
-                : trim(loadAll(target), MAX_ACTIONS);
-    }
 
-    List<AppShortcutAction> loadAll(final AppLaunchTarget target) {
-        if (target == null) {
+    List<AppShortcutAction> loadAll(final AppIdentity application, final AppLaunchTarget target) {
+        application.requireProfile(mProfile);
+        if (target == null || !application.packageName.equals(target.packageName)) {
             return java.util.Collections.emptyList();
         }
         final List<ManifestShortcut> manifest = loadManifest(
@@ -81,6 +79,7 @@ final class AppShortcutRepository {
             for (final ShortcutInfo shortcut : shortcuts) {
                 if (actions.size() >= MAX_DISCOVERED_ACTIONS
                         || shortcut == null
+                        || !mProfile.owns(FrameworkUserApi.userId(shortcut.getUserHandle()))
                         || !shortcut.isEnabled()
                         || !ids.add(shortcut.getId())) {
                     continue;

@@ -10,6 +10,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 public final class AppPresentationProfileStoreTest {
+    private static final AppProfile PROFILE = new AppProfile(0, 0);
+    private static final AppIdentity APP = PROFILE.application("example.application");
+
     @Before
     public void setUp() {
         DesktopStateStore.useStorageForTests(
@@ -36,16 +39,16 @@ public final class AppPresentationProfileStoreTest {
     @Test
     public void customScaleRoundTripsAndResets() {
         assertTrue(AppPresentationProfileStore.setScale(
-                "example.application", 100));
+                APP, 100));
         assertEquals(
                 100,
                 AppPresentationProfileStore.load(
-                        "example.application").scalePercent);
+                        APP).scalePercent);
 
         assertTrue(AppPresentationProfileStore.reset(
-                "example.application"));
+                APP));
         assertNull(AppPresentationProfileStore.load(
-                "example.application"));
+                APP));
     }
 
     @Test
@@ -53,10 +56,10 @@ public final class AppPresentationProfileStoreTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> AppPresentationProfileStore.setScale(
-                        "example.application", 49));
+                        APP, 49));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> AppPresentationProfileStore.setScale(
-                        BuildConfig.APPLICATION_ID, 100));
+                        PROFILE.application(BuildConfig.APPLICATION_ID), 100));
     }
 }

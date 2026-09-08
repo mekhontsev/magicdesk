@@ -28,7 +28,7 @@ final class StartMenuContent {
         default List<DesktopApplicationRepository.Entry> desktopApplications() {
             return java.util.Collections.emptyList();
         }
-        List<String> recentApps();
+        List<AppReference> recentApps();
         default String recentAppsError() { return ""; }
         default void onSectionShown(int section) { }
         DesktopAutomationUiRegistry automation();
@@ -580,9 +580,9 @@ final class StartMenuContent {
             return result;
         }
         if (mMode == MENU_RECENT) {
-            for (final String appKey :
+            for (final AppReference appKey :
                     mHost.recentApps()) {
-                final AppItem app = LauncherAppRepository.findByIdentityKey(
+                final AppItem app = LauncherAppRepository.find(
                         launcherApps, appKey);
                 if (app != null) {
                     result.add(MenuApplication.android(app));
@@ -822,7 +822,8 @@ final class StartMenuContent {
 
         String identity() {
             return app != null
-                    ? BuiltInDesktopAppCatalog.appIdentityKey(app.launchTarget) : desktopApplication.desktopFilePath;
+                    ? (app.reference == null ? "" : app.reference.persistentKey())
+                    : desktopApplication.desktopFilePath;
         }
     }
 

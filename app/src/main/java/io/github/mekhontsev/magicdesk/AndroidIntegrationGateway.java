@@ -44,6 +44,9 @@ final class AndroidIntegrationGateway {
         if (action == null) {
             throw new IllegalArgumentException("Android action is required");
         }
+        if (action.application != null) {
+            AppProfile.requireCurrent(mContext, action.application);
+        }
         final DesktopAutomationResult result;
         if (action.kind == AndroidDesktopAction.Kind.SHORTCUT) {
             result = executeShortcut(action, displayId);
@@ -448,10 +451,11 @@ final class AndroidIntegrationGateway {
 
     DesktopAutomationResult listAppActions(final JSONObject args)
             throws JSONException {
-        final AppLaunchTarget target = appTarget(args);
+        final AppIdentity application = AutomationJsonArguments.requiredApplication(mContext, args);
+        final AppLaunchTarget target = AutomationJsonArguments.applicationTarget(application, args);
         final JSONArray actions = new JSONArray();
         for (final AppShortcutAction action
-                : new AppShortcutRepository(mContext).loadAll(target)) {
+                : new AppShortcutRepository(mContext).loadAll(application, target)) {
             actions.put(new JSONObject()
                     .put("id", action.id)
                     .put("label", action.label)
@@ -463,18 +467,20 @@ final class AndroidIntegrationGateway {
                 "application actions listed",
                 new JSONObject()
                         .put("package", target.packageName)
+                        .put("appIdentity", application.persistentKey())
                         .put("actions", actions));
     }
 
     DesktopAutomationResult invokeAppAction(final JSONObject args)
             throws IOException, JSONException {
-        final AppLaunchTarget target = appTarget(args);
+        final AppIdentity application = AutomationJsonArguments.requiredApplication(mContext, args);
+        final AppLaunchTarget target = AutomationJsonArguments.applicationTarget(application, args);
         final String actionId = requiredString(args, "actionId");
         return execute(
                 AndroidDesktopAction.shortcut(
                         "app-shortcut",
                         "mcp",
-                        new AndroidShortcutSpec(target, actionId),
+                        new AndroidShortcutSpec(application, target, actionId),
                         AndroidIntegrationRequest.parsePresentation(
                                 args, DesktopTaskInstancePolicy.REUSE_EXISTING)),
                 optionalDisplayId(args));
@@ -502,6 +508,7 @@ final class AndroidIntegrationGateway {
             entries.put(new JSONObject()
                     .put("key", entry.key)
                     .put("package", entry.packageName)
+                    .put("userId", entry.userId)
                     .put("appName", entry.appName)
                     .put("title", entry.title)
                     .put("text", entry.text)
@@ -722,8 +729,10 @@ final class AndroidIntegrationGateway {
                     "the requested display has no active desktop host");
         }
         final AndroidShortcutSpec shortcut = action.shortcut;
+        AppProfile.requireCurrent(mContext, shortcut.application);
         final DesktopActivityLaunchResult launch =
                 DesktopRuntimeBridge.invokeAppActionObserved(
+                        shortcut.application,
                         shortcut.publisher,
                         shortcut.shortcutId,
                         action.presentation,
@@ -1176,22 +1185,6 @@ final class AndroidIntegrationGateway {
         }
     }
 
-    private static AppLaunchTarget appTarget(final JSONObject args) {
-        final String packageName = requiredString(args, "package");
-        final String componentValue = optionalString(args, "component", "");
-        if (componentValue.isEmpty()) {
-            return AppLaunchTarget.packageDefault(packageName);
-        }
-        final ComponentName component = ComponentName.unflattenFromString(
-                componentValue);
-        if (component == null
-                || !packageName.equals(component.getPackageName())) {
-            throw new IllegalArgumentException(
-                    "component must belong to package");
-        }
-        return AppLaunchTarget.explicit(
-                packageName, component.getClassName(), Intent.ACTION_MAIN);
-    }
 
     static JSONObject optionalObject(final JSONObject args, final String name) {
         if (args == null || !args.has(name)) {

@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import io.github.mekhontsev.magicdesk.FrameworkTaskSnapshot;
+
 oneway interface ITaskObserverCallback {
     void onTasksChanged() = 1;
 
@@ -17,8 +19,7 @@ oneway interface ITaskObserverCallback {
     void onObserverError(String error) = 6;
 
     void onFreeformBoundsChanged(
-        int taskId, String stateKey, int displayId,
-        int left, int top, int right, int bottom) = 7;
+        in FrameworkTaskSnapshot task) = 7;
 
     void onInputFocusRefreshRequired(int focusedTaskId) = 8;
 

@@ -29,11 +29,11 @@ import java.util.Map;
 /** Flat desktop settings UI for per-application presentation profiles. */
 final class AppPresentationSettingsView {
     interface Actions {
-        void useSystemScale(String packageName);
+        void useSystemScale(AppIdentity application);
 
-        void setCustomScale(String packageName, int scalePercent);
+        void setCustomScale(AppIdentity application, int scalePercent);
 
-        void openProfile(String packageName);
+        void openProfile(AppIdentity application);
     }
 
     private static final int CONTENT_MAX_WIDTH_DP = 540;
@@ -49,7 +49,7 @@ final class AppPresentationSettingsView {
     private TextView mScaleValue;
     private Button mDecrease;
     private Button mIncrease;
-    private String mPackageName;
+    private AppIdentity mApplication;
     private boolean mRendering;
     private boolean mTrackingScaleTouch;
     private boolean mEnabled = true;
@@ -67,17 +67,19 @@ final class AppPresentationSettingsView {
         final LinearLayout content = pageContent(
                 R.string.app_presentation_profiles_title,
                 android.R.drawable.ic_menu_manage);
-        final Map<String, AppPresentationProfile> profiles =
+        final Map<AppIdentity, AppPresentationProfile> profiles =
                 AppPresentationProfileStore.loadAll();
         final List<ProfileRow> rows = new ArrayList<>();
-        for (final Map.Entry<String, AppPresentationProfile> entry
+        for (final Map.Entry<AppIdentity, AppPresentationProfile> entry
                 : profiles.entrySet()) {
-            rows.add(loadRow(entry.getKey(), entry.getValue()));
+            if (entry.getKey().profileSerialNumber == AppProfile.current(mActivity).serialNumber) {
+                rows.add(loadRow(entry.getKey(), entry.getValue()));
+            }
         }
         rows.sort(Comparator
                 .comparing((ProfileRow row) ->
                         row.label.toLowerCase(Locale.ROOT))
-                .thenComparing(row -> row.packageName));
+                .thenComparing(row -> row.application.persistentKey()));
         if (rows.isEmpty()) {
             final TextView empty = new TextView(mActivity);
             empty.setText(R.string.app_presentation_profiles_empty);
@@ -95,11 +97,11 @@ final class AppPresentationSettingsView {
         return wrapPage(content);
     }
 
-    View createDetail(final String packageName) {
-        AppPresentationProfileManager.requireUserApplication(packageName);
-        mPackageName = packageName;
+    View createDetail(final AppIdentity application) {
+        AppPresentationProfileManager.requireUserApplication(application);
+        mApplication = application;
         final ProfileRow app = loadRow(
-                packageName, AppPresentationProfileStore.load(packageName));
+                application, AppPresentationProfileStore.load(application));
         final LinearLayout content = pageContent(
                 R.string.app_presentation_title,
                 android.R.drawable.ic_menu_manage);
@@ -188,10 +190,10 @@ final class AppPresentationSettingsView {
                 return;
             }
             if (checkedId == mSystemMode.getId()) {
-                mActions.useSystemScale(mPackageName);
+                mActions.useSystemScale(mApplication);
             } else if (checkedId == mCustomMode.getId()) {
                 mActions.setCustomScale(
-                        mPackageName, mScaleSlider.getProgress());
+                        mApplication, mScaleSlider.getProgress());
             }
             updateEnabledState();
         });
@@ -207,7 +209,7 @@ final class AppPresentationSettingsView {
     private void persistScale(final int scale) {
         if (mEnabled && !mRendering && mCustomMode != null
                 && mCustomMode.isChecked()) {
-            mActions.setCustomScale(mPackageName, scale);
+            mActions.setCustomScale(mApplication, scale);
         }
     }
 
@@ -235,7 +237,7 @@ final class AppPresentationSettingsView {
         }
         final int scale = snapScale(mScaleSlider.getProgress() + delta);
         mScaleSlider.setProgress(scale);
-        mActions.setCustomScale(mPackageName, scale);
+        mActions.setCustomScale(mApplication, scale);
     }
 
     private void updateScaleValue(final int scale) {
@@ -307,7 +309,7 @@ final class AppPresentationSettingsView {
         row.setBackground(mUi.interactiveRounded(
                 Color.TRANSPARENT, dp(6), DesktopUiFactory.COLOR_PANEL_ALT));
         row.setOnClickListener(view ->
-                mActions.openProfile(profile.packageName));
+                mActions.openProfile(profile.application));
         final ImageView icon = new ImageView(mActivity);
         icon.setImageDrawable(profile.icon);
         row.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
@@ -319,7 +321,7 @@ final class AppPresentationSettingsView {
         title.setEllipsize(TextUtils.TruncateAt.END);
         labels.addView(title, matchWrap());
         final TextView packageLabel = text(
-                profile.packageName, DesktopUiFactory.COLOR_MUTED, 11);
+                profile.application.packageName, DesktopUiFactory.COLOR_MUTED, 11);
         packageLabel.setSingleLine(true);
         packageLabel.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         labels.addView(packageLabel, matchWrap());
@@ -358,7 +360,7 @@ final class AppPresentationSettingsView {
         title.setEllipsize(TextUtils.TruncateAt.END);
         labels.addView(title, matchWrap());
         final TextView packageLabel = text(
-                profile.packageName, DesktopUiFactory.COLOR_MUTED, 12);
+                profile.application.packageName, DesktopUiFactory.COLOR_MUTED, 12);
         packageLabel.setSingleLine(true);
         packageLabel.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         labels.addView(packageLabel, matchWrap());
@@ -444,22 +446,24 @@ final class AppPresentationSettingsView {
     }
 
     private ProfileRow loadRow(
-            final String packageName,
+            final AppIdentity application,
             final AppPresentationProfile profile) {
         final PackageManager packages = mActivity.getPackageManager();
+        final String packageName = application.packageName;
         try {
+            AppProfile.requireCurrent(mActivity, application);
             final ApplicationInfo info = packages.getApplicationInfo(
                     packageName, 0);
             final CharSequence label = packages.getApplicationLabel(info);
             return new ProfileRow(
-                    packageName,
+                    application,
                     label == null ? packageName : label.toString(),
                     packages.getApplicationIcon(info),
                     profile);
-        } catch (PackageManager.NameNotFoundException error) {
+        } catch (PackageManager.NameNotFoundException | IllegalArgumentException error) {
             return new ProfileRow(
-                    packageName,
-                    packageName,
+                    application,
+                    application.persistentKey(),
                     mActivity.getDrawable(android.R.drawable.sym_def_app_icon),
                     profile);
         }
@@ -467,7 +471,7 @@ final class AppPresentationSettingsView {
 
     private void clearDetailControls() {
         mTrackingScaleTouch = false;
-        mPackageName = null;
+        mApplication = null;
         mSystemMode = null;
         mCustomMode = null;
         mScaleSlider = null;
@@ -514,17 +518,17 @@ final class AppPresentationSettingsView {
     }
 
     private static final class ProfileRow {
-        final String packageName;
+        final AppIdentity application;
         final String label;
         final Drawable icon;
         final AppPresentationProfile profile;
 
         ProfileRow(
-                final String packageName,
+                final AppIdentity application,
                 final String label,
                 final Drawable icon,
                 final AppPresentationProfile profile) {
-            this.packageName = packageName;
+            this.application = application;
             this.label = label;
             this.icon = icon;
             this.profile = profile;

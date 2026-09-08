@@ -9,23 +9,23 @@ final class AppPresentationProfileStore {
     private AppPresentationProfileStore() {
     }
 
-    static AppPresentationProfile load(final String packageName) {
-        if (!isUserPackage(packageName)) {
+    static AppPresentationProfile load(final AppIdentity application) {
+        if (!isUserApplication(application)) {
             return null;
         }
         return DesktopStateStore.read(
-                state -> copy(state.appPresentations.get(packageName)),
+                state -> copy(state.appPresentations.get(application)),
                 null);
     }
 
-    static Map<String, AppPresentationProfile> loadAll() {
+    static Map<AppIdentity, AppPresentationProfile> loadAll() {
         return DesktopStateStore.read(state -> {
-            final Map<String, AppPresentationProfile> profiles =
+            final Map<AppIdentity, AppPresentationProfile> profiles =
                     new LinkedHashMap<>();
-            for (final Map.Entry<String, AppPresentationProfile> entry
+            for (final Map.Entry<AppIdentity, AppPresentationProfile> entry
                     : state.appPresentations.entrySet()) {
                 final AppPresentationProfile profile = copy(entry.getValue());
-                if (isUserPackage(entry.getKey()) && profile != null) {
+                if (isUserApplication(entry.getKey()) && profile != null) {
                     profiles.put(entry.getKey(), profile);
                 }
             }
@@ -34,9 +34,9 @@ final class AppPresentationProfileStore {
     }
 
     static boolean setScale(
-            final String packageName,
+            final AppIdentity application,
             final int scalePercent) {
-        requirePackage(packageName);
+        requireApplication(application);
         if (!AppPresentationProfile.isValidScale(scalePercent)) {
             throw new IllegalArgumentException(
                     "application scale must be between "
@@ -47,13 +47,13 @@ final class AppPresentationProfileStore {
         final AppPresentationProfile profile =
                 new AppPresentationProfile(scalePercent);
         return DesktopStateStore.update(state ->
-                state.appPresentations.put(packageName, profile));
+                state.appPresentations.put(application, profile));
     }
 
-    static boolean reset(final String packageName) {
-        requirePackage(packageName);
+    static boolean reset(final AppIdentity application) {
+        requireApplication(application);
         return DesktopStateStore.update(state ->
-                state.appPresentations.remove(packageName));
+                state.appPresentations.remove(application));
     }
 
     private static AppPresentationProfile copy(
@@ -62,13 +62,13 @@ final class AppPresentationProfileStore {
                 ? null : new AppPresentationProfile(profile.scalePercent);
     }
 
-    private static void requirePackage(final String packageName) {
-        if (!isUserPackage(packageName)) {
-            throw new IllegalArgumentException("invalid package name");
+    private static void requireApplication(final AppIdentity application) {
+        if (!isUserApplication(application)) {
+            throw new IllegalArgumentException("invalid application identity");
         }
     }
 
-    private static boolean isUserPackage(final String packageName) {
-        return AppPresentationProfile.supportsPackage(packageName);
+    private static boolean isUserApplication(final AppIdentity application) {
+        return application != null && AppPresentationProfile.supportsPackage(application.packageName);
     }
 }

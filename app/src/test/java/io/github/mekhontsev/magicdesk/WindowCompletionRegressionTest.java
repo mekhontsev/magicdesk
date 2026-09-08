@@ -103,10 +103,12 @@ public final class WindowCompletionRegressionTest {
                 static class Log { static void w(String tag, String message) {} static void w(String tag, String message, Throwable error) {} }
                 static class BuiltInDesktopAppCatalog {
                     static boolean remembersWindowState(Object task) { return false; }
-                    static String appIdentityKey(Object task) { return "example.app"; }
                 }
+                record AppReference(String key) {}
+                static class AppProfile { AppReference reference(Object task) { return new AppReference("0|example.app"); } }
+                final AppProfile mAppProfile = new AppProfile();
                 static class AppWindowState { enum Mode { FULLSCREEN } }
-                static class AppWindowStateStore { static void rememberMode(String key, AppWindowState.Mode mode) {} }
+                static class AppWindowStateStore { static void rememberMode(AppReference key, AppWindowState.Mode mode) {} }
                 static class DesktopWindowTransitionRequest {
                     static DesktopWindowTransitionRequest enterAppFullscreen(int display, int task, Rect bounds, int density, String reason) { return new DesktopWindowTransitionRequest(); }
                     static DesktopWindowTransitionRequest enterFullscreen(int display, int task, int density, String reason) { return new DesktopWindowTransitionRequest(); }

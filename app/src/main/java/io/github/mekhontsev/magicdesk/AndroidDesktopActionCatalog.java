@@ -33,7 +33,7 @@ final class AndroidDesktopActionCatalog {
                     "Application details",
                     "Open Android application details for a package.",
                     false,
-                    new String[] {"package"},
+                    new String[] {"appIdentity"},
                     new String[] {}),
             new Entry(
                     "notification-access",
@@ -116,12 +116,9 @@ final class AndroidDesktopActionCatalog {
                 name = "Create document";
                 break;
             case "app-details":
-                final String packageName = optionalString(
-                        parameters, "package", "");
-                if (!PackageNameValidator.isSafe(packageName)) {
-                    throw new IllegalArgumentException(
-                            "package must be an Android package name");
-                }
+                final AppIdentity application = AppIdentity.fromPersistentKey(
+                        optionalString(parameters, "appIdentity", ""));
+                final String packageName = application.packageName;
                 intent = new Intent(
                         Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         Uri.fromParts("package", packageName, null));
@@ -175,7 +172,9 @@ final class AndroidDesktopActionCatalog {
                         false,
                         "",
                         expectResult);
-        return AndroidDesktopAction.request(id, source, request);
+        final AndroidDesktopAction action = AndroidDesktopAction.request(id, source, request);
+        return "app-details".equals(id) ? action.forApplication(AppIdentity.fromPersistentKey(
+                parameters.getString("appIdentity"))) : action;
     }
 
     private static String optionalString(

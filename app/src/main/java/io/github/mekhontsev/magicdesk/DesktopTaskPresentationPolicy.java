@@ -11,10 +11,10 @@ final class DesktopTaskPresentationPolicy {
     }
 
     static int resolveDensityDpi(
-            final String packageName,
+            final AppIdentity application,
             final int displayId) {
         final AppPresentationProfile profile =
-                AppPresentationProfileStore.load(packageName);
+                AppPresentationProfileStore.load(application);
         if (profile == null) {
             return DesktopTaskDensity.INHERIT;
         }

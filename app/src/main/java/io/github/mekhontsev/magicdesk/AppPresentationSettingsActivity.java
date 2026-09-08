@@ -11,11 +11,11 @@ import android.window.OnBackInvokedDispatcher;
 /** Built-in window for application-specific desktop presentation settings. */
 public final class AppPresentationSettingsActivity extends Activity
         implements AppPresentationSettingsView.Actions {
-    private static final String EXTRA_PACKAGE = "package";
+    private static final String EXTRA_APPLICATION = "application";
 
     private final OnBackInvokedCallback mBackCallback = this::handleBack;
     private AppPresentationSettingsView mView;
-    private String mPackageName;
+    private AppIdentity mApplication;
     private boolean mReturnToList;
     private boolean mApplying;
 
@@ -25,8 +25,8 @@ public final class AppPresentationSettingsActivity extends Activity
 
     static Intent createIntent(
             final Context context,
-            final String packageName) {
-        return createIntent(context).putExtra(EXTRA_PACKAGE, packageName);
+            final AppIdentity application) {
+        return createIntent(context).putExtra(EXTRA_APPLICATION, application.persistentKey());
     }
 
     static AppLaunchTarget launchTarget() {
@@ -63,7 +63,7 @@ public final class AppPresentationSettingsActivity extends Activity
     }
 
     private void handleBack() {
-        if (mPackageName != null && mReturnToList && !mApplying) {
+        if (mApplication != null && mReturnToList && !mApplying) {
             renderList();
             return;
         }
@@ -73,50 +73,50 @@ public final class AppPresentationSettingsActivity extends Activity
     }
 
     @Override
-    public void useSystemScale(final String packageName) {
-        mutate(packageName, callback ->
-                AppPresentationProfileManager.reset(packageName, callback));
+    public void useSystemScale(final AppIdentity application) {
+        mutate(application, callback ->
+                AppPresentationProfileManager.reset(application, callback));
     }
 
     @Override
     public void setCustomScale(
-            final String packageName,
+            final AppIdentity application,
             final int scalePercent) {
-        mutate(packageName, callback ->
+        mutate(application, callback ->
                 AppPresentationProfileManager.setScale(
-                        packageName, scalePercent, callback));
+                        application, scalePercent, callback));
     }
 
     @Override
-    public void openProfile(final String packageName) {
+    public void openProfile(final AppIdentity application) {
         if (mApplying) {
             return;
         }
         mReturnToList = true;
-        renderPackage(packageName);
+        renderPackage(application);
     }
 
     private void mutate(
-            final String packageName,
+            final AppIdentity application,
             final ProfileMutation mutation) {
-        if (mApplying || !packageName.equals(mPackageName)) {
+        if (mApplying || !application.equals(mApplication)) {
             return;
         }
         mApplying = true;
         mView.setEnabled(false);
         mutation.run(result -> runOnUiThread(
-                () -> finishMutation(packageName, result)));
+                () -> finishMutation(application, result)));
     }
 
-    void finishMutation(final String packageName,
+    void finishMutation(final AppIdentity application,
             final TaskRepository.ActionResult result) {
         if (isFinishing() || isDestroyed()) {
             return;
         }
         mApplying = false;
-        if (packageName.equals(mPackageName)) {
-            renderPackage(packageName);
-        } else if (mPackageName == null) {
+        if (application.equals(mApplication)) {
+            renderPackage(application);
+        } else if (mApplication == null) {
             renderList();
         } else {
             mView.setEnabled(true);
@@ -129,29 +129,35 @@ public final class AppPresentationSettingsActivity extends Activity
     private void renderIntent(
             final Intent intent,
             final boolean returnToList) {
-        final String packageName = intent == null
-                ? null : intent.getStringExtra(EXTRA_PACKAGE);
-        if (PackageNameValidator.isSafe(packageName)
-                && !BuildConfig.APPLICATION_ID.equals(packageName)) {
-            mReturnToList = returnToList;
-            renderPackage(packageName);
-        } else {
+        final String encoded = intent == null ? null : intent.getStringExtra(EXTRA_APPLICATION);
+        if (encoded == null) {
             renderList();
+            return;
+        }
+        try {
+            final AppIdentity application = AppIdentity.fromPersistentKey(encoded);
+            AppProfile.requireCurrent(this, application);
+            AppPresentationProfileManager.requireUserApplication(application);
+            mReturnToList = returnToList;
+            renderPackage(application);
+        } catch (IllegalArgumentException error) {
+            Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show();
+            finish();
         }
     }
 
     private void renderList() {
-        mPackageName = null;
+        mApplication = null;
         mReturnToList = false;
         mView = new AppPresentationSettingsView(this, this);
         setContentView(mView.createList());
         mView.setEnabled(!mApplying);
     }
 
-    private void renderPackage(final String packageName) {
-        mPackageName = packageName;
+    private void renderPackage(final AppIdentity application) {
+        mApplication = application;
         mView = new AppPresentationSettingsView(this, this);
-        setContentView(mView.createDetail(packageName));
+        setContentView(mView.createDetail(application));
         mView.setEnabled(!mApplying);
     }
 

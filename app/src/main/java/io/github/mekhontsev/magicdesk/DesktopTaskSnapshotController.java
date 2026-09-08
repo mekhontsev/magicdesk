@@ -70,8 +70,7 @@ final class DesktopTaskSnapshotController {
         if (activeTask != null
                 && isTaskbarTask(activeTask)) {
             DesktopPreferences.recordRecentApp(
-                    mActivity,
-                    BuiltInDesktopAppCatalog.appIdentityKey(activeTask));
+                    mActivity, mActivity.appProfile().reference(activeTask));
         }
         mActivity.renderTaskbarPins(mActivity.getLauncherApps());
         mActivity.setTaskbarVisible(taskbarVisible);

@@ -114,8 +114,8 @@ public final class MagicDeskAppFunctionService
                     result = automation.execute(
                             "launch_app",
                             new JSONObject()
-                                    .put("package", requiredString(
-                                            parameters, "packageName"))
+                                    .put("appIdentity", requiredString(
+                                            parameters, "appIdentity"))
                                     .put("mode", optionalString(
                                             parameters, "mode", "auto")),
                             false);

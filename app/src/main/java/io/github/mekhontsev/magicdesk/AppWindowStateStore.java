@@ -35,12 +35,12 @@ final class AppWindowStateStore {
     }
 
     static final class PendingModeUpdate {
-        final String stateKey;
+        final AppReference stateKey;
         final AppWindowState.Mode mode;
         final long sequence;
 
         private PendingModeUpdate(
-                final String stateKey,
+                final AppReference stateKey,
                 final AppWindowState.Mode mode,
                 final long sequence) {
             this.stateKey = stateKey;
@@ -51,11 +51,11 @@ final class AppWindowStateStore {
 
     private static final Object STATE_LOCK = new Object();
     private static final Object MODE_COMMIT_LOCK = new Object();
-    private static final Map<String, Long> COMMITTED_MODE_SEQUENCES =
+    private static final Map<AppReference, Long> COMMITTED_MODE_SEQUENCES =
             new LinkedHashMap<>();
-    private static final Map<String, PendingModeUpdate> PENDING_MODES =
+    private static final Map<AppReference, PendingModeUpdate> PENDING_MODES =
             new LinkedHashMap<>();
-    private static final Map<String, SessionPatch> SESSION_PATCHES =
+    private static final Map<AppReference, SessionPatch> SESSION_PATCHES =
             new LinkedHashMap<>();
     private static long sPendingModeSequence;
     private static long sSessionPatchSequence;
@@ -66,8 +66,8 @@ final class AppWindowStateStore {
     private AppWindowStateStore() {
     }
 
-    static AppWindowState load(final String stateKey) {
-        if (!isSafeStateKey(stateKey)) {
+    static AppWindowState load(final AppReference stateKey) {
+        if (stateKey == null) {
             return null;
         }
         final PendingModeUpdate pending;
@@ -109,7 +109,7 @@ final class AppWindowStateStore {
 
     static boolean endSession() {
         while (true) {
-            final Map<String, SessionPatch> snapshot;
+            final Map<AppReference, SessionPatch> snapshot;
             synchronized (STATE_LOCK) {
                 if (!sSessionPersistent) {
                     SESSION_PATCHES.entrySet().removeIf(
@@ -127,7 +127,7 @@ final class AppWindowStateStore {
                 snapshot = new LinkedHashMap<>(SESSION_PATCHES);
             }
             final boolean saved = DesktopStateStore.update(state -> {
-                for (final Map.Entry<String, SessionPatch> entry
+                for (final Map.Entry<AppReference, SessionPatch> entry
                         : snapshot.entrySet()) {
                     final AppWindowState current =
                             state.appWindows.get(entry.getKey());
@@ -143,7 +143,7 @@ final class AppWindowStateStore {
                 return false;
             }
             synchronized (STATE_LOCK) {
-                for (final Map.Entry<String, SessionPatch> entry
+                for (final Map.Entry<AppReference, SessionPatch> entry
                         : snapshot.entrySet()) {
                     final SessionPatch current =
                             SESSION_PATCHES.get(entry.getKey());
@@ -158,9 +158,9 @@ final class AppWindowStateStore {
     }
 
     static PendingModeUpdate beginModeUpdate(
-            final String stateKey,
+            final AppReference stateKey,
             final AppWindowState.Mode mode) {
-        if (!isSafeStateKey(stateKey) || mode == null) {
+        if (stateKey == null || mode == null) {
             return null;
         }
         synchronized (STATE_LOCK) {
@@ -212,9 +212,9 @@ final class AppWindowStateStore {
     }
 
     static boolean rememberMode(
-            final String stateKey,
+            final AppReference stateKey,
             final AppWindowState.Mode mode) {
-        if (!isSafeStateKey(stateKey) || mode == null) {
+        if (stateKey == null || mode == null) {
             return false;
         }
         synchronized (STATE_LOCK) {
@@ -243,15 +243,15 @@ final class AppWindowStateStore {
     }
 
     static boolean rememberWindowBounds(
-            final Map<String, RelativeWindowBounds> boundsByPackage) {
-        if (boundsByPackage == null || boundsByPackage.isEmpty()) {
+            final Map<AppReference, RelativeWindowBounds> boundsByApp) {
+        if (boundsByApp == null || boundsByApp.isEmpty()) {
             return true;
         }
-        final Map<String, RelativeWindowBounds> snapshot =
+        final Map<AppReference, RelativeWindowBounds> snapshot =
                 new LinkedHashMap<>();
-        for (final Map.Entry<String, RelativeWindowBounds> entry
-                : boundsByPackage.entrySet()) {
-            if (isSafeStateKey(entry.getKey())
+        for (final Map.Entry<AppReference, RelativeWindowBounds> entry
+                : boundsByApp.entrySet()) {
+            if (entry.getKey() != null
                     && entry.getValue() != null) {
                 snapshot.put(entry.getKey(), entry.getValue());
             }
@@ -261,7 +261,7 @@ final class AppWindowStateStore {
         }
         synchronized (STATE_LOCK) {
             if (sSessionActive) {
-                for (final Map.Entry<String, RelativeWindowBounds> entry
+                for (final Map.Entry<AppReference, RelativeWindowBounds> entry
                         : snapshot.entrySet()) {
                     final SessionPatch current =
                             SESSION_PATCHES.get(entry.getKey());
@@ -278,7 +278,7 @@ final class AppWindowStateStore {
             }
         }
         return DesktopStateStore.update(state -> {
-            for (final Map.Entry<String, RelativeWindowBounds> entry
+            for (final Map.Entry<AppReference, RelativeWindowBounds> entry
                     : snapshot.entrySet()) {
                 final AppWindowState current =
                         state.appWindows.get(entry.getKey());
@@ -294,9 +294,9 @@ final class AppWindowStateStore {
     }
 
     static boolean rememberWindowed(
-            final String stateKey,
+            final AppReference stateKey,
             final RelativeWindowBounds bounds) {
-        if (!isSafeStateKey(stateKey) || bounds == null) {
+        if (stateKey == null || bounds == null) {
             return false;
         }
         synchronized (STATE_LOCK) {
@@ -317,10 +317,7 @@ final class AppWindowStateStore {
                 new AppWindowState(AppWindowState.Mode.WINDOWED, bounds)));
     }
 
-    static boolean isSafeStateKey(final String stateKey) {
-        return PackageNameValidator.isSafe(stateKey)
-                || BuiltInDesktopAppCatalog.isAppIdentityKey(stateKey);
-    }
+
 
     static void clearPendingModeUpdatesForTests() {
         synchronized (MODE_COMMIT_LOCK) {

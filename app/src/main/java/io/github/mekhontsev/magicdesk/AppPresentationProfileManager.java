@@ -6,37 +6,39 @@ final class AppPresentationProfileManager {
     }
 
     static void setScale(
-            final String packageName,
+            final AppIdentity application,
             final int scalePercent,
             final TaskRepository.ActionCallback callback) {
-        requireUserApplication(packageName);
+        requireUserApplication(application);
+        AppProfile.requireCurrent(MagicDeskApplication.applicationContext(), application);
         if (!AppPresentationProfileStore.setScale(
-                packageName, scalePercent)) {
+                application, scalePercent)) {
             complete(callback, false, "could not save application profile");
             return;
         }
-        applyStoredProfile(packageName, callback);
+        applyStoredProfile(application, callback);
     }
 
     static void reset(
-            final String packageName,
+            final AppIdentity application,
             final TaskRepository.ActionCallback callback) {
-        requireUserApplication(packageName);
-        if (!AppPresentationProfileStore.reset(packageName)) {
+        requireUserApplication(application);
+        AppProfile.requireCurrent(MagicDeskApplication.applicationContext(), application);
+        if (!AppPresentationProfileStore.reset(application)) {
             complete(callback, false, "could not reset application profile");
             return;
         }
-        applyStoredProfile(packageName, callback);
+        applyStoredProfile(application, callback);
     }
 
     private static void applyStoredProfile(
-            final String packageName,
+            final AppIdentity application,
             final TaskRepository.ActionCallback callback) {
         if (!DesktopRuntimeBridge.getSessionSnapshot().hasHost()) {
             complete(callback, true, "application profile saved");
             return;
         }
-        if (!MagicDeskRuntime.applyAppPresentation(packageName, callback)) {
+        if (!MagicDeskRuntime.applyAppPresentation(application, callback)) {
             complete(
                     callback,
                     false,
@@ -44,11 +46,11 @@ final class AppPresentationProfileManager {
         }
     }
 
-    static void requireUserApplication(final String packageName) {
-        if (!PackageNameValidator.isSafe(packageName)) {
-            throw new IllegalArgumentException("invalid package name");
+    static void requireUserApplication(final AppIdentity application) {
+        if (application == null) {
+            throw new IllegalArgumentException("application identity is required");
         }
-        if (BuildConfig.APPLICATION_ID.equals(packageName)) {
+        if (BuildConfig.APPLICATION_ID.equals(application.packageName)) {
             throw new IllegalArgumentException(
                     "MagicDesk infrastructure cannot have an app profile");
         }

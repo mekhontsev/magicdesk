@@ -41,6 +41,7 @@ final class DesktopWindowTransitionController {
     private static final long STARTUP_IMMERSIVE_SETTLE_MILLIS = 1_000L;
 
     private static final String TAG = "MagicDeskTasks";
+    private final AppProfile mAppProfile;
     private final Handler mHandler;
     private final NativeWindowBoundsController mNativeWindowBounds;
     private final DesktopDisplayTaskState mDisplayTaskState;
@@ -51,12 +52,14 @@ final class DesktopWindowTransitionController {
             mFullscreenCompletions = new LinkedHashMap<>();
 
     DesktopWindowTransitionController(
+            final AppProfile profile,
             final Handler handler,
             final NativeWindowBoundsController nativeWindowBounds,
             final DesktopDisplayTaskState displayTaskState,
             final DesktopTaskRuntimeRegistry taskStates,
             final RuntimeState runtimeState,
             final DesktopWindowTransitionGateway gateway) {
+        mAppProfile = profile;
         mHandler = handler;
         mNativeWindowBounds = nativeWindowBounds;
         mDisplayTaskState = displayTaskState;
@@ -584,7 +587,7 @@ final class DesktopWindowTransitionController {
                     finishWorkspaceTransition(displayId, true);
                     if (BuiltInDesktopAppCatalog.remembersWindowState(task)) {
                         AppWindowStateStore.rememberMode(
-                                BuiltInDesktopAppCatalog.appIdentityKey(task),
+                                mAppProfile.reference(task),
                                 AppWindowState.Mode.FULLSCREEN);
                     }
                     completeFullscreen(state, pendingCompletion,
@@ -653,7 +656,7 @@ final class DesktopWindowTransitionController {
 
     private int densityFor(final TaskRepository.TaskEntry task) {
         return DesktopTaskPresentationPolicy.resolveDensityDpi(
-                task.packageName, mRuntimeState.displayId());
+                mAppProfile.application(task), mRuntimeState.displayId());
     }
 
     private boolean submit(
@@ -936,7 +939,7 @@ final class DesktopWindowTransitionController {
                 bounds, workAreaBounds);
         if (relative != null) {
             AppWindowStateStore.rememberWindowed(
-                    BuiltInDesktopAppCatalog.appIdentityKey(task), relative);
+                    mAppProfile.reference(task), relative);
         }
     }
 

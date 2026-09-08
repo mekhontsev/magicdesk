@@ -9,7 +9,6 @@ import java.util.List;
 
 /** Describes user-facing MagicDesk tasks without admitting shell infrastructure. */
 final class BuiltInDesktopAppCatalog {
-    private static final String BUILT_IN_KEY_PREFIX = "builtin|";
 
     static final class Entry {
         final AppLaunchTarget launchTarget;
@@ -205,6 +204,15 @@ final class BuiltInDesktopAppCatalog {
         return null;
     }
 
+    static Entry findComponent(final String component) {
+        for (final Entry entry : ENTRIES) {
+            if (entry.launchTarget.activityClassName.equals(component)) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
     static Entry find(final TaskRepository.TaskEntry task) {
         if (task == null) {
             return null;
@@ -242,56 +250,15 @@ final class BuiltInDesktopAppCatalog {
         return entry == null || entry.remembersWindowState;
     }
 
-    static String appIdentityKey(final AppLaunchTarget target) {
-        if (target == null) {
-            return null;
-        }
-        final Entry entry = find(target);
-        if (entry != null) {
-            return builtInKey(entry);
-        }
-        return PACKAGE_NAME.equals(target.packageName)
-                ? null : target.packageName;
-    }
-
-    static String appIdentityKey(final TaskRepository.TaskEntry task) {
-        if (task == null) {
-            return null;
-        }
-        final Entry entry = find(task);
-        if (entry != null) {
-            return builtInKey(entry);
-        }
-        return PACKAGE_NAME.equals(task.packageName)
-                ? null : task.packageName;
-    }
-
-    static String appIdentityKey(
-            final String packageName,
-            final String componentName) {
+    static boolean isUserApplication(final String packageName, final String componentName) {
         if (!PackageNameValidator.isSafe(packageName)) {
-            return null;
-        }
-        if (!PACKAGE_NAME.equals(packageName)) {
-            return packageName;
-        }
-        for (final Entry entry : ENTRIES) {
-            if (entry.launchTarget.matchesTask(
-                    packageName, componentName, componentName)) {
-                return builtInKey(entry);
-            }
-        }
-        // Shell hosts and transient MagicDesk activities must not overwrite
-        // the placement of a user-facing built-in window.
-        return null;
-    }
-
-    static boolean isAppIdentityKey(final String key) {
-        if (key == null) {
             return false;
         }
+        if (!PACKAGE_NAME.equals(packageName)) {
+            return true;
+        }
         for (final Entry entry : ENTRIES) {
-            if (builtInKey(entry).equals(key)) {
+            if (entry.launchTarget.matchesTask(packageName, componentName, componentName)) {
                 return true;
             }
         }
@@ -304,7 +271,4 @@ final class BuiltInDesktopAppCatalog {
         return entry == null ? null : entry.defaultWindowBounds;
     }
 
-    private static String builtInKey(final Entry entry) {
-        return BUILT_IN_KEY_PREFIX + entry.launchTarget.stableKey();
-    }
 }

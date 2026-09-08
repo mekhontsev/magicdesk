@@ -85,6 +85,7 @@ public final class DesktopNotificationListenerService extends NotificationListen
     static final class Entry {
         final String key;
         final String packageName;
+        final int userId;
         final String appName;
         final String title;
         final String text;
@@ -100,7 +101,7 @@ public final class DesktopNotificationListenerService extends NotificationListen
         final Icon icon;
         final List<ActionEntry> actions;
 
-        Entry(final String key, final String packageName, final String appName,
+        Entry(final String key, final String packageName, final int userId, final String appName,
                 final String title, final String text, final long postTime,
                 final int importance, final int notificationFlags,
                 final boolean hasContentIntent, final boolean clearable, final boolean ongoing,
@@ -109,6 +110,7 @@ public final class DesktopNotificationListenerService extends NotificationListen
                 final List<ActionEntry> actions) {
             this.key = key;
             this.packageName = packageName;
+            this.userId = userId;
             this.appName = appName;
             this.title = title;
             this.text = text;

@@ -120,7 +120,7 @@ final class DesktopStateStore {
             throw new JSONException("unsupported desktop state format");
         }
         final State state = new State();
-        readPackages(root.optJSONArray("taskbar"), state.taskbarPackages);
+        readAppReferences(root.optJSONArray("taskbar"), state.taskbarApps);
         readDesktopPlacements(
                 root.optJSONObject("desktopPlacements"),
                 state.desktopPlacements);
@@ -171,7 +171,7 @@ final class DesktopStateStore {
 
     private static State snapshotLocked() {
         final State snapshot = new State();
-        snapshot.taskbarPackages.addAll(sState.taskbarPackages);
+        snapshot.taskbarApps.addAll(sState.taskbarApps);
         snapshot.desktopPlacements.putAll(sState.desktopPlacements);
         snapshot.appWindows.putAll(sState.appWindows);
         snapshot.appPresentations.putAll(sState.appPresentations);
@@ -195,7 +195,7 @@ final class DesktopStateStore {
     private static JSONObject toJson(final State state) throws JSONException {
         final JSONObject root = new JSONObject();
         root.put("format", FORMAT);
-        root.put("taskbar", stringsToJson(state.taskbarPackages));
+        root.put("taskbar", appReferencesToJson(state.taskbarApps));
         root.put(
                 "desktopPlacements",
                 desktopPlacementsToJson(state.desktopPlacements));
@@ -218,27 +218,30 @@ final class DesktopStateStore {
         return root;
     }
 
-    private static JSONArray stringsToJson(final List<String> values) {
+    private static JSONArray appReferencesToJson(final List<AppReference> values) {
         final JSONArray array = new JSONArray();
-        for (final String value : values) {
-            if (value != null && !value.isEmpty()) {
-                array.put(value);
+        for (final AppReference value : values) {
+            if (value != null) {
+                array.put(value.persistentKey());
             }
         }
         return array;
     }
 
-    private static void readPackages(
+    private static void readAppReferences(
             final JSONArray values,
-            final List<String> destination) {
+            final List<AppReference> destination) {
         if (values == null) {
             return;
         }
         for (int index = 0; index < values.length(); index++) {
-            final String packageName = values.optString(index, "");
-            if (PackageNameValidator.isSafe(packageName)
-                    && !destination.contains(packageName)) {
-                destination.add(packageName);
+            try {
+                final AppReference app = AppReference.fromPersistentKey(values.getString(index));
+                if (!destination.contains(app)) {
+                    destination.add(app);
+                }
+            } catch (IllegalArgumentException | JSONException ignored) {
+                // An unresolved reference is not a current-profile application.
             }
         }
     }
@@ -328,14 +331,14 @@ final class DesktopStateStore {
     }
 
     private static JSONObject appWindowsToJson(
-            final Map<String, AppWindowState> appWindows)
+            final Map<AppReference, AppWindowState> appWindows)
             throws JSONException {
         final JSONObject json = new JSONObject();
-        for (final Map.Entry<String, AppWindowState> entry
+        for (final Map.Entry<AppReference, AppWindowState> entry
                 : appWindows.entrySet()) {
-            final String stateKey = entry.getKey();
+            final AppReference stateKey = entry.getKey();
             final AppWindowState state = entry.getValue();
-            if (!AppWindowStateStore.isSafeStateKey(stateKey)
+            if (stateKey == null
                     || state == null
                     || (state.mode == null
                             && state.windowBounds == null)) {
@@ -354,22 +357,28 @@ final class DesktopStateStore {
                 bounds.put(state.windowBounds.height);
                 value.put("bounds", bounds);
             }
-            json.put(stateKey, value);
+            json.put(stateKey.persistentKey(), value);
         }
         return json;
     }
 
     private static void readAppWindows(
             final JSONObject json,
-            final Map<String, AppWindowState> destination) {
+            final Map<AppReference, AppWindowState> destination) {
         if (json == null) {
             return;
         }
         final java.util.Iterator<String> keys = json.keys();
         while (keys.hasNext()) {
-            final String stateKey = keys.next();
-            final JSONObject value = json.optJSONObject(stateKey);
-            if (!AppWindowStateStore.isSafeStateKey(stateKey)
+            final String key = keys.next();
+            final AppReference stateKey;
+            try {
+                stateKey = AppReference.fromPersistentKey(key);
+            } catch (IllegalArgumentException ignored) {
+                continue;
+            }
+            final JSONObject value = json.optJSONObject(key);
+            if (stateKey == null
                     || value == null) {
                 continue;
             }
@@ -403,15 +412,15 @@ final class DesktopStateStore {
     }
 
     private static JSONObject appPresentationsToJson(
-            final Map<String, AppPresentationProfile> profiles)
+            final Map<AppIdentity, AppPresentationProfile> profiles)
             throws JSONException {
         final JSONObject json = new JSONObject();
-        for (final Map.Entry<String, AppPresentationProfile> entry
+        for (final Map.Entry<AppIdentity, AppPresentationProfile> entry
                 : profiles.entrySet()) {
             final AppPresentationProfile profile = entry.getValue();
-            if (AppPresentationProfile.supportsPackage(entry.getKey())
+            if (AppPresentationProfile.supportsPackage(entry.getKey().packageName)
                     && profile != null) {
-                json.put(entry.getKey(), profile.scalePercent);
+                json.put(entry.getKey().persistentKey(), profile.scalePercent);
             }
         }
         return json;
@@ -419,20 +428,26 @@ final class DesktopStateStore {
 
     private static void readAppPresentations(
             final JSONObject json,
-            final Map<String, AppPresentationProfile> destination) {
+            final Map<AppIdentity, AppPresentationProfile> destination) {
         if (json == null) {
             return;
         }
         final java.util.Iterator<String> keys = json.keys();
         while (keys.hasNext()) {
-            final String packageName = keys.next();
-            final int scalePercent = json.optInt(packageName, -1);
-            if (!AppPresentationProfile.supportsPackage(packageName)
+            final String key = keys.next();
+            final AppIdentity application;
+            try {
+                application = AppIdentity.fromPersistentKey(key);
+            } catch (IllegalArgumentException ignored) {
+                continue;
+            }
+            final int scalePercent = json.optInt(key, -1);
+            if (!AppPresentationProfile.supportsPackage(application.packageName)
                     || !AppPresentationProfile.isValidScale(scalePercent)) {
                 continue;
             }
             destination.put(
-                    packageName,
+                    application,
                     new AppPresentationProfile(scalePercent));
         }
     }
@@ -464,12 +479,12 @@ final class DesktopStateStore {
     }
 
     static final class State {
-        final List<String> taskbarPackages = new ArrayList<>();
+        final List<AppReference> taskbarApps = new ArrayList<>();
         final Map<String, GlobalDesktopPlacement> desktopPlacements =
                 new LinkedHashMap<>();
-        final Map<String, AppWindowState> appWindows =
+        final Map<AppReference, AppWindowState> appWindows =
                 new LinkedHashMap<>();
-        final Map<String, AppPresentationProfile> appPresentations =
+        final Map<AppIdentity, AppPresentationProfile> appPresentations =
                 new LinkedHashMap<>();
         final Map<String, DisplayProfileStore.Profile> displayProfiles =
                 new LinkedHashMap<>();

@@ -14,6 +14,9 @@ import java.util.Collections;
 public final class AppPresentationRuntimeControllerTest {
     private final RecordingApplier mApplier = new RecordingApplier();
 
+    private static final AppProfile PROFILE = new AppProfile(0, 0);
+    private static final AppIdentity APP = PROFILE.application("example.application");
+
     @Before
     public void setUp() {
         DesktopStateStore.useStorageForTests(
@@ -40,9 +43,9 @@ public final class AppPresentationRuntimeControllerTest {
     @Test
     public void existingTaskIsUpdatedOncePerEffectiveDensity() {
         assertTrue(AppPresentationProfileStore.setScale(
-                "example.application", 125));
+                APP, 125));
         final AppPresentationRuntimeController controller =
-                new AppPresentationRuntimeController(mApplier, null);
+                new AppPresentationRuntimeController(PROFILE, mApplier, null);
         controller.start();
         final TaskRepository.TaskEntry task = task(42, 160);
 
@@ -62,9 +65,9 @@ public final class AppPresentationRuntimeControllerTest {
     @Test
     public void matchingSnapshotDoesNotSubmitRedundantTransaction() {
         assertTrue(AppPresentationProfileStore.setScale(
-                "example.application", 125));
+                APP, 125));
         final AppPresentationRuntimeController controller =
-                new AppPresentationRuntimeController(mApplier, null);
+                new AppPresentationRuntimeController(PROFILE, mApplier, null);
         controller.start();
 
         controller.observe(
@@ -76,9 +79,9 @@ public final class AppPresentationRuntimeControllerTest {
     @Test
     public void laterFrameworkResetCreatesOneNewAttempt() {
         assertTrue(AppPresentationProfileStore.setScale(
-                "example.application", 125));
+                APP, 125));
         final AppPresentationRuntimeController controller =
-                new AppPresentationRuntimeController(mApplier, null);
+                new AppPresentationRuntimeController(PROFILE, mApplier, null);
         controller.start();
 
         controller.observe(
@@ -97,21 +100,42 @@ public final class AppPresentationRuntimeControllerTest {
     @Test
     public void explicitResetUsesInheritedDensity() {
         assertTrue(AppPresentationProfileStore.setScale(
-                "example.application", 125));
+                APP, 125));
         final AppPresentationRuntimeController controller =
-                new AppPresentationRuntimeController(mApplier, null);
+                new AppPresentationRuntimeController(PROFILE, mApplier, null);
         controller.start();
         assertTrue(AppPresentationProfileStore.reset(
-                "example.application"));
+                APP));
 
-        assertTrue(controller.applyStoredPackage(
-                "example.application",
+        assertTrue(controller.applyStoredApplication(
+                APP,
                 DesktopTaskDensity.INHERIT,
                 Collections.singletonList(task(42, 200)),
                 null));
 
         assertEquals(1, mApplier.calls);
         assertEquals(DesktopTaskDensity.INHERIT, mApplier.densityDpi);
+    }
+
+    @Test
+    public void samePackageInUnknownOrDifferentUserDoesNotReceiveCurrentProfileDensity() {
+        assertTrue(AppPresentationProfileStore.setScale(APP, 125));
+        final AppPresentationRuntimeController controller =
+                new AppPresentationRuntimeController(PROFILE, mApplier, null);
+        controller.start();
+        final TaskRepository.TaskEntry unknown = taskForUser(-1);
+        final TaskRepository.TaskEntry work = taskForUser(10);
+        controller.observe(java.util.List.of(unknown, work), 160);
+        assertTrue(controller.applyStoredApplication(APP, 200,
+                java.util.List.of(unknown, work), null));
+        assertEquals(0, mApplier.calls);
+    }
+
+    private static TaskRepository.TaskEntry taskForUser(final int userId) {
+        return new TaskRepository.TaskEntry(42, 42, 3, APP.packageName,
+                APP.packageName + "/.Main", APP.packageName + "/.Main", "freeform",
+                new Rect(0, 0, 800, 600), FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD,
+                160, false, true, true, userId);
     }
 
     private static TaskRepository.TaskEntry task(
@@ -121,7 +145,7 @@ public final class AppPresentationRuntimeControllerTest {
                 taskId,
                 taskId,
                 3,
-                "example.application",
+                APP.packageName,
                 "example.application/.MainActivity",
                 "example.application/.MainActivity",
                 "freeform",
@@ -130,7 +154,8 @@ public final class AppPresentationRuntimeControllerTest {
                 densityDpi,
                 false,
                 true,
-                true);
+                true,
+                PROFILE.userId);
     }
 
     private static final class RecordingApplier

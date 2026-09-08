@@ -34,13 +34,14 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
             }
             final AppItem app = mActivity.findOrLoadApp(
                     mActivity.getLauncherApps(),
+                    application(request, request.androidShortcut.publisher),
                     request.androidShortcut.publisher);
             if (app == null) {
                 return false;
             }
             for (final AppShortcutAction shortcut
                     : new AppShortcutRepository(mActivity)
-                            .loadAll(request.androidShortcut.publisher)) {
+                            .loadAll(application(request, request.androidShortcut.publisher), request.androidShortcut.publisher)) {
                 if (request.androidShortcut.shortcutId.equals(shortcut.id)) {
                     mActivity.launchShortcut(
                             app,
@@ -58,6 +59,7 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
         if (request.androidLaunch.kind == AndroidLaunchSpec.Kind.DEFAULT) {
             final AppItem app = mActivity.findOrLoadApp(
                     mActivity.getLauncherApps(),
+                    application(request, request.androidLaunch.target),
                     request.androidLaunch.target);
             if (app == null) {
                 return false;
@@ -77,7 +79,7 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
                 == AndroidLaunchSpec.Kind.PENDING_ACTIVITY) {
             final AppLaunchTarget target = request.androidLaunch.target;
             final AppItem app = mActivity.findOrLoadApp(
-                    mActivity.getLauncherApps(), target);
+                    mActivity.getLauncherApps(), application(request, target), target);
             if (app == null || request.androidLaunch.pendingIntent() == null) {
                 return false;
             }
@@ -110,7 +112,7 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
             return false;
         }
         final AppItem app = mActivity.findOrLoadApp(
-                mActivity.getLauncherApps(), target);
+                mActivity.getLauncherApps(), application(request, target), target);
         if (app == null) {
             return false;
         }
@@ -123,6 +125,25 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
                 request.androidLaunch.delivery,
                 completion);
         return true;
+    }
+
+    private AppIdentity application(final DesktopLaunchRequest request, final AppLaunchTarget target) {
+        final AppIdentity application = request.application == null
+                ? mActivity.appProfile().application(target.packageName) : request.application;
+        application.requireProfile(mActivity.appProfile());
+        if (request.androidShortcut != null && request.androidShortcut.application != null
+                && !application.equals(request.androidShortcut.application)) {
+            throw new IllegalArgumentException("shortcut profile mismatch");
+        }
+        if (!application.packageName.equals(target.packageName)) {
+            throw new IllegalArgumentException("application launch target mismatch");
+        }
+        if (request.androidLaunch != null && request.androidLaunch.pendingIntent() != null
+                && !mActivity.appProfile().owns(FrameworkUserApi.userId(
+                        request.androidLaunch.pendingIntent().getCreatorUserHandle()))) {
+            throw new IllegalArgumentException("pending activity belongs to an unavailable profile");
+        }
+        return application;
     }
 
     @Override

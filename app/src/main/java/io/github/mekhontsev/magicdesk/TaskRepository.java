@@ -243,7 +243,7 @@ public final class TaskRepository {
                 final int densityDpi = targetPhoneWithoutDesktop
                         ? DesktopTaskDensity.INHERIT
                         : DesktopTaskPresentationPolicy.resolveDensityDpi(
-                                task.packageName, targetDisplayId);
+                                AppProfile.current(MagicDeskApplication.applicationContext()).application(task), targetDisplayId);
                 final String output;
                 if (targetPhoneWithoutDesktop) {
                     output = DesktopTaskTransfer.moveFullscreen(
@@ -276,16 +276,24 @@ public final class TaskRepository {
         });
     }
 
-    static void forceStop(final String packageName, final ActionCallback callback) {
-        if (!PackageNameValidator.isSafe(packageName)
-                || "io.github.mekhontsev.magicdesk".equals(packageName)) {
+    static void forceStop(final AppIdentity application, final ActionCallback callback) {
+        if (application == null
+                || BuildConfig.APPLICATION_ID.equals(application.packageName)) {
             complete(callback, false, "invalid package");
             return;
         }
         TaskCommandQueue.execute(() -> {
+            final AppProfile profile;
+            try {
+                profile = AppProfile.requireCurrent(MagicDeskApplication.applicationContext(), application);
+            } catch (RuntimeException error) {
+                complete(callback, false, usefulMessage(error));
+                return;
+            }
+            final String packageName = application.packageName;
             final boolean closeErrorDialog = hasPackageErrorDialog(packageName);
             final CommandResult stop = runCommand(
-                    AM + " force-stop --user 0 " + packageName);
+                    AM + " force-stop --user " + profile.userId + " " + packageName);
             if (!stop.success) {
                 complete(callback, false, stop.output.trim());
                 return;

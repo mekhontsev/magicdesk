@@ -47,7 +47,7 @@ public final class DesktopContextMenuControllerTest {
         final String source = between(read("DesktopUiGateway.java"),
                 "DesktopActivityLaunchResult invokeAppActionObserved(",
                 "void showTransientStatus(");
-        final int query = source.indexOf("new AppShortcutRepository(activity).loadAll(target)");
+        final int query = source.indexOf("new AppShortcutRepository(activity).loadAll(application, target)");
         final int ui = source.indexOf("mMainHandler.post(() ->");
         assertTrue(query > source.indexOf("Looper.myLooper() == Looper.getMainLooper()"));
         assertTrue(query < ui);
@@ -63,7 +63,7 @@ public final class DesktopContextMenuControllerTest {
         final int validation = source.indexOf(
                 "AndroidIntegrationGateway.requireShortcutPresentation(presentation);");
         assertTrue(validation >= 0);
-        assertTrue(validation < source.indexOf("new AppShortcutRepository(activity).loadAll(target)"));
+        assertTrue(validation < source.indexOf("new AppShortcutRepository(activity).loadAll(application, target)"));
         assertTrue(validation < source.indexOf("mMainHandler.post(() ->"));
         assertTrue(source.contains("catch (IllegalArgumentException error)"));
         assertTrue(source.contains("return DesktopActivityLaunchResult.failed(error.getMessage());"));

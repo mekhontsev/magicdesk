@@ -8,27 +8,31 @@ import java.util.Arrays;
 import java.util.List;
 
 public final class DesktopPreferencesTest {
+    private static AppReference app(final String name) {
+        return new AppProfile(0, 0).reference(AppLaunchTarget.packageDefault(name));
+    }
+
     @Test
     public void recentAppMovesToFrontWithoutDuplicates() {
-        final List<String> updated = DesktopPreferences.updateRecentAppKeys(
-                Arrays.asList("app.one", "app.two", "app.three"),
-                "app.two",
+        final List<AppReference> updated = DesktopPreferences.updateRecentApps(
+                Arrays.asList(app("app.one"), app("app.two"), app("app.three")),
+                app("app.two"),
                 4);
 
         assertEquals(
-                Arrays.asList("app.two", "app.one", "app.three"),
+                Arrays.asList(app("app.two"), app("app.one"), app("app.three")),
                 updated);
     }
 
     @Test
     public void recentAppsAreBounded() {
-        final List<String> updated = DesktopPreferences.updateRecentAppKeys(
-                Arrays.asList("app.one", "app.two", "app.three"),
-                "app.new",
+        final List<AppReference> updated = DesktopPreferences.updateRecentApps(
+                Arrays.asList(app("app.one"), app("app.two"), app("app.three")),
+                app("app.new"),
                 3);
 
         assertEquals(
-                Arrays.asList("app.new", "app.one", "app.two"),
+                Arrays.asList(app("app.new"), app("app.one"), app("app.two")),
                 updated);
     }
 }

@@ -563,8 +563,9 @@ final class NotificationCenterController {
 
     private void launchNotificationApplication(
             final DesktopNotificationListenerService.Entry entry) {
-        final AppItem app = LauncherAppRepository.find(
-                mActivity.getLauncherApps(), entry.packageName);
+        final AppItem app = LauncherAppRepository.findApplication(
+                mActivity.getLauncherApps(), mActivity.appProfile()
+                        .applicationForUser(entry.userId, entry.packageName));
         if (app != null) {
             mActivity.launchDefault(app);
         } else {

@@ -44,7 +44,7 @@
         <description>Launch an Android application through the native MagicDesk window pipeline.</description>
         <parameters>
             <dataTypeMetadata><id>unused</id><isNullable>false</isNullable><type>8</type></dataTypeMetadata>
-            <id>unused</id><isRequired>true</isRequired><name>packageName</name>
+            <id>unused</id><isRequired>true</isRequired><name>appIdentity</name>
             <description>Android application package name.</description>
         </parameters>
         <parameters>

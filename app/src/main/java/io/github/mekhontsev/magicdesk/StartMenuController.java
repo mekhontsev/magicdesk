@@ -107,8 +107,8 @@ final class StartMenuController implements StartMenuContent.Host {
     @Override public List<DesktopApplicationRepository.Entry> desktopApplications() {
         return mActivity.getDesktopApplications();
     }
-    @Override public List<String> recentApps() {
-        return DesktopPreferences.recentAppKeys(mActivity);
+    @Override public List<AppReference> recentApps() {
+        return DesktopPreferences.recentApps(mActivity);
     }
     @Override public DesktopAutomationUiRegistry automation() { return mActivity.automationUi(); }
     @Override public void dismiss() { mActivity.hideTopPanel(); }

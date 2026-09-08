@@ -48,11 +48,11 @@ final class DesktopTaskConfigurationReport {
             final StringBuilder report,
             final FrameworkTaskSnapshot task,
             final int activeDesktopDisplayId) {
-        final String stateKey = BuiltInDesktopAppCatalog.appIdentityKey(
-                task.packageName, task.componentName);
+        final AppReference stateKey = AppProfile.current(
+                MagicDeskApplication.applicationContext()).reference(task);
         final AppWindowState saved = AppWindowStateStore.load(stateKey);
         final AppPresentationProfile presentation =
-                AppPresentationProfileStore.load(task.packageName);
+                AppPresentationProfileStore.load(stateKey == null ? null : stateKey.application);
         final DesktopTaskLaunchDiagnostics.Entry launch =
                 DesktopTaskLaunchDiagnostics.find(task.taskId);
         report.append("- task=").append(task.taskId)
