@@ -1639,7 +1639,10 @@ desktop chrome into the workspace.
 The wallpaper is a full-display backdrop outside the inset-aware desktop
 content layer. Status-bar and viewport changes therefore reposition icons and
 windows without rescaling the wallpaper. The wallpaper controller center-crops
-the source once into a physical-display-sized frame; the view uses a fixed
+the source once into a physical-display-sized frame with `Bitmap.DENSITY_NONE`.
+This pixel-sized frame must not inherit source or process density:
+`BitmapDrawable` otherwise scales its intrinsic size again for the target
+display, even with an identity image matrix. The view uses a fixed
 top-left image matrix, so a transient system-bar inset cannot recrop that frame
 when HOME loses focus. Wallpaper readiness is published only after the selected
 bitmap reaches a committed frame; reload generations discard stale callbacks

@@ -210,6 +210,7 @@ final class DesktopWallpaperController {
     }
 
     private void recordRenderedEvent(final WallpaperResult result) {
+        final Drawable drawable = mWallpaperView.getDrawable();
         try {
             DesktopAutomationEventJournal.record(
                     "ui",
@@ -219,7 +220,18 @@ final class DesktopWallpaperController {
                     new org.json.JSONObject()
                             .put("displayId", mActivity.getCurrentDisplayId())
                             .put("custom", result.custom)
-                            .put("fallback", result.fallback));
+                            .put("fallback", result.fallback)
+                            .put("bitmapWidth", result.bitmap.getWidth())
+                            .put("bitmapHeight", result.bitmap.getHeight())
+                            .put("bitmapDensity", result.bitmap.getDensity())
+                            .put("drawableWidth", drawable != null
+                                    ? drawable.getIntrinsicWidth() : -1)
+                            .put("drawableHeight", drawable != null
+                                    ? drawable.getIntrinsicHeight() : -1)
+                            .put("viewWidth", mWallpaperView.getWidth())
+                            .put("viewHeight", mWallpaperView.getHeight())
+                            .put("displayDensity", mWallpaperView.getResources()
+                                    .getDisplayMetrics().densityDpi));
         } catch (org.json.JSONException ignored) {
             DesktopAutomationEventJournal.record(
                     "ui", "wallpaper_rendered", true,
@@ -331,13 +343,16 @@ final class DesktopWallpaperController {
             final int targetWidth,
             final int targetHeight) {
         final Bitmap sourceBitmap = source.bitmap;
+        // The final frame uses display pixels, not density-scaled drawable units.
         if (sourceBitmap.getWidth() == targetWidth
                 && sourceBitmap.getHeight() == targetHeight) {
+            sourceBitmap.setDensity(Bitmap.DENSITY_NONE);
             return source;
         }
         final Bitmap frame = Bitmap.createBitmap(
                 targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
         try {
+            frame.setDensity(Bitmap.DENSITY_NONE);
             final float scale = Math.max(
                     targetWidth / (float) sourceBitmap.getWidth(),
                     targetHeight / (float) sourceBitmap.getHeight());
