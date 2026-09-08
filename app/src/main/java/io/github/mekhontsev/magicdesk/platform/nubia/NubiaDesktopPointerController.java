@@ -11,33 +11,7 @@ final class NubiaDesktopPointerController {
     private NubiaDesktopPointerController() {
     }
 
-    static void setMousePosition(
-            final int displayId,
-            final Point position)
-            throws ReflectiveOperationException {
-        if (displayId <= 0) {
-            throw new IllegalArgumentException("missing mouse display");
-        }
-        if (position == null) {
-            throw new IllegalArgumentException("missing mouse position");
-        }
-        final MousePositionAccess access = mousePositionAccess();
-        access.setMousePosition.invoke(access.inputManager,
-                        Integer.valueOf(position.x),
-                        Integer.valueOf(position.y));
-    }
-
     static Point getPosition() throws ReflectiveOperationException {
-        final Point position = queryPosition();
-        if (position == null) {
-            throw new IllegalStateException(
-                    "vendor input service returned no pointer position");
-        }
-        return position;
-    }
-
-    private static Point queryPosition()
-            throws ReflectiveOperationException {
         final Point position = new Point();
         final MousePositionAccess access = mousePositionAccess();
         final Object result = access.getMousePosition.invoke(
@@ -49,7 +23,7 @@ final class NubiaDesktopPointerController {
         return position;
     }
 
-    static void prepareMousePositionControl()
+    static void prepareMousePositionObservation()
             throws ReflectiveOperationException {
         mousePositionAccess();
     }
@@ -96,7 +70,6 @@ final class NubiaDesktopPointerController {
     private static final class MousePositionAccess {
         final Object inputManager;
         final Method getMousePosition;
-        final Method setMousePosition;
 
         MousePositionAccess() throws ReflectiveOperationException {
             inputManager = getInputManager();
@@ -104,8 +77,6 @@ final class NubiaDesktopPointerController {
                     "android.hardware.input.IInputManager");
             getMousePosition = type.getMethod(
                     "getMousePosition", Point.class);
-            setMousePosition = type.getMethod(
-                    "setMousePosition", int.class, int.class);
         }
     }
 

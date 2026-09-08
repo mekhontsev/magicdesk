@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
-import android.graphics.Point;
 import android.os.Handler;
 import android.util.Log;
 import android.view.Display;
@@ -22,7 +21,6 @@ final class RuntimeDesktopInputCoordinator {
     private final Handler mHandler;
     private final Context mContext;
     private DesktopInputRelayPolicy mInputRelay = DesktopInputRelayPolicy.NONE;
-    private final PlatformPointerDriver mPointer;
     private final Runnable mHardwareKeyboardChanged;
     private final RuntimeInputCoordinator mInputDevices;
     private DesktopInputRelaySession mRelaySession;
@@ -50,11 +48,9 @@ final class RuntimeDesktopInputCoordinator {
     RuntimeDesktopInputCoordinator(
             final Context context,
             final Handler handler,
-            final PlatformPointerDriver pointer,
             final Runnable hardwareKeyboardChanged) {
         mHandler = handler;
         mContext = context.getApplicationContext();
-        mPointer = pointer;
         mHardwareKeyboardChanged = hardwareKeyboardChanged;
         mInputDevices = new RuntimeInputCoordinator(
                 context, handler, this::handleInputStateChanged);
@@ -151,8 +147,8 @@ final class RuntimeDesktopInputCoordinator {
                 && mRelaySession.isPointerReady(displayId);
         final boolean routingReady = active
                 && mRelaySession.isRoutingReady(displayId);
-        final Point position = active && supportsAbsolutePointer(displayId)
-                ? ShellAccess.observeMousePosition(displayId) : null;
+        final PointerPosition position = active
+                ? ShellAccess.observeMousePosition() : null;
         return new DesktopPointerState(
                 displayId,
                 provider,
@@ -238,7 +234,8 @@ final class RuntimeDesktopInputCoordinator {
 
 
     private boolean isActiveDesktopDisplay(final int displayId) {
-        return !mDestroyed && displayId == mDesktopDisplayId;
+        return !mDestroyed && displayId >= Display.DEFAULT_DISPLAY
+                && displayId == mDesktopDisplayId;
     }
 
     private void handleInputStateChanged(
@@ -435,10 +432,6 @@ final class RuntimeDesktopInputCoordinator {
         mRelaySession.stop();
         mInputRelay = selected;
         mRelaySession = createRelaySession();
-    }
-
-    private boolean supportsAbsolutePointer(final int displayId) {
-        return mPointer != null && mPointer.supportsDisplay(displayId);
     }
 
     private void updateShowImeOverride() {

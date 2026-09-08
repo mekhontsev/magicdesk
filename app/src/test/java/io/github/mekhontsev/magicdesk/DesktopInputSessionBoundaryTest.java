@@ -49,7 +49,9 @@ public final class DesktopInputSessionBoundaryTest {
     @Test
     public void preparationStartsOnceAndCloseRejectsLateReadiness() throws Exception {
         RuntimeSourceFixture.verify("""
-                static class Display { static final int INVALID_DISPLAY = -1; }
+                static class Display {
+                    static final int INVALID_DISPLAY = -1, DEFAULT_DISPLAY = 0;
+                }
                 boolean mDestroyed, mDesktopPrepared;
                 int mDesktopDisplayId = 7, mMouseBridgeSuspendedDisplayId = -1;
                 int updates;
@@ -68,6 +70,8 @@ public final class DesktopInputSessionBoundaryTest {
                     f.onDesktopPrepared(7);
                     check(!f.mDesktopPrepared && f.updates == 2, "late readiness reopened input");
                     f.mDesktopDisplayId = -1;
+                    f.onDesktopPrepared(-1);
+                    check(f.updates == 2, "inactive display accepted preparation");
                     f.clearCompletedMouseBridgeSuspension(-1);
                     f.mDesktopDisplayId = 7;
                     f.onDesktopPrepared(7);

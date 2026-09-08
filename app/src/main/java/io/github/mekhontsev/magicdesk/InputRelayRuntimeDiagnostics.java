@@ -1,7 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.graphics.Point;
-
 /** Immutable, explicitly requested snapshot of the live input relays. */
 final class InputRelayRuntimeDiagnostics {
     static final class BridgeSnapshot {
@@ -52,7 +50,8 @@ final class InputRelayRuntimeDiagnostics {
         final boolean pointerRelayRequired;
         final boolean pointerRelayReady;
         final boolean pointerRoutingReady;
-        final Point pointerPosition;
+        final PointerPosition pointerPosition;
+        final PointerPosition pointerObservation;
 
         Snapshot(
                 final int displayId,
@@ -70,8 +69,8 @@ final class InputRelayRuntimeDiagnostics {
                     && pointer.relayRequired;
             pointerRelayReady = pointer != null && pointer.relayReady;
             pointerRoutingReady = pointer != null && pointer.routingReady;
-            pointerPosition = pointer == null || pointer.position == null
-                    ? null : new Point(pointer.position);
+            pointerPosition = pointer == null ? null : pointer.positionOnDisplay();
+            pointerObservation = pointer == null ? null : pointer.observation;
         }
 
         static Snapshot unavailable() {

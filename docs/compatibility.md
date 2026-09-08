@@ -14,7 +14,7 @@ component. Vendor branding alone is not a baseline requirement and never
 enables the complete Nubia integration.
 
 The selected driver owns firmware-specific windowing properties, projection
-state and output modes, phone UI recovery, absolute-pointer access, optional
+state and output modes, phone UI recovery, cursor observation, optional
 application entry points, and compatibility probes. Missing vendor interfaces
 therefore appear as unavailable capabilities in Diagnostics instead of sending
 the common runtime through an unrelated Nubia code path.
@@ -22,7 +22,7 @@ the common runtime through an unrelated Nubia code path.
 The platform baseline is not a guarantee that every hook exists on every
 model. The firmware must expose working freeform task support and, for an
 external session, a secondary display that accepts application tasks. Managed
-projection, optional absolute-pointer access, external-display input routing,
+projection, optional cursor observation, external-display input routing,
 WMShell desktop commands, and several task transitions can still depend on
 firmware behavior.
 
@@ -64,7 +64,10 @@ probe; enabling the preference cannot grant them. The phone touchpad's relative
 input uses a virtual mouse independently of physical capture and does not
 require an absolute-position API. Software keyboard input is independent of
 both. Right clicks use the same virtual mouse as movement; optional pointer
-observation and coordinate injection remain separate capabilities.
+observation and coordinate injection remain separate. Coordinate automation
+uses Android display-targeted mouse events; it does not move a global vendor
+cursor. A position query without a display identity is reported separately as
+an unscoped observation, never as a confirmed position on the desktop.
 
 Phone desktop availability is independent from external-display support.
 MagicDesk reports Android's live

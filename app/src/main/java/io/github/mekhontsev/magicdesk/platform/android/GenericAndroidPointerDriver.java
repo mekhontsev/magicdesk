@@ -7,18 +7,4 @@ final class GenericAndroidPointerDriver implements PlatformPointerDriver {
     public boolean isAvailable() {
         return false;
     }
-
-    @Override
-    public boolean updatePosition(
-            final int displayId,
-            final int x,
-            final int y,
-            final int action,
-            final long downTime) {
-        return false;
-    }
-
-    @Override
-    public void close() {
-    }
 }

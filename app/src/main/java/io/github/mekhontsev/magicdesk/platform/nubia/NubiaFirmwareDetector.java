@@ -157,7 +157,7 @@ public final class NubiaFirmwareDetector {
 
     private static boolean hasPointerApi() {
         try {
-            NubiaDesktopPointerController.prepareMousePositionControl();
+            NubiaDesktopPointerController.prepareMousePositionObservation();
             return true;
         } catch (ReflectiveOperationException | RuntimeException
                 | LinkageError error) {

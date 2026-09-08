@@ -220,6 +220,11 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(input.getJSONObject("properties").has("displayId"));
         assertTrue(output.has("routingReady"));
         assertTrue(output.has("positionAvailable"));
+        assertTrue(output.getJSONObject("observation").getJSONArray("type")
+                .toString().contains("null"));
+        assertTrue(output.getJSONObject("observation").getJSONObject("properties")
+                .getJSONObject("displayId").getJSONArray("type")
+                .toString().contains("null"));
         assertTrue(output.has("x"));
         assertTrue(output.has("y"));
     }

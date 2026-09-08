@@ -84,8 +84,9 @@ public final class PlatformCapabilitySnapshot {
                 true,
                 "shared evdev/uinput transport; shell access is probed separately; "
                         + "default=" + features.compatibilityDefaults.inputRelay().diagnosticDetail());
-        probe(entries, platform, PlatformCapabilityId.ABSOLUTE_POINTER,
-                () -> platform.pointer().isAvailable(), () -> "");
+        probe(entries, platform, PlatformCapabilityId.POINTER_OBSERVATION,
+                () -> platform.pointer().isAvailable(),
+                () -> "read-only; display identity may be unavailable");
         probe(entries, platform, PlatformCapabilityId.PHONE_UI,
                 () -> platform.phoneUi().isAvailable(), () -> "");
         probeAudioCapture(entries, platform);

@@ -337,7 +337,8 @@ interface IShizukuCommandService {
         ITaskObserverCallback callback,
         int taskId) = 100;
 
-    int[] observeMousePosition(int displayId) = 101;
+    // Returns [observedDisplayId, x, y]; display -1 means unscoped observation.
+    int[] observeMousePosition() = 101;
 
     FrameworkTaskSnapshot[] readDiagnosticTaskSnapshots(
         int displayId,

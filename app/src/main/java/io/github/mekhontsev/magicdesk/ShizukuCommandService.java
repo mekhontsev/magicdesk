@@ -844,14 +844,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int displayId,
             final int x,
             final int y) {
-        if (mPointerDriver.supportsDisplay(displayId)) {
-            return mPointerDriver.updatePosition(
-                    displayId,
-                    x,
-                    y,
-                    DesktopPointerInjector.TOUCHPAD_HOVER,
-                    0L);
-        }
         try {
             DesktopPointerInjector.injectMouseHover(
                     displayId, new Point(x, y));
@@ -868,16 +860,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             final int x,
             final int y,
             final int button) {
-        if (mPointerDriver.supportsDisplay(displayId)) {
-            if (!mPointerDriver.updatePosition(
-                    displayId,
-                    x,
-                    y,
-                    DesktopPointerInjector.TOUCHPAD_HOVER,
-                    0L)) {
-                return false;
-            }
-        }
         try {
             DesktopPointerInjector.injectClickAt(
                     displayId, new Point(x, y), button);
@@ -889,10 +871,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public int[] observeMousePosition(final int displayId) {
-        final Point position = mPointerDriver.observePosition(displayId);
+    public int[] observeMousePosition() {
+        final PointerPosition position = mPointerDriver.observePosition();
         return position == null ? null
-                : new int[] {position.x, position.y};
+                : new int[] {position.displayId, position.x, position.y};
     }
 
     @Override
@@ -1367,7 +1349,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         synchronized (mInputRoutingLock) {
             stopInputRoutingLocked(null);
         }
-        mPointerDriver.close();
         mTaskObserverManager.close();
         for (final OwnedStreamSession session
                 : new ArrayList<>(mStreams.values())) {

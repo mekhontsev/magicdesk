@@ -1,7 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.graphics.Point;
-
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -162,6 +160,10 @@ final class InputRelayReportSnapshot {
                 .append(runtime.pointerRoutingReady)
                 .append(", position=")
                 .append(pointLabel(runtime.pointerPosition))
+                .append(", observation={")
+                .append(runtime.pointerObservation == null ? "unavailable"
+                        : runtime.pointerObservation.reportLabel())
+                .append('}')
                 .append(", touchpadRequested=")
                 .append(touchpadRequested)
                 .append(", touchpadVisible=")
@@ -235,7 +237,7 @@ final class InputRelayReportSnapshot {
         }
     }
 
-    private static String pointLabel(final Point point) {
+    private static String pointLabel(final PointerPosition point) {
         return point == null ? "unknown" : point.x + "," + point.y;
     }
 

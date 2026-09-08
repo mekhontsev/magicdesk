@@ -356,7 +356,6 @@ public final class MagicDeskRuntimeService extends Service
         mDesktopInput = new RuntimeDesktopInputCoordinator(
                 this,
                 mHandler,
-                mPlatform.pointer(),
                 this::updateNotification);
         mDesktopInput.start();
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();

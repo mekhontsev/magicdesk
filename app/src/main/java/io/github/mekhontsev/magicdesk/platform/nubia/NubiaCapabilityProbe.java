@@ -106,10 +106,9 @@ final class NubiaCapabilityProbe {
                     "android.hardware.input.IInputManager");
             inputManager.getMethod(
                     "getMousePosition", android.graphics.Point.class);
-            inputManager.getMethod(
-                    "setMousePosition", int.class, int.class);
             ShizukuCapabilityProbe.append(
-                    report, "vendor.mouse_position", "present", "");
+                    report, "vendor.mouse_position", "present",
+                    "read-only global position; display identity unavailable");
         } catch (ReflectiveOperationException | RuntimeException error) {
             ShizukuCapabilityProbe.append(
                     report,

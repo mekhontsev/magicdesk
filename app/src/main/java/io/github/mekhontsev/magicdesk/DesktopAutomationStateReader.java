@@ -108,7 +108,8 @@ final class DesktopAutomationStateReader {
                 .selection().provider(PlatformComponent.POINTER);
         final DesktopPointerState state = displayId >= Display.DEFAULT_DISPLAY
                 ? MagicDeskRuntime.getDesktopPointerState(displayId) : null;
-        final Point position = state == null ? null : state.position;
+        final PointerPosition position = state == null ? null : state.positionOnDisplay();
+        final PointerPosition observation = state == null ? null : state.observation;
         return new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())
                 .put("displayId", displayId)
@@ -124,6 +125,12 @@ final class DesktopAutomationStateReader {
                 .put("routingReady", state != null
                         && state.routingReady)
                 .put("positionAvailable", position != null)
+                .put("observation", observation == null ? JSONObject.NULL
+                        : new JSONObject()
+                                .put("displayId", observation.displayId < 0
+                                        ? JSONObject.NULL : observation.displayId)
+                                .put("x", observation.x)
+                                .put("y", observation.y))
                 .put("x", position == null ? JSONObject.NULL : position.x)
                 .put("y", position == null ? JSONObject.NULL : position.y);
     }

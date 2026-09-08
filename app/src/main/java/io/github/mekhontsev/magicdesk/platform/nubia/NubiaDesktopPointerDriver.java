@@ -1,23 +1,23 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
-import io.github.mekhontsev.magicdesk.DesktopPointerInjector;
 import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
+import io.github.mekhontsev.magicdesk.PointerPosition;
 
 import android.graphics.Point;
 import android.util.Log;
-import android.view.MotionEvent;
 
-/** MagicDesk pointer backend implemented with Nubia's hidden input API. */
+/** Read-only observation of Nubia's globally cached cursor controller. */
 final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
     private static final String TAG = "MagicDeskPointer";
 
     @Override
-    public Point observePosition(final int displayId) {
-        if (!supportsDisplay(displayId)) {
-            return null;
-        }
+    public PointerPosition observePosition() {
         try {
-            return NubiaDesktopPointerController.getPosition();
+            final Point position = NubiaDesktopPointerController.getPosition();
+            // The Binder API exposes no controller display identity. In
+            // particular, its last controller can belong to the phone.
+            return position == null ? null
+                    : new PointerPosition(-1, position.x, position.y);
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.d(TAG, "system pointer position is unavailable", error);
             return null;
@@ -25,42 +25,7 @@ final class NubiaDesktopPointerDriver implements PlatformPointerDriver {
     }
 
     @Override
-    public boolean updatePosition(
-            final int displayId,
-            final int x,
-            final int y,
-            final int action,
-            final long downTime) {
-        try {
-            final Point position = new Point(x, y);
-            NubiaDesktopPointerController.setMousePosition(
-                    displayId, position);
-            DesktopPointerInjector.injectTouchpadMotion(
-                    displayId,
-                    position,
-                    action,
-                    downTime,
-                    MotionEvent.TOOL_TYPE_MOUSE);
-            return true;
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.e(TAG, "absolute mouse movement failed", error);
-            return false;
-        }
-    }
-
-    @Override
-    public void close() {
-    }
-
-    @Override
     public boolean isAvailable() {
         return true;
-    }
-
-    @Override
-    public boolean supportsDisplay(final int displayId) {
-        // Nubia's absolute cursor service controls projection displays only.
-        // Display 0 uses Android's normal display-targeted input injection.
-        return displayId > 0;
     }
 }

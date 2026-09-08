@@ -10,7 +10,7 @@ public enum PlatformCapabilityId {
             "projection.outputConfiguration", PlatformComponent.PROJECTION),
     EXTERNAL_INPUT_BRIDGE(
             "input.externalBridge", PlatformComponent.EXTERNAL_INPUT),
-    ABSOLUTE_POINTER("input.absolutePointer", PlatformComponent.POINTER),
+    POINTER_OBSERVATION("input.pointerObservation", PlatformComponent.POINTER),
     PHONE_UI("phone.ui", PlatformComponent.PHONE_UI),
     INTERNAL_AUDIO_CAPTURE(
             "capture.internalAudio", PlatformComponent.AUDIO_CAPTURE),

@@ -232,6 +232,16 @@ Developer-only commands are:
 - `magicdesk.move_pointer`
 - `magicdesk.click_pointer`
 
+`move_pointer` injects a mouse hover at the requested display coordinates. It
+does not reposition the hardware cursor; success means event injection was
+accepted, not that the system cursor moved. The next `click_pointer` consumes
+those coordinates once. With no pending coordinates, a click uses the session's
+virtual mouse. `get_pointer_state` exposes `positionAvailable` and `x`/`y` only
+when the observation identifies the requested display. Its separate
+`observation` object retains raw coordinates with `displayId=null` if the source
+cannot identify the cursor's display. Relay readiness does not prove that an
+unscoped observation belongs to the desktop.
+
 Clipboard automation uses Android's system clipboard through the same gateway
 as Console and built-in UI copy actions. Reading is explicit, returns bounded
 text plus MIME metadata, and may require a focused MagicDesk window under

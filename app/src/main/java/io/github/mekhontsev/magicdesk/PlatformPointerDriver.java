@@ -1,28 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.graphics.Point;
-
-/** Optional absolute-pointer API supplied by a firmware platform. */
-public interface PlatformPointerDriver extends AutoCloseable {
+/** Optional read-only cursor observation supplied by a firmware platform. */
+public interface PlatformPointerDriver {
     boolean isAvailable();
 
-    /** Whether this vendor pointer backend owns the requested display. */
-    default boolean supportsDisplay(final int displayId) {
-        return isAvailable();
-    }
-
-    /** Current system cursor position, or {@code null} when not observable. */
-    default Point observePosition(final int displayId) {
+    /** Unknown display identity must remain -1; unavailable coordinates remain null. */
+    default PointerPosition observePosition() {
         return null;
     }
-
-    boolean updatePosition(
-            int displayId,
-            int x,
-            int y,
-            int action,
-            long downTime);
-
-    @Override
-    void close();
 }

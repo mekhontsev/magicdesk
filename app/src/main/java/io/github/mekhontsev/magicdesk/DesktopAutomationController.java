@@ -996,7 +996,8 @@ final class DesktopAutomationController {
                         .put("keyCode", keyCode));
     }
 
-    private DesktopAutomationResult movePointer(final JSONObject args) {
+    private DesktopAutomationResult movePointer(final JSONObject args)
+            throws JSONException {
         final int displayId = optionalDisplayId(args);
         final int x = requiredInt(args, "x");
         final int y = requiredInt(args, "y");
@@ -1008,7 +1009,15 @@ final class DesktopAutomationController {
                 mPointerPosition = new Point(x, y);
             }
         }
-        return simpleRuntimeAction(success, "pointer moved");
+        return success ? DesktopAutomationResult.success(
+                "pointer hover injected",
+                new JSONObject()
+                        .put("accepted", true)
+                        .put("displayId", displayId)
+                        .put("x", x)
+                        .put("y", y)
+                        .put("systemCursorPositionVerified", false))
+                : simpleRuntimeAction(false, "pointer hover injected");
     }
 
     private DesktopAutomationResult clickPointer(final JSONObject args) {

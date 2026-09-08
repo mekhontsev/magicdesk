@@ -5,7 +5,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import android.graphics.Point;
 
 import org.junit.After;
 import org.junit.Test;
@@ -258,7 +257,7 @@ public final class MagicDeskRuntimeTest {
                 final int displayId) {
             return new DesktopPointerState(
                     displayId, "test", true, true, true,
-                    new Point(10, 20));
+                    new PointerPosition(displayId, 10, 20));
         }
 
         @Override

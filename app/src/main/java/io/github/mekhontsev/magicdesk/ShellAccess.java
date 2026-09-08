@@ -468,8 +468,8 @@ public final class ShellAccess {
         }
     }
 
-    static Point observeMousePosition(final int displayId) {
-        if (!isReady() || displayId <= 0) {
+    static PointerPosition observeMousePosition() {
+        if (!isReady()) {
             return null;
         }
         final IShizukuCommandService service = connectedServiceOrConnect();
@@ -477,9 +477,9 @@ public final class ShellAccess {
             return null;
         }
         try {
-            final int[] position = service.observeMousePosition(displayId);
-            return position != null && position.length == 2
-                    ? new Point(position[0], position[1]) : null;
+            final int[] position = service.observeMousePosition();
+            return position != null && position.length == 3
+                    ? new PointerPosition(position[0], position[1], position[2]) : null;
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             return null;

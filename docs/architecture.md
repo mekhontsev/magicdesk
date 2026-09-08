@@ -106,7 +106,7 @@ mouse is visible in EventHub, establishes Android's display associations,
 and only then enables physical capture. Capture acquires every neutral source
 immediately. Hot-plugged sources enter the same neutral-state protocol.
 Android's InputReader owns the pointer viewport through those associations;
-the routing session is independent of the optional absolute-pointer driver.
+the routing session is independent of optional cursor observation.
 Teardown reverses that order: the helper
 releases every `EVIOCGRAB` and acknowledges completion before the routing
 session removes its associations. A helper restart repeats the same protocol
@@ -143,15 +143,15 @@ HOME lease's compatibility selection on external-session entry. Editing settings
 the next session takes the new preference. The virtual mouse and its routing
 remain independent, so disabling physical capture does not disable the phone
 touchpad. The routing session creates virtual keyboards only for selected
-keyboard capture. `PlatformPointerDriver` remains a separate capability.
+keyboard capture. `PlatformPointerDriver` provides separate read-only observation.
 
 MagicDesk uses one phone-side `MagicDeskTouchpadActivity` for every external
 transport. `TouchpadPointerMotion` converts successive finger coordinates into
 relative deltas. The shared native mouse relay forwards these deltas and button
 state through its virtual pointer; Android owns pointer acceleration, cursor
 visibility, hover shape, and window dragging. There is no additional motion
-smoothing or acceleration loop. Optional absolute-position APIs remain separate
-for explicit positioning and observation.
+smoothing or acceleration loop. Explicit automation injects display-targeted
+Android mouse events, separately from optional cursor observation.
 
 A long press remains undecided until the finger either moves or is released.
 Movement starts a primary-button drag; release without movement becomes a
@@ -204,13 +204,16 @@ keyboard preference is imposed during setup.
 ### Keep vendor input APIs behind a capability boundary
 
 MagicDesk does not package or link a Nubia binary library. The vendor surface
-used for desktop input consists of private Binder methods added to framework
-interfaces on RedMagic firmware: `IInputManager.getMousePosition` and
-`setMousePosition`.
+used for cursor diagnostics is the private Binder method
+`IInputManager.getMousePosition` on RedMagic firmware.
 
-These signatures are resolved reflectively inside the shell UserService and
-are never exposed as a generic command surface. Diagnostics and the self-test
-inspect the absolute-pointer signatures without invoking them.
+The signature is resolved reflectively inside the shell UserService.
+`PointerPosition` retains the source's display identity, or -1 when unknown.
+Nubia's API exposes global coordinates without a display identity: these appear
+as an unscoped observation, never as the requested desktop's position.
+Display-targeted hover and positioned clicks use `DesktopPointerInjector` on
+all platforms. They inject mouse events but do not reposition the hardware
+cursor. Phone touchpad movement remains relative native input.
 A missing optional package or method disables
 the corresponding operation rather than changing unrelated device state. In
 contrast,
@@ -890,9 +893,8 @@ runtime integration and are not distributed through the same release path.
   probe checks that the desktop remains rendered throughout the operation.
 - Fullscreen commands perform caption-source repair only when requested
   by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
-  the same platform policy. Shell input recovery calls the selected
-  `PlatformPointerDriver`; the Nubia driver alone chooses its firmware-specific
-  finger-tool hover event.
+  the same platform policy. Synthetic hover and clicks use standard
+  display-targeted Android mouse events through the shell service.
 
 ### Framework compatibility services
 
@@ -1032,13 +1034,13 @@ isolated behind these boundaries.
   `PlatformWindowingDriver` owns provisioning properties;
   `PlatformProjectionDriver` owns output modes, wireless-launch integration,
   and caption transport; `PlatformPhoneUiDriver` owns phone-screen power control;
-  `PlatformPointerDriver` owns optional absolute-pointer integration. On Nubia
-  firmware this is implemented by `NubiaDesktopPointerDriver`, the MagicDesk
-  pointer backend over the hidden vendor positioning API. Physical input
+  `PlatformPointerDriver` owns optional read-only cursor observation. On Nubia
+  firmware this is implemented by `NubiaDesktopPointerDriver` over the hidden
+  global position query. Physical input
   routing itself stays in the shared Android implementation and uses standard
   port or unique-id display associations. `PlatformFeatures.compatibilityDefaults`
   supplies the default physical-capture policy, overridden by the user's
-  session preference; it does not imply absolute-pointer support. Detecting
+  session preference; it does not imply cursor-observation support. Detecting
   only an optional pointer API on a custom ROM does not enable physical capture.
   `PlatformDiagnostics` contributes only the probes for the selected platform.
   A selected `SYSTEM_CONTROLS` provider identifies the platform integration,
@@ -1076,7 +1078,7 @@ isolated behind these boundaries.
   `GenericAndroidPlatformDriver` provides the Android 15 baseline: phone,
   simulated, and direct sessions on already connected secondary displays,
   using the two shared required freeform/resizable settings. It does not own the
-  system projection transport, and its phone-UI, absolute-pointer, output-mode,
+  system projection transport, and its phone-UI, cursor-observation, output-mode,
   and hardware integrations fail closed. Its diagnostics omit vendor probes.
 - Platform and display are independent axes. A platform declares which
   display kinds it supports, while the display driver owns the lifecycle of
@@ -1398,9 +1400,8 @@ real desktop. Virtual input remains scoped to the session and cleanup waits for
 its removal before the test completes. The test inspects WMShell's caption and
 resize input windows after a cross-display move, including their display ID,
 frame, input channel, token, and
-touchable region. Nubia's absolute-pointer API has no viewport for Android
-overlay displays, so actual pointer drag remains a real-display compatibility
-check.
+touchable region. Synthetic events target an explicit display; physical pointer
+dragging additionally exercises InputReader's device associations.
 
 - A normal launch on display 0 opens the phone control panel.
 - **Open desktop here** uses a dedicated task excluded from Recents. The phone
@@ -2698,7 +2699,6 @@ Settings.Global enable_freeform_support = 1
 Settings.Global force_resizable_activities = 1
 ```
 
-The Nubia/REDMAGIC platform additionally audits:
 `DeviceSetupManager` owns these common requirements; `PlatformWindowingDriver`
 adds only firmware-specific provisioning. A session owns its temporary display
 windowing default and restores that separately.
@@ -2716,6 +2716,7 @@ Restore defaults removes the override. The flag affects external HOME, system
 decorations and input policy, but does not prove correct physical-input routing.
 Physical-input capture remains an independent compatibility preference.
 
+The Nubia/REDMAGIC platform additionally audits:
 
 ```text
 persist.wm.debug.desktop_mode_enforce_device_restrictions = false
@@ -2772,8 +2773,9 @@ codes, or retain typed text. At the start of explicit compatibility-report
 generation, MagicDesk requests one native statistics frame and one bounded
 `FrameworkInputSnapshotSource` snapshot. The resulting report compares owned
 MagicDesk ports with current InputManager associations and records the observed
-vendor pointer position without refreshing the viewport or attempting pointer
-recovery. No diagnostic input polling runs during normal desktop use. The
+cursor observation with its source-supplied display identity (unknown when not
+provided), without refreshing the viewport or attempting pointer recovery.
+No diagnostic input polling runs during normal desktop use. The
 report also states whether the optional desktop-session wake policy is enabled
 and currently held.
 

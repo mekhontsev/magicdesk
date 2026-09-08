@@ -13,12 +13,7 @@ import java.lang.reflect.Method;
 
 /** Injects display-targeted pointer actions. */
 public final class DesktopPointerInjector {
-    private static final int INJECTION_MODE_ASYNC = 0;
     private static final int INJECTION_MODE_WAIT_FOR_RESULT = 1;
-    public static final int TOUCHPAD_HOVER = 0;
-    public static final int TOUCHPAD_DRAG_START = 1;
-    public static final int TOUCHPAD_DRAG_MOVE = 2;
-    public static final int TOUCHPAD_DRAG_END = 3;
 
     private static volatile InjectionContext sInjectionContext;
 
@@ -53,50 +48,6 @@ public final class DesktopPointerInjector {
         } catch (ReflectiveOperationException error) {
             throw new IllegalStateException(
                     "could not inject pointer click", error);
-        }
-    }
-
-    @SuppressLint("BlockedPrivateApi")
-    public static void injectTouchpadMotion(
-            final int displayId,
-            final Point position,
-            final int action,
-            final long downTime,
-            final int hoverToolType)
-            throws ReflectiveOperationException {
-        validateDisplay(displayId);
-        final InjectionContext context = injectionContext();
-        final long eventTime = SystemClock.uptimeMillis();
-        final long gestureDownTime = downTime > 0 ? downTime : eventTime;
-        switch (action) {
-            case TOUCHPAD_HOVER:
-                context.injectTouchpadHoverAsync(
-                        displayId, position, eventTime, hoverToolType);
-                return;
-            case TOUCHPAD_DRAG_START:
-                context.injectMouseAsync(displayId, position, gestureDownTime,
-                        MotionEvent.ACTION_DOWN,
-                        MotionEvent.BUTTON_PRIMARY, 0);
-                context.injectMouseAsync(displayId, position, gestureDownTime,
-                        MotionEvent.ACTION_BUTTON_PRESS,
-                        MotionEvent.BUTTON_PRIMARY,
-                        MotionEvent.BUTTON_PRIMARY);
-                return;
-            case TOUCHPAD_DRAG_MOVE:
-                context.injectMouseAsync(displayId, position, gestureDownTime,
-                        MotionEvent.ACTION_MOVE,
-                        MotionEvent.BUTTON_PRIMARY, 0);
-                return;
-            case TOUCHPAD_DRAG_END:
-                context.injectMouseAsync(displayId, position, gestureDownTime,
-                        MotionEvent.ACTION_BUTTON_RELEASE,
-                        0, MotionEvent.BUTTON_PRIMARY);
-                context.injectMouseAsync(displayId, position, gestureDownTime,
-                        MotionEvent.ACTION_UP, 0, 0);
-                return;
-            default:
-                throw new IllegalArgumentException(
-                        "invalid touchpad pointer action: " + action);
         }
     }
 
@@ -250,47 +201,6 @@ public final class DesktopPointerInjector {
                     1.0f);
         }
 
-        void injectMouseAsync(
-                final int displayId,
-                final Point position,
-                final long downTime,
-                final int action,
-                final int buttonState,
-                final int actionButton)
-                throws ReflectiveOperationException {
-            inject(displayId, position, downTime, action,
-                    MotionEvent.TOOL_TYPE_MOUSE,
-                    InputDevice.SOURCE_MOUSE,
-                    buttonState,
-                    actionButton,
-                    0.0f,
-                    INJECTION_MODE_ASYNC,
-                    inputDeviceId(InputDevice.SOURCE_MOUSE),
-                    1.0f);
-        }
-
-        void injectTouchpadHoverAsync(
-                final int displayId,
-                final Point position,
-                final long eventTime,
-                final int toolType)
-                throws ReflectiveOperationException {
-            if (toolType != MotionEvent.TOOL_TYPE_MOUSE
-                    && toolType != MotionEvent.TOOL_TYPE_FINGER) {
-                throw new IllegalArgumentException(
-                        "unsupported hover tool type: " + toolType);
-            }
-            inject(displayId, position, eventTime,
-                    MotionEvent.ACTION_HOVER_MOVE,
-                    toolType,
-                    InputDevice.SOURCE_MOUSE,
-                    0,
-                    0,
-                    0.0f,
-                    INJECTION_MODE_ASYNC,
-                    inputDeviceId(InputDevice.SOURCE_MOUSE),
-                    toolType == MotionEvent.TOOL_TYPE_MOUSE ? 1.0f : 0.0f);
-        }
 
         void injectSyntheticTouch(
                 final int displayId,

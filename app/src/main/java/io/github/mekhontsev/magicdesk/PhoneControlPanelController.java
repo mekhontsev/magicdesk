@@ -61,7 +61,6 @@ final class PhoneControlPanelController {
         final boolean externalDesktopSupported;
         final boolean phoneScreenOff;
         final boolean phoneScreenControlAvailable;
-        final boolean phoneTouchpadAvailable;
         final boolean externalOutputControlAvailable;
         final PlatformProjectionDriver.ModeSelection externalModeSelection;
         final String externalDisplaySummary;
@@ -84,7 +83,6 @@ final class PhoneControlPanelController {
                 final boolean externalDesktopSupported,
                 final boolean phoneScreenOff,
                 final boolean phoneScreenControlAvailable,
-                final boolean phoneTouchpadAvailable,
                 final boolean externalOutputControlAvailable,
                 final PlatformProjectionDriver.ModeSelection externalModeSelection,
                 final String externalDisplaySummary,
@@ -105,7 +103,6 @@ final class PhoneControlPanelController {
             this.externalDesktopSupported = externalDesktopSupported;
             this.phoneScreenOff = phoneScreenOff;
             this.phoneScreenControlAvailable = phoneScreenControlAvailable;
-            this.phoneTouchpadAvailable = phoneTouchpadAvailable;
             this.externalOutputControlAvailable =
                     externalOutputControlAvailable;
             this.externalModeSelection = externalModeSelection;
@@ -266,8 +263,7 @@ final class PhoneControlPanelController {
                 state.shellReady,
                 state.sessionOperationInProgress);
         final boolean canOpenTouchpad = state.externalDesktopActive
-                && state.shellReady
-                && state.phoneTouchpadAvailable;
+                && state.shellReady;
         final boolean canControlPhoneScreen = state.externalDesktopActive
                 && state.phoneScreenControlAvailable;
         mCloseDesktop.setEnabled(canCloseDesktop);

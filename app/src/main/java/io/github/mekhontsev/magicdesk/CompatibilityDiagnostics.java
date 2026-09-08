@@ -575,7 +575,7 @@ public final class CompatibilityDiagnostics {
                 .append('}')
                 .append(", internalAudioCapture=")
                 .append(platform.audioCapture().isAvailable())
-                .append(", absolutePointer=")
+                .append(", pointerObservation=")
                 .append(platform.pointer().isAvailable())
                 .append(", outputControls=")
                 .append(platform.projection().supportsOutputConfiguration())

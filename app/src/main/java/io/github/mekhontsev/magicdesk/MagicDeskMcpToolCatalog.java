@@ -486,7 +486,7 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "move_pointer",
                         "Move pointer",
-                        "Move the MagicDesk pointer to absolute display coordinates.",
+                        "Inject mouse hover at absolute display coordinates. Does not reposition the hardware cursor. The next click_pointer uses these coordinates.",
                         objectSchema(new JSONObject()
                                         .put("displayId", integerProperty(
                                                 "Optional active display id."))
@@ -498,7 +498,7 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "click_pointer",
                         "Click pointer",
-                        "Inject a primary or secondary pointer click at the current position.",
+                        "Click at the last move_pointer coordinates once, or at the current virtual mouse position when no positioned hover is pending.",
                         objectSchema(new JSONObject()
                                 .put("displayId", integerProperty(
                                         "Optional active display id."))
@@ -1094,7 +1094,15 @@ final class MagicDeskMcpToolCatalog {
                         .put("routingReady", booleanProperty(
                                 "Whether input routing is ready."))
                         .put("positionAvailable", booleanProperty(
-                                "Whether the platform exposes cursor coordinates."))
+                                "Whether observed coordinates belong to the requested display."))
+                        .put("observation", objectSchema(new JSONObject()
+                                .put("displayId", nullableIntegerProperty(
+                                        "Observed display, or null when the source cannot identify it."))
+                                .put("x", integerProperty("Observed x coordinate."))
+                                .put("y", integerProperty("Observed y coordinate.")),
+                                "displayId", "x", "y")
+                                .put("type", new JSONArray().put("object").put("null"))
+                                .put("description", "Raw observation, not necessarily on the requested display."))
                         .put("x", nullableIntegerProperty(
                                 "Observed cursor x coordinate."))
                         .put("y", nullableIntegerProperty(

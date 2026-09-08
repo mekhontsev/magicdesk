@@ -522,7 +522,6 @@ public final class ControlActivity extends Activity
                 DesktopDisplayDrivers.isExternalDesktopSupported(),
                 mPhoneUi.isPhoneScreenOff(this),
                 ShellAccess.isReady() && mPhoneUi.isAvailable(),
-                PlatformDrivers.current().pointer().isAvailable(),
                 mProjection.supportsOutputConfiguration(),
                 mExternalModeSelection,
                 mExternalDisplaySummary,

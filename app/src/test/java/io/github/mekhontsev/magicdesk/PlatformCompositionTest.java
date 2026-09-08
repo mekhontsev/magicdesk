@@ -67,7 +67,7 @@ public final class PlatformCompositionTest {
 
         final PlatformCapabilitySnapshot.Entry entry =
                 PlatformCapabilitySnapshot.capture(composed).entry(
-                        PlatformCapabilityId.ABSOLUTE_POINTER);
+                        PlatformCapabilityId.POINTER_OBSERVATION);
 
         assertEquals(PlatformCapabilityState.BROKEN, entry.state);
         assertEquals("fixture", entry.providerId);
@@ -118,18 +118,5 @@ public final class PlatformCompositionTest {
             return true;
         }
 
-        @Override
-        public boolean updatePosition(
-                final int displayId,
-                final int x,
-                final int y,
-                final int action,
-                final long downTime) {
-            return false;
-        }
-
-        @Override
-        public void close() {
-        }
     }
 }

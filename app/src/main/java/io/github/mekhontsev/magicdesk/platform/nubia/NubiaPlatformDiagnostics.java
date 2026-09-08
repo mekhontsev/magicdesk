@@ -142,7 +142,7 @@ final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
         DesktopSelfTestCapabilityAudit.optional(
                 result, capabilities,
                 "vendor.mouse_position", "present",
-                "API-NUBIA-007", "MagicDesk Nubia desktop pointer backend");
+                "API-NUBIA-007", "Global cursor observation (display unknown)");
         DesktopSelfTestCapabilityAudit.optionalComponent(
                 context, result,
                 "cn.nubia.touping",
