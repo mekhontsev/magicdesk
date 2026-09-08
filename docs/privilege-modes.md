@@ -50,7 +50,6 @@ On the verified firmware, shell UID 2000 can:
 - configure display geometry and density and capture screenshots;
 - reveal native WMShell captions while the desktop session is active;
 - lock the phone and control the physical state of display 0;
-- read the current static wallpaper;
 - browse and mutate every filesystem path available to shell through the
   built-in Files task, while sharing only individual capability URIs with
   ordinary Android applications;

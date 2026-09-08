@@ -323,19 +323,6 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         }
     }
 
-    @Override
-    public ParcelFileDescriptor openSystemWallpaper() {
-        if (mContext == null) {
-            throw new IllegalStateException("Shizuku service context is unavailable");
-        }
-        final ParcelFileDescriptor wallpaper =
-                SystemWallpaperReader.openCurrent();
-        if (wallpaper == null) {
-            throw new IllegalStateException("system wallpaper is unavailable");
-        }
-        return wallpaper;
-    }
-
     private static void persistHardwareKeyboardLayout(
             final HardwareKeyboardLayoutCommand.Result result)
             throws IOException {

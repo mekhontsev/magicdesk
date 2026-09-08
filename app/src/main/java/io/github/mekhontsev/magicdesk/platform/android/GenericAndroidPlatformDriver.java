@@ -14,7 +14,6 @@ import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
 import io.github.mekhontsev.magicdesk.PlatformSelection;
 import io.github.mekhontsev.magicdesk.PlatformSystemControls;
-import io.github.mekhontsev.magicdesk.PlatformWallpaperDriver;
 import io.github.mekhontsev.magicdesk.PlatformWindowingDriver;
 
 import android.content.Context;
@@ -36,8 +35,6 @@ public final class GenericAndroidPlatformDriver implements PlatformDriver {
             new GenericAndroidProjectionDriver();
     private static final PlatformPhoneUiDriver PHONE_UI =
             new GenericAndroidPhoneUiDriver();
-    private static final PlatformWallpaperDriver WALLPAPER =
-            new GenericAndroidWallpaperDriver();
     private static final PlatformDiagnostics DIAGNOSTICS =
             new GenericAndroidPlatformDiagnostics();
     private static final PlatformAudioCaptureDriver AUDIO_CAPTURE =
@@ -87,11 +84,6 @@ public final class GenericAndroidPlatformDriver implements PlatformDriver {
     @Override
     public PlatformPhoneUiDriver phoneUi() {
         return PHONE_UI;
-    }
-
-    @Override
-    public PlatformWallpaperDriver wallpaper() {
-        return WALLPAPER;
     }
 
     @Override

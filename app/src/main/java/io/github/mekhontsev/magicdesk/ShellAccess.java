@@ -486,24 +486,6 @@ public final class ShellAccess {
         }
     }
 
-    static ParcelFileDescriptor openSystemWallpaper() throws IOException {
-        try {
-            final ParcelFileDescriptor descriptor =
-                    requireService().openSystemWallpaper();
-            if (descriptor == null) {
-                throw new IOException(
-                        "Shizuku command service returned no wallpaper");
-            }
-            return descriptor;
-        } catch (RemoteException | RuntimeException error) {
-            handleServiceFailure(error);
-            throw new IOException(
-                    "Shizuku wallpaper read failed: "
-                            + usefulMessage(error),
-                    error);
-        }
-    }
-
     static DesktopFileInfo[] listDesktopFiles() throws IOException {
         try {
             final DesktopFileInfo[] files =

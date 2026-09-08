@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Binder;
 import android.os.IBinder;
-import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -83,7 +82,6 @@ public final class ShizukuCapabilityProbe {
         SocDisplayModeBackends.appendCapabilityProbe(report);
         PlatformDrivers.current().diagnostics()
                 .appendCapabilityProbe(report, context);
-        appendSystemWallpaper(report, context);
         return report.toString();
     }
 
@@ -422,24 +420,6 @@ public final class ShizukuCapabilityProbe {
             append(report, key, "present", binder.getInterfaceDescriptor());
         } catch (Throwable error) {
             append(report, key, "error", usefulMessage(error));
-        }
-    }
-
-    private static void appendSystemWallpaper(
-            final StringBuilder report,
-            final Context context) {
-        if (context == null) {
-            append(report, "wallpaper.system", "unknown", "no service context");
-            return;
-        }
-        try (ParcelFileDescriptor descriptor =
-                SystemWallpaperReader.openCurrent()) {
-            append(report,
-                    "wallpaper.system",
-                    descriptor == null ? "unavailable" : "available",
-                    descriptor == null ? "no static system wallpaper" : "");
-        } catch (IOException | RuntimeException error) {
-            append(report, "wallpaper.system", "unavailable", usefulMessage(error));
         }
     }
 

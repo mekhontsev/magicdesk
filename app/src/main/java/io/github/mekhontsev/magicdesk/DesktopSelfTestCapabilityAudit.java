@@ -86,9 +86,6 @@ public final class DesktopSelfTestCapabilityAudit {
                 "API-RECORDING-002", "Display framebuffer capture");
         PlatformDrivers.current().diagnostics().auditSelfTest(
                 context, result, capabilities);
-        optional(result, capabilities,
-                "wallpaper.system", "available",
-                "API-WALLPAPER-001", "Static system wallpaper image");
 
         final boolean nativeDesktopAvailable =
                 NativeDesktopController.isAvailable();

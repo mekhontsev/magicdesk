@@ -160,7 +160,6 @@ remain mandatory even for app-accessible methods.
 | `cfreezer.noteCpuFreezerUidWorking` | Shell | `PhoneDisplayGuardCommand`: transient screen-off protection for other desktop applications. |
 | Stock fan/pump Settings keys | Shell writes and readback | `RedmagicHardwareController`: stock cooling policy and restoration. |
 | `charge_separation_switch` | Settings observation and shell writes | `ChargeSeparationController`: stock bypass-charging control. |
-| Theme properties and wallpaper cache | Read-only fallback | `NubiaWallpaperDriver`: obtain the selected theme wallpaper when the normal source has no file. |
 | `MediaRecorder` source `80` | Capability probe and shared recording path | `NubiaAudioCaptureDriver`: optional internal audio capture. |
 | SmartCast and Mora components | Explicit ordinary Intents | `WirelessDisplayController` and `RedmagicEntryPointCatalog`: optional vendor UI/catalog targets. |
 
@@ -351,12 +350,6 @@ extension's existing hardware lifecycle.
   `cn.zte.chargeseparation` and controls
   `Settings.Global.charge_separation_switch`. Enabling requires external power
   and sufficient battery charge; state uses observers and write readback.
-- **Wallpaper:** `NubiaWallpaperDriver.openCurrentFallback` reads the selected
-  theme through `persist.sys.theme_name`, `ro.vendor.build.def_theme_name`,
-  or `ro.build.def_theme_name`, then opens `wallpaper1.jpg` or `wallpaper1.png`
-  under `/data/resource-cache/cache/<theme>/wallpaper/`. Theme names are
-  validated, access is read-only, and the fallback is used only when the normal
-  wallpaper source has no file.
 - **Internal audio:** `InternalAudioSourceCapability` probes vendor
   `MediaRecorder` source `80`; `NubiaAudioCaptureDriver` supplies it to the
   shared recorder. A declared source is not proof of successful recording;

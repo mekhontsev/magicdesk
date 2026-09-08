@@ -16,7 +16,6 @@ import io.github.mekhontsev.magicdesk.PlatformPointerDriver;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
 import io.github.mekhontsev.magicdesk.PlatformMatch;
 import io.github.mekhontsev.magicdesk.PlatformSystemControls;
-import io.github.mekhontsev.magicdesk.PlatformWallpaperDriver;
 import io.github.mekhontsev.magicdesk.PlatformWindowingDriver;
 
 import android.content.Context;
@@ -36,8 +35,6 @@ public final class NubiaPlatformDriver implements PlatformExtension {
             new NubiaProjectionDriver();
     private static final PlatformPhoneUiDriver PHONE_UI =
             new NubiaPhoneUiDriver();
-    private static final PlatformWallpaperDriver WALLPAPER =
-            new NubiaWallpaperDriver();
     private static final PlatformDiagnostics DIAGNOSTICS =
             new NubiaPlatformDiagnostics();
     private static final PlatformAudioCaptureDriver AUDIO_CAPTURE =
@@ -132,11 +129,6 @@ public final class NubiaPlatformDriver implements PlatformExtension {
     @Override
     public PlatformPhoneUiDriver phoneUi() {
         return PHONE_UI;
-    }
-
-    @Override
-    public PlatformWallpaperDriver wallpaper() {
-        return WALLPAPER;
     }
 
     @Override

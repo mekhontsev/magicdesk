@@ -43,8 +43,6 @@ interface IShizukuCommandService {
     String updateHardwareKeyboardLayout(
         String mode, String currentDescriptor) = 7;
 
-    ParcelFileDescriptor openSystemWallpaper() = 8;
-
     ParcelFileDescriptor openHeartbeatStream(
         String command, long requestId, IBinder ownerToken) = 9;
 

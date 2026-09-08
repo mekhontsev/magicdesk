@@ -32,7 +32,11 @@ The desktop supports:
 - native global drag and drop;
 - folder, web, Android application, and command `.desktop` entries;
 - shared file activation and context menus with built-in Files;
-- a custom image or the phone's current static wallpaper.
+- the bundled MagicDesk wallpaper or a custom image selected in Files.
+
+Use **Set as desktop wallpaper** on an image in Files to replace the background.
+**Use MagicDesk wallpaper** in the desktop context menu restores the bundled
+background. These actions do not change the phone's system wallpaper.
 
 ## Files
 

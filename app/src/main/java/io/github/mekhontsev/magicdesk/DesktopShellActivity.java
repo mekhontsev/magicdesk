@@ -1168,9 +1168,9 @@ public abstract class DesktopShellActivity extends Activity
         launchDefault(files);
     }
 
-    void useSystemDesktopWallpaper() {
+    void useDefaultDesktopWallpaper() {
         hideAllPanels();
-        mDesktopWallpaperController.useSystemWallpaper();
+        mDesktopWallpaperController.useDefaultWallpaper();
     }
 
     boolean isUsingCustomDesktopWallpaper() {

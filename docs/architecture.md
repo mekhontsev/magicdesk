@@ -1029,7 +1029,7 @@ isolated behind these boundaries.
   creates the Standard Android baseline, then may layer one detected
   `PlatformExtension` over it. `PlatformComponent` makes each override
   explicit: an extension can own projection without replacing windowing,
-  pointer, input, phone UI, wallpaper, audio, diagnostics, controls, launch
+  pointer, input, phone UI, audio, diagnostics, controls, launch
   targets, or runtime behavior. `ComposedPlatformDriver` uses that declaration
   as the source of truth and rejects a declared component with no
   implementation. `PlatformSelection` records the provider and detection
@@ -2823,22 +2823,30 @@ it does not replace the app process with instrumentation, so the runtime and an
 enabled MCP server remain alive. It is intentionally not run by host-only CI.
 
 Desktop wallpaper loading follows the same fail-open rule. By default MagicDesk
-reads the current static system wallpaper. MagicDesk Files offers **Set as
+decodes its bundled `drawable-nodpi/desktop_wallpaper.webp` resource. MagicDesk Files offers **Set as
 desktop wallpaper** only for local image files. The selected file is reopened
 through its verified device/inode identity, decoded far enough to validate the
 image, and atomically copied to
 `/storage/emulated/0/Desktop/.magicdesk/wallpaper`;
-selecting **Use system wallpaper** removes that override. An unavailable or
-undecodable image falls back to the last valid custom image, the system image,
-the last valid cached system image, or MagicDesk's built-in background and
+selecting **Use MagicDesk wallpaper** removes that override. An unavailable or
+undecodable custom image falls back to the last valid custom cache or the
+bundled background and
 records one compatibility event per distinct failure instead of changing
 desktop session state.
+Confirmed absence of the custom file clears its cache and selects the bundled
+background. A solid-color emergency frame is used only if the bundled resource
+cannot be decoded. Wallpaper source selection belongs to the shared desktop UI;
+the shell boundary only reads and writes the optional Desktop file. The desktop
+folder observer owns custom wallpaper change notifications.
+The existing `wallpaper_rendered` event records the selected source (`bundled`,
+`custom`, or `fallback`), bitmap/drawable/view dimensions, and density after the
+frame commits. Bundled artwork provenance is documented in [Artwork](artwork.md).
 Each background load owns a unique temporary cache file. The existing load
 generation cancels superseded work before provider reads, between transfer
 chunks, and before cache publication and rendering. Cancellation does not
 trigger fallback or a compatibility failure, and an already decoded but
 unused image is recycled. Temporary cache allocation failure still permits
-cached or built-in wallpaper. No extra worker, timer, or polling loop is added.
+cached or bundled wallpaper. No extra worker, timer, or polling loop is added.
 
 `CommandConsoleActivity` is a permission-protected, multi-instance desktop task
 over a selected `TerminalTransport`. Each Activity owns one independent

@@ -507,6 +507,10 @@ journal. Events come from the existing production observers and include:
 - recording and self-test lifecycle;
 - MagicDesk process and MCP server lifecycle plus action outcomes.
 
+The `wallpaper_rendered` event includes the selected source (`bundled`, `custom`,
+or `fallback`), bitmap/drawable/view dimensions, and bitmap/display density.
+These values are captured once after the selected frame commits.
+
 The journal keeps at most 256 entries and contains no keyboard text or user
 file contents. Compatibility reports include a 24 KiB bounded tail of at most
 64 events so reports from remote devices retain task, focus, display, and input

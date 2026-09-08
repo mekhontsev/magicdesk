@@ -38,10 +38,6 @@ public interface PlatformExtension {
         return null;
     }
 
-    default PlatformWallpaperDriver wallpaper() {
-        return null;
-    }
-
     default PlatformDiagnostics diagnostics() {
         return null;
     }

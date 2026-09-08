@@ -178,7 +178,6 @@ The report includes:
   raw-input read/write access, `/dev/uinput` open access, and task APIs;
 - on a selected vendor platform, additional non-destructive checks for its
   projection, input, hardware, launcher, and output-mode integrations;
-- a read-only check for the current static system wallpaper image;
 - notification-listener and WMShell desktopmode probes;
 - current displays and external input-device descriptors;
 - a one-shot input snapshot with aggregate virtual-pointer activity, MagicDesk
@@ -279,6 +278,6 @@ the selected SoC display backend before falling back to Android's public mode
 list. When neither source exposes alternate timings, the current physical mode
 is read-only and timing selection remains with the system projection UI. This
 does not disable the desktop.
-If Android does not expose a static wallpaper image, MagicDesk can use a custom
-desktop wallpaper, its cached system wallpaper, or the built-in background
-without failing the desktop session.
+Desktop wallpaper comes from the bundled MagicDesk artwork or a user-selected
+image. An unreadable custom image falls back to its last valid cache or the
+bundled background without failing the desktop session.

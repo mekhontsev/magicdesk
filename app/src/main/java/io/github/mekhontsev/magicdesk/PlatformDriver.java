@@ -25,8 +25,6 @@ public interface PlatformDriver {
 
     PlatformPhoneUiDriver phoneUi();
 
-    PlatformWallpaperDriver wallpaper();
-
     PlatformDiagnostics diagnostics();
 
     PlatformAudioCaptureDriver audioCapture();

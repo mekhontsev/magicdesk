@@ -119,13 +119,6 @@ final class ComposedPlatformDriver implements PlatformDriver {
     }
 
     @Override
-    public PlatformWallpaperDriver wallpaper() {
-        return component(
-                PlatformComponent.WALLPAPER,
-                mExtension.wallpaper(), mBaseline.wallpaper());
-    }
-
-    @Override
     public PlatformDiagnostics diagnostics() {
         return component(
                 PlatformComponent.DIAGNOSTICS,
