@@ -44,6 +44,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final ShellDisplayRecordingSession mDisplayRecording;
     private final ShellDesktopDirectory mDesktopDirectory;
     private final ShellFileSystem mFileSystem;
+    private final ShellVirtualDisplays mVirtualDisplays;
     private final Object mInputRoutingLock = new Object();
     private DesktopInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
@@ -61,12 +62,27 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mDisplayRecording = new ShellDisplayRecordingSession(context);
         mDesktopDirectory = new ShellDesktopDirectory();
         mFileSystem = new ShellFileSystem();
+        mVirtualDisplays = new ShellVirtualDisplays(context);
         Log.i(TAG, "command service started uid=" + Os.getuid());
     }
 
     @Override
     public int uid() {
         return Os.getuid();
+    }
+
+    @Override public DesktopDisplayInfo[] listDesktopDisplays() {
+        return mVirtualDisplays.list();
+    }
+
+    @Override public DesktopDisplayInfo createVirtualDisplay(final int width,
+            final int height, final int densityDpi, final IBinder ownerToken) {
+        return mVirtualDisplays.create(new VirtualDisplaySpec(width, height, densityDpi), ownerToken);
+    }
+
+    @Override public void removeVirtualDisplay(final int displayId,
+            final String uniqueId, final IBinder ownerToken) {
+        mVirtualDisplays.remove(displayId, uniqueId, ownerToken);
     }
 
     @Override
@@ -1377,6 +1393,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public void destroy() {
+        mVirtualDisplays.close();
         Log.i(TAG, "command service stopped");
         mDisplayRecording.close();
         mDesktopDirectory.close();

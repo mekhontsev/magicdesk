@@ -157,14 +157,31 @@ final class DesktopAutomationStateReader {
         final JSONArray displays = new JSONArray();
         final DisplayManager manager =
                 mContext.getSystemService(DisplayManager.class);
+        String catalogError = null;
+        DesktopDisplayInfo[] catalog = new DesktopDisplayInfo[0];
+        if (ShellAccess.isReady()) {
+            try { catalog = DesktopDisplayCatalog.read(); }
+            catch (java.io.IOException error) { catalogError = error.getMessage(); }
+        }
         if (manager != null) {
             for (final Display display : manager.getDisplays()) {
-                displays.put(displayJson(display));
+                final JSONObject item = displayJson(display);
+                for (final DesktopDisplayInfo info : catalog) {
+                    if (info.id == display.getDisplayId()) {
+                        final JSONObject metadata = DesktopDisplayCatalog.json(info);
+                        for (final java.util.Iterator<String> keys = metadata.keys(); keys.hasNext();) {
+                            final String key = keys.next();
+                            item.put(key, metadata.get(key));
+                        }
+                    }
+                }
+                displays.put(item);
             }
         }
         return new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())
-                .put("displays", displays);
+                .put("displays", displays)
+                .put("catalogError", catalogError == null ? JSONObject.NULL : catalogError);
     }
 
     JSONObject tasks(final Integer displayFilter) throws JSONException {

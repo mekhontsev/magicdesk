@@ -19,34 +19,25 @@ public final class PhoneControlPanelControllerTest {
     }
 
     @Test
-    public void openDesktopHereOnlyStartsOrPresentsPhoneDesktop() {
-        assertTrue(PhoneControlPanelController.canOpenDesktopHere(
-                false, false, true, false));
-        assertTrue(PhoneControlPanelController.canOpenDesktopHere(
-                true, false, true, false));
-        assertFalse(PhoneControlPanelController.canOpenDesktopHere(
-                true, true, true, false));
-        assertFalse(PhoneControlPanelController.canOpenDesktopHere(
-                false, false, false, false));
-        assertFalse(PhoneControlPanelController.canOpenDesktopHere(
-                false, false, true, true));
+    public void displaySelectionAllowsOnlyOneSession() {
+        final DesktopDisplayInfo phone = display(0, "phone", true, false);
+        final DesktopDisplayInfo external = display(5, "virtual", true, true);
+        assertTrue(DisplaySelectionView.canStart(phone, -1, true, false));
+        assertTrue(DisplaySelectionView.canStart(phone, 0, true, false));
+        assertFalse(DisplaySelectionView.canStart(phone, 5, true, false));
+        assertTrue(DisplaySelectionView.canStart(external, -1, true, false));
+        assertTrue(DisplaySelectionView.canStart(external, 5, true, false));
+        assertFalse(DisplaySelectionView.canStart(external, 0, true, false));
+        assertFalse(DisplaySelectionView.canStart(external, -1, false, false));
+        assertFalse(DisplaySelectionView.canStart(external, -1, true, true));
+        assertFalse(DisplaySelectionView.canStart(null, -1, true, false));
+        assertFalse(DisplaySelectionView.canStart(
+                display(6, "internal", false, false), -1, true, false));
     }
 
-    @Test
-    public void externalDesktopOnlyStartsOrPresentsExternalSession() {
-        assertTrue(PhoneControlPanelController.canOpenExternalDesktop(
-                false, false, true, true, true, false));
-        assertTrue(PhoneControlPanelController.canOpenExternalDesktop(
-                true, true, true, true, true, false));
-        assertFalse(PhoneControlPanelController.canOpenExternalDesktop(
-                true, false, true, true, true, false));
-        assertFalse(PhoneControlPanelController.canOpenExternalDesktop(
-                false, false, false, true, true, false));
-        assertFalse(PhoneControlPanelController.canOpenExternalDesktop(
-                false, false, true, false, true, false));
-        assertFalse(PhoneControlPanelController.canOpenExternalDesktop(
-                false, false, true, true, false, false));
-        assertFalse(PhoneControlPanelController.canOpenExternalDesktop(
-                false, false, true, true, true, true));
+    static DesktopDisplayInfo display(final int id, final String source,
+            final boolean supported, final boolean owned) {
+        return new DesktopDisplayInfo(id, "display:" + id, "Display", source,
+                1920, 1080, 160, supported, owned);
     }
 }

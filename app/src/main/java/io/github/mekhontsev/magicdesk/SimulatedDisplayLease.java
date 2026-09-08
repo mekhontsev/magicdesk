@@ -27,8 +27,12 @@ final class SimulatedDisplayLease implements Closeable {
     }
 
     static SimulatedDisplayLease open() throws IOException {
-        final ShellStreamHandle stream = ShellAccess.openOwnedStream(
-                createCommand());
+        return open(new VirtualDisplaySpec(1920, 1080, 160));
+    }
+
+    static SimulatedDisplayLease open(final VirtualDisplaySpec spec) throws IOException {
+        spec.requireOverlayCompatible();
+        final ShellStreamHandle stream = ShellAccess.openOwnedStream(createCommand(spec));
         final BufferedReader reader = new BufferedReader(
                 new InputStreamReader(
                         stream.inputStream(), StandardCharsets.UTF_8));
@@ -46,21 +50,27 @@ final class SimulatedDisplayLease implements Closeable {
     }
 
     static String createCommand() {
+        return createCommand(new VirtualDisplaySpec(1920, 1080, 160));
+    }
+
+    private static String createCommand(final VirtualDisplaySpec spec) {
+        final String setting = spec.width + "x" + spec.height + "/" + spec.densityDpi;
         return "previous=$(/system/bin/settings get global "
                 + SETTING + "); "
                 + "restored=0; "
                 + "restore_overlay() { "
                 + "[ \"$restored\" = 1 ] && return; restored=1; "
+                + "if [ \"$(/system/bin/settings get global " + SETTING + ")\" = '" + setting + "' ]; then "
                 + "if [ -z \"$previous\" ] || [ \"$previous\" = null ]; then "
                 + "/system/bin/settings delete global "
                 + SETTING + " >/dev/null; "
                 + "else /system/bin/settings put global "
-                + SETTING + " \"$previous\" >/dev/null; fi; "
+                + SETTING + " \"$previous\" >/dev/null; fi; fi; "
                 + "echo " + RESTORED + "; }; "
                 + "trap restore_overlay EXIT; "
                 + "trap 'restore_overlay; exit 0' HUP INT TERM; "
                 + "/system/bin/settings put global "
-                + SETTING + " '" + SPEC + "' >/dev/null || exit 1; "
+                + SETTING + " '" + setting + "' >/dev/null || exit 1; "
                 + "echo " + READY + "; "
                 + "while IFS= read -r line; do "
                 + "[ \"$line\" = stop ] && exit 0; done";

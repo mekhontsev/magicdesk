@@ -69,13 +69,16 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                         context, profiledTarget);
         try {
             DesktopDisplayTarget readyTarget = profiledTarget;
+            final String uniqueId = DesktopDisplayCatalog.require(target.displayId, null).uniqueId;
             if (mProjection.supportsOutputConfiguration()) {
                 mProjection.prepareExternalDisplay(
                         context,
                         profiledTarget.profileDisplayId,
                         profile);
-                final int currentDisplayId =
-                        ExternalDisplayController.findExternalDisplayId();
+                int currentDisplayId = android.view.Display.INVALID_DISPLAY;
+                for (final DesktopDisplayInfo display : DesktopDisplayCatalog.read()) {
+                    if (uniqueId.equals(display.uniqueId)) { currentDisplayId = display.id; break; }
+                }
                 if (currentDisplayId <= android.view.Display.DEFAULT_DISPLAY) {
                     throw new IOException(
                             "wired display disappeared during output setup");

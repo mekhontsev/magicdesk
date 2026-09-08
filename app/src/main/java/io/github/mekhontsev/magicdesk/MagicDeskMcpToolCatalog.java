@@ -113,15 +113,33 @@ final class MagicDeskMcpToolCatalog {
                         "start_desktop",
                         "Start desktop",
                         "Start MagicDesk on the requested available display target.",
-                        objectSchema(new JSONObject().put(
-                                "target", enumProperty(
+                        objectSchema(new JSONObject()
+                                .put("displayId", integerProperty("Exact display ID returned by list_displays."))
+                                .put("uniqueId", stringProperty("Optional exact display identity."))
+                                .put("target", enumProperty(
                                         "Target display environment.",
                                         "auto", "phone", "simulated",
                                         "wired", "wireless")))))
                 .put(actionTool(
+                        "create_display", "Create display",
+                        "Create an owned display without starting a desktop or acquiring HOME.",
+                        objectSchema(new JSONObject()
+                                .put("type", enumProperty("Display creation mechanism.", "virtual", "overlay"))
+                                .put("width", integerProperty("Display width in pixels."))
+                                .put("height", integerProperty("Display height in pixels."))
+                                .put("densityDpi", integerProperty("Display density; default 160.")),
+                                "width", "height")))
+                .put(actionTool(
+                        "remove_display", "Remove display",
+                        "Close any desktop on this display, then remove only the selected MagicDesk-owned display.",
+                        objectSchema(new JSONObject()
+                                .put("displayId", integerProperty("Owned display ID."))
+                                .put("uniqueId", stringProperty("Exact identity returned by list_displays.")),
+                                "displayId", "uniqueId")))
+                .put(actionTool(
                         "close_desktop",
                         "Close desktop",
-                        "Run the normal Close Desktop procedure for the active session.",
+                        "Close the active desktop session without removing or disconnecting its display.",
                         emptySchema()))
                 .put(actionTool(
                         "launch_app",
@@ -517,6 +535,7 @@ final class MagicDeskMcpToolCatalog {
                         .put("condition", enumProperty(
                                 "Condition to observe.",
                                 "desktop_active", "desktop_inactive",
+                                "display_present", "display_absent",
                                 "task_present", "task_absent",
                                 "task_windowing_mode", "task_focused",
                                 "task_bounds", "app_ready", "app_crashed",

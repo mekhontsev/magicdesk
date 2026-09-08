@@ -5,7 +5,6 @@ import android.app.Activity;
 import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.hardware.display.DeviceProductInfo;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -18,12 +17,10 @@ public final class ControlActivity extends Activity
         implements PhoneControlPanelController.Actions,
         MagicDeskSessionHost {
     private static final int REQUEST_NOTIFICATIONS = 1;
-    private static final long DISPLAY_PROBE_SETTLE_MILLIS = 200L;
     private static WeakReference<ControlActivity> sActive =
             new WeakReference<>(null);
 
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
-    private final Runnable mDisplayProbe = this::startExternalDisplayProbe;
     private final PlatformProjectionDriver mProjection =
             PlatformDrivers.current().projection();
     private final PlatformPhoneUiDriver mPhoneUi =
@@ -34,21 +31,18 @@ public final class ControlActivity extends Activity
     private DisplayManager mDisplayManager;
     private DisplayManager.DisplayListener mDisplayListener;
     private SessionProfile mSessionProfile;
-    private PhoneControlPanelController.ExternalDisplayState
-            mExternalDisplayState =
-                    PhoneControlPanelController.ExternalDisplayState.CHECKING;
     private boolean mStartupAuditRunning;
     private boolean mStartupPrepared;
-    private boolean mStartExternalDesktopAfterProbe;
     private boolean mReturnToPanelAfterWirelessConnection;
     private boolean mWirelessConnectionUiAvailable;
-    private int mDisplayProbeGeneration;
-    private int mWiredDisplayId = Display.INVALID_DISPLAY;
-    private int mWirelessDisplayId = Display.INVALID_DISPLAY;
+    private int mOutputGeneration;
     private DisplayProfileStore.Profile mExternalDisplayProfile;
     private PlatformProjectionDriver.ModeSelection mExternalModeSelection;
-    private String mExternalDisplaySummary;
     private String mStatus;
+    private DesktopDisplayInfo[] mDisplays = new DesktopDisplayInfo[0];
+    private String mSelectedDisplayUniqueId = "";
+    private boolean mDisplayOperation;
+    private int mCatalogGeneration;
 
     static Intent createLaunchIntent(final android.content.Context context) {
         return new Intent(context, ControlActivity.class)
@@ -161,6 +155,7 @@ public final class ControlActivity extends Activity
         }
         final DesktopUiFactory ui = new DesktopUiFactory(this);
         mPanel = new PhoneControlPanelController(this, ui, this);
+        mSelectedDisplayUniqueId = getPreferences(MODE_PRIVATE).getString("selected_display", "");
         mSessionController = new MagicDeskSessionController(this);
         mWirelessConnectionUiAvailable =
                 mProjection.hasWirelessConnectionUi(this);
@@ -168,16 +163,9 @@ public final class ControlActivity extends Activity
                 ? R.string.control_status_desktop_active
                 : R.string.control_status_ready);
         setContentView(mPanel.createView());
-        if (DesktopDisplayDrivers.isExternalDesktopSupported()) {
-            registerDisplayListener();
-        }
+        registerDisplayListener();
         MagicDeskRuntime.start(this);
-        if (DesktopDisplayDrivers.isExternalDesktopSupported()) {
-            scheduleExternalDisplayProbe(false, 0L);
-        } else {
-            mExternalDisplayState =
-                    PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
-        }
+        refreshCatalog();
         refresh();
     }
 
@@ -197,7 +185,7 @@ public final class ControlActivity extends Activity
                 ? R.string.control_status_desktop_active
                 : R.string.control_status_ready);
         if (mPanel != null) {
-            scheduleExternalDisplayProbe(false, 0L);
+            refreshCatalog();
         }
         refresh();
     }
@@ -216,8 +204,8 @@ public final class ControlActivity extends Activity
                 sActive.clear();
             }
         }
-        mDisplayProbeGeneration++;
-        mMainHandler.removeCallbacks(mDisplayProbe);
+        mCatalogGeneration++;
+        mOutputGeneration++;
         if (mDisplayManager != null && mDisplayListener != null) {
             mDisplayManager.unregisterDisplayListener(mDisplayListener);
         }
@@ -237,81 +225,105 @@ public final class ControlActivity extends Activity
     }
 
     @Override
-    public void openDesktopHere() {
-        mStatus = getString(R.string.status_desktop_opening);
+    public void selectDisplay(final DesktopDisplayInfo display) {
+        if (mDisplayOperation || DesktopOperations.isSessionTransitionInProgress()) { return; }
+        mSelectedDisplayUniqueId = display.uniqueId;
+        getPreferences(MODE_PRIVATE).edit().putString("selected_display", display.uniqueId).apply();
+        refreshSelectedOutput();
         refresh();
-        final DesktopDisplayTarget activeTarget =
-                DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (activeTarget != null
-                && activeTarget.kind != DesktopDisplayTarget.Kind.PHONE) {
-            mStatus = getString(R.string.control_status_desktop_active);
-            refresh();
-            return;
+    }
+
+    private DesktopDisplayInfo selectedDisplay() {
+        for (final DesktopDisplayInfo display : mDisplays) {
+            if (display.uniqueId.equals(mSelectedDisplayUniqueId)) { return display; }
         }
-        final int displayId = currentDisplayId();
-        final DesktopDisplayTarget target = displayId == Display.DEFAULT_DISPLAY
-                ? DesktopDisplayTarget.phone()
-                : DesktopRuntimeBridge.getDesktopTarget(displayId);
-        if (target == null) {
-            mStatus = getString(R.string.status_external_display_unavailable);
-            refresh();
-            return;
-        }
-        if (!DesktopDisplayDrivers.isSupported(target.kind)) {
-            mStatus = getString(R.string.status_external_display_unavailable);
-            refresh();
-            return;
-        }
-        if (mSessionController.presentDesktopWorkspace(target)) {
-            return;
-        }
-        DesktopOperations.showDesktop(target);
+        return null;
     }
 
     @Override
-    public void showExternalDesktop() {
-        if (isPhoneDesktopActiveOrStarting()) {
-            mStatus = getString(R.string.status_close_current_desktop_first);
-            refresh();
+    public void startSelectedDesktop() {
+        final DesktopDisplayInfo display = selectedDisplay();
+        final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
+        if (!DisplaySelectionView.canStart(display, active == null ? -1 : active.displayId,
+                ShellAccess.isReady(), mDisplayOperation || DesktopOperations.isSessionTransitionInProgress())) {
             return;
         }
-        if (!ShellAccess.isReady()
-                || !DesktopDisplayDrivers.isExternalDesktopSupported()) {
-            mStatus = getString(R.string.status_external_display_unavailable);
-            refresh();
-            return;
-        }
-        final int activeDesktopDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        if (activeDesktopDisplayId > Display.DEFAULT_DISPLAY) {
-            final DesktopDisplayTarget target =
-                    DesktopRuntimeBridge.getDesktopTarget(
-                            activeDesktopDisplayId);
-            if (target != null) {
-                mStatus = getString(R.string.status_desktop_starting);
-                refresh();
-                DesktopOperations.showDesktop(target);
-                return;
+        if (mSessionController.presentDesktopWorkspace(display.target())) { return; }
+        mStatus = getString(R.string.status_desktop_starting);
+        refresh();
+        DesktopOperations.showDesktop(display);
+    }
+
+    @Override
+    public void createDisplay(final VirtualDisplaySpec spec, final boolean preview) {
+        if (mDisplayOperation || !ShellAccess.isReady()) { return; }
+        mDisplayOperation = true;
+        mStatus = getString(R.string.display_creating);
+        refresh();
+        DesktopOperations.createDisplay(spec, preview, (display, error) -> runOnUiThread(() -> {
+            if (isActivityUnavailable()) { return; }
+            mDisplayOperation = false;
+            if (display != null) {
+                mSelectedDisplayUniqueId = display.uniqueId;
+                getPreferences(MODE_PRIVATE).edit().putString("selected_display", display.uniqueId).apply();
+                mStatus = getString(R.string.display_created);
+            } else {
+                mStatus = error;
             }
-        }
-        if (mWiredDisplayId > Display.DEFAULT_DISPLAY) {
-            mStatus = getString(R.string.status_external_display_checking);
-            scheduleExternalDisplayProbe(true, 0L);
-            return;
-        }
-        if (isDisplayConnected(mWirelessDisplayId)) {
-            launchWirelessDesktop(mWirelessDisplayId);
-            return;
-        }
-        mStatus = getString(R.string.status_external_display_checking);
-        scheduleExternalDisplayProbe(true, 0L);
+            refreshCatalog();
+            refresh();
+        }));
+    }
+
+    @Override
+    public void removeDisplay(final DesktopDisplayInfo display) {
+        if (display == null || !display.owned || mDisplayOperation) { return; }
+        mDisplayOperation = true;
+        mStatus = getString(R.string.display_removing);
+        refresh();
+        DesktopOperations.removeVirtualDisplay(display.id, display.uniqueId, success -> runOnUiThread(() -> {
+            if (isActivityUnavailable()) { return; }
+            mDisplayOperation = false;
+            mStatus = getString(success ? R.string.display_removed : R.string.display_remove_failed);
+            refreshCatalog();
+            refresh();
+        }));
+    }
+
+    private void refreshCatalog() {
+        final int generation = ++mCatalogGeneration;
+        DesktopOperations.readDisplays((displays, error) -> runOnUiThread(() -> {
+            if (generation != mCatalogGeneration || isActivityUnavailable()) { return; }
+            mDisplays = displays;
+            // Browsing prepared displays must not switch the active session.
+            if (selectedDisplay() == null && displays.length > 0) {
+                mSelectedDisplayUniqueId = displays[0].uniqueId;
+                final int active = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                for (final DesktopDisplayInfo display : displays) {
+                    if (display.id == active) { mSelectedDisplayUniqueId = display.uniqueId; }
+                }
+            }
+            if (error != null) { mStatus = error; }
+            if (mReturnToPanelAfterWirelessConnection && wirelessConnected()) {
+                mReturnToPanelAfterWirelessConnection = false;
+                for (final DesktopDisplayInfo display : displays) {
+                    if ("wireless".equals(display.source)) {
+                        mSelectedDisplayUniqueId = display.uniqueId;
+                        break;
+                    }
+                }
+                PhoneControlPanelLauncher.open(this);
+            }
+            refreshSelectedOutput();
+            refresh();
+        }));
     }
 
     @Override
     public void connectWirelessDisplay() {
         if (!mWirelessConnectionUiAvailable
                 || hasDesktopSessionActiveOrStarting()
-                || isDisplayConnected(mWirelessDisplayId)) {
+                || wirelessConnected()) {
             mStatus = getString(R.string.status_external_display_unavailable);
             refresh();
             return;
@@ -326,42 +338,11 @@ public final class ControlActivity extends Activity
         refresh();
     }
 
-    private void launchWirelessDesktop(final int displayId) {
-        if (isPhoneDesktopActiveOrStarting()) {
-            mStatus = getString(R.string.status_close_current_desktop_first);
-            refresh();
-            return;
-        }
-        mExternalDisplayProfile = null;
-        mExternalModeSelection = null;
-        mExternalDisplaySummary = describeExternalDisplay(displayId, null);
-        mStatus = getString(R.string.status_wireless_desktop_starting);
-        refresh();
-        DesktopOperations.showDesktop(
-                DesktopDisplayTarget.wireless(displayId));
-    }
-
-    private void startExternalDesktopAfterProbe() {
-        if (isPhoneDesktopActiveOrStarting()) {
-            mStatus = getString(R.string.status_close_current_desktop_first);
-            refresh();
-            return;
-        }
-        mStatus = getString(R.string.status_desktop_starting);
-        refresh();
-        if (mWiredDisplayId > Display.DEFAULT_DISPLAY) {
-            DesktopOperations.showWiredDesktop();
-        } else if (mWirelessDisplayId > Display.DEFAULT_DISPLAY) {
-            DesktopOperations.showDesktop(
-                    DesktopDisplayTarget.wireless(mWirelessDisplayId));
-        } else {
-            DesktopOperations.showMagicDesk();
-        }
-    }
-
     @Override
     public void setExternalOutputTiming(final String outputTiming) {
-        if (mExternalDisplayProfile == null) {
+        final DesktopDisplayInfo display = selectedDisplay();
+        if (mExternalDisplayProfile == null || display == null
+                || !"wired".equals(display.source) || hasDesktopSessionActiveOrStarting()) {
             return;
         }
         final DisplayProfileStore.Profile profile = mExternalDisplayProfile;
@@ -374,11 +355,10 @@ public final class ControlActivity extends Activity
                             profile.outputTiming);
         }
         refresh();
-        if (!profile.resetOutputModePending
-                || mWiredDisplayId <= Display.DEFAULT_DISPLAY) {
+        if (!profile.resetOutputModePending) {
             return;
         }
-        final int displayId = mWiredDisplayId;
+        final int displayId = display.id;
         DesktopOperations.executeSerialized(() -> {
             // Release MagicDesk's previous explicit mode immediately. A later
             // SmartCast choice must not be erased when the desktop starts.
@@ -510,38 +490,27 @@ public final class ControlActivity extends Activity
                 && activeTarget.kind != DesktopDisplayTarget.Kind.PHONE;
         final boolean externalDesktopActive =
                 externalRuntimeDesktop;
-        final int externalDesktopDisplayId = activeDesktopDisplayId;
         mPanel.render(new PhoneControlPanelController.State(
+                mDisplays, mSelectedDisplayUniqueId, activeDesktopDisplayId, mDisplayOperation,
                 desktopSessionActive,
                 mSessionController.isOperationInProgress(),
                 externalDesktopActive,
-                activeDesktopDisplayId > Display.DEFAULT_DISPLAY
-                        && DesktopRuntimeBridge.isDesktopReadyOnDisplay(
-                                activeDesktopDisplayId),
                 ShellAccess.isReady(),
-                DesktopDisplayDrivers.isExternalDesktopSupported(),
                 mPhoneUi.isPhoneScreenOff(this),
                 ShellAccess.isReady() && mPhoneUi.isAvailable(),
                 mProjection.supportsOutputConfiguration(),
                 mExternalModeSelection,
-                mExternalDisplaySummary,
-                mExternalDisplayState,
-                mWiredDisplayId > Display.DEFAULT_DISPLAY,
+                selectedDisplay() != null && "wired".equals(selectedDisplay().source),
                 mWirelessConnectionUiAvailable,
-                mWirelessDisplayId > Display.DEFAULT_DISPLAY,
-                DesktopDisplayDrivers.isSupported(
-                        DesktopDisplayTarget.Kind.SIMULATED),
+                wirelessConnected(),
                 mStatus,
                 ShellAccess.statusLabel(),
-                currentDisplayId(),
-                externalDesktopDisplayId));
+                currentDisplayId()));
     }
 
     private void registerDisplayListener() {
         mDisplayManager = getSystemService(DisplayManager.class);
         if (mDisplayManager == null) {
-            mExternalDisplayState =
-                    PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
             return;
         }
         mDisplayListener = new DisplayManager.DisplayListener() {
@@ -565,106 +534,47 @@ public final class ControlActivity extends Activity
     }
 
     private void onExternalDisplayEvent(final int displayId) {
-        if (displayId > Display.DEFAULT_DISPLAY) {
-            scheduleExternalDisplayProbe(
-                    false, DISPLAY_PROBE_SETTLE_MILLIS);
-        }
+        refreshCatalog();
     }
 
-    private void scheduleExternalDisplayProbe(
-            final boolean startWhenConnected,
-            final long delayMillis) {
-        if (startWhenConnected) {
-            mStartExternalDesktopAfterProbe = true;
+    private boolean wirelessConnected() {
+        for (final DesktopDisplayInfo display : mDisplays) {
+            if ("wireless".equals(display.source)) { return true; }
         }
-        mDisplayProbeGeneration++;
-        mMainHandler.removeCallbacks(mDisplayProbe);
-        if (!ShellAccess.isReady()
-                || !DesktopDisplayDrivers.isExternalDesktopSupported()) {
-            mExternalDisplayState =
-                    PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
-            if (mStartExternalDesktopAfterProbe) {
-                mStartExternalDesktopAfterProbe = false;
-                mStatus = getString(
-                        R.string.status_external_display_unavailable);
+        return false;
+    }
+
+    private void refreshSelectedOutput() {
+        final int generation = ++mOutputGeneration;
+        final DesktopDisplayInfo display = selectedDisplay();
+        mExternalDisplayProfile = null;
+        mExternalModeSelection = null;
+        if (display == null || !"wired".equals(display.source)
+                || !mProjection.supportsOutputConfiguration() || !ShellAccess.isReady()) {
+            return;
+        }
+        DesktopOperations.executeSerialized(() -> {
+            try {
+                DesktopDisplayCatalog.require(display.id, display.uniqueId);
+                final DisplayProfileStore.Profile profile = DisplayProfileController.prepareExternalProfile(
+                        getApplicationContext(), display.id);
+                final PlatformProjectionDriver.ModeSelection modes = mProjection.readExternalDisplayModes(
+                        getApplicationContext(), display.id, profile == null ? null : profile.outputTiming);
+                runOnUiThread(() -> {
+                    if (generation != mOutputGeneration || isActivityUnavailable()) { return; }
+                    mExternalDisplayProfile = profile;
+                    mExternalModeSelection = modes;
+                    refresh();
+                });
+            } catch (java.io.IOException | RuntimeException error) {
+                runOnUiThread(() -> {
+                    if (generation == mOutputGeneration && !isActivityUnavailable()) {
+                        mStatus = error.getMessage();
+                        refresh();
+                    }
+                });
             }
-            refresh();
-            return;
-        }
-        mExternalDisplayState =
-                PhoneControlPanelController.ExternalDisplayState.CHECKING;
-        mMainHandler.postDelayed(mDisplayProbe, delayMillis);
-        refresh();
-    }
-
-    private void startExternalDisplayProbe() {
-        final int generation = mDisplayProbeGeneration;
-        DesktopOperations.probeExternalDisplay((
-                wiredDisplayId, wirelessDisplayId, profile, selection) ->
-                runOnUiThread(() -> finishExternalDisplayProbe(
-                        generation,
-                        wiredDisplayId,
-                        wirelessDisplayId,
-                        profile,
-                        selection)));
-    }
-
-    private void finishExternalDisplayProbe(
-            final int generation,
-            final int wiredDisplayId,
-            final int wirelessDisplayId,
-            final DisplayProfileStore.Profile displayProfile,
-            final PlatformProjectionDriver.ModeSelection selection) {
-        if (generation != mDisplayProbeGeneration
-                || isActivityUnavailable()) {
-            return;
-        }
-        mWiredDisplayId = wiredDisplayId;
-        mWirelessDisplayId = wirelessDisplayId;
-        final boolean wiredConnected =
-                wiredDisplayId > Display.DEFAULT_DISPLAY;
-        final boolean wirelessConnected =
-                wirelessDisplayId > Display.DEFAULT_DISPLAY;
-        final boolean connected = wiredConnected || wirelessConnected;
-        final int activeDesktopDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final int selectedDisplayId = wirelessConnected
-                && activeDesktopDisplayId == wirelessDisplayId
-                ? wirelessDisplayId
-                : wiredConnected ? wiredDisplayId : wirelessDisplayId;
-        mExternalDisplayProfile = selectedDisplayId == wiredDisplayId
-                ? displayProfile : null;
-        mExternalModeSelection = selectedDisplayId == wiredDisplayId
-                ? selection : null;
-        mExternalDisplaySummary = connected
-                ? describeExternalDisplay(
-                        selectedDisplayId, mExternalModeSelection)
-                : null;
-        mExternalDisplayState = connected
-                ? PhoneControlPanelController.ExternalDisplayState.CONNECTED
-                : PhoneControlPanelController.ExternalDisplayState.DISCONNECTED;
-        final boolean shouldStart = mStartExternalDesktopAfterProbe;
-        mStartExternalDesktopAfterProbe = false;
-        final boolean shouldReturnToPanel =
-                mReturnToPanelAfterWirelessConnection && wirelessConnected;
-        if (shouldReturnToPanel) {
-            mReturnToPanelAfterWirelessConnection = false;
-            mStatus = getString(R.string.control_status_ready);
-            refresh();
-            PhoneControlPanelLauncher.open(this);
-            return;
-        }
-        if (shouldStart) {
-            startExternalDesktopAfterProbe();
-            return;
-        }
-        refresh();
-    }
-
-    private boolean isDisplayConnected(final int displayId) {
-        return displayId > Display.DEFAULT_DISPLAY
-                && mDisplayManager != null
-                && mDisplayManager.getDisplay(displayId) != null;
+        });
     }
 
     private boolean isExternalDesktopActive() {
@@ -675,39 +585,8 @@ public final class ControlActivity extends Activity
                 && target.kind != DesktopDisplayTarget.Kind.PHONE;
     }
 
-    private boolean isPhoneDesktopActiveOrStarting() {
-        final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getActiveDesktopTarget();
-        return target != null
-                && target.kind == DesktopDisplayTarget.Kind.PHONE;
-    }
-
     private boolean hasDesktopSessionActiveOrStarting() {
         return DesktopRuntimeBridge.getActiveDesktopTarget() != null;
-    }
-
-    private String describeExternalDisplay(
-            final int displayId,
-            final PlatformProjectionDriver.ModeSelection selection) {
-        String name = null;
-        final Display display = mDisplayManager == null
-                ? null : mDisplayManager.getDisplay(displayId);
-        if (display != null) {
-            final DeviceProductInfo productInfo =
-                    display.getDeviceProductInfo();
-            if (productInfo != null && productInfo.getName() != null) {
-                name = productInfo.getName().toString().trim();
-            }
-            if (name == null || name.isEmpty()) {
-                name = display.getName();
-            }
-        }
-        final PlatformProjectionDriver.Mode mode = selection == null
-                ? null : selection.current;
-        if (name == null || name.isEmpty()) {
-            return mode == null ? null : mode.displayLabel;
-        }
-        return mode == null ? name : name + " | " + mode.displayLabel;
     }
 
     private int currentDisplayId() {

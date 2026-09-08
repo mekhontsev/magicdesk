@@ -84,8 +84,15 @@ final class DesktopAutomationController {
             final DesktopAutomationResult result;
             switch (action) {
                 case START_DESKTOP:
-                    result = startDesktop(optionalString(
-                            args, "target", "auto"));
+                    result = args.has("displayId")
+                            ? startDesktopOnDisplay(args)
+                            : startDesktop(optionalString(args, "target", "auto"));
+                    break;
+                case CREATE_DISPLAY:
+                    result = createDisplay(args);
+                    break;
+                case REMOVE_DISPLAY:
+                    result = removeDisplay(args);
                     break;
                 case CLOSE_DESKTOP:
                     result = closeDesktop();
@@ -400,6 +407,68 @@ final class DesktopAutomationController {
         return DesktopAutomationResult.success(
                 "desktop start accepted",
                 new JSONObject().put("target", target));
+    }
+
+    private DesktopAutomationResult startDesktopOnDisplay(final JSONObject args)
+            throws IOException, JSONException {
+        if (args.has("target")) {
+            throw new IllegalArgumentException("use displayId or target, not both");
+        }
+        final DesktopDisplayInfo display = DesktopDisplayCatalog.require(
+                requiredInt(args, "displayId"), args.has("uniqueId") ? args.getString("uniqueId") : null);
+        if (!display.canHostDesktop) {
+            throw new IllegalArgumentException("display cannot host a desktop");
+        }
+        final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
+        if (active != null && active.displayId != display.id) {
+            return DesktopAutomationResult.failure("close the active desktop before changing displays");
+        }
+        DesktopOperations.showDesktop(display);
+        return DesktopAutomationResult.success("desktop start accepted", DesktopDisplayCatalog.json(display));
+    }
+
+    private DesktopAutomationResult createDisplay(final JSONObject args)
+            throws JSONException, InterruptedException {
+        final VirtualDisplaySpec spec = new VirtualDisplaySpec(requiredInt(args, "width"),
+                requiredInt(args, "height"), args.optInt("densityDpi", 160));
+        final String type = optionalString(args, "type", "virtual");
+        if (!type.equals("virtual") && !type.equals("overlay")) {
+            throw new IllegalArgumentException("type must be virtual or overlay");
+        }
+        final CountDownLatch completed = new CountDownLatch(1);
+        final DesktopDisplayInfo[] display = new DesktopDisplayInfo[1];
+        final String[] failure = new String[1];
+        DesktopOperations.createDisplay(spec, type.equals("overlay"), (value, error) -> {
+            display[0] = value;
+            failure[0] = error;
+            completed.countDown();
+        });
+        if (!completed.await(ACTION_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+            return DesktopAutomationResult.failure(DesktopAutomationErrorCode.TIMEOUT,
+                    "display creation did not complete in time", true);
+        }
+        return display[0] == null ? DesktopAutomationResult.failure(failure[0])
+                : DesktopAutomationResult.success("display created; desktop not started",
+                        DesktopDisplayCatalog.json(display[0]));
+    }
+
+    private DesktopAutomationResult removeDisplay(final JSONObject args)
+            throws IOException, JSONException, InterruptedException {
+        final DesktopDisplayInfo display = DesktopDisplayCatalog.requireOwned(
+                requiredInt(args, "displayId"), args.getString("uniqueId"));
+        final CountDownLatch completed = new CountDownLatch(1);
+        final boolean[] success = new boolean[1];
+        DesktopOperations.removeVirtualDisplay(display.id, display.uniqueId, value -> {
+            success[0] = value;
+            completed.countDown();
+        });
+        if (!completed.await(ACTION_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+            return DesktopAutomationResult.failure(DesktopAutomationErrorCode.TIMEOUT,
+                    "display removal did not complete in time", true);
+        }
+        return success[0] ? DesktopAutomationResult.success("display removal requested",
+                DesktopDisplayCatalog.json(display))
+                : DesktopAutomationResult.failure("could not remove display");
     }
 
     private DesktopAutomationResult closeDesktop()
@@ -1091,11 +1160,23 @@ final class DesktopAutomationController {
         final JSONObject observation = new JSONObject()
                 .put("condition", condition);
         switch (condition) {
+            case "display_present":
+            case "display_absent": {
+                final int displayId = requiredInt(args, "displayId");
+                final android.hardware.display.DisplayManager manager =
+                        mContext.getSystemService(android.hardware.display.DisplayManager.class);
+                if (manager == null) { return observation.put("matched", false); }
+                final boolean present = manager.getDisplay(displayId) != null;
+                return observation.put("displayId", displayId).put("present", present)
+                        .put("matched", "display_present".equals(condition) == present);
+            }
             case "desktop_active": {
                 final DesktopSessionSnapshot session =
                         DesktopRuntimeBridge.getSessionSnapshot();
                 return observation
-                        .put("matched", session.hasHost())
+                        .put("matched", session.hasHost()
+                                && (!args.has("displayId")
+                                    || args.optInt("displayId") == session.activeDisplayId()))
                         .put("displayId", session.activeDisplayId());
             }
             case "desktop_inactive": {

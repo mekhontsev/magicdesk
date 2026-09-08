@@ -35,16 +35,57 @@ public final class DesktopOperations {
         void onComplete(boolean success);
     }
 
-    interface TouchpadRestoreCallback {
-        void onComplete(boolean touchpadMissing, boolean restored);
+    interface DisplayCallback {
+        void onComplete(DesktopDisplayInfo display, String error);
     }
 
-    interface ExternalDisplayProbeCallback {
-        void onComplete(
-                int wiredDisplayId,
-                int wirelessDisplayId,
-                DisplayProfileStore.Profile displayProfile,
-                PlatformProjectionDriver.ModeSelection modeSelection);
+    interface DisplayCatalogCallback {
+        void onComplete(DesktopDisplayInfo[] displays, String error);
+    }
+
+    static void readDisplays(final DisplayCatalogCallback callback) {
+        OPERATIONS.execute(() -> {
+            try {
+                callback.onComplete(DesktopDisplayCatalog.read(), null);
+            } catch (IOException | RuntimeException error) {
+                callback.onComplete(new DesktopDisplayInfo[0], error.getMessage());
+            }
+        });
+    }
+
+    static void createDisplay(final VirtualDisplaySpec spec, final boolean preview,
+            final DisplayCallback callback) {
+        OPERATIONS.execute(() -> {
+            try {
+                final DesktopDisplayInfo display = preview
+                        ? DesktopDisplayCatalog.require(SimulatedDesktopDisplayController.create(spec), null)
+                        : ShellAccess.createVirtualDisplay(spec);
+                final DisplayProfileStore.Profile profile = DisplayProfileStore.load(
+                        "display:simulated:" + display.uniqueId, spec.densityDpi);
+                profile.dpi = spec.densityDpi;
+                profile.dpiExplicit = true;
+                DisplayProfileStore.save(profile);
+                VirtualDisplayPreferences.save(MagicDeskApplication.applicationContext(), spec);
+                callback.onComplete(display, null);
+            } catch (IOException | RuntimeException error) {
+                CompatibilityDiagnostics.record("DISPLAY-VIRTUAL-001",
+                        "Could not create virtual display", error.getMessage(), error);
+                callback.onComplete(null, error.getMessage());
+            }
+        });
+    }
+
+    static void removeVirtualDisplay(final int id, final String uniqueId,
+            final ResultCallback callback) {
+        TRANSITIONS.removeVirtualDisplay(id, uniqueId, callback::onComplete);
+    }
+
+    static void showDesktop(final DesktopDisplayInfo display) {
+        TRANSITIONS.showDesktop(display);
+    }
+
+    interface TouchpadRestoreCallback {
+        void onComplete(boolean touchpadMissing, boolean restored);
     }
 
     static void setPhoneScreenOff(final boolean screenOff,
@@ -161,35 +202,6 @@ public final class DesktopOperations {
         }
     }
 
-    static void probeExternalDisplay(
-            final ExternalDisplayProbeCallback callback) {
-        OPERATIONS.execute(() -> {
-            final int wiredDisplayId =
-                    ExternalDisplayController.findExternalDisplayId();
-            final int wirelessDisplayId =
-                    ExternalDisplayController.findWirelessDisplayId();
-            PlatformProjectionDriver.ModeSelection selection = null;
-            DisplayProfileStore.Profile displayProfile = null;
-            if (wiredDisplayId > 0) {
-                final android.content.Context context =
-                        MagicDeskApplication.applicationContext();
-                displayProfile = DisplayProfileController
-                        .prepareExternalProfile(context, wiredDisplayId);
-                selection = PROJECTION.readExternalDisplayModes(
-                        context,
-                        wiredDisplayId,
-                        displayProfile == null
-                                ? null : displayProfile.outputTiming);
-            }
-            if (callback != null) {
-                callback.onComplete(
-                        wiredDisplayId,
-                        wirelessDisplayId,
-                        displayProfile,
-                        selection);
-            }
-        });
-    }
 
     static void openTouchpad() {
         PhoneTouchpadController.open();

@@ -6,12 +6,12 @@ import android.view.Display;
 
 import java.io.IOException;
 
-/** Owns the overlay display used when no physical desktop display is present. */
+/** Owns the optional Android display with a phone preview. */
 final class SimulatedDesktopDisplayController {
     private static final String TAG = "MagicDeskSimulatedDisplay";
-    private static final long TRANSITION_IDLE_TIMEOUT_MILLIS = 5_000L;
 
     private static SimulatedDisplayLease sLease;
+    private static String sUniqueId;
     private static int sDisplayId = Display.INVALID_DISPLAY;
 
     private SimulatedDesktopDisplayController() {
@@ -26,13 +26,7 @@ final class SimulatedDesktopDisplayController {
                     .showReady(
                             null,
                             DesktopDisplayTarget.simulated(displayId));
-            if (DesktopRuntimeBridge.getDesktopTarget(displayId) == null) {
-                release(displayId);
-            }
         } catch (IOException | RuntimeException error) {
-            if (displayId > Display.DEFAULT_DISPLAY) {
-                release(displayId);
-            }
             Log.w(TAG, "Could not open the simulated desktop", error);
             CompatibilityDiagnostics.record(
                     "DISPLAY-SIMULATED-001",
@@ -42,6 +36,21 @@ final class SimulatedDesktopDisplayController {
         }
     }
 
+    static synchronized boolean owns(final DesktopDisplayInfo display) {
+        return sLease != null && display.id == sDisplayId && display.uniqueId.equals(sUniqueId);
+    }
+
+    static synchronized int create(final VirtualDisplaySpec spec) throws IOException {
+        // Android's overlay setting replaces the whole set. Never rewrite it
+        // while another overlay exists, including a contributor's test display.
+        if (ExternalDisplayController.findOverlayDisplayId() > Display.DEFAULT_DISPLAY) {
+            throw new IOException("An overlay display already exists");
+        }
+        closeStaleLease();
+        return acquireNew(spec);
+    }
+
+    // The transition coordinator closes any session and verifies quiescence.
     static boolean release(final int displayId) {
         final SimulatedDisplayLease lease;
         synchronized (SimulatedDesktopDisplayController.class) {
@@ -54,21 +63,12 @@ final class SimulatedDesktopDisplayController {
             return true;
         }
         try {
-            final WindowTransitionHealthDiagnostics.IdleResult idle =
-                    WindowTransitionHealthDiagnostics.awaitDisplayIdle(
-                            MagicDeskApplication.applicationContext(),
-                            displayId,
-                            TRANSITION_IDLE_TIMEOUT_MILLIS);
-            if (!idle.idle) {
-                throw new IOException(
-                        "window transitions remained active on display "
-                                + displayId + ": " + idle.detail);
-            }
             synchronized (SimulatedDesktopDisplayController.class) {
                 if (sDisplayId != displayId || sLease != lease) {
                     return true;
                 }
                 sDisplayId = Display.INVALID_DISPLAY;
+                sUniqueId = null;
                 sLease = null;
             }
             lease.close();
@@ -99,30 +99,31 @@ final class SimulatedDesktopDisplayController {
             return existingDisplayId;
         }
 
-        final SimulatedDisplayLease lease = SimulatedDisplayLease.open();
+        return acquireNew(new VirtualDisplaySpec(1920, 1080, 160));
+    }
+
+    private static int acquireNew(final VirtualDisplaySpec spec) throws IOException {
+        final SimulatedDisplayLease lease = SimulatedDisplayLease.open(spec);
         final long deadline = SystemClock.uptimeMillis()
                 + ExternalDisplayController.START_TIMEOUT_MS;
-        do {
-            final int createdDisplayId =
-                    ExternalDisplayController.findOverlayDisplayId();
-            if (createdDisplayId > Display.DEFAULT_DISPLAY) {
-                sLease = lease;
-                sDisplayId = createdDisplayId;
-                return createdDisplayId;
-            }
-            BoundedStateAwaiter.pause(
-                    BoundedStateAwaiter.Reason.DISPLAY_STATE,
-                    ExternalDisplayController.STATE_POLL_MS);
-        } while (SystemClock.uptimeMillis() < deadline);
-
+        boolean acquired = false;
         try {
-            lease.close();
-        } catch (IOException closeError) {
-            Log.w(TAG, "Could not restore the overlay display setting",
-                    closeError);
+            do {
+                final int createdDisplayId = ExternalDisplayController.findOverlayDisplayId();
+                if (createdDisplayId > Display.DEFAULT_DISPLAY) {
+                    sUniqueId = ExternalDisplayController.getDisplayUniqueId(createdDisplayId);
+                    sLease = lease;
+                    sDisplayId = createdDisplayId;
+                    acquired = true;
+                    return createdDisplayId;
+                }
+                BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.DISPLAY_STATE,
+                        ExternalDisplayController.STATE_POLL_MS);
+            } while (SystemClock.uptimeMillis() < deadline);
+            throw new IOException("Android did not create the requested preview display");
+        } finally {
+            if (!acquired) { lease.close(); }
         }
-        throw new IOException("Android did not create "
-                + SimulatedDisplayLease.SPEC);
     }
 
     private static void closeStaleLease() {

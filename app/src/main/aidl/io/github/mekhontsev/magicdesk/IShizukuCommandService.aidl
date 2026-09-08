@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import io.github.mekhontsev.magicdesk.DisplayWindowingSnapshot;
+import io.github.mekhontsev.magicdesk.DesktopDisplayInfo;
 import io.github.mekhontsev.magicdesk.DesktopCompatibilityPolicy;
 
 import android.app.PendingIntent;
@@ -431,5 +432,12 @@ interface IShizukuCommandService {
     DisplayWindowingSnapshot readDisplayWindowing(int displayId) = 119;
 
     void setDisplayWindowing(int displayId, String uniqueId, int mode) = 120;
+
+    DesktopDisplayInfo[] listDesktopDisplays() = 121;
+
+    DesktopDisplayInfo createVirtualDisplay(int width, int height, int densityDpi,
+        IBinder ownerToken) = 122;
+
+    void removeVirtualDisplay(int displayId, String uniqueId, IBinder ownerToken) = 123;
 
 }

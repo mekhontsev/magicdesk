@@ -6,6 +6,7 @@ final class FrameworkRuntime {
     private final FrameworkWindowingApi mWindowingApi;
     private FrameworkDisplayWindowingApi mDisplayWindowingApi;
     private FrameworkInputRoutingApi mInputRoutingApi;
+    private FrameworkVirtualDisplayApi mVirtualDisplayApi;
 
     private FrameworkRuntime() {
         mWindowingCompat = FrameworkWindowingCompat.current();
@@ -34,6 +35,14 @@ final class FrameworkRuntime {
 
     FrameworkWindowingCompat.Capabilities capabilities() {
         return mWindowingCompat.capabilities();
+    }
+
+    synchronized FrameworkVirtualDisplayApi virtualDisplays()
+            throws ReflectiveOperationException {
+        if (mVirtualDisplayApi == null) {
+            mVirtualDisplayApi = new FrameworkVirtualDisplayApi();
+        }
+        return mVirtualDisplayApi;
     }
 
     synchronized FrameworkInputRoutingApi inputRouting() throws ReflectiveOperationException {

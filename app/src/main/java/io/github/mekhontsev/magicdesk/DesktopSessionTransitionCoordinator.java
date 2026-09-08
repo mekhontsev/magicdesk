@@ -55,6 +55,25 @@ final class DesktopSessionTransitionCoordinator {
                 () -> DesktopDisplayDrivers.activateWired(null, policy));
     }
 
+    void showDesktop(final DesktopDisplayInfo display) {
+        if (display == null || !display.canHostDesktop) {
+            throw new IllegalArgumentException("an available desktop display is required");
+        }
+        if (!mFeatures.supportsDisplay(display.target().kind)) {
+            throw new IllegalStateException("display target is unsupported by the current platform");
+        }
+        enqueueDesktopStart(() -> {
+            try {
+                final DesktopDisplayTarget target =
+                        DesktopDisplayCatalog.require(display.id, display.uniqueId).target();
+                DesktopDisplayDrivers.forTarget(target).showReady(null, target, DesktopSessionPolicy.USER);
+            } catch (java.io.IOException error) {
+                CompatibilityDiagnostics.record("DISPLAY-START-001",
+                        "Selected display is unavailable", error.getMessage(), error);
+            }
+        });
+    }
+
     void showDesktop(final DesktopDisplayTarget target) {
         showDesktop(target, DesktopSessionPolicy.USER);
     }
@@ -92,6 +111,61 @@ final class DesktopSessionTransitionCoordinator {
                 target, mode, callback));
     }
 
+    void removeVirtualDisplay(final int displayId, final String uniqueId,
+            final CompletionCallback callback) {
+        final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
+        if (active != null && active.displayId == displayId) {
+            // Revalidate ownership before changing a session. The second call
+            // takes the gate again; a competing Start rejects deletion safely.
+            mOperations.execute(() -> {
+                try {
+                    DesktopDisplayCatalog.requireOwned(displayId, uniqueId);
+                    closeDesktop(active, DesktopCloseMode.CONTROL_PANEL, success -> {
+                        if (success) {
+                            removeVirtualDisplay(displayId, uniqueId, callback);
+                        } else {
+                            complete(callback, false);
+                        }
+                    });
+                } catch (java.io.IOException | RuntimeException error) {
+                    complete(callback, false);
+                }
+            });
+            return;
+        }
+        if (!mGate.begin(DesktopTransitionGate.Operation.DISPLAY)) {
+            complete(callback, false);
+            return;
+        }
+        mOperations.execute(() -> {
+            boolean success = false;
+            try {
+                final DesktopDisplayInfo display = DesktopDisplayCatalog.requireOwned(displayId, uniqueId);
+                if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId) {
+                    throw new IllegalStateException("display still has an active desktop");
+                }
+                final WindowTransitionHealthDiagnostics.IdleResult idle =
+                        WindowTransitionHealthDiagnostics.awaitDisplayIdle(
+                                MagicDeskApplication.applicationContext(), displayId, 5_000L);
+                if (!idle.idle) {
+                    throw new IllegalStateException("display transitions are not idle: " + idle.detail);
+                }
+                if ("overlay".equals(display.source)) {
+                    success = SimulatedDesktopDisplayController.release(displayId);
+                } else {
+                    ShellAccess.removeVirtualDisplay(display);
+                    success = true;
+                }
+            } catch (java.io.IOException | RuntimeException error) {
+                CompatibilityDiagnostics.record("DISPLAY-VIRTUAL-002",
+                        "Could not remove virtual display", error.getMessage(), error);
+            } finally {
+                mGate.finish(DesktopTransitionGate.Operation.DISPLAY);
+                complete(callback, success);
+            }
+        });
+    }
+
     private void finishDesktopClose(
             final CompletionCallback callback,
             final boolean success) {
@@ -101,7 +175,8 @@ final class DesktopSessionTransitionCoordinator {
 
     boolean isSessionTransitionInProgress() {
         return mGate.isActive(DesktopTransitionGate.Operation.START)
-                || mGate.isActive(DesktopTransitionGate.Operation.CLOSE);
+                || mGate.isActive(DesktopTransitionGate.Operation.CLOSE)
+                || mGate.isActive(DesktopTransitionGate.Operation.DISPLAY);
     }
 
     void restorePhoneAfterExternalDesktop() {
@@ -208,26 +283,10 @@ final class DesktopSessionTransitionCoordinator {
             final CompletionCallback callback) {
         boolean success = prepared;
         try {
-            if (target.kind == DesktopDisplayTarget.Kind.SIMULATED) {
-                success &= removeSimulatedDesktop(target.displayId);
-            } else {
-                success &= closeDesktopSessionAndWait(target.displayId);
-            }
+            success &= closeDesktopSessionAndWait(target.displayId);
         } catch (RuntimeException error) {
             success = false;
             recordCloseFailure("Desktop close failed", error);
-        } finally {
-            // A failed display removal is not a request to reopen its host.
-            // Keep the quiescence gate, but always release the local session.
-            if (DesktopRuntimeBridge.getActiveDesktopDisplayId()
-                    == target.displayId) {
-                try {
-                    success &= closeDesktopSessionAndWait(target.displayId);
-                } catch (RuntimeException error) {
-                    success = false;
-                    recordCloseFailure("Could not release desktop host", error);
-                }
-            }
         }
         if (mode.parkTasks
                 && target.displayId > Display.DEFAULT_DISPLAY) {
@@ -293,28 +352,6 @@ final class DesktopSessionTransitionCoordinator {
         Log.w(TAG, message, error);
         CompatibilityDiagnostics.record(
                 "DESKTOP-CLOSE-001", message, error.getMessage(), error);
-    }
-
-    private static boolean removeSimulatedDesktop(final int displayId) {
-        final CountDownLatch prepared = new CountDownLatch(1);
-        DesktopRuntimeBridge.prepareDesktopSessionRemoval(
-                displayId, prepared::countDown);
-        final boolean ready;
-        try {
-            ready = prepared.await(
-                    SESSION_CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            Log.w(TAG, "Simulated display removal interrupted for display="
-                    + displayId, error);
-            return false;
-        }
-        if (!ready) {
-            Log.w(TAG, "Simulated display removal preparation timed out for "
-                    + "display=" + displayId);
-            return false;
-        }
-        return SimulatedDesktopDisplayController.release(displayId);
     }
 
     private static boolean closeDesktopSessionAndWait(

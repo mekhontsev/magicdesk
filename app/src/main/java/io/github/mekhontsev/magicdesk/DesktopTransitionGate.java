@@ -2,11 +2,11 @@ package io.github.mekhontsev.magicdesk;
 
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Guards overlapping desktop activation, close, and mirror transitions. */
+/** Guards overlapping desktop activation, close, and display removal. */
 final class DesktopTransitionGate {
     enum Operation {
         START,
-        MODE_TRANSITION,
+        DISPLAY,
         CLOSE
     }
 

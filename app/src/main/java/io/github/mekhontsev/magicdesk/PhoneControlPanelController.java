@@ -26,16 +26,7 @@ import java.util.Collections;
 import java.util.List;
 
 final class PhoneControlPanelController {
-    enum ExternalDisplayState {
-        CHECKING,
-        DISCONNECTED,
-        CONNECTED
-    }
-
-    interface Actions {
-        void openDesktopHere();
-
-        void showExternalDesktop();
+    interface Actions extends DisplaySelectionView.Actions {
 
         void connectWirelessDisplay();
 
@@ -53,70 +44,64 @@ final class PhoneControlPanelController {
     }
 
     static final class State {
+        final DesktopDisplayInfo[] displays;
+        final String selectedDisplayUniqueId;
+        final int activeDisplayId;
+        final boolean displayOperation;
         final boolean desktopSessionActive;
         final boolean sessionOperationInProgress;
         final boolean externalDesktopActive;
-        final boolean desktopReady;
         final boolean shellReady;
-        final boolean externalDesktopSupported;
         final boolean phoneScreenOff;
         final boolean phoneScreenControlAvailable;
         final boolean externalOutputControlAvailable;
         final PlatformProjectionDriver.ModeSelection externalModeSelection;
-        final String externalDisplaySummary;
-        final ExternalDisplayState externalDisplayState;
         final boolean wiredDisplayConnected;
         final boolean wirelessConnectionUiAvailable;
         final boolean wirelessDisplayConnected;
-        final boolean simulatedDesktopAvailable;
         final String status;
         final String runtime;
         final int currentDisplayId;
-        final int externalDesktopDisplayId;
 
         State(
+                final DesktopDisplayInfo[] displays,
+                final String selectedDisplayUniqueId,
+                final int activeDisplayId,
+                final boolean displayOperation,
                 final boolean desktopSessionActive,
                 final boolean sessionOperationInProgress,
                 final boolean externalDesktopActive,
-                final boolean desktopReady,
                 final boolean shellReady,
-                final boolean externalDesktopSupported,
                 final boolean phoneScreenOff,
                 final boolean phoneScreenControlAvailable,
                 final boolean externalOutputControlAvailable,
                 final PlatformProjectionDriver.ModeSelection externalModeSelection,
-                final String externalDisplaySummary,
-                final ExternalDisplayState externalDisplayState,
                 final boolean wiredDisplayConnected,
                 final boolean wirelessConnectionUiAvailable,
                 final boolean wirelessDisplayConnected,
-                final boolean simulatedDesktopAvailable,
                 final String status,
                 final String runtime,
-                final int currentDisplayId,
-                final int externalDesktopDisplayId) {
+                final int currentDisplayId) {
+            this.displays = displays;
+            this.selectedDisplayUniqueId = selectedDisplayUniqueId;
+            this.activeDisplayId = activeDisplayId;
+            this.displayOperation = displayOperation;
             this.desktopSessionActive = desktopSessionActive;
             this.sessionOperationInProgress = sessionOperationInProgress;
             this.externalDesktopActive = externalDesktopActive;
-            this.desktopReady = desktopReady;
             this.shellReady = shellReady;
-            this.externalDesktopSupported = externalDesktopSupported;
             this.phoneScreenOff = phoneScreenOff;
             this.phoneScreenControlAvailable = phoneScreenControlAvailable;
             this.externalOutputControlAvailable =
                     externalOutputControlAvailable;
             this.externalModeSelection = externalModeSelection;
-            this.externalDisplaySummary = externalDisplaySummary;
-            this.externalDisplayState = externalDisplayState;
             this.wiredDisplayConnected = wiredDisplayConnected;
             this.wirelessConnectionUiAvailable =
                     wirelessConnectionUiAvailable;
             this.wirelessDisplayConnected = wirelessDisplayConnected;
-            this.simulatedDesktopAvailable = simulatedDesktopAvailable;
             this.status = status;
             this.runtime = runtime;
             this.currentDisplayId = currentDisplayId;
-            this.externalDesktopDisplayId = externalDesktopDisplayId;
         }
     }
 
@@ -129,11 +114,9 @@ final class PhoneControlPanelController {
     private TextView mStatus;
     private TextView mRuntime;
     private TextView mDisplay;
-    private TextView mExternalDisplay;
     private LinearLayout mExternalDisplayOptions;
     private Button mConnectWirelessDisplay;
-    private Button mExternalDesktop;
-    private Button mDesktopHere;
+    private DisplaySelectionView mDisplaySelection;
     private Button mCloseDesktop;
     private Button mTouchpad;
     private Button mPhoneScreen;
@@ -197,61 +180,24 @@ final class PhoneControlPanelController {
         mRuntime.setText(mActivity.getString(
                 R.string.control_runtime_status, state.runtime));
         final String externalDesktopDisplay = state.externalDesktopActive
-                ? Integer.toString(state.externalDesktopDisplayId)
+                ? Integer.toString(state.activeDisplayId)
                 : mActivity.getString(R.string.state_off);
         mDisplay.setText(mActivity.getString(
                 R.string.control_display_status,
                 Integer.valueOf(state.currentDisplayId),
                 externalDesktopDisplay));
-        if (state.externalDisplaySummary == null
-                || state.externalDisplaySummary.isEmpty()) {
-            mExternalDisplay.setVisibility(View.GONE);
-        } else {
-            mExternalDisplay.setText(mActivity.getString(
-                    R.string.control_external_display_status,
-                    state.externalDisplaySummary));
-            mExternalDisplay.setVisibility(View.VISIBLE);
-        }
-
-        if (!state.externalDesktopActive) {
-            mExternalDesktop.setText(
-                    R.string.action_start_external_desktop);
-        } else if (!state.desktopReady) {
-            mExternalDesktop.setText(
-                    R.string.action_start_external_desktop);
-        } else {
-            mExternalDesktop.setText(
-                    R.string.action_show_external_desktop);
-        }
-        final boolean canStartOrShowExternalDesktop =
-                state.externalDesktopActive
-                        || state.externalDisplayState
-                                == ExternalDisplayState.CONNECTED
-                        || state.simulatedDesktopAvailable;
-        mExternalDesktop.setEnabled(canOpenExternalDesktop(
-                state.desktopSessionActive,
-                state.externalDesktopActive,
-                state.shellReady,
-                state.externalDesktopSupported,
-                canStartOrShowExternalDesktop,
-                state.sessionOperationInProgress));
-        final boolean canConnectWireless =
-                state.wirelessConnectionUiAvailable
-                        && !state.desktopSessionActive
-                        && !state.wirelessDisplayConnected;
-        mConnectWirelessDisplay.setEnabled(canConnectWireless);
-        mDesktopHere.setEnabled(canOpenDesktopHere(
-                state.desktopSessionActive,
-                state.externalDesktopActive,
-                state.shellReady,
-                state.sessionOperationInProgress));
+        mDisplaySelection.render(state.displays, state.selectedDisplayUniqueId,
+                state.activeDisplayId, state.shellReady,
+                state.sessionOperationInProgress || state.displayOperation);
+        mConnectWirelessDisplay.setEnabled(state.wirelessConnectionUiAvailable
+                && !state.desktopSessionActive && !state.wirelessDisplayConnected
+                && !state.displayOperation);
         final boolean canConfigureOutput =
                 !state.externalDesktopActive
                         && state.shellReady
                         && state.externalOutputControlAvailable
                         && state.wiredDisplayConnected
-                        && state.externalDisplayState
-                                == ExternalDisplayState.CONNECTED;
+                        && !state.desktopSessionActive && !state.displayOperation;
         mExternalDisplayOptions.setVisibility(
                 canConfigureOutput ? View.VISIBLE : View.GONE);
         renderOutputModes(state.externalModeSelection);
@@ -287,30 +233,6 @@ final class PhoneControlPanelController {
             final boolean shellReady,
             final boolean operationInProgress) {
         return desktopSessionActive && shellReady && !operationInProgress;
-    }
-
-    static boolean canOpenDesktopHere(
-            final boolean desktopSessionActive,
-            final boolean externalDesktopActive,
-            final boolean shellReady,
-            final boolean operationInProgress) {
-        return shellReady
-                && !operationInProgress
-                && (!desktopSessionActive || !externalDesktopActive);
-    }
-
-    static boolean canOpenExternalDesktop(
-            final boolean desktopSessionActive,
-            final boolean externalDesktopActive,
-            final boolean shellReady,
-            final boolean externalDesktopSupported,
-            final boolean externalTargetAvailable,
-            final boolean operationInProgress) {
-        return shellReady
-                && externalDesktopSupported
-                && externalTargetAvailable
-                && !operationInProgress
-                && (!desktopSessionActive || externalDesktopActive);
     }
 
     private View createHeader() {
@@ -368,38 +290,16 @@ final class PhoneControlPanelController {
         displayParams.setMargins(0, dp(3), 0, 0);
         parent.addView(mDisplay, displayParams);
 
-        mExternalDisplay = statusText(COLOR_MUTED, 13, false);
-        final LinearLayout.LayoutParams externalDisplayParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        externalDisplayParams.setMargins(0, dp(3), 0, 0);
-        parent.addView(mExternalDisplay, externalDisplayParams);
     }
 
     private void addDesktopActions(final LinearLayout parent) {
         addSectionTitle(parent, R.string.control_section_desktop, dp(22));
 
-        mExternalDesktop = actionButton(
-                R.string.action_start_external_desktop, COLOR_CYAN);
-        mExternalDesktop.setOnClickListener(
-                view -> mActions.showExternalDesktop());
-        parent.addView(mExternalDesktop, fullWidthActionParams());
-
-        final LinearLayout secondaryActions = new LinearLayout(mActivity);
-        secondaryActions.setOrientation(LinearLayout.HORIZONTAL);
+        mDisplaySelection = new DisplaySelectionView(mActivity, mUi, mActions, parent);
         mConnectWirelessDisplay = actionButton(
                 R.string.action_connect_wireless_display, COLOR_PANEL_ALT);
-        mConnectWirelessDisplay.setOnClickListener(
-                view -> mActions.connectWirelessDisplay());
-        secondaryActions.addView(
-                mConnectWirelessDisplay, rowActionParams(false));
-
-        mDesktopHere = actionButton(
-                R.string.action_desktop_this_screen, COLOR_PANEL_ALT);
-        mDesktopHere.setOnClickListener(view -> mActions.openDesktopHere());
-        secondaryActions.addView(mDesktopHere, rowActionParams(true));
-        parent.addView(secondaryActions, fullWidthWrapParams(0));
+        mConnectWirelessDisplay.setOnClickListener(view -> mActions.connectWirelessDisplay());
+        parent.addView(mConnectWirelessDisplay, fullWidthActionParams());
 
         addExternalDisplayOptions(parent);
 

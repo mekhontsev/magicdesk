@@ -13,12 +13,12 @@ public final class DesktopTransitionGateTest {
         assertTrue(gate.begin(DesktopTransitionGate.Operation.START));
         assertFalse(gate.begin(DesktopTransitionGate.Operation.START));
         assertFalse(gate.begin(
-                DesktopTransitionGate.Operation.MODE_TRANSITION));
+                DesktopTransitionGate.Operation.DISPLAY));
 
         gate.finish(DesktopTransitionGate.Operation.START);
 
         assertTrue(gate.begin(
-                DesktopTransitionGate.Operation.MODE_TRANSITION));
+                DesktopTransitionGate.Operation.DISPLAY));
     }
 
     @Test

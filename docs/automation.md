@@ -173,6 +173,36 @@ actions are `phone.controls`, `phone.touchpad` and `phone.close_desktop`.
 The registry is removed when that HOME stops; this does not create another
 desktop session or a background UI observer.
 
+## Display Preparation
+
+`list_displays` publishes source, uniqueId, dimensions, densityDpi,
+canHostDesktop, owned and canRemove. These are live display identities, not
+desktop-session records. A wireless connection may already be listed before
+MagicDesk starts on it.
+
+- `create_display(width, height, densityDpi, type)` creates a `virtual`
+  (headless, default) or `overlay` (phone preview) display without starting HOME.
+  Several headless displays can coexist; only one Android overlay can be
+  created without rewriting an existing overlay set.
+- `start_desktop(displayId, uniqueId)` starts on exactly the selected display.
+  The optional uniqueId prevents stale selection after hotplug. Do not combine
+  this form with the target convenience selector. Wait for `desktop_active`;
+  command acceptance does not mean the host has appeared.
+- `close_desktop` leaves the display connected and reusable.
+- `remove_display(displayId, uniqueId)` only removes a MagicDesk-owned display.
+  It first closes any session on that display and waits for window transitions.
+  Then wait for `display_absent`; a removal request is not a display-loss event.
+
+The panel copies an existing-display command such as
+`scrcpy --display-id=3 --mouse-bind=++++ --shortcut-mod=rctrl`.
+Run it on the computer with its own scrcpy/ADB connection. This uses
+[scrcpy display selection](https://github.com/Genymobile/scrcpy/blob/master/doc/video.md#display),
+not `--new-display`: disconnecting the viewer does not remove MagicDesk's display.
+The mouse binding passes secondary buttons to applications; the shortcut modifier
+avoids scrcpy consuming Alt/Super desktop shortcuts. Host OS global shortcuts may
+still intercept them. MagicDesk does not install a PC client, start an ADB network
+listener, or implement another video/control protocol.
+
 ## Desktop Commands
 
 Normal commands include:

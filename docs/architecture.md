@@ -1393,9 +1393,30 @@ close operation; transport-specific code stops at target preparation.
 - Once Android reports a Wi-Fi display, MagicDesk passes that display ID to the
   common desktop session. It does not implement a second discovery or streaming
   stack.
-- An Android overlay display is used only by explicit contributor tests. It
-  exercises the standard desktop Activity and task placement without adding a
-  viewer or virtual-display product mode.
+- Display preparation and session ownership are separate. The phone panel
+  selects a live `DesktopDisplayInfo` from `DesktopDisplayCatalog`, with source,
+  unique identity, dimensions, support, and removal ownership. Secondary built-in
+  screens remain explicitly unsupported until their HOME/input path is verified.
+- `ShellVirtualDisplays` owns headless Android virtual-display tokens independently
+  of HOME/tasks. Several displays may coexist, but only one desktop session runs
+  at a time. Creation size and density are configurable; scrcpy captures an
+  existing logical display without owning its lifecycle. Android 15 primitives
+  and hidden flags belong to `FrameworkVirtualDisplayApi`. App-owner Binder death
+  releases its display tokens. A callback-driven ImageReader supplies the
+  output Surface required to keep the display ON on Android 15 and 16.
+  Frames are discarded without pixel reads; there is no timer or per-display
+  thread. Keeping a virtual display alive still has Android rendering costs.
+- The optional phone-preview type uses Android's overlay adapter through
+  `SimulatedDisplayLease`. The setting replaces the entire overlay set, so
+  creation refuses an existing overlay instead of disturbing it. Headless
+  displays have no such singleton limitation. The four existing session drivers
+  remain; both virtual sources use the standard simulated-display path.
+- Close Desktop restores HOME, input, and tasks without deleting any display.
+  Explicit removal validates both runtime ID and unique identity, requires
+  MagicDesk ownership, closes an active session on that display first, then
+  waits for transition quiescence before releasing the display token. Wired,
+  wireless, foreign virtual, and built-in screens cannot be removed this way.
+  DisplayManager callbacks refresh the panel; catalog reads add no polling.
 
 When a new external desktop task is ready and automatic touchpad opening is
 enabled, `PhoneTouchpadController` opens `MagicDeskTouchpadActivity` on display 0
@@ -1486,7 +1507,7 @@ It compares the transfer against that settled destination, not a previous
 workspace with the source window's shadow. Pixel tolerances and first-visible
 freeform mode/bounds assertions remain the same.
 
-The simulated target owns its display through a Binder-owned shell stream;
+The simulated self-test owns its fixture display through a Binder-owned shell stream;
 closing the stream or losing its owner closes stdin, runs a shell `trap`, and
 restores the prior setting. Its test deliberately closes that lease once while
 the desktop and a fullscreen fixture are still alive. It verifies that the
@@ -2415,9 +2436,10 @@ MagicDesk again. Unexpected display loss outside an explicit transition restores
 the role and disables the surfaces without waiting for a UI callback.
 
 Close is one-way even when a cleanup operation fails. A failed HOME handoff
-does not skip input, task, and host release. A simulated display that cannot
-pass its existing transition-quiescence gate is not forcibly removed, but its
-desktop session is closed rather than resumed. Failures remain diagnostic
+does not skip input, task, and host release. Explicit display removal that cannot
+pass its transition-quiescence gate leaves the display present, but its
+desktop session stays closed rather than resumed. Close alone never removes
+the display. Failures remain diagnostic
 errors; they never reopen input routing or migration protection.
 
 Physical display removal, **Close desktop**, and **Exit MagicDesk** share the

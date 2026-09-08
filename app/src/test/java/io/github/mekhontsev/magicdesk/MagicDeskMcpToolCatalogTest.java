@@ -13,6 +13,31 @@ import java.util.Set;
 
 public final class MagicDeskMcpToolCatalogTest {
     @Test
+    public void displayLifecycleIsSeparateFromDesktopSession() throws Exception {
+        final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
+        final JSONObject create = tool(tools, "create_display");
+        final JSONObject remove = tool(tools, "remove_display");
+        assertFalse(create.getJSONObject("annotations").getBoolean("readOnlyHint"));
+        assertFalse(remove.getJSONObject("annotations").getBoolean("readOnlyHint"));
+        assertEquals("[\"width\",\"height\"]",
+                create.getJSONObject("inputSchema").getJSONArray("required").toString());
+        assertEquals("[\"displayId\",\"uniqueId\"]",
+                remove.getJSONObject("inputSchema").getJSONArray("required").toString());
+        assertEquals("[\"virtual\",\"overlay\"]", create.getJSONObject("inputSchema")
+                .getJSONObject("properties").getJSONObject("type").getJSONArray("enum").toString());
+        final JSONObject start = tool(tools, "start_desktop").getJSONObject("inputSchema")
+                .getJSONObject("properties");
+        assertTrue(start.has("displayId"));
+        assertTrue(start.has("uniqueId"));
+        final JSONArray conditions = tool(tools, "wait_for_state").getJSONObject("inputSchema")
+                .getJSONObject("properties").getJSONObject("condition").getJSONArray("enum");
+        assertTrue(conditions.toString().contains("\"display_present\""));
+        assertTrue(conditions.toString().contains("\"display_absent\""));
+        assertTrue(tool(tools, "close_desktop").getString("description")
+                .contains("without removing or disconnecting"));
+    }
+
+    @Test
     public void consumingActivityResultsIsNotAdvertisedAsReadOnlyOrIdempotent()
             throws Exception {
         final JSONObject annotations = tool(MagicDeskMcpToolCatalog.create(false),

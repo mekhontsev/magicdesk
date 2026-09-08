@@ -1148,6 +1148,36 @@ public final class ShellAccess {
         }
     }
 
+    private static final IBinder VIRTUAL_DISPLAY_OWNER = new Binder();
+
+    static DesktopDisplayInfo[] listDesktopDisplays() throws IOException {
+        try {
+            return requireService().listDesktopDisplays();
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("display catalog read failed: " + usefulMessage(error), error);
+        }
+    }
+
+    static DesktopDisplayInfo createVirtualDisplay(final VirtualDisplaySpec spec) throws IOException {
+        try {
+            return requireService().createVirtualDisplay(
+                    spec.width, spec.height, spec.densityDpi, VIRTUAL_DISPLAY_OWNER);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("virtual display creation failed: " + usefulMessage(error), error);
+        }
+    }
+
+    static void removeVirtualDisplay(final DesktopDisplayInfo display) throws IOException {
+        try {
+            requireService().removeVirtualDisplay(display.id, display.uniqueId, VIRTUAL_DISPLAY_OWNER);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("virtual display removal failed: " + usefulMessage(error), error);
+        }
+    }
+
     static ShellInputRoutingHandle openInputRouting(
             final int displayId) throws IOException {
         if (displayId < 0) {

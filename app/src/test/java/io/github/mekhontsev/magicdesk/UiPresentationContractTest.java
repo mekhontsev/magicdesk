@@ -38,15 +38,18 @@ public final class UiPresentationContractTest {
     public void unavailableControlStateInvalidatesAlreadyRunningDisplayProbes()
             throws IOException {
         final String source = read("ControlActivity.java");
-        final String schedule = source.substring(
-                source.indexOf("private void scheduleExternalDisplayProbe("),
-                source.indexOf("private void startExternalDisplayProbe()"));
-        final int unavailable = schedule.indexOf("if (!ShellAccess.isReady()");
+        final String probe = source.substring(
+                source.indexOf("private void refreshSelectedOutput()"),
+                source.indexOf("private boolean isExternalDesktopActive()"));
+        final int unavailable = probe.indexOf("if (display == null");
         assertTrue(unavailable >= 0);
-        assertTrue(schedule.indexOf("mDisplayProbeGeneration++;") >= 0);
-        assertTrue(schedule.indexOf("mDisplayProbeGeneration++;") < unavailable);
-        assertTrue(schedule.indexOf("mMainHandler.removeCallbacks(mDisplayProbe);") >= 0);
-        assertTrue(schedule.indexOf("mMainHandler.removeCallbacks(mDisplayProbe);") < unavailable);
+        assertTrue(probe.indexOf("++mOutputGeneration") < unavailable);
+        assertTrue(probe.contains("generation != mOutputGeneration || isActivityUnavailable()"));
+        assertTrue(probe.contains("DesktopDisplayCatalog.require(display.id, display.uniqueId)"));
+        final String catalog = source.substring(source.indexOf("private void refreshCatalog()"),
+                source.indexOf("private void refreshCatalog()") + 500);
+        assertTrue(catalog.contains("++mCatalogGeneration"));
+        assertTrue(catalog.contains("generation != mCatalogGeneration || isActivityUnavailable()"));
     }
 
     @Test

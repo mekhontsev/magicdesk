@@ -206,35 +206,6 @@ final class DesktopUiGateway {
         });
     }
 
-    void prepareDesktopSessionRemoval(
-            final int displayId,
-            final Runnable completion) {
-        final DesktopDisplayTarget target;
-        synchronized (mHostLock) {
-            target = mSession.snapshot().target();
-            if (usableDesktopLocked(false) == null
-                    || target == null
-                    || target.displayId != displayId) {
-                if (completion != null) {
-                    completion.run();
-                }
-                return;
-            }
-        }
-        // Keep the task topology alive until Android reports that the display
-        // is gone. Releasing it here empties the display before the platform
-        // removal transition and can strand per-display framework state.
-        TaskCommandQueue.execute(() -> {
-            try {
-                flushWindowSessionState();
-            } finally {
-                if (completion != null) {
-                    completion.run();
-                }
-            }
-        });
-    }
-
     private static void flushWindowSessionState() {
         if (!AppWindowStateStore.endSession()) {
             Log.w(TAG, "Could not flush desktop window session state");
