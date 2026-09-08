@@ -32,7 +32,8 @@ public final class DesktopSelfTestRunStateTest {
                 DesktopSelfTestExecutionPolicy.FULL,
                 200L));
         DesktopSelfTestRunState.stage(runId, "WINDOW-001");
-        DesktopSelfTestRunState.checkCompleted(runId, "PRECONDITION-001");
+        DesktopSelfTestRunState.checkCompleted(runId, "PRECONDITION-001",
+                DesktopSelfTestResult.State.PASS, "Precondition", "ready");
 
         final DesktopSelfTestRunState.Snapshot running =
                 DesktopSelfTestRunState.snapshot();
@@ -40,7 +41,8 @@ public final class DesktopSelfTestRunStateTest {
         assertEquals("PRECONDITION-001", running.lastCompletedStage);
 
         DesktopSelfTestRunState.beginCleanup(runId);
-        DesktopSelfTestRunState.checkCompleted(runId, "CLEANUP-001");
+        DesktopSelfTestRunState.checkCompleted(runId, "CLEANUP-001",
+                DesktopSelfTestResult.State.PASS, "Cleanup", "done");
         DesktopSelfTestRunState.complete(
                 runId, false, true, 300L, "passed", 250L);
 
@@ -76,6 +78,67 @@ public final class DesktopSelfTestRunStateTest {
         } catch (DesktopSelfTestRunState.Cancelled expected) {
             assertTrue(DesktopSelfTestRunState.isCancellationRequested());
         }
+    }
+
+    @Test
+    public void progressSurvivesUiDetachAndRejectsStaleResults() {
+        final long runId = DesktopSelfTestRunState.startRun(
+                0L, "simulated", DesktopSelfTestExecutionPolicy.FULL, 100L);
+        final java.util.concurrent.atomic.AtomicInteger updates =
+                new java.util.concurrent.atomic.AtomicInteger();
+        final Runnable listener = updates::incrementAndGet;
+        DesktopSelfTestRunState.addListener(listener);
+        DesktopSelfTestRunState.stage(runId, "WINDOW-001", "Open window");
+        final DesktopSelfTestRunState.Snapshot before = DesktopSelfTestRunState.snapshot();
+        final DesktopSelfTestResult result = new DesktopSelfTestResult(100L, runId);
+        result.add(DesktopSelfTestResult.State.PASS, "API-001", "Input", "ready");
+        result.add(DesktopSelfTestResult.State.WARN, "API-002", "Capture", "limited");
+        DesktopSelfTestRunState.removeListener(listener);
+        result.add(DesktopSelfTestResult.State.FAIL, "API-003", "Window", "missing");
+        assertEquals(3, updates.get());
+        assertEquals(0, before.progress.passed);
+        final DesktopSelfTestRunState.Snapshot after = DesktopSelfTestRunState.snapshot();
+        assertEquals("Open window", after.progress.stageLabel);
+        assertEquals("WINDOW-001", after.stage);
+        assertEquals("API-003", after.lastCompletedStage);
+        assertEquals("FAIL", after.progress.lastResult);
+        assertEquals("missing", after.progress.lastDetail);
+        assertEquals(1, after.progress.passed);
+        assertEquals(1, after.progress.warnings);
+        assertEquals(1, after.progress.failed);
+        DesktopSelfTestRunState.beginCleanup(runId);
+        result.add(DesktopSelfTestResult.State.NOT_TESTED, "CLEANUP-001", "Cleanup", "not owned");
+        DesktopSelfTestRunState.complete(runId, false, false, 200L, "failed", 200L);
+        DesktopSelfTestRunState.startRun(0L, "phone",
+                DesktopSelfTestExecutionPolicy.FULL, 300L);
+        result.add(DesktopSelfTestResult.State.PASS, "STALE-001", "Old result", "");
+        assertEquals(0, DesktopSelfTestRunState.snapshot().progress.passed);
+        assertEquals("", DesktopSelfTestRunState.snapshot().lastCompletedStage);
+    }
+
+    @Test
+    public void failFastPublishesFailureBeforeStopping() {
+        final long runId = DesktopSelfTestRunState.startRun(
+                0L, "phone", DesktopSelfTestExecutionPolicy.FAIL_FAST, 100L);
+        final DesktopSelfTestResult result = new DesktopSelfTestResult(100L, runId);
+        result.arm(DesktopSelfTestExecutionPolicy.FAIL_FAST);
+        try {
+            result.add(DesktopSelfTestResult.State.FAIL, "WINDOW-001", "Window", "missing");
+            fail("fail-fast did not stop");
+        } catch (DesktopSelfTestResult.StopAfterFirstFailure expected) {
+            assertEquals(1, DesktopSelfTestRunState.snapshot().progress.failed);
+            assertEquals("WINDOW-001", DesktopSelfTestRunState.snapshot().lastCompletedStage);
+        }
+    }
+
+    @Test
+    public void brokenProgressSubscriberDoesNotInterruptTheTest() {
+        DesktopSelfTestRunState.addListener(() -> { throw new IllegalStateException("UI"); });
+        final long runId = DesktopSelfTestRunState.startRun(
+                0L, "wired", DesktopSelfTestExecutionPolicy.FULL, 100L);
+        DesktopSelfTestRunState.checkCompleted(runId, "WINDOW-001",
+                DesktopSelfTestResult.State.PASS, "Window", "ready");
+        assertEquals(1, DesktopSelfTestRunState.snapshot().progress.passed);
     }
 
     @Test

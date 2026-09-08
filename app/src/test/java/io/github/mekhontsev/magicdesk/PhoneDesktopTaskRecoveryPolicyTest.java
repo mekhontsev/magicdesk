@@ -57,12 +57,6 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                 "io.github.mekhontsev.magicdesk",
                 "io.github.mekhontsev.magicdesk/.TaskAreaBackstopActivity",
                 false));
-        assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
-                "io.github.mekhontsev.magicdesk",
-                "io.github.mekhontsev.magicdesk/"
-                        + "io.github.mekhontsev.magicdesk."
-                        + "DesktopSelfTestPhoneGuardActivity",
-                false));
     }
 
     @Test

@@ -6,8 +6,6 @@ import android.content.ComponentName;
 final class DesktopInfrastructureTasks {
     private static final String PACKAGE = BuildConfig.APPLICATION_ID;
     private static final String CHROME = PACKAGE + ".DesktopChromeActivity";
-    private static final String SELF_TEST_PHONE_GUARD =
-            PACKAGE + ".DesktopSelfTestPhoneGuardActivity";
     private static final String BACKSTOP =
             PACKAGE + ".TaskAreaBackstopActivity";
 
@@ -15,13 +13,11 @@ final class DesktopInfrastructureTasks {
     }
 
     static boolean isUiComponent(final ComponentName component) {
-        return isClass(component, CHROME)
-                || isClass(component, SELF_TEST_PHONE_GUARD);
+        return isClass(component, CHROME);
     }
 
     static boolean isUiComponentName(final String componentName) {
-        return isClassName(componentName, CHROME)
-                || isClassName(componentName, SELF_TEST_PHONE_GUARD);
+        return isClassName(componentName, CHROME);
     }
 
     static boolean isComponent(final ComponentName component) {

@@ -38,15 +38,15 @@ final class DesktopSelfTestPhoneInputGuard {
         }
         final boolean started;
         try {
-            started = DesktopSelfTestPhoneGuardActivity.showAndWait(
+            started = DesktopSelfTestGuardWindow.showAndWait(
                     context, runId, LIFECYCLE_TIMEOUT_MILLIS);
         } catch (RuntimeException error) {
             cancel();
             throw new IOException("could not open phone input guard", error);
         }
-        if (!started || !DesktopSelfTestPhoneGuardActivity.isVisible()) {
+        if (!started || !DesktopSelfTestGuardWindow.isVisible()) {
             cancel();
-            final String detail = DesktopSelfTestPhoneGuardActivity.lastError();
+            final String detail = DesktopSelfTestGuardWindow.lastError();
             throw new IOException("phone input guard did not become visible"
                     + (detail.isEmpty() ? "" : ": " + detail));
         }
@@ -61,7 +61,7 @@ final class DesktopSelfTestPhoneInputGuard {
                 sClosing = true;
             }
         }
-        final boolean closed = DesktopSelfTestPhoneGuardActivity.hideAndWait(
+        final boolean closed = DesktopSelfTestGuardWindow.hideAndWait(
                 LIFECYCLE_TIMEOUT_MILLIS);
         if (!active) {
             return Observation.notObserved();
@@ -88,7 +88,7 @@ final class DesktopSelfTestPhoneInputGuard {
         synchronized (DesktopSelfTestPhoneInputGuard.class) {
             sClosing = true;
         }
-        DesktopSelfTestPhoneGuardActivity.hideAndWait(
+        DesktopSelfTestGuardWindow.hideAndWait(
                 LIFECYCLE_TIMEOUT_MILLIS);
         synchronized (DesktopSelfTestPhoneInputGuard.class) {
             reset();
@@ -120,7 +120,7 @@ final class DesktopSelfTestPhoneInputGuard {
         }
         final boolean restored;
         try {
-            restored = DesktopSelfTestPhoneGuardActivity.showAndWait(
+            restored = DesktopSelfTestGuardWindow.showAndWait(
                     context, runId, LIFECYCLE_TIMEOUT_MILLIS);
         } catch (RuntimeException error) {
             markRestoreFailed();
@@ -128,13 +128,13 @@ final class DesktopSelfTestPhoneInputGuard {
         }
         synchronized (DesktopSelfTestPhoneInputGuard.class) {
             final boolean visible =
-                    DesktopSelfTestPhoneGuardActivity.isVisible();
+                    DesktopSelfTestGuardWindow.isVisible();
             if (!restored || !visible) {
                 sLost = true;
                 sDisplacementExpected = false;
                 sDisplacementObserved = false;
                 final String detail =
-                        DesktopSelfTestPhoneGuardActivity.lastError();
+                        DesktopSelfTestGuardWindow.lastError();
                 addEvent("guard restore failed"
                         + (detail.isEmpty() ? "" : " error=" + detail));
                 throw new IOException("phone input guard did not return"

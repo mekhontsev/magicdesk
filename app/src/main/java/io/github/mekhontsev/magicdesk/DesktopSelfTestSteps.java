@@ -21,6 +21,7 @@ final class DesktopSelfTestSteps {
             final String successDetail) throws AbortSelfTest {
         DesktopSelfTestRunState.checkpoint();
         DesktopSelfTestHostObserver.stage(code);
+        DesktopSelfTestRunState.stage(result.runId(), code, label);
         try {
             final T value = operation.run();
             DesktopSelfTestRunState.checkpoint();
@@ -45,6 +46,7 @@ final class DesktopSelfTestSteps {
             final CheckedSupplier<T> operation) {
         DesktopSelfTestRunState.checkpoint();
         DesktopSelfTestHostObserver.stage(code);
+        DesktopSelfTestRunState.stage(result.runId(), code, label);
         try {
             final T value = operation.run();
             DesktopSelfTestRunState.checkpoint();

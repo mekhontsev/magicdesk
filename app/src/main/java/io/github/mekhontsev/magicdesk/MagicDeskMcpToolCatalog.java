@@ -1560,6 +1560,15 @@ final class MagicDeskMcpToolCatalog {
                         "Existing code of the currently executing stage."))
                 .put("lastCompletedStage", nullableStringProperty(
                         "Existing code of the last result-recorded stage."))
+                .put("progress", objectSchema(new JSONObject()
+                        .put("stageLabel", stringProperty("Current check label, when available."))
+                        .put("lastLabel", stringProperty("Last completed check label."))
+                        .put("lastResult", stringProperty("Last check result, or empty before a check."))
+                        .put("lastDetail", stringProperty("Bounded last check detail."))
+                        .put("passed", integerProperty("Completed PASS count."))
+                        .put("warnings", integerProperty("Completed WARN count."))
+                        .put("failed", integerProperty("Completed FAIL count."))
+                        .put("notTested", integerProperty("Completed NOT_TESTED count."))))
                 .put("cancelRequested", booleanProperty(
                         "Whether cancellation has been requested."))
                 .put("requestedAtMillis", nullableIntegerProperty(

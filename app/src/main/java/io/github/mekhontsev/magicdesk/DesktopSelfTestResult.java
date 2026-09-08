@@ -58,7 +58,7 @@ public final class DesktopSelfTestResult {
             throw new IllegalArgumentException("self-test check is incomplete");
         }
         mChecks.add(new Check(state, code, label, clean(detail)));
-        DesktopSelfTestRunState.checkCompleted(mRunId, code);
+        DesktopSelfTestRunState.checkCompleted(mRunId, code, state, label, clean(detail));
         if (state == State.FAIL && mFailFastArmed) {
             mFailFastArmed = false;
             throw new StopAfterFirstFailure(code);

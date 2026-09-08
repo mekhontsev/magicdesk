@@ -539,6 +539,19 @@ discover and invoke App Functions exported by other applications.
 
 ## Self-Tests
 
+Diagnostics shows live test progress from the same `DesktopSelfTestRunState`
+snapshot exposed by MCP: current stage code/label, last completed check/result,
+PASS/WARN/FAIL/NOT_TESTED counts, cancellation and cleanup state. Visible UI
+subscribes to changes; there is no progress polling or repeated compatibility
+report collection. Preparation and execution outlive Activity recreation.
+
+During simulated, wired and wireless tests, the phone's Diagnostics task also
+acts as the input guard. It keeps the screen awake, records unexpected touches,
+keys and disappearance, and permits the Stop self-test button. Planned phone
+task transfers retain their existing displacement checks. Phone tests never
+keep Diagnostics above the workspace under test. Cancellation still runs cleanup
+and preserves the previous saved result.
+
 Interactive self-tests require an awake, unlocked device and a visible target.
 MCP can start and observe phone, simulated, wired, and wireless tests without
 weakening their assertions or changing their production cleanup path. The
@@ -560,9 +573,10 @@ is locked at its current value for the run and restored exactly afterward. If
 the tested desktop session closes, its existing lifecycle event cancels the run
 and cleanup begins; no background session polling is added.
 
-After closing the phone input guard, the test waits for an already-requested
-touchpad's visibility event before recording `PHONEUI-001`. Guard destruction
-does not imply that Android has started the uncovered Activity. This bounded
+After moving Diagnostics behind the phone UI and releasing its input guard,
+the test waits for an already-requested touchpad's visibility event before
+recording `PHONEUI-001`. The guard's stop callback does not imply that Android
+has started the uncovered Activity. This bounded
 event wait neither opens nor repairs the touchpad; failure to return remains a
 test failure.
 

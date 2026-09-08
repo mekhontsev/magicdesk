@@ -92,30 +92,19 @@ final class DesktopSelfTestController {
             return finish(result, null, runId);
         }
         final Context appContext = context.getApplicationContext();
-        try {
-            DesktopSelfTestRunState.checkpoint();
-        } catch (DesktopSelfTestRunState.Cancelled cancelled) {
-            result.cancel();
-            return finish(result, appContext, runId);
-        }
-        final String phoneUiIssue = phoneUiUnavailableReason(appContext);
-        if (phoneUiIssue != null) {
-            result.add(DesktopSelfTestResult.State.FAIL,
-                    "SELFTEST-PRECONDITION-000",
-                    "Phone is unlocked and awake",
-                    phoneUiIssue);
-            return finish(result, appContext, runId);
-        }
-        result.add(DesktopSelfTestResult.State.PASS,
-                "SELFTEST-PRECONDITION-000",
-                "Phone is unlocked and awake", "ready");
-
         DesktopSelfTestPhoneInputGuard.cancel();
         DesktopSelfTestTaskStackGuard.cancel();
         if (!DesktopSelfTestHostObserver.isActive(runId)) {
             DesktopSelfTestHostObserver.begin(runId);
         }
-        int displayId = Display.INVALID_DISPLAY;
+        // Preparation may already own a session when Stop races with this
+        // worker's start. Even precondition exits must close that session.
+        final int preparedDisplayId = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        int displayId = target.matchesDisplay(preparedDisplayId,
+                DesktopRuntimeBridge.getDesktopTarget(preparedDisplayId))
+                && DesktopRuntimeBridge.getSessionSnapshot().policy()
+                        == DesktopSessionPolicy.ISOLATED_SELF_TEST
+                ? preparedDisplayId : Display.INVALID_DISPLAY;
         SimulatedDisplayLease lease = null;
         WorkspaceIsolationLease workspaceLease = null;
         PhoneOrientationLease orientationLease = null;
@@ -124,6 +113,18 @@ final class DesktopSelfTestController {
         Map<String, Integer> staleTransitionBaseline = Collections.emptyMap();
         result.arm(policy);
         try {
+            DesktopSelfTestRunState.checkpoint();
+            final String phoneUiIssue = phoneUiUnavailableReason(appContext);
+            if (phoneUiIssue != null) {
+                result.add(DesktopSelfTestResult.State.FAIL,
+                        "SELFTEST-PRECONDITION-000",
+                        "Phone is unlocked and awake",
+                        phoneUiIssue);
+                throw new AbortSelfTest();
+            }
+            result.add(DesktopSelfTestResult.State.PASS,
+                    "SELFTEST-PRECONDITION-000",
+                    "Phone is unlocked and awake", "ready");
             result.add(DesktopSelfTestResult.State.PASS,
                     "SELFTEST-TARGET-001",
                     "Selected test display",
@@ -183,6 +184,9 @@ final class DesktopSelfTestController {
             }
             DesktopSelfTestWindowSuite.run(
                     appContext, target, displayId, result, workspaceLease);
+            // Custom suites may finish without another Steps.require/check.
+            // Honour Stop before starting expected display destruction.
+            DesktopSelfTestRunState.checkpoint();
             if (target == DesktopSelfTestTarget.SIMULATED) {
                 // Expected display destruction must not be classified as host
                 // or phone-UI instability by the lifecycle observers.

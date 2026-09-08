@@ -74,9 +74,9 @@ public final class PhoneTouchpadReconcilerTest {
     }
 
     @Test
-    public void phoneGuardAndControlsAreOrdinaryPhoneDestinations() {
+    public void diagnosticsAndControlsAreOrdinaryPhoneDestinations() {
         for (final String component : Arrays.asList(
-                "io.github.mekhontsev.magicdesk/.DesktopSelfTestPhoneGuardActivity",
+                "io.github.mekhontsev.magicdesk/.DiagnosticsActivity",
                 "io.github.mekhontsev.magicdesk/.ControlActivity")) {
             final PhoneTouchpadReconciler reconciler = new PhoneTouchpadReconciler();
             assertEquals(PhoneTouchpadReconciler.RepairAction.NONE,

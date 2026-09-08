@@ -5,6 +5,7 @@ import org.json.JSONObject;
 
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /** Single process-local source of truth for the current self-test lifecycle. */
 final class DesktopSelfTestRunState {
@@ -41,6 +42,9 @@ final class DesktopSelfTestRunState {
     private static final AtomicLong NEXT_RUN_ID = new AtomicLong(
             System.currentTimeMillis());
 
+    private static final CopyOnWriteArrayList<Runnable> LISTENERS =
+            new CopyOnWriteArrayList<>();
+
     private static Snapshot sSnapshot = Snapshot.idle();
     private static Runnable sPreparationCancellationHandler;
 
@@ -68,7 +72,7 @@ final class DesktopSelfTestRunState {
                     Math.max(0L, requestedAtMillis),
                     0L,
                     0L,
-                    "request accepted");
+                    "request accepted", Progress.EMPTY);
             sSnapshot = snapshot;
             sPreparationCancellationHandler = null;
         }
@@ -123,7 +127,7 @@ final class DesktopSelfTestRunState {
                     requestedAt,
                     Math.max(requestedAt, startedAtMillis),
                     0L,
-                    "self-test running");
+                    "self-test running", Progress.EMPTY);
             sSnapshot = snapshot;
             sPreparationCancellationHandler = null;
         }
@@ -132,23 +136,58 @@ final class DesktopSelfTestRunState {
     }
 
     static void stage(final long runId, final String stage) {
-        synchronized (LOCK) {
-            if (runId <= 0L || sSnapshot.runId != runId
-                    || sSnapshot.state != State.RUNNING) {
-                return;
-            }
-            sSnapshot = sSnapshot.withStage(clean(stage));
-        }
+        stage(runId, stage, "");
     }
 
-    static void checkCompleted(final long runId, final String stage) {
+    static void stage(final long runId, final String stage, final String label) {
+        synchronized (LOCK) {
+            if (runId <= 0L || sSnapshot.runId != runId
+                    || (sSnapshot.state != State.RUNNING
+                            && sSnapshot.state != State.STARTING)) {
+                return;
+            }
+            if (sSnapshot.stage.equals(clean(stage))
+                    && sSnapshot.progress.stageLabel.equals(clean(label))) {
+                return;
+            }
+            sSnapshot = sSnapshot.withStage(clean(stage), clean(label));
+        }
+        notifyChanged();
+    }
+
+    static void checkCompleted(final long runId, final String stage,
+            final DesktopSelfTestResult.State state,
+            final String label, final String detail) {
         synchronized (LOCK) {
             if (runId <= 0L || sSnapshot.runId != runId
                     || (sSnapshot.state != State.RUNNING
                             && sSnapshot.state != State.CLEANUP)) {
                 return;
             }
-            sSnapshot = sSnapshot.withLastCompletedStage(clean(stage));
+            sSnapshot = sSnapshot.withLastCompletedStage(
+                    clean(stage), state, clean(label), clean(detail));
+        }
+        notifyChanged();
+    }
+
+    static void addListener(final Runnable listener) {
+        LISTENERS.addIfAbsent(listener);
+    }
+
+    static void removeListener(final Runnable listener) {
+        LISTENERS.remove(listener);
+    }
+
+    // Invalidation callbacks read the latest snapshot; concurrent publishers
+    // cannot deliver an older stage after a newer one.
+    private static void notifyChanged() {
+        for (Runnable listener : LISTENERS) {
+            try {
+                listener.run();
+            } catch (RuntimeException error) {
+                DesktopAutomationEventJournal.record(
+                        "self_test", "progress_listener_failed", false, error.toString());
+            }
         }
     }
 
@@ -327,6 +366,7 @@ final class DesktopSelfTestRunState {
 
     static void resetForTests() {
         synchronized (LOCK) {
+            LISTENERS.clear();
             sSnapshot = Snapshot.idle();
             sPreparationCancellationHandler = null;
         }
@@ -350,6 +390,7 @@ final class DesktopSelfTestRunState {
             final String operation,
             final boolean success,
             final long resultModifiedAtMillis) {
+        notifyChanged();
         try {
             final JSONObject data = snapshot.toJson();
             if (resultModifiedAtMillis > 0L) {
@@ -387,6 +428,7 @@ final class DesktopSelfTestRunState {
         final long startedAtMillis;
         final long completedAtMillis;
         final String detail;
+        final Progress progress;
 
         Snapshot(
                 final long runId,
@@ -399,7 +441,8 @@ final class DesktopSelfTestRunState {
                 final long requestedAtMillis,
                 final long startedAtMillis,
                 final long completedAtMillis,
-                final String detail) {
+                final String detail,
+                final Progress progress) {
             this.runId = runId;
             this.state = state;
             this.target = target;
@@ -411,6 +454,7 @@ final class DesktopSelfTestRunState {
             this.startedAtMillis = startedAtMillis;
             this.completedAtMillis = completedAtMillis;
             this.detail = detail;
+            this.progress = progress;
         }
 
         boolean active() {
@@ -437,30 +481,33 @@ final class DesktopSelfTestRunState {
                     .put("startedAtMillis", nullableTimestamp(startedAtMillis))
                     .put("completedAtMillis", nullableTimestamp(
                             completedAtMillis))
-                    .put("detail", detail);
+                    .put("detail", detail)
+                    .put("progress", progress.toJson());
         }
 
-        private Snapshot withStage(final String value) {
+        private Snapshot withStage(final String value, final String label) {
             return new Snapshot(
                     runId, state, target, mode, value, lastCompletedStage,
                     cancellationRequested,
                     requestedAtMillis, startedAtMillis, completedAtMillis,
-                    detail);
+                    detail, progress.withStageLabel(label));
         }
 
-        private Snapshot withLastCompletedStage(final String value) {
+        private Snapshot withLastCompletedStage(final String value,
+                final DesktopSelfTestResult.State result,
+                final String label, final String checkDetail) {
             return new Snapshot(
                     runId, state, target, mode, stage, value,
                     cancellationRequested,
                     requestedAtMillis, startedAtMillis, completedAtMillis,
-                    detail);
+                    detail, progress.completed(result, label, checkDetail));
         }
 
         private Snapshot withCancellationRequested(final String detail) {
             return new Snapshot(
                     runId, state, target, mode, stage, lastCompletedStage, true,
                     requestedAtMillis, startedAtMillis, completedAtMillis,
-                    detail);
+                    detail, progress);
         }
 
         private Snapshot withState(
@@ -473,17 +520,64 @@ final class DesktopSelfTestRunState {
                     lastCompletedStage,
                     cancellationRequested,
                     requestedAtMillis, startedAtMillis, completedAt,
-                    currentDetail);
+                    currentDetail, progress.withStageLabel(""));
         }
 
         private static Snapshot idle() {
             return new Snapshot(
                     0L, State.IDLE, "", "", "", "", false,
-                    0L, 0L, 0L, "no run in this process");
+                    0L, 0L, 0L, "no run in this process", Progress.EMPTY);
         }
 
         private static Object nullableTimestamp(final long value) {
             return value > 0L ? Long.valueOf(value) : JSONObject.NULL;
+        }
+    }
+
+    static final class Progress {
+        static final Progress EMPTY = new Progress("", "", "", "", 0, 0, 0, 0);
+        final String stageLabel;
+        final String lastLabel;
+        final String lastResult;
+        final String lastDetail;
+        final int passed;
+        final int warnings;
+        final int failed;
+        final int notTested;
+
+        private Progress(final String stageLabel, final String lastLabel,
+                final String lastResult, final String lastDetail, final int passed,
+                final int warnings, final int failed, final int notTested) {
+            this.stageLabel = stageLabel;
+            this.lastLabel = lastLabel;
+            this.lastResult = lastResult;
+            this.lastDetail = lastDetail;
+            this.passed = passed;
+            this.warnings = warnings;
+            this.failed = failed;
+            this.notTested = notTested;
+        }
+
+        Progress withStageLabel(final String label) {
+            return new Progress(label, lastLabel, lastResult, lastDetail,
+                    passed, warnings, failed, notTested);
+        }
+
+        Progress completed(final DesktopSelfTestResult.State result,
+                final String label, final String detail) {
+            return new Progress(stageLabel, label, result.name(), detail,
+                    passed + (result == DesktopSelfTestResult.State.PASS ? 1 : 0),
+                    warnings + (result == DesktopSelfTestResult.State.WARN ? 1 : 0),
+                    failed + (result == DesktopSelfTestResult.State.FAIL ? 1 : 0),
+                    notTested + (result == DesktopSelfTestResult.State.NOT_TESTED ? 1 : 0));
+        }
+
+        JSONObject toJson() throws JSONException {
+            return new JSONObject().put("stageLabel", stageLabel)
+                    .put("lastLabel", lastLabel).put("lastResult", lastResult)
+                    .put("lastDetail", lastDetail).put("passed", passed)
+                    .put("warnings", warnings).put("failed", failed)
+                    .put("notTested", notTested);
         }
     }
 

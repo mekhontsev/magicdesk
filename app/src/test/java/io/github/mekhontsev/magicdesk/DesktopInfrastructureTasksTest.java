@@ -11,13 +11,13 @@ public final class DesktopInfrastructureTasksTest {
         assertTrue(DesktopInfrastructureTasks.isComponentName(
                 componentName("DesktopChromeActivity")));
         assertTrue(DesktopInfrastructureTasks.isComponentName(
-                componentName("DesktopSelfTestPhoneGuardActivity")));
-        assertTrue(DesktopInfrastructureTasks.isComponentName(
                 componentName("TaskAreaBackstopActivity")));
     }
 
     @Test
     public void doesNotClassifyDesktopHostOrApplication() {
+        assertFalse(DesktopInfrastructureTasks.isComponentName(
+                componentName("DiagnosticsActivity")));
         assertFalse(DesktopInfrastructureTasks.isComponentName(
                 componentName("DesktopActivity")));
         assertFalse(DesktopInfrastructureTasks.isComponentName(

@@ -269,11 +269,10 @@
             android:taskAffinity="${applicationId}.task_area_backstop"
             android:theme="@style/TaskAreaBackstopTheme" />
 
-        <!-- Keep a running self-test alive while external-display setup changes
-             the phone's orientation and display metrics. -->
+        <!-- Diagnostics also hosts the phone input guard for external tests. -->
         <activity
             android:name=".DiagnosticsActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
             android:exported="true"
             android:label="@string/diagnostics_title"
             android:launchMode="singleTop"
@@ -313,16 +312,6 @@
             android:process=":selftest"
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.selftest" />
-
-        <activity
-            android:name=".DesktopSelfTestPhoneGuardActivity"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:resizeableActivity="false"
-            android:stateNotNeeded="true"
-            android:taskAffinity="${applicationId}.selftest_phone_guard"
-            android:theme="@style/SelfTestPhoneGuardTheme" />
 
         <activity
             android:name=".DesktopSelfTestBrowserActivity"

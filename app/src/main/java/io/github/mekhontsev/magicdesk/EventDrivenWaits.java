@@ -19,7 +19,8 @@ public final class EventDrivenWaits {
         INPUT_DIAGNOSTICS,
         TERMINAL_REGISTRATION,
         TERMINAL_OUTPUT_DRAIN,
-        SERVICE_BINDING
+        SERVICE_BINDING,
+        SELF_TEST_GUARD_WINDOW
     }
 
     private static final AtomicLong WAITS = new AtomicLong();

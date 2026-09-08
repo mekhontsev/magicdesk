@@ -886,6 +886,7 @@ final class DesktopSelfTestInputSuite {
         MixedFreeformFixture first = null;
         MixedFreeformFixture second = null;
         try {
+            DesktopSelfTestRunState.checkpoint();
             DesktopSelfTestHostObserver.stage(
                     "FULLSCREEN-MIXED-001-LAUNCH-FREEFORM");
             fixture = launchMixedFreeformFixture(
@@ -893,6 +894,7 @@ final class DesktopSelfTestInputSuite {
                     displayId,
                     geometry.primaryWindow(),
                     DesktopSelfTestFixtureAppearance.TRANSITION);
+            DesktopSelfTestRunState.checkpoint();
             DesktopSelfTestHostObserver.stage(
                     "FULLSCREEN-MIXED-001-LAUNCH-FIRST");
             first = launchMixedFreeformFixture(
@@ -900,6 +902,7 @@ final class DesktopSelfTestInputSuite {
                     displayId,
                     geometry.captionControlsWindow(false),
                     DesktopSelfTestFixtureAppearance.PRIMARY);
+            DesktopSelfTestRunState.checkpoint();
             DesktopSelfTestHostObserver.stage(
                     "FULLSCREEN-MIXED-001-LAUNCH-SECOND");
             second = launchMixedFreeformFixture(
@@ -917,6 +920,7 @@ final class DesktopSelfTestInputSuite {
             prepareFullscreenPair(
                     displayId, first.taskId, second.taskId, geometry);
 
+            DesktopSelfTestRunState.checkpoint();
             DesktopSelfTestHostObserver.stage(
                     "FULLSCREEN-MIXED-001-SWITCH");
             // Keep Alt held while selecting the freeform task from the live
@@ -955,6 +959,7 @@ final class DesktopSelfTestInputSuite {
                     sampleY,
                     DesktopSelfTestFixtureAppearance.SECONDARY.color());
 
+            DesktopSelfTestRunState.checkpoint();
             toggleTaskbarTaskThroughDesktop(displayId, first.taskId);
             waitForCoveredFreeformTopology(displayId, fixture);
             waitForFrontTask(displayId, first.taskId);
@@ -981,6 +986,7 @@ final class DesktopSelfTestInputSuite {
                             captureSource,
                             DesktopSelfTestFixtureAppearance.PRIMARY.color());
 
+            DesktopSelfTestRunState.checkpoint();
             focusTaskThroughDesktop(displayId, second.taskId);
             waitForCoveredFreeformTopology(displayId, fixture);
             waitForFrontTask(displayId, second.taskId);
@@ -1002,6 +1008,7 @@ final class DesktopSelfTestInputSuite {
                     freeformSampleY,
                     DesktopSelfTestFixtureAppearance.SECONDARY.color());
 
+            DesktopSelfTestRunState.checkpoint();
             // The simulated-display removal suite requires every remaining
             // fixture to be fullscreen. This is a normal user transition and
             // also leaves the other targets in one cleanup-friendly state.
@@ -1038,6 +1045,8 @@ final class DesktopSelfTestInputSuite {
                             + ", fullscreen=" + second.taskId
                             + ", older=" + first.taskId
                             + ", freeform-on-fullscreen=occluded");
+        } catch (DesktopSelfTestRunState.Cancelled cancelled) {
+            throw cancelled;
         } catch (Exception error) {
             result.add(
                     DesktopSelfTestResult.State.FAIL,

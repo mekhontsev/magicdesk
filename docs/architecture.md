@@ -1373,6 +1373,16 @@ built-in simulated self-test without replacing the running app process.
 The built-in **Diagnostics > Run desktop self-test** runs the same bounded core
 on a selected simulated, external, or phone display. A desktop session must be
 closed when the test starts; an already connected secondary display is allowed.
+Preparation and execution belong to `DesktopSelfTestLauncher`, not to an
+Activity instance. Diagnostics observes immutable `DesktopSelfTestRunState`
+progress through lifecycle-scoped invalidation callbacks and collects a full
+report only outside an active run. The same progress is exposed through MCP.
+For non-phone targets, `DesktopSelfTestGuardWindow` connects Diagnostics'
+resume/stop events to the existing phone input guard. It reuses the report task
+and hides it before phone-UI and Close-to-HOME assertions; there is no separate
+guard Activity. Unexpected input remains recorded, while the Stop button
+requests cancellation of the exact run. The harness restores the report only
+after production cleanup and destination checks.
 Its explicit isolated session policy suppresses saved-workspace restore
 and persistence on every display driver. A scoped orientation lease locks the
 phone at its current rotation and restores the exact previous auto/locked mode

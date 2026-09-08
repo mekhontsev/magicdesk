@@ -438,6 +438,12 @@ public final class MagicDeskMcpToolCatalogTest {
                 .getJSONObject("data")
                 .getJSONObject("properties")
                 .has("lastCompletedStage"));
+        final JSONObject progress = tool(tools, "get_self_test").getJSONObject("outputSchema")
+                .getJSONObject("properties").getJSONObject("data").getJSONObject("properties")
+                .getJSONObject("progress").getJSONObject("properties");
+        assertTrue(progress.has("stageLabel"));
+        assertTrue(progress.has("lastResult"));
+        assertTrue(progress.has("failed"));
 
         final JSONObject cancelSchema = tool(tools, "cancel_self_test")
                 .getJSONObject("inputSchema");
