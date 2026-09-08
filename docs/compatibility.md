@@ -26,6 +26,21 @@ projection, optional absolute-pointer access, external-display input routing,
 WMShell desktop commands, and several task transitions can still depend on
 firmware behavior.
 
+Device Setup enables freeform support and forced activity resizing on every
+platform through shell UID 2000. Changing these required provisioning values
+requires a reboot through the setup flow. They survive Close Desktop;
+Restore defaults removes the overrides.
+
+**Settings > Android system** exposes Android's optional
+`force_desktop_mode_on_external_displays` setting. The switch reads the actual
+Android value and changes it only with shell access and no desktop session.
+Opening Settings or preparing the device does not enable it. Reconnecting the
+external display can apply the change; some firmware may require a restart.
+This advisory does not block MagicDesk startup. Diagnostics reports informational state,
+not a required capability. The setting can add system navigation bars to
+secondary displays and does not guarantee physical-input routing. It survives
+Close Desktop; Restore defaults removes this override too.
+
 Secondary sessions prepare a freeform display default through Android's
 WindowManager on every platform. Explicit fullscreen tasks remain supported;
 the phone display default is never changed. Diagnostics distinguishes this

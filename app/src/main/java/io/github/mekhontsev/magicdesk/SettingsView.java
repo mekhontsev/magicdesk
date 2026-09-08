@@ -25,6 +25,8 @@ final class SettingsView {
 
         void setCompatibilityOption(DesktopCompatibilityPolicy.Option option, boolean enabled);
 
+        void setSystemDesktopMode(boolean enabled);
+
         void setOpenFilesWithSingleClick(boolean enabled);
 
         void setMcpEnabled(boolean enabled);
@@ -60,6 +62,8 @@ final class SettingsView {
     private final java.util.EnumMap<DesktopCompatibilityPolicy.Option, Switch> mCompatibility =
             new java.util.EnumMap<>(DesktopCompatibilityPolicy.Option.class);
     private Switch mOpenFilesWithSingleClick;
+    private Switch mSystemDesktopMode;
+    private TextView mSystemDesktopModeStatus;
     private Switch mMcpEnabled;
     private Switch mMcpDeveloperTools;
     private Switch mMcpShellTools;
@@ -149,6 +153,22 @@ final class SettingsView {
                 }
             });
         }
+
+        addSection(content, R.string.settings_section_android, 14);
+        mSystemDesktopMode = addSwitch(content, R.string.settings_system_desktop_mode);
+        mSystemDesktopMode.setEnabled(false);
+        mSystemDesktopMode.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) {
+                mActions.setSystemDesktopMode(checked);
+            }
+        });
+        mSystemDesktopModeStatus = new TextView(mActivity);
+        mSystemDesktopModeStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mSystemDesktopModeStatus.setTextSize(12);
+        mSystemDesktopModeStatus.setPadding(dp(8), dp(7), dp(8), dp(7));
+        content.addView(mSystemDesktopModeStatus, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
 
         addSection(content, R.string.settings_section_automation, 14);
         mMcpEnabled = addSwitch(content, R.string.settings_mcp_enabled);
@@ -277,6 +297,21 @@ final class SettingsView {
                         ? R.string.settings_mcp_status_waiting
                         : R.string.settings_mcp_status_disabled;
         mMcpStatus.setText(mActivity.getString(status, mcp.endpoint()));
+        mRendering = false;
+    }
+
+    void renderSystemDesktopMode(
+            final Boolean enabled, final boolean canChange, final int statusResId) {
+        if (mSystemDesktopMode == null) {
+            return;
+        }
+        mRendering = true;
+        if (enabled != null) {
+            mSystemDesktopMode.setChecked(enabled);
+        }
+        mSystemDesktopMode.setEnabled(enabled != null && canChange);
+        mSystemDesktopMode.setAlpha(enabled != null && canChange ? 1f : 0.5f);
+        mSystemDesktopModeStatus.setText(statusResId);
         mRendering = false;
     }
 

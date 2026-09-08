@@ -9,10 +9,11 @@ import org.junit.Test;
 
 public final class GenericAndroidWindowingDriverTest {
     @Test
-    public void configurationUsesOnlyStandardAndroidSettings() {
+    public void configurationAddsNoFirmwareRequirements() {
         final PlatformWindowingDriver windowing =
                 new GenericAndroidWindowingDriver();
-        assertTrue(windowing.isReady(true, true, false, false));
-        assertFalse(windowing.isReady(true, false, true, true));
+        assertTrue(windowing.isReady(false, false));
+        assertTrue(windowing.isReady(true, true));
+        assertFalse(windowing.requiresRebootForConfiguration(false, false));
     }
 }

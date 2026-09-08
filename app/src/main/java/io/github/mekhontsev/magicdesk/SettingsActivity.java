@@ -12,9 +12,14 @@ import android.text.InputType;
 import android.widget.EditText;
 import android.widget.Toast;
 
+import java.io.IOException;
+
 public final class SettingsActivity extends Activity
         implements SettingsView.Actions {
     private SettingsView mView;
+    private boolean mSystemDesktopModeBusy;
+    private final ShellAccess.StateListener mShellStateListener = state ->
+            runOnUiThread(this::renderSystemDesktopMode);
 
     static Intent createIntent(final Context context) {
         return new Intent(context, SettingsActivity.class);
@@ -34,6 +39,7 @@ public final class SettingsActivity extends Activity
         BuiltInWindowRegistry.register(this);
         mView = new SettingsView(this, this);
         setContentView(mView.create());
+        ShellAccess.addStateListener(mShellStateListener);
         render();
     }
 
@@ -45,6 +51,7 @@ public final class SettingsActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        ShellAccess.removeStateListener(mShellStateListener);
         BuiltInWindowRegistry.unregister(this);
         super.onDestroy();
     }
@@ -76,6 +83,63 @@ public final class SettingsActivity extends Activity
     public void setCompatibilityOption(
             final DesktopCompatibilityPolicy.Option option, final boolean enabled) {
         saveSetting(MagicDeskSettings.setCompatibilityOption(option, enabled));
+    }
+
+    @Override
+    public void setSystemDesktopMode(final boolean enabled) {
+        renderSystemDesktopMode();
+        if (mSystemDesktopModeBusy || !SystemDesktopModeSetting.canChange()) {
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.settings_system_desktop_mode)
+                .setMessage(R.string.settings_system_desktop_mode_confirm)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok,
+                        (dialog, which) -> applySystemDesktopMode(enabled))
+                .show();
+    }
+
+    private void applySystemDesktopMode(final boolean enabled) {
+        if (mSystemDesktopModeBusy) {
+            return;
+        }
+        mSystemDesktopModeBusy = true;
+        renderSystemDesktopMode();
+        final Context context = getApplicationContext();
+        new Thread(() -> {
+            String failure = null;
+            boolean changed = false;
+            try {
+                changed = SystemDesktopModeSetting.setEnabled(context, enabled);
+            } catch (IOException | RuntimeException error) {
+                failure = error.getMessage();
+                if (failure == null || failure.isEmpty()) {
+                    failure = error.getClass().getSimpleName();
+                }
+                CompatibilityDiagnostics.record("SYSTEM-DESKTOP-MODE-001",
+                        "Could not change Android desktop mode", failure, error);
+            }
+            final String resultError = failure;
+            final boolean resultChanged = changed;
+            runOnUiThread(() -> {
+                mSystemDesktopModeBusy = false;
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                renderSystemDesktopMode();
+                if (resultError != null) {
+                    new AlertDialog.Builder(this)
+                            .setTitle(R.string.settings_save_failed)
+                            .setMessage(resultError)
+                            .setPositiveButton(android.R.string.ok, null)
+                            .show();
+                } else if (resultChanged) {
+                    Toast.makeText(this, R.string.settings_system_desktop_mode_apply_notice,
+                            Toast.LENGTH_LONG).show();
+                }
+            });
+        }, "MagicDeskSystemDesktopMode").start();
     }
 
     @Override
@@ -241,6 +305,28 @@ public final class SettingsActivity extends Activity
                     MagicDeskSettings.load(),
                     MagicDeskMcpPreferences.load(this),
                     MagicDeskMcpRuntime.snapshot());
+            renderSystemDesktopMode();
+        }
+    }
+
+    private void renderSystemDesktopMode() {
+        if (mView == null || isFinishing() || isDestroyed()) {
+            return;
+        }
+        try {
+            final boolean enabled = SystemDesktopModeSetting.read(this);
+            final boolean canChange = SystemDesktopModeSetting.canChange();
+            final int status = mSystemDesktopModeBusy
+                    ? R.string.settings_system_desktop_mode_saving
+                    : !ShellAccess.isReady()
+                            ? R.string.settings_system_desktop_mode_shell
+                            : !canChange
+                                    ? R.string.settings_system_desktop_mode_close
+                                    : R.string.settings_system_desktop_mode_apply_notice;
+            mView.renderSystemDesktopMode(enabled, !mSystemDesktopModeBusy && canChange, status);
+        } catch (IOException error) {
+            mView.renderSystemDesktopMode(null, false,
+                    R.string.settings_system_desktop_mode_unavailable);
         }
     }
 }

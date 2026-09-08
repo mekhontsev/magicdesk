@@ -1075,7 +1075,7 @@ isolated behind these boundaries.
   booleans. Hardware controls remain an explicit optional platform capability.
   `GenericAndroidPlatformDriver` provides the Android 15 baseline: phone,
   simulated, and direct sessions on already connected secondary displays,
-  using the two standard freeform/resizable settings. It does not own the
+  using the two shared required freeform/resizable settings. It does not own the
   system projection transport, and its phone-UI, absolute-pointer, output-mode,
   and hardware integrations fail closed. Its diagnostics omit vendor probes.
 - Platform and display are independent axes. A platform declares which
@@ -2690,7 +2690,7 @@ setting names and vendor services can change across firmware.
 ## Device Setup And Recovery
 
 Device Setup requires Android 15+, a selected compatible platform driver, and
-a live, authorized shell UserService. Every platform audits the two standard
+a live, authorized shell UserService. Every platform audits the two required
 Android settings:
 
 ```text
@@ -2699,6 +2699,23 @@ Settings.Global force_resizable_activities = 1
 ```
 
 The Nubia/REDMAGIC platform additionally audits:
+`DeviceSetupManager` owns these common requirements; `PlatformWindowingDriver`
+adds only firmware-specific provisioning. A session owns its temporary display
+windowing default and restores that separately.
+
+`SystemDesktopModeSetting` owns the optional Android global setting
+`force_desktop_mode_on_external_displays`, exposed in **Settings > Android system**.
+Android remains its only value store. The UI reads current state, confirms the
+navigation-bar side effect, then writes and verifies the
+value off the UI thread. Changes require shell access and no active/preparing
+desktop or retained HOME lease. There is no session override, saved preference
+copy, startup write, or required-setup reboot marker. The UI advises reconnecting
+the external display; some firmware may require a restart. Neither is a startup
+gate in MagicDesk. Close Desktop leaves the value unchanged;
+Restore defaults removes the override. The flag affects external HOME, system
+decorations and input policy, but does not prove correct physical-input routing.
+Physical-input capture remains an independent compatibility preference.
+
 
 ```text
 persist.wm.debug.desktop_mode_enforce_device_restrictions = false
@@ -2727,7 +2744,7 @@ reboots automatically and has no boot receiver. A successful audit after boot
 enters the control panel without flashing setup UI.
 
 **Restore defaults** is available independently of setup history. It stops the
-runtime, normalizes stale phone desktop tasks, removes the two global
+runtime, normalizes stale phone desktop tasks, removes the three global
 desktop-windowing overrides, clears the two allowlisted persistent properties,
 and resets primary-display size/density/scaling overrides. Removing overrides
 lets the firmware supply its defaults and remains usable after MagicDesk has

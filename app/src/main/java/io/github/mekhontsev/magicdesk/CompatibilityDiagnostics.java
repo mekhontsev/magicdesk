@@ -318,6 +318,13 @@ public final class CompatibilityDiagnostics {
         appendCheck(report, "WM-RESIZE-001", audit.resizableEnabled,
                 "Force resizable activities setting",
                 expectedValue("1", audit.resizableValue));
+        report.append("System desktop mode on external displays: ");
+        try {
+            report.append(SystemDesktopModeSetting.read(context) ? "enabled" : "disabled");
+        } catch (IOException error) {
+            report.append("unavailable: ").append(error.getMessage());
+        }
+        report.append("; optional, reconnect display after changes; Android restart may be needed\n");
         if (audit.platform.windowing().restrictionsPropertyKey() != null
                 || audit.platform.windowing()
                         .roundedCornersPropertyKey() != null) {

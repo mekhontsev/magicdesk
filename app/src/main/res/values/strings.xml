@@ -546,6 +546,14 @@
     <string name="settings_compat_stale_recents">Clean stale phone freeform entries from Recents</string>
     <string name="settings_compat_recents_home">Open phone Start instead of system Recents</string>
     <string name="settings_section_automation">Automation</string>
+    <string name="settings_section_android">Android system</string>
+    <string name="settings_system_desktop_mode">System desktop mode on external displays</string>
+    <string name="settings_system_desktop_mode_apply_notice">Reconnect the external display to apply the change. Some devices may require an Android restart.</string>
+    <string name="settings_system_desktop_mode_confirm">Change Android desktop mode on external displays? Enabling it may add system navigation bars. Reconnect the display after changing this setting; some devices may require an Android restart.</string>
+    <string name="settings_system_desktop_mode_shell">Shizuku access required.</string>
+    <string name="settings_system_desktop_mode_close">Close Desktop to change this setting.</string>
+    <string name="settings_system_desktop_mode_unavailable">Android desktop mode setting is unavailable.</string>
+    <string name="settings_system_desktop_mode_saving">Applying system setting&#8230;</string>
     <string name="settings_section_integrations">Integrations</string>
     <string name="settings_section_support">Support</string>
     <string name="settings_termux_x11_command">Termux:X11 startup command</string>

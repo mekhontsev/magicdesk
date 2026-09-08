@@ -148,13 +148,26 @@ profile.
 
 ## Device Setup
 
-Device Setup always audits and configures the two standard Android
+Device Setup always audits and configures the two required Android
 desktop-windowing values:
 
 ```sh
 settings put global enable_freeform_support 1
 settings put global force_resizable_activities 1
 ```
+
+These are device-wide provisioning values, not session overrides. Close Desktop
+does not clear them; Restore defaults does.
+
+The optional `force_desktop_mode_on_external_displays` global value is exposed
+under **Settings > Android system**, not required by Device Setup. A confirmed
+change uses the connected shell service while no desktop session is owned and
+verifies the resulting Android value. The UI warns about system navigation bars
+and advises reconnecting the display; some firmware may require an Android
+restart. Neither creates a mandatory setup gate.
+There is no automatic reboot or preference reapplied at startup. This setting
+affects external HOME, system decorations and input policy; it is independent
+of the optional physical-input bridge and survives Close Desktop.
 
 The Nubia platform extension additionally manages two firmware properties:
 
@@ -171,7 +184,7 @@ those two keys and boolean/absent values, and verifies each write with
 
 WMShell and ActivityTaskManager cache these values. Device Setup records the
 current boot ID and requires a real reboot after a change. **Restore defaults**
-deletes the two global overrides, clears the two persistent properties, resets
+deletes the three global overrides, clears the two persistent properties, resets
 the primary-display size/density/scaling overrides, and normalizes stale phone
 desktop tasks. It intentionally restores firmware defaults rather than values
 captured by an earlier MagicDesk installation.

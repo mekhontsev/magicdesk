@@ -95,11 +95,10 @@ public final class DeviceSetupManager {
         final boolean resizableEnabled = "1".equals(resizableValue);
         final boolean restrictionsDisabled = "false".equals(restrictionsValue);
         final boolean roundedCornersDisabled = "false".equals(roundedCornersValue);
-        final boolean configurationReady = platform.windowing().isReady(
-                freeformEnabled,
-                resizableEnabled,
-                restrictionsDisabled,
-                roundedCornersDisabled);
+        final boolean configurationReady = hasRequiredWindowingSettings(
+                freeformEnabled, resizableEnabled)
+                && platform.windowing().isReady(
+                        restrictionsDisabled, roundedCornersDisabled);
         return new Audit(
                 runtimeError,
                 shellState,
@@ -140,24 +139,18 @@ public final class DeviceSetupManager {
         }
 
         final SharedPreferences preferences = preferences(context);
-        final List<String> commands = new ArrayList<>();
-        addGlobalSettingChange(
-                commands,
-                FREEFORM_SETTING,
-                before.freeformEnabled);
-        addGlobalSettingChange(
-                commands,
-                RESIZABLE_SETTING,
+        final String command = globalSettingsCommand(
+                before.freeformEnabled,
                 before.resizableEnabled);
         final boolean vendorChangeRequired = before.platform.windowing()
                 .requiresRebootForConfiguration(
                         before.restrictionsDisabled,
                         before.roundedCornersDisabled);
-        if (!commands.isEmpty() || vendorChangeRequired) {
+        if (!command.isEmpty() || vendorChangeRequired) {
             savePendingReboot(preferences, before.bootId);
         }
-        if (!commands.isEmpty()) {
-            ShellAccess.run(joinCommands(commands));
+        if (!command.isEmpty()) {
+            ShellAccess.run(command);
         }
         before.platform.windowing().configure(
                 before.restrictionsDisabled,
@@ -211,6 +204,7 @@ public final class DeviceSetupManager {
     static String defaultsCommand() {
         return "/system/bin/settings delete global " + FREEFORM_SETTING
                 + " && /system/bin/settings delete global " + RESIZABLE_SETTING
+                + " && " + SystemDesktopModeSetting.resetCommand()
                 + " && /system/bin/wm size reset -d 0"
                 + " && /system/bin/wm density reset -d 0"
                 + " && /system/bin/wm scaling auto -d 0";
@@ -234,6 +228,15 @@ public final class DeviceSetupManager {
 
     static void reboot() throws IOException {
         ShellAccess.run("/system/bin/svc power reboot");
+    }
+
+    static String globalSettingsCommand(
+            final boolean freeformEnabled,
+            final boolean resizableEnabled) {
+        final List<String> commands = new ArrayList<>();
+        addGlobalSettingChange(commands, FREEFORM_SETTING, freeformEnabled);
+        addGlobalSettingChange(commands, RESIZABLE_SETTING, resizableEnabled);
+        return joinCommands(commands);
     }
 
     private static void addGlobalSettingChange(
@@ -456,7 +459,7 @@ public final class DeviceSetupManager {
 
     }
 
-    public static boolean hasRequiredWindowingSettings(
+    static boolean hasRequiredWindowingSettings(
             final boolean freeformEnabled,
             final boolean resizableEnabled) {
         return freeformEnabled && resizableEnabled;

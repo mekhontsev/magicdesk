@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
-import io.github.mekhontsev.magicdesk.DeviceSetupManager;
 import io.github.mekhontsev.magicdesk.PlatformWindowingDriver;
 
 import java.io.IOException;
@@ -26,14 +25,9 @@ final class NubiaWindowingDriver implements PlatformWindowingDriver {
 
     @Override
     public boolean isReady(
-            final boolean freeformEnabled,
-            final boolean resizableEnabled,
             final boolean restrictionsDisabled,
             final boolean roundedCornersDisabled) {
-        return DeviceSetupManager.hasRequiredWindowingSettings(
-                freeformEnabled, resizableEnabled)
-                && restrictionsDisabled
-                && roundedCornersDisabled;
+        return restrictionsDisabled && roundedCornersDisabled;
     }
 
     @Override

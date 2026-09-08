@@ -13,8 +13,6 @@ public interface PlatformWindowingDriver {
             boolean roundedCornersDisabled);
 
     boolean isReady(
-            boolean freeformEnabled,
-            boolean resizableEnabled,
             boolean restrictionsDisabled,
             boolean roundedCornersDisabled);
 

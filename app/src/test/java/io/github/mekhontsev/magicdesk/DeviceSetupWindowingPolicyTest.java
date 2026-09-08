@@ -17,14 +17,39 @@ public final class DeviceSetupWindowingPolicyTest {
                 source.indexOf("static Audit restoreDefaults("));
         assertTrue(configure.contains("return after;"));
         assertFalse(configure.contains("return audit("));
+        assertTrue(configure.indexOf("savePendingReboot(preferences, before.bootId)")
+                < configure.indexOf("ShellAccess.run(command)"));
+        assertFalse(configure.contains("desktopMode"));
+        assertFalse(configure.contains("SystemDesktopModeSetting"));
     }
 
     @Test
-    public void userWindowingOptionsRequireBothSettings() {
-        assertTrue(DeviceSetupManager.hasRequiredWindowingSettings(true, true));
-        assertFalse(DeviceSetupManager.hasRequiredWindowingSettings(true, false));
-        assertFalse(DeviceSetupManager.hasRequiredWindowingSettings(false, true));
-        assertFalse(DeviceSetupManager.hasRequiredWindowingSettings(false, false));
+    public void commonWindowingRequiresOnlyFreeformAndResizing() {
+        for (int enabled = 0; enabled < 4; enabled++) {
+            assertEquals("enabled settings mask=" + enabled, enabled == 3,
+                    DeviceSetupManager.hasRequiredWindowingSettings(
+                            (enabled & 1) != 0,
+                            (enabled & 2) != 0));
+        }
+    }
+
+    @Test
+    public void completeSetupDoesNotRequestAnotherWrite() {
+        assertEquals("", DeviceSetupManager.globalSettingsCommand(true, true));
+    }
+
+    @Test
+    public void preparationWritesOnlyMissingSettings() {
+        assertEquals(
+                "/system/bin/settings put global enable_freeform_support 1",
+                DeviceSetupManager.globalSettingsCommand(false, true));
+        assertEquals(
+                "/system/bin/settings put global force_resizable_activities 1",
+                DeviceSetupManager.globalSettingsCommand(true, false));
+        assertEquals(
+                "/system/bin/settings put global enable_freeform_support 1"
+                        + " && /system/bin/settings put global force_resizable_activities 1",
+                DeviceSetupManager.globalSettingsCommand(false, false));
     }
 
     @Test
@@ -33,6 +58,8 @@ public final class DeviceSetupWindowingPolicyTest {
                 "/system/bin/settings delete global enable_freeform_support"
                         + " && /system/bin/settings delete global "
                         + "force_resizable_activities"
+                        + " && /system/bin/settings delete global "
+                        + "force_desktop_mode_on_external_displays"
                         + " && /system/bin/wm size reset -d 0"
                         + " && /system/bin/wm density reset -d 0"
                         + " && /system/bin/wm scaling auto -d 0",
