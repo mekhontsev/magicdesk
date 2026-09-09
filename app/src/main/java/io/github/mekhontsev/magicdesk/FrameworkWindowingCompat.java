@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
+import android.app.ActivityOptions;
 import android.graphics.Rect;
 import android.os.IBinder;
 import android.view.WindowInsets;
@@ -31,16 +32,22 @@ final class FrameworkWindowingCompat {
     private final CaptionExclusionWriter mCaptionExclusion;
     private final InsetsSourceWriter mInsetsSources;
     private final Capabilities mCapabilities;
+    private final FlexibleLaunchSize mFlexibleLaunchSize;
+    private final String mRequestedVisibleTypesDetail;
 
     private FrameworkWindowingCompat(
             final RequestedVisibleTypesReader requestedVisibleTypes,
             final CaptionExclusionWriter captionExclusion,
             final InsetsSourceWriter insetsSources,
-            final Capabilities capabilities) {
+            final Capabilities capabilities,
+            final String requestedVisibleTypesDetail) {
         mRequestedVisibleTypes = requestedVisibleTypes;
         mCaptionExclusion = captionExclusion;
         mInsetsSources = insetsSources;
         mCapabilities = capabilities;
+        mRequestedVisibleTypesDetail = requestedVisibleTypesDetail;
+        mFlexibleLaunchSize = FlexibleLaunchSize.inspect(
+                ActivityOptions.class, capabilities.profile);
     }
 
     static FrameworkWindowingCompat current() {
@@ -54,6 +61,38 @@ final class FrameworkWindowingCompat {
 
     Capabilities capabilities() {
         return mCapabilities;
+    }
+
+    String requestedVisibleTypesDetail() {
+        return mRequestedVisibleTypesDetail;
+    }
+
+    void allowFlexibleLaunchSize(final ActivityOptions options)
+            throws ReflectiveOperationException {
+        mFlexibleLaunchSize.apply(options);
+    }
+
+    static final class FlexibleLaunchSize {
+        private final Method mSetter;
+
+        private FlexibleLaunchSize(final Method setter) {
+            mSetter = setter;
+        }
+
+        static FlexibleLaunchSize inspect(
+                final Class<?> optionsClass, final String profile) {
+            return new FlexibleLaunchSize(ANDROID_15_OVERRIDE.equals(profile)
+                    ? null : findPublicMethod(optionsClass,
+                            "setFlexibleLaunchSize", Boolean.TYPE));
+        }
+
+        void apply(final Object options) throws ReflectiveOperationException {
+            // Older launch-params implementations have no flexible-size opt-in.
+            // Keep their explicit mode, bounds and parent options unchanged.
+            if (mSetter != null) {
+                invoke(mSetter, options, Boolean.TRUE);
+            }
+        }
     }
 
     int captionBarType() {
@@ -106,6 +145,7 @@ final class FrameworkWindowingCompat {
             final Class<?> tokenClass,
             final Class<?> hierarchyOpClass,
             final Class<?> insetsProviderClass,
+            final String visibleTypesUnavailableReason,
             final String override) {
         final boolean emulateAndroid15 = ANDROID_15_OVERRIDE.equals(override);
 
@@ -113,6 +153,7 @@ final class FrameworkWindowingCompat {
                 taskInfoClass, "requestedVisibleTypes");
         final RequestedVisibleTypesReader requestedReader = !emulateAndroid15
                 && requestedVisibleTypes != null
+                && visibleTypesUnavailableReason.isEmpty()
                         ? new FieldRequestedVisibleTypesReader(
                                 requestedVisibleTypes)
                         : UnavailableRequestedVisibleTypesReader.INSTANCE;
@@ -238,7 +279,12 @@ final class FrameworkWindowingCompat {
                         nativeCaptionExclusionDetected,
                         captionExclusion.available(),
                         captionPolyfill,
-                        insetsSourceApi));
+                        insetsSourceApi),
+                requestedVisibleTypes == null ? "TaskInfo field absent"
+                        : emulateAndroid15 ? "disabled by test profile"
+                        : visibleTypesUnavailableReason.isEmpty()
+                                ? "TaskInfo client-insets publication enabled"
+                                : visibleTypesUnavailableReason);
     }
 
     private static FrameworkWindowingCompat detect(final String override) {
@@ -249,11 +295,61 @@ final class FrameworkWindowingCompat {
                     Class.forName(TOKEN_CLASS),
                     Class.forName(HIERARCHY_OP_CLASS),
                     Class.forName(INSETS_PROVIDER_CLASS),
+                    visibleTypesUnavailableReason(),
                     override);
         } catch (ReflectiveOperationException
                 | LinkageError
                 | RuntimeException error) {
             return unavailable(override, error);
+        }
+    }
+
+    private static String visibleTypesUnavailableReason() {
+        try {
+            return visibleTypesUnavailableReason(
+                    findOptionalClass("android.window.DesktopModeFlags"),
+                    findOptionalClass("com.android.internal.hidden_from_bootclasspath."
+                            + "com.android.window.flags.Flags"));
+        } catch (LinkageError | RuntimeException error) {
+            return "framework client-insets publication unknown: " + usefulMessage(error);
+        }
+    }
+
+    static String visibleTypesUnavailableReason(
+            final Class<?> desktopFlags, final Class<?> windowFlags) {
+        try {
+            final boolean enabled;
+            Field immersive = null;
+            if (desktopFlags != null) {
+                try {
+                    immersive = desktopFlags.getField("ENABLE_FULLY_IMMERSIVE_IN_DESKTOP");
+                } catch (NoSuchFieldException absent) {
+                    // Some Android 15 releases predate the desktop flag wrapper.
+                }
+            }
+            if (immersive != null) {
+                enabled = (Boolean) invoke(
+                        desktopFlags.getMethod("isTrue"), immersive.get(null));
+            } else {
+                // Android 15 can expose the TaskInfo member but fill it with
+                // defaultVisible() when this framework feature flag is off.
+                if (windowFlags == null) {
+                    return "framework client-insets publication unknown: flag API absent";
+                }
+                enabled = (Boolean) invoke(
+                        windowFlags.getMethod("enableFullyImmersiveInDesktop"), null);
+            }
+            return enabled ? "" : "framework client-insets publication disabled";
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException error) {
+            return "framework client-insets publication unknown: " + usefulMessage(error);
+        }
+    }
+
+    private static Class<?> findOptionalClass(final String name) {
+        try {
+            return Class.forName(name);
+        } catch (ClassNotFoundException absent) {
+            return null;
         }
     }
 
@@ -273,7 +369,8 @@ final class FrameworkWindowingCompat {
                         false,
                         false,
                         false,
-                        "unavailable:" + detail));
+                        "unavailable:" + detail),
+                "framework unavailable: " + detail);
     }
 
     private static String usefulMessage(final Throwable error) {

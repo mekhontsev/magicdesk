@@ -131,6 +131,17 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void configureDesktopHomeDelegate(final int displayId, final int taskId,
+            final IBinder activityToken, final TaskRepository.ActionCallback callback) {
+        final DesktopTaskRuntime tasks = desktopTasks();
+        if (tasks == null) {
+            callback.onComplete(new TaskRepository.ActionResult(
+                    false, "desktop runtime is unavailable"));
+            return;
+        }
+        tasks.configureDesktopHomeDelegate(displayId, taskId, activityToken, callback);
+    }
+
     static void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {

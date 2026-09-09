@@ -169,6 +169,27 @@ final class DesktopTaskWatcher {
         }
     }
 
+    void configureDesktopHomeDelegate(final int displayId, final int taskId,
+            final IBinder activityToken, final TaskRepository.ActionCallback callback) {
+        final ShellTaskObserverHandle handle = currentHandle();
+        if (handle == null) {
+            mHandler.post(() -> callback.onComplete(new TaskRepository.ActionResult(
+                    false, "task observer is unavailable")));
+            return;
+        }
+        TaskCommandQueue.execute(() -> {
+            TaskRepository.ActionResult result;
+            try {
+                handle.configureDesktopHomeDelegate(displayId, taskId, activityToken);
+                result = new TaskRepository.ActionResult(true, "HOME delegate configured");
+            } catch (IOException | RuntimeException error) {
+                result = new TaskRepository.ActionResult(false, ShellAccess.usefulMessage(error));
+            }
+            final TaskRepository.ActionResult completed = result;
+            mHandler.post(() -> callback.onComplete(completed));
+        });
+    }
+
     void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {

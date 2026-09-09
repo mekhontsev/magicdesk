@@ -11,6 +11,12 @@ import java.util.HashSet;
 
 public final class WindowTransitionHealthDiagnosticsTest {
     @Test
+    public void transitionQueryRequestsTheNormalPriorityShellDumpable() {
+        assertTrue(WindowTransitionHealthDiagnostics.SHELL_TRANSITIONS_COMMAND
+                .contains("com.android.systemui/.SystemUIService WMShell "));
+    }
+
+    @Test
     public void findsTransitionSessionsForRemovedDisplays() {
         final String dumpsys = "Window manager state\n"
                 + "SystemPerformanceHinter:\n"

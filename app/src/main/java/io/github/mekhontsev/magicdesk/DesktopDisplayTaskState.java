@@ -94,7 +94,8 @@ final class DesktopDisplayTaskState {
                     task.home,
                     task.visible,
                     task.active,
-                    task.userId));
+                    task.userId,
+                    task.displayAreaFeatureId));
         }
         return copies;
     }

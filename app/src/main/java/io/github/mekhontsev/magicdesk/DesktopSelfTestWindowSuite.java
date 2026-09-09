@@ -357,17 +357,21 @@ final class DesktopSelfTestWindowSuite {
                         captionReference,
                         browserBounds,
                         settledGeometry);
-        verifyAppRequestedFullscreenRestore(
-                appContext,
-                result,
-                targetDisplayId,
-                targetFixtureTaskId,
-                windowBounds,
-                browserBounds,
-                captureSource,
-                browserSurfaceReference,
-                browserCaptionReference,
-                settledGeometry);
+        DesktopSelfTestSteps.scenario(
+                result, "WINDOW-APP", "Application fullscreen",
+                () -> verifyAppRequestedFullscreenRestore(
+                        appContext,
+                        result,
+                        targetDisplayId,
+                        targetFixtureTaskId,
+                        windowBounds,
+                        browserBounds,
+                        captureSource,
+                        browserSurfaceReference,
+                        browserCaptionReference,
+                        settledGeometry),
+                () -> restorePrimaryFixture(
+                        targetDisplayId, targetFixtureTaskId, windowBounds));
         require(result, "WINDOW-005", "Minimize window behind desktop", () -> {
             ShellAccess.run(AppProcessCommand.run(
                     "io.github.mekhontsev.magicdesk.TaskWindowingCommand",
@@ -432,258 +436,218 @@ final class DesktopSelfTestWindowSuite {
         final int immersiveTaskId = launch.settled.taskId;
         DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(
                 immersiveTaskId);
-        int additionalPeerTaskId = -1;
-        boolean peersPrepared = false;
-        boolean restored = false;
-        try {
-            final String additionalPeerToken =
-                    Long.toHexString(System.nanoTime());
-            final SettledWindowLaunch additionalPeerLaunch = require(
-                    result,
-                    "WINDOW-020-PEER",
-                    "Launch another fullscreen switching peer",
-                    () -> {
-                        final DesktopTaskLaunchProbe.Observation observation =
-                                preservePhoneTouchpad(() ->
-                                        launchFixtureAndObserve(
-                                                displayId,
-                                                additionalPeerToken,
-                                                expectedBounds,
-                                                DesktopSelfTestFixtureAppearance
-                                                        .SECONDARY));
-                        if (observation.taskId == peerTaskId
-                                || observation.taskId == immersiveTaskId) {
-                            throw new IOException(
-                                    "Android reused an existing test task");
-                        }
-                        final TaskStackParser.Entry settled = waitForTask(
-                                displayId,
-                                FIXTURE_CLASS,
-                                entry -> entry.taskId == observation.taskId
-                                        && "freeform".equals(
-                                                entry.windowingMode)
-                                        && DesktopSelfTestGeometry.matches(
-                                                entry.bounds,
-                                                expectedBounds));
-                        return new SettledWindowLaunch(observation, settled);
-                    });
-            additionalPeerTaskId = additionalPeerLaunch.settled.taskId;
-            final int secondPeerTaskId = additionalPeerTaskId;
-            DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(
-                    secondPeerTaskId);
-            require(result,
-                    "WINDOW-020-PREPARE",
-                    "Prepare two fullscreen peers around app fullscreen",
-                    () -> prepareAppFullscreenPeers(
+        final String additionalPeerToken =
+                Long.toHexString(System.nanoTime());
+        final SettledWindowLaunch additionalPeerLaunch = require(
+                result,
+                "WINDOW-020-PEER",
+                "Launch another fullscreen switching peer",
+                () -> {
+                    final DesktopTaskLaunchProbe.Observation observation =
+                            preservePhoneTouchpad(() ->
+                                    launchFixtureAndObserve(
+                                            displayId,
+                                            additionalPeerToken,
+                                            expectedBounds,
+                                            DesktopSelfTestFixtureAppearance
+                                                    .SECONDARY));
+                    if (observation.taskId == peerTaskId
+                            || observation.taskId == immersiveTaskId) {
+                        throw new IOException(
+                                "Android reused an existing test task");
+                    }
+                    final TaskStackParser.Entry settled = waitForTask(
                             displayId,
-                            new int[]{peerTaskId, secondPeerTaskId},
-                            new Rect[]{peerRestoreBounds, expectedBounds}));
-            peersPrepared = true;
-            require(result,
-                    "WINDOW-015",
-                    "Enter application-requested fullscreen",
-                    () -> {
-                        final Rect expectedDisplayBounds = new Rect(
-                                geometry.displayBounds);
-                        final int expectedRotation = displayRotation(
-                                appContext, displayId);
-                        DesktopSelfTestInputSuite.focusTaskThroughDesktop(
-                                displayId, immersiveTaskId);
-                        waitForTask(
-                                displayId,
-                                BROWSER_FIXTURE_CLASS,
-                                entry -> entry.taskId == immersiveTaskId
-                                        && entry.visible
-                                        && "freeform".equals(
-                                                entry.windowingMode));
-                        waitForFrontTask(displayId, immersiveTaskId);
-                        DesktopSelfTestFixtureState.clearImmersive(appContext);
-                        setFixtureImmersive(token, true);
-                        DesktopSelfTestFixtureState.awaitImmersive(
-                                appContext, token, displayId, true);
-                        final Rect immersiveSurfaceBounds =
-                                DesktopSelfTestFixtureState
-                                        .awaitImmersiveSurface(
-                                                appContext,
-                                                token,
-                                                displayId);
-                        final TaskStackParser.Entry task = waitForTask(
-                                displayId,
-                                BROWSER_FIXTURE_CLASS,
-                                entry -> entry.taskId == immersiveTaskId
-                                        && "fullscreen".equals(
-                                                entry.windowingMode)
-                                        && DesktopSelfTestGeometry.matches(
-                                                entry.bounds,
-                                                expectedDisplayBounds));
-                        final Rect actualDisplayBounds =
-                                currentDesktopBounds(displayId);
-                        final int actualRotation = displayRotation(
-                                appContext, displayId);
-                        if (!expectedDisplayBounds.equals(actualDisplayBounds)
-                                || actualRotation != expectedRotation) {
-                            throw new IOException(
-                                    "application orientation request changed"
-                                            + " desktop viewport: expected="
-                                            + DesktopSelfTestGeometry.format(
-                                                    expectedDisplayBounds)
-                                            + "/rotation=" + expectedRotation
-                                            + ", actual="
-                                            + DesktopSelfTestGeometry.format(
-                                                    actualDisplayBounds)
-                                            + "/rotation=" + actualRotation);
-                        }
-                        final String surface = verifyFullscreenFixtureSurface(
-                                captureSource,
-                                new Rect(
-                                        task.bounds.left,
-                                        task.bounds.top,
-                                        task.bounds.right,
-                                        task.bounds.bottom),
-                                immersiveSurfaceBounds);
-                        // The application request and MagicDesk's task
-                        // transition are asynchronous. Exiting before both
-                        // settle creates an artificial transition race that a
-                        // real browser video does not exercise.
-                        return "task=" + task.taskId
-                                + ", mode=" + task.windowingMode
-                                + ", bounds="
-                                + DesktopSelfTestGeometry.format(task.bounds)
-                                + ", rotation=" + actualRotation
-                                + ", " + surface;
-                    });
-            DesktopSelfTestFixtureState.clearWindowModeTransitions(
-                    appContext);
-            require(result,
-                    "WINDOW-020",
-                    "Preserve application fullscreen across three tasks",
-                    () -> verifyAppFullscreenTaskSwitch(
-                            appContext,
-                            token,
-                            displayId,
-                            immersiveTaskId,
-                            new int[]{peerTaskId, secondPeerTaskId},
-                            captureSource));
-            require(result,
-                    "WINDOW-016",
-                    "Restore application-requested window bounds",
-                    () -> {
-                        DesktopSelfTestFixtureState.clearImmersive(appContext);
-                        setFixtureImmersive(token, false);
-                        DesktopSelfTestFixtureState.awaitImmersive(
-                                appContext, token, displayId, false);
-                        final TaskStackParser.Entry task = waitForTask(
-                                displayId,
-                                BROWSER_FIXTURE_CLASS,
-                                entry -> entry.taskId == immersiveTaskId
-                                        && "freeform".equals(
-                                                entry.windowingMode)
-                                        && DesktopSelfTestGeometry.matches(
-                                                entry.bounds,
-                                                expectedBounds));
-                        final String caption = DesktopSelfTestInputSuite
-                                .awaitCaptionStructure(
-                                        immersiveTaskId, expectedBounds);
-                        return DesktopSelfTestGeometry.format(task.bounds)
-                                + ", " + caption;
-                    });
-            require(result,
-                    "WINDOW-019",
-                    "Repeat application fullscreen restoration",
-                    () -> repeatAppRequestedFullscreenRestore(
-                            appContext,
-                            token,
-                            displayId,
-                            immersiveTaskId,
-                            expectedBounds,
-                            surfaceReference,
-                            DesktopSelfTestFixtureAppearance.SECONDARY.color(),
-                            2));
-            require(result,
-                    "WINDOW-020-CLEANUP",
-                    "Restore fullscreen peers after app fullscreen",
-                    () -> restoreAppFullscreenPeers(
-                            displayId,
-                            immersiveTaskId,
-                            expectedBounds,
-                            new int[]{peerTaskId, secondPeerTaskId},
-                            new Rect[]{peerRestoreBounds, expectedBounds}));
-            peersPrepared = false;
-            restored = true;
-            verifyDesktopSurfaceMatches(
-                    result,
-                    "WINDOW-018",
-                    "Restore desktop surface after application fullscreen",
-                    surfaceReference);
-            DesktopSelfTestInputSuite.verifyCaptionStructure(
-                    result,
-                    "CAPTION-005",
-                    "Verify application fullscreen restored caption",
-                    immersiveTaskId,
-                    expectedBounds);
-            DesktopSelfTestInputSuite.verifyCaptionSurface(
-                    result,
-                    "CAPTION-SURFACE-003",
-                    "Verify application fullscreen restored caption surface",
-                    immersiveTaskId);
-            DesktopSelfTestInputSuite.verifyCaptionRendering(
-                    result,
-                    "CAPTION-006",
-                    "Verify application fullscreen restored caption rendering",
-                    captureSource,
-                    immersiveTaskId,
-                    expectedBounds,
-                    captionReference);
-        } finally {
-            if (peersPrepared) {
-                restorePeerTasksBestEffort(
+                            FIXTURE_CLASS,
+                            entry -> entry.taskId == observation.taskId
+                                    && "freeform".equals(
+                                            entry.windowingMode)
+                                    && DesktopSelfTestGeometry.matches(
+                                            entry.bounds,
+                                            expectedBounds));
+                    return new SettledWindowLaunch(observation, settled);
+                });
+        final int secondPeerTaskId = additionalPeerLaunch.settled.taskId;
+        DesktopSelfTestPhoneUiObserver.allowPhoneFixtureTask(
+                secondPeerTaskId);
+        require(result,
+                "WINDOW-020-PREPARE",
+                "Prepare two fullscreen peers around app fullscreen",
+                () -> prepareAppFullscreenPeers(
                         displayId,
-                        new int[]{peerTaskId, additionalPeerTaskId},
-                        new Rect[]{peerRestoreBounds, expectedBounds});
-            }
-            if (!restored) {
-                try {
+                        new int[]{peerTaskId, secondPeerTaskId}));
+        require(result,
+                "WINDOW-015",
+                "Enter application-requested fullscreen",
+                () -> {
+                    final Rect expectedDisplayBounds = new Rect(
+                            geometry.displayBounds);
+                    final int expectedRotation = displayRotation(
+                            appContext, displayId);
+                    DesktopSelfTestInputSuite.focusTaskThroughDesktop(
+                            displayId, immersiveTaskId);
+                    waitForTask(
+                            displayId,
+                            BROWSER_FIXTURE_CLASS,
+                            entry -> entry.taskId == immersiveTaskId
+                                    && entry.visible
+                                    && "freeform".equals(
+                                            entry.windowingMode));
+                    waitForFrontTask(displayId, immersiveTaskId);
+                    DesktopSelfTestFixtureState.clearImmersive(appContext);
+                    setFixtureImmersive(token, true);
+                    DesktopSelfTestFixtureState.awaitImmersive(
+                            appContext, token, displayId, true);
+                    final Rect immersiveSurfaceBounds =
+                            DesktopSelfTestFixtureState
+                                    .awaitImmersiveSurface(
+                                            appContext,
+                                            token,
+                                            displayId);
+                    final TaskStackParser.Entry task = waitForTask(
+                            displayId,
+                            BROWSER_FIXTURE_CLASS,
+                            entry -> entry.taskId == immersiveTaskId
+                                    && "fullscreen".equals(
+                                            entry.windowingMode)
+                                    && DesktopSelfTestGeometry.matches(
+                                            entry.bounds,
+                                            expectedDisplayBounds));
+                    final Rect actualDisplayBounds =
+                            currentDesktopBounds(displayId);
+                    final int actualRotation = displayRotation(
+                            appContext, displayId);
+                    if (!expectedDisplayBounds.equals(actualDisplayBounds)
+                            || actualRotation != expectedRotation) {
+                        throw new IOException(
+                                "application orientation request changed"
+                                        + " desktop viewport: expected="
+                                        + DesktopSelfTestGeometry.format(
+                                                expectedDisplayBounds)
+                                        + "/rotation=" + expectedRotation
+                                        + ", actual="
+                                        + DesktopSelfTestGeometry.format(
+                                                actualDisplayBounds)
+                                        + "/rotation=" + actualRotation);
+                    }
+                    final String surface = verifyFullscreenFixtureSurface(
+                            captureSource,
+                            new Rect(
+                                    task.bounds.left,
+                                    task.bounds.top,
+                                    task.bounds.right,
+                                    task.bounds.bottom),
+                            immersiveSurfaceBounds);
+                    // The application request and MagicDesk's task
+                    // transition are asynchronous. Exiting before both
+                    // settle creates an artificial transition race that a
+                    // real browser video does not exercise.
+                    return "task=" + task.taskId
+                            + ", mode=" + task.windowingMode
+                            + ", bounds="
+                            + DesktopSelfTestGeometry.format(task.bounds)
+                            + ", rotation=" + actualRotation
+                            + ", " + surface;
+                });
+        DesktopSelfTestFixtureState.clearWindowModeTransitions(
+                appContext);
+        require(result,
+                "WINDOW-020",
+                "Preserve application fullscreen across three tasks",
+                () -> verifyAppFullscreenTaskSwitch(
+                        appContext,
+                        token,
+                        displayId,
+                        immersiveTaskId,
+                        new int[]{peerTaskId, secondPeerTaskId},
+                        captureSource));
+        require(result,
+                "WINDOW-016",
+                "Restore application-requested window bounds",
+                () -> {
+                    DesktopSelfTestFixtureState.clearImmersive(appContext);
                     setFixtureImmersive(token, false);
-                } catch (IOException ignored) {
-                    // Removing the temporary task also clears this request.
-                }
-            }
-            removeFixtureTaskBestEffort(immersiveTaskId);
-            if (additionalPeerTaskId >= 0) {
-                removeFixtureTaskBestEffort(additionalPeerTaskId);
-            }
-        }
+                    DesktopSelfTestFixtureState.awaitImmersive(
+                            appContext, token, displayId, false);
+                    final TaskStackParser.Entry task = waitForTask(
+                            displayId,
+                            BROWSER_FIXTURE_CLASS,
+                            entry -> entry.taskId == immersiveTaskId
+                                    && "freeform".equals(
+                                            entry.windowingMode)
+                                    && DesktopSelfTestGeometry.matches(
+                                            entry.bounds,
+                                            expectedBounds));
+                    final String caption = DesktopSelfTestInputSuite
+                            .awaitCaptionStructure(
+                                    immersiveTaskId, expectedBounds);
+                    return DesktopSelfTestGeometry.format(task.bounds)
+                            + ", " + caption;
+                });
+        require(result,
+                "WINDOW-019",
+                "Repeat application fullscreen restoration",
+                () -> repeatAppRequestedFullscreenRestore(
+                        appContext,
+                        token,
+                        displayId,
+                        immersiveTaskId,
+                        expectedBounds,
+                        surfaceReference,
+                        DesktopSelfTestFixtureAppearance.SECONDARY.color(),
+                        2));
+        require(result,
+                "WINDOW-020-CLEANUP",
+                "Restore fullscreen peers after app fullscreen",
+                () -> restoreAppFullscreenPeers(
+                        displayId,
+                        immersiveTaskId,
+                        expectedBounds,
+                        new int[]{peerTaskId, secondPeerTaskId},
+                        new Rect[]{peerRestoreBounds, expectedBounds}));
+        verifyDesktopSurfaceMatches(
+                result,
+                "WINDOW-018",
+                "Restore desktop surface after application fullscreen",
+                surfaceReference);
+        DesktopSelfTestInputSuite.verifyCaptionStructure(
+                result,
+                "CAPTION-005",
+                "Verify application fullscreen restored caption",
+                immersiveTaskId,
+                expectedBounds);
+        DesktopSelfTestInputSuite.verifyCaptionSurface(
+                result,
+                "CAPTION-SURFACE-003",
+                "Verify application fullscreen restored caption surface",
+                immersiveTaskId);
+        DesktopSelfTestInputSuite.verifyCaptionRendering(
+                result,
+                "CAPTION-006",
+                "Verify application fullscreen restored caption rendering",
+                captureSource,
+                immersiveTaskId,
+                expectedBounds,
+                captionReference);
     }
 
     private static String prepareAppFullscreenPeers(
             final int displayId,
-            final int[] peerTaskIds,
-            final Rect[] peerRestoreBounds) throws IOException {
-        int prepared = 0;
-        try {
-            for (final int peerTaskId : peerTaskIds) {
-                DesktopSelfTestInputSuite.enterFullscreenThroughShortcut(
-                        displayId, peerTaskId);
-                waitForTask(
-                        displayId,
-                        FIXTURE_CLASS,
-                        entry -> entry.taskId == peerTaskId
-                                && entry.visible
-                                && "fullscreen".equals(
-                                        entry.windowingMode));
-                waitForFrontTask(displayId, peerTaskId);
-                prepared++;
-            }
-            return "tasks=" + formatTaskIds(peerTaskIds)
-                    + "/fullscreen";
-        } catch (IOException error) {
-            restorePeerTasksBestEffort(
+            final int[] peerTaskIds) throws IOException {
+        for (final int peerTaskId : peerTaskIds) {
+            DesktopSelfTestInputSuite.enterFullscreenThroughShortcut(
+                    displayId, peerTaskId);
+            waitForTask(
                     displayId,
-                    peerTaskIds,
-                    peerRestoreBounds,
-                    prepared);
-            throw error;
+                    FIXTURE_CLASS,
+                    entry -> entry.taskId == peerTaskId
+                            && entry.visible
+                            && "fullscreen".equals(
+                                    entry.windowingMode));
+            waitForFrontTask(displayId, peerTaskId);
         }
+        return "tasks=" + formatTaskIds(peerTaskIds)
+                + "/fullscreen";
     }
 
     private static String verifyAppFullscreenTaskSwitch(
@@ -804,44 +768,25 @@ final class DesktopSelfTestWindowSuite {
                 + "/freeform/visible";
     }
 
-    private static void restorePeerTasksBestEffort(
+    private static String restorePrimaryFixture(
             final int displayId,
-            final int[] peerTaskIds,
-            final Rect[] peerRestoreBounds) {
-        restorePeerTasksBestEffort(
-                displayId,
-                peerTaskIds,
-                peerRestoreBounds,
-                peerTaskIds.length);
-    }
-
-    private static void restorePeerTasksBestEffort(
-            final int displayId,
-            final int[] peerTaskIds,
-            final Rect[] peerRestoreBounds,
-            final int count) {
-        for (int index = Math.min(count, peerTaskIds.length) - 1;
-                index >= 0;
-                index--) {
-            final int peerTaskId = peerTaskIds[index];
-            if (peerTaskId < 0) {
-                continue;
-            }
-            try {
-                DesktopSelfTestInputSuite.restoreFullscreenTaskThroughDesktop(
-                        displayId, peerTaskId);
-                final Rect restoreBounds = peerRestoreBounds[index];
-                waitForTask(
-                        displayId,
-                        FIXTURE_CLASS,
-                        entry -> entry.taskId == peerTaskId
-                                && "freeform".equals(entry.windowingMode)
-                                && DesktopSelfTestGeometry.matches(
-                                        entry.bounds, restoreBounds));
-            } catch (IOException ignored) {
-                // Global self-test cleanup removes any remaining fixture task.
-            }
-        }
+            final int taskId,
+            final Rect bounds) throws IOException {
+        DesktopSelfTestCleanup.removeFixtureTasksExcept(
+                Collections.singleton(Integer.valueOf(taskId)));
+        DesktopSelfTestInputSuite.restoreFullscreenTaskThroughDesktop(
+                displayId, taskId);
+        final TaskStackParser.Entry task = waitForTask(
+                displayId, taskId,
+                entry -> DesktopSelfTestComponents.isFixtureTask(entry)
+                        && "freeform".equals(entry.windowingMode)
+                        && DesktopSelfTestGeometry.matches(entry.bounds, bounds));
+        DesktopSelfTestInputSuite.focusTaskThroughDesktop(displayId, taskId);
+        waitForFrontTask(displayId, taskId);
+        DesktopSelfTestInputSuite.waitForTaskInputFocus(displayId, taskId);
+        return "task=" + taskId + "/freeform, bounds="
+                + DesktopSelfTestGeometry.format(task.bounds)
+                + "; temporary fixtures closed";
     }
 
     private static String formatTaskIds(final int[] taskIds) {
@@ -1267,17 +1212,6 @@ final class DesktopSelfTestWindowSuite {
                 + ShellCommandLine.quote(
                         DesktopSelfTestActivity.EXTRA_TARGET_TOKEN)
                 + " " + ShellCommandLine.quote(token));
-    }
-
-    private static void removeFixtureTaskBestEffort(final int taskId) {
-        try {
-            ShellAccess.run(AppProcessCommand.run(
-                    "io.github.mekhontsev.magicdesk.TaskControlCommand",
-                    "remove " + taskId));
-            waitForTaskAbsent(taskId);
-        } catch (IOException ignored) {
-            // The global self-test cleanup removes any remaining fixture.
-        }
     }
 
     private static void verifyDisplayGeometry(

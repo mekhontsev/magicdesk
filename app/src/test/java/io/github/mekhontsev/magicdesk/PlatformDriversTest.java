@@ -69,7 +69,7 @@ public final class PlatformDriversTest {
         assertTrue(driver.projection().setCaptionTransport(
                 PlatformProjectionDriver.Transport.WIRELESS));
         assertFalse(driver.phoneUi().isAvailable());
-        assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
+        assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.CAPTION_REFRESH));
         assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY));
         assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.STALE_RECENTS_CLEANUP));
@@ -126,6 +126,8 @@ public final class PlatformDriversTest {
                 .provider(PlatformComponent.AUDIO_CAPTURE).evidence);
         assertEquals("android", driver.selection()
                 .provider(PlatformComponent.WINDOWING).id);
+        assertTrue(driver.features().compatibilityDefaults.enabled(
+                DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertEquals("android", driver.selection()
                 .provider(PlatformComponent.PROJECTION).id);
         assertFalse(driver.projection().supportsOutputConfiguration());
@@ -170,6 +172,8 @@ public final class PlatformDriversTest {
                 genericDevice));
         assertTrue(resolve(nubiaDevice, true).supports(
                 nubiaDevice));
+        assertTrue(resolve(genericDevice, false).features().compatibilityDefaults.enabled(
+                DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertEquals("nubia", resolve(nubiaDevice, true).id());
     }
 

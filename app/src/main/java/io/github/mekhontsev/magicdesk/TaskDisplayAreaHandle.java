@@ -284,7 +284,12 @@ final class TaskDisplayAreaHandle {
         }
         final List<Integer> taskIds = new ArrayList<>();
         for (final Object task : HiddenTaskApi.getTasks(service, displayId)) {
-            if (HiddenTaskApi.getTaskDisplayAreaFeatureId(task) == mFeatureId) {
+            // Android may populate every organizer area with HOME. These
+            // system roots are removed by deleteTaskDisplayArea itself, not
+            // migrated like application tasks or finished ahead of teardown.
+            if (HiddenTaskApi.getTaskDisplayAreaFeatureId(task) == mFeatureId
+                    && HiddenTaskApi.getTaskActivityType(task)
+                            != FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME) {
                 taskIds.add(Integer.valueOf(
                         HiddenTaskApi.getTaskId(task)));
             }

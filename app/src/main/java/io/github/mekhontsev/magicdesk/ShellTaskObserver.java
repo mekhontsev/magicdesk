@@ -475,6 +475,38 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         return mWorkspaceCoordinator.execute(command);
     }
 
+    void configureDesktopHomeDelegate(final int displayId, final int taskId,
+            final IBinder activityToken) {
+        if (displayId != mConfiguredDisplayId || mClosed) {
+            throw new IllegalStateException("HOME delegate belongs to an inactive display");
+        }
+        try {
+            final FrameworkTaskSnapshot task = FrameworkTaskSnapshotSource.findTask(
+                    mService, displayId, taskId);
+            final FrameworkTaskSnapshot host = FrameworkTaskSnapshotSource.findTask(
+                    mService, displayId, mDesktopOwnership.desktopHostTaskId());
+            if (task == null || host == null || !task.isHome()
+                    || !DesktopHostComponents.isHostComponentName(task.componentName)
+                    || task.rootTaskId == host.rootTaskId) {
+                throw new IllegalArgumentException("not an auxiliary desktop HOME task");
+            }
+            // HOME roots remain present for Android's per-area lifecycle,
+            // but only the session host supplies wallpaper, focus and input.
+            final FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
+            final Object transaction = windowing.newTransaction();
+            final Object root = HiddenTaskApi.requireRootTaskToken(
+                    mService, displayId, task.rootTaskId);
+            windowing.setFocusable(transaction, root, false);
+            windowing.setForceTranslucent(transaction, root, true);
+            windowing.reorder(transaction, root, false);
+            FrameworkActivityInputApi.setRecordInputSinkEnabled(activityToken, false);
+            ShellWindowTransitionExecutor.applyAtomic(
+                    mService, windowing.transactionClass(), transaction);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("cannot configure desktop HOME delegate", error);
+        }
+    }
+
     void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {

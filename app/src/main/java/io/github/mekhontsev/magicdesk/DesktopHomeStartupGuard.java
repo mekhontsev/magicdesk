@@ -14,7 +14,6 @@ final class DesktopHomeStartupGuard {
     private static final String TAG = "MagicDeskHomeStartup";
     private static final int HOME_FLAGS = Intent.FLAG_ACTIVITY_NEW_TASK
             | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED;
-    private static boolean sRelinquishedOnProcessStart;
 
     private DesktopHomeStartupGuard() {
     }
@@ -61,8 +60,6 @@ final class DesktopHomeStartupGuard {
         } catch (IOException error) {
             Log.w(TAG, "could not discard stale HOME lease", error);
         }
-        sRelinquishedOnProcessStart = true;
-
         try {
             context.startActivity(homeIntent);
             Log.w(TAG, "relinquished stale HOME at process start"
@@ -72,13 +69,6 @@ final class DesktopHomeStartupGuard {
             Log.e(TAG, "could not open the system HOME resolver", error);
             return false;
         }
-    }
-
-    static boolean shouldDiscardStaleHomeLaunch(final Intent intent) {
-        return sRelinquishedOnProcessStart
-                && intent != null
-                && Intent.ACTION_MAIN.equals(intent.getAction())
-                && intent.hasCategory(Intent.CATEGORY_HOME);
     }
 
     static boolean isPrimaryProcess(

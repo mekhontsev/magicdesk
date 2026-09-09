@@ -147,6 +147,9 @@ interface DesktopTaskRuntime {
 
     void configureDesktopActivityInput(int displayId, IBinder activityToken);
 
+    void configureDesktopHomeDelegate(int displayId, int taskId,
+            IBinder activityToken, TaskRepository.ActionCallback callback);
+
     void prepareDesktopChromeHost(
             int displayId, TaskRepository.ActionCallback callback);
 

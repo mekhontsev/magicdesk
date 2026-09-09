@@ -22,9 +22,11 @@ final class WindowTransitionHealthDiagnostics {
             "/system/bin/dumpsys window | /system/bin/toybox sed -n "
                     + "'/SystemPerformanceHinter:/,$p' "
                     + "| /system/bin/toybox head -n 120";
-    private static final String SHELL_TRANSITIONS_COMMAND =
+    // A default SystemUI dump can contain only CRITICAL dumpables. WMShell
+    // is NORMAL priority; request it explicitly instead of inferring idle.
+    static final String SHELL_TRANSITIONS_COMMAND =
             "/system/bin/dumpsys activity service "
-                    + "com.android.systemui/.SystemUIService "
+                    + "com.android.systemui/.SystemUIService WMShell "
                     + "| /system/bin/toybox sed -n "
                     + "'/^    ShellTransitions$/,/^    AppResourceProvider$/p'";
 

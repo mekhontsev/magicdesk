@@ -17,6 +17,7 @@ public final class EventDrivenWaits {
         INPUT_WORKER_STOP,
         INPUT_CAPTURE_RELEASE,
         INPUT_DIAGNOSTICS,
+        DISPLAY_CAPTURE,
         TERMINAL_REGISTRATION,
         TERMINAL_OUTPUT_DRAIN,
         SERVICE_BINDING,

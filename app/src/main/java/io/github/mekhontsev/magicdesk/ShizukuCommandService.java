@@ -216,7 +216,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         }
         final ParcelFileDescriptor[] pipe;
         try {
-            pipe = ParcelFileDescriptor.createPipe();
+            pipe = ParcelFileDescriptor.createReliablePipe();
         } catch (IOException error) {
             throw new IllegalStateException(
                     "cannot create display capture pipe", error);
@@ -465,6 +465,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 new Rect(displayLeft, displayTop, displayRight, displayBottom),
                 new Rect(workLeft, workTop, workRight, workBottom),
                 desktopHostTaskId, compatibility);
+    }
+
+    @Override
+    public void configureDesktopHomeDelegate(final ITaskObserverCallback callback,
+            final int displayId, final int taskId, final IBinder activityToken) {
+        mTaskObserverManager.configureDesktopHomeDelegate(
+                callback, displayId, taskId, activityToken);
     }
 
     @Override

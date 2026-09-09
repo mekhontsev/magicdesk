@@ -44,7 +44,7 @@ Close Desktop; Restore defaults removes this override too.
 Secondary sessions prepare a freeform display default through Android's
 WindowManager on every platform. Explicit fullscreen tasks remain supported;
 the phone display default is never changed. Diagnostics distinguishes this
-shared policy from optional firmware focus repair and reports pending display
+shared policy from optional focus repair and reports pending display
 mode restoration. Close restores a changed effective default; disconnected
 physical displays are reconciled by stable identity when they return.
 
@@ -52,9 +52,10 @@ physical displays are reconciled by stable identity when they return.
 optional shared mechanisms: stalled-focus repair, stale fullscreen caption
 refresh, wired/wireless phone-task isolation, retained phone-task recovery,
 stale phone freeform Recents cleanup, and phone Recents redirection to Start.
-Every platform can override these individually. Stock Nubia firmware recommends
-all six; Standard Android recommends none. Hybrid firmware inherits only
-the recommendations of its selected components. A session retains its selection
+Every platform can override these individually. The Android baseline recommends
+focus repair enabled and the other five disabled. Stock Nubia firmware recommends
+all six; hybrid firmware adds the recommendations of its selected components
+to the baseline. Explicit user choices take precedence. A session retains its selection
 through Close and display-loss cleanup; edits affect the next session.
 
 Reports distinguish defaults, saved overrides, next-session selection, active
@@ -90,7 +91,10 @@ source of truth; simulated and secondary-display support is unaffected.
   capabilities, and reports unavailable features individually. On the
   standard Android profile, external sessions use a secondary display that is
   already connected and reported by Android. A wireless connection button is
-  shown only when the selected platform exposes a verified connection UI.
+  shown when Android resolves `Settings.ACTION_CAST_SETTINGS`. It opens the
+  system cast settings with ordinary app permissions. This checks the UI entry
+  point, not Miracast support: desktop startup still requires Android to report
+  a connected secondary display.
 - **Unsupported platform** means the Android-version baseline or selected
   session requirements are not met. Device Setup does not apply unsupported
   platform-specific properties.
@@ -104,12 +108,18 @@ Android 15 is an installable compatibility baseline, not yet a verified
 firmware profile. Its WMShell uses the older `desktopmode moveToDesktop`
 command when that backend is enabled; MagicDesk detects either command name
 and retains its direct transaction fallback. Its older window-container API is
-handled by the central framework compatibility adapter. Android 15 does not
-expose application-requested visible inset types through `TaskInfo`, so that
-specific immersive-state observation is reported as unavailable while the task
+handled by the central framework compatibility adapter. Frameworks without
+application-requested visible inset types in `TaskInfo` report that specific
+immersive-state observation as unavailable while the task
 observer continues to provide lifecycle, focus, visibility, mode, and bounds.
 MagicDesk does not infer a negative immersive request from that absence, so an
-activity-mode guard will not override ambiguous application fullscreen.
+activity-mode guard will not override ambiguous application fullscreen. ROMs
+that backport the field can use it on Android 15, but only if the framework also
+enables publication of client requests. A declared field filled with the default
+visible types is not evidence that the application declined immersive mode.
+Diagnostics distinguishes an absent field, disabled publication, and an
+unavailable feature-flag probe. Explicit MagicDesk fullscreen commands do not
+depend on this observation.
 Diagnostics reports the selected framework profile, immersive observation,
 caption strategy, and InsetsSource signature separately from the vendor
 platform composition. It also records the hybrid task-observation strategy,

@@ -26,7 +26,8 @@ import java.util.function.Consumer;
 /** Standard Android baseline with optional vendor integrations disabled. */
 public final class GenericAndroidPlatformDriver implements PlatformDriver {
     private static final PlatformFeatures FEATURES = new PlatformFeatures(
-            true, true, DesktopCompatibilityPolicy.NONE, false);
+            true, true, DesktopCompatibilityPolicy.NONE.with(
+                    DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, true), false);
     private static final PlatformWindowingDriver WINDOWING =
             new GenericAndroidWindowingDriver();
     private static final PlatformPointerDriver POINTER =

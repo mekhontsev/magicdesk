@@ -119,6 +119,16 @@ public final class DesktopPanelArchitectureTest {
     }
 
     @Test
+    public void emptyChromeBaseDoesNotObscureOtherApplicationsInput() throws IOException {
+        final String activity = read(
+                "src/main/java/io/github/mekhontsev/magicdesk/DesktopChromeActivity.java");
+        assertTrue(activity.contains("baseParams = getWindow().getAttributes()"));
+        assertTrue(activity.contains("baseParams.alpha = 0f"));
+        assertTrue(activity.contains("getWindow().setAttributes(baseParams)"));
+        assertTrue(activity.contains("WindowManager.LayoutParams.TYPE_APPLICATION_PANEL"));
+    }
+
+    @Test
     public void panelLifecycleOwnsHostFocusIncludingDialogs() throws IOException {
         final String controller = read(
                 "src/main/java/io/github/mekhontsev/magicdesk/"

@@ -7,6 +7,7 @@ final class FrameworkRuntime {
     private FrameworkDisplayWindowingApi mDisplayWindowingApi;
     private FrameworkInputRoutingApi mInputRoutingApi;
     private FrameworkVirtualDisplayApi mVirtualDisplayApi;
+    private final FrameworkDisplayCaptureApi mDisplayCaptureApi = new FrameworkDisplayCaptureApi();
 
     private FrameworkRuntime() {
         mWindowingCompat = FrameworkWindowingCompat.current();
@@ -23,6 +24,10 @@ final class FrameworkRuntime {
 
     FrameworkWindowingApi windowing() {
         return mWindowingApi;
+    }
+
+    FrameworkDisplayCaptureApi displayCapture() {
+        return mDisplayCaptureApi;
     }
 
     synchronized FrameworkDisplayWindowingApi displayWindowing()

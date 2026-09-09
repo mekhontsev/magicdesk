@@ -36,6 +36,7 @@ public final class FrameworkWindowingIsolationTest {
     private static final String WINDOW_COMMIT_SOURCE =
             "io/github/mekhontsev/magicdesk/FrameworkWindowCommitBarrier.java";
     private static final String[] HIDDEN_API_NAMES = {
+        "\"setFlexibleLaunchSize\"",
         "\"requestedVisibleTypes\"",
         "\"setExcludeImeInsets\"",
         "\"addInsetsSource\"",
@@ -116,6 +117,15 @@ public final class FrameworkWindowingIsolationTest {
                 "Framework window barrier outside commit adapter",
                 List.of(WINDOW_COMMIT_SOURCE),
                 "\"syncInputTransactions\"");
+    }
+
+    @Test
+    public void logicalCaptureUsesTheFrameworkAdapter() throws IOException {
+        assertNoSourceTokensOutside(
+                "Logical-display capture reflection outside framework adapter",
+                List.of("io/github/mekhontsev/magicdesk/FrameworkDisplayCaptureApi.java"),
+                "android.window.ScreenCapture",
+                "\"getDisplayToken\"");
     }
 
     @Test

@@ -74,7 +74,7 @@ public final class DesktopWidgetControllerTest {
     public void hostRestoresPendingWidgetBeforeAnyRenderingOrRuntimeCallbacks() throws IOException {
         final String source = source("DesktopShellActivity");
         final String create = source.substring(source.indexOf("protected void onCreate("),
-                source.indexOf("DesktopHomeSurfaceRouter.Surface requiredHomeSurface()"));
+                source.indexOf("protected void onSaveInstanceState("));
         final int restore = create.indexOf(
                 "mDesktopWorkspaceController.restoreInstanceState(savedInstanceState);");
         assertTrue(restore > create.indexOf("new DesktopWorkspaceController(this, mUi);"));

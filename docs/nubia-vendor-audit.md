@@ -46,8 +46,9 @@ to `FrameworkRuntime` and its adapters.
 
 The six options are available on every platform in Settings' Compatibility
 section. An unset preference follows the platform recommendation. A complete
-Nubia extension recommends all six enabled; Standard Android recommends them
-disabled. Partial extension selection supplies only the defaults associated
+Nubia extension recommends all six enabled. Focus repair is already enabled
+by the shared Android baseline; the extension supplies defaults only for the
+other five. Partial extension selection adds only the defaults associated
 with its detected components.
 
 The HOME lease captures the policy for each session. A settings edit applies
@@ -57,27 +58,17 @@ actual input-routing and shortcut-filter readiness separately.
 
 | Option | Nubia component supplying the default | Shared implementation and scope |
 | --- | --- | --- |
-| `FOCUS_REPAIR` | `WINDOWING` | Callback-driven focus reconciliation and post-command relayout/hierarchy repair. Task/input verification remains active without repair. |
 | `CAPTION_REFRESH` | `WINDOWING` | Refresh stale application-client caption insets through framework window transactions. |
 | `PHONE_TASK_ISOLATION` | `WINDOWING` | Phone-side launch/migration interception and freeform normalization during wired/wireless sessions. |
 | `PHONE_TASK_RECOVERY` | `WINDOWING` | Reconcile phone task modes and retained WMShell desktop membership around session setup, cleanup, and display loss. |
 | `STALE_RECENTS_CLEANUP` | `WINDOWING` | Remove matching orphaned phone freeform Recents entries during phone desktop observation. |
 | `RECENTS_TO_HOME` | `PHONE_UI` | Route the system Recents Activity request to MagicDesk HOME while its session is active. |
 
-These implementations do not depend on private Nubia input or window-control
+These five implementations do not depend on private Nubia input or window-control
 APIs. Their default selection is firmware policy; portability alone does not
 justify enabling every correction on every platform.
 
-### Focus And Caption Repair
-
-`ShellDesktopFocusController` retains task and input-window commit verification
-with either value of `FOCUS_REPAIR`. Missing observations remain unknown and
-an unconfirmed target fails the normal event-driven wait. Final HOME
-focusability is ordinary workspace ownership, not optional repair.
-
-Repair covers incomplete focus handoffs, including return to desktop HOME
-after demoting the last fullscreen task. It is not a prerequisite for every
-ordinary application switch.
+### Caption Repair
 
 `CAPTION_REFRESH` addresses an application retaining a caption inset after
 WMShell has removed the server-side source. `TaskRepository`, transition

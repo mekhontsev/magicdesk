@@ -475,6 +475,26 @@ public final class DesktopHomeRoleLeaseTest {
     }
 
     @Test
+    public void newSessionCanAcquireHomeAfterStartupRecovery() throws Exception {
+        acquire(DesktopDisplayTarget.phone());
+        DesktopHomeRoleLease.discardForStartupRelinquish();
+        assertFalse(DesktopHomeRoleLease.isActiveForSurface(
+                DesktopHomeSurfaceRouter.Surface.DESKTOP));
+        // Disabling our components returns HOME to the system outside the
+        // shell-backed lease. A later explicit start owns a new lease.
+        mBackend.homePackage = LAUNCHER;
+        final DesktopHomeRoleLease.AcquireResult prepared = DesktopHomeRoleLease.prepare(
+                DesktopDisplayTarget.phone(), DesktopSessionPolicy.USER,
+                DesktopCompatibilityPolicy.NONE);
+        assertFalse(DesktopHomeRoleLease.isActiveForSurface(
+                DesktopHomeSurfaceRouter.Surface.DESKTOP));
+        DesktopHomeRoleLease.activate(prepared);
+        assertTrue(DesktopHomeRoleLease.isActiveForSurface(
+                DesktopHomeSurfaceRouter.Surface.DESKTOP));
+        assertEquals(LAUNCHER, DesktopHomeRoleLease.snapshot().previousHome.packageName);
+    }
+
+    @Test
     public void unavailableHomeMetadataDoesNotBlockLeaseAcquisition()
             throws Exception {
         mBackend.failHomeResolution = true;

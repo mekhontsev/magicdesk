@@ -22,7 +22,7 @@ public final class DesktopDisplayTaskStateTest {
         final TaskRepository.TaskEntry task = new TaskRepository.TaskEntry(
                 41, 42, DISPLAY_ID, "example.app", "example.app/.Main",
                 "example.app/.Main", "freeform", new Rect(1, 2, 300, 400),
-                1, 240, false, true, true, 10);
+                1, 240, false, true, true, 10, 20001);
         mState.publish(Collections.singletonList(task), true);
         mState.beginFullscreenTransition(mState.visibleTasks(), -1);
         final TaskRepository.TaskEntry copy = mState.lastVisibleTasks().get(0);
@@ -31,6 +31,7 @@ public final class DesktopDisplayTaskStateTest {
         assertEquals(task.activityType, copy.activityType);
         assertEquals(task.taskId, copy.taskId);
         assertEquals(task.rootTaskId, copy.rootTaskId);
+        assertEquals(20001, copy.displayAreaFeatureId);
     }
 
     @Test

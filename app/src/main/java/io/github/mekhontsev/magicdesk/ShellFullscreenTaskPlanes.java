@@ -159,8 +159,9 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     captionSourceId);
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
-            Log.w(TAG, "could not enter fullscreen task=" + taskId, error);
-            return false;
+            throw new IllegalStateException(
+                    "cannot enter fullscreen task=" + taskId + ": "
+                            + error.getMessage(), error);
         }
     }
 

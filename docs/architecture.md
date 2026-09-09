@@ -773,7 +773,7 @@ by this foundation.
 - `ShellDesktopFocusController` verifies task and input commits on every
   platform. A missing task sample, inactive controller, or unconfirmed input
   target cannot acknowledge command success. The independent session option
-  `FOCUS_REPAIR` enables recovery when
+  `FOCUS_REPAIR`, enabled by default on every platform, enables recovery when
   task focus changes but the InputDispatcher window remains stale. It reports
   only confirmed mismatches on the current input display. A remembered
   desktop task without a focused window is normal while the phone owns input;
@@ -993,10 +993,15 @@ Input-window event registration, callback count, bounded waits, and timeouts
 are reported separately as `inputWindowEvents`; they never share that polling
 interval.
 
-On frameworks that expose `TaskInfo.requestedVisibleTypes`, the task observer
-uses it to correlate application-requested immersive state. Android 15 does not
-publish that field through `TaskInfo`; the observation is therefore unavailable
-rather than being reported as a synthetic non-immersive request. The task
+On frameworks that publish `TaskInfo.requestedVisibleTypes`, the task observer
+uses it to correlate application-requested immersive state. Field presence alone
+is insufficient: some Android 15 releases expose the field but always publish
+`defaultVisible()` unless `enableFullyImmersiveInDesktop` is enabled. The
+compatibility adapter checks the framework flag once, using the desktop flag
+wrapper when available to retain its override semantics. It does not change
+system feature flags. An absent field, disabled publication, or unreadable flag
+reports the observation as unavailable, with the reason in Diagnostics, rather
+than as a synthetic non-immersive request. The task
 listener and all other task state continue operating. A policy that needs to
 distinguish app-requested fullscreen from an accidental activity handoff fails
 open when this observation is unavailable and does not force a window mode.
@@ -1008,6 +1013,18 @@ through the flags overload with flags set to zero. The source identity still
 comes from the task and cleanup still uses the paired add/remove transactions.
 The adapter does not register a competing display-insets controller or replace
 SystemUI ownership.
+
+Existing-task launch options use the same compatibility adapter for the optional
+flexible-size hint. Frameworks without that method retain explicit launch mode,
+bounds and parent; the Android 15 debug profile also omits the hint. An error
+executing an available method is propagated, not treated as an absent capability.
+
+`FrameworkDisplayCaptureApi` owns logical-display screenshots and pixel samples
+through `IWindowManager.captureDisplay`. WindowManager resolves the logical ID
+to the display layer tree, including virtual displays; the caller does not need
+a physical-display token. The framework's bounded capture-listener wait is
+classified as `DISPLAY_CAPTURE`. Capture is on demand only. The shell service
+uses a reliable pipe so MCP receives capture errors instead of an empty image.
 
 `MAGICDESK_FRAMEWORK_OVERRIDE=android15` is a debug-only semantic profile. It
 can be combined with the independent `MAGICDESK_PLATFORM_OVERRIDE=android`
@@ -1109,6 +1126,8 @@ isolated behind these boundaries.
   phone-task recovery, stale phone freeform Recents cleanup, and Recents routing
   to the leased phone HOME. `PlatformFeatures.compatibilityDefaults` supplies
   recommendations only; `MagicDeskSettings` stores independent user overrides.
+  The Android baseline recommends focus repair enabled; firmware extensions
+  may recommend additional options. An explicit user disable takes precedence.
   The Compatibility settings section is available on every platform. Enabling
   an option neither grants privileges nor guarantees framework support.
   `DesktopSessionController` resolves the selection;
@@ -1365,13 +1384,16 @@ the external-display host component.
 
 The lease is the only owner of HOME transitions and HOME-surface selection.
 Normal close quiesces MagicDesk's HOME entry points, restores the previous
-holder, and leaves all HOME components disabled before
-session teardown; later cleanup failure never reclaims HOME for MagicDesk.
+holder, and retains existing HOME surfaces through workspace teardown. It
+disables those components before presenting the restored launcher; later
+cleanup failure never reclaims HOME for MagicDesk.
 Unexpected display loss releases a live lease through the same role boundary,
 and a user-selected third-party HOME is never overwritten. If a new MagicDesk
 process starts while still holding HOME, the startup guard disables its HOME
 surfaces, discards the stale lease, and opens system HOME immediately without
-waiting for Shizuku. One event-driven reconciliation clears a release record
+waiting for Shizuku. Subsequent HOME admission checks the current active lease,
+not a process-lifetime recovery flag, so a new explicit session can start in
+that same process. One event-driven reconciliation clears a release record
 left after HOME was already transferred before process loss. This recovery does
 not add a runtime polling loop. `DesktopOperations` owns the common target-aware
 close operation; transport-specific code stops at target preparation.
@@ -1385,11 +1407,13 @@ close operation; transport-specific code stops at target preparation.
   do not create or own a second logical display.
 - Starting an external desktop requires an existing Android secondary display.
   A separate **Wireless** action is exposed only when the
-  selected platform driver provides a verified connection UI. The Nubia
-  implementation opens SmartCast and returns to Phone Control Panel after
-  Android reports the Wi-Fi display; it does not start the desktop implicitly.
-  Standard Android has no assumed picker because a generic cast-settings
-  activity does not guarantee Miracast display projection.
+  selected platform driver provides an available connection UI. Standard
+  Android resolves `Settings.ACTION_CAST_SETTINGS` through PackageManager and
+  opens it with ordinary application permissions; the manifest declares that
+  query. The Nubia implementation opens SmartCast. Both return to Phone Control
+  Panel after Android reports the Wi-Fi display, without starting the desktop
+  implicitly. Cast-settings availability does not guarantee Miracast support;
+  a real secondary display must still appear in the shared display catalog.
 - Once Android reports a Wi-Fi display, MagicDesk passes that display ID to the
   common desktop session. It does not implement a second discovery or streaming
   stack.
@@ -1501,6 +1525,14 @@ catches a repeated hierarchy rebuild and an implementation that works only for
 a pair of tasks. `WINDOW-015` and `WINDOW-020` identify these
 application-fullscreen hierarchy checks.
 
+That scenario has a checked cleanup boundary independent from its assertions.
+In a full run, a failed required application-fullscreen step skips only its
+dependent checks. The harness closes its temporary fixtures and verifies the
+primary window's restored mode, bounds and input focus before resuming the
+other window tests. The task-stack observer sees a separate cleanup stage;
+restoration and removal cannot be attributed to the prior fullscreen contract.
+Fail-fast, cancellation and failed cleanup still unwind to the global finalizer.
+
 The phone-to-desktop transfer probe captures its reference after the source
 task has left the desktop and the production Show Desktop command has committed.
 It compares the transfer against that settled destination, not a previous
@@ -1543,6 +1575,17 @@ connected hardware.
 
 `PhoneDesktopHomeActivity` is primary HOME in Android's default task area.
 Freeform applications remain standard root-workspace tasks above that HOME.
+Its `singleTop` launch mode lets Android reuse HOME inside the standard HOME
+root. Android may also create HOME in an organizer task area. Those instances
+delegate navigation to the registered desktop host without creating another
+desktop UI or session. Their separate HOME roots are non-focusable and forced
+translucent, with Activity input sinks disabled through the shell task runtime.
+Typed task-area identity keeps them out of application visibility policy. They
+remain alive until their area is removed: finishing one while its area remains
+would make Android immediately launch its replacement.
+The application explicitly enables `OnBackInvokedCallback` in its manifest.
+Without that opt-in Android 15 rejects callback registration, so Back would
+finish HOME instead of invoking the desktop's existing Back handler.
 Fullscreen applications use the same independent per-task planes as every
 other target. The exact SystemUI desktop-wallpaper activity is suppressed only
 while phone desktop is configured, because that AOSP surface exists to cover

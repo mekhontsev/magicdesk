@@ -29,4 +29,17 @@ public final class DesktopInfrastructureTasksTest {
         return BuildConfig.APPLICATION_ID + "/."
                 + className;
     }
+
+    @Test
+    public void onlyHomeInAnAuxiliaryAreaIsInfrastructure() {
+        final String home = componentName("PhoneDesktopHomeActivity");
+        assertTrue(DesktopInfrastructureTasks.isAuxiliaryHome(true, 20001, home, home));
+        assertFalse(DesktopInfrastructureTasks.isAuxiliaryHome(true, 1, home, home));
+        assertFalse(DesktopInfrastructureTasks.isAuxiliaryHome(true, -1, home, home));
+        assertFalse(DesktopInfrastructureTasks.isAuxiliaryHome(false, 20001, home, home));
+        assertFalse(DesktopInfrastructureTasks.isAuxiliaryHome(true, 20001,
+                "example/.Home", "example/.Home"));
+        assertFalse(DesktopInfrastructureTasks.isAuxiliaryHome(false, 20001,
+                componentName("FileManagerActivity"), componentName("FileManagerActivity")));
+    }
 }

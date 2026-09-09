@@ -111,6 +111,8 @@ public abstract class DesktopShellActivity extends Activity
             this::handleDesktopBack;
     private boolean mDesktopWindowFocusable = true;
     private boolean mDesktopHostReady;
+    private boolean mHomeDelegate;
+    private boolean mHomeDelegateReady;
     private boolean mDesktopBackCallbackRegistered;
     private int mInputFocusRefreshGeneration;
     private boolean mTaskbarVisible = true;
@@ -128,11 +130,6 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (DesktopHomeStartupGuard.shouldDiscardStaleHomeLaunch(
-                getIntent())) {
-            finishAndRemoveTask();
-            return;
-        }
         if (!hasRequiredHomeLease()) {
             Log.i(TAG, "discarding inactive primary HOME launch");
             finishAndRemoveTask();
@@ -235,6 +232,33 @@ public abstract class DesktopShellActivity extends Activity
         }
         final DesktopDisplayTarget registrationTarget =
                 resolvedDesktopTarget();
+        if (DesktopRuntimeBridge.canDelegateDesktopHome(this)) {
+            // Android keeps one HOME per task display area. Finishing an
+            // additional HOME immediately makes the system recreate it.
+            // Only the registered host owns the desktop UI and session.
+            mHomeDelegate = true;
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                    | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            final WindowManager.LayoutParams attributes = getWindow().getAttributes();
+            attributes.alpha = 0f;
+            getWindow().setAttributes(attributes);
+            registerDesktopBackCallback();
+            MagicDeskRuntime.configureDesktopHomeDelegate(displayId, getTaskId(),
+                    FrameworkActivityInputApi.requireActivityToken(this), result -> {
+                        if (isFinishing() || isDestroyed() || !hasRequiredHomeLease()) {
+                            return;
+                        }
+                        if (!result.success) {
+                            Log.e(TAG, "cannot prepare HOME delegate: " + result.message);
+                            return;
+                        }
+                        mHomeDelegateReady = true;
+                        DesktopRuntimeBridge.delegateDesktopHome(this);
+                    });
+            Log.i(TAG, "retained delegated HOME task=" + getTaskId()
+                    + " display=" + displayId);
+            return;
+        }
         if (!DesktopRuntimeBridge.registerDesktop(
                 this, registrationTarget, mSessionPolicy)) {
             Log.w(TAG, "discarding unclaimed desktop host task="
@@ -343,10 +367,6 @@ public abstract class DesktopShellActivity extends Activity
                 && savedInstanceState.getBoolean(STATE_TOOLS_VISIBLE)) {
             mDesktopRoot.post(this::toggleToolsMenu);
         }
-    }
-
-    DesktopHomeSurfaceRouter.Surface requiredHomeSurface() {
-        return null;
     }
 
     @Override
@@ -606,6 +626,15 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
+        if (mHomeDelegate) {
+            if (mHomeDelegateReady && hasRequiredHomeLease()) {
+                DesktopRuntimeBridge.delegateDesktopHome(this);
+            }
+            return;
+        }
+        if (isFinishing()) {
+            return;
+        }
         MagicDeskRuntime.refreshNotification();
         refreshDisplayProfile();
         setDesktopWindowFocusable(true);
@@ -661,6 +690,9 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
+        if (mUi == null) {
+            return;
+        }
         refreshDisplayProfile();
         setDesktopWindowFocusable(true);
     }
@@ -763,6 +795,9 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     public void onWindowFocusChanged(final boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (mUi == null) {
+            return;
+        }
         if (hasFocus) {
             refreshDisplayProfile();
         }
@@ -814,14 +849,14 @@ public abstract class DesktopShellActivity extends Activity
             return;
         }
         setIntent(intent);
+        if (mHomeDelegate) {
+            return;
+        }
         handleLaunchAction(intent);
     }
 
     private boolean hasRequiredHomeLease() {
-        final DesktopHomeSurfaceRouter.Surface surface =
-                requiredHomeSurface();
-        return surface == null
-                || DesktopHomeRoleLease.isActiveForSurface(surface);
+        return DesktopHomeRoleLease.isActiveForDisplay(getCurrentDisplayId());
     }
 
     private DesktopDisplayTarget resolvedDesktopTarget() {
@@ -836,7 +871,7 @@ public abstract class DesktopShellActivity extends Activity
                 mActivationSource);
     }
 
-    private void handleLaunchAction(final Intent intent) {
+    void handleLaunchAction(final Intent intent) {
         if (intent == null) {
             return;
         }

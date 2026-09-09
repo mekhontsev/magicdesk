@@ -77,6 +77,12 @@ final class ShellTaskObserverHandle implements Closeable {
                 desktopHostTaskId, compatibility));
     }
 
+    void configureDesktopHomeDelegate(final int displayId, final int taskId,
+            final IBinder activityToken) throws IOException {
+        callService(() -> mService.configureDesktopHomeDelegate(
+                mCallback, displayId, taskId, activityToken));
+    }
+
     void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) throws IOException {

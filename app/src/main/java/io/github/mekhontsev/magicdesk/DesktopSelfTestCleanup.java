@@ -192,6 +192,14 @@ final class DesktopSelfTestCleanup {
         removeFixtureTasks(null, captureFixtureTaskIds());
     }
 
+    static void removeFixtureTasksExcept(final Set<Integer> retainedTaskIds)
+            throws IOException {
+        requireShell();
+        final Set<Integer> ownedTaskIds = captureFixtureTaskIds();
+        ownedTaskIds.removeAll(retainedTaskIds);
+        removeFixtureTasks(null, ownedTaskIds);
+    }
+
     private static void closeFixture(final TaskRepository.TaskEntry task)
             throws IOException {
         final CountDownLatch completion = new CountDownLatch(1);

@@ -560,6 +560,20 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     @Override
+    public void configureDesktopHomeDelegate(final int displayId, final int taskId,
+            final IBinder activityToken, final TaskRepository.ActionCallback callback) {
+        mHandler.post(() -> {
+            if (!mRunning || mDisplayId != displayId || !mTaskWatcherReady) {
+                callback.onComplete(new TaskRepository.ActionResult(
+                        false, "desktop task runtime is not ready"));
+                return;
+            }
+            mTaskWatcher.configureDesktopHomeDelegate(
+                    displayId, taskId, activityToken, callback);
+        });
+    }
+
+    @Override
     public void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {
@@ -2227,6 +2241,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
 
     static boolean isDesktopHostTask(final TaskRepository.TaskEntry task) {
         return task != null
+                && !DesktopInfrastructureTasks.isTask(task)
                 && MAGICDESK_PACKAGE.equals(task.packageName)
                 && DesktopHostComponents.isHostComponentName(
                         task.componentName);

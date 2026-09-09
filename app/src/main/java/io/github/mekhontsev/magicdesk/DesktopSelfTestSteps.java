@@ -5,6 +5,24 @@ final class DesktopSelfTestSteps {
     private DesktopSelfTestSteps() {
     }
 
+    static void scenario(
+            final DesktopSelfTestResult result,
+            final String code,
+            final String label,
+            final Scenario operation,
+            final CheckedSupplier<String> cleanup) throws AbortSelfTest {
+        try {
+            operation.run();
+        } catch (AbortSelfTest failed) {
+            result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                    code + "-REMAINING", label + " dependent checks",
+                    "not reached after " + failed.code);
+        }
+        // Only a verified local cleanup permits another scenario. Cancellation
+        // and fail-fast go directly to the controller's unconditional finalizer.
+        require(result, code + "-CLEANUP", label + " cleanup", cleanup);
+    }
+
     static <T> T require(
             final DesktopSelfTestResult result,
             final String code,
@@ -67,7 +85,7 @@ final class DesktopSelfTestSteps {
             final String label,
             final String detail) throws AbortSelfTest {
         result.add(DesktopSelfTestResult.State.FAIL, code, label, detail);
-        throw new AbortSelfTest();
+        throw new AbortSelfTest(code);
     }
 
     static String usefulMessage(final Throwable error) {
@@ -84,7 +102,21 @@ final class DesktopSelfTestSteps {
         T run() throws Exception;
     }
 
+    interface Scenario {
+        void run() throws AbortSelfTest;
+    }
+
     static final class AbortSelfTest extends Exception {
         private static final long serialVersionUID = 1L;
+        final String code;
+
+        AbortSelfTest() {
+            this("required prerequisite");
+        }
+
+        AbortSelfTest(final String code) {
+            super(code);
+            this.code = code;
+        }
     }
 }

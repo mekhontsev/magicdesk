@@ -34,14 +34,28 @@ final class DesktopInfrastructureTasks {
         return task != null
                 && BuildConfig.APPLICATION_ID.equals(task.packageName)
                 && (isComponentName(task.componentName)
-                        || isComponentName(task.topActivityName));
+                        || isComponentName(task.topActivityName)
+                        || isAuxiliaryHome(task.home, task.displayAreaFeatureId,
+                                task.componentName, task.topActivityName));
     }
 
     static boolean isTask(final FrameworkTaskSnapshot task) {
         return task != null
                 && BuildConfig.APPLICATION_ID.equals(task.packageName)
                 && (isComponentName(task.componentName)
-                        || isComponentName(task.topActivityName));
+                        || isComponentName(task.topActivityName)
+                        || isAuxiliaryHome(task.isHome(), task.displayAreaFeatureId,
+                                task.componentName, task.topActivityName));
+    }
+
+    static boolean isAuxiliaryHome(final boolean home, final int areaFeatureId,
+            final String componentName, final String topActivityName) {
+        // A desktop host lives in the default workspace. System-created HOME
+        // in another area is only a delegate, never an application boundary.
+        return home
+                && areaFeatureId > TaskDisplayAreaHandle.Parent.DEFAULT_TASK_CONTAINER.featureId()
+                && (DesktopHostComponents.isHostComponentName(componentName)
+                        || DesktopHostComponents.isHostComponentName(topActivityName));
     }
 
     private static boolean isClass(

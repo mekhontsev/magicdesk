@@ -1247,9 +1247,7 @@ public final class TaskDisplayAreaLaunchCommand {
         ActivityOptions.class.getMethod(
                 "setLaunchWindowingMode", Integer.TYPE)
                 .invoke(options, Integer.valueOf(windowingMode));
-        ActivityOptions.class.getMethod(
-                "setFlexibleLaunchSize", Boolean.TYPE)
-                .invoke(options, Boolean.TRUE);
+        FrameworkWindowingCompat.current().allowFlexibleLaunchSize(options);
         return options;
     }
 

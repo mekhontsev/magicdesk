@@ -477,7 +477,8 @@ public final class TaskRepository {
                     home,
                     snapshot.visible,
                     active,
-                    snapshot.userId));
+                    snapshot.userId,
+                    snapshot.displayAreaFeatureId));
         }
         return tasks;
     }
@@ -547,6 +548,7 @@ public final class TaskRepository {
         public final int taskId;
         public final int userId;
         public final int displayId;
+        public final int displayAreaFeatureId;
         public final String packageName;
         public final String componentName;
         public final String topActivityName;
@@ -619,10 +621,22 @@ public final class TaskRepository {
                 final Rect bounds, final int activityType, final int densityDpi,
                 final boolean home, final boolean visible, final boolean active,
                 final int userId) {
+            this(rootTaskId, taskId, displayId, packageName, componentName,
+                    topActivityName, windowingMode, bounds, activityType,
+                    densityDpi, home, visible, active, userId, -1);
+        }
+
+        public TaskEntry(final int rootTaskId, final int taskId, final int displayId,
+                final String packageName, final String componentName,
+                final String topActivityName, final String windowingMode,
+                final Rect bounds, final int activityType, final int densityDpi,
+                final boolean home, final boolean visible, final boolean active,
+                final int userId, final int displayAreaFeatureId) {
             this.rootTaskId = rootTaskId;
             this.taskId = taskId;
             this.userId = userId;
             this.displayId = displayId;
+            this.displayAreaFeatureId = displayAreaFeatureId;
             this.packageName = packageName;
             this.componentName = componentName;
             this.topActivityName = topActivityName;

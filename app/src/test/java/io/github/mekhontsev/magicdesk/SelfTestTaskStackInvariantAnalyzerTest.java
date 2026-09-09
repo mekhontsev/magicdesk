@@ -492,6 +492,16 @@ public final class SelfTestTaskStackInvariantAnalyzerTest {
     }
 
     @Test
+    public void appScenarioCleanupIsNotPartOfTheFullscreenAssertion() {
+        final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
+        analyzer.begin("WINDOW-015", fullscreenPairInTaskArea(0));
+        analyzer.changeStage("WINDOW-APP-CLEANUP", fullscreenPairInTaskArea(1));
+        analyzer.sample("task-removed", fullscreen(2, true, false), true);
+        analyzer.sample("restore", windowed(3, true), true);
+        assertEquals(0, analyzer.finish(windowed(4, true)).anomalies.length);
+    }
+
+    @Test
     public void rejectsPreparedFullscreenTasksSharingDesktopPlane() {
         final SelfTestTaskStackInvariantAnalyzer analyzer = analyzer();
         final SelfTestTaskStackInvariantAnalyzer.Snapshot unprepared = snapshot(

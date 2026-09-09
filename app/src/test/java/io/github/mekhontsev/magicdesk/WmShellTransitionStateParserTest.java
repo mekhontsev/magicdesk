@@ -102,6 +102,15 @@ public final class WmShellTransitionStateParserTest {
                 WmShellTransitionStateParser.parse("").state);
     }
 
+    @Test
+    public void acceptsShellDumpEndingAtSurfaceRegistry() {
+        final String output = dump("none", "none", "active=null", "active=null")
+                .replace("AppResourceProvider", "SurfaceControlRegistry")
+                + "      active=unrelated\n    NORMAL dump took 7ms -- WMShell\n";
+        assertEquals(WmShellTransitionStateParser.State.IDLE,
+                WmShellTransitionStateParser.parse(output).state);
+    }
+
     private static String dump(
             final String pending,
             final String ready,

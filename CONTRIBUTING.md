@@ -68,6 +68,19 @@ native helpers through the NDK; it does not execute Linux host fixtures.
 
 Debug and pull-request builds do not require release-signing credentials.
 
+For privileged device testing, start an installed Shizuku manager with the
+canonical shell launcher. From an already authorized ADB connection:
+
+```sh
+adb -s SERIAL push scripts/start-shizuku-shell.sh /data/local/tmp/magicdesk-start-shizuku-shell.sh
+adb -s SERIAL shell sh /data/local/tmp/magicdesk-start-shizuku-shell.sh
+```
+
+The launcher preserves a real ADB shell's identity, or uses local Magisk to
+establish it when invoked from Termux. It verifies UID 2000, the shell SELinux
+domain, and supplementary groups. An existing server is verified without being
+restarted. Keep the explicit ADB serial when more than one device is in use.
+
 To test the Standard Android platform driver on ZTE/nubia hardware, build:
 
 ```sh

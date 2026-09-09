@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Intent;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
@@ -101,6 +102,23 @@ final class DesktopUiGateway {
         MagicDeskRuntime.refreshDesktopTasks();
         recordSession("host_registered", displayId, activity.getTaskId());
         return true;
+    }
+
+    DesktopShellActivity desktopHomeRecipient(final DesktopShellActivity activity) {
+        final Intent intent = activity.getIntent();
+        if (intent == null || !Intent.ACTION_MAIN.equals(intent.getAction())
+                || !intent.hasCategory(Intent.CATEGORY_HOME)) {
+            return null;
+        }
+        final DesktopShellActivity host;
+        synchronized (mHostLock) {
+            host = reconcileSessionHostLocked();
+            if (host == null || host.getTaskId() == activity.getTaskId()
+                    || host.getCurrentDisplayId() != activity.getCurrentDisplayId()) {
+                return null;
+            }
+        }
+        return host;
     }
 
     void unregister(final DesktopShellActivity activity) {

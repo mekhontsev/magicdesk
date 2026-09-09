@@ -11,9 +11,4 @@ public final class PhoneDesktopHomeActivity extends DesktopShellActivity {
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     }
-
-    @Override
-    DesktopHomeSurfaceRouter.Surface requiredHomeSurface() {
-        return DesktopHomeSurfaceRouter.Surface.DESKTOP;
-    }
 }

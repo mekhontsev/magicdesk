@@ -3,6 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import android.graphics.Rect;
@@ -16,6 +17,147 @@ import java.util.List;
 public final class FrameworkWindowingCompatTest {
     private static final int CAPTION_TYPE = 4;
     private static final int SOURCE_ID = 0x12340002;
+
+    @Test
+    public void generatedPublicationFlagWorksWithoutDesktopWrapper() {
+        assertEquals("", FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                null, EnabledWindowFlags.class));
+        assertEquals("framework client-insets publication disabled",
+                FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                        null, DisabledWindowFlags.class));
+    }
+
+    @Test
+    public void olderDesktopWrapperUsesGeneratedPublicationFlag() {
+        assertEquals("", FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                Object.class, EnabledWindowFlags.class));
+    }
+
+    @Test
+    public void desktopWrapperIncludesFrameworkOverrides() {
+        assertEquals("", FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                EnabledDesktopFlags.class, DisabledWindowFlags.class));
+        assertEquals("framework client-insets publication disabled",
+                FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                        DisabledDesktopFlags.class, EnabledWindowFlags.class));
+    }
+
+    @Test
+    public void failedDesktopFlagDoesNotFallBackToAnUnrelatedValue() {
+        assertEquals("framework client-insets publication unknown: denied",
+                FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                        RejectedDesktopFlags.class, EnabledWindowFlags.class));
+    }
+
+    @Test
+    public void missingPublicationApiKeepsObservationUnknownAndCaptionUsable()
+            throws Exception {
+        final String reason = FrameworkWindowingCompat.visibleTypesUnavailableReason(null, null);
+        assertEquals("framework client-insets publication unknown: flag API absent", reason);
+        final FrameworkWindowingCompat compat = FrameworkWindowingCompat.inspect(
+                ModernTaskInfo.class, ModernTransaction.class, Token.class,
+                HierarchyOp.class, InsetsProvider.class, reason, "");
+        assertNull(compat.readRequestedVisibleTypes(new ModernTaskInfo()));
+        assertTrue(compat.addCaptionExclusion(
+                new ModernTransaction(), new Token(), true, CAPTION_TYPE));
+    }
+
+    public static final class EnabledWindowFlags {
+        public static boolean enableFullyImmersiveInDesktop() {
+            return true;
+        }
+    }
+
+    public static final class DisabledWindowFlags {
+        public static boolean enableFullyImmersiveInDesktop() {
+            return false;
+        }
+    }
+
+    public enum EnabledDesktopFlags {
+        ENABLE_FULLY_IMMERSIVE_IN_DESKTOP;
+
+        public boolean isTrue() {
+            return true;
+        }
+    }
+
+    public enum DisabledDesktopFlags {
+        ENABLE_FULLY_IMMERSIVE_IN_DESKTOP;
+
+        public boolean isTrue() {
+            return false;
+        }
+    }
+
+    public enum RejectedDesktopFlags {
+        ENABLE_FULLY_IMMERSIVE_IN_DESKTOP;
+
+        public boolean isTrue() {
+            throw new SecurityException("denied");
+        }
+    }
+
+    @Test
+    public void declaredFieldWithDisabledPublicationIsUnknown() throws Exception {
+        final FrameworkWindowingCompat compat = FrameworkWindowingCompat.inspect(
+                ModernTaskInfo.class, ModernTransaction.class, Token.class,
+                HierarchyOp.class, InsetsProvider.class,
+                "framework client-insets publication disabled", "");
+        assertTrue(compat.capabilities().requestedVisibleTypesDetected);
+        assertFalse(compat.capabilities().requestedVisibleTypesEnabled);
+        assertNull(compat.readRequestedVisibleTypes(new ModernTaskInfo()));
+        assertEquals("framework client-insets publication disabled",
+                compat.requestedVisibleTypesDetail());
+    }
+
+    @Test
+    public void missingFlexibleLaunchSizeDoesNotRejectAndroid15Launch()
+            throws Exception {
+        FrameworkWindowingCompat.FlexibleLaunchSize.inspect(Object.class, "")
+                .apply(new Object());
+    }
+
+    @Test
+    public void flexibleLaunchSizeUsesDetectedApi() throws Exception {
+        final ModernLaunchOptions options = new ModernLaunchOptions();
+        FrameworkWindowingCompat.FlexibleLaunchSize.inspect(
+                ModernLaunchOptions.class, "").apply(options);
+        assertTrue(options.flexible);
+    }
+
+    @Test
+    public void android15ProfileDoesNotRequireFlexibleLaunchSize()
+            throws Exception {
+        final ModernLaunchOptions options = new ModernLaunchOptions();
+        FrameworkWindowingCompat.FlexibleLaunchSize.inspect(
+                ModernLaunchOptions.class,
+                FrameworkWindowingCompat.ANDROID_15_OVERRIDE).apply(options);
+        assertFalse(options.flexible);
+    }
+
+    @Test
+    public void availableLaunchOptionFailureIsNotTreatedAsMissingApi() {
+        final FrameworkWindowingCompat.FlexibleLaunchSize adapter =
+                FrameworkWindowingCompat.FlexibleLaunchSize.inspect(
+                        RejectedLaunchOptions.class, "");
+        assertThrows(SecurityException.class,
+                () -> adapter.apply(new RejectedLaunchOptions()));
+    }
+
+    public static final class ModernLaunchOptions {
+        boolean flexible;
+
+        public void setFlexibleLaunchSize(final boolean value) {
+            flexible = value;
+        }
+    }
+
+    public static final class RejectedLaunchOptions {
+        public void setFlexibleLaunchSize(final boolean value) {
+            throw new SecurityException("denied");
+        }
+    }
 
     @Test
     public void modernProfileUsesTaskInfoAndNativeCaptionOperation()
@@ -138,6 +280,7 @@ public final class FrameworkWindowingCompatTest {
                 Token.class,
                 HierarchyOp.class,
                 InsetsProvider.class,
+                "",
                 override);
     }
 

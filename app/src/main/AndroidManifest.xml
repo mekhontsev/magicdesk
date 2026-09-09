@@ -17,6 +17,9 @@
         <package android:name="cn.nubia.touping" />
         <provider android:authorities="cn.nubia.touping.TouPingProvider" />
         <intent>
+            <action android:name="android.settings.CAST_SETTINGS" />
+        </intent>
+        <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
@@ -42,6 +45,7 @@
     </queries>
 
     <application
+        android:enableOnBackInvokedCallback="true"
         android:name=".MagicDeskApplication"
         android:allowBackup="false"
         android:banner="@mipmap/ic_launcher"
@@ -212,7 +216,7 @@
             android:exported="true"
             android:banner="@mipmap/ic_launcher"
             android:icon="@mipmap/ic_launcher"
-            android:launchMode="singleTask"
+            android:launchMode="singleTop"
             android:logo="@mipmap/ic_launcher"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:roundIcon="@mipmap/ic_launcher"

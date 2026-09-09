@@ -1,5 +1,19 @@
 # Fullscreen transitions
 
+## System HOME Instances
+
+Android 15 can launch HOME separately in each organizer task display area.
+Only the registered HOME in the standard workspace owns the desktop UI.
+Additional instances are navigation delegates, retained until area removal;
+finishing them while the area is live causes Android to recreate them.
+Their separate HOME roots are non-focusable and translucent, and do not supply
+Activity input sinks. Application roots and their windowing modes are unchanged.
+HOME navigation still uses the existing workspace gateway. Typed task-area
+identity classifies these delegates as infrastructure, not fullscreen apps
+that would cover the desktop or disable the taskbar.
+
+## Fullscreen Transactions
+
 At the application-process boundary, window policy emits a typed
 `DesktopWindowTransitionRequest` through `DesktopWindowTransitionGateway`.
 The gateway maps semantic enter and restore operations to the existing
@@ -77,6 +91,11 @@ focusable panel or dialog is requested, so editor panels can establish Android
 IME connections without leaving an always-on-top focus target after dismissal.
 The panel lifecycle owns this change through the existing task command queue.
 Its transparent base window and taskbar remain non-focusable.
+The empty base also sets `WindowManager.LayoutParams.alpha=0`: transparent
+buffer pixels alone do not prevent Android's untrusted-touch protection from
+blocking input to another UID underneath, including WMShell captions. Child
+application windows keep their own opacity and touch regions. This uses the
+standard window transparency contract, not a trusted-overlay exemption.
 
 Chrome must not be nested among application root tasks. Android 15+
 `ActivityStarter` calls `TaskDisplayArea.getRootTaskAbove`, which casts the
@@ -205,6 +224,8 @@ also covers HOME when repair is disabled. Normal preparation sets HOME's final
 focusability independently of that policy; only repair pulses focusability or
 reasserts hierarchy. Secondary display-default configuration belongs to the
 shared `DisplayWindowingSession` lifecycle, not to a firmware focus policy.
+Focus repair is enabled by default in the Android baseline on every platform;
+an explicit user disable remains effective for subsequent sessions.
 
 ## Rejected approaches
 

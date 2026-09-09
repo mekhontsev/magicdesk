@@ -12,6 +12,17 @@ public final class DesktopRuntimeBridge {
     private DesktopRuntimeBridge() {
     }
 
+    static boolean canDelegateDesktopHome(final DesktopShellActivity activity) {
+        return UI.desktopHomeRecipient(activity) != null;
+    }
+
+    static void delegateDesktopHome(final DesktopShellActivity activity) {
+        final DesktopShellActivity host = UI.desktopHomeRecipient(activity);
+        if (host != null) {
+            host.handleLaunchAction(activity.getIntent());
+        }
+    }
+
     static boolean registerDesktop(
             final DesktopShellActivity activity,
             final DesktopDisplayTarget target,

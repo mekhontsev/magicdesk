@@ -5,7 +5,26 @@ import static org.junit.Assert.*;
 import org.json.JSONObject;
 import org.junit.Test;
 
+import io.github.mekhontsev.magicdesk.platform.android.GenericAndroidPlatformDriver;
+
 public final class DesktopCompatibilityPolicyTest {
+    @Test
+    public void androidDefaultsEnableOnlyFocusRepairAndRespectExplicitDisable() throws Exception {
+        final PlatformFeatures defaults = new GenericAndroidPlatformDriver().features();
+        final MagicDeskSettings.Values preferences = MagicDeskSettings.Values.defaults();
+        final DesktopCompatibilityPolicy selected = preferences.compatibilityPolicy(defaults);
+        for (final DesktopCompatibilityPolicy.Option option : DesktopCompatibilityPolicy.Option.values()) {
+            assertEquals(option == DesktopCompatibilityPolicy.Option.FOCUS_REPAIR,
+                    selected.enabled(option));
+        }
+
+        preferences.compatibility.put(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, false);
+        final MagicDeskSettings.Values restored = MagicDeskSettings.Values.fromJson(preferences.toJson());
+        assertFalse(restored.compatibilityPolicy(defaults).enabled(
+                DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
+        assertTrue(selected.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
+    }
+
     @Test
     public void unsetOptionsFollowDefaultsAndOverridesWorkInBothDirections() throws Exception {
         for (final DesktopCompatibilityPolicy.Option option : DesktopCompatibilityPolicy.Option.values()) {

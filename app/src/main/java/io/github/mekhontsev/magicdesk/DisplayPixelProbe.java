@@ -5,8 +5,6 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
-import android.hardware.HardwareBuffer;
-import android.os.IBinder;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -151,65 +149,9 @@ final class DisplayPixelProbe {
             final Rect sourceCrop,
             final int outputWidth,
             final int outputHeight) throws IOException {
-        Bitmap hardwareBitmap = null;
-        HardwareBuffer hardwareBuffer = null;
         try {
-            final Class<?> managerClass = Class.forName(
-                    "android.hardware.display.DisplayManagerGlobal");
-            final Object manager = managerClass.getMethod("getInstance")
-                    .invoke(null);
-            final IBinder displayToken = (IBinder) managerClass.getMethod(
-                    "getDisplayToken", Integer.TYPE)
-                    .invoke(manager, Integer.valueOf(displayId));
-            if (displayToken == null) {
-                throw new IOException(
-                        "display capture token is unavailable for " + displayId);
-            }
-
-            final Class<?> builderClass = Class.forName(
-                    "android.window.ScreenCapture$DisplayCaptureArgs$Builder");
-            final Object builder = builderClass
-                    .getConstructor(IBinder.class)
-                    .newInstance(displayToken);
-            builderClass.getMethod("setSourceCrop", Rect.class)
-                    .invoke(builder, new Rect(sourceCrop));
-            builderClass.getMethod(
-                    "setSize", Integer.TYPE, Integer.TYPE)
-                    .invoke(builder,
-                            Integer.valueOf(outputWidth),
-                            Integer.valueOf(outputHeight));
-            final Object captureArgs = builderClass.getMethod("build")
-                    .invoke(builder);
-            final Class<?> captureArgsClass = Class.forName(
-                    "android.window.ScreenCapture$DisplayCaptureArgs");
-            final Object screenshot = Class.forName(
-                    "android.window.ScreenCapture")
-                    .getMethod("captureDisplay", captureArgsClass)
-                    .invoke(null, captureArgs);
-            if (screenshot == null) {
-                throw new IOException("display capture returned no buffer");
-            }
-            hardwareBuffer = (HardwareBuffer) screenshot.getClass()
-                    .getMethod("getHardwareBuffer")
-                    .invoke(screenshot);
-            hardwareBitmap = (Bitmap) screenshot.getClass()
-                    .getMethod("asBitmap")
-                    .invoke(screenshot);
-            if (hardwareBitmap == null) {
-                throw new IOException("display capture returned no bitmap");
-            }
-            final Bitmap softwareBitmap = hardwareBitmap.copy(
-                    Bitmap.Config.ARGB_8888, false);
-            if (softwareBitmap == null) {
-                throw new IOException("display capture could not be read");
-            }
-            return softwareBitmap;
-        } catch (ClassNotFoundException
-                | NoSuchMethodException
-                | IllegalAccessException
-                | InstantiationException error) {
-            throw new UnavailableException(
-                    "in-memory display capture API is unavailable", error);
+            return FrameworkRuntime.current().displayCapture().capture(
+                    displayId, sourceCrop, outputWidth, outputHeight);
         } catch (InvocationTargetException error) {
             final Throwable cause = error.getCause();
             if (cause instanceof SecurityException) {
@@ -220,6 +162,10 @@ final class DisplayPixelProbe {
                     "in-memory display capture failed: "
                             + usefulMessage(cause),
                     cause == null ? error : cause);
+        } catch (ReflectiveOperationException error) {
+            throw new UnavailableException(
+                    "in-memory display capture API is unavailable: "
+                            + usefulMessage(error), error);
         } catch (SecurityException error) {
             throw new UnavailableException(
                     "in-memory display capture is not permitted", error);
@@ -227,13 +173,6 @@ final class DisplayPixelProbe {
             throw new IOException(
                     "in-memory display capture failed: "
                             + usefulMessage(error), error);
-        } finally {
-            if (hardwareBitmap != null) {
-                hardwareBitmap.recycle();
-            }
-            if (hardwareBuffer != null) {
-                hardwareBuffer.close();
-            }
         }
     }
 

@@ -332,11 +332,7 @@ public final class ShizukuCapabilityProbe {
                 "framework.task_requested_visible_types",
                 capabilities.requestedVisibleTypesEnabled
                         ? "available" : "unavailable",
-                capabilities.requestedVisibleTypesDetected
-                        ? (capabilities.requestedVisibleTypesEnabled
-                                ? "TaskInfo field detected"
-                                : "detected but disabled by test profile")
-                        : "TaskInfo field absent");
+                FrameworkRuntime.current().windowingCompat().requestedVisibleTypesDetail());
         append(report,
                 "framework.caption_inset_exclusion",
                 capabilities.captionStrategy(),

@@ -1,10 +1,14 @@
 package io.github.mekhontsev.magicdesk.platform.android;
 
+import io.github.mekhontsev.magicdesk.CompatibilityDiagnostics;
 import io.github.mekhontsev.magicdesk.DisplayProfileStore;
 import io.github.mekhontsev.magicdesk.PlatformProjectionDriver;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
+import android.provider.Settings;
 
 import java.io.IOException;
 
@@ -13,12 +17,25 @@ final class GenericAndroidProjectionDriver
         implements PlatformProjectionDriver {
     @Override
     public boolean hasWirelessConnectionUi(final Context context) {
-        return false;
+        return context != null && new Intent(Settings.ACTION_CAST_SETTINGS)
+                .resolveActivity(context.getPackageManager()) != null;
     }
 
     @Override
     public boolean openWirelessConnectionUi(final Activity activity) {
-        return false;
+        if (activity == null || !hasWirelessConnectionUi(activity)) {
+            return false;
+        }
+        try {
+            activity.startActivity(new Intent(Settings.ACTION_CAST_SETTINGS));
+            return true;
+        } catch (ActivityNotFoundException | SecurityException error) {
+            CompatibilityDiagnostics.record(
+                    "WIRELESS-DISPLAY-003",
+                    "Could not open Android cast settings",
+                    error.getMessage(), error);
+            return false;
+        }
     }
 
     @Override

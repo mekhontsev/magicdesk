@@ -153,6 +153,17 @@ final class HiddenTaskApi {
         return getTaskToken(requireTask(service, displayId, taskId));
     }
 
+    static Object requireRootTaskToken(final Object service, final int displayId,
+            final int rootTaskId) throws ReflectiveOperationException {
+        for (final Object root : getRootTaskInfos(service, displayId)) {
+            if (getTaskId(root) == rootTaskId) {
+                return getTaskToken(root);
+            }
+        }
+        throw new IllegalStateException("root task " + rootTaskId
+                + " not found on display " + displayId);
+    }
+
     static int getTaskId(final Object task)
             throws ReflectiveOperationException {
         return getIntField(task, "taskId");

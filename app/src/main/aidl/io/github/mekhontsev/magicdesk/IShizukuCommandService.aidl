@@ -438,4 +438,7 @@ interface IShizukuCommandService {
 
     void removeVirtualDisplay(int displayId, String uniqueId, IBinder ownerToken) = 123;
 
+    void configureDesktopHomeDelegate(ITaskObserverCallback callback,
+        int displayId, int taskId, IBinder activityToken) = 124;
+
 }

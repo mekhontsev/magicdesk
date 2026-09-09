@@ -606,8 +606,20 @@ optional `mode` is `full` by default. `fail_fast` stops the workflow after the
 first recorded FAIL, while still running task/display cleanup, restoring the
 phone orientation policy, and writing final transition diagnostics.
 
+An independent scenario may contain required, dependent steps. In `full` mode,
+a required failure skips the rest of that scenario, retaining its original FAIL.
+The application-fullscreen scenario records `WINDOW-APP-REMAINING` when this
+happens. `WINDOW-APP-CLEANUP` then closes temporary fixtures through production
+task cleanup and verifies the retained primary window's mode, bounds and input
+focus before later window/input checks can run. Cleanup is observed under its
+own stage, not the failed assertion. Failed cleanup aborts the remaining workflow;
+`fail_fast` and cancellation proceed directly to the global finalizer instead.
+
 The pre-run transition health entry records a one-shot WMShell queue snapshot,
 separately from WindowManager's transition-performance sessions. A window-setup
+query explicitly selects the WMShell dumpable: SystemUI's default critical-only
+dump may omit this normal-priority section. Missing queue data remains unknown,
+not idle. A window-setup
 idle timeout includes the final pending tokens, ready-during-sync queue, and
 active tracks. The same bounded snapshot is included in Compatibility reports.
 An old pending token is not ignored: the idle assertion remains strict. Comparing

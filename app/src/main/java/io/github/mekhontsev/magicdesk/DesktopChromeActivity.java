@@ -78,7 +78,14 @@ public final class DesktopChromeActivity extends Activity {
         getWindow().setNavigationBarContrastEnforced(false);
         getWindow().addFlags(
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
+        // Transparent pixels do not exempt a window from touch occlusion.
+        // Only this empty base is transparent to InputDispatcher; the child
+        // panel windows retain their own alpha and receive normal input.
+        final WindowManager.LayoutParams baseParams = getWindow().getAttributes();
+        baseParams.alpha = 0f;
+        getWindow().setAttributes(baseParams);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
 
@@ -191,7 +198,6 @@ public final class DesktopChromeActivity extends Activity {
             mTaskbar.setAlpha(mPresented && !mEdgeHidden ? 1f : 0f);
             mTaskbar.setVisibility(mPresented ? View.VISIBLE : View.INVISIBLE);
         }
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
         updateTaskbarPanel(resolvePanelHeight(
                 mPresented, mEdgeHidden, mEdgeHeight, mSurfaceHeight));
     }

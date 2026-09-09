@@ -65,11 +65,6 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (DesktopHomeStartupGuard.shouldDiscardStaleHomeLaunch(
-                getIntent())) {
-            finishAndRemoveTask();
-            return;
-        }
         if (!hasActivePhoneHomeLease()) {
             finishAndRemoveTask();
             return;

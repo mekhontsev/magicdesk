@@ -91,10 +91,9 @@ public final class NubiaPlatformDriver implements PlatformExtension {
     public PlatformFeatures extendFeatures(final PlatformFeatures baseline) {
         DesktopCompatibilityPolicy defaults = baseline.compatibilityDefaults;
         if (components().contains(PlatformComponent.WINDOWING)) {
-            // These shared mechanisms address observed task/focus failures in
+            // These shared mechanisms address observed task failures in
             // stock firmware. Optional vendor APIs alone do not select them.
-            defaults = defaults.with(Option.FOCUS_REPAIR, true)
-                    .with(Option.CAPTION_REFRESH, true)
+            defaults = defaults.with(Option.CAPTION_REFRESH, true)
                     .with(Option.PHONE_TASK_ISOLATION, true)
                     .with(Option.PHONE_TASK_RECOVERY, true)
                     .with(Option.STALE_RECENTS_CLEANUP, true);

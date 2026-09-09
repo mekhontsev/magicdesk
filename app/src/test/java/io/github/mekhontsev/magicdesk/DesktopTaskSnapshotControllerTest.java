@@ -11,6 +11,25 @@ import java.util.Arrays;
 
 public final class DesktopTaskSnapshotControllerTest {
     @Test
+    public void auxiliaryHomeDoesNotCoverDesktopOrDisableChrome() {
+        final TaskRepository.TaskEntry home = desktopHost(true);
+        final String component = BuildConfig.APPLICATION_ID + "/.PhoneDesktopHomeActivity";
+        final TaskRepository.TaskEntry delegate = new TaskRepository.TaskEntry(
+                91, 92, home.displayId, BuildConfig.APPLICATION_ID, component,
+                component, "fullscreen", new Rect(0, 0, 1920, 1080),
+                FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME, 160,
+                true, true, false, 0, 20001);
+        assertTrue(DesktopInfrastructureTasks.isTask(delegate));
+        assertFalse(DesktopTaskController.isDesktopHostTask(delegate));
+        assertTrue(DesktopTaskSnapshotController.isDesktopChromeAvailable(
+                Arrays.asList(delegate, home), Arrays.asList(home)));
+        assertTrue(DesktopTaskSnapshotController.isDesktopHostForeground(
+                Arrays.asList(delegate, home)));
+        assertFalse(DesktopTaskSnapshotController.hasVisibleFullscreenTask(
+                Arrays.asList(delegate, home)));
+    }
+
+    @Test
     public void desktopHostWinsOverNominallyVisibleFullscreenTaskBelowIt() {
         assertTrue(DesktopTaskSnapshotController.isDesktopHostForeground(
                 Arrays.asList(desktopHost(true), app(true))));

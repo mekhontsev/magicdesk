@@ -4,6 +4,18 @@ import org.junit.Test;
 
 public final class DesktopSelfTestLiveFixtureCleanupTest {
     @Test
+    public void scenarioCleanupRetainsItsPrimaryFixtureAndUnrelatedApps() throws Exception {
+        verify("""
+                tasks.add(new TaskRepository.TaskEntry(43, 4, "fullscreen", true));
+                tasks.add(new TaskRepository.TaskEntry(99, 0, "freeform", false));
+                removeFixtureTasksExcept(Set.of(42));
+                check(events.equals(List.of("close:43", "ack:43", "absent:43")),
+                        "scenario cleanup touched retained or unrelated tasks: " + events);
+                check(rawCommands.isEmpty(), "scenario cleanup bypassed production close");
+                """);
+    }
+
+    @Test
     public void liveFixturesAwaitProductionCloseAndExactAbsence() throws Exception {
         verify("""
                 tasks.add(new TaskRepository.TaskEntry(43, 4, "fullscreen", true));
@@ -179,6 +191,6 @@ public final class DesktopSelfTestLiveFixtureCleanupTest {
                 public static void verify() throws IOException {
                     tasks.add(new TaskRepository.TaskEntry(42, 0, "freeform", true));
                 """ + scenario + "}\n" + RuntimeSourceFixture.methods("DesktopSelfTestCleanup",
-                "removeFixtureTasks", "closeFixture", "captureFixtureTaskIds", "requiresPhoneDesktopExitBeforeRemoval", "requireShell"));
+                "removeFixtureTasks", "removeFixtureTasksExcept", "closeFixture", "captureFixtureTaskIds", "requiresPhoneDesktopExitBeforeRemoval", "requireShell"));
     }
 }

@@ -15,6 +15,19 @@ import org.w3c.dom.NodeList;
 
 public final class DesktopHomeStartupGuardTest {
     @Test
+    public void applicationEnablesItsRegisteredBackCallbacks() throws Exception {
+        final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        final Element application = (Element) factory.newDocumentBuilder()
+                .parse(Path.of("src/main/AndroidManifest.xml").toFile())
+                .getElementsByTagName("application").item(0);
+        assertTrue("HOME must handle Back instead of finishing",
+                "true".equals(application.getAttributeNS(
+                        "http://schemas.android.com/apk/res/android",
+                        "enableOnBackInvokedCallback")));
+    }
+
+    @Test
     public void homeSurfacesAreDisabledBeforeAnySession() throws Exception {
         final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);
@@ -26,6 +39,10 @@ public final class DesktopHomeStartupGuardTest {
         for (int i = 0; i < activities.getLength(); i++) {
             final Element activity = (Element) activities.item(i);
             final String name = activity.getAttributeNS(android, "name");
+            if (".PhoneDesktopHomeActivity".equals(name)) {
+                assertTrue("primary HOME must reuse the standard HOME root",
+                        "singleTop".equals(activity.getAttributeNS(android, "launchMode")));
+            }
             final NodeList categories = activity.getElementsByTagName("category");
             boolean home = false;
             for (int j = 0; j < categories.getLength(); j++) {
@@ -67,6 +84,19 @@ public final class DesktopHomeStartupGuardTest {
         assertTrue(DesktopHomeStartupGuard.isPrimaryProcess(
                 "io.github.mekhontsev.magicdesk",
                 "io.github.mekhontsev.magicdesk"));
+    }
+
+    @Test
+    public void recoveryDoesNotLatchAdmissionForTheProcessLifetime() throws Exception {
+        final String source = Files.readString(Path.of(
+                "src/main/java/io/github/mekhontsev/magicdesk/DesktopHomeStartupGuard.java"));
+        assertFalse(source.contains("sRelinquishedOnProcessStart"));
+        for (final String activity : new String[] {"PhoneHomeActivity", "DesktopShellActivity"}) {
+            final String activitySource = Files.readString(Path.of(
+                    "src/main/java/io/github/mekhontsev/magicdesk/" + activity + ".java"));
+            assertFalse(activitySource.contains("shouldDiscardStaleHomeLaunch"));
+            assertTrue(activitySource.contains("HomeLease()"));
+        }
     }
 
     @Test

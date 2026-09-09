@@ -72,6 +72,12 @@ final class ShellTaskObserverManager implements Closeable {
                 desktopHostTaskId, compatibility);
     }
 
+    void configureDesktopHomeDelegate(final ITaskObserverCallback callback,
+            final int displayId, final int taskId, final IBinder activityToken) {
+        requireSession(callback).observer.configureDesktopHomeDelegate(
+                displayId, taskId, activityToken);
+    }
+
     void configureDesktopActivityInput(
             final ITaskObserverCallback callback,
             final int displayId,
