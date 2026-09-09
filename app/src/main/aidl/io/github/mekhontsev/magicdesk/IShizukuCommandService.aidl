@@ -441,4 +441,5 @@ interface IShizukuCommandService {
     void configureDesktopHomeDelegate(ITaskObserverCallback callback,
         int displayId, int taskId, IBinder activityToken) = 124;
 
+    void initializeFramework(int desktopToggle, String settingError) = 125;
 }

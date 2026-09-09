@@ -25,7 +25,7 @@ final class FrameworkDisplayCaptureApi {
         builderClass.getMethod("setSourceCrop", Rect.class)
                 .invoke(builder, new Rect(crop));
         builderClass.getMethod("setFrameScale", Float.TYPE, Float.TYPE)
-                .invoke(builder, (float) width / crop.width(), (float) height / crop.height());
+                .invoke(builder, captureScale(crop.width(), width), captureScale(crop.height(), height));
         final Object args = builderClass.getMethod("build").invoke(builder);
         final Object listener = captureClass.getMethod("createSyncCaptureListener").invoke(null);
         final Object windows = Class.forName("android.view.WindowManagerGlobal")
@@ -52,6 +52,12 @@ final class FrameworkDisplayCaptureApi {
             if (hardwareBitmap == null) {
                 throw new IOException("display capture returned no bitmap");
             }
+            if (hardwareBitmap.getWidth() != width || hardwareBitmap.getHeight() != height) {
+                throw new IOException("display capture returned "
+                        + hardwareBitmap.getWidth() + "x" + hardwareBitmap.getHeight()
+                        + ", expected " + width + "x" + height
+                        + " for crop " + crop.toShortString());
+            }
             final Bitmap bitmap = hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false);
             if (bitmap == null) {
                 throw new IOException("display capture could not be read");
@@ -65,5 +71,15 @@ final class FrameworkDisplayCaptureApi {
                 hardwareBuffer.close();
             }
         }
+    }
+
+    static float captureScale(final int sourceSize, final int outputSize) {
+        if (sourceSize <= 0 || outputSize <= 0) {
+            throw new IllegalArgumentException("capture dimensions must be positive");
+        }
+        // SurfaceFlinger truncates scaled dimensions to integers. Round the
+        // ratio upward when float precision would lose the last output pixel.
+        final float scale = (float) outputSize / sourceSize;
+        return (double) scale * sourceSize < outputSize ? Math.nextUp(scale) : scale;
     }
 }

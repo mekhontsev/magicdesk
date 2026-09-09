@@ -71,6 +71,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         return Os.getuid();
     }
 
+    @Override
+    public void initializeFramework(final int desktopToggle, final String settingError) {
+        FrameworkWindowingCompat.initialize(desktopToggle, settingError);
+    }
+
     @Override public DesktopDisplayInfo[] listDesktopDisplays() {
         return mVirtualDisplays.list();
     }

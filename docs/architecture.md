@@ -999,7 +999,19 @@ is insufficient: some Android 15 releases expose the field but always publish
 `defaultVisible()` unless `enableFullyImmersiveInDesktop` is enabled. The
 compatibility adapter checks the framework flag once, using the desktop flag
 wrapper when available to retain its override semantics. It does not change
-system feature flags. An absent field, disabled publication, or unreadable flag
+system feature flags. Before publishing the shell binding, the app reads the
+public developer setting and passes its value (or explicit read failure) to
+the shell runtime. Hidden flag inspection remains in the shell process. If
+the wrapper's Settings read rejects the current Application's app-package/
+shell-UID attribution, the adapter resolves that developer override using the
+app's setting snapshot. A package-resource context does not change the
+ContentResolver's attribution. The adapter preserves
+the framework's raw flag and default-desktop/toggle semantics; it does not
+replace the Application, modify framework caches, or grant hidden-API access
+to the ordinary app process. Other probe failures remain unknown. The profile
+is retained for the process lifetime, with no new task sampling or recurring
+Binder calls.
+An absent field, disabled publication, or unreadable flag
 reports the observation as unavailable, with the reason in Diagnostics, rather
 than as a synthetic non-immersive request. The task
 listener and all other task state continue operating. A policy that needs to
@@ -1023,7 +1035,9 @@ executing an available method is propagated, not treated as an absent capability
 through `IWindowManager.captureDisplay`. WindowManager resolves the logical ID
 to the display layer tree, including virtual displays; the caller does not need
 a physical-display token. The framework's bounded capture-listener wait is
-classified as `DISPLAY_CAPTURE`. Capture is on demand only. The shell service
+classified as `DISPLAY_CAPTURE`. The adapter rounds frame scales upward only
+when float precision would truncate an output pixel, and verifies the returned
+bitmap dimensions before exposing it to callers. Capture is on demand only. The shell service
 uses a reliable pipe so MCP receives capture errors instead of an empty image.
 
 `MAGICDESK_FRAMEWORK_OVERRIDE=android15` is a debug-only semantic profile. It

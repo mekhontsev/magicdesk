@@ -2,18 +2,22 @@ package io.github.mekhontsev.magicdesk;
 
 import android.annotation.SuppressLint;
 import android.app.ActivityOptions;
+import android.content.Context;
 import android.graphics.Rect;
 import android.os.IBinder;
+import android.provider.Settings;
 import android.view.WindowInsets;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.function.IntSupplier;
 
 /** Runtime adapter for hidden windowing APIs that differ between Android releases. */
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class FrameworkWindowingCompat {
+    private static FrameworkWindowingCompat sCurrent;
     static final String ANDROID_15_OVERRIDE = "android15";
     static final long TASK_OBSERVATION_INTERVAL_MILLIS = 150L;
     static final int TASK_OBSERVATION_LIMIT = 16;
@@ -50,8 +54,30 @@ final class FrameworkWindowingCompat {
                 ActivityOptions.class, capabilities.profile);
     }
 
-    static FrameworkWindowingCompat current() {
-        return CurrentHolder.INSTANCE;
+    static synchronized FrameworkWindowingCompat current() {
+        if (sCurrent == null) {
+            initialize(-1, "desktop developer setting was not supplied");
+        }
+        return sCurrent;
+    }
+
+    static synchronized void initialize(final int desktopToggle, final String settingError) {
+        // The app reads public Settings; the shell process resolves hidden
+        // flags before its binding is published to other runtime consumers.
+        if (sCurrent == null) {
+            sCurrent = detect(BuildConfig.FRAMEWORK_OVERRIDE,
+                    visibleTypesUnavailableReason(() -> {
+                        if (settingError != null && !settingError.isEmpty()) {
+                            throw new IllegalStateException(settingError);
+                        }
+                        return desktopToggle;
+                    }));
+        }
+    }
+
+    static int readDesktopToggle(final Context appContext) {
+        return Settings.Global.getInt(appContext.getContentResolver(),
+                "override_desktop_mode_features", -1);
     }
 
     static String overrideDetail() {
@@ -287,7 +313,8 @@ final class FrameworkWindowingCompat {
                                 : visibleTypesUnavailableReason);
     }
 
-    private static FrameworkWindowingCompat detect(final String override) {
+    private static FrameworkWindowingCompat detect(
+            final String override, final String publicationUnavailableReason) {
         try {
             return inspect(
                     Class.forName(TASK_INFO_CLASS),
@@ -295,7 +322,7 @@ final class FrameworkWindowingCompat {
                     Class.forName(TOKEN_CLASS),
                     Class.forName(HIERARCHY_OP_CLASS),
                     Class.forName(INSETS_PROVIDER_CLASS),
-                    visibleTypesUnavailableReason(),
+                    publicationUnavailableReason,
                     override);
         } catch (ReflectiveOperationException
                 | LinkageError
@@ -304,12 +331,12 @@ final class FrameworkWindowingCompat {
         }
     }
 
-    private static String visibleTypesUnavailableReason() {
+    private static String visibleTypesUnavailableReason(final IntSupplier desktopToggle) {
         try {
             return visibleTypesUnavailableReason(
                     findOptionalClass("android.window.DesktopModeFlags"),
                     findOptionalClass("com.android.internal.hidden_from_bootclasspath."
-                            + "com.android.window.flags.Flags"));
+                            + "com.android.window.flags.Flags"), desktopToggle);
         } catch (LinkageError | RuntimeException error) {
             return "framework client-insets publication unknown: " + usefulMessage(error);
         }
@@ -317,6 +344,12 @@ final class FrameworkWindowingCompat {
 
     static String visibleTypesUnavailableReason(
             final Class<?> desktopFlags, final Class<?> windowFlags) {
+        return visibleTypesUnavailableReason(desktopFlags, windowFlags, null);
+    }
+
+    static String visibleTypesUnavailableReason(
+            final Class<?> desktopFlags, final Class<?> windowFlags,
+            final IntSupplier desktopToggle) {
         try {
             final boolean enabled;
             Field immersive = null;
@@ -328,8 +361,8 @@ final class FrameworkWindowingCompat {
                 }
             }
             if (immersive != null) {
-                enabled = (Boolean) invoke(
-                        desktopFlags.getMethod("isTrue"), immersive.get(null));
+                enabled = readDesktopPublicationFlag(
+                        desktopFlags, windowFlags, immersive.get(null), desktopToggle);
             } else {
                 // Android 15 can expose the TaskInfo member but fill it with
                 // defaultVisible() when this framework feature flag is off.
@@ -342,6 +375,37 @@ final class FrameworkWindowingCompat {
             return enabled ? "" : "framework client-insets publication disabled";
         } catch (ReflectiveOperationException | LinkageError | RuntimeException error) {
             return "framework client-insets publication unknown: " + usefulMessage(error);
+        }
+    }
+
+    private static boolean readDesktopPublicationFlag(final Class<?> desktopFlags,
+            final Class<?> windowFlags, final Object flag, final IntSupplier desktopToggle)
+            throws ReflectiveOperationException {
+        try {
+            return (Boolean) invoke(desktopFlags.getMethod("isTrue"), flag);
+        } catch (SecurityException error) {
+            // The wrapper reads ActivityThread.currentApplication(), whose
+            // package is not the Shizuku UID. Polyfill only its Settings-based
+            // developer override, using the public setting read by the app.
+            // Property-based overrides and non-overridable flags stay native.
+            final Field overridable = findDeclaredField(desktopFlags, "mShouldOverrideByDevOption");
+            final Method experienceOption = windowFlags == null ? null
+                    : findPublicMethod(windowFlags, "showDesktopExperienceDevOption");
+            if (desktopToggle == null || overridable == null || windowFlags == null
+                    || !overridable.getBoolean(flag)
+                    || (experienceOption != null && (Boolean) invoke(experienceOption, null))
+                    || !(Boolean) invoke(windowFlags.getMethod("showDesktopWindowingDevOption"), null)) {
+                throw error;
+            }
+            final boolean value = (Boolean) invoke(
+                    windowFlags.getMethod("enableFullyImmersiveInDesktop"), null);
+            final boolean desktopEnabled = (Boolean) invoke(
+                    windowFlags.getMethod("enableDesktopWindowingMode"), null);
+            final int override = desktopToggle.getAsInt();
+            // Android overrides individual flags only when the developer
+            // toggle disagrees with the default desktop-windowing feature.
+            return override == 1 ? !desktopEnabled || value
+                    : override == 0 ? !desktopEnabled && value : value;
         }
     }
 
@@ -785,10 +849,5 @@ final class FrameworkWindowingCompat {
         public boolean available() {
             return false;
         }
-    }
-
-    private static final class CurrentHolder {
-        private static final FrameworkWindowingCompat INSTANCE = detect(
-                BuildConfig.FRAMEWORK_OVERRIDE);
     }
 }

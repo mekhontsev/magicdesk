@@ -50,6 +50,146 @@ public final class FrameworkWindowingCompatTest {
     }
 
     @Test
+    public void settingSnapshotPreservesDesktopToggleSemantics() {
+        // raw flag, default desktop feature, developer toggle, effective flag
+        final int[][] cases = {
+            {0, 0, -1, 0}, {0, 0, 0, 0}, {0, 0, 1, 1},
+            {1, 0, -1, 1}, {1, 0, 0, 1}, {1, 0, 1, 1},
+            {0, 1, -1, 0}, {0, 1, 0, 0}, {0, 1, 1, 0},
+            {1, 1, -1, 1}, {1, 1, 0, 0}, {1, 1, 1, 1},
+            {1, 1, 42, 1}, {0, 0, 42, 0}
+        };
+        for (final int[] entry : cases) {
+            SettingsWindowFlags.immersive = entry[0] == 1;
+            SettingsWindowFlags.desktop = entry[1] == 1;
+            final int[] reads = {0};
+            assertEquals(entry[3] == 1 ? "" : "framework client-insets publication disabled",
+                    FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                            SettingsRejectedDesktopFlags.class, SettingsWindowFlags.class,
+                            () -> { reads[0]++; return entry[2]; }));
+            assertEquals(1, reads[0]);
+        }
+    }
+
+    @Test
+    public void successfulNativeWrapperDoesNotNeedAnotherSettingsRead() {
+        assertEquals("", FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                EnabledDesktopFlags.class, DisabledWindowFlags.class,
+                () -> { throw new AssertionError("native flag already resolved"); }));
+    }
+
+    @Test
+    public void unavailableSettingsRetainUnknownObservation() {
+        assertEquals("framework client-insets publication unknown: settings denied",
+                FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                        SettingsRejectedDesktopFlags.class, SettingsWindowFlags.class,
+                        () -> { throw new SecurityException("settings denied"); }));
+    }
+
+    @Test
+    public void propertyBasedOverrideCannotBeReplacedWithGlobalSetting() {
+        assertEquals("framework client-insets publication unknown: package/uid mismatch",
+                FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                        SettingsRejectedDesktopFlags.class, ExperienceWindowFlags.class,
+                        () -> { throw new AssertionError("not a Settings-based override"); }));
+    }
+
+    @Test
+    public void disabledDeveloperOptionCannotOverrideTheRawFlag() {
+        assertEquals("framework client-insets publication unknown: package/uid mismatch",
+                FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                        SettingsRejectedDesktopFlags.class, NoOverrideWindowFlags.class,
+                        () -> { throw new AssertionError("developer override unavailable"); }));
+    }
+
+    @Test
+    public void android15WithoutWrapperDoesNotReadDeveloperSettings() {
+        assertEquals("framework client-insets publication disabled",
+                FrameworkWindowingCompat.visibleTypesUnavailableReason(
+                        Object.class, DisabledWindowFlags.class,
+                        () -> { throw new AssertionError("framework has no wrapper"); }));
+    }
+
+    @Test
+    public void desktopToggleUsesAppResolverAndFrameworkSettingsKey() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Context {
+                    final Object resolver = new Object();
+                    Object getContentResolver() { return resolver; }
+                }
+                static final Context app = new Context();
+                static class Settings {
+                    static class Global {
+                        static int getInt(Object resolver, String key, int fallback) {
+                            check(resolver == app.resolver, "wrong attribution");
+                            check(key.equals("override_desktop_mode_features"), "wrong Settings key");
+                            check(fallback == -1, "unset must not disable publication");
+                            return 1;
+                        }
+                    }
+                }
+                """ + RuntimeSourceFixture.methods("FrameworkWindowingCompat", "readDesktopToggle")
+                + """
+                public static void verify() {
+                    check(readDesktopToggle(app) == 1, "toggle was not read");
+                }
+                """);
+    }
+
+    @Test
+    public void shellProfileIsInitializedOnceBeforeOtherRuntimeConsumers() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static int probes, resolutions;
+                static class BuildConfig { static String FRAMEWORK_OVERRIDE = ""; }
+                static class FrameworkWindowingCompat {
+                    private static FrameworkWindowingCompat sCurrent;
+                    final String reason;
+                    FrameworkWindowingCompat(String reason) { this.reason = reason; }
+                    static String visibleTypesUnavailableReason(java.util.function.IntSupplier read) {
+                        probes++;
+                        check(read != null, "setting missing before runtime detection");
+                        return "toggle=" + read.getAsInt();
+                    }
+                    static FrameworkWindowingCompat detect(String override, String reason) {
+                        resolutions++;
+                        return new FrameworkWindowingCompat(reason);
+                    }
+                """ + RuntimeSourceFixture.methods("FrameworkWindowingCompat", "current", "initialize")
+                + "}\n" + """
+                public static void verify() {
+                    FrameworkWindowingCompat.initialize(1, "");
+                    FrameworkWindowingCompat profile = FrameworkWindowingCompat.current();
+                    check(profile.reason.equals("toggle=1"), "wrong Settings reader");
+                    FrameworkWindowingCompat.initialize(0, "");
+                    check(FrameworkWindowingCompat.current() == profile, "replaced live profile");
+                    check(probes == 1 && resolutions == 1, "repeated probe");
+                }
+                """);
+    }
+
+    public enum SettingsRejectedDesktopFlags {
+        ENABLE_FULLY_IMMERSIVE_IN_DESKTOP;
+        private final boolean mShouldOverrideByDevOption = true;
+        public boolean isTrue() { throw new SecurityException("package/uid mismatch"); }
+    }
+
+    public static class SettingsWindowFlags {
+        static boolean immersive;
+        static boolean desktop;
+        public static boolean enableFullyImmersiveInDesktop() { return immersive; }
+        public static boolean enableDesktopWindowingMode() { return desktop; }
+        public static boolean showDesktopWindowingDevOption() { return true; }
+    }
+
+    public static final class ExperienceWindowFlags extends SettingsWindowFlags {
+        public static boolean showDesktopExperienceDevOption() { return true; }
+    }
+
+    public static final class NoOverrideWindowFlags extends SettingsWindowFlags {
+        public static boolean showDesktopWindowingDevOption() { return false; }
+    }
+
+    @Test
     public void missingPublicationApiKeepsObservationUnknownAndCaptionUsable()
             throws Exception {
         final String reason = FrameworkWindowingCompat.visibleTypesUnavailableReason(null, null);

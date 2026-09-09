@@ -4,7 +4,9 @@ import android.content.ComponentName;
 import android.content.ServiceConnection;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.RemoteException;
 import android.os.SystemClock;
+import android.util.Log;
 
 import java.io.IOException;
 import java.util.function.Supplier;
@@ -25,8 +27,17 @@ final class ShellServiceConnection {
                 final ComponentName componentName,
                 final IBinder binder) {
             synchronized (mLock) {
-                mService = binder != null && binder.pingBinder()
+                final IShizukuCommandService service = binder != null && binder.pingBinder()
                         ? IShizukuCommandService.Stub.asInterface(binder) : null;
+                mService = null;
+                if (service != null) {
+                    try {
+                        initializeFramework(service);
+                        mService = service;
+                    } catch (RemoteException | RuntimeException error) {
+                        Log.w("MagicDeskShizuku", "Could not initialize shell runtime", error);
+                    }
+                }
                 mBinding = false;
                 mLock.notifyAll();
             }
@@ -41,6 +52,20 @@ final class ShellServiceConnection {
 
     ShellServiceConnection(final Runnable connectedCallback) {
         mConnectedCallback = connectedCallback;
+    }
+
+    private static void initializeFramework(final IShizukuCommandService service)
+            throws RemoteException {
+        int desktopToggle = -1;
+        String settingError = "";
+        try {
+            desktopToggle = FrameworkWindowingCompat.readDesktopToggle(
+                    MagicDeskApplication.applicationContext());
+        } catch (RuntimeException error) {
+            // Unknown Settings must not disable the rest of the shell service.
+            settingError = "desktop developer setting unavailable: " + ShellAccess.usefulMessage(error);
+        }
+        service.initializeFramework(desktopToggle, settingError);
     }
 
     IShizukuCommandService require(
