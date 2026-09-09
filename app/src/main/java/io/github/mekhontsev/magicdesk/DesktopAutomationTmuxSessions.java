@@ -103,7 +103,7 @@ final class DesktopAutomationTmuxSessions {
             }
 
             final DesktopAutomationResult terminal = mTerminals.open(
-                    new JSONObject()
+                    new JSONObject(args.toString())
                             .put("backend", "termux")
                             .put("directory", TermuxIntegration.HOME_DIRECTORY)
                             .put("command", command));

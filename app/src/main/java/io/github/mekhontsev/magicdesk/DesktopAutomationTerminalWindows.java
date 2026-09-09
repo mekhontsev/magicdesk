@@ -9,7 +9,7 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.util.Locale;
 
-/** Semantic automation adapter for visible interactive Console windows. */
+/** Semantic adapter for terminal sessions and their optional windows. */
 final class DesktopAutomationTerminalWindows {
     private static final int MAX_WRITE_CHARS = 64 * 1024;
     private static final int DEFAULT_READ_CHARS = 16 * 1024;
@@ -53,20 +53,17 @@ final class DesktopAutomationTerminalWindows {
                 }
             }
             final String terminalId = ConsoleTerminalRegistry.nextId();
-            if (!DesktopRuntimeBridge.openConsole(
-                    resolvedDirectory,
-                    command,
-                    terminalId,
-                    backend)) {
-                return DesktopAutomationResult.failure(
-                        DesktopAutomationErrorCode.HOST_UNAVAILABLE,
-                        "desktop host is unavailable", true);
-            }
+            final var intent = CommandConsoleActivity.withTerminalId(
+                    CommandConsoleActivity.createPreparedCommandIntent(
+                            MagicDeskApplication.applicationContext(), command, resolvedDirectory, backend),
+                    terminalId);
+            final DesktopAutomationResult launch = AutomationToolWindows.open(intent, args);
+            if (!launch.success) { return launch; }
             final boolean observed = ConsoleTerminalRegistry.awaitRegistration(
                     terminalId, OPEN_OBSERVATION_TIMEOUT_MILLIS);
             return DesktopAutomationResult.success(
                     "terminal window launch accepted",
-                    new JSONObject()
+                    new JSONObject(launch.data.toString())
                             .put("accepted", true)
                             .put("terminalId", terminalId)
                             .put("backend", backend.wireName)
@@ -80,6 +77,30 @@ final class DesktopAutomationTerminalWindows {
         }
     }
 
+    DesktopAutomationResult attach(final JSONObject args) {
+        try {
+            final String id = sessionId(args);
+            final var session = ConsoleTerminalRegistry.status(id);
+            if (session == null) { return notFound(id); }
+            final long generation = ConsoleTerminalRegistry.attachmentGeneration(id);
+            final var intent = CommandConsoleActivity.attachIntent(MagicDeskApplication.applicationContext(), session);
+            final DesktopAutomationResult launch = AutomationToolWindows.open(intent, args);
+            if (!launch.success) { return launch; }
+            return DesktopAutomationResult.success("terminal attachment requested", new JSONObject(launch.data.toString())
+                    .put("terminalId", id).put("observed", ConsoleTerminalRegistry.awaitAttachment(
+                            id, generation, OPEN_OBSERVATION_TIMEOUT_MILLIS)));
+        } catch (JSONException | RuntimeException error) { return unavailable(error); }
+    }
+
+    DesktopAutomationResult detach(final JSONObject args) {
+        try {
+            final String id = sessionId(args);
+            if (!ConsoleTerminalRegistry.hide(id)) { return notFound(id); }
+            return DesktopAutomationResult.success("terminal window detached; session retained",
+                    new JSONObject().put("terminalId", id));
+        } catch (JSONException | RuntimeException error) { return unavailable(error); }
+    }
+
     DesktopAutomationResult list() {
         try {
             final JSONArray terminals = new JSONArray();
@@ -88,7 +109,7 @@ final class DesktopAutomationTerminalWindows {
                 terminals.put(toJson(snapshot));
             }
             return DesktopAutomationResult.success(
-                    "terminal windows listed",
+                    "terminal sessions listed",
                     new JSONObject()
                             .put("count", terminals.length())
                             .put("terminals", terminals));
@@ -120,7 +141,7 @@ final class DesktopAutomationTerminalWindows {
                 return notFound(id);
             }
             return DesktopAutomationResult.success(
-                    "terminal window status", toJson(snapshot));
+                    "terminal session status", toJson(snapshot));
         } catch (IllegalArgumentException | JSONException error) {
             return invalid(error);
         } catch (RuntimeException error) {
@@ -218,7 +239,7 @@ final class DesktopAutomationTerminalWindows {
                 return notFound(id);
             }
             return DesktopAutomationResult.success(
-                    "terminal window close accepted",
+                    "terminal session close accepted",
                     new JSONObject().put("terminalId", id));
         } catch (IllegalArgumentException | JSONException error) {
             return invalid(error);
@@ -244,6 +265,7 @@ final class DesktopAutomationTerminalWindows {
                 .put("terminalId", snapshot.id)
                 .put("taskId", snapshot.taskId)
                 .put("displayId", snapshot.displayId)
+                .put("attached", snapshot.taskId >= 0)
                 .put("focused", snapshot.focused)
                 .put("ready", snapshot.ready)
                 .put("processId", snapshot.processId)
@@ -330,12 +352,12 @@ final class DesktopAutomationTerminalWindows {
         try {
             return DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.INVALID_ARGUMENT,
-                    "terminal window not found", false,
+                    "terminal session not found", false,
                     new JSONObject().put("terminalId", id));
         } catch (JSONException impossible) {
             return DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.INVALID_ARGUMENT,
-                    "terminal window not found", false);
+                    "terminal session not found", false);
         }
     }
 

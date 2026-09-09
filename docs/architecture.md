@@ -5,6 +5,34 @@ desktop environment on Android with optional RedMagic integration. It is
 intended for contributors, reviewers, and users diagnosing compatibility
 problems.
 
+## Runtime Layers
+
+The APK currently requires Android 15 (API 35). Desktop framework support and
+service availability are separate contracts; this separation does not by itself
+make the APK installable on older Android releases.
+
+- Shared services own files, profiles, content, shell execution and Termux PTYs.
+  MCP is an authorized adapter to these services, not their lifetime owner.
+- `ToolApplications` and `ToolLaunchTarget` select ordinary fullscreen Activity
+  placement or the existing managed Desktop launch path. Phone control-panel
+  tools do not acquire HOME or require Desktop provisioning. Background launches
+  and cross-display launches use the shell service; ordinary phone Activity
+  launches use public Activity options and their own identity.
+- `DisplayOperations` creates and lists display resources without starting
+  Desktop. A viewer, an owned virtual display and a Desktop session have separate
+  lifetimes. Removal still observes the existing session cleanup boundary.
+- `MagicDeskRuntimeService` hosts tools and automation independently. Its Desktop
+  input, task observer and session coordinators initialize only for Desktop.
+  Ordinary Activity launch primitives live in `FrameworkActivityLaunchApi`;
+  virtual display access does not eagerly initialize the window organizer.
+- `RuntimeCapabilities` publishes service prerequisites separately from MCP
+  grants. A met prerequisite is not a successful device capability probe.
+
+The control panel can open Files, shell/Termux terminals and retained terminal
+sessions on the phone or selected display. No session is started implicitly to
+open a tool. Selecting a display already owned by Desktop uses the managed path;
+an explicit ordinary-display request cannot bypass that ownership.
+
 ## Design Principles
 
 MagicDesk follows these constraints:
@@ -371,10 +399,10 @@ runtime integration and are not distributed through the same release path.
   `FileManagerOperationController` owns
   lifecycle-bound remote operations and `FileManagerImportController` owns
   incoming Android URI drops. It has no vendor dependency.
-- `CommandConsoleActivity` is an ordinary multi-instance desktop task. Every
-  window owns one `ConsoleTerminalSession`, one terminal emulator, and one
-  lifecycle-bound PTY; no process-global terminal state is shared between
-  Console windows.
+- `CommandConsoleActivity` presents a retained `ConsoleTerminalSession` on the
+  phone, an ordinary secondary display, or Desktop. Closing its window detaches
+  the presentation. Ending the session explicitly closes its PTY and emulator.
+  Sessions remain isolated from each other and have at most one attached window.
 - `SettingsActivity`, `SettingsView`, and `MagicDeskSettings` own persistent
   user-selected desktop behavior. They are separate from the transient System
   panel, which remains a quick control surface for the active session. Settings
@@ -387,7 +415,7 @@ runtime integration and are not distributed through the same release path.
   Diagnostics from shell
   infrastructure. It also records whether an internal window can have multiple
   tasks, appear in the launcher or taskbar pins, and share profile-scoped application window
-  state. Settings is a singleton reusable task with compact centered default
+  state. Settings is a reusable task per display with compact centered default
   bounds. A single constrained, scrollable `SettingsView` uses the same dense
   visual language on phone and desktop. The phone opens it normally, while the
   desktop task controller launches the same Activity in a dedicated reusable
@@ -653,10 +681,13 @@ runtime integration and are not distributed through the same release path.
   closes them with the MCP backend. These marker-delimited non-terminal shells
   exist only to return structured command output, exit status, and current
   directory to MCP; they are not a second user-facing Console implementation.
-- `ConsoleTerminalRegistry` holds weak, process-local references to live
-  user-facing Console windows. It exposes immutable task, display, PTY,
+- `ConsoleTerminalRegistry` owns up to 32 process-local terminal sessions and weak
+  references to their optional windows. It exposes immutable task, display, PTY,
   dimensions, foreground-process, title, directory, viewport, and transcript
-  state without owning an Activity or shell.
+  state without retaining Activities. Reattachment replaces the presentation,
+  not the shell; detached sessions continue accepting input and collecting output.
+  Detach releases the old View's input and resize ownership before Activity
+  destruction. Its expired IME connection cannot write into a retained session.
   `DesktopAutomationTerminalWindows` maps the gated MCP
   `terminal.*` tools onto that registry and the normal built-in-window launch
   path. Terminal input therefore reaches the real PTY directly instead of
@@ -1275,15 +1306,15 @@ periodic keepalives. `PhoneDisplayGuard` is the deliberate exception: its
 one-second heartbeat refreshes RedMagic's transient `cfreezer` state and
 provides fail-open display restoration if ownership is lost.
 
-Every built-in Console window owns a lifecycle-bound `TerminalTransport`, one
+Every retained Console session owns a lifecycle-bound `TerminalTransport`, one
 native PTY relay, and one interactive shell. `ShellPtyHandle` hosts
 `/system/bin/sh` through the UserService and binds its stream to the APK
 owner's Binder token. `TermuxPtyTransport` asks Termux's documented
 `RUN_COMMAND` service to host the same relay under the Termux UID and connects
-it to the window through an authenticated loopback stream. Both transports
+it to the session through an authenticated loopback stream. Both transports
 create a session leader and controlling terminal, forward terminal bytes,
 apply `TIOCSWINSZ`, expose the shell PID, and resolve `/proc/<pid>/cwd` within
-the process's own security domain. Closing the window, running `exit`, service
+the process's own security domain. Ending the session, running `exit`, service
 death, or stream failure ends only that PTY and shell. A failed transport is
 discarded rather than silently changing privilege or execution backend.
 
@@ -1293,7 +1324,12 @@ frame or backpressure in one direction cannot block the other direction or
 shutdown. Process signals wake the same poll owner; cleanup has a bounded
 HUP-to-kill sequence for the owned shell group, not a separate worker thread.
 
-`ConsoleTerminalSession` owns transport and terminal state for one window.
+`ConsoleTerminalSession` owns transport and terminal state independently of a window.
+The registry releases sessions on explicit termination, shell EOF or runtime exit.
+Closing Desktop does not terminate these independent sessions. Process death or
+APK replacement is not a terminal persistence mechanism; tmux inside Termux is
+available when longer-lived processes are required. An attach request for an
+expired session fails instead of silently creating another shell.
 Its PTY-to-UI output buffer is bounded; a busy UI pauses the reader on a drain
 event rather than dropping terminal bytes or growing an unbounded queue. Closing
 the session releases that wait. Metadata requests use the same session writer,
@@ -2974,14 +3010,15 @@ trigger fallback or a compatibility failure, and an already decoded but
 unused image is recycled. Temporary cache allocation failure still permits
 cached or bundled wallpaper. No extra worker, timer, or polling loop is added.
 
-`CommandConsoleActivity` is a permission-protected, multi-instance desktop task
-over a selected `TerminalTransport`. Each Activity owns one independent
+`CommandConsoleActivity` is a permission-protected, multi-instance window
+over a retained `ConsoleTerminalSession`. The registry owns each independent
 interactive PTY, terminal emulator, current-directory state, and selectable
-scrollback. Android-shell and Termux transports share this complete UI and
+scrollback; an Activity attaches only its view. Android-shell and Termux transports share this UI and
 session layer. Input is a byte stream rather than discrete command jobs, so shell
 editing, signals, ANSI output, alternate-screen applications, and terminal
-mouse protocols retain their normal semantics. Running `exit` or closing the
-Activity closes that shell. Commands supplied by explicit Files and Desktop
+mouse protocols retain their normal semantics. Closing the Activity detaches
+its view; running `exit` or explicitly ending the session closes the shell.
+Commands supplied by explicit Files and Desktop
 actions are safely quoted and sent after the PTY becomes ready.
 
 `TaskManagerActivity` consumes the active session's published task snapshot;

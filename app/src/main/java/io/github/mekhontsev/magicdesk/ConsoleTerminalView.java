@@ -40,6 +40,7 @@ final class ConsoleTerminalView extends View {
             new ConsoleTerminalInput(KeyCharacterMap::getDeadChar);
 
     private ConsoleTerminalSession mSession;
+    private TerminalInputConnection mInputConnection;
     private ClipboardActions mClipboardActions;
     private int mColumns = 80;
     private int mRows = 24;
@@ -86,6 +87,7 @@ final class ConsoleTerminalView extends View {
     void attach(
             final ConsoleTerminalSession session,
             final ClipboardActions clipboardActions) {
+        if (mSession != session) { mInputConnection = null; }
         mSession = session;
         mClipboardActions = clipboardActions;
         resizeTerminal();
@@ -235,28 +237,10 @@ final class ConsoleTerminalView extends View {
                 return true;
             }
         }
-        final TerminalEmulator emulator = mSession.emulator();
-        final int modifiers = keyModifiers(event);
-        final String keySequence = KeyHandler.getCode(
-                keyCode,
-                modifiers,
-                emulator.isCursorKeysApplicationMode(),
-                emulator.isKeypadApplicationMode());
-        if (keySequence != null) {
-            mSession.write(mInput.flushAccent());
-            mSession.write(keySequence);
+        final String sequence = mInput.key(event, mSession.emulator());
+        if (sequence != null) {
+            mSession.write(sequence);
             scrollToBottom();
-            return true;
-        }
-        final int controlCode = controlCode(keyCode, event);
-        if (controlCode >= 0) {
-            mSession.write(mInput.flushAccent());
-            writeCodePoint(controlCode, event.isAltPressed());
-            return true;
-        }
-        final int unicode = event.getUnicodeChar(event.getMetaState());
-        if (unicode != 0) {
-            writeCodePoint(unicode, event.isAltPressed());
             return true;
         }
         return super.onKeyDown(keyCode, event);
@@ -383,28 +367,33 @@ final class ConsoleTerminalView extends View {
 
     @Override
     public boolean onCheckIsTextEditor() {
-        return true;
+        return mSession != null;
     }
 
     @Override
     public InputConnection onCreateInputConnection(
             final EditorInfo editorInfo) {
+        if (mSession == null) { return null; }
         editorInfo.inputType = InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         editorInfo.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI
                 | EditorInfo.IME_ACTION_NONE;
-        return new TerminalInputConnection();
+        mInputConnection = new TerminalInputConnection();
+        return mInputConnection;
     }
 
     private void resizeTerminal() {
         final int availableWidth = Math.max(0, getWidth() - 2 * mContentPadding);
         final int availableHeight = Math.max(0, getHeight() - 2 * mContentPadding);
+        // Attaching an unmeasured View must not reflow a retained session to 2x2.
+        if (availableWidth == 0 || availableHeight == 0) { return; }
         final int columns = Math.max(2,
                 (int) (availableWidth / mRenderer.cellWidth()));
         final int rows = Math.max(2,
                 (int) (availableHeight / mRenderer.cellHeight()));
-        if (columns == mColumns && rows == mRows) {
+        if (columns == mColumns && rows == mRows && (mSession == null
+                || mSession.columns() == columns && mSession.rows() == rows)) {
             return;
         }
         mColumns = columns;
@@ -485,49 +474,6 @@ final class ConsoleTerminalView extends View {
         }
     }
 
-    private static int keyModifiers(final KeyEvent event) {
-        int modifiers = 0;
-        if (event.isAltPressed()) {
-            modifiers |= KeyHandler.KEYMOD_ALT;
-        }
-        if (event.isCtrlPressed()) {
-            modifiers |= KeyHandler.KEYMOD_CTRL;
-        }
-        if (event.isShiftPressed()) {
-            modifiers |= KeyHandler.KEYMOD_SHIFT;
-        }
-        if (event.isNumLockOn()) {
-            modifiers |= KeyHandler.KEYMOD_NUM_LOCK;
-        }
-        return modifiers;
-    }
-
-    private static int controlCode(
-            final int keyCode, final KeyEvent event) {
-        if (!event.isCtrlPressed()) {
-            return -1;
-        }
-        if (keyCode >= KeyEvent.KEYCODE_A && keyCode <= KeyEvent.KEYCODE_Z) {
-            return keyCode - KeyEvent.KEYCODE_A + 1;
-        }
-        switch (keyCode) {
-            case KeyEvent.KEYCODE_SPACE:
-            case KeyEvent.KEYCODE_2:
-                return 0;
-            case KeyEvent.KEYCODE_LEFT_BRACKET:
-                return 27;
-            case KeyEvent.KEYCODE_BACKSLASH:
-                return 28;
-            case KeyEvent.KEYCODE_RIGHT_BRACKET:
-                return 29;
-            case KeyEvent.KEYCODE_6:
-                return 30;
-            case KeyEvent.KEYCODE_MINUS:
-                return 31;
-            default:
-                return -1;
-        }
-    }
 
     private static int mouseButton(final MotionEvent event) {
         final int buttons = event.getButtonState();
@@ -563,9 +509,21 @@ final class ConsoleTerminalView extends View {
             super(ConsoleTerminalView.this, false);
         }
 
+        private boolean isActive() {
+            // IME callbacks may outlive a window or an input-connection replacement.
+            return mInputConnection == this && mSession != null;
+        }
+
+        @Override
+        public void closeConnection() {
+            if (mInputConnection == this) { mInputConnection = null; }
+            super.closeConnection();
+        }
+
         @Override
         public boolean commitText(
                 final CharSequence text, final int newCursorPosition) {
+            if (!isActive()) { return false; }
             replaceComposingText(text);
             mComposingText = "";
             return true;
@@ -574,6 +532,7 @@ final class ConsoleTerminalView extends View {
         @Override
         public boolean setComposingText(
                 final CharSequence text, final int newCursorPosition) {
+            if (!isActive()) { return false; }
             replaceComposingText(text);
             mComposingText = text == null ? "" : text.toString();
             return true;
@@ -582,7 +541,7 @@ final class ConsoleTerminalView extends View {
         @Override
         public boolean finishComposingText() {
             mComposingText = "";
-            return true;
+            return isActive();
         }
 
         private void replaceComposingText(final CharSequence text) {
@@ -600,6 +559,7 @@ final class ConsoleTerminalView extends View {
         @Override
         public boolean deleteSurroundingText(
                 final int beforeLength, final int afterLength) {
+            if (!isActive()) { return false; }
             mComposingText = "";
             for (int index = 0; index < beforeLength; index++) {
                 mSession.write(new byte[]{0x7F});
@@ -619,11 +579,12 @@ final class ConsoleTerminalView extends View {
 
         @Override
         public boolean sendKeyEvent(final KeyEvent event) {
-            return dispatchKeyEvent(event);
+            return isActive() && dispatchKeyEvent(event);
         }
 
         @Override
         public boolean performEditorAction(final int actionCode) {
+            if (!isActive()) { return false; }
             mSession.write("\r");
             return true;
         }

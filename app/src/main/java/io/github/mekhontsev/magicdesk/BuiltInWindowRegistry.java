@@ -33,6 +33,22 @@ final class BuiltInWindowRegistry {
         }
     }
 
+    static boolean needsSeparateTask(final AppLaunchTarget target, final int displayId) {
+        boolean otherDisplay = false;
+        synchronized (WINDOWS) {
+            for (final WeakReference<Activity> reference : WINDOWS) {
+                final Activity activity = reference.get();
+                if (activity == null || activity.isDestroyed() || activity.isFinishing()
+                        || !activity.getClass().getName().equals(target.activityClassName)) { continue; }
+                final int existingDisplay = activity.getDisplay() == null
+                        ? 0 : activity.getDisplay().getDisplayId();
+                if (existingDisplay == displayId) { return false; }
+                otherDisplay = true;
+            }
+        }
+        return otherDisplay;
+    }
+
 
     static void finishAll(final Runnable completion) {
         final Runnable finish = () -> {

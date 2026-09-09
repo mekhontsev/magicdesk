@@ -351,7 +351,8 @@ Shell-gated commands are:
   `magicdesk.console.status`, and `magicdesk.console.close`;
 - `magicdesk.terminal.open`, `magicdesk.terminal.list`,
   `magicdesk.terminal.status`, `magicdesk.terminal.read`,
-  `magicdesk.terminal.write`, `magicdesk.terminal.send_key`, and
+  `magicdesk.terminal.write`, `magicdesk.terminal.send_key`,
+  `magicdesk.terminal.attach`, `magicdesk.terminal.detach`, and
   `magicdesk.terminal.close`;
 - `magicdesk.tmux.list` and `magicdesk.tmux.open`.
 
@@ -359,7 +360,7 @@ Shell-gated commands are:
 has its own current directory, returns bounded output and exit status, and is
 bounded by the server lifetime. At most eight such sessions may exist at once.
 
-`terminal.*` addresses actual user-facing Console windows by opaque
+`terminal.*` addresses retained Console sessions by opaque
 `terminalId`. It can inspect task/display identity, shell PID, dimensions,
 working directory, backend, OSC title, derived task label, and optional
 foreground PID/process group/executable; read the textual viewport or bounded
@@ -373,14 +374,38 @@ default is `shell`. A Termux terminal requires the installed Termux app, its
 external-command setting, and the `RUN_COMMAND` permission; after launch all
 other `terminal.*` operations are backend-independent.
 
+`terminal.open`, `terminal.attach`, `tmux.open` and `open_builtin` accept a
+`placement`: `auto` (active Desktop or phone), `phone` (ordinary display 0),
+`display` (ordinary fullscreen on an explicit `displayId`), or `desktop`
+(the active managed display). An optional `uniqueId` validates display identity.
+An ordinary placement cannot bypass an active Desktop on that same display;
+choose `auto` or `desktop` instead. These launches never start Desktop implicitly.
+
+`terminal.detach` closes only the window; repeating it on an already detached
+session succeeds. `terminal.attach` connects a new window
+to the same PTY and emulator; its `observed` field requires a new registration,
+not a previous window. `terminal.close` ends the session and closes its window.
+Detached sessions report `attached=false`, `taskId=-1` and `displayId=-1`.
+They remain readable and writable; closing the MCP connection does not own their
+lifetime. They survive window and display closure but not application process
+death. At most 32 retained sessions may exist.
+
+`get_state.services` describes automation, built-in UI, shell, Termux, virtual
+display and Desktop prerequisites independently of client permissions. These
+are not device probes. The current APK minimum remains Android 15.
+`capture_screenshot` and `sample_pixels` also work without Desktop. An explicit
+display id selects that display; omission selects Desktop when active, otherwise
+display 0. Existing MCP authorization applies to both paths.
+
 `tmux.list` performs one bounded query under the Termux UID. Its successful
 result has `available=false` when tmux is not installed, so absence of the
 optional package is not reported as a transport failure. `tmux.open` accepts
 exactly one of an existing `sessionId` returned by `tmux.list` or a session
 `name` to open or create with tmux `-A`. It opens an ordinary visible Termux
 Console and returns its `terminalId`; the remaining `terminal.*` tools then
-operate on that window. Closing the terminal detaches the client while the tmux
-session continues. These tools do not expose ordinary Termux application tabs.
+operate on that session. Ending it disconnects its tmux client while the tmux
+server session continues. Closing only the window retains the client too.
+These tools do not expose ordinary Termux application tabs.
 
 `magicdesk.get_termux_x11_status` performs a bounded, non-destructive probe of
 the configured display. It reports the matching Termux process, reconnect

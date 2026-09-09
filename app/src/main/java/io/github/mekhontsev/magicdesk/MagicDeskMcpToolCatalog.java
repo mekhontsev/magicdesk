@@ -266,10 +266,10 @@ final class MagicDeskMcpToolCatalog {
                 .put(readTool(
                         "capture_screenshot",
                         "Capture screenshot",
-                        "Capture the active desktop as an in-memory PNG image.",
+                        "Capture a display as an in-memory PNG image, independently of Desktop.",
                         objectSchema(new JSONObject().put(
                                 "displayId", integerProperty(
-                                        "Optional active desktop display id.")))))
+                                        "Display id; defaults to active Desktop or display 0.")))))
                 .put(readTool(
                         "wait_for_state",
                         "Wait for state",
@@ -278,16 +278,16 @@ final class MagicDeskMcpToolCatalog {
         tools.put(readTool(
                         "sample_pixels",
                         "Sample display pixels",
-                        "Read up to 64 exact pixels from the active desktop without creating a file.",
+                        "Read up to 64 exact pixels from a display without creating a file or starting Desktop.",
                         pixelSampleSchema()))
                 .put(actionTool(
                         "open_builtin",
                         "Open built-in window",
                         "Open a MagicDesk Files, Console, Task Manager, Settings, Application Profiles, Diagnostics, or Activity Explorer window.",
-                        objectSchema(new JSONObject().put(
+                        objectSchema(toolPlacementProperties().put(
                                 "builtin", enumProperty(
                                         "Built-in window.",
-                                        "files", "console",
+                                        "files", "console", "termux",
                                         "task_manager", "settings",
                                         "app_profiles",
                                         "diagnostics", "activity_explorer")),
@@ -687,8 +687,8 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "terminal.open",
                         "Open terminal window",
-                        "Open a visible interactive MagicDesk PTY terminal on the active desktop.",
-                        objectSchema(new JSONObject()
+                        "Create a terminal session and show it on the phone, a selected display, or the active desktop.",
+                        objectSchema(toolPlacementProperties()
                                 .put("directory", stringProperty(
                                         "Initial absolute working directory."))
                                 .put("command", stringProperty(
@@ -698,9 +698,15 @@ final class MagicDeskMcpToolCatalog {
                                         "shell", "termux")))))
                 .put(readTool(
                         "terminal.list",
-                        "List terminal windows",
-                        "List live interactive MagicDesk terminal windows using cached process and terminal metadata; terminal.status refreshes live metadata.",
+                        "List terminal sessions",
+                        "List retained terminal sessions, including detached sessions. A taskId of -1 means no attached window.",
                         emptySchema()))
+                .put(actionTool("terminal.attach", "Show terminal session",
+                        "Attach an existing terminal session to a window without restarting its process.",
+                        objectSchema(toolPlacementProperties().put("terminalId",
+                                stringProperty("Existing terminal session id.")), "terminalId")))
+                .put(actionTool("terminal.detach", "Detach terminal window",
+                        "Close the terminal view while retaining its PTY and transcript.", terminalSchema()))
                 .put(readTool(
                         "terminal.status",
                         "Get terminal status",
@@ -747,8 +753,8 @@ final class MagicDeskMcpToolCatalog {
                                 "terminalId", "key")))
                 .put(destructiveTool(
                         "terminal.close",
-                        "Close terminal window",
-                        "Close one visible interactive terminal and its PTY process group.",
+                        "End terminal session",
+                        "End one terminal session and close its attached window, if any.",
                         terminalSchema()))
                 .put(readTool(
                         "tmux.list",
@@ -759,7 +765,7 @@ final class MagicDeskMcpToolCatalog {
                         "tmux.open",
                         "Open tmux session",
                         "Open an existing tmux session by id, or open/create one by name, in a visible Termux Console.",
-                        objectSchema(new JSONObject()
+                        objectSchema(toolPlacementProperties()
                                 .put("sessionId", stringProperty(
                                         "Existing tmux session id from tmux.list."))
                                 .put("name", stringProperty(
@@ -769,6 +775,14 @@ final class MagicDeskMcpToolCatalog {
     private static JSONObject pathSchema() throws JSONException {
         return objectSchema(new JSONObject().put(
                 "path", stringProperty("Absolute shell path.")), "path");
+    }
+
+    private static JSONObject toolPlacementProperties() throws JSONException {
+        return new JSONObject().put("placement", enumProperty(
+                        "auto selects Desktop when present, otherwise phone; display and phone are ordinary fullscreen launches.",
+                        "auto", "phone", "display", "desktop"))
+                .put("displayId", integerProperty("Destination display; required for display placement."))
+                .put("uniqueId", stringProperty("Optional stable display identity to reject a stale selection."));
     }
 
     private static JSONObject sessionSchema() throws JSONException {
@@ -790,7 +804,7 @@ final class MagicDeskMcpToolCatalog {
                 "x", "y");
         return objectSchema(new JSONObject()
                         .put("displayId", integerProperty(
-                                "Optional active desktop display id."))
+                                "Optional live display id; defaults to the desktop display, or the phone when inactive."))
                         .put("points", arrayProperty(
                                 "Coordinates to sample.", point)),
                 "points");
@@ -1126,6 +1140,7 @@ final class MagicDeskMcpToolCatalog {
                         .put("readiness", openObjectProperty("Awake/lock state and required prerequisite actions."))
                         .put("connection", openObjectProperty("Listener scope and current granted permissions."))
                         .put("session", openObjectProperty("Desktop session."))
+                        .put("services", openObjectProperty("Service prerequisites, independent of MCP grants."))
                         .put("ui", openObjectProperty("Desktop UI state."))
                         .put("runtime", openObjectProperty("Runtime state."));
                 break;
@@ -1494,6 +1509,10 @@ final class MagicDeskMcpToolCatalog {
                         .put("commandProvided", booleanProperty(
                                 "Whether an initial command was supplied."));
                 break;
+            case "terminal.attach":
+                properties.put("terminalId", stringProperty("Attached terminal session."))
+                        .put("observed", booleanProperty("An attached terminal window was observed."));
+                break;
             case "terminal.list":
                 properties.put("count", integerProperty(
                                 "Number of live terminal windows."))
@@ -1527,6 +1546,7 @@ final class MagicDeskMcpToolCatalog {
                                 "Resolved Android modifier state."));
                 break;
             case "terminal.close":
+            case "terminal.detach":
                 properties.put("terminalId", stringProperty(
                         "Interactive terminal id."));
                 break;

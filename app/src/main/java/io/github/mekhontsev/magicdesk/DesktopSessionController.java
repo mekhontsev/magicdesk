@@ -55,6 +55,7 @@ final class DesktopSessionController {
                 preparedTarget, resolvedPolicy, null)) {
             return new ShowResult(true, false);
         }
+        MagicDeskRuntime.prepareDesktop(MagicDeskApplication.applicationContext());
         final DesktopHomeRoleLease.AcquireResult homeAcquisition =
                 DesktopHomeRoleLease.prepare(preparedTarget, resolvedPolicy,
                         DesktopCompatibilitySettings.nextSession());

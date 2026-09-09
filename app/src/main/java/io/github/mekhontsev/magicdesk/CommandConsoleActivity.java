@@ -39,6 +39,8 @@ public final class CommandConsoleActivity extends Activity
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_TERMINAL_ID";
     private static final String EXTRA_BACKEND =
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_BACKEND";
+    private static final String EXTRA_ATTACH_ONLY =
+            "io.github.mekhontsev.magicdesk.extra.CONSOLE_ATTACH_ONLY";
     private static final String STATE_WORKING_DIRECTORY = "working_directory";
     private static final int COLOR_BACKGROUND = 0xFF090D14;
     private static final int COLOR_TEXT = 0xFFE5E7EB;
@@ -150,6 +152,11 @@ public final class CommandConsoleActivity extends Activity
         return intent.putExtra(EXTRA_TERMINAL_ID, id);
     }
 
+    static Intent attachIntent(final Context context, final ConsoleTerminalRegistry.Snapshot session) {
+        return withTerminalId(createIntentAtDirectory(context, session.workingDirectory,
+                DesktopExecBackend.parse(session.backend)), session.id).putExtra(EXTRA_ATTACH_ONLY, true);
+    }
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -174,16 +181,28 @@ public final class CommandConsoleActivity extends Activity
         final String startupCommand = takeAutoRunCommand(getIntent());
         final TerminalTransport.Factory transportFactory =
                 terminalTransportFactory();
-        mSession = new ConsoleTerminalSession(
-                initialDirectory,
-                mTerminalView.columns(),
-                mTerminalView.rows(),
-                mTerminalView.cellWidth(),
-                mTerminalView.cellHeight(),
-                mBackend,
-                startupCommand,
-                transportFactory,
-                this);
+        String sessionId = getIntent().getStringExtra(EXTRA_TERMINAL_ID);
+        if (sessionId == null || sessionId.isEmpty()) { sessionId = ConsoleTerminalRegistry.nextId(); }
+        getIntent().putExtra(EXTRA_TERMINAL_ID, sessionId);
+        try {
+            mSession = ConsoleTerminalRegistry.acquire(sessionId,
+                    getIntent().getBooleanExtra(EXTRA_ATTACH_ONLY, false) ? null
+                            : listener -> new ConsoleTerminalSession(
+                                    initialDirectory,
+                                    mTerminalView.columns(),
+                                    mTerminalView.rows(),
+                                    mTerminalView.cellWidth(),
+                                    mTerminalView.cellHeight(),
+                                    mBackend,
+                                    startupCommand,
+                                    transportFactory,
+                                    listener));
+        } catch (IllegalArgumentException | IllegalStateException error) {
+            Toast.makeText(this, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+        MagicDeskRuntime.startTools(this);
         mTerminalView.attach(mSession, this);
         mTerminalView.addOnLayoutChangeListener((
                 view,
@@ -272,10 +291,8 @@ public final class CommandConsoleActivity extends Activity
     @Override
     protected void onDestroy() {
         BuiltInWindowRegistry.unregister(this);
-        ConsoleTerminalRegistry.unregister(mTerminalRegistryId);
-        if (mSession != null) {
-            mSession.close();
-        }
+        ConsoleTerminalRegistry.detach(mTerminalRegistryId, this);
+        if (mTerminalView != null) { mTerminalView.attach(null, null); }
         super.onDestroy();
     }
 
@@ -332,9 +349,6 @@ public final class CommandConsoleActivity extends Activity
         mTerminalStatus = getString(
                 R.string.console_failed,
                 ShellAccess.usefulMessage(error));
-        if (mSession != null) {
-            mSession.appendLocalMessage(mTerminalStatus);
-        }
         updateShellStatus();
         updateActions();
     }
@@ -401,8 +415,9 @@ public final class CommandConsoleActivity extends Activity
         mShellStatus.setTextSize(12);
         mShellStatus.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         mShellStatus.setSingleLine(true);
+        mShellStatus.setMaxWidth(dp(180));
         mToolbar.addView(mShellStatus, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         mClear = createIconButton(
                 android.R.drawable.ic_menu_delete,
@@ -439,13 +454,24 @@ public final class CommandConsoleActivity extends Activity
                 R.string.console_open_working_directory,
                 view -> openSelectedPathOrWorkingDirectory());
         mToolbar.addView(openFiles, buttonParams());
+        final ImageButton sessions = createIconButton(
+                R.drawable.ic_file_new_window, R.string.terminal_sessions,
+                view -> TerminalSessionsDialog.show(this));
+        mToolbar.addView(sessions, buttonParams());
+        final ImageButton endSession = createIconButton(
+                R.drawable.ic_close, R.string.terminal_end_session,
+                view -> ConsoleTerminalRegistry.close(mTerminalRegistryId));
+        mToolbar.addView(endSession, buttonParams());
         final ImageButton hideToolbar = createIconButton(
                 android.R.drawable.arrow_up_float,
                 R.string.console_hide_toolbar,
                 view -> setToolbarVisible(false));
         mToolbar.addView(hideToolbar, buttonParams());
         mToolbar.setVisibility(mToolbarVisible ? View.VISIBLE : View.GONE);
-        page.addView(mToolbar, new LinearLayout.LayoutParams(
+        final android.widget.HorizontalScrollView toolbarScroll = new android.widget.HorizontalScrollView(this);
+        toolbarScroll.setHorizontalScrollBarEnabled(false);
+        toolbarScroll.addView(mToolbar);
+        page.addView(toolbarScroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -675,9 +701,10 @@ public final class CommandConsoleActivity extends Activity
             return (directory, rows, columns, startupCommand) ->
                     ShellAccess.openPty(directory, rows, columns);
         }
+        final Context application = getApplicationContext();
         return (directory, rows, columns, startupCommand) ->
                 TermuxPtyTransport.open(
-                        getApplicationContext(),
+                        application,
                         directory,
                         rows,
                         columns,

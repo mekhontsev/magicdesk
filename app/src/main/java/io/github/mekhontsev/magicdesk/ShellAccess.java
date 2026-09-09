@@ -309,8 +309,13 @@ public final class ShellAccess {
     static void launchActivityOnDisplay(
             final Intent intent,
             final int displayId) throws IOException {
+        launchActivityOnDisplay(intent, displayId, false);
+    }
+
+    static void launchActivityOnDisplay(final Intent intent, final int displayId,
+            final boolean fullscreen) throws IOException {
         try {
-            requireService().launchActivityOnDisplay(intent, displayId);
+            requireService().launchActivityOnDisplay(intent, displayId, fullscreen);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("Android Activity launch failed: "

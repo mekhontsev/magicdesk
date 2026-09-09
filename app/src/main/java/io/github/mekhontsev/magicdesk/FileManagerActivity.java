@@ -857,35 +857,13 @@ public final class FileManagerActivity extends Activity
 
     @Override
     public void onNewWindow() {
-        final int displayId = getDisplay() == null
-                ? 0 : getDisplay().getDisplayId();
         final String path = mCurrentPath;
         mView.setStatus(getString(R.string.file_manager_opening_new_window));
-        mWorker.execute(() -> {
-            try {
-                WindowedAppLauncher.launch(
-                        createNewWindowIntent(this, path),
-                        launchTarget(this),
-                        displayId,
-                        null,
-                        true,
-                        null,
-                        DesktopTaskInstancePolicy.CREATE_NEW,
-                        null);
-                runOnUiThread(() -> {
-                    if (!mDestroyed) {
-                        renderFiles();
-                    }
-                });
-            } catch (IOException | RuntimeException error) {
-                runOnUiThread(() -> {
-                    if (!mDestroyed) {
-                        mView.setStatus(getString(
-                                R.string.file_manager_new_window_failed,
-                                ShellAccess.usefulMessage(error)));
-                    }
-                });
-            }
+        BuiltInWindowLauncher.launch(this, createNewWindowIntent(this, path), launchTarget(this), error -> {
+            if (mDestroyed) { return; }
+            if (error == null) { renderFiles(); }
+            else { mView.setStatus(getString(R.string.file_manager_new_window_failed,
+                    ShellAccess.usefulMessage(error))); }
         });
     }
 

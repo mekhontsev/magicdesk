@@ -48,6 +48,7 @@ final class DesktopAutomationStateReader {
                 .put("generatedAtMillis", System.currentTimeMillis())
                 .put("app", AutomationDeviceState.appJson(mContext))
                 .put("device", AutomationDeviceState.deviceJson())
+                .put("services", RuntimeCapabilities.current(mContext).toJson())
                 .put("readiness", AutomationDeviceState.capture(mContext)
                         .toJson(shell.isReady()))
                 .put("shell", new JSONObject()
@@ -76,7 +77,8 @@ final class DesktopAutomationStateReader {
                         .put("selfTestRunning",
                                 DesktopSelfTestController.isRunning())
                         .put("terminalWindows",
-                                ConsoleTerminalRegistry.registeredCount())
+                                ConsoleTerminalRegistry.windowCount())
+                        .put("terminalSessions", ConsoleTerminalRegistry.registeredCount())
                         .put("termuxX11",
                                 TermuxX11Integration.cachedStatusJson(
                                         mContext, null)))

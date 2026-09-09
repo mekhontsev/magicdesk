@@ -1,0 +1,79 @@
+package io.github.mekhontsev.magicdesk;
+
+import org.junit.Test;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import static org.junit.Assert.assertTrue;
+
+public final class DesktopRuntimePreparationTest {
+    @Test public void coldStartNeedsReadyCallbackAndEachStartGetsItsOwnAcknowledgement() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() throws Exception {
+                    prepareDesktop(new Context());
+                    check(starts == 1 && sDesktopPreparation == null, "cold start not acknowledged");
+                    acknowledge = false;
+                    try { prepareDesktop(new Context()); throw new AssertionError("previous acknowledgement reused"); }
+                    catch (IOException expected) { check(expected.getCause() instanceof TimeoutException, "wrong failure"); }
+                    check(sDesktopPreparation == null, "failed preparation retained callback");
+                    acknowledge = true;
+                    prepareDesktop(new Context());
+                    check(starts == 3, "retry did not start service");
+                }
+                """);
+    }
+
+    @Test public void preparationPrecedesHomeLease() throws Exception {
+        final String source = Files.readString(Path.of(RuntimeSourceFixture.MAIN + "DesktopSessionController.java"));
+        assertTrue(source.indexOf("MagicDeskRuntime.prepareDesktop(")
+                < source.indexOf("DesktopHomeRoleLease.prepare("));
+    }
+
+    @Test public void phoneSelfTestUsesProductionStartQueueBeforeObservingHost() throws Exception {
+        RuntimeSourceFixture.verify("""
+                enum DesktopSelfTestTarget { PHONE, SIMULATED }
+                static class DesktopDisplayTarget { static Object phone() { return "phone"; } }
+                static class DesktopSessionPolicy { static Object ISOLATED_SELF_TEST = new Object(); }
+                static class Display { static int INVALID_DISPLAY = -1; }
+                static class DesktopRuntimeBridge { static int getActiveDesktopDisplayId() { return -1; } }
+                static class DesktopSelfTestController { static String phoneUiUnavailableReason(Object c) { return null; } }
+                static class DesktopSelfTestHostObserver { static void begin(long id) {} }
+                static class DesktopOperations {
+                    static boolean queued;
+                    static void showDesktop(Object target, Object policy) { queued = true; }
+                }
+                Object mContext;
+                long mRunId = 1;
+                DesktopSelfTestTarget mTarget = DesktopSelfTestTarget.PHONE;
+                boolean preparing() { return true; }
+                void finishPreparation(boolean cancel,String reason) { throw new AssertionError(reason); }
+                void completePreparation(boolean cancel,String reason) { throw new AssertionError(reason); }
+                void run() { throw new AssertionError("unexpected simulated test"); }
+                void probeExternal() { throw new AssertionError("unexpected external test"); }
+                boolean observing;
+                void waitForDesktop(Object kind) {
+                    check(DesktopOperations.queued, "host observation preceded queued start");
+                    observing = true;
+                }
+                public static void verify() {
+                    Fixture fixture = new Fixture();
+                    fixture.prepare();
+                    check(fixture.observing, "phone host readiness not observed");
+                }
+                """ + RuntimeSourceFixture.methods("DesktopSelfTestLauncher", "prepare"));
+    }
+
+    private static String fixture() throws Exception {
+        return """
+                static class Context {}
+                static class Looper { static Object myLooper() { return null; }
+                    static Object getMainLooper() { return new Object(); } }
+                static class ExternalDisplayController { static final long START_TIMEOUT_MS = 5L; }
+                static class MagicDeskRuntime {}
+                static CompletableFuture<Void> sDesktopPreparation;
+                static boolean acknowledge = true;
+                static int starts;
+                static void start(Context context) { starts++; if (acknowledge) desktopRuntimePrepared(); }
+                """ + RuntimeSourceFixture.methods("MagicDeskRuntime", "prepareDesktop", "desktopRuntimePrepared")
+                        .replace("android.os.Looper", "Looper");
+    }
+}

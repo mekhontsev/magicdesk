@@ -504,6 +504,8 @@ public final class CompatibilityDiagnostics {
         report.append("Shell command access: ")
                 .append(ShellAccess.isReady()).append('\n');
         report.append("Console terminal backend: interactive PTY, TERM=xterm-256color, windows=")
+                .append(ConsoleTerminalRegistry.windowCount())
+                .append(", sessions=")
                 .append(ConsoleTerminalRegistry.registeredCount())
                 .append('\n');
         final ShellAccess.Snapshot shellSnapshot =

@@ -411,7 +411,7 @@ interface IShizukuCommandService {
         int densityDpi,
         int existingTaskId) = 114;
 
-    void launchActivityOnDisplay(in Intent intent, int displayId) = 115;
+    void launchActivityOnDisplay(in Intent intent, int displayId, boolean fullscreen) = 115;
 
     boolean setDesktopTaskDensity(
         ITaskObserverCallback callback,

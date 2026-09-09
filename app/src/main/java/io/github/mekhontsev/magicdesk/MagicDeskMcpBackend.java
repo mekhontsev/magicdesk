@@ -148,6 +148,10 @@ final class MagicDeskMcpBackend implements McpBackend {
                     return actionResult(mConsole.close(args));
                 case "terminal.open":
                     return actionResult(mTerminals.open(args));
+                case "terminal.attach":
+                    return actionResult(mTerminals.attach(args));
+                case "terminal.detach":
+                    return actionResult(mTerminals.detach(args));
                 case "terminal.list":
                     return actionResult(mTerminals.list());
                 case "terminal.status":

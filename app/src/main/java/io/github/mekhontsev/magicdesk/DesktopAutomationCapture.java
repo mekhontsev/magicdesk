@@ -53,7 +53,7 @@ final class DesktopAutomationCapture {
                     .put("mimeType", "image/png")
                     .put("captureSource", target.source.commandArgument());
             return DesktopAutomationResult.success(
-                    "desktop screenshot captured",
+                    "display screenshot captured",
                     data,
                     new DesktopAutomationImage(
                             "image/png",
@@ -134,11 +134,9 @@ final class DesktopAutomationCapture {
         final int activeDisplayId = DesktopRuntimeBridge
                 .getActiveDesktopDisplayId();
         final int displayId = requestedDisplayId == null
-                ? activeDisplayId : requestedDisplayId.intValue();
-        if (displayId < Display.DEFAULT_DISPLAY
-                || displayId != activeDisplayId) {
-            throw new IOException(
-                    "the display has no active desktop session");
+                ? Math.max(Display.DEFAULT_DISPLAY, activeDisplayId) : requestedDisplayId.intValue();
+        if (displayId < Display.DEFAULT_DISPLAY) {
+            throw new IOException("invalid display id");
         }
         final DisplayManager manager =
                 mContext.getSystemService(DisplayManager.class);
@@ -156,7 +154,7 @@ final class DesktopAutomationCapture {
                 displayId,
                 size.x,
                 size.y,
-                DesktopDisplayDrivers.captureSource(displayId));
+                DisplayCaptureSource.logical(displayId));
     }
 
     private static byte[] readBounded(final InputStream input)

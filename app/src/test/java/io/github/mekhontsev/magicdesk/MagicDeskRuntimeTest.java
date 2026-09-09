@@ -197,6 +197,8 @@ public final class MagicDeskRuntimeTest {
             completion.run();
         }
 
+        @Override public void releaseDesktopRuntime() { desktopSessionReleased = true; }
+
         @Override
         public void releaseDesktopTaskSession(final Runnable completion) {
             desktopSessionReleased = true;

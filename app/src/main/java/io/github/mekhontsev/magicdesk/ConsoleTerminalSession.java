@@ -15,7 +15,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 
-/** One interactive PTY and terminal state for one Console window. */
+/** One interactive PTY and emulator, independent of display and Activity lifetime. */
 final class ConsoleTerminalSession {
     interface Listener {
         void onScreenChanged();
@@ -68,6 +68,8 @@ final class ConsoleTerminalSession {
             new TerminalOutputBuffer(MAX_PENDING_OUTPUT_BYTES);
     private final Runnable mDrainOutput = this::drainOutput;
     private final Listener mListener;
+    private final ConsoleTerminalInput mInput =
+            new ConsoleTerminalInput(android.view.KeyCharacterMap::getDeadChar);
     private final TerminalEmulator mEmulator;
     private final TerminalTransport.Factory mTransportFactory;
     private final DesktopExecBackend mBackend;
@@ -210,6 +212,15 @@ final class ConsoleTerminalSession {
         if (text != null && !text.isEmpty()) {
             write(text.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    boolean sendKey(final int keyCode, final int metaState) {
+        final long now = android.os.SystemClock.uptimeMillis();
+        final String sequence = mInput.key(new android.view.KeyEvent(now, now,
+                android.view.KeyEvent.ACTION_DOWN, keyCode, 0, metaState), mEmulator);
+        if (sequence == null) { return false; }
+        write(sequence);
+        return true;
     }
 
     void write(final byte[] data) {

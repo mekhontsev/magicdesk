@@ -12,13 +12,20 @@ import java.lang.ref.WeakReference;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** Stable process-local entry point for the optional runtime service. */
 public final class MagicDeskRuntime {
     private static final String ACTION_START_AUTOMATION =
             BuildConfig.APPLICATION_ID + ".action.START_AUTOMATION";
+    private static final String ACTION_START_TOOLS =
+            BuildConfig.APPLICATION_ID + ".action.START_TOOLS";
     private static WeakReference<MagicDeskRuntimeBackend> sBackend =
             new WeakReference<>(null);
+    private static CompletableFuture<Void> sDesktopPreparation;
 
     private MagicDeskRuntime() {
     }
@@ -26,6 +33,45 @@ public final class MagicDeskRuntime {
     public static void start(final Context context) {
         context.startForegroundService(
                 new Intent(context, MagicDeskRuntimeService.class));
+    }
+
+    static void prepareDesktop(final Context context) throws IOException {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            throw new IllegalStateException("desktop preparation must run off the UI thread");
+        }
+        final CompletableFuture<Void> ready;
+        synchronized (MagicDeskRuntime.class) {
+            if (sDesktopPreparation == null) { sDesktopPreparation = new CompletableFuture<>(); }
+            ready = sDesktopPreparation;
+        }
+        try {
+            start(context);
+            // The task observer's ready callback acknowledges service promotion.
+            // HOME and display policy are not changed until this event arrives.
+            ready.get(ExternalDisplayController.START_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("desktop runtime preparation interrupted", error);
+        } catch (ExecutionException | TimeoutException error) {
+            throw new IOException("desktop task observer preparation failed", error);
+        } finally {
+            synchronized (MagicDeskRuntime.class) {
+                if (sDesktopPreparation == ready) { sDesktopPreparation = null; }
+            }
+        }
+    }
+
+    static synchronized void desktopRuntimePrepared() {
+        if (sDesktopPreparation != null) { sDesktopPreparation.complete(null); }
+    }
+
+    static void startTools(final Context context) {
+        context.startForegroundService(new Intent(context, MagicDeskRuntimeService.class)
+                .setAction(ACTION_START_TOOLS));
+    }
+
+    static boolean isToolsStart(final Intent intent) {
+        return intent != null && ACTION_START_TOOLS.equals(intent.getAction());
     }
 
     static void startAutomation(final Context context) {
@@ -46,20 +92,16 @@ public final class MagicDeskRuntime {
                 && ACTION_START_AUTOMATION.equals(intent.getAction());
     }
 
-    static void retainAutomationOrStop(final Context context) {
+    static void retainIndependentServices(final Context context) {
         if (context == null) {
             return;
         }
-        if (!MagicDeskMcpPreferences.isEnabled(context)) {
-            stop(context);
-            return;
-        }
         final MagicDeskRuntimeBackend backend = backend();
-        if (backend == null || !backend.isDesktopRuntimeInitialized()) {
+        if (backend == null) {
             startAutomation(context);
             return;
         }
-        stop(context, () -> startAutomation(context));
+        backend.releaseDesktopRuntime();
     }
 
     public static void stop(final Context context) {

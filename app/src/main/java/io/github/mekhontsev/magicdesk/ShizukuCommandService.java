@@ -188,10 +188,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     @Override
     public void launchActivityOnDisplay(
             final Intent intent,
-            final int displayId) {
+            final int displayId,
+            final boolean fullscreen) {
         try {
-            TaskDisplayAreaLaunchCommand.launchActivityOnDisplay(
-                    HiddenTaskApi.getService(), intent, displayId);
+            FrameworkActivityLaunchApi.launch(
+                    HiddenTaskApi.getService(), intent, displayId, fullscreen);
         } catch (ReflectiveOperationException | RuntimeException error) {
             throw new IllegalStateException(
                     "shell Activity launch failed", error);

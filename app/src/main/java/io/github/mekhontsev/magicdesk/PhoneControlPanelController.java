@@ -40,6 +40,8 @@ final class PhoneControlPanelController {
 
         void openSettings();
 
+        void openTool(String name, boolean selectedScreen);
+
         void exitMagicDesk();
     }
 
@@ -161,6 +163,7 @@ final class PhoneControlPanelController {
         final LinearLayout content = new LinearLayout(mActivity);
         content.setOrientation(LinearLayout.VERTICAL);
         addStatus(content);
+        addToolActions(content);
         addDesktopActions(content);
         addSystemActions(content);
         scroll.addView(content, new ScrollView.LayoutParams(
@@ -325,6 +328,31 @@ final class PhoneControlPanelController {
         settings.setOnClickListener(view -> mActions.openSettings());
         addGridAction(mSessionActions, settings);
         parent.addView(mSessionActions, fullWidthWrapParams(dp(6)));
+    }
+
+    private void addToolActions(final LinearLayout parent) {
+        addSectionTitle(parent, R.string.control_section_tools, dp(22));
+        final android.widget.CheckBox selected = new android.widget.CheckBox(mActivity);
+        selected.setText(R.string.tools_selected_display);
+        selected.setTextColor(COLOR_TEXT);
+        parent.addView(selected);
+        final GridLayout grid = actionGrid();
+        final String[] names = {"files", "console", "termux", "sessions"};
+        final int[] labels = {R.string.file_manager_title, R.string.console_title,
+                R.string.console_termux_title, R.string.terminal_sessions};
+        final int[] icons = {R.drawable.ic_desktop_folder, R.drawable.ic_file_console,
+                R.drawable.ic_file_console, R.drawable.ic_file_new_window};
+        for (int i = 0; i < names.length; i++) {
+            final String name = names[i];
+            final Button button = actionButton(labels[i], COLOR_PANEL_ALT);
+            final android.graphics.drawable.Drawable icon = mActivity.getDrawable(icons[i]);
+            icon.setBounds(0, 0, dp(24), dp(24));
+            button.setCompoundDrawables(icon, null, null, null);
+            button.setCompoundDrawablePadding(dp(8));
+            button.setOnClickListener(view -> mActions.openTool(name, selected.isChecked()));
+            addGridAction(grid, button);
+        }
+        parent.addView(grid, fullWidthWrapParams(dp(6)));
     }
 
     private void addExternalDisplayOptions(final LinearLayout parent) {

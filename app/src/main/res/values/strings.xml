@@ -1,4 +1,10 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="notification_tools_ready">Tools available</string>
+    <string name="control_section_tools">Applications</string>
+    <string name="tools_selected_display">Open on selected display</string>
+    <string name="terminal_sessions">Terminal sessions</string>
+    <string name="terminal_end_session">End session</string>
+    <string name="terminal_no_sessions">No terminal sessions</string>
     <string name="display_type">Display type</string>
     <string name="display_resolution">Resolution</string>
     <string name="desktop_shortcut_service_label">Desktop keyboard shortcuts</string>

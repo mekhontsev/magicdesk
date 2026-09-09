@@ -20,8 +20,9 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 
-/** Process-local semantic registry for visible interactive Console windows. */
+/** Owns PTYs independently of their optional Activity and terminal View. */
 final class ConsoleTerminalRegistry {
     interface ProcessRefreshListener {
         void onComplete(boolean changed);
@@ -35,6 +36,23 @@ final class ConsoleTerminalRegistry {
     private ConsoleTerminalRegistry() {
     }
 
+    static ConsoleTerminalSession acquire(final String id,
+            final Function<ConsoleTerminalSession.Listener, ConsoleTerminalSession> factory) {
+        if (!validId(id)) { throw new IllegalArgumentException("invalid terminal id"); }
+        synchronized (ENTRIES) {
+            Entry entry = ENTRIES.get(id);
+            if (entry == null) {
+                if (factory == null) { throw new IllegalStateException("terminal session no longer exists"); }
+                if (ENTRIES.size() >= 32) {
+                    throw new IllegalStateException("too many terminal sessions; close an existing session");
+                }
+                entry = new Entry(id, factory);
+                ENTRIES.put(id, entry);
+            }
+            return entry.session;
+        }
+    }
+
     static String register(
             final Activity activity,
             final ConsoleTerminalSession session,
@@ -46,11 +64,19 @@ final class ConsoleTerminalRegistry {
         final String id = validId(requestedId)
                 ? requestedId : nextId();
         synchronized (ENTRIES) {
-            pruneLocked();
-            if (ENTRIES.containsKey(id)) {
-                throw new IllegalStateException("duplicate terminal id");
+            final Entry entry = ENTRIES.get(id);
+            if (entry == null || entry.session != session) {
+                throw new IllegalStateException("terminal session is not owned by the runtime");
             }
-            ENTRIES.put(id, new Entry(activity, session, view));
+            final Activity previous = entry.activity.get();
+            final ConsoleTerminalView previousView = entry.view.get();
+            if (previousView != null && previousView != view) { previousView.attach(null, null); }
+            entry.activity = new WeakReference<>(activity);
+            entry.view = new WeakReference<>(view);
+            entry.attachmentGeneration++;
+            if (previous != null && previous != activity && !previous.isDestroyed()) {
+                previous.finishAndRemoveTask();
+            }
             ENTRIES.notifyAll();
         }
         DesktopAutomationEventJournal.record(
@@ -60,24 +86,27 @@ final class ConsoleTerminalRegistry {
     }
 
     static String nextId() {
-        return "terminal-" + Long.toString(
-                NEXT_ID.incrementAndGet(), 36);
+        synchronized (ENTRIES) {
+            String id;
+            do { id = "terminal-" + Long.toString(NEXT_ID.incrementAndGet(), 36); }
+            while (ENTRIES.containsKey(id));
+            return id;
+        }
     }
 
-    static void unregister(final String id) {
-        if (id == null || id.isEmpty()) {
-            return;
-        }
-        final Entry removed;
+    static void detach(final String id, final Activity activity) {
         synchronized (ENTRIES) {
-            removed = ENTRIES.remove(id);
-            pruneLocked();
+            final Entry entry = ENTRIES.get(id);
+            if (entry == null || entry.activity.get() != activity) { return; }
+            final ConsoleTerminalView view = entry.view.get();
+            // Release input and resize ownership before Android finishes the window.
+            if (view != null) { view.attach(null, null); }
+            entry.activity.clear();
+            entry.view.clear();
             ENTRIES.notifyAll();
         }
-        if (removed != null) {
-            DesktopAutomationEventJournal.record(
-                    "terminal", "closed", true, "terminalId=" + id);
-        }
+        DesktopAutomationEventJournal.record("terminal", "detached", true, "terminalId=" + id);
+        MagicDeskRuntime.refreshNotification();
     }
 
     static List<Snapshot> list() {
@@ -99,11 +128,14 @@ final class ConsoleTerminalRegistry {
     }
 
     static int registeredCount() {
+        synchronized (ENTRIES) { return ENTRIES.size(); }
+    }
+
+    static int windowCount() {
         synchronized (ENTRIES) {
             int count = 0;
             for (final Entry entry : ENTRIES.values()) {
                 if (entry.activity.get() != null
-                        && entry.session.get() != null
                         && entry.view.get() != null) {
                     count++;
                 }
@@ -114,11 +146,23 @@ final class ConsoleTerminalRegistry {
 
     static boolean awaitRegistration(
             final String id, final long timeoutMillis) {
+        return awaitAttachment(id, 0L, timeoutMillis);
+    }
+
+    static long attachmentGeneration(final String id) {
+        synchronized (ENTRIES) {
+            final Entry entry = ENTRIES.get(id);
+            return entry == null ? 0L : entry.attachmentGeneration;
+        }
+    }
+
+    static boolean awaitAttachment(
+            final String id, final long previousGeneration, final long timeoutMillis) {
         final long deadline = android.os.SystemClock.uptimeMillis()
                 + Math.max(0L, timeoutMillis);
         synchronized (ENTRIES) {
             long remaining = timeoutMillis;
-            while (!ENTRIES.containsKey(id) && remaining > 0L) {
+            while (!hasWindowLocked(id, previousGeneration) && remaining > 0L) {
                 try {
                     EventDrivenWaits.await(
                             ENTRIES,
@@ -130,8 +174,14 @@ final class ConsoleTerminalRegistry {
                 }
                 remaining = deadline - android.os.SystemClock.uptimeMillis();
             }
-            return ENTRIES.containsKey(id);
+            return hasWindowLocked(id, previousGeneration);
         }
+    }
+
+    private static boolean hasWindowLocked(final String id, final long previousGeneration) {
+        final Entry entry = ENTRIES.get(id);
+        return entry != null && entry.attachmentGeneration > previousGeneration
+                && entry.activity.get() != null && entry.view.get() != null;
     }
 
     static Snapshot status(final String id) {
@@ -170,7 +220,7 @@ final class ConsoleTerminalRegistry {
                 pruneLocked();
                 for (final Entry entry : ENTRIES.values()) {
                     final Activity activity = entry.activity.get();
-                    final ConsoleTerminalSession session = entry.session.get();
+                    final ConsoleTerminalSession session = entry.session;
                     if (activity != null
                             && session != null
                             && requested.contains(
@@ -203,9 +253,10 @@ final class ConsoleTerminalRegistry {
 
     static String refreshWorkingDirectory(final String id) throws IOException {
         final ConsoleTerminalSession session;
+
         synchronized (ENTRIES) {
             final Entry entry = id == null ? null : ENTRIES.get(id);
-            session = entry == null ? null : entry.session.get();
+            session = entry == null ? null : entry.session;
             if (entry != null && session == null) {
                 ENTRIES.remove(id);
             }
@@ -221,7 +272,7 @@ final class ConsoleTerminalRegistry {
         final ConsoleTerminalSession session;
         synchronized (ENTRIES) {
             final Entry entry = id == null ? null : ENTRIES.get(id);
-            session = entry == null ? null : entry.session.get();
+            session = entry == null ? null : entry.session;
             if (entry != null && session == null) {
                 ENTRIES.remove(id);
             }
@@ -238,12 +289,10 @@ final class ConsoleTerminalRegistry {
             if (entry == null) {
                 return null;
             }
-            final ConsoleTerminalSession session = entry.session.get();
+            final ConsoleTerminalSession session = entry.session;
             final ConsoleTerminalView view = entry.view.get();
-            if (session == null || view == null) {
-                return null;
-            }
-            return transcript ? session.transcript() : view.visibleText();
+            return transcript ? session.transcript() : view != null ? view.visibleText()
+                    : session.emulator().getSelectedText(0, 0, session.columns() - 1, session.rows() - 1);
         });
     }
 
@@ -251,7 +300,7 @@ final class ConsoleTerminalRegistry {
         return callOnMain(() -> {
             final Entry entry = find(id);
             final ConsoleTerminalSession session = entry == null
-                    ? null : entry.session.get();
+                    ? null : entry.session;
             if (session == null) {
                 return false;
             }
@@ -266,19 +315,49 @@ final class ConsoleTerminalRegistry {
             final Entry entry = find(id);
             final ConsoleTerminalView view = entry == null
                     ? null : entry.view.get();
-            return view != null && view.sendKey(keyCode, metaState);
+            return view != null ? view.sendKey(keyCode, metaState)
+                    : entry != null && entry.session.sendKey(keyCode, metaState);
         });
     }
 
     static boolean close(final String id) {
         return callOnMain(() -> {
-            final Entry entry = find(id);
-            final Activity activity = entry == null
-                    ? null : entry.activity.get();
-            if (activity == null || activity.isDestroyed()) {
-                return false;
+            final Entry entry;
+            synchronized (ENTRIES) {
+                entry = ENTRIES.remove(id);
+                ENTRIES.notifyAll();
             }
-            activity.finishAndRemoveTask();
+            if (entry == null) { return false; }
+            final Activity activity = entry.activity.get();
+            final ConsoleTerminalView view = entry.view.get();
+            if (view != null) { view.attach(null, null); }
+            entry.session.close();
+            if (activity != null && !activity.isDestroyed()) {
+                activity.finishAndRemoveTask();
+            }
+            DesktopAutomationEventJournal.record("terminal", "closed", true, "terminalId=" + id);
+            MagicDeskRuntime.refreshNotification();
+            return true;
+        });
+    }
+
+    static void closeAll() {
+        callOnMain(() -> {
+            final List<String> ids;
+            synchronized (ENTRIES) { ids = new ArrayList<>(ENTRIES.keySet()); }
+            for (final String id : ids) { close(id); }
+            return null;
+        });
+    }
+
+    static boolean hide(final String id) {
+        return callOnMain(() -> {
+            final Entry entry = find(id);
+            if (entry == null) { return false; }
+            final Activity activity = entry.activity.get();
+            if (activity == null) { return true; }
+            detach(id, activity);
+            if (!activity.isDestroyed()) { activity.finishAndRemoveTask(); }
             return true;
         });
     }
@@ -295,7 +374,13 @@ final class ConsoleTerminalRegistry {
     }
 
     private static void pruneLocked() {
-        ENTRIES.entrySet().removeIf(item -> !item.getValue().isAlive());
+        for (final Entry entry : ENTRIES.values()) {
+            final Activity activity = entry.activity.get();
+            if (activity != null && activity.isDestroyed()) {
+                entry.activity.clear();
+                entry.view.clear();
+            }
+        }
     }
 
     private static <T> T callOnMain(final Callable<T> action) {
@@ -382,41 +467,47 @@ final class ConsoleTerminalRegistry {
         }
     }
 
-    private static final class Entry {
-        final WeakReference<Activity> activity;
-        final WeakReference<ConsoleTerminalSession> session;
-        final WeakReference<ConsoleTerminalView> view;
+    private static final class Entry implements ConsoleTerminalSession.Listener {
+        final String id;
+        WeakReference<Activity> activity = new WeakReference<>(null);
+        WeakReference<ConsoleTerminalView> view = new WeakReference<>(null);
+        final ConsoleTerminalSession session;
+        long attachmentGeneration;
 
-        Entry(
-                final Activity activity,
-                final ConsoleTerminalSession session,
-                final ConsoleTerminalView view) {
-            this.activity = new WeakReference<>(activity);
-            this.session = new WeakReference<>(session);
-            this.view = new WeakReference<>(view);
+        Entry(final String id,
+                final Function<ConsoleTerminalSession.Listener, ConsoleTerminalSession> factory) {
+            this.id = id;
+            session = factory.apply(this);
         }
 
-        boolean isAlive() {
+        private void notifyView(final java.util.function.Consumer<ConsoleTerminalSession.Listener> action) {
             final Activity owner = activity.get();
-            return owner != null
-                    && !owner.isFinishing()
-                    && !owner.isDestroyed()
-                    && session.get() != null
-                    && view.get() != null;
+            if (owner instanceof ConsoleTerminalSession.Listener listener
+                    && !owner.isDestroyed() && !owner.isFinishing()) { action.accept(listener); }
         }
+
+        @Override public void onScreenChanged() { notifyView(ConsoleTerminalSession.Listener::onScreenChanged); }
+        @Override public void onReady() { notifyView(ConsoleTerminalSession.Listener::onReady); }
+        @Override public void onFinished() { ConsoleTerminalRegistry.close(id); }
+        @Override public void onError(final IOException error) {
+            session.appendLocalMessage(ShellAccess.usefulMessage(error));
+            notifyView(listener -> listener.onError(error));
+        }
+        @Override public void onTitleChanged(final String title) { notifyView(listener -> listener.onTitleChanged(title)); }
+        @Override public void onCopyRequested(final String text) { notifyView(listener -> listener.onCopyRequested(text)); }
+        @Override public void onPasteRequested() { notifyView(ConsoleTerminalSession.Listener::onPasteRequested); }
+        @Override public void onBell() { notifyView(ConsoleTerminalSession.Listener::onBell); }
 
         Snapshot snapshot(final String id) {
             final Activity owner = activity.get();
-            final ConsoleTerminalSession terminal = session.get();
-            if (owner == null || terminal == null || owner.isDestroyed()) {
-                return null;
-            }
+            final ConsoleTerminalSession terminal = session;
+            final boolean attached = owner != null && !owner.isDestroyed();
             return new Snapshot(
                     id,
-                    owner.getTaskId(),
-                    owner.getDisplay() == null
+                    attached ? owner.getTaskId() : -1,
+                    !attached ? -1 : owner.getDisplay() == null
                             ? 0 : owner.getDisplay().getDisplayId(),
-                    owner.hasWindowFocus(),
+                    attached && owner.hasWindowFocus(),
                     terminal.isReady(),
                     terminal.processId(),
                     terminal.columns(),

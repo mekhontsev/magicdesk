@@ -2,16 +2,12 @@ package io.github.mekhontsev.magicdesk;
 
 /** One resolved Android framework profile shared by runtime and diagnostics. */
 final class FrameworkRuntime {
-    private final FrameworkWindowingCompat mWindowingCompat;
-    private final FrameworkWindowingApi mWindowingApi;
     private FrameworkDisplayWindowingApi mDisplayWindowingApi;
     private FrameworkInputRoutingApi mInputRoutingApi;
     private FrameworkVirtualDisplayApi mVirtualDisplayApi;
     private final FrameworkDisplayCaptureApi mDisplayCaptureApi = new FrameworkDisplayCaptureApi();
 
     private FrameworkRuntime() {
-        mWindowingCompat = FrameworkWindowingCompat.current();
-        mWindowingApi = FrameworkWindowingApi.current();
     }
 
     static FrameworkRuntime current() {
@@ -19,11 +15,11 @@ final class FrameworkRuntime {
     }
 
     FrameworkWindowingCompat windowingCompat() {
-        return mWindowingCompat;
+        return FrameworkWindowingCompat.current();
     }
 
     FrameworkWindowingApi windowing() {
-        return mWindowingApi;
+        return FrameworkWindowingApi.current();
     }
 
     FrameworkDisplayCaptureApi displayCapture() {
@@ -39,7 +35,7 @@ final class FrameworkRuntime {
     }
 
     FrameworkWindowingCompat.Capabilities capabilities() {
-        return mWindowingCompat.capabilities();
+        return windowingCompat().capabilities();
     }
 
     synchronized FrameworkVirtualDisplayApi virtualDisplays()
@@ -59,14 +55,14 @@ final class FrameworkRuntime {
 
     String diagnosticDetail() {
         final FrameworkWindowingCompat.Capabilities capabilities =
-                mWindowingCompat.capabilities();
+                windowingCompat().capabilities();
         final FrameworkWindowingCompat.TaskObservationCapabilities tasks =
                 capabilities.taskObservation;
         return "profile=" + capabilities.profile
-                + ", wct=" + (mWindowingApi.available()
+                + ", wct=" + (windowing().available()
                         ? "available" : "unavailable")
                 + ", taskDensity="
-                + (mWindowingApi.supportsDensityOverride()
+                + (windowing().supportsDensityOverride()
                         ? "available" : "unavailable")
                 + ", caption=" + capabilities.captionStrategy()
                 + ", taskSource=typed-binder-root-hierarchy+listener"

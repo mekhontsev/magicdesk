@@ -54,16 +54,12 @@ public final class ControlActivity extends Activity
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        MagicDeskRuntime.startAutomation(this);
+        MagicDeskRuntime.startTools(this);
         synchronized (ControlActivity.class) {
             sActive = new WeakReference<>(this);
         }
         mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
-        if (DeviceSetupManager.isRuntimeAuthorized()) {
-            initializeControlPanel();
-            return;
-        }
-        runStartupAudit();
+        initializeControlPanel();
     }
 
     @Override
@@ -115,7 +111,6 @@ public final class ControlActivity extends Activity
         final Intent setupIntent = DeviceSetupActivity.createLaunchIntent(this);
         mSessionProfile.writeToIntent(setupIntent);
         startActivity(setupIntent);
-        finish();
     }
 
     private void continueStartup() {
@@ -135,7 +130,7 @@ public final class ControlActivity extends Activity
         }
         mStartupPrepared = false;
         DeviceSetupManager.authorizeRuntime(this);
-        initializeControlPanel();
+        startSelectedDesktop();
     }
 
     @Override
@@ -164,7 +159,6 @@ public final class ControlActivity extends Activity
                 : R.string.control_status_ready);
         setContentView(mPanel.createView());
         registerDisplayListener();
-        MagicDeskRuntime.start(this);
         refreshCatalog();
         refresh();
     }
@@ -242,6 +236,10 @@ public final class ControlActivity extends Activity
 
     @Override
     public void startSelectedDesktop() {
+        if (!DeviceSetupManager.isRuntimeAuthorized()) {
+            runStartupAudit();
+            return;
+        }
         final DesktopDisplayInfo display = selectedDisplay();
         final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
         if (!DisplaySelectionView.canStart(display, active == null ? -1 : active.displayId,
@@ -260,7 +258,7 @@ public final class ControlActivity extends Activity
         mDisplayOperation = true;
         mStatus = getString(R.string.display_creating);
         refresh();
-        DesktopOperations.createDisplay(spec, preview, (display, error) -> runOnUiThread(() -> {
+        DisplayOperations.createDisplay(spec, preview, (display, error) -> runOnUiThread(() -> {
             if (isActivityUnavailable()) { return; }
             mDisplayOperation = false;
             if (display != null) {
@@ -292,7 +290,7 @@ public final class ControlActivity extends Activity
 
     private void refreshCatalog() {
         final int generation = ++mCatalogGeneration;
-        DesktopOperations.readDisplays((displays, error) -> runOnUiThread(() -> {
+        DisplayOperations.readDisplays((displays, error) -> runOnUiThread(() -> {
             if (generation != mCatalogGeneration || isActivityUnavailable()) { return; }
             mDisplays = displays;
             // Browsing prepared displays must not switch the active session.
@@ -443,9 +441,30 @@ public final class ControlActivity extends Activity
 
     @Override
     public void openSettings() {
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(currentDisplayId());
-        startActivity(SettingsActivity.createIntent(this), options.toBundle());
+        BuiltInWindowLauncher.launch(this, SettingsActivity.createIntent(this),
+                BuiltInDesktopAppCatalog.settingsTarget(), error -> {
+                    if (error != null) { mStatus = ShellAccess.usefulMessage(error); refresh(); }
+                });
+    }
+
+    @Override
+    public void openTool(final String name, final boolean selectedScreen) {
+        final DesktopDisplayInfo selected = selectedScreen ? selectedDisplay() : null;
+        if (selectedScreen && selected == null) { return; }
+        final int displayId = selected == null ? Display.DEFAULT_DISPLAY : selected.id;
+        final ToolLaunchTarget target = ToolLaunchTarget.resolve("auto", displayId,
+                MagicDeskRuntime.activeDesktopDisplayId());
+        if ("sessions".equals(name)) {
+            TerminalSessionsDialog.show(this, target, selected == null ? null : selected.uniqueId);
+            return;
+        }
+        ToolApplications.open(this, ToolApplications.intent(this, name), target,
+                selected == null ? null : selected.uniqueId, error -> {
+                    if (error != null) {
+                        mStatus = ShellAccess.usefulMessage(error);
+                        refresh();
+                    }
+                });
     }
 
     @Override

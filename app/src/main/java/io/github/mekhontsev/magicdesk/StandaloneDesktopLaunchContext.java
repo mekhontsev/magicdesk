@@ -55,13 +55,15 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
     @Override
     public void launchConsole(
             final DesktopLaunchRequest request) {
-        mActivity.startActivity(
+        BuiltInWindowLauncher.launch(mActivity,
                 CommandConsoleActivity.createPreparedCommandIntent(
                         mActivity,
                         request.exec.command,
                         request.exec.workingDirectory,
                         request.exec.backend),
-                options().toBundle());
+                CommandConsoleActivity.launchTarget(), error -> {
+                    if (error != null) { onFailure(request, error); }
+                });
     }
 
     @Override

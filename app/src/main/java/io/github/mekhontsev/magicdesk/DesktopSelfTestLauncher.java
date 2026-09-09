@@ -94,8 +94,10 @@ final class DesktopSelfTestLauncher {
         if (mTarget == DesktopSelfTestTarget.SIMULATED) {
             run();
         } else if (mTarget == DesktopSelfTestTarget.PHONE) {
-            DesktopDisplayDrivers.forKind(DesktopDisplayTarget.Kind.PHONE).showReady(
-                    null, DesktopDisplayTarget.phone(), DesktopSessionPolicy.ISOLATED_SELF_TEST);
+            // Use the production start queue: service readiness and HOME
+            // acquisition must complete off the diagnostics UI thread.
+            DesktopOperations.showDesktop(
+                    DesktopDisplayTarget.phone(), DesktopSessionPolicy.ISOLATED_SELF_TEST);
             waitForDesktop(null);
         } else {
             probeExternal();

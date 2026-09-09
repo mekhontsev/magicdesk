@@ -437,7 +437,7 @@ final class DesktopAutomationController {
         final CountDownLatch completed = new CountDownLatch(1);
         final DesktopDisplayInfo[] display = new DesktopDisplayInfo[1];
         final String[] failure = new String[1];
-        DesktopOperations.createDisplay(spec, type.equals("overlay"), (value, error) -> {
+        DisplayOperations.createDisplay(spec, type.equals("overlay"), (value, error) -> {
             display[0] = value;
             failure[0] = error;
             completed.countDown();
@@ -802,29 +802,14 @@ final class DesktopAutomationController {
     }
 
     private DesktopAutomationResult openSettings() {
-        if (MagicDeskRuntime.openSettings()) {
-            return DesktopAutomationResult.success(
-                    "settings opened", new JSONObject());
-        }
-        mContext.startActivity(SettingsActivity.createIntent(mContext)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        return DesktopAutomationResult.success(
-                "settings launch accepted", new JSONObject());
+        return AutomationToolWindows.open(SettingsActivity.createIntent(mContext), new JSONObject());
     }
 
     private DesktopAutomationResult openBuiltin(final JSONObject args)
             throws JSONException {
         final String builtin = requiredString(args, "builtin")
                 .toLowerCase(Locale.ROOT);
-        if (!DesktopRuntimeBridge.openBuiltin(builtin)) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.HOST_UNAVAILABLE,
-                    "desktop host or built-in window is unavailable", true,
-                    new JSONObject().put("builtin", builtin));
-        }
-        return DesktopAutomationResult.success(
-                "built-in window launch accepted",
-                new JSONObject().put("builtin", builtin));
+        return AutomationToolWindows.open(ToolApplications.intent(mContext, builtin), args);
     }
 
     private DesktopAutomationResult arrangeTask(final JSONObject args)
