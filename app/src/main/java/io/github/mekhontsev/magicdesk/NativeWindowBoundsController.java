@@ -49,9 +49,9 @@ final class NativeWindowBoundsController {
         }
     }
 
-    Rect getMaximizeRestoreBounds(final int taskId) {
-        final DesktopTaskRuntimeState state = mTaskStates.find(taskId);
-        return state == null ? null : state.maximizeRestoreBounds();
+    void rememberRestoreBounds(final TaskRepository.TaskEntry task) {
+        rememberRestoreBounds(mTaskStates.state(task.taskId), task.bounds,
+                getNativeCaptionSnapArea(), getTaskbarMaximizedBounds());
     }
 
     Rect getSnappedBounds(final boolean left) {
@@ -118,20 +118,20 @@ final class NativeWindowBoundsController {
     void requestBounds(
             final TaskRepository.TaskEntry task,
             final Rect targetBounds,
-            final boolean clearsMaximizeState) {
-        requestBounds(task, targetBounds, clearsMaximizeState, null);
+            final boolean preservesRestoreBounds) {
+        requestBounds(task, targetBounds, preservesRestoreBounds, null);
     }
 
     void requestBounds(
             final TaskRepository.TaskEntry task,
             final Rect targetBounds,
-            final boolean clearsMaximizeState,
+            final boolean preservesRestoreBounds,
             final TaskRepository.ActionCallback callback) {
         final int taskId = task.taskId;
         final DesktopTaskRuntimeState state = mTaskStates.state(taskId);
         final DesktopTaskRuntimeState.BoundsTransition transition =
                 state.beginBoundsTransition(
-                        targetBounds, clearsMaximizeState);
+                        targetBounds, preservesRestoreBounds);
         TaskRepository.resizeTaskBounds(
                 task,
                 targetBounds,
@@ -144,17 +144,20 @@ final class NativeWindowBoundsController {
                         complete(callback, result);
                         return;
                     }
+                    // The task service has completed the request. Do not keep
+                    // waiting for an exact rectangle that Android may constrain
+                    // or the user may have already moved beyond.
+                    state.clearBoundsTransition(transition);
                     if (!result.success) {
-                        state.clearBoundsTransition(transition);
-                        if (!clearsMaximizeState) {
-                            state.clearMaximizeRestoreBounds();
-                        }
                         Log.w(TAG,
                                 "native bounds transition failed task="
                                         + taskId
                                         + " message=" + result.message);
                         complete(callback, result);
                         return;
+                    }
+                    if (!preservesRestoreBounds) {
+                        state.clearWindowRestoreBounds();
                     }
                     mRuntimeState.scheduleRefresh();
                     complete(callback, result);
@@ -174,7 +177,6 @@ final class NativeWindowBoundsController {
             return;
         }
         final int displayId = mRuntimeState.displayId();
-        final Rect fullscreenBounds = getFullscreenBounds();
         final Rect nativeCaptionSnapArea = getNativeCaptionSnapArea();
         final Rect maximizedBounds = getTaskbarMaximizedBounds();
         for (final TaskRepository.TaskEntry task : tasks) {
@@ -197,11 +199,11 @@ final class NativeWindowBoundsController {
             if (transition != null) {
                 if (task.bounds.equals(transition.targetBounds())) {
                     state.clearBoundsTransition(transition);
-                    if (transition.clearsMaximizeState) {
-                        state.clearMaximizeRestoreBounds();
-                        state.setLastWindowBounds(
-                                transition.targetBounds());
+                    if (!transition.preservesRestoreBounds) {
+                        state.clearWindowRestoreBounds();
                     }
+                    observeBounds(state, task.bounds,
+                            nativeCaptionSnapArea, maximizedBounds);
                 }
                 continue;
             }
@@ -219,52 +221,59 @@ final class NativeWindowBoundsController {
                 // ignore the MagicDesk taskbar. Preserve Android's horizontal
                 // result, including application minimum width, and reserve
                 // only the taskbar-owned vertical area.
+                rememberRestoreBounds(state, task.bounds,
+                        nativeCaptionSnapArea, maximizedBounds);
                 requestBounds(task, correctedSnapBounds, true);
                 continue;
             }
-
-            final Rect restoreBounds = state.maximizeRestoreBounds();
-            if (task.bounds.equals(fullscreenBounds)) {
-                if (restoreBounds != null) {
-                    requestBounds(task, restoreBounds, true);
-                } else {
-                    Rect previousBounds = state.lastWindowBounds();
-                    if (previousBounds == null || previousBounds.isEmpty()
-                            || previousBounds.equals(fullscreenBounds)
-                            || previousBounds.equals(maximizedBounds)) {
-                        previousBounds =
-                                getDefaultWindowBounds(maximizedBounds);
-                    }
-                    state.setMaximizeRestoreBounds(previousBounds);
-                    requestBounds(task, maximizedBounds, false);
-                }
-                continue;
-            }
-
-            if (restoreBounds != null) {
-                if (!task.bounds.equals(maximizedBounds)) {
-                    Log.d(TAG,
-                            "preserve native maximize task=" + task.taskId
-                                    + " unexpectedBounds=" + task.bounds);
-                    requestBounds(task, maximizedBounds, false);
-                }
-                continue;
-            }
-
             if (task.hasCrossPackageTopActivity()) {
                 continue;
             }
-
-            if (task.bounds.equals(maximizedBounds)) {
-                Rect previousBounds = state.lastWindowBounds();
-                if (previousBounds == null || previousBounds.isEmpty()) {
-                    previousBounds = getDefaultWindowBounds(maximizedBounds);
-                }
-                state.setMaximizeRestoreBounds(previousBounds);
-            } else {
-                state.setLastWindowBounds(task.bounds);
-            }
+            observeBounds(state, task.bounds,
+                    nativeCaptionSnapArea, maximizedBounds);
         }
+    }
+
+    static void observeBounds(
+            final DesktopTaskRuntimeState state,
+            final Rect bounds,
+            final Rect nativeSnapArea,
+            final Rect workArea) {
+        if (occupiesHeight(bounds, nativeSnapArea)
+                || occupiesHeight(bounds, workArea)) {
+            rememberRestoreBounds(state, bounds, nativeSnapArea, workArea);
+        } else {
+            // Restore history is not a constraint on subsequent native moves
+            // or resizes. The newly observed ordinary geometry is authoritative.
+            state.clearWindowRestoreBounds();
+            state.setLastWindowBounds(bounds);
+        }
+    }
+
+    private static void rememberRestoreBounds(
+            final DesktopTaskRuntimeState state,
+            final Rect bounds,
+            final Rect nativeSnapArea,
+            final Rect workArea) {
+        if (state.windowRestoreBounds() != null) {
+            return;
+        }
+        Rect previous = bounds;
+        if (occupiesHeight(previous, nativeSnapArea)
+                || occupiesHeight(previous, workArea)) {
+            previous = state.lastWindowBounds();
+        }
+        if (previous == null || previous.isEmpty()
+                || occupiesHeight(previous, nativeSnapArea)
+                || occupiesHeight(previous, workArea)) {
+            previous = getDefaultWindowBounds(workArea);
+        }
+        state.setWindowRestoreBounds(previous);
+    }
+
+    private static boolean occupiesHeight(final Rect bounds, final Rect area) {
+        return bounds != null && area != null
+                && bounds.top == area.top && bounds.bottom == area.bottom;
     }
 
     static Rect correctNativeCaptionSnapBounds(
@@ -320,7 +329,7 @@ final class NativeWindowBoundsController {
         return bounds;
     }
 
-    private Rect getDefaultWindowBounds(final Rect workArea) {
+    private static Rect getDefaultWindowBounds(final Rect workArea) {
         final int width = Math.min(
                 1200,
                 Math.max(

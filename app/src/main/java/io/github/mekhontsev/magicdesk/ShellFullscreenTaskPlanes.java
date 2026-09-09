@@ -27,11 +27,11 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
     private final Set<TaskDisplayAreaHandle> mUnconfirmedPlanes =
             new LinkedHashSet<>();
     private final List<Integer> mPlaneOrder = new ArrayList<>();
+    private final Map<Integer, Integer> mCommittedPlaneLayers = new LinkedHashMap<>();
     private Object mService;
     private int mDisplayId = -1;
     private int mNextPlaneSlotId;
     private boolean mConcealedForShowDesktop;
-    private boolean mPlanesBelowWorkspace = true;
     private final ShellDesktopSurfaceOrder mSurfaceOrder;
 
     ShellFullscreenTaskPlanes(final ShellDesktopSurfaceOrder surfaceOrder) {
@@ -163,6 +163,158 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                     "cannot enter fullscreen task=" + taskId + ": "
                             + error.getMessage(), error);
         }
+    }
+
+    synchronized void adoptFullscreenTask(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final ShellDesktopTaskOwnership ownership) {
+        if (displayId != mDisplayId || taskId < 0 || ownsTask(taskId)) {
+            return;
+        }
+        TaskDisplayAreaHandle acquired = null;
+        boolean submitted = false;
+        try {
+            final Object candidate = HiddenTaskApi.findTask(service, displayId, taskId);
+            if (candidate == null || !ownership.isDesktopTask(candidate)
+                    || HiddenTaskApi.getTaskWindowingMode(candidate)
+                            != WINDOWING_MODE_FULLSCREEN) {
+                return;
+            }
+            mService = service;
+            acquired = acquirePlane(service, displayId);
+            // Finish the native mode change and the anchor's launch before
+            // reading placement. Never replay the focus captured by its event.
+            FrameworkWindowCommitBarrier.awaitSystemTransitions();
+            final List<FrameworkTaskSnapshot> tasks =
+                    FrameworkTaskSnapshotSource.readWindowState(service, displayId, 100);
+            FrameworkTaskSnapshot entering = null;
+            int hostRootTaskId = -1;
+            for (final FrameworkTaskSnapshot task : tasks) {
+                if (task.taskId == taskId) {
+                    entering = task;
+                }
+                if (task.taskId == ownership.desktopHostTaskId()) {
+                    // HOME can be a leaf below Android's separate HOME root.
+                    // Workspace order contains roots, not Activity task IDs.
+                    hostRootTaskId = task.rootTaskId;
+                }
+            }
+            if (entering == null || entering.windowingMode != WINDOWING_MODE_FULLSCREEN
+                    || !ownership.isDesktopTask(entering.task)) {
+                return;
+            }
+            if (entering.rootTaskId != taskId) {
+                throw new IllegalStateException("native fullscreen task is not a root: " + taskId);
+            }
+            final Map<Integer, Integer> areaTasks = new LinkedHashMap<>();
+            for (final Map.Entry<Integer, TaskDisplayAreaHandle> entry : mPlanes.entrySet()) {
+                areaTasks.put(entry.getValue().featureId(), entry.getKey());
+            }
+            final List<Integer> order = adoptionWorkspaceOrder(
+                    tasks, entering.displayAreaFeatureId, areaTasks);
+            final int taskPosition = order.indexOf(Integer.valueOf(taskId));
+            final int hostPosition = order.indexOf(Integer.valueOf(hostRootTaskId));
+            if (taskPosition < 0 || hostPosition < 0) {
+                throw new IllegalStateException("native fullscreen workspace is incomplete: task="
+                        + taskId + " home=" + ownership.desktopHostTaskId()
+                        + " homeRoot=" + hostRootTaskId + " roots=" + order);
+            }
+            final boolean belowHome = taskPosition < hostPosition;
+            final FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
+            final Object transaction = windowing.newTransaction();
+            windowing.setWindowingMode(transaction, acquired.token(), WINDOWING_MODE_FULLSCREEN);
+            windowing.setFocusable(transaction, acquired.token(), entering.focused);
+            windowing.reparent(transaction,
+                    HiddenTaskApi.getTaskToken(entering.task), acquired.token(), true);
+            // Replace just this root with its plane. Reassert the siblings
+            // above it in their existing order, without raising their parents.
+            windowing.reorder(transaction, acquired.token(), true);
+            for (int index = taskPosition + 1; index < order.size(); index++) {
+                final int aboveTaskId = order.get(index).intValue();
+                final TaskDisplayAreaHandle plane = mPlanes.get(Integer.valueOf(aboveTaskId));
+                final Object token = plane == null
+                        ? HiddenTaskApi.requireRootTaskToken(service, displayId, aboveTaskId)
+                        : plane.token();
+                windowing.reorder(transaction, token, true, false);
+            }
+            mPlanes.put(Integer.valueOf(taskId), acquired);
+            mUnconfirmedPlanes.add(acquired);
+            submitted = true;
+            ShellWindowTransitionExecutor.applyAtomic(
+                    service, windowing.transactionClass(), transaction);
+            waitForTaskInsidePlane(service, displayId, taskId, acquired.featureId());
+            mUnconfirmedPlanes.remove(acquired);
+            final Map<Integer, Integer> layers = adoptionSurfaceLayers(
+                    mCommittedPlaneLayers, order, taskId, belowHome);
+            applySurfaceLayers(layers, mPlanes);
+            mPlaneOrder.clear();
+            mPlaneOrder.addAll(layers.keySet());
+            Log.i(TAG, "adopted native fullscreen task=" + taskId
+                    + " display=" + displayId + " belowHome=" + belowHome);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException("cannot adopt native fullscreen task=" + taskId, error);
+        } finally {
+            if (acquired != null && !submitted) {
+                try {
+                    parkPlane(service, acquired);
+                } catch (ReflectiveOperationException | RuntimeException error) {
+                    // The anchor registry retains it for cleanup. Failed
+                    // emptiness verification must not publish a reusable slot.
+                    Log.w(TAG, "could not park unused native fullscreen slot", error);
+                }
+            }
+        }
+    }
+
+    static List<Integer> adoptionWorkspaceOrder(
+            final List<FrameworkTaskSnapshot> topFirstTasks,
+            final int sourceAreaId,
+            final Map<Integer, Integer> planeTasksByArea) {
+        final Set<Integer> roots = new LinkedHashSet<>();
+        for (final FrameworkTaskSnapshot task : topFirstTasks) {
+            final Integer planeTask = planeTasksByArea.get(Integer.valueOf(task.displayAreaFeatureId));
+            if (planeTask != null) {
+                roots.add(planeTask);
+            } else if (task.displayAreaFeatureId == sourceAreaId) {
+                roots.add(Integer.valueOf(task.rootTaskId));
+            }
+        }
+        final List<Integer> order = new ArrayList<>(roots);
+        Collections.reverse(order);
+        return order;
+    }
+
+    static Map<Integer, Integer> adoptionSurfaceLayers(
+            final Map<Integer, Integer> committed,
+            final List<Integer> workspaceOrder,
+            final int taskId,
+            final boolean belowHome) {
+        final List<Integer> below = new ArrayList<>();
+        final List<Integer> above = new ArrayList<>();
+        for (final Map.Entry<Integer, Integer> entry : committed.entrySet()) {
+            (entry.getValue().intValue() < 0 ? below : above).add(entry.getKey());
+        }
+        final List<Integer> peers = belowHome ? below : above;
+        int insertion = peers.size();
+        for (int index = workspaceOrder.indexOf(Integer.valueOf(taskId)) + 1;
+                index < workspaceOrder.size(); index++) {
+            final int peer = peers.indexOf(workspaceOrder.get(index));
+            if (peer >= 0) {
+                insertion = peer;
+                break;
+            }
+        }
+        peers.add(insertion, Integer.valueOf(taskId));
+        final Map<Integer, Integer> layers = new LinkedHashMap<>();
+        for (int index = 0; index < below.size(); index++) {
+            layers.put(below.get(index), Integer.valueOf(index - below.size()));
+        }
+        for (int index = 0; index < above.size(); index++) {
+            layers.put(above.get(index), Integer.valueOf(index + 1));
+        }
+        return layers;
     }
 
     synchronized int launchFullscreen(
@@ -1080,7 +1232,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 composedFullscreenBackground(
                         foreground.fullscreenTaskId,
                         mPlaneOrder,
-                        mPlanesBelowWorkspace),
+                        planesBelowWorkspace()),
                 targetIsFreeform);
     }
 
@@ -1259,7 +1411,15 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             throws ReflectiveOperationException {
         applySurfaceLayers(
                 surfaceLayers(taskIds, planes.keySet(), belowWorkspace), planes);
-        mPlanesBelowWorkspace = belowWorkspace;
+    }
+
+    private boolean planesBelowWorkspace() {
+        for (final Integer layer : mCommittedPlaneLayers.values()) {
+            if (layer.intValue() > 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void applySurfaceOrderBelowWorkspace(
@@ -1310,14 +1470,21 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
             final Map<Integer, TaskDisplayAreaHandle> planes)
             throws ReflectiveOperationException {
         final Map<TaskDisplayAreaHandle, Integer> assignments = new LinkedHashMap<>();
+        final Map<Integer, Integer> retained = new LinkedHashMap<>();
         for (final Map.Entry<Integer, Integer> entry : layers.entrySet()) {
-            assignments.put(planes.get(entry.getKey()), entry.getValue());
+            final TaskDisplayAreaHandle plane = planes.get(entry.getKey());
+            if (plane != null) {
+                assignments.put(plane, entry.getValue());
+                retained.put(entry.getKey(), entry.getValue());
+            }
         }
         int idleLayer = -mPlaneAnchorTaskIds.size();
         for (final TaskDisplayAreaHandle plane : mAvailablePlanes) {
             assignments.put(plane, Integer.valueOf(idleLayer++));
         }
         mSurfaceOrder.applyLayers(assignments);
+        mCommittedPlaneLayers.clear();
+        mCommittedPlaneLayers.putAll(retained);
     }
 
     private void closeWithSuccessor(
@@ -1765,7 +1932,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
                 service, transactionClass, transaction);
         // Retiring one plane preserves the remaining composition, including
         // a fullscreen background whose freeform foreground now owns focus.
-        applySurfaceOrder(toIntArray(mPlaneOrder), mPlanes, mPlanesBelowWorkspace);
+        applySurfaceLayers(mCommittedPlaneLayers, mPlanes);
         if (!mAvailablePlanes.contains(plane)) {
             mAvailablePlanes.add(plane);
         }
@@ -1840,7 +2007,7 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         mAvailablePlanes.clear();
         mUnconfirmedPlanes.clear();
         mPlaneOrder.clear();
-        mPlanesBelowWorkspace = true;
+        mCommittedPlaneLayers.clear();
         mService = null;
         mNextPlaneSlotId = 0;
         mConcealedForShowDesktop = false;

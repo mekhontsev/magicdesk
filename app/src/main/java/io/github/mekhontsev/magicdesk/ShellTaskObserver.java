@@ -256,12 +256,23 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                             final int currentMode,
                             final int previousCaptionSourceId,
                             final boolean focused) {
-                        final boolean backgroundAppFullscreenReleased =
-                                mFullscreenTaskArea.onWindowingModeChanged(
-                                        displayId,
-                                        taskId,
-                                        currentMode,
-                                        focused);
+                        boolean released = false;
+                        try {
+                            released = mFullscreenTaskArea.onWindowingModeChanged(
+                                    mService,
+                                    displayId,
+                                    taskId,
+                                    currentMode,
+                                    focused);
+                        } catch (RuntimeException error) {
+                            // Ownership failure must not discard the observed
+                            // mode or the caption source needed by UI policy.
+                            Log.w(TAG, "fullscreen ownership update failed task=" + taskId, error);
+                            callCallback(() -> mCallback.onObserverError(
+                                    "fullscreen ownership update failed task=" + taskId
+                                            + " display=" + displayId + ": " + error.getMessage()));
+                        }
+                        final boolean backgroundAppFullscreenReleased = released;
                         mSelfTestTaskStackGuard.sample("windowing-mode");
                         if (!mDesktopOwnership.isRememberedDesktopTask(
                                 taskId)) {

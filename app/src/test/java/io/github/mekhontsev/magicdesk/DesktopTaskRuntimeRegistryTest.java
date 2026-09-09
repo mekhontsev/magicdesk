@@ -47,7 +47,7 @@ public final class DesktopTaskRuntimeRegistryTest {
                 new DesktopTaskRuntimeRegistry();
         final DesktopTaskRuntimeState state = registry.state(42);
         state.setLastWindowBounds(rect(1, 2, 3, 4));
-        state.setMaximizeRestoreBounds(rect(5, 6, 7, 8));
+        state.setWindowRestoreBounds(rect(5, 6, 7, 8));
         state.beginBoundsTransition(rect(9, 10, 11, 12), true);
         state.setFullscreenRestoreBounds(rect(13, 14, 15, 16));
         state.setManualImmersiveOverride(true);
@@ -55,7 +55,7 @@ public final class DesktopTaskRuntimeRegistryTest {
         registry.clearNativeBoundsState();
 
         assertNull(state.lastWindowBounds());
-        assertNull(state.maximizeRestoreBounds());
+        assertRect(5, 6, 7, 8, state.windowRestoreBounds());
         assertNull(state.boundsTransition());
         assertRect(13, 14, 15, 16,
                 state.fullscreenRestoreBounds());

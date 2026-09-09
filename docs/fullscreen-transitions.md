@@ -27,6 +27,26 @@ explicit failure; UI callers do not bypass fullscreen ownership through a raw
 `TaskRepository` fallback. Developer-only raw automation remains separate from
 the semantic gateway.
 
+Native caption actions can leave a desktop-owned task fullscreen in the
+standard workspace before any MagicDesk command acquires an ordering plane.
+The existing mode-change observer passes this event to the plane owner. Native
+adoption waits at the framework transition barrier, rechecks the live task,
+and replaces its root with an owned plane at the same workspace position.
+HOME's position comes from its typed root identity, which can differ from the
+registered HOME Activity's task ID. An ownership failure is reported without
+discarding the observed mode event or its captured caption source, so caption
+repair remains independent of successful plane adoption.
+It does not invoke activation, change task mode or bounds, relaunch the
+Activity, or claim unrelated phone tasks. A stale event whose task has already
+left fullscreen releases its unused reservation. An uncertain submitted
+reparent retains its reservation until the existing recovery path verifies it.
+
+The restore boundary chooses from actual shell ownership: an owned plane uses
+the per-plane exit, while a task without one returns to freeform in place
+through the existing WMShell `CHANGE` transaction. Both paths confirm the
+requested freeform bounds. A failed plane exit never falls through to the
+in-place path, and an unrelated phone task is not claimed by restoration.
+
 RedMagic external desktop windowing can retain a native caption inset after a task
 changes from freeform to fullscreen. The task and application window already
 have full-display bounds, but application content can still begin below a stale
@@ -191,8 +211,10 @@ normal roots, even when our hierarchy explicitly demotes a fullscreen plane
 below HOME. Publishing that plane's negative layer before native finish lets
 WM overwrite it and leaves the demoted application visible behind freeforms.
 
-The plane owner retains the last committed placement relative to HOME together
-with its plane order. A parked empty plane cannot infer the remaining surfaces'
+The plane owner retains the last committed surface layers together with its
+plane order. Native adoption can place one background task below HOME while
+an existing fullscreen foreground remains above it. A parked empty plane
+preserves those individual layers; it cannot infer the remaining surfaces'
 placement from input focus: a freeform foreground can still have a fullscreen
 background. Native selection also puts covered planes below HOME in the root
 hierarchy, without replacing their explicitly composed surface order. Mixed

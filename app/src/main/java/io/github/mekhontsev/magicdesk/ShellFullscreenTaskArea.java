@@ -159,16 +159,32 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
         if (restoreBounds == null || restoreBounds.isEmpty()) {
             return false;
         }
-        final boolean restored = mPlanes.restoreFreeform(
-                service,
-                displayId,
-                taskId,
-                restoreBounds,
-                densityDpi);
-        if (restored) {
-            mAppRestoreBounds.remove(taskKey);
+        try {
+            final Object task = HiddenTaskApi.requireTask(
+                    service, displayId, taskId);
+            if (!mOwnership.isDesktopTask(task)) {
+                return false;
+            }
+            if (mPlanes.ownsTask(taskId)) {
+                if (!mPlanes.restoreFreeform(
+                        service, displayId, taskId, restoreBounds, densityDpi)) {
+                    return false;
+                }
+            } else {
+                // Native caption controls can enter fullscreen without a
+                // MagicDesk plane. Restore in place; there is no owned parent
+                // to detach or release, and no reason to create one first.
+                ShellPreparedTaskTransition.applyFreeform(
+                        service, displayId, taskId, restoreBounds, densityDpi);
+                TaskDisplayAreaLaunchCommand.waitForTaskFreeformBounds(
+                        service, displayId, taskId, restoreBounds);
+            }
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "could not restore desktop task=" + taskId, error);
+            return false;
         }
-        return restored;
+        mAppRestoreBounds.remove(taskKey);
+        return true;
     }
 
     synchronized ShellFullscreenTaskArea.CloseResult closeTask(
@@ -190,12 +206,16 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
     }
 
     synchronized boolean onWindowingModeChanged(
+            final Object service,
             final int displayId,
             final int taskId,
             final int windowingMode,
             final boolean focused) {
         if (displayId != mDisplayId) {
             return false;
+        }
+        if (windowingMode == WINDOWING_MODE_FULLSCREEN) {
+            mPlanes.adoptFullscreenTask(service, displayId, taskId, mOwnership);
         }
         mPlanes.onWindowingModeChanged(displayId, taskId, windowingMode);
         final Integer taskKey = Integer.valueOf(taskId);

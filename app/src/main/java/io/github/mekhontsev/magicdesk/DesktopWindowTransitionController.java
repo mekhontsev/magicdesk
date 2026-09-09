@@ -371,15 +371,7 @@ final class DesktopWindowTransitionController {
             snapFullscreenTask(task, left);
             return;
         }
-        final DesktopTaskRuntimeState state =
-                mTaskStates.state(task.taskId);
-        if (state.windowRestoreBounds() == null) {
-            final Rect nativeRestoreBounds =
-                    mNativeWindowBounds.getMaximizeRestoreBounds(task.taskId);
-            state.setWindowRestoreBounds(
-                    nativeRestoreBounds != null
-                            ? nativeRestoreBounds : task.bounds);
-        }
+        mNativeWindowBounds.rememberRestoreBounds(task);
         mNativeWindowBounds.requestBounds(
                 task, mNativeWindowBounds.getSnappedBounds(left), true);
     }
@@ -388,19 +380,7 @@ final class DesktopWindowTransitionController {
             final TaskRepository.TaskEntry task,
             final Rect targetBounds,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntimeState state =
-                mTaskStates.state(task.taskId);
-        mNativeWindowBounds.requestBounds(
-                task,
-                targetBounds,
-                true,
-                result -> {
-                    if (result.success
-                            && mTaskStates.isCurrent(task.taskId, state)) {
-                        state.clearWindowRestoreBounds();
-                    }
-                    complete(callback, result.success, result.message);
-                });
+        mNativeWindowBounds.requestBounds(task, targetBounds, false, callback);
     }
 
     private void snapFullscreenTask(
@@ -444,7 +424,9 @@ final class DesktopWindowTransitionController {
                                         + " message=" + result.message);
                         return;
                     }
-                    state.setWindowRestoreBounds(restoreBounds);
+                    if (state.windowRestoreBounds() == null) {
+                        state.setWindowRestoreBounds(restoreBounds);
+                    }
                     state.clearFullscreenRestoreBounds();
                     state.setAppRequestedFullscreen(false);
                     rememberWindowed(task, targetBounds, workAreaBounds);
@@ -475,7 +457,7 @@ final class DesktopWindowTransitionController {
                 restoreFullscreenTask(task, true);
                 break;
             case RESTORE_WINDOW_BOUNDS:
-                resize(task, savedBounds, true);
+                setWindowBounds(task, savedBounds, null);
                 break;
             case DEMOTE:
                 mRuntimeState.demoteTask(task.taskId);
@@ -483,33 +465,6 @@ final class DesktopWindowTransitionController {
             default:
                 throw new IllegalStateException("unknown restore action");
         }
-    }
-
-    private void resize(
-            final TaskRepository.TaskEntry task,
-            final Rect targetBounds,
-            final boolean clearRestoreBounds) {
-        final DesktopTaskRuntimeState state =
-                mTaskStates.state(task.taskId);
-        TaskRepository.resizeTaskBounds(
-                task,
-                targetBounds,
-                result -> mHandler.post(() -> {
-                    if (!mTaskStates.isCurrent(task.taskId, state)) {
-                        return;
-                    }
-                    if (!result.success) {
-                        Log.w(TAG,
-                                "native bounds change failed task="
-                                        + task.taskId
-                                        + " message=" + result.message);
-                        return;
-                    }
-                    if (clearRestoreBounds) {
-                        state.clearWindowRestoreBounds();
-                    }
-                    mRuntimeState.scheduleRefresh();
-                }));
     }
 
     private void makeFullscreen(

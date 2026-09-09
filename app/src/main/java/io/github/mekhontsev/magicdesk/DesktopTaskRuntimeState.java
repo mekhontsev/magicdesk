@@ -13,13 +13,13 @@ final class DesktopTaskRuntimeState {
 
     static final class BoundsTransition {
         private final Rect mTargetBounds;
-        final boolean clearsMaximizeState;
+        final boolean preservesRestoreBounds;
 
         BoundsTransition(
                 final Rect targetBounds,
-                final boolean clearsMaximizeState) {
+                final boolean preservesRestoreBounds) {
             mTargetBounds = copy(targetBounds);
-            this.clearsMaximizeState = clearsMaximizeState;
+            this.preservesRestoreBounds = preservesRestoreBounds;
         }
 
         Rect targetBounds() {
@@ -30,7 +30,6 @@ final class DesktopTaskRuntimeState {
     private final int mTaskId;
 
     private Rect mLastWindowBounds;
-    private Rect mMaximizeRestoreBounds;
     private BoundsTransition mBoundsTransition;
     private Rect mWindowRestoreBounds;
     private Rect mFullscreenRestoreBounds;
@@ -61,23 +60,11 @@ final class DesktopTaskRuntimeState {
         mLastWindowBounds = copy(bounds);
     }
 
-    synchronized Rect maximizeRestoreBounds() {
-        return copy(mMaximizeRestoreBounds);
-    }
-
-    synchronized void setMaximizeRestoreBounds(final Rect bounds) {
-        mMaximizeRestoreBounds = copy(bounds);
-    }
-
-    synchronized void clearMaximizeRestoreBounds() {
-        mMaximizeRestoreBounds = null;
-    }
-
     synchronized BoundsTransition beginBoundsTransition(
             final Rect targetBounds,
-            final boolean clearsMaximizeState) {
+            final boolean preservesRestoreBounds) {
         mBoundsTransition = new BoundsTransition(
-                targetBounds, clearsMaximizeState);
+                targetBounds, preservesRestoreBounds);
         return mBoundsTransition;
     }
 
@@ -99,7 +86,6 @@ final class DesktopTaskRuntimeState {
 
     synchronized void clearNativeBoundsState() {
         mLastWindowBounds = null;
-        mMaximizeRestoreBounds = null;
         mBoundsTransition = null;
     }
 
