@@ -1,25 +1,20 @@
 # MagicDesk
 
-MagicDesk is an open-source Android workspace: native multi-window Desktop,
-Files, shell and Termux terminals, and permission-controlled automation.
-Tools and automation can run without Desktop; a display can exist without
-either a desktop session or a connected viewer.
+**An open-source Android workstation.**
+
+MagicDesk brings native Android app windows, independent Termux terminals, a
+real file-based desktop, and programmable automation into one connected
+workspace. Work directly on your phone, on an external display, or from a
+computer through scrcpy.
+
+Run Android apps and command-line tools side by side. Move content between
+Files, terminals and Android apps. Let an authorized AI client use the same
+services you use interactively. Desktop is one way to work with these tools,
+not a requirement for using them.
 
 The APK requires **Android 14+**. Managed **Desktop requires Android 15+**.
 Privileged operations use [Shizuku](https://github.com/RikkaApps/Shizuku);
 root is not required.
-
-MagicDesk's core is vendor-independent. Windows, physical input routing, phone
-IME integration, HOME ownership, displays, files and automation use shared
-Android mechanisms, including hidden framework APIs through the authorized
-shell service. Optional firmware and SoC adapters add narrowly scoped features;
-they do not define a separate desktop implementation.
-
-This is not a promise that every Android device works identically. Framework
-capabilities, external video support and firmware defects still matter.
-See [tested coverage and limitations](docs/compatibility.md) and the
-[API-level contract](docs/runtime-api-levels.md). Android 14 device validation
-is pending; the native helpers currently target ARM64.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -31,11 +26,44 @@ not yet include every feature below.
 
 ![MagicDesk with native application windows and the calendar panel](docs/images/magicdesk-desktop.png)
 
+## One Connected Workspace
+
+MagicDesk's strength is how its parts work together:
+
+- **Android apps and command-line tools share a desktop.** Keep a browser,
+  editor, file manager and several Termux terminals in separate native windows,
+  with task switching, keyboard shortcuts and per-app interface scale.
+- **Files connect the tools.** The desktop is a real folder. Files, clipboard,
+  drag and drop, Android sharing and command launchers work with the same
+  content, so a file can move from a terminal workflow to an Android app without
+  a separate export workspace.
+- **Commands become applications.** A Termux or shell command saved as a
+  `.desktop` file appears in Start, can accept dropped files and, with declared
+  MIME types, becomes an **Open with** handler in Files. One definition serves
+  all three entry points.
+- **Work is not tied to an open desktop.** Files and terminals also run on their
+  own. Close Desktop without ending retained terminal sessions, then reattach
+  their windows. A virtual display can remain available to scrcpy independently
+  of the desktop session.
+- **The workspace is programmable.** Authorized MCP clients can inspect state,
+  manage windows, work with files and terminals, invoke Android actions and
+  compose workflows through the same services as the UI. Automation can also
+  run without Desktop, locally or over an explicitly enabled network connection.
+
+During an external desktop session, the phone remains useful in its own right:
+its Start launches fullscreen phone apps independently, or it can serve as a
+touchpad and show your normal Android keyboard for an external app.
+
 ## Native Android Desktop
 
-Applications remain real Android tasks. MagicDesk does not stream them into
-replacement views or run a guest operating system. Android and WMShell own
-their native captions, input, rendering and application lifecycle.
+Applications remain real Android tasks, with native captions, input, rendering
+and application lifecycle owned by Android and WMShell.
+
+The core is vendor-independent: windows, input, displays, files and automation
+use shared Android mechanisms, including hidden framework APIs through Shizuku.
+Optional firmware and SoC adapters add focused capabilities to the same
+implementation. You keep your Android applications, system keyboard and Termux
+environment.
 
 - Use Desktop on the phone, a wired monitor, an Android wireless display, or a
   MagicDesk-created virtual display.
@@ -65,10 +93,10 @@ session is active at a time.
 
 ## Tools Without Desktop
 
-Open tools directly from Phone Control Panel, on the phone or a selected
-display. They use ordinary fullscreen Activities outside a managed session and
-the existing window controller inside one. Opening a tool does not acquire
-HOME or run Desktop setup.
+Open Files or a terminal directly from Phone Control Panel, on the phone or a
+selected display. No Desktop setup is needed: tools use ordinary fullscreen
+Activities outside a managed session and the existing window controller inside
+one. Opening a tool does not acquire HOME.
 
 ### Files And Content
 
@@ -175,6 +203,12 @@ See [Automation and MCP](docs/automation.md) for configuration, permissions,
 transfer/update protocols and test control.
 
 ## Requirements And Setup
+
+The APK requires **Android 14+**; managed **Desktop requires Android 15+**.
+The native helpers currently target ARM64. Android 14 device validation is
+pending. Windowing capabilities, external video support and firmware behavior
+vary by device; see [tested coverage and limitations](docs/compatibility.md)
+and the [API-level contract](docs/runtime-api-levels.md).
 
 | Use | Requirements beyond installing the APK |
 | --- | --- |
