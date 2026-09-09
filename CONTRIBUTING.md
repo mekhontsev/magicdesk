@@ -66,6 +66,15 @@ Run the complete local verification before submitting a change:
 ./gradlew verifyDevelopment
 ```
 
+Source checkout uses LF on every host. Runtime fixtures normalize javac's
+host-specific method rendering before compiling extracted production bodies.
+Identity-sensitive filesystem tests use Jimfs for inode and symlink semantics;
+transfer journals still use real temporary files. These are test-only
+dependencies and do not change Android storage behavior. Tests that execute
+POSIX shell commands or resolve live process directories require a Unix shell
+or procfs respectively; their pure validation cases also run on Windows.
+CI retains unit-test XML and HTML reports even when verification fails.
+
 Python client and SDK-audit fixtures use the standard library:
 
 ```sh

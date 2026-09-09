@@ -202,6 +202,17 @@ jobs:
             app/build/reports/lint-results-release.html
             kernel-fixes/build/reports/lint-results-release.html
 
+      - name: Upload Linux test reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: linux-test-reports
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            **/build/test-results/**/*.xml
+            **/build/reports/tests/**
+
   windows-smoke:
     runs-on: windows-2025
     timeout-minutes: 30
@@ -234,6 +245,17 @@ jobs:
       - name: Verify Windows build
         shell: pwsh
         run: .\gradlew.bat --no-daemon verifyDevelopment
+
+      - name: Upload Windows test reports
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: windows-test-reports
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            **/build/test-results/**/*.xml
+            **/build/reports/tests/**
 
   publish-development:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

@@ -51,6 +51,7 @@ public final class DesktopExecWorkingDirectoryTest {
 
     @Test
     public void successfulDirectoryChangePreservesQuotingScriptAndExitStatus() throws Exception {
+        requirePosixHost();
         final String directory = temporary.newFolder("space ' quote").getAbsolutePath();
         final var result = run(DesktopExecWorkingDirectory.shellCommand(
                 "printf '%s\\n' \"$PWD\"\ncat <<'END'\nraw $text; 'quoted'\nEND\nexit 7",
@@ -60,6 +61,7 @@ public final class DesktopExecWorkingDirectoryTest {
     }
 
     private void assertFailedDirectoryStopsCommand(final String prefix) throws Exception {
+        requirePosixHost();
         final Path marker = temporary.getRoot().toPath().resolve("executed");
         final Path missing = temporary.getRoot().toPath().resolve("missing");
         final String command = prefix + "printf bad > " + ShellCommandLine.quote(marker.toString());
@@ -68,9 +70,12 @@ public final class DesktopExecWorkingDirectoryTest {
         assertNotEquals(result.output, 0, result.exitCode);
     }
 
-    private static BoundedProcessRunner.Result run(final String command) throws Exception {
-        // Execute the prepared script on the host, without Android or a desktop session.
+    private static void requirePosixHost() {
+        // Check before passing host-native paths to the Android shell contract.
         assumeTrue(!System.getProperty("os.name").startsWith("Windows"));
+    }
+
+    private static BoundedProcessRunner.Result run(final String command) throws Exception {
         final String prefix = System.getenv("PREFIX");
         final Path shell = prefix == null ? Path.of("/bin/sh") : Path.of(prefix, "bin", "sh");
         assertTrue(Files.isExecutable(shell));

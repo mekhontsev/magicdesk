@@ -6,9 +6,11 @@ import com.sun.source.tree.TryTree;
 import com.sun.source.util.JavacTask;
 import com.sun.source.util.TreeScanner;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URLClassLoader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -32,7 +34,8 @@ final class RuntimeSourceFixture {
         final JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         final List<String> requested = Arrays.asList(names);
         final StringBuilder methods = new StringBuilder();
-        try (StandardJavaFileManager files = compiler.getStandardFileManager(null, null, null)) {
+        try (StandardJavaFileManager files = compiler.getStandardFileManager(
+                null, null, StandardCharsets.UTF_8)) {
             final JavacTask task = (JavacTask) compiler.getTask(null, files, null,
                     List.of("-proc:none"), null,
                     files.getJavaFileObjects(Path.of(MAIN + file + ".java").toFile()));
@@ -40,7 +43,7 @@ final class RuntimeSourceFixture {
                 new TreeScanner<Void, Void>() {
                     @Override public Void visitMethod(final MethodTree method, final Void unused) {
                         if (requested.contains(method.getName().toString())) {
-                            methods.append(method.toString().replace("@Override\n", ""))
+                            methods.append(standaloneMethod(method.toString()))
                                     .append('\n');
                         }
                         return super.visitMethod(method, unused);
@@ -51,6 +54,11 @@ final class RuntimeSourceFixture {
         return methods.toString();
     }
 
+    static String standaloneMethod(final String source) {
+        // Javac's tree printer uses host line endings even for LF source files.
+        return source.replace("\r\n", "\n").replace("@Override\n", "");
+    }
+
     static void verify(final String members) throws Exception {
         verify("io.github.mekhontsev.magicdesk", members, new String[0]);
     }
@@ -58,7 +66,8 @@ final class RuntimeSourceFixture {
     static String finallyBlock(final String file, final String methodName) throws IOException {
         final JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         final StringBuilder result = new StringBuilder();
-        try (StandardJavaFileManager files = compiler.getStandardFileManager(null, null, null)) {
+        try (StandardJavaFileManager files = compiler.getStandardFileManager(
+                null, null, StandardCharsets.UTF_8)) {
             final JavacTask task = (JavacTask) compiler.getTask(null, files, null,
                     List.of("-proc:none"), null,
                     files.getJavaFileObjects(Path.of(MAIN + file + ".java").toFile()));
@@ -97,13 +106,17 @@ final class RuntimeSourceFixture {
                     + members + "\n}\n");
             final JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
             final List<String> arguments = new ArrayList<>(List.of(
-                    "-proc:none", "--release", "17", "-d", directory.toString(),
+                    "-proc:none", "--release", "17", "-encoding", "UTF-8",
+                    "-d", directory.toString(),
                     source.toString()));
             for (final String file : additionalSources) {
                 arguments.add(MAIN + file + ".java");
             }
-            if (compiler.run(null, null, null, arguments.toArray(new String[0])) != 0) {
-                throw new AssertionError("host fixture did not compile");
+            final ByteArrayOutputStream diagnostics = new ByteArrayOutputStream();
+            if (compiler.run(null, diagnostics, diagnostics,
+                    arguments.toArray(new String[0])) != 0) {
+                throw new AssertionError("host fixture did not compile:\n"
+                        + diagnostics.toString(StandardCharsets.UTF_8));
             }
             try (URLClassLoader loader = new URLClassLoader(
                     new java.net.URL[] {directory.toUri().toURL()},

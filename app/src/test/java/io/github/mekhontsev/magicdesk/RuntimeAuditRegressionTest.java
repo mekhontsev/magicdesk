@@ -237,7 +237,18 @@ public final class RuntimeAuditRegressionTest {
                         String result = f.workingDirectory();
                         throw new AssertionError("vanished PTY reported cwd=" + result);
                     } catch (IOException expected) {}
-                    f.pid = ProcessHandle.current().pid();
+                }
+                """ + RuntimeSourceFixture.methods("ShizukuCommandService", "workingDirectory"));
+    }
+
+    @Test
+    public void livePtyResolvesItsProcessDirectory() throws Exception {
+        org.junit.Assume.assumeTrue("requires host procfs",
+                java.nio.file.Files.isDirectory(java.nio.file.Path.of("/proc/self")));
+        RuntimeSourceFixture.verify("""
+                long processId() { return ProcessHandle.current().pid(); }
+                public static void verify() throws Exception {
+                    Fixture f = new Fixture();
                     check(f.workingDirectory().equals(Path.of(".").toRealPath().toString()),
                             "live PTY directory did not resolve");
                 }

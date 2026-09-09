@@ -13,11 +13,10 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 public final class FileTreeTransferTest {
     @Rule
-    public final TemporaryFolder temporary = new TemporaryFolder();
+    public final TestFileSystem files = new TestFileSystem();
 
     @Test
     public void copyMustNotOverwriteFileCreatedAtChosenTarget() throws Exception {
@@ -32,8 +31,8 @@ public final class FileTreeTransferTest {
 
     @Test
     public void failedDirectoryCopyMustNotDeleteExistingTargetTree() throws Exception {
-        final Path source = temporary.newFolder("source").toPath();
-        final Path target = temporary.newFolder("target").toPath();
+        final Path source = files.newDirectory("source");
+        final Path target = files.newDirectory("target");
         Files.writeString(target.resolve("keep"), "existing");
 
         assertThrows(IOException.class, () -> FileTreeTransfer.transfer(
@@ -56,7 +55,7 @@ public final class FileTreeTransferTest {
     @Test
     public void cancellationIsCheckedBeforeCreatingEvenAnEmptyFile() throws Exception {
         final Path source = file("source", "");
-        final Path target = temporary.getRoot().toPath().resolve("target");
+        final Path target = files.root().resolve("target");
         final FileTreeTransfer.Progress cancelled = new FileTreeTransfer.Progress() {
             @Override
             public void checkCancelled() throws IOException {
@@ -76,9 +75,9 @@ public final class FileTreeTransferTest {
 
     @Test
     public void failedCopyCleansOnlyItsOwnEntries() throws Exception {
-        final Path source = temporary.newFolder("source").toPath();
+        final Path source = files.newDirectory("source");
         Files.writeString(source.resolve("copy"), "payload");
-        final Path target = temporary.getRoot().toPath().resolve("target");
+        final Path target = files.root().resolve("target");
         final FileTreeTransfer.Progress cancelled = new FileTreeTransfer.Progress() {
             @Override
             public void checkCancelled() {
@@ -99,12 +98,12 @@ public final class FileTreeTransferTest {
 
     @Test
     public void copiesNestedTreeAndLinksWithoutFollowingThem() throws Exception {
-        final Path source = temporary.newFolder("source").toPath();
+        final Path source = files.newDirectory("source");
         Files.createDirectory(source.resolve("nested"));
         Files.writeString(source.resolve("nested/file"), "payload");
-        Files.createSymbolicLink(source.resolve("link"), Path.of("nested/file"));
-        Files.createSymbolicLink(source.resolve("broken"), Path.of("missing"));
-        final Path target = temporary.getRoot().toPath().resolve("target");
+        Files.createSymbolicLink(source.resolve("link"), files.path("nested/file"));
+        Files.createSymbolicLink(source.resolve("broken"), files.path("missing"));
+        final Path target = files.root().resolve("target");
         final AtomicLong bytes = new AtomicLong();
 
         FileTreeTransfer.transfer(source, target, false, new FileTreeTransfer.Progress() {
@@ -119,7 +118,7 @@ public final class FileTreeTransferTest {
         });
 
         assertEquals("payload", Files.readString(target.resolve("nested/file")));
-        assertEquals(Path.of("nested/file"), Files.readSymbolicLink(target.resolve("link")));
+        assertEquals(files.path("nested/file"), Files.readSymbolicLink(target.resolve("link")));
         assertTrue(Files.exists(target.resolve("broken"), LinkOption.NOFOLLOW_LINKS));
         assertEquals(7L, bytes.get());
         assertTrue(Files.exists(source.resolve("nested/file")));
@@ -128,7 +127,7 @@ public final class FileTreeTransferTest {
     @Test
     public void cancelledFileCopyRemovesItsIncompleteTarget() throws Exception {
         final Path source = file("source", "payload");
-        final Path target = temporary.getRoot().toPath().resolve("target");
+        final Path target = files.root().resolve("target");
 
         assertThrows(IOException.class, () -> FileTreeTransfer.transfer(
                 source, target, false, failAfterWrite(() -> { })));
@@ -140,7 +139,7 @@ public final class FileTreeTransferTest {
     @Test
     public void replacedDestinationCannotAuthorizeMoveSourceDeletion() throws Exception {
         final Path source = file("source", "payload");
-        final Path target = temporary.getRoot().toPath().resolve("target");
+        final Path target = files.root().resolve("target");
         final Path replacement = file("replacement", "keep");
         final FileTreeTransfer.Progress replacingWriter = new FileTreeTransfer.Progress() {
             @Override
@@ -162,7 +161,7 @@ public final class FileTreeTransferTest {
     @Test
     public void replacedTargetIsNotDeletedDuringCleanup() throws Exception {
         final Path source = file("source", "payload");
-        final Path target = temporary.getRoot().toPath().resolve("target");
+        final Path target = files.root().resolve("target");
         final Path replacement = file("replacement", "keep");
 
         assertThrows(IOException.class, () -> FileTreeTransfer.transfer(
@@ -176,10 +175,10 @@ public final class FileTreeTransferTest {
 
     @Test
     public void replacedParentIsNotFollowedDuringCleanup() throws Exception {
-        final Path source = temporary.newFolder("source").toPath();
+        final Path source = files.newDirectory("source");
         Files.writeString(source.resolve("copy"), "payload");
-        final Path target = temporary.getRoot().toPath().resolve("target");
-        final Path moved = temporary.getRoot().toPath().resolve("moved");
+        final Path target = files.root().resolve("target");
+        final Path moved = files.root().resolve("moved");
 
         assertThrows(IOException.class, () -> FileTreeTransfer.transfer(
                 source, target, false, failAfterWrite(() -> {
@@ -195,7 +194,7 @@ public final class FileTreeTransferTest {
     public void existingSymlinkCannotRedirectTheCopy() throws Exception {
         final Path source = file("source", "payload");
         final Path outside = file("outside", "keep");
-        final Path target = temporary.getRoot().toPath().resolve("target");
+        final Path target = files.root().resolve("target");
         Files.createSymbolicLink(target, outside);
 
         assertThrows(IOException.class, () -> FileTreeTransfer.transfer(
@@ -208,7 +207,7 @@ public final class FileTreeTransferTest {
     @Test
     public void failedSourceDeletionKeepsTheCompletedMoveCopy() throws Exception {
         final Path source = file("source", "payload");
-        final Path target = temporary.getRoot().toPath().resolve("target");
+        final Path target = files.root().resolve("target");
         final FileTreeTransfer.Progress cancellation = new FileTreeTransfer.Progress() {
             private int completedChecks;
 
@@ -254,7 +253,7 @@ public final class FileTreeTransferTest {
     @Test
     public void ordinaryMoveRetainsContentsAndRemovesSource() throws Exception {
         final Path source = file("source", "payload");
-        final Path target = temporary.getRoot().toPath().resolve("target");
+        final Path target = files.root().resolve("target");
 
         FileTreeTransfer.transfer(source, target, true, progress());
 
@@ -263,7 +262,7 @@ public final class FileTreeTransferTest {
     }
 
     private Path file(final String name, final String content) throws IOException {
-        return Files.writeString(temporary.getRoot().toPath().resolve(name), content);
+        return Files.writeString(files.root().resolve(name), content);
     }
 
     private static FileTreeTransfer.Progress progress() {

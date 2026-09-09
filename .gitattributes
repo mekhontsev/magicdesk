@@ -1,0 +1,4 @@
+# Source contracts and shell scripts use LF on every build host.
+* text=auto eol=lf
+# Batch launchers retain their checked-in CRLF.
+*.bat -text
