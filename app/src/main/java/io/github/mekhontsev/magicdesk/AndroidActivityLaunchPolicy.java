@@ -1,5 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.content.Intent;
+
 /** Selects caller identity independently from desktop task placement. */
 final class AndroidActivityLaunchPolicy {
     enum Delivery {
@@ -22,14 +24,18 @@ final class AndroidActivityLaunchPolicy {
             final boolean chooser,
             final boolean expectResult,
             final boolean requiresResolver,
-            final boolean requiresAppIdentity) {
+            final boolean requiresAppIdentity,
+            final int intentFlags) {
         final boolean selectionSurface = chooser || requiresResolver;
         if (expectResult) {
             return new AndroidActivityLaunchPolicy(
                     Delivery.ACTIVITY_RESULT_RELAY,
                     selectionSurface);
         }
-        if (selectionSurface || requiresAppIdentity) {
+        // URI grants are checked against the launch caller, not just the receiving Activity.
+        final boolean grantsContent = (intentFlags & (Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION)) != 0;
+        if (selectionSurface || requiresAppIdentity || grantsContent) {
             return new AndroidActivityLaunchPolicy(
                     Delivery.APP_PENDING_INTENT,
                     selectionSurface);

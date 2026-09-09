@@ -3,7 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import static io.github.mekhontsev.magicdesk.AutomationJsonArguments.requiredInt;
 
 import android.app.PendingIntent;
-import android.content.ClipData;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -841,13 +840,11 @@ final class AndroidIntegrationGateway {
                         resolution.requiresResolver(),
                         resolution.authorization != null
                                 && resolution.authorization
-                                        .requiresAppIdentity());
+                                        .requiresAppIdentity(),
+                        target.getFlags());
         if (!launchPolicy.selectionSurface) {
             target.setComponent(resolvedComponent);
         }
-        // Direct desktop launches are executed by shell. Issue grants from the
-        // app identity after resolution because shell does not own these URIs.
-        grantKnownTarget(target, grantUris(target));
         final String resultRequestId = request.expectResult
                 ? AndroidActivityResultStore.begin(target) : "";
         try {
@@ -1104,64 +1101,6 @@ final class AndroidIntegrationGateway {
                         .put("bottom", task.bounds.bottom));
     }
 
-    private void grantKnownTarget(
-            final Intent intent,
-            final List<Uri> uris) {
-        String packageName = intent.getPackage();
-        if ((packageName == null || packageName.isEmpty())
-                && intent.getComponent() != null) {
-            packageName = intent.getComponent().getPackageName();
-        }
-        if (packageName == null || packageName.isEmpty()) {
-            return;
-        }
-        final boolean readable = (intent.getFlags()
-                & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0;
-        final boolean writable = (intent.getFlags()
-                & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0;
-        if (!readable && !writable) {
-            return;
-        }
-        for (final Uri uri : uris) {
-            if (readable) {
-                mContext.grantUriPermission(
-                        packageName,
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            }
-            if (writable) {
-                mContext.grantUriPermission(
-                        packageName,
-                        uri,
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-            }
-        }
-    }
-
-    private static List<Uri> grantUris(final Intent intent) {
-        final ArrayList<Uri> result = new ArrayList<>();
-        if (intent == null) {
-            return result;
-        }
-        addGrantUri(result, intent.getData());
-        final ClipData clip = intent.getClipData();
-        if (clip != null) {
-            for (int index = 0; index < clip.getItemCount(); index++) {
-                addGrantUri(result, clip.getItemAt(index).getUri());
-            }
-        }
-        return result;
-    }
-
-    private static void addGrantUri(
-            final List<Uri> uris,
-            final Uri uri) {
-        if (uri != null
-                && "content".equalsIgnoreCase(uri.getScheme())
-                && !uris.contains(uri)) {
-            uris.add(uri);
-        }
-    }
 
     private static void applyTarget(
             final Intent intent,

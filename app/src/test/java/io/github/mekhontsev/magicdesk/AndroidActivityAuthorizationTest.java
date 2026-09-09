@@ -58,7 +58,7 @@ public final class AndroidActivityAuthorizationTest {
             assertTrue(authorization.requiresAppIdentity());
             assertEquals(AndroidActivityLaunchPolicy.Delivery.APP_PENDING_INTENT,
                     AndroidActivityLaunchPolicy.select(false, false, false,
-                            authorization.requiresAppIdentity()).delivery);
+                            authorization.requiresAppIdentity(), 0).delivery);
         }
     }
 

@@ -532,8 +532,8 @@ the exact observed task id, display, activity type, mode, bounds, and reuse
 state. Observation reuses the existing task event journal and one-shot typed
 task snapshots, so Android integration adds no periodic task query. Public
 direct intents retain their full Parcelable form through the Shizuku boundary,
-which preserves `ClipData`, URI grants, and typed extras. Choosers, required
-system resolvers, and allowed targets requiring the MagicDesk app identity use
+which preserves `ClipData` and typed extras. Intents carrying read/write URI
+grants, choosers, required system resolvers, and allowed targets requiring the MagicDesk app identity use
 an immutable one-shot `PendingIntent` created by the app. Shell sends that
 creator-authorized token with the requested display, STANDARD activity type,
 mode, and bounds. Android therefore evaluates target access and URI grants as
@@ -580,13 +580,15 @@ separate authorization result checks component enabled/exported state and any
 required permission against the MagicDesk application identity before shell
 receives placement work. Shell authority never converts a denied application
 launch into an allowed one. A public concrete target with no required
-permission uses the direct shell path; a permitted target that requires the app
+permission or URI grants uses the direct shell path; a permitted target that requires the app
 identity uses the app-created token. MagicDesk can likewise authorize its own
 non-exported Activity, while an external non-exported component remains denied.
 A required resolver and chooser remain implicit inside the same app-created
 token rather than exposing an internal resolver component to shell.
-When a direct shell launch carries content URIs, MagicDesk grants the resolved
-package from its app identity before handing the Parcelable Intent to shell.
+Content-grant launches retain the app as their grantor through the same token,
+including when a concrete editor was selected by Open With or a saved default.
+Android binds those grants to the receiving Activity's task lifetime; the
+gateway does not issue separate package-wide URI permissions before launching.
 
 Concrete launches confirm the identity and topology of the exact task reported
 by the production launch path. Choosers and required resolvers confirm that
