@@ -2005,7 +2005,7 @@ final class DesktopSelfTestWindowSuite {
         final FocusWindowPair freshPair = require(
                 result,
                 "WINDOW-021",
-                "Recreate ordinary freeform windows after native snap",
+                "Recreate freeform windows for maximized and fullscreen tests",
                 () -> recreateFocusWindowPair(
                         context,
                         displayId,

@@ -24,6 +24,7 @@ public final class PlatformDriversTest {
                 .provider(PlatformComponent.PROJECTION).id);
         assertTrue(driver.features().wiredDesktop);
         assertTrue(driver.features().wirelessDesktop);
+        assertTrue(driver.diagnostics().hasNativeCaptionSnapSelfTest());
         assertFalse(driver.audioCapture().availability()
                 == PlatformAudioCaptureDriver.Availability.UNSUPPORTED);
         assertTrue(driver.pointer().isAvailable());
@@ -49,6 +50,7 @@ public final class PlatformDriversTest {
 
         assertEquals("android", driver.id());
         assertEquals("", driver.selection().extensionId());
+        assertFalse(driver.diagnostics().hasNativeCaptionSnapSelfTest());
         assertEquals("android", driver.selection()
                 .provider(PlatformComponent.PROJECTION).id);
         assertTrue(driver.features().supportsDisplay(
@@ -126,6 +128,7 @@ public final class PlatformDriversTest {
                 .provider(PlatformComponent.AUDIO_CAPTURE).evidence);
         assertEquals("android", driver.selection()
                 .provider(PlatformComponent.WINDOWING).id);
+        assertFalse(driver.diagnostics().hasNativeCaptionSnapSelfTest());
         assertTrue(driver.features().compatibilityDefaults.enabled(
                 DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertEquals("android", driver.selection()
@@ -157,6 +160,8 @@ public final class PlatformDriversTest {
         assertEquals(
                 "android",
                 PlatformDrivers.resolve(device, "android", true).id());
+        assertFalse(PlatformDrivers.resolve(device, "android", true)
+                .diagnostics().hasNativeCaptionSnapSelfTest());
     }
 
     @Test

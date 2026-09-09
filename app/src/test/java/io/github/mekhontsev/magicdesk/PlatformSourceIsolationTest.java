@@ -159,6 +159,26 @@ public final class PlatformSourceIsolationTest {
                 violations.isEmpty());
     }
 
+    @Test
+    public void nativeCaptionScenarioCoverageIsNotProductionWindowPolicy()
+            throws IOException {
+        final List<String> violations = new ArrayList<>();
+        final String base = "io/github/mekhontsev/magicdesk/";
+        for (final Path source : productionSources()) {
+            final String relative = relativePath(source);
+            if (relative.equals(base + "PlatformDiagnostics.java")
+                    || relative.equals(base + "DesktopSelfTestInputSuite.java")
+                    || ("/" + relative).contains(PLATFORM_DIRECTORY)) {
+                continue;
+            }
+            if (read(source).contains("hasNativeCaptionSnapSelfTest(")) {
+                violations.add(relative);
+            }
+        }
+        assertTrue("Native caption test profile used by production: "
+                + violations, violations.isEmpty());
+    }
+
     private static List<Path> productionSources() throws IOException {
         final List<Path> sources = new ArrayList<>();
         try (Stream<Path> paths = Files.walk(MAIN_JAVA)) {

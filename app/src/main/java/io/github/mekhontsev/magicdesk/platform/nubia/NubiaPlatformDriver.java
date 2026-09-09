@@ -35,12 +35,11 @@ public final class NubiaPlatformDriver implements PlatformExtension {
             new NubiaProjectionDriver();
     private static final PlatformPhoneUiDriver PHONE_UI =
             new NubiaPhoneUiDriver();
-    private static final PlatformDiagnostics DIAGNOSTICS =
-            new NubiaPlatformDiagnostics();
     private static final PlatformAudioCaptureDriver AUDIO_CAPTURE =
             new NubiaAudioCaptureDriver();
 
     private final NubiaFirmwareDetector.Result mCapabilities;
+    private final PlatformDiagnostics mDiagnostics;
 
     public NubiaPlatformDriver(
             final NubiaFirmwareDetector.Result capabilities) {
@@ -49,6 +48,8 @@ public final class NubiaPlatformDriver implements PlatformExtension {
                     "Nubia firmware capabilities are required");
         }
         mCapabilities = capabilities;
+        mDiagnostics = new NubiaPlatformDiagnostics(
+                capabilities.components().contains(PlatformComponent.WINDOWING));
     }
 
     @Override
@@ -132,7 +133,7 @@ public final class NubiaPlatformDriver implements PlatformExtension {
 
     @Override
     public PlatformDiagnostics diagnostics() {
-        return DIAGNOSTICS;
+        return mDiagnostics;
     }
 
     @Override

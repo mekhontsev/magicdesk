@@ -14,6 +14,17 @@ import java.util.Map;
 
 /** Capability and runtime diagnostics specific to RedMagic firmware. */
 final class NubiaPlatformDiagnostics implements PlatformDiagnostics {
+    private final boolean mNativeCaptionSnapSelfTest;
+
+    NubiaPlatformDiagnostics(final boolean nativeCaptionSnapSelfTest) {
+        mNativeCaptionSnapSelfTest = nativeCaptionSnapSelfTest;
+    }
+
+    @Override
+    public boolean hasNativeCaptionSnapSelfTest() {
+        return mNativeCaptionSnapSelfTest;
+    }
+
     @Override
     public void appendCapabilityProbe(
             final StringBuilder report,

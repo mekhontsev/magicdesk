@@ -28,7 +28,7 @@ final class DesktopSelfTestInputSuite {
     private static final String FIXTURE_CLASS =
             DesktopSelfTestComponents.FIXTURE_CLASS;
     private static final int RESIZE_EDGE_OUTSET_PX = 8;
-    // Current WMShell caption geometry, using 160 dpi as the baseline.
+    // Verified native snap scenario only; not a portable caption layout.
     private static final int CAPTION_BUTTON_CENTER_Y_PX = 20;
     private static final int MAXIMIZE_BUTTON_CENTER_FROM_RIGHT_PX = 82;
     private static final int SNAP_LEFT_CENTER_FROM_MENU_RIGHT_DP = 96;
@@ -2008,6 +2008,10 @@ final class DesktopSelfTestInputSuite {
             final int secondTaskId,
             final String secondToken,
             final DesktopSelfTestGeometry geometry) {
+        if (!prepareNativeCaptionPlacementTests(
+                result, PlatformDrivers.current().diagnostics())) {
+            return;
+        }
         final TaskStackParser.Entry left = captionSnap(
                 result,
                 "NATIVE-SNAP-001",
@@ -2025,14 +2029,8 @@ final class DesktopSelfTestInputSuite {
                 false,
                 geometry);
         if (left == null || right == null) {
-            result.add(DesktopSelfTestResult.State.NOT_TESTED,
-                    "FOCUS-006",
-                    "Switch focus after native caption placement",
-                    "native caption placement was unavailable");
-            result.add(DesktopSelfTestResult.State.NOT_TESTED,
-                    "FOCUS-007",
-                    "Restore focus after native caption placement",
-                    "native caption placement was unavailable");
+            skipNativeCaptionPlacementResults(
+                    result, "native caption placement was unavailable");
             return;
         }
         final Rect leftBounds = DesktopSelfTestGeometry.toRect(left.bounds);
@@ -2061,6 +2059,38 @@ final class DesktopSelfTestInputSuite {
                         secondTaskId,
                         secondToken,
                         "7"));
+    }
+
+    static boolean prepareNativeCaptionPlacementTests(
+            final DesktopSelfTestResult result,
+            final PlatformDiagnostics diagnostics) {
+        if (diagnostics.hasNativeCaptionSnapSelfTest()) {
+            return true;
+        }
+        // Missing test coverage does not mean that the firmware lacks snap.
+        final String reason =
+                "no verified native caption snap scenario for this platform";
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "NATIVE-SNAP-001",
+                "Place first window left through native caption", reason);
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "NATIVE-SNAP-002",
+                "Place second window right through native caption", reason);
+        skipNativeCaptionPlacementResults(result, reason);
+        return false;
+    }
+
+    private static void skipNativeCaptionPlacementResults(
+            final DesktopSelfTestResult result, final String reason) {
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "NATIVE-SNAP-003",
+                "Verify native side-by-side placement", reason);
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "FOCUS-006",
+                "Switch mouse focus after native caption placement", reason);
+        result.add(DesktopSelfTestResult.State.NOT_TESTED,
+                "FOCUS-007",
+                "Restore focus after native caption placement", reason);
     }
 
     private static TaskStackParser.Entry captionSnap(

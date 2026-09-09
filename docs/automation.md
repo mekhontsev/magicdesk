@@ -632,6 +632,15 @@ is locked at its current value for the run and restored exactly afterward. If
 the tested desktop session closes, its existing lifecycle event cancels the run
 and cleanup begins; no background session polling is added.
 
+The native-caption snap scenario (`NATIVE-SNAP-001` through `003`, with dependent
+`FOCUS-006` and `007`) runs only when the platform diagnostics provider defines
+that scenario. Currently only the Nubia windowing profile opts in. Other
+platforms record these checks as NOT_TESTED with an explicit coverage reason;
+the test does not guess caption actions from another firmware's button layout.
+This does not declare native snap unsupported. Common placement, focus,
+Alt+Tab, maximized and fullscreen checks still run on every platform. Failures
+inside an enabled native-caption scenario retain normal FAIL/fail-fast behavior.
+
 After moving Diagnostics behind the phone UI and releasing its input guard,
 the test waits for an already-requested touchpad's visibility event before
 recording `PHONEUI-001`. The guard's stop callback does not imply that Android

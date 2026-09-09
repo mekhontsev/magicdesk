@@ -1497,8 +1497,15 @@ a freeform Activity, task-local native
 caption source and geometry, display-targeted application input, native caption
 and resize input handles, true fullscreen, restore, minimize, and cleanup. It
 then opens two independent editor fixtures, uses the native caption menu to
-place them on the left and right halves, and verifies keyboard focus transfer
-through both the desktop task controller and mouse input. It also switches the
+place them on the left and right halves when the selected diagnostics provider
+defines that test scenario, and verifies keyboard focus transfer through both
+the desktop task controller and mouse input. Native caption menu automation is
+currently scoped to the Nubia windowing provider; other platforms retain the
+common window/focus checks and report the native snap scenario as NOT_TESTED.
+This is test coverage, not a native snap capability declaration. Production
+window policy treats caption controls as opaque and observes actual task modes
+and bounds instead of interpreting button contents or positions.
+It also switches the
 pair twice as true-fullscreen tasks and verifies that neither task becomes
 freeform while the Alt+Tab panel is open or after focus changes. It restores and
 closes one task, then verifies that the fullscreen survivor still receives real
