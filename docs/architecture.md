@@ -1679,8 +1679,14 @@ freeform-external move.
 Self-test fixture launches also carry an explicit visual role. Primary,
 secondary, and transition fixtures use stable red, green, and blue surfaces,
 respectively, so a person watching the test can identify which task flashed,
-moved, or disappeared. Color is diagnostic presentation only; window and input
-assertions do not depend on the palette.
+moved, or disappeared. Window geometry and input assertions do not depend on
+the palette. Composed-screen checks identify each fixture by its RGB proportions:
+a neutral system task shadow may reduce intensity to half of the source color,
+with at most three channel levels of rounding/composition error. This recognition
+is limited to the explicit fixture palette; a wrong fixture, neutral replacement,
+near-black surface or additive highlight must not pass. Wallpaper continuity and
+panel visibility retain their separate color comparisons. The test does not
+disable shadows or change task topology to obtain the source RGB value.
 
 The desktop uses one `WindowMetrics`/WindowInsets viewport model on every
 display. A phone desktop is an explicitly selected primary HOME session: it

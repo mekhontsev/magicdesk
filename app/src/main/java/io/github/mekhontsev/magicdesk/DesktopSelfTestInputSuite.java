@@ -942,22 +942,22 @@ final class DesktopSelfTestInputSuite {
             final int freeformSampleX = fixture.bounds.left + Math.min(
                     24, Math.max(1, fixture.bounds.width() / 8));
             final int freeformSampleY = fixture.bounds.centerY();
-            final int initialFreeformColor = awaitDisplayColor(
+            final int initialFreeformColor = awaitFixtureColor(
                     captureSource,
                     freeformSampleX,
                     freeformSampleY,
-                    DesktopSelfTestFixtureAppearance.TRANSITION.color());
+                    DesktopSelfTestFixtureAppearance.TRANSITION);
 
             final int sampleX = fixture.bounds.right
                     + Math.max(1,
                             (geometry.workArea.right - fixture.bounds.right)
                                     / 2);
             final int sampleY = geometry.workArea.centerY();
-            final int initialBackgroundColor = awaitDisplayColor(
+            final int initialBackgroundColor = awaitFixtureColor(
                     captureSource,
                     sampleX,
                     sampleY,
-                    DesktopSelfTestFixtureAppearance.SECONDARY.color());
+                    DesktopSelfTestFixtureAppearance.SECONDARY);
 
             DesktopSelfTestRunState.checkpoint();
             toggleTaskbarTaskThroughDesktop(displayId, first.taskId);
@@ -970,21 +970,21 @@ final class DesktopSelfTestInputSuite {
                     first.taskId,
                     second.taskId,
                     "after selecting the older fullscreen task");
-            final int firstBackgroundColor = awaitDisplayColor(
+            final int firstBackgroundColor = awaitFixtureColor(
                     captureSource,
                     sampleX,
                     sampleY,
-                    DesktopSelfTestFixtureAppearance.PRIMARY.color());
-            final int firstForegroundColor = awaitDisplayColor(
+                    DesktopSelfTestFixtureAppearance.PRIMARY);
+            final int firstForegroundColor = awaitFixtureColor(
                     captureSource,
                     freeformSampleX,
                     freeformSampleY,
-                    DesktopSelfTestFixtureAppearance.PRIMARY.color());
+                    DesktopSelfTestFixtureAppearance.PRIMARY);
             final int concealedTaskbarColor =
                     awaitFullscreenColorInTaskbarArea(
                             displayId,
                             captureSource,
-                            DesktopSelfTestFixtureAppearance.PRIMARY.color());
+                            DesktopSelfTestFixtureAppearance.PRIMARY);
 
             DesktopSelfTestRunState.checkpoint();
             focusTaskThroughDesktop(displayId, second.taskId);
@@ -997,16 +997,16 @@ final class DesktopSelfTestInputSuite {
                     second.taskId,
                     first.taskId,
                     "after selecting the newer fullscreen task");
-            final int secondBackgroundColor = awaitDisplayColor(
+            final int secondBackgroundColor = awaitFixtureColor(
                     captureSource,
                     sampleX,
                     sampleY,
-                    DesktopSelfTestFixtureAppearance.SECONDARY.color());
-            final int secondForegroundColor = awaitDisplayColor(
+                    DesktopSelfTestFixtureAppearance.SECONDARY);
+            final int secondForegroundColor = awaitFixtureColor(
                     captureSource,
                     freeformSampleX,
                     freeformSampleY,
-                    DesktopSelfTestFixtureAppearance.SECONDARY.color());
+                    DesktopSelfTestFixtureAppearance.SECONDARY);
 
             DesktopSelfTestRunState.checkpoint();
             // The simulated-display removal suite requires every remaining
@@ -1149,11 +1149,21 @@ final class DesktopSelfTestInputSuite {
                                 task.bounds, fixture.bounds));
     }
 
+    private static int awaitFixtureColor(
+            final DisplayCaptureSource captureSource,
+            final int x,
+            final int y,
+            final DesktopSelfTestFixtureAppearance fixture) throws IOException {
+        return awaitDisplayColor(captureSource, x, y,
+                fixture.color(), fixture::matchesRenderedColor);
+    }
+
     private static int awaitDisplayColor(
             final DisplayCaptureSource captureSource,
             final int x,
             final int y,
-            final int expectedColor) throws IOException {
+            final int expectedColor,
+            final java.util.function.IntPredicate matches) throws IOException {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
         int actualColor = 0;
@@ -1163,7 +1173,7 @@ final class DesktopSelfTestInputSuite {
                             captureSource, x, y));
             actualColor = DesktopTransitionSurfaceProbe.parseReference(
                     captureSource, x, y, output).color;
-            if (colorsMatch(expectedColor, actualColor)) {
+            if (matches.test(actualColor)) {
                 return actualColor;
             }
             BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
@@ -1179,10 +1189,10 @@ final class DesktopSelfTestInputSuite {
     static String verifyConcealedTaskbarSurface(
             final int displayId,
             final DisplayCaptureSource captureSource,
-            final int expectedColor) throws IOException {
+            final DesktopSelfTestFixtureAppearance fixture) throws IOException {
         waitForTaskbarVisibility(displayId, false);
         final int color = awaitFullscreenColorInTaskbarArea(
-                displayId, captureSource, expectedColor);
+                displayId, captureSource, fixture);
         return "chrome=concealed, color="
                 + DesktopTransitionSurfaceProbe.formatColor(color);
     }
@@ -1190,7 +1200,7 @@ final class DesktopSelfTestInputSuite {
     private static int awaitFullscreenColorInTaskbarArea(
             final int displayId,
             final DisplayCaptureSource captureSource,
-            final int expectedColor) throws IOException {
+            final DesktopSelfTestFixtureAppearance fixture) throws IOException {
         final DesktopUiSnapshot ui =
                 DesktopRuntimeBridge.getAutomationUiSnapshot(displayId);
         if (ui == null || !ui.available || ui.taskbarBounds.isEmpty()) {
@@ -1203,10 +1213,10 @@ final class DesktopSelfTestInputSuite {
         final int y = taskbar.top + Math.min(
                 taskbar.height() - 1,
                 Math.max(1, taskbar.height() / 4));
-        final int color = awaitDisplayColor(captureSource, x, y, expectedColor);
+        final int color = awaitFixtureColor(captureSource, x, y, fixture);
         // A collapsed reveal panel can cover only the last content rows while
         // the larger taskbar area is already clear. Exclude system navigation.
-        awaitDisplayColor(captureSource, x, taskbar.bottom - 1, expectedColor);
+        awaitFixtureColor(captureSource, x, taskbar.bottom - 1, fixture);
         return color;
     }
 
@@ -1905,7 +1915,8 @@ final class DesktopSelfTestInputSuite {
         final int x = bounds.left + Math.min(
                 bounds.width() - 1, geometry.scaleFrom160Dpi(6));
         final int color = awaitDisplayColor(
-                captureSource, x, bounds.centerY(), DesktopUiFactory.COLOR_PANEL);
+                captureSource, x, bounds.centerY(), DesktopUiFactory.COLOR_PANEL,
+                actual -> colorsMatch(DesktopUiFactory.COLOR_PANEL, actual));
         return "panel-rendered-before-commit="
                 + DesktopTransitionSurfaceProbe.formatColor(color);
     }

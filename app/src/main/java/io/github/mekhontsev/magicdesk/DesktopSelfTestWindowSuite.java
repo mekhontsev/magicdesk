@@ -311,8 +311,7 @@ final class DesktopSelfTestWindowSuite {
                         .verifyConcealedTaskbarSurface(
                                 targetDisplayId,
                                 captureSource,
-                                DesktopSelfTestFixtureAppearance.PRIMARY
-                                        .color()));
+                                DesktopSelfTestFixtureAppearance.PRIMARY));
         require(result, "WINDOW-004", "Restore freeform window", () -> {
             ShellAccess.run(TaskRepository.createFreeformTransitionCommand(
                     targetDisplayId, targetFixtureTaskId, windowBounds));
@@ -594,7 +593,7 @@ final class DesktopSelfTestWindowSuite {
                         immersiveTaskId,
                         expectedBounds,
                         surfaceReference,
-                        DesktopSelfTestFixtureAppearance.SECONDARY.color(),
+                        DesktopSelfTestFixtureAppearance.SECONDARY,
                         2));
         require(result,
                 "WINDOW-020-CLEANUP",
@@ -807,7 +806,7 @@ final class DesktopSelfTestWindowSuite {
             final int taskId,
             final Rect expectedBounds,
             final SurfaceReferenceResult surfaceReference,
-            final int underlyingSurfaceColor,
+            final DesktopSelfTestFixtureAppearance underlyingFixture,
             final int repetitions) throws IOException {
         final StringBuilder surfaceSamples = new StringBuilder();
         for (int index = 0; index < repetitions; index++) {
@@ -848,7 +847,7 @@ final class DesktopSelfTestWindowSuite {
             appendStableUnderlyingSurfaceSample(
                     surfaceSamples,
                     surfaceReference,
-                    underlyingSurfaceColor,
+                    underlyingFixture,
                     "restore-" + (index + 1));
         }
         return "task=" + taskId + ", cycles=" + repetitions
@@ -862,7 +861,7 @@ final class DesktopSelfTestWindowSuite {
     private static void appendStableUnderlyingSurfaceSample(
             final StringBuilder samples,
             final SurfaceReferenceResult surfaceReference,
-            final int expectedColor,
+            final DesktopSelfTestFixtureAppearance fixture,
             final String stage) throws IOException {
         if (surfaceReference.reference == null) {
             return;
@@ -880,12 +879,11 @@ final class DesktopSelfTestWindowSuite {
                         expected.x,
                         expected.y,
                         output);
-        if (!DesktopTransitionSurfaceProbe.sameColor(
-                expectedColor, actual.color)) {
+        if (!fixture.matchesRenderedColor(actual.color)) {
             throw new IOException("underlying fullscreen surface changed after "
                     + stage
                     + ": expected="
-                    + DesktopTransitionSurfaceProbe.formatColor(expectedColor)
+                    + DesktopTransitionSurfaceProbe.formatColor(fixture.color())
                     + ", actual="
                     + DesktopTransitionSurfaceProbe.formatColor(actual.color));
         }
