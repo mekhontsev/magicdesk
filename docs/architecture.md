@@ -1722,6 +1722,12 @@ cover the reserved status- and navigation-bar insets above the wallpaper.
 Android can therefore keep normal system-bar behavior for HOME and freeform
 tasks without exposing bright wallpaper strips around snapped windows.
 
+The desktop icon grid is a non-focusable container with the default View focus
+highlight disabled. Its click listener must not make the whole grid an
+automatic keyboard focus target and paint a translucent rectangle over the
+wallpaper. Individual desktop items retain keyboard focus and highlighting;
+the container does not block descendant focus or change click/drop handling.
+
 The desktop chrome host is a translucent, normally non-focusable `MULTI_WINDOW` task in its
 own root-level organizer area beside Android's standard task workspace. The
 taskbar itself is a bounded child application window,

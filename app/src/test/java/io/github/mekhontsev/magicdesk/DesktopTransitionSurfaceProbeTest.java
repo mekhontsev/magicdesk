@@ -87,6 +87,14 @@ public final class DesktopTransitionSurfaceProbeTest {
     }
 
     @Test
+    public void rejectsAdditiveDesktopHighlightInEitherDirection() {
+        assertFalse(DesktopTransitionSurfaceProbe.sameColor(
+                0xFF151D21, 0xFF293134));
+        assertFalse(DesktopTransitionSurfaceProbe.sameColor(
+                0xFF293134, 0xFF151D21));
+    }
+
+    @Test
     public void recordsExternallyCapturedTransitionSamples() {
         final DesktopTransitionSurfaceProbe.Observation observation =
                 DesktopTransitionSurfaceProbe.begin(

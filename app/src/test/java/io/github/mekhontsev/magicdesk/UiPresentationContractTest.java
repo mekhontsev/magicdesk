@@ -12,6 +12,19 @@ import java.nio.file.Path;
 
 public final class UiPresentationContractTest {
     @Test
+    public void desktopGridLeavesKeyboardFocusToItsItems() throws IOException {
+        final String grid = read("DesktopGridLayout.java");
+        assertTrue(grid.contains("setFocusable(false);"));
+        assertTrue(grid.contains("setDefaultFocusHighlightEnabled(false);"));
+        assertFalse(grid.contains("FOCUS_BLOCK_DESCENDANTS"));
+        assertFalse(grid.contains("setFocusable(true)"));
+        assertTrue(read("DesktopItemViewFactory.java").contains("item.setFocusable(true);"));
+        assertTrue(read("DesktopWorkspaceController.java").contains(
+                "grid.setOnClickListener(view -> clearFileSelection());"));
+        assertTrue(grid.contains("setOnDragListener("));
+    }
+
+    @Test
     public void fileAdapterDoesNotAdvertiseCollidingPathHashesAsStableIds()
             throws IOException {
         assertEquals("/tmp/Aa".hashCode(), "/tmp/BB".hashCode());

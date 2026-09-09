@@ -37,6 +37,9 @@ final class DesktopGridLayout extends ViewGroup {
             final int cellWidth,
             final int cellHeight) {
         super(context, attributes);
+        // Keyboard focus belongs to items, not the whole wallpaper-sized grid.
+        setFocusable(false);
+        setDefaultFocusHighlightEnabled(false);
         mCellWidth = Math.max(1, cellWidth);
         mCellHeight = Math.max(1, cellHeight);
         setClipChildren(false);
