@@ -126,7 +126,8 @@ confirmation and does not add a worker, timer, or transaction retry.
 On the phone display the taskbar child window also covers the stable lower
 system-bar inset. It paints that portion with the taskbar background, while the
 taskbar controls remain above the inset. When managed fullscreen policy conceals
-the taskbar, the child window collapses to its reveal edge. An unrelated
+the taskbar, the child window collapses to its reveal edge with a transparent
+background; its window opacity and input handling remain unchanged. An unrelated
 foreground task removes it entirely. The transparent chrome host remains
 structurally stable without covering fullscreen content.
 

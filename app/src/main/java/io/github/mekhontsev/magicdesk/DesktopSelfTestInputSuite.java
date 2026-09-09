@@ -1203,7 +1203,11 @@ final class DesktopSelfTestInputSuite {
         final int y = taskbar.top + Math.min(
                 taskbar.height() - 1,
                 Math.max(1, taskbar.height() / 4));
-        return awaitDisplayColor(captureSource, x, y, expectedColor);
+        final int color = awaitDisplayColor(captureSource, x, y, expectedColor);
+        // A collapsed reveal panel can cover only the last content rows while
+        // the larger taskbar area is already clear. Exclude system navigation.
+        awaitDisplayColor(captureSource, x, taskbar.bottom - 1, expectedColor);
+        return color;
     }
 
     private static void waitForTaskbarVisibility(

@@ -157,7 +157,6 @@ public final class DesktopChromeActivity extends Activity {
         }
         if (mTaskbarPanel == null) {
             mTaskbarPanel = new TaskbarPanel();
-            mTaskbarPanel.setBackgroundColor(DesktopUiFactory.COLOR_PANEL);
             mTaskbarPanel.setImportantForAccessibility(
                     View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         }
@@ -194,6 +193,12 @@ public final class DesktopChromeActivity extends Activity {
 
     private void applyPresentation() {
         updateTaskbarLayout();
+        if (mTaskbarPanel != null) {
+            // The hidden edge keeps receiving input without painting over
+            // fullscreen content. Window alpha and touchability stay unchanged.
+            mTaskbarPanel.setBackgroundColor(resolvePanelBackgroundColor(
+                    mPresented, mEdgeHidden));
+        }
         if (mTaskbar != null) {
             mTaskbar.setAlpha(mPresented && !mEdgeHidden ? 1f : 0f);
             mTaskbar.setVisibility(mPresented ? View.VISIBLE : View.INVISIBLE);
@@ -233,6 +238,12 @@ public final class DesktopChromeActivity extends Activity {
         return edgeHidden
                 ? Math.max(1, edgeHeight)
                 : Math.max(1, surfaceHeight);
+    }
+
+    static int resolvePanelBackgroundColor(
+            final boolean presented, final boolean edgeHidden) {
+        return presented && !edgeHidden
+                ? DesktopUiFactory.COLOR_PANEL : Color.TRANSPARENT;
     }
 
     private void updateTaskbarPanel(final int height) {

@@ -1670,8 +1670,11 @@ managed fullscreen plane covers HOME. The taskbar controls retain their
 ordinary height above the inset. On displays without a lower inset the two
 bounds are identical. The attached application panel does not apply system-bar
 or IME insets a second time. When managed fullscreen policy conceals the taskbar,
-the bounded panel collapses to its reveal edge; an unrelated foreground task
-removes the panel entirely. The transparent, non-input chrome host remains
+the bounded panel collapses to its transparent reveal edge. Only its background
+and taskbar content stop drawing; its window opacity and input region are
+unchanged, so hover and touch can still reveal the taskbar. The expanded panel
+restores its background, including the reserved navigation inset. An unrelated
+foreground task removes the panel entirely. The transparent, non-input chrome host remains
 structurally stable without leaving the taskbar backdrop over fullscreen content.
 There is no separate phone implementation of the desktop.
 IME visibility may keep an
