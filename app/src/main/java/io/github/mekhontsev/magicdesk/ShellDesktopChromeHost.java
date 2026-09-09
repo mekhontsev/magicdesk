@@ -93,6 +93,22 @@ final class ShellDesktopChromeHost implements AutoCloseable {
         return mTaskId;
     }
 
+    synchronized boolean ownsRoot(final FrameworkTaskSnapshot task)
+            throws ReflectiveOperationException {
+        if (mArea == null || task.displayId != mDisplayId
+                || task.displayAreaFeatureId != mArea.featureId()) {
+            return false;
+        }
+        final FrameworkTaskSnapshot chrome = FrameworkTaskSnapshotSource.findTask(
+                mService, mDisplayId, mTaskId);
+        if (chrome == null || chrome.rootTaskId < 0
+                || chrome.displayAreaFeatureId != mArea.featureId()
+                || !DesktopChromeActivity.isChromeComponent(chrome.rootComponent)) {
+            throw new IllegalStateException("desktop chrome root is unavailable");
+        }
+        return task.rootTaskId == chrome.rootTaskId;
+    }
+
     synchronized void setFocusable(final int displayId, final int taskId,
             final boolean focusable) {
         if (displayId != mDisplayId || taskId != mTaskId || mArea == null) {

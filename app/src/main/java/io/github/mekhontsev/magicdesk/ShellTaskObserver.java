@@ -480,6 +480,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         if (displayId != mConfiguredDisplayId || mClosed) {
             throw new IllegalStateException("HOME delegate belongs to an inactive display");
         }
+        if (activityToken == null) {
+            throw new IllegalArgumentException("missing activity token");
+        }
         try {
             final FrameworkTaskSnapshot task = FrameworkTaskSnapshotSource.findTask(
                     mService, displayId, taskId);
@@ -487,18 +490,28 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     mService, displayId, mDesktopOwnership.desktopHostTaskId());
             if (task == null || host == null || !task.isHome()
                     || !DesktopHostComponents.isHostComponentName(task.componentName)
+                    || task.rootTaskId < 0 || host.rootTaskId < 0
                     || task.rootTaskId == host.rootTaskId) {
                 throw new IllegalArgumentException("not an auxiliary desktop HOME task");
             }
-            // HOME roots remain present for Android's per-area lifecycle,
-            // but only the session host supplies wallpaper, focus and input.
+            final boolean chromeOwnsRoot = mDesktopChromeHost.ownsRoot(task);
             final FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
             final Object transaction = windowing.newTransaction();
-            final Object root = HiddenTaskApi.requireRootTaskToken(
-                    mService, displayId, task.rootTaskId);
-            windowing.setFocusable(transaction, root, false);
-            windowing.setForceTranslucent(transaction, root, true);
-            windowing.reorder(transaction, root, false);
+            // A delegate owns only its leaf. Root policy must not disable
+            // sibling chrome focus or make an opaque delegate cover it.
+            final Object leaf = HiddenTaskApi.getTaskToken(task.task);
+            windowing.setFocusable(transaction, leaf, false);
+            windowing.setForceTranslucent(transaction, leaf, true);
+            windowing.reorder(transaction, leaf, false);
+            if (!chromeOwnsRoot && task.rootTaskId != task.taskId) {
+                // Independent HOME roots retain their navigation-only policy
+                // and remain alive until their task display area is removed.
+                final Object root = HiddenTaskApi.requireRootTaskToken(
+                        mService, displayId, task.rootTaskId);
+                windowing.setFocusable(transaction, root, false);
+                windowing.setForceTranslucent(transaction, root, true);
+                windowing.reorder(transaction, root, false);
+            }
             FrameworkActivityInputApi.setRecordInputSinkEnabled(activityToken, false);
             ShellWindowTransitionExecutor.applyAtomic(
                     mService, windowing.transactionClass(), transaction);

@@ -6,8 +6,13 @@ Android 15 can launch HOME separately in each organizer task display area.
 Only the registered HOME in the standard workspace owns the desktop UI.
 Additional instances are navigation delegates, retained until area removal;
 finishing them while the area is live causes Android to recreate them.
-Their separate HOME roots are non-focusable and translucent, and do not supply
-Activity input sinks. Application roots and their windowing modes are unchanged.
+The delegate task is non-focusable and translucent, and does not supply an
+Activity input sink. Independent delegate HOME roots receive the same policy.
+When a delegate shares the chrome host's root, `ShellDesktopChromeHost` retains
+root ownership: delegate setup changes only the delegate leaf, never the shared
+root's focus, translucency or order. Ownership is resolved from live typed task
+identity during setup, not from an assumed activity type or a background query.
+Application roots and their windowing modes are unchanged.
 HOME navigation still uses the existing workspace gateway. Typed task-area
 identity classifies these delegates as infrastructure, not fullscreen apps
 that would cover the desktop or disable the taskbar.
@@ -80,10 +85,10 @@ The same topology is used on phone, simulated, wired, and wireless targets.
 `PhoneDesktopHomeActivity` remains primary HOME in Android's default task area;
 ordinary freeform tasks share the standard root workspace, while fullscreen
 tasks use independent planes under that workspace. Display chrome uses one
-transparent `MULTI_WINDOW` task in a root-level organizer area,
-a sibling of the standard task workspace. Both the area and its task use
-`MULTI_WINDOW` and `alwaysOnTop`: Android 15+ ignores the flag in fullscreen
-mode. Empty task bounds fill the area without making the task floating.
+transparent STANDARD task in a root-level organizer area, a sibling of the
+standard task workspace. Both the area and its task use `MULTI_WINDOW` and
+`alwaysOnTop`: Android 15+ ignores that priority flag in fullscreen mode.
+Empty task bounds fill the area without making the task floating.
 Native DisplayArea ordering preserves chrome priority across application
 launches and panel relayout, below system windows and IME. Only bounded child
 application windows draw or receive input. The task allows focus only while a

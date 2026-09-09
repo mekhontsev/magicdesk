@@ -192,14 +192,14 @@ maintains a different Z-order, and can leave controls above the wrong window.
 MagicDesk instead keeps native WMShell captions visible. One persistent,
 transparent `DesktopChromeActivity` supplies the application token for the
 taskbar, Start, context menus, notification center, and desktop dialogs. The
-shell launches this host in a root-level organizer area, a sibling of the
-standard task workspace. Both the area and its task use `MULTI_WINDOW` and
+shell launches this STANDARD host in a root-level organizer area, a sibling of
+the standard task workspace. Both the area and its task use `MULTI_WINDOW` and
 `alwaysOnTop`; the task is non-floating and normally non-focusable, with empty bounds
 that fill the area. The shell also disables the
 ActivityRecord input sink.
 All visible chrome is an ordinary bounded `TYPE_APPLICATION_PANEL` child
 window, so empty parts of the display-sized host neither draw nor consume input.
-The host never enters the freeform caption path. Its exported component is
+The shell excludes the host's caption inset. Its exported component is
 protected by the framework
 `MANAGE_ACTIVITY_TASKS` permission, so only the authorized shell runtime can
 create it.
@@ -1599,8 +1599,12 @@ Freeform applications remain standard root-workspace tasks above that HOME.
 Its `singleTop` launch mode lets Android reuse HOME inside the standard HOME
 root. Android may also create HOME in an organizer task area. Those instances
 delegate navigation to the registered desktop host without creating another
-desktop UI or session. Their separate HOME roots are non-focusable and forced
-translucent, with Activity input sinks disabled through the shell task runtime.
+desktop UI or session. Delegate tasks are non-focusable and forced translucent,
+with Activity input sinks disabled through the shell task runtime. Independent
+delegate HOME roots receive the same policy. A root shared with desktop chrome
+remains owned by `ShellDesktopChromeHost`; delegate setup must not change that
+root's focus, translucency or order. The host resolves ownership by live typed
+task/root/area identity, independently of the chrome task's activity type.
 Typed task-area identity keeps them out of application visibility policy. They
 remain alive until their area is removed: finishing one while its area remains
 would make Android immediately launch its replacement.

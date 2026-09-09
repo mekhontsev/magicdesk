@@ -119,6 +119,18 @@ public final class DesktopPanelArchitectureTest {
     }
 
     @Test
+    public void rootOwnershipKeepsStandardChromeLaunchAndPanelFocus() throws IOException {
+        final String host = read(
+                "src/main/java/io/github/mekhontsev/magicdesk/ShellDesktopChromeHost.java");
+        final String focus = RuntimeSourceFixture.methods("ShellDesktopChromeHost", "setFocusable");
+        assertTrue(host.contains("BuildConfig.APPLICATION_ID,\n                    mArea.token());"));
+        assertFalse(host.contains("ACTIVITY_TYPE_HOME"));
+        assertTrue(focus.contains("HiddenTaskApi.getTaskToken(task), focusable"));
+        assertFalse(focus.contains("reorder("));
+        assertFalse(focus.contains("requireRootTaskToken"));
+    }
+
+    @Test
     public void emptyChromeBaseDoesNotObscureOtherApplicationsInput() throws IOException {
         final String activity = read(
                 "src/main/java/io/github/mekhontsev/magicdesk/DesktopChromeActivity.java");
