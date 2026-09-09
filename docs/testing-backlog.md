@@ -9,13 +9,14 @@ fingerprints and reproduction details belong in compatibility reports.
 | Device | Runtime | Exercised scope |
 | --- | --- | --- |
 | RedMagic 11 Pro NX809J EEA | Android 16 / API 36, build `20260204.221845` | Direct phone/simulated/HDMI/Miracast testing, physical and phone input, recording, HOME lifecycle, task cleanup |
-| OnePlus 5 | LineageOS 22.2 / Android 15 / API 35 | Direct phone/simulated and Miracast testing on the Standard Android provider, physical mouse/keyboard, phone HOME cleanup, remote MCP |
+| OnePlus 5 (`ONEPLUS A5000`) | LineageOS 22.2 / Android 15 / API 35, build `2ed70c6518` | Maintainer-verified phone/simulated and Miracast testing on the Standard Android provider, physical mouse/keyboard, focus and Alt+Tab, HOME/task/display cleanup, remote MCP and APK updates |
 | RedMagic 11 Pro NX809J-UN | Android 16, build `20260625.022314` | Community desktop startup, external sizing, task recovery, output modes, recording and optional launch targets |
 | nubia Z80 Ultra NX741J | Android 16, build `20251229.234747` | Community wired/freeform, `2560x1080@75`, focus, keyboard, phone-screen-off, recovery and simulated cleanup |
 
 This is coverage of workflows, not a zero-failure claim for every current build.
-OnePlus immersive-request publication remains a known limitation; its exact
-fingerprint profile has not been added to the declarative catalog.
+OnePlus immersive-request publication remains a known limitation (`WINDOW-015`);
+its support record is scoped to the tested Lineage build, not every ROM sharing
+its reported stock fingerprint.
 The Nubia HDMI node is not shell-readable on the EEA/Z80 profiles, but the
 confirmed physical modes remain usable through Android. Hardware controls vary.
 

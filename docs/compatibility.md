@@ -148,12 +148,14 @@ and monitor waits are rejected by repository tests.
 | Device | Firmware build | Support | Confirmed scope | Known limitations |
 | --- | --- | --- | --- | --- |
 | RedMagic 11 Pro (`NX809J`, EEA) | `20260204.221845` | Maintainer-verified | Wired and Miracast desktops, windows, physical and phone-side input, display modes, recording, hardware controls, and task recovery | The optional XR hot-plug kernel fix remains device and kernel specific |
+| OnePlus 5 (`ONEPLUS A5000`) | LineageOS 22.2, Android 15 / API 35, `2ed70c6518` | Maintainer-verified | Phone and simulated desktops, Miracast, freeform and explicit fullscreen, focus, Alt+Tab, physical mouse/keyboard and layout switching, HOME/task/display cleanup, and remote MCP including APK updates | Application-requested immersive fullscreen remains unavailable (`WINDOW-015`); native caption snap is not part of this firmware's self-test scenario |
 | RedMagic 11 Pro (`NX809J-UN`) | `20260625.022314` | Community-tested | Desktop startup, external sizing, task recovery, Mora discovery, output modes, and external-display recording | Not run through the complete maintainer hardware matrix |
 | nubia Z80 Ultra (`NX741J`) | `20251229.234747` | Community-tested | Wired desktop, `2560x1080@75` output and wide external sizing on the physical display, multiple freeform windows, focus and keyboard input, phone-screen-off operation, task recovery, and simulated self-test cleanup | The vendor HDMI timing node is unavailable to shell UID 2000; Android's reported physical-display mode is sufficient for the confirmed wide output |
 
 Exact tested fingerprints:
 
 - `REDMAGIC/NX809J-EEA/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260204.221845:user/release-keys`
+- OnePlus 5 LineageOS build `2ed70c6518` reports `OnePlus/OnePlus5/OnePlus5:10/QKQ1.191014.012/2010292059:user/release-keys`. This reused stock fingerprint does not identify the installed ROM by itself: the verified target is LineageOS 22.2 / API 35 with that incremental build, not stock Android 10 or other Lineage builds.
 - `REDMAGIC/NX809J-UN/NX809J:16/BQ2A.250705.001-BP2A.250605.031.A3/20260625.022314:user/release-keys`
 - `nubia/PQ85A01-UN/PQ85A01:16/BQ2A.250705.001-BP2A.250605.031.A3/20251229.234747:user/release-keys`
 
@@ -162,11 +164,10 @@ Unverified reports and partially completed test matrices remain in
 user confirms the relevant desktop, window, input, and cleanup workflows on the
 exact fingerprint.
 
-OnePlus 5 with LineageOS 22.2 / Android 15 has also been exercised directly using
-the Standard Android provider: phone/simulated Desktop, Miracast, physical input
-and HOME cleanup. Its validation is tracked in the matrix, not yet as a
-complete fingerprint-scoped catalog profile. This is evidence of the shared
-path on non-Nubia firmware, not certification of every Lineage build.
+The OnePlus profile uses the Standard Android provider without a firmware
+extension. Its maintainer-verified scope documents direct testing, not a claim
+that every self-test passes: `WINDOW-015` remains a known failure. Automatic
+in-APK catalog recognition must not use its reused stock fingerprint alone.
 
 ## Known Limitations
 
