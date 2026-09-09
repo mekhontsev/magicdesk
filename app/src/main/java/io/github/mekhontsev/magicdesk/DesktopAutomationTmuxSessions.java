@@ -21,14 +21,16 @@ final class DesktopAutomationTmuxSessions {
     }
 
     DesktopAutomationResult list() {
-        if (!TermuxIntegration.isInstalled(mContext)) {
+        final var endpoint = TermuxIntegration.inspect(mContext);
+        if (!endpoint.installed) {
             return listResult(TmuxSessionProvider.Snapshot.unavailable(
-                    "Termux is not installed"));
+                    endpoint.packageName + ": " + endpoint.error));
         }
-        if (!TermuxIntegration.isAvailable(mContext)) {
+        if (!endpoint.available()) {
             return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.PERMISSION_REQUIRED,
-                    "Termux Run command permission is unavailable",
+                    endpoint.permissionRequired ? DesktopAutomationErrorCode.PERMISSION_REQUIRED
+                            : DesktopAutomationErrorCode.HOST_UNAVAILABLE,
+                    endpoint.packageName + ": " + endpoint.error,
                     false);
         }
         try {
@@ -51,10 +53,12 @@ final class DesktopAutomationTmuxSessions {
                 throw new IllegalArgumentException(
                         "exactly one of sessionId or name is required");
             }
-            if (!TermuxIntegration.isAvailable(mContext)) {
+            final var endpoint = TermuxIntegration.inspect(mContext);
+            if (!endpoint.available()) {
                 return DesktopAutomationResult.failure(
-                        DesktopAutomationErrorCode.PERMISSION_REQUIRED,
-                        "Termux Run command permission is unavailable",
+                        endpoint.permissionRequired ? DesktopAutomationErrorCode.PERMISSION_REQUIRED
+                                : DesktopAutomationErrorCode.HOST_UNAVAILABLE,
+                        endpoint.packageName + ": " + endpoint.error,
                         false);
             }
             final TmuxSessionProvider.Snapshot snapshot =
@@ -105,7 +109,7 @@ final class DesktopAutomationTmuxSessions {
             final DesktopAutomationResult terminal = mTerminals.open(
                     new JSONObject(args.toString())
                             .put("backend", "termux")
-                            .put("directory", TermuxIntegration.HOME_DIRECTORY)
+                            .put("directory", TermuxIntegration.homeDirectory(mContext))
                             .put("command", command));
             if (!terminal.success) {
                 return terminal;

@@ -81,7 +81,8 @@ final class TermuxX11StartupCommand {
                 + "exit 66";
     }
 
-    static String statusProbe(final String command) {
+    static String statusProbe(final String command, final int uid) {
+        if (uid < 0) { throw new IllegalArgumentException("Termux UID is required"); }
         final String display = requestedDisplay(normalize(command));
         final String requested = display.isEmpty() ? "unknown" : display;
         return "requested=" + ShellCommandLine.quote(requested) + "\n"
@@ -89,7 +90,8 @@ final class TermuxX11StartupCommand {
                 + "server_pid=\n"
                 + "server_display=\n"
                 + processScan(
-                        "server_found=true\n"
+                        "[ \"$(stat -c %u \"${cmdline%/cmdline}\" 2>/dev/null)\" = " + uid + " ] || continue\n"
+                        + "server_found=true\n"
                         + "server_pid=${cmdline#/proc/}\n"
                         + "server_pid=${server_pid%/cmdline}\n"
                         + "server_display=$requested\n"
@@ -101,7 +103,8 @@ final class TermuxX11StartupCommand {
                 + " /proc/$server_pid/net/tcp6"
                 + " /proc/net/tcp /proc/net/tcp6; do\n"
                 + "  [ -r \"$table\" ] || continue\n"
-                + "  while read -r slot local_address remote_address state rest; do\n"
+                + "  while read -r slot local_address remote_address state queues timer retransmits owner rest; do\n"
+                + "    [ \"$owner\" = " + uid + " ] || continue\n"
                 + "    case \"$local_address:$state\" in\n"
                 + "      *:1ED4:0A) socket_listening=true; break ;;\n"
                 + "    esac\n"

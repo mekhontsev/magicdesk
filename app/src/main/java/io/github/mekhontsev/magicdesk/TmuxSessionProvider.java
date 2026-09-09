@@ -42,22 +42,24 @@ final class TmuxSessionProvider {
                     "tmux context and callback are required");
         }
         final Context appContext = context.getApplicationContext();
-        if (!TermuxIntegration.isInstalled(appContext)) {
+        final TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(appContext);
+        if (!endpoint.installed) {
             callback.onResult(Snapshot.unavailable(
                     "Termux is not installed"), null);
             return;
         }
-        if (!TermuxIntegration.isAvailable(appContext)) {
+        if (!endpoint.available()) {
             callback.onResult(null, new IOException(
-                    "Termux Run command permission is unavailable"));
+                    endpoint.packageName + ": " + endpoint.error));
             return;
         }
         try {
             TermuxIntegration.runBackgroundShellCommandForResult(
                     appContext,
+                    endpoint,
                     LIST_COMMAND,
                     "MagicDesk tmux sessions",
-                    TermuxIntegration.HOME_DIRECTORY,
+                    endpoint.homeDirectory,
                     RESULT_TIMEOUT_MILLIS,
                     (result, error) -> {
                         if (error != null) {

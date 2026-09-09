@@ -47,6 +47,8 @@ final class SettingsView {
 
         void configureTermuxX11();
 
+        void configureIntegrationPackage(IntegrationPackage integration);
+
         void openDeviceSetup();
 
         void openApplicationSettings();
@@ -75,6 +77,9 @@ final class SettingsView {
     private Switch mMcpNetworkEnabled;
     private TextView mMcpNetworkStatus;
     private boolean mRendering;
+    private final java.util.EnumMap<IntegrationPackage, TextView> mIntegrationPackages =
+            new java.util.EnumMap<>(IntegrationPackage.class);
+    private View mTermuxX11Action;
 
     SettingsView(final Activity activity, final Actions actions) {
         mActivity = activity;
@@ -222,14 +227,22 @@ final class SettingsView {
         addAction(content, android.R.drawable.ic_popup_sync,
                 R.string.settings_mcp_network_token, mActions::regenerateMcpNetworkToken);
 
-        if (TermuxX11Integration.isAvailable(mActivity)) {
-            addSection(content, R.string.settings_section_integrations, 14);
-            addAction(
+        addSection(content, R.string.settings_section_integrations, 14);
+        for (final IntegrationPackage integration : IntegrationPackage.values()) {
+            addAction(content, android.R.drawable.ic_menu_edit, integrationLabel(integration),
+                    () -> mActions.configureIntegrationPackage(integration));
+            final TextView value = new TextView(mActivity);
+            value.setTextColor(DesktopUiFactory.COLOR_MUTED);
+            value.setTextSize(12);
+            value.setPadding(dp(8), dp(4), dp(8), dp(8));
+            content.addView(value);
+            mIntegrationPackages.put(integration, value);
+        }
+        mTermuxX11Action = addAction(
                     content,
                     android.R.drawable.ic_menu_edit,
                     R.string.settings_termux_x11_command,
                     mActions::configureTermuxX11);
-        }
 
         addSection(content, R.string.settings_section_support, 14);
         addAction(content,
@@ -283,6 +296,12 @@ final class SettingsView {
             return;
         }
         mRendering = true;
+        for (final IntegrationPackage integration : IntegrationPackage.values()) {
+            final String saved = integration.configured(mActivity);
+            mIntegrationPackages.get(integration).setText(saved.equals(integration.selected()) ? saved
+                    : mActivity.getString(R.string.settings_integration_restart_pending, saved));
+        }
+        mTermuxX11Action.setVisibility(TermuxX11Integration.isAvailable(mActivity) ? View.VISIBLE : View.GONE);
         mTaskbarAutoHide.setChecked(settings.taskbarAutoHide);
         mOpenFilesWithSingleClick.setChecked(
                 settings.openFilesWithSingleClick);
@@ -417,7 +436,12 @@ final class SettingsView {
         return toggle;
     }
 
-    private void addAction(
+    static int integrationLabel(final IntegrationPackage integration) {
+        return integration == IntegrationPackage.SHIZUKU
+                ? R.string.settings_shizuku_package : R.string.settings_termux_package;
+    }
+
+    private View addAction(
             final LinearLayout parent,
             final int iconResId,
             final int labelResId,
@@ -458,6 +482,7 @@ final class SettingsView {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
         addDivider(parent);
+        return row;
     }
 
     private void addDivider(final LinearLayout parent) {

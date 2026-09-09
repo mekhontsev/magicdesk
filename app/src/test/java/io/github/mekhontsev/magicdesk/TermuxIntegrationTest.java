@@ -84,12 +84,14 @@ public final class TermuxIntegrationTest {
     @Test
     public void x11StatusProbeIsBoundToConfiguredDisplay() {
         final String command = TermuxX11StartupCommand.statusProbe(
-                "termux-x11 :5");
+                "termux-x11 :5", 10123);
 
         assertTrue(command.startsWith("requested=':5'\n"));
         assertTrue(command.contains("socketListening=%s"));
         assertTrue(command.contains("/proc/$server_pid/net/tcp"));
         assertTrue(command.contains("/proc/net/tcp6"));
+        assertTrue(command.contains("stat -c %u"));
+        assertTrue(command.contains("[ \"$owner\" = 10123 ] || continue"));
     }
 
     @Test

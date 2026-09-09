@@ -1,4 +1,9 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="settings_shizuku_package">Shizuku manager package</string>
+    <string name="settings_termux_package">Termux package</string>
+    <string name="settings_integration_restart_pending">%1$s (pending MagicDesk restart)</string>
+    <string name="settings_integration_package_invalid">Enter a valid application package name</string>
+    <string name="settings_integration_missing_manager">Cannot open selected Shizuku manager: %1$s</string>
     <string name="notification_tools_ready">Tools available</string>
     <string name="control_section_tools">Applications</string>
     <string name="tools_selected_display">Open on selected display</string>

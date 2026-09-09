@@ -99,9 +99,8 @@ final class TermuxPtyTransport implements TerminalTransport {
             final int rows,
             final int columns,
             final String startupCommand) throws IOException {
-        if (!TermuxIntegration.isAvailable(context)) {
-            throw new IOException("Termux command integration is unavailable");
-        }
+        final TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(context);
+        endpoint.requireAvailable();
         final String token = newToken();
         final long deadline = android.os.SystemClock.uptimeMillis()
                 + CONNECT_TIMEOUT_MILLIS;
@@ -111,6 +110,7 @@ final class TermuxPtyTransport implements TerminalTransport {
                     InetAddress.getByName("127.0.0.1"), 0), 4);
             TermuxPtyBridgeLauncher.launch(
                     context,
+                    endpoint,
                     server.getLocalPort(),
                     token,
                     rows,
@@ -145,8 +145,11 @@ final class TermuxPtyTransport implements TerminalTransport {
     }
 
     static String diagnostics(final Context context) {
-        return "installed=" + TermuxIntegration.isInstalled(context)
-                + ", permission=" + TermuxIntegration.isAvailable(context)
+        final TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(context);
+        return "package=" + endpoint.packageName
+                + ", installed=" + endpoint.installed
+                + ", available=" + endpoint.available()
+                + ", error=" + endpoint.error
                 + ", active=" + ACTIVE.get()
                 + ", opened=" + OPENED.get()
                 + ", failures=" + FAILURES.get()

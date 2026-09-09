@@ -1,23 +1,24 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.content.pm.ServiceInfo;
 import android.os.Bundle;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.List;
+
 final class TermuxIntegration {
-    static final String PACKAGE_NAME = "com.termux";
-    static final String HOME_DIRECTORY =
-            "/data/data/com.termux/files/home";
     static final String RUN_COMMAND_PERMISSION =
             "com.termux.permission.RUN_COMMAND";
     static final int PERMISSION_REQUEST_CODE = 7312;
 
-    private static final String RUN_COMMAND_SERVICE =
-            "com.termux.app.RunCommandService";
     private static final String ACTION_RUN_COMMAND = "com.termux.RUN_COMMAND";
     private static final String EXTRA_COMMAND_PATH =
             "com.termux.RUN_COMMAND_PATH";
@@ -38,7 +39,7 @@ final class TermuxIntegration {
     private static final String RUNNER_APP_SHELL = "app-shell";
     static final String PTY_BOOTSTRAP =
             "set -eu\n"
-            + "target=\"$7\"\n"
+            + "target=\"${HOME:?}/.local/libexec/$7\"\n"
             + "mkdir -p \"${target%/*}\"\n"
             + "tmp=\"${target%/*}/.magicdesk-pty-tmp.$$\"\n"
             + "trap 'rm -f \"$tmp\"' EXIT HUP INT TERM\n"
@@ -51,8 +52,8 @@ final class TermuxIntegration {
             + "trap - EXIT HUP INT TERM\n"
             + "exec \"$target\" --socket \"$1\" \"$2\" \"$3\" "
             + "\"$4\" \"$5\" "
-            + "\"${SHELL:-/data/data/com.termux/files/usr/bin/bash}\" "
-            + "\"/data/data/com.termux/files/usr/bin/bash\" "
+            + "\"${SHELL:-${PREFIX:?}/bin/bash}\" "
+            + "\"${PREFIX:?}/bin/bash\" "
             + "\"$6\"";
 
     private TermuxIntegration() {
@@ -60,7 +61,7 @@ final class TermuxIntegration {
 
     static boolean isInstalled(final Context context) {
         try {
-            context.getPackageManager().getPackageInfo(PACKAGE_NAME, 0);
+            context.getPackageManager().getPackageInfo(IntegrationPackage.TERMUX.selected(), 0);
             return true;
         } catch (PackageManager.NameNotFoundException error) {
             return false;
@@ -68,9 +69,87 @@ final class TermuxIntegration {
     }
 
     static boolean isAvailable(final Context context) {
-        return isInstalled(context)
-                && context.checkSelfPermission(RUN_COMMAND_PERMISSION)
-                        == PackageManager.PERMISSION_GRANTED;
+        return inspect(context).available();
+    }
+
+    static String homeDirectory(final Context context) {
+        final Endpoint endpoint = inspect(context);
+        if (!endpoint.installed) { throw new IllegalStateException(endpoint.packageName + ": " + endpoint.error); }
+        return endpoint.homeDirectory;
+    }
+
+    static Endpoint inspect(final Context context) {
+        final String selected = IntegrationPackage.TERMUX.selected();
+        final PackageManager packages = context.getPackageManager();
+        final android.content.pm.ApplicationInfo app;
+        try {
+            app = packages.getApplicationInfo(selected, PackageManager.ApplicationInfoFlags.of(0));
+        } catch (PackageManager.NameNotFoundException error) {
+            return new Endpoint(selected, false, null, "", -1, false,
+                    "Selected Termux package is not installed");
+        }
+        final String home = app.dataDir + "/files/home";
+        final List<ResolveInfo> matches = packages.queryIntentServices(
+                new Intent(ACTION_RUN_COMMAND).setPackage(selected),
+                PackageManager.ResolveInfoFlags.of(0));
+        if (matches.size() != 1) {
+            return new Endpoint(selected, true, null, home, app.uid, false,
+                    "Expected one compatible RUN_COMMAND service, found " + matches.size());
+        }
+        final ServiceInfo service = matches.get(0).serviceInfo;
+        final String compatibilityError = serviceError(app.enabled && service.enabled,
+                service.exported, service.permission);
+        final boolean permissionRequired = compatibilityError.isEmpty()
+                && RUN_COMMAND_PERMISSION.equals(service.permission)
+                && context.checkSelfPermission(RUN_COMMAND_PERMISSION) != PackageManager.PERMISSION_GRANTED;
+        return new Endpoint(selected, true, new ComponentName(selected, service.name), home, app.uid,
+                permissionRequired, permissionRequired
+                        ? "Termux RUN_COMMAND permission is not granted" : compatibilityError);
+    }
+
+    static String serviceError(final boolean enabled, final boolean exported,
+            final String permission) {
+        if (!enabled || !exported) { return "RUN_COMMAND service is disabled or not exported"; }
+        if (permission != null && !permission.isEmpty() && !RUN_COMMAND_PERMISSION.equals(permission)) {
+            return "Unsupported RUN_COMMAND permission: " + permission;
+        }
+        return "";
+    }
+
+    /** One resolved recipient; in-flight commands never reread the user's selection. */
+    static final class Endpoint {
+        final String packageName;
+        final boolean installed;
+        final ComponentName service;
+        final String homeDirectory;
+        final String error;
+        final int uid;
+        final boolean permissionRequired;
+
+        Endpoint(final String packageName, final boolean installed, final ComponentName service,
+                final String homeDirectory, final int uid, final boolean permissionRequired, final String error) {
+            this.packageName = packageName;
+            this.installed = installed;
+            this.service = service;
+            this.homeDirectory = homeDirectory;
+            this.error = error;
+            this.uid = uid;
+            this.permissionRequired = permissionRequired;
+        }
+
+        boolean available() { return error.isEmpty(); }
+
+        void requireAvailable() {
+            if (!available()) { throw new IllegalStateException(packageName + ": " + error); }
+        }
+
+        JSONObject toJson() throws JSONException {
+            return new JSONObject().put("package", packageName).put("installed", installed)
+                    .put("available", available()).put("homeDirectory", homeDirectory)
+                    .put("uid", uid).put("permissionRequired", permissionRequired)
+                    .put("service", service == null ? JSONObject.NULL : service.flattenToString())
+                    .put("error", error);
+        }
     }
 
     static boolean isAutoLaunchBlocked(final Throwable error) {
@@ -89,9 +168,12 @@ final class TermuxIntegration {
     }
 
     static boolean ensureRunCommandPermission(final Activity activity) {
-        if (activity.checkSelfPermission(RUN_COMMAND_PERMISSION)
-                == PackageManager.PERMISSION_GRANTED) {
-            return true;
+        final Endpoint endpoint = inspect(activity);
+        if (endpoint.available()) { return true; }
+        if (!endpoint.permissionRequired) {
+            android.widget.Toast.makeText(activity, endpoint.packageName + ": " + endpoint.error,
+                    android.widget.Toast.LENGTH_LONG).show();
+            return false;
         }
         activity.requestPermissions(
                 new String[]{RUN_COMMAND_PERMISSION},
@@ -99,19 +181,19 @@ final class TermuxIntegration {
         return false;
     }
 
-    @SuppressLint("SdCardPath")
     static void runBackgroundShellCommand(
             final Activity activity,
             final String command,
             final String label,
             final String workingDirectory) {
-        activity.startForegroundService(commandIntent(
+        activity.startForegroundService(commandIntent(inspect(activity),
                 command, label, workingDirectory)
                 .putExtra(EXTRA_BACKGROUND, true));
     }
 
     static void runBackgroundShellCommandForResult(
             final Context context,
+            final Endpoint endpoint,
             final String command,
             final String label,
             final String workingDirectory,
@@ -121,7 +203,7 @@ final class TermuxIntegration {
                 TermuxCommandResultReceiver.register(
                         context, timeoutMillis, callback);
         try {
-            context.startForegroundService(commandIntent(
+            context.startForegroundService(commandIntent(endpoint,
                     command, label, workingDirectory)
                     .putExtra(EXTRA_BACKGROUND, true)
                     .putExtra(
@@ -135,6 +217,7 @@ final class TermuxIntegration {
 
     static void runPtyBridge(
             final Context context,
+            final Endpoint endpoint,
             final int port,
             final String token,
             final int rows,
@@ -143,12 +226,12 @@ final class TermuxIntegration {
             final String startupCommand,
             final String target,
             final String encodedHelper) {
+        endpoint.requireAvailable();
         final Intent intent = new Intent(ACTION_RUN_COMMAND)
-                .setComponent(new ComponentName(
-                        PACKAGE_NAME, RUN_COMMAND_SERVICE))
+                .setComponent(endpoint.service)
                 .putExtra(
                         EXTRA_COMMAND_PATH,
-                        "/data/data/com.termux/files/usr/bin/bash")
+                        "$PREFIX/bin/bash")
                 .putExtra(EXTRA_ARGUMENTS, new String[]{
                         "-lc",
                         PTY_BOOTSTRAP,
@@ -164,28 +247,28 @@ final class TermuxIntegration {
                 .putExtra(EXTRA_STDIN, encodedHelper)
                 // Install from Termux's home. The bridge validates the requested
                 // cwd before launching a shell or publishing a ready PTY.
-                .putExtra(EXTRA_WORKDIR, HOME_DIRECTORY)
+                .putExtra(EXTRA_WORKDIR, "~/")
                 .putExtra(EXTRA_RUNNER, RUNNER_APP_SHELL)
                 .putExtra(EXTRA_BACKGROUND, true)
                 .putExtra(EXTRA_COMMAND_LABEL, "MagicDesk embedded terminal");
         context.startForegroundService(intent);
     }
 
-    @SuppressLint("SdCardPath")
     private static Intent commandIntent(
+            final Endpoint endpoint,
             final String command,
             final String label,
             final String workingDirectory) {
+        endpoint.requireAvailable();
         final String directory = workingDirectory == null
                 || workingDirectory.isEmpty()
-                ? HOME_DIRECTORY
+                ? "~/"
                 : DesktopExecWorkingDirectory.normalize(workingDirectory);
         return new Intent(ACTION_RUN_COMMAND)
-                .setComponent(new ComponentName(
-                        PACKAGE_NAME, RUN_COMMAND_SERVICE))
+                .setComponent(endpoint.service)
                 .putExtra(
                         EXTRA_COMMAND_PATH,
-                        "/data/data/com.termux/files/usr/bin/bash")
+                        "$PREFIX/bin/bash")
                 .putExtra(EXTRA_ARGUMENTS, new String[]{"-lc", command})
                 .putExtra(
                         EXTRA_WORKDIR,

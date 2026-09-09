@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -96,9 +95,7 @@ final class DesktopExecRunner {
         return "shell=" + ShellAccess.isReady()
                 + ", termux=" + TermuxIntegration.isInstalled(context)
                 + ", termuxRunCommand="
-                + (context.checkSelfPermission(
-                        TermuxIntegration.RUN_COMMAND_PERMISSION)
-                        == PackageManager.PERMISSION_GRANTED)
+                + TermuxIntegration.isAvailable(context)
                 + ", shellCapabilities={"
                 + DesktopExecBackend.SHELL.capabilities().report()
                 + "}, termuxCapabilities={"

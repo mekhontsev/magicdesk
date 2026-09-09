@@ -32,6 +32,17 @@ final class DesktopAutomationStateReader {
         mContext = context.getApplicationContext();
     }
 
+    private JSONObject integrationPackages() throws JSONException {
+        final JSONObject result = new JSONObject();
+        for (final IntegrationPackage integration : IntegrationPackage.values()) {
+            final String configured = integration.configured(mContext);
+            result.put(integration.key, new JSONObject().put("active", integration.selected())
+                    .put("configured", configured)
+                    .put("restartRequired", !configured.equals(integration.selected())));
+        }
+        return result;
+    }
+
     JSONObject state() throws JSONException {
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
@@ -52,6 +63,7 @@ final class DesktopAutomationStateReader {
                 .put("readiness", AutomationDeviceState.capture(mContext)
                         .toJson(shell.isReady()))
                 .put("shell", new JSONObject()
+                        .put("managerPackage", IntegrationPackage.SHIZUKU.selected())
                         .put("ready", shell.isReady())
                         .put("installed", shell.installed)
                         .put("running", shell.running)
@@ -59,6 +71,8 @@ final class DesktopAutomationStateReader {
                         .put("uid", shell.uid)
                         .put("apiVersion", shell.version)
                         .put("error", shell.error))
+                .put("termux", TermuxIntegration.inspect(mContext).toJson())
+                .put("integrationPackages", integrationPackages())
                 .put("platform", new JSONObject()
                         .put("id", platform.id())
                         .put("name", platform.name())

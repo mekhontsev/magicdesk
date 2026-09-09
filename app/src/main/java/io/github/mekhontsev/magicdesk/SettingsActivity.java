@@ -301,6 +301,43 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void configureIntegrationPackage(final IntegrationPackage integration) {
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        input.setSingleLine(true);
+        input.setTypeface(Typeface.MONOSPACE);
+        input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(IntegrationPackage.MAX_LENGTH)});
+        input.setText(integration.configured(this));
+        input.setSelectAllOnFocus(true);
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(SettingsView.integrationLabel(integration))
+                .setView(input)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setNeutralButton(R.string.action_reset, null)
+                .setPositiveButton(android.R.string.ok, null)
+                .create();
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
+                    input.setText(integration.defaultPackage));
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+                try {
+                    if (!integration.save(this, input.getText().toString())) {
+                        input.setError(getString(R.string.settings_save_failed));
+                        return;
+                    }
+                } catch (IllegalArgumentException error) {
+                    input.setError(getString(R.string.settings_integration_package_invalid));
+                    return;
+                }
+                // These preferences do not reconcile the running shell or terminal services.
+                render();
+                dialog.dismiss();
+            });
+        });
+        dialog.show();
+    }
+
+    @Override
     public void openApplicationSettings() {
         final android.view.Display display = getDisplay();
         final int displayId = display == null

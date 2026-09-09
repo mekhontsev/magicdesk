@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.os.Looper;
 import android.os.SystemClock;
 
@@ -126,9 +125,10 @@ final class TermuxX11RuntimeStatus {
         try {
             TermuxIntegration.runBackgroundShellCommandForResult(
                     appContext,
+                    TermuxIntegration.inspect(appContext),
                     command,
                     "MagicDesk Termux:X11 reconnect",
-                    TermuxIntegration.HOME_DIRECTORY,
+                    "",
                     RESULT_TIMEOUT_MILLIS,
                     (result, error) -> {
                         if (error != null) {
@@ -196,11 +196,12 @@ final class TermuxX11RuntimeStatus {
     private static void runProbe(
             final Status baseline,
             final StatusCallback callback) {
-        final String command = TermuxX11StartupCommand.statusProbe(
-                MagicDeskSettings.load().termuxX11StartupCommand);
         PROBE_EXECUTOR.execute(() -> {
             Status status;
             try {
+                final String command = TermuxX11StartupCommand.statusProbe(
+                        MagicDeskSettings.load().termuxX11StartupCommand,
+                        TermuxIntegration.inspect(MagicDeskApplication.applicationContext()).uid);
                 // Android hides global socket tables from ordinary app UIDs.
                 // MagicDesk's shell service can inspect both the Termux-owned
                 // process and its loopback listener without touching either.
@@ -251,7 +252,7 @@ final class TermuxX11RuntimeStatus {
         return new Status(
                 baseline.termuxInstalled,
                 baseline.x11Installed,
-                baseline.runCommandPermission,
+                baseline.runCommandAvailable,
                 requestedDisplay,
                 state,
                 serverFound,
@@ -265,18 +266,17 @@ final class TermuxX11RuntimeStatus {
     }
 
     private static Status baseline(final Context context) {
-        final boolean termuxInstalled = TermuxIntegration.isInstalled(context);
+        final TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(context);
+        final boolean termuxInstalled = endpoint.installed;
         final boolean x11Installed = TermuxX11Integration.isInstalled(context);
-        final boolean permission = context.checkSelfPermission(
-                TermuxIntegration.RUN_COMMAND_PERMISSION)
-                == PackageManager.PERMISSION_GRANTED;
+        final boolean permission = endpoint.available();
         final String parsedDisplay = TermuxX11StartupCommand.requestedDisplay(
                 MagicDeskSettings.load().termuxX11StartupCommand);
         final String display = parsedDisplay.isEmpty()
                 ? "unknown" : parsedDisplay;
         if (!termuxInstalled) {
             return Status.unknown(false, x11Installed, permission,
-                    display, "Termux is not installed");
+                    display, endpoint.packageName + ": " + endpoint.error);
         }
         if (!x11Installed) {
             return Status.unknown(true, false, permission,
@@ -284,7 +284,7 @@ final class TermuxX11RuntimeStatus {
         }
         if (!permission) {
             return Status.unknown(true, true, false,
-                    display, "Termux RUN_COMMAND permission is not granted");
+                    display, endpoint.packageName + ": " + endpoint.error);
         }
         return Status.unknown(true, true, true,
                 display, "not probed");
@@ -294,8 +294,8 @@ final class TermuxX11RuntimeStatus {
         final Status current = sLastStatus;
         if (current.termuxInstalled != baseline.termuxInstalled
                 || current.x11Installed != baseline.x11Installed
-                || current.runCommandPermission
-                        != baseline.runCommandPermission
+                || current.runCommandAvailable
+                        != baseline.runCommandAvailable
                 || !current.requestedDisplay.equals(
                         baseline.requestedDisplay)) {
             return baseline;
@@ -376,7 +376,7 @@ final class TermuxX11RuntimeStatus {
     static final class Status {
         final boolean termuxInstalled;
         final boolean x11Installed;
-        final boolean runCommandPermission;
+        final boolean runCommandAvailable;
         final String requestedDisplay;
         final String state;
         final boolean serverFound;
@@ -391,7 +391,7 @@ final class TermuxX11RuntimeStatus {
         private Status(
                 final boolean termuxInstalled,
                 final boolean x11Installed,
-                final boolean runCommandPermission,
+                final boolean runCommandAvailable,
                 final String requestedDisplay,
                 final String state,
                 final boolean serverFound,
@@ -404,7 +404,7 @@ final class TermuxX11RuntimeStatus {
                 final TaskRepository.TaskEntry viewerTask) {
             this.termuxInstalled = termuxInstalled;
             this.x11Installed = x11Installed;
-            this.runCommandPermission = runCommandPermission;
+            this.runCommandAvailable = runCommandAvailable;
             this.requestedDisplay = requestedDisplay == null
                     ? "" : requestedDisplay;
             this.state = state == null ? "unknown" : state;
@@ -421,13 +421,13 @@ final class TermuxX11RuntimeStatus {
         static Status unknown(
                 final boolean termuxInstalled,
                 final boolean x11Installed,
-                final boolean runCommandPermission,
+                final boolean runCommandAvailable,
                 final String requestedDisplay,
                 final String detail) {
             return new Status(
                     termuxInstalled,
                     x11Installed,
-                    runCommandPermission,
+                    runCommandAvailable,
                     requestedDisplay,
                     "unknown",
                     false,
@@ -441,14 +441,14 @@ final class TermuxX11RuntimeStatus {
         }
 
         boolean available() {
-            return termuxInstalled && x11Installed && runCommandPermission;
+            return termuxInstalled && x11Installed && runCommandAvailable;
         }
 
         Status withProbeError(final String message) {
             return new Status(
                     termuxInstalled,
                     x11Installed,
-                    runCommandPermission,
+                    runCommandAvailable,
                     requestedDisplay,
                     "error",
                     false,
@@ -465,7 +465,7 @@ final class TermuxX11RuntimeStatus {
             return new Status(
                     termuxInstalled,
                     x11Installed,
-                    runCommandPermission,
+                    runCommandAvailable,
                     requestedDisplay,
                     state,
                     serverFound,
@@ -493,7 +493,7 @@ final class TermuxX11RuntimeStatus {
                     .put("available", available())
                     .put("termuxInstalled", termuxInstalled)
                     .put("viewerInstalled", x11Installed)
-                    .put("runCommandPermission", runCommandPermission)
+                    .put("runCommandAvailable", runCommandAvailable)
                     .put("requestedDisplay", requestedDisplay)
                     .put("serverFound", serverFound)
                     .put("serverPid", serverPid >= 0
@@ -517,7 +517,7 @@ final class TermuxX11RuntimeStatus {
                     + ", available=" + available()
                     + ", termux=" + termuxInstalled
                     + ", x11=" + x11Installed
-                    + ", runCommand=" + runCommandPermission
+                    + ", runCommand=" + runCommandAvailable
                     + ", requestedDisplay="
                     + (requestedDisplay.isEmpty()
                             ? "unknown" : requestedDisplay)

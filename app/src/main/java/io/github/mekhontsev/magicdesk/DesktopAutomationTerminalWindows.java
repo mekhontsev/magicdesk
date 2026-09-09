@@ -24,22 +24,24 @@ final class DesktopAutomationTerminalWindows {
                     args.optString("backend", "shell"));
             if (backend == DesktopExecBackend.SHELL) {
                 requireShell();
-            } else if (!TermuxIntegration.isAvailable(
-                    MagicDeskApplication.applicationContext())) {
-                return DesktopAutomationResult.failure(
-                        DesktopAutomationErrorCode.PERMISSION_REQUIRED,
-                        "Termux Run command permission is unavailable",
-                        false);
+            } else {
+                final var endpoint = TermuxIntegration.inspect(MagicDeskApplication.applicationContext());
+                if (!endpoint.available()) {
+                    return DesktopAutomationResult.failure(endpoint.permissionRequired
+                                    ? DesktopAutomationErrorCode.PERMISSION_REQUIRED
+                                    : DesktopAutomationErrorCode.HOST_UNAVAILABLE,
+                            endpoint.packageName + ": " + endpoint.error, false);
+                }
             }
             final String directory = DesktopExecWorkingDirectory.normalize(
                     args.optString(
                             "directory",
                             backend == DesktopExecBackend.TERMUX
-                                    ? TermuxIntegration.HOME_DIRECTORY
+                                    ? TermuxIntegration.homeDirectory(MagicDeskApplication.applicationContext())
                                     : ShellDesktopDirectory.ABSOLUTE_PATH));
             final String resolvedDirectory = directory.isEmpty()
                     ? (backend == DesktopExecBackend.TERMUX
-                            ? TermuxIntegration.HOME_DIRECTORY
+                            ? TermuxIntegration.homeDirectory(MagicDeskApplication.applicationContext())
                             : ShellDesktopDirectory.ABSOLUTE_PATH)
                     : directory;
             final String command = DesktopExecCommand.normalize(

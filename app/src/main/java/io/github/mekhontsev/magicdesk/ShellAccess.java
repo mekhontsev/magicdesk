@@ -26,7 +26,6 @@ public final class ShellAccess {
     static final int REQUEST_PERMISSION_CODE = 7104;
     static final int ROOT_UID = 0;
     static final int SHELL_UID = 2000;
-    static final String MANAGER_PACKAGE = "moe.shizuku.privileged.api";
     private static final String DOWNLOAD_URL = "https://shizuku.rikka.app/download/";
     private static final AtomicLong NEXT_STREAM_ID =
             new AtomicLong();
@@ -121,8 +120,10 @@ public final class ShellAccess {
             if (!Shizuku.pingBinder()) {
                 return Snapshot.unavailable(installed,
                         installed
-                                ? "Shizuku is installed but its server is not running"
-                                : "Shizuku is not installed");
+                                ? "Shizuku API unavailable; selected manager: "
+                                        + IntegrationPackage.SHIZUKU.selected()
+                                : "Shizuku API unavailable; manager not installed: "
+                                        + IntegrationPackage.SHIZUKU.selected());
             }
             final int version = Shizuku.getVersion();
             if (version < 11) {
@@ -1353,13 +1354,19 @@ public final class ShellAccess {
 
     static void openManagerOrWebsite(final Context context) {
         final Intent manager =
-                context.getPackageManager().getLaunchIntentForPackage(MANAGER_PACKAGE);
+                context.getPackageManager().getLaunchIntentForPackage(
+                        IntegrationPackage.SHIZUKU.selected());
         if (manager != null) {
             context.startActivity(manager.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             return;
         }
-        context.startActivity(new Intent(
-                Intent.ACTION_VIEW, Uri.parse(DOWNLOAD_URL)));
+        if (IntegrationPackage.SHIZUKU.defaultPackage.equals(IntegrationPackage.SHIZUKU.selected())) {
+            context.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(DOWNLOAD_URL)));
+        } else {
+            android.widget.Toast.makeText(context,
+                    context.getString(R.string.settings_integration_missing_manager,
+                            IntegrationPackage.SHIZUKU.selected()), android.widget.Toast.LENGTH_LONG).show();
+        }
     }
 
     static void disconnect() {
@@ -1444,7 +1451,7 @@ public final class ShellAccess {
     private static boolean isManagerInstalled(final Context context) {
         try {
             context.getPackageManager().getPackageInfo(
-                    MANAGER_PACKAGE, PackageManager.PackageInfoFlags.of(0));
+                    IntegrationPackage.SHIZUKU.selected(), PackageManager.PackageInfoFlags.of(0));
             return true;
         } catch (PackageManager.NameNotFoundException error) {
             return false;

@@ -13,14 +13,13 @@ import java.security.NoSuchAlgorithmException;
 final class TermuxPtyBridgeLauncher {
     private static final String HELPER_NAME = "libmagicdesk_pty_bridge.so";
     private static final int MAX_HELPER_BYTES = 512 * 1024;
-    private static final String TERMUX_HELPER_DIRECTORY =
-            "/data/data/com.termux/files/home/.local/libexec";
 
     private TermuxPtyBridgeLauncher() {
     }
 
     static void launch(
             final Context context,
+            final TermuxIntegration.Endpoint endpoint,
             final int port,
             final String token,
             final int rows,
@@ -35,11 +34,11 @@ final class TermuxPtyBridgeLauncher {
             throw new IOException("invalid Termux PTY helper size");
         }
         final String digest = sha256(bytes);
-        final String target = TERMUX_HELPER_DIRECTORY
-                + "/magicdesk-pty-" + digest;
+        final String target = "magicdesk-pty-" + digest;
         final String encoded = Base64.encodeToString(bytes, Base64.NO_WRAP);
         TermuxIntegration.runPtyBridge(
                 context,
+                endpoint,
                 port,
                 token,
                 rows,

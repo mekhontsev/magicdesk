@@ -14,6 +14,11 @@ public final class ShellAccessSnapshotTest {
     }
 
     @Test
+    public void compatibleBinderDoesNotRequireTheSelectedManagerToBeInstalled() {
+        assertTrue(new ShellAccess.Snapshot(false, true, true, 2000, 13, "").isReady());
+    }
+
+    @Test
     public void unavailableOrOutdatedServerIsNotReady() {
         assertFalse(snapshot(false, true, 2000, 11).isReady());
         assertFalse(snapshot(true, false, 2000, 11).isReady());

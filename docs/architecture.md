@@ -1255,6 +1255,19 @@ desktop panels. Keep this split when adding vendor-specific behavior.
 
 ## Shell UserService Runtime
 
+`IntegrationPackage` captures the configured Shizuku manager and Termux package
+names once at application startup. Settings can save new names or reset to the
+original packages. These bootstrap preferences live in app-private storage and
+are readable before Shizuku connects, independently of shell-backed Desktop state.
+Changes take effect in the next process, without reconciling active services or
+terminals. UI, automation and command providers share this selection. Diagnostics
+exposes both active and configured values. There is no catalog of forks or
+automatic fallback to a different installed application.
+
+The Shizuku manager package selects discovery and manager UI, not the Binder
+endpoint. A compatible authorized server can be ready without that manager
+installed. The normal API/UserService and UID checks remain authoritative.
+
 Shizuku is the current Binder transport, while Android shell UID 2000 or root
 UID 0 is the capability identity. `DeviceSetupManager` accepts the connection
 after the bound
@@ -1296,6 +1309,16 @@ apply `TIOCSWINSZ`, expose the shell PID, and resolve `/proc/<pid>/cwd` within
 the process's own security domain. Ending the session, running `exit`, service
 death, or stream failure ends only that PTY and shell. A failed transport is
 discarded rather than silently changing privilege or execution backend.
+
+Termux service resolution is restricted to the selected package and the
+standard `com.termux.RUN_COMMAND` action. A unique exported service must retain
+the command/result protocol and a permission MagicDesk supports. A renamed
+custom permission is reported as incompatible, not bypassed. Shell paths use
+the protocol's `$PREFIX/` expansion; helper installation uses Termux's own
+`HOME`/`PREFIX` environment. Absolute initial directories use the selected
+application's Android data directory and Termux's `files/home` layout, including
+the current Android user. X11 shell diagnostics filter processes and listeners
+by that application's UID; the separate Termux:X11 viewer package is unchanged.
 
 The native relay owns both directions in one nonblocking poll loop, with
 bounded input/output buffers and incremental control-frame decoding. A partial

@@ -27,7 +27,8 @@ public final class TermuxPtyBootstrapTest {
         final String prefix = System.getenv("PREFIX");
         final Path shell = prefix == null ? Path.of("/bin/sh") : Path.of(prefix, "bin", "sh");
         assertTrue(Files.isExecutable(shell));
-        final Path target = temporary.getRoot().toPath().resolve("magicdesk-pty-current");
+        final Path directory = Files.createDirectories(temporary.getRoot().toPath().resolve(".local/libexec"));
+        final Path target = directory.resolve("magicdesk-pty-current");
         final Path old = Files.createFile(target.resolveSibling("magicdesk-pty-old"));
         final byte[] encoded = Base64.getEncoder().encode(
                 ("#!" + shell + "\nexit 0\n").getBytes(StandardCharsets.UTF_8));
@@ -60,9 +61,13 @@ public final class TermuxPtyBootstrapTest {
 
     private static Process start(final Path shell, final Path target, final String setup)
             throws Exception {
-        return new ProcessBuilder(shell.toString(), "-c", setup + TermuxIntegration.PTY_BOOTSTRAP,
-                "magicdesk-test", "1", "token", "24", "80", "/tmp", "", target.toString())
-                .redirectErrorStream(true).start();
+        final ProcessBuilder builder = new ProcessBuilder(shell.toString(), "-c", setup + TermuxIntegration.PTY_BOOTSTRAP,
+                "magicdesk-test", "1", "token", "24", "80", "/tmp", "", target.getFileName().toString())
+                .redirectErrorStream(true);
+        builder.environment().put("HOME", target.getParent().getParent().getParent().toString());
+        builder.environment().put("PREFIX", shell.getParent().getParent().toString());
+        builder.environment().put("SHELL", shell.toString());
+        return builder.start();
     }
 
     private static void stop(final Process process) throws Exception {

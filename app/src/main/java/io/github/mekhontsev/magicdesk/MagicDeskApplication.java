@@ -12,6 +12,7 @@ public final class MagicDeskApplication extends Application {
         sApplicationContext = getApplicationContext();
         AndroidActivityResultStore.releaseOrphanedPersistedUris(this);
         DesktopHomeStartupGuard.relinquishStaleHome(this);
+        IntegrationPackage.active();
         ShellAccess.initialize();
         CompatibilityDiagnostics.initialize(this);
         DesktopAutomationEventJournal.record(

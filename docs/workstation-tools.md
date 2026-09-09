@@ -174,6 +174,15 @@ and does not execute the script through this action.
 
 ## Termux And Termux:X11
 
+**Settings > Integrations** accepts a compatible Termux application's package
+name, defaulting to `com.termux`. The Shizuku manager package is configurable in
+the same section. Both choices apply only after restarting the MagicDesk
+process; saving a choice does not switch active connections or terminals.
+There is no built-in list of forks. A Termux fork must retain the standard
+`RUN_COMMAND` protocol and a supported service permission. Changing the package
+name cannot make an incompatible command API compatible. Termux:X11 remains a
+separate companion application.
+
 When Termux is installed and external application commands are enabled,
 MagicDesk can open an independent Termux-backed Console at the current Files
 directory. It uses the same renderer, input, resize, selection, drag-and-drop,

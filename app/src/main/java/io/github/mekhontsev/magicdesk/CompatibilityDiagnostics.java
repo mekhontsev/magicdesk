@@ -432,6 +432,12 @@ public final class CompatibilityDiagnostics {
                 .append(settings.openFilesWithSingleClick)
                 .append('\n');
         appendApplicationPresentationProfiles(report);
+        for (final IntegrationPackage integration : IntegrationPackage.values()) {
+            report.append("Integration ").append(integration.key)
+                    .append(": active=").append(integration.selected())
+                    .append(", configured=").append(integration.configured(context))
+                    .append('\n');
+        }
         report.append("Termux:X11 integration: ")
                 .append(TermuxX11Integration.diagnostics(context))
                 .append('\n');

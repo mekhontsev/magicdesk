@@ -531,7 +531,7 @@ final class FileManagerView {
         if (visible) {
             try {
                 mTerminal.setImageDrawable(mContext.getPackageManager()
-                        .getApplicationIcon(TermuxIntegration.PACKAGE_NAME));
+                        .getApplicationIcon(IntegrationPackage.TERMUX.selected()));
                 mTerminal.setImageTintList(null);
             } catch (PackageManager.NameNotFoundException ignored) {
                 // Keep the terminal fallback if the package disappeared.

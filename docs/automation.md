@@ -380,6 +380,13 @@ default is `shell`. A Termux terminal requires the installed Termux app, its
 external-command setting, and the `RUN_COMMAND` permission; after launch all
 other `terminal.*` operations are backend-independent.
 
+**Settings > Integrations** selects the Termux and Shizuku manager packages;
+changes apply only at the next MagicDesk process startup. Compatible forks use
+the same command APIs. `get_state.integrationPackages` reports active/configured
+names and pending restart, `shell.managerPackage` names the selected manager,
+and `termux` reports the resolved command service and any availability error.
+MCP commands use the same selection as the UI, never an independent backend.
+
 `terminal.open`, `terminal.attach`, `tmux.open` and `open_builtin` accept a
 `placement`: `auto` (active Desktop or phone), `phone` (ordinary display 0),
 `display` (ordinary fullscreen on an explicit `displayId`), or `desktop`

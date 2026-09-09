@@ -87,7 +87,7 @@ public final class CommandConsoleActivity extends Activity
     static Intent createTermuxIntent(final Context context) {
         return createIntentAtDirectory(
                 context,
-                TermuxIntegration.HOME_DIRECTORY,
+                TermuxIntegration.homeDirectory(context),
                 DesktopExecBackend.TERMUX);
     }
 
@@ -127,7 +127,7 @@ public final class CommandConsoleActivity extends Activity
                 ? createIntentAtDirectory(
                         context,
                         backend == DesktopExecBackend.TERMUX
-                                ? TermuxIntegration.HOME_DIRECTORY
+                                ? TermuxIntegration.homeDirectory(context)
                                 : ShellDesktopDirectory.ABSOLUTE_PATH,
                         backend)
                 : createIntentAtDirectory(
@@ -661,7 +661,7 @@ public final class CommandConsoleActivity extends Activity
                 createPreparedCommandIntent(
                         this,
                         command,
-                        TermuxIntegration.HOME_DIRECTORY,
+                        TermuxIntegration.homeDirectory(this),
                         DesktopExecBackend.TERMUX),
                 launchTarget(),
                 error -> {
@@ -728,11 +728,12 @@ public final class CommandConsoleActivity extends Activity
             return;
         }
         if (mBackend == DesktopExecBackend.TERMUX) {
-            if (!TermuxIntegration.isInstalled(this)) {
-                failTerminal(getString(R.string.console_termux_unavailable));
+            final TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(this);
+            if (!endpoint.available() && !endpoint.permissionRequired) {
+                failTerminal(endpoint.packageName + ": " + endpoint.error);
                 return;
             }
-            if (!TermuxIntegration.isAvailable(this)) {
+            if (endpoint.permissionRequired) {
                 mTerminalStatus = getString(
                         R.string.console_termux_permission_required);
                 updateShellStatus();

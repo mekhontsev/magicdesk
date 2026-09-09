@@ -35,8 +35,9 @@ final class RuntimeCapabilities {
     }
 
     static RuntimeCapabilities current(final android.content.Context context) {
+        final TermuxIntegration.Endpoint termux = TermuxIntegration.inspect(context);
         return new RuntimeCapabilities(android.os.Build.VERSION.SDK_INT, ShellAccess.isReady(),
-                TermuxIntegration.isInstalled(context), TermuxIntegration.isAvailable(context),
+                termux.installed, termux.available(),
                 DeviceSetupManager.isRuntimeAuthorized());
     }
 
