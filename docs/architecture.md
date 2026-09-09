@@ -7,9 +7,10 @@ problems.
 
 ## Runtime Layers
 
-The APK currently requires Android 15 (API 35). Desktop framework support and
-service availability are separate contracts; this separation does not by itself
-make the APK installable on older Android releases.
+The APK requires Android 14 (API 34); managed Desktop requires Android 15
+(API 35). Shared services and ordinary built-in Activity windows do not require
+Desktop. The [API-level contract](runtime-api-levels.md) records OS-dependent
+behavior, static verification and remaining device coverage.
 
 - Shared services own files, profiles, content, shell execution and Termux PTYs.
   MCP is an authorized adapter to these services, not their lifetime owner.
@@ -27,6 +28,9 @@ make the APK installable on older Android releases.
   virtual display access does not eagerly initialize the window organizer.
 - `RuntimeCapabilities` publishes service prerequisites separately from MCP
   grants. A met prerequisite is not a successful device capability probe.
+  Desktop entry points reject unsupported SDKs before display preparation or
+  service promotion. A direct service Intent cannot promote Desktop or crash
+  independent tools and automation on an unsupported SDK.
 
 The control panel can open Files, shell/Termux terminals and retained terminal
 sessions on the phone or selected display. No session is started implicitly to
@@ -1075,7 +1079,9 @@ compatibility adapter checks the framework flag once, using the desktop flag
 wrapper when available to retain its override semantics. It does not change
 system feature flags. Before publishing the shell binding, the app reads the
 public developer setting and passes its value (or explicit read failure) to
-the shell runtime. Hidden flag inspection remains in the shell process. If
+the shell runtime. Binding stores this snapshot without resolving windowing
+APIs; the first windowing consumer performs the one-time detection. Hidden
+flag inspection remains in the shell process. If
 the wrapper's Settings read rejects the current Application's app-package/
 shell-UID attribution, the adapter resolves that developer override using the
 app's setting snapshot. A package-resource context does not change the
@@ -2381,9 +2387,10 @@ paths or inventing directory content URIs; the default action is move and
 holding `Ctrl` when the drag starts selects copy. Only a complete bounded
 selection of readable ordinary files receives read-only URIs for drops into
 other Android applications. Mixed selections are never exported as a subset.
-Local-only selections use Android 15's `DRAG_FLAG_GLOBAL_SAME_APPLICATION`,
+On Android 15+, local-only selections use `DRAG_FLAG_GLOBAL_SAME_APPLICATION`,
 so files and folders can cross MagicDesk windows without exposing a label-only
-drag to other applications. Files passes Android's actual drag-start result
+drag to other applications. On Android 14, those selections stay within the
+source window. Files passes Android's actual drag-start result
 back to the gesture owner. The built-in Console
 can be prefilled with the current directory. Process-local file drags dropped
 on its input insert normalized, shell-quoted paths but never run a command.

@@ -133,9 +133,12 @@ final class DisplaySelectionView {
         mSelected = selectedIndex >= 0 ? displays[selectedIndex] : null;
         mSelector.setSelection(selectedIndex);
         mSelector.setEnabled(shellReady && !busy);
-        mStart.setText(mSelected != null && mSelected.id == activeId
-                ? R.string.display_show : R.string.display_start);
-        mStart.setEnabled(canStart(mSelected, activeId, shellReady, busy));
+        mStart.setText(!RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)
+                ? R.string.desktop_android_requirement
+                : mSelected != null && mSelected.id == activeId
+                    ? R.string.display_show : R.string.display_start);
+        mStart.setEnabled(canStart(mSelected, activeId, shellReady, busy,
+                android.os.Build.VERSION.SDK_INT));
         mCreate.setEnabled(shellReady && !busy);
         mDelete.setEnabled(shellReady && !busy && mSelected != null && mSelected.owned);
         final boolean remote = mSelected != null
@@ -149,8 +152,9 @@ final class DisplaySelectionView {
     }
 
     static boolean canStart(final DesktopDisplayInfo display, final int activeId,
-            final boolean shellReady, final boolean busy) {
-        return shellReady && !busy && display != null && display.canHostDesktop
+            final boolean shellReady, final boolean busy, final int sdk) {
+        return RuntimeCapabilities.supportsDesktop(sdk)
+                && shellReady && !busy && display != null && display.canHostDesktop
                 && (activeId < 0 || activeId == display.id);
     }
 

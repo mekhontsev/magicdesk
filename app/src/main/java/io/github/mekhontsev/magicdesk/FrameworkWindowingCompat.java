@@ -18,6 +18,8 @@ import java.util.function.IntSupplier;
 @SuppressLint({"BlockedPrivateApi", "PrivateApi"})
 final class FrameworkWindowingCompat {
     private static FrameworkWindowingCompat sCurrent;
+    private static int sDesktopToggle = -1;
+    private static String sSettingError = "desktop developer setting was not supplied";
     static final String ANDROID_15_OVERRIDE = "android15";
     static final long TASK_OBSERVATION_INTERVAL_MILLIS = 150L;
     static final int TASK_OBSERVATION_LIMIT = 16;
@@ -56,22 +58,23 @@ final class FrameworkWindowingCompat {
 
     static synchronized FrameworkWindowingCompat current() {
         if (sCurrent == null) {
-            initialize(-1, "desktop developer setting was not supplied");
+            sCurrent = detect(BuildConfig.FRAMEWORK_OVERRIDE,
+                    visibleTypesUnavailableReason(() -> {
+                        if (sSettingError != null && !sSettingError.isEmpty()) {
+                            throw new IllegalStateException(sSettingError);
+                        }
+                        return sDesktopToggle;
+                    }));
         }
         return sCurrent;
     }
 
     static synchronized void initialize(final int desktopToggle, final String settingError) {
-        // The app reads public Settings; the shell process resolves hidden
-        // flags before its binding is published to other runtime consumers.
+        // Binding supplies app-owned Settings only. Shell tools must not resolve
+        // optional windowing APIs until a windowing consumer requests them.
         if (sCurrent == null) {
-            sCurrent = detect(BuildConfig.FRAMEWORK_OVERRIDE,
-                    visibleTypesUnavailableReason(() -> {
-                        if (settingError != null && !settingError.isEmpty()) {
-                            throw new IllegalStateException(settingError);
-                        }
-                        return desktopToggle;
-                    }));
+            sDesktopToggle = desktopToggle;
+            sSettingError = settingError;
         }
     }
 

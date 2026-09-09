@@ -57,9 +57,13 @@ final class FileDragPayload {
     }
 
     static int dragFlags(final boolean shareableContent) {
-        return shareableContent
-                ? View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_GLOBAL_URI_READ
-                : View.DRAG_FLAG_GLOBAL_SAME_APPLICATION;
+        if (shareableContent) {
+            return View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_GLOBAL_URI_READ;
+        }
+        // Android 14 cannot restrict cross-window drag to our UID. Keep private
+        // payloads within their source window instead of exposing them globally.
+        return android.os.Build.VERSION.SDK_INT >= 35
+                ? View.DRAG_FLAG_GLOBAL_SAME_APPLICATION : 0;
     }
 
     List<String> pathsForDestination(final String destination) {

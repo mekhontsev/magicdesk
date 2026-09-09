@@ -366,6 +366,7 @@ final class DesktopAutomationController {
 
     private DesktopAutomationResult startDesktop(final String rawTarget)
             throws JSONException {
+        RuntimeCapabilities.requireDesktop();
         if (!ShellAccess.isReady()) {
             return DesktopAutomationResult.failure(
                     "shell command service is unavailable");
@@ -410,6 +411,7 @@ final class DesktopAutomationController {
 
     private DesktopAutomationResult startDesktopOnDisplay(final JSONObject args)
             throws IOException, JSONException {
+        RuntimeCapabilities.requireDesktop();
         if (args.has("target")) {
             throw new IllegalArgumentException("use displayId or target, not both");
         }
@@ -909,7 +911,7 @@ final class DesktopAutomationController {
     private DesktopAutomationResult runSelfTest(final JSONObject args)
             throws JSONException {
         final AutomationDeviceState readiness = AutomationDeviceState.capture(mContext);
-        final String unavailable = readiness.phoneUiUnavailableReason();
+        final String unavailable = readiness.selfTestUnavailableReason();
         if (unavailable != null) {
             return DesktopAutomationResult.failure(
                     unavailable, readiness.toJson(ShellAccess.currentSnapshot().isReady()));

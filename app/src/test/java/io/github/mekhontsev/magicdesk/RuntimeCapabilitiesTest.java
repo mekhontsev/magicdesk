@@ -4,6 +4,12 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class RuntimeCapabilitiesTest {
+    @Test public void desktopFrameworkFloorDoesNotDependOnProvisioning() {
+        assertFalse(RuntimeCapabilities.supportsDesktop(34));
+        assertTrue(RuntimeCapabilities.supportsDesktop(35));
+        assertTrue(RuntimeCapabilities.supportsDesktop(36));
+    }
+
     @Test public void desktopProvisioningDoesNotGateIndependentServices() {
         final var caps = new RuntimeCapabilities(35, true, true, true, false);
         for (final var service : RuntimeCapabilities.Service.values()) {

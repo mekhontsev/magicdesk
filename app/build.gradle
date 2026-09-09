@@ -43,7 +43,7 @@ android {
 
     defaultConfig {
         applicationId = 'io.github.mekhontsev.magicdesk'
-        minSdk = 35
+        minSdk = 34
         targetSdk = 37
         versionCode = baseVersionCode
         buildConfigField 'String', 'SOURCE_ID', '"' + sourceId + '"'

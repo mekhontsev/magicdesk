@@ -6,7 +6,12 @@ for firmware requirements and issue reports.
 
 ## Requirements
 
-MagicDesk requires:
+The MagicDesk APK requires Android 14 / API 34 or newer. Files, terminal
+sessions, MCP and ordinary fullscreen tool windows do not require Desktop
+provisioning or HOME ownership. Enable only the permissions needed for the
+chosen service. Android 14 device validation is pending.
+
+Managed Desktop additionally requires:
 
 - Android 15 / API 35 or newer;
 - firmware with working Android freeform windows;
@@ -32,11 +37,15 @@ For the standard wireless-debugging setup, follow the
 started through wireless debugging or ADB normally needs to be started again
 after every phone reboot.
 
-MagicDesk does not install, start, or configure Shizuku. It requires one live
-authorized service and does not silently fall back to ordinary application
-permissions when that service is unavailable.
+MagicDesk does not install, start, or configure Shizuku. Privileged operations
+require its live authorized service. Ordinary UI and authorized Termux sessions
+have separate prerequisites; missing shell access does not disable those paths.
 
 ## Prepare The Device
+
+This preparation is for managed Desktop on Android 15+. On Android 14, use the
+phone control panel's tools and display controls directly. **Start desktop** is
+unavailable, while creating a virtual display does not start a Desktop session.
 
 1. Install MagicDesk from a tagged
    [GitHub Release](https://github.com/mekhontsev/magicdesk/releases) or a

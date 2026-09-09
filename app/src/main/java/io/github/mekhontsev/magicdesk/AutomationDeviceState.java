@@ -16,12 +16,14 @@ final class AutomationDeviceState {
     final Boolean interactive;
     final Boolean deviceLocked;
     final Boolean keyguardLocked;
+    final int sdk;
 
     AutomationDeviceState(final Boolean interactive, final Boolean deviceLocked,
-            final Boolean keyguardLocked) {
+            final Boolean keyguardLocked, final int sdk) {
         this.interactive = interactive;
         this.deviceLocked = deviceLocked;
         this.keyguardLocked = keyguardLocked;
+        this.sdk = sdk;
     }
 
     static AutomationDeviceState capture(final Context context) {
@@ -31,7 +33,7 @@ final class AutomationDeviceState {
                 : context.getSystemService(KeyguardManager.class);
         return new AutomationDeviceState(power == null ? null : power.isInteractive(),
                 keyguard == null ? null : keyguard.isDeviceLocked(),
-                keyguard == null ? null : keyguard.isKeyguardLocked());
+                keyguard == null ? null : keyguard.isKeyguardLocked(), Build.VERSION.SDK_INT);
     }
 
     String phoneUiUnavailableReason() {
@@ -43,6 +45,11 @@ final class AutomationDeviceState {
         }
         return deviceLocked || keyguardLocked
                 ? "unlock the phone before starting the test" : null;
+    }
+
+    String selfTestUnavailableReason() {
+        return RuntimeCapabilities.supportsDesktop(sdk) ? phoneUiUnavailableReason()
+                : "Desktop self-tests require Android 15 or newer";
     }
 
     JSONObject toJson(final boolean shellReady) throws JSONException {
@@ -58,7 +65,9 @@ final class AutomationDeviceState {
         return new JSONObject().put("interactive", nullable(interactive))
                 .put("deviceLocked", nullable(deviceLocked))
                 .put("keyguardLocked", nullable(keyguardLocked))
-                .put("selfTestReady", phoneUiUnavailableReason() == null && shellReady)
+                .put("selfTestReady", selfTestUnavailableReason() == null && shellReady)
+                .put("selfTestUnavailableReason", selfTestUnavailableReason() == null
+                        ? JSONObject.NULL : selfTestUnavailableReason())
                 .put("requiredActions", actions);
     }
 

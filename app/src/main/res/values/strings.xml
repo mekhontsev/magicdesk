@@ -649,7 +649,7 @@
     <string name="setup_display_external">External display</string>
     <string name="setup_choose_display_target">Desktop display</string>
     <string name="setup_status_checking">Checking device&#8230;</string>
-    <string name="setup_status_unsupported">This Android platform is not supported by MagicDesk.</string>
+    <string name="setup_status_unsupported">This Android platform cannot run the managed desktop.</string>
     <string name="setup_status_configuration_required">System configuration is required before MagicDesk can start.</string>
     <string name="setup_status_reboot_required">Restart Android to activate the new windowing configuration.</string>
     <string name="setup_status_shizuku_not_installed">Enable Developer options by tapping Build number seven times, then install and start the official Shizuku app.</string>
@@ -799,6 +799,7 @@
     <string name="self_test_phone_guard_stopping_message">Cleaning up the test environment</string>
     <string name="display_selector">Display</string>
     <string name="display_start">Start desktop</string>
+    <string name="desktop_android_requirement">Desktop requires Android 15+</string>
     <string name="display_show">Show desktop</string>
     <string name="display_create">Create display</string>
     <string name="display_remove">Remove display</string>

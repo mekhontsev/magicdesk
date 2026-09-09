@@ -236,6 +236,9 @@ public final class ControlActivity extends Activity
 
     @Override
     public void startSelectedDesktop() {
+        if (!RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)) {
+            return;
+        }
         if (!DeviceSetupManager.isRuntimeAuthorized()) {
             runStartupAudit();
             return;
@@ -243,7 +246,8 @@ public final class ControlActivity extends Activity
         final DesktopDisplayInfo display = selectedDisplay();
         final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
         if (!DisplaySelectionView.canStart(display, active == null ? -1 : active.displayId,
-                ShellAccess.isReady(), mDisplayOperation || DesktopOperations.isSessionTransitionInProgress())) {
+                ShellAccess.isReady(), mDisplayOperation || DesktopOperations.isSessionTransitionInProgress(),
+                android.os.Build.VERSION.SDK_INT)) {
             return;
         }
         if (mSessionController.presentDesktopWorkspace(display.target())) { return; }

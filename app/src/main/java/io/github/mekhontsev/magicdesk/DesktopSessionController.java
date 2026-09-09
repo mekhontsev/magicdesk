@@ -40,6 +40,7 @@ final class DesktopSessionController {
         if (target == null) {
             throw new IllegalArgumentException("display target is required");
         }
+        RuntimeCapabilities.requireDesktop();
         final DesktopDisplayTarget preparedTarget =
                 DisplayProfileController.prepareTarget(
                         MagicDeskApplication.applicationContext(), target);

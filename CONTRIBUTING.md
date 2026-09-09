@@ -55,6 +55,26 @@ Run the complete local verification before submitting a change:
 ./gradlew verifyDevelopment
 ```
 
+Python client and SDK-audit fixtures use the standard library:
+
+```sh
+python -m unittest discover -s scripts/tests
+```
+
+To audit an explicit SDK floor without changing the APK, install Android SDK
+Command-line Tools (latest) and run:
+
+```sh
+python scripts/audit-android-api.py --min-sdk 34
+```
+
+The command compiles the current debug sources, generates Lint's Gradle model,
+and changes only an isolated copy of its SDK floor and merged manifest. Reports
+are under `build/reports/api-audit/`. Findings do not make this audit command
+fail; compiler, model and Lint execution errors do. This does not replace the
+normal production-baseline Lint run or older-device testing. See
+[runtime API levels](docs/runtime-api-levels.md) for scope and interpretation.
+
 On Linux or Termux, also run the native PTY and virtual-pointer protocol fixtures:
 
 ```sh

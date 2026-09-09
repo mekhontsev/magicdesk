@@ -1,11 +1,47 @@
 # Repository Instructions
 
+Re-read this file after context compaction or session recovery before continuing
+repository work. Preserve unrelated uncommitted changes; Git history changes
+require the user's authorization.
+
 ## Device Support Work
 
-MagicDesk development targets Android 15 / API 35 and newer. Android 15 is the
-minimum framework compatibility baseline: changes developed on newer releases
-must preserve the Android 15 path unless the project baseline is explicitly
-raised.
+The MagicDesk APK targets Android 14 / API 34 and newer. Managed Desktop
+requires Android 15 / API 35 and newer. Preserve both paths: newer Desktop
+APIs must not become startup requirements for automation or independent tools.
+Do not add support below API 34 or change either minimum without an explicit
+decision. Build configuration is the installability contract; a successful
+build is not proof of compatibility with an untested Android release.
+
+## Runtime Layers
+
+Before changing shared startup or service prerequisites, read the Runtime
+Layers section of `docs/architecture.md` and `docs/runtime-api-levels.md`.
+MCP, files, content, profiles, shell execution and Termux sessions are shared
+services, not Desktop-owned features. Ordinary built-in Activity placement and
+virtual-display creation must not acquire HOME, provision Desktop, initialize
+its task/input coordinators, or require a WMShell Desktop backend.
+
+Use `ToolApplications` and `ToolLaunchTarget` for built-in placement and
+`DisplayOperations` for display resources. A display, its viewer and a Desktop
+session have independent lifetimes. Close Desktop does not implicitly remove
+its display. Closing or detaching a terminal window does not implicitly end its
+retained PTY. MCP is an authorized adapter to these services, not their owner.
+Keep profile-scoped application identities and storage boundaries intact.
+
+Do not retain obsolete internal APIs, persisted-data formats or MCP protocols
+solely for backward compatibility unless explicitly requested. Remove replaced
+paths instead of adding migration layers; this does not relax the supported
+Android release boundaries.
+
+`RuntimeCapabilities` owns service prerequisites, separately from MCP client
+grants. Keep the full MCP tool catalog discoverable; unavailable operations
+must fail explicitly without disabling independent services or changing system
+state. On API 34, reject Desktop and its self-tests before display preparation
+or HOME changes. Prefer ordinary app APIs when sufficient; use the existing
+Shizuku service for privileged work, without making root a product requirement.
+
+## Platform Changes
 
 Before changing platform, display, window, input, launcher, or cleanup behavior,
 read `CONTRIBUTING.md`, `docs/ai-assisted-device-porting.md`, and the relevant
@@ -80,6 +116,16 @@ again. Request one `resume` only when live reload is unavailable or the
 refreshed catalog still omits MagicDesk. Reopening MagicDesk after an APK
 reinstall reuses the existing MCP configuration.
 
+For remote devices, use the configured MCP connection directly when available;
+ADB is a bootstrap/recovery transport, not a requirement for normal automation.
+Use the existing upload/download and APK-update protocol. Never repeat an
+accepted installation merely because its connection dropped; resolve its exact
+update ID and verify the returned build and process identity after reconnect.
+
+An accepted self-test request is not a started or passed test. Observe its exact
+run ID through startup, execution and cleanup; an observation-wait timeout does
+not cancel the run. Never substitute a previous saved report for the current run.
+
 ## Fullscreen and Focus Work
 
 Before changing fullscreen, task focus, Alt+Tab, taskbar activation, or task
@@ -103,6 +149,12 @@ and phone desktop self-tests. Changes to shared task-area ownership or display
 lifecycle also require the wired self-test. Required self-tests must retain
 zero failures; never weaken their assertions to accommodate an implementation
 change.
+
+Changes confined to shared tools or automation require focused unit tests and
+their own end-to-end workflows without Desktop. Desktop self-tests do not verify
+that isolation and cannot run on API 34. For a minimum-SDK change, run Lint and
+build checks at the actual minimum and report any missing device coverage;
+masking Android 15 semantics on a newer phone does not emulate Android 14.
 
 ## Releases
 

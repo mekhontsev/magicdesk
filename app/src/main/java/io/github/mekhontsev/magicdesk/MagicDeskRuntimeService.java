@@ -367,9 +367,7 @@ public final class MagicDeskRuntimeService extends Service
         if (mInitialized) {
             return;
         }
-        if (android.os.Build.VERSION.SDK_INT < RuntimeCapabilities.DESKTOP_MIN_SDK) {
-            throw new UnsupportedOperationException("Desktop requires Android 15 or newer");
-        }
+        RuntimeCapabilities.requireDesktop();
         mInitialized = true;
         mDesktopInput = new RuntimeDesktopInputCoordinator(
                 this,
@@ -425,7 +423,10 @@ public final class MagicDeskRuntimeService extends Service
             updateNotification();
             return START_NOT_STICKY;
         }
-        if (MagicDeskRuntime.isAutomationStart(intent)) {
+        // A direct service Intent must not crash independent services on an OS
+        // that cannot host Desktop. Public Desktop entry points reject earlier.
+        if (MagicDeskRuntime.isAutomationStart(intent)
+                || !RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)) {
             if (!MagicDeskMcpPreferences.isEnabled(this) && !mInitialized && !mToolsRequested) {
                 stopSelf();
                 return START_NOT_STICKY;
@@ -562,6 +563,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         if (!mInitialized) {
             if (ShellAccess.isReady()
+                    && RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)
                     && DesktopHomeRoleLease.snapshot() != null) {
                 initialize();
             }

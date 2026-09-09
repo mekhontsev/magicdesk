@@ -31,6 +31,7 @@ public final class MagicDeskRuntime {
     }
 
     public static void start(final Context context) {
+        RuntimeCapabilities.requireDesktop();
         context.startForegroundService(
                 new Intent(context, MagicDeskRuntimeService.class));
     }

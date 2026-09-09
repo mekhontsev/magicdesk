@@ -9,6 +9,16 @@ final class RuntimeCapabilities {
 
     enum Service { AUTOMATION, BUILTIN_UI, SHELL, TERMUX, VIRTUAL_DISPLAY, DESKTOP }
 
+    static boolean supportsDesktop(final int sdk) {
+        return sdk >= DESKTOP_MIN_SDK;
+    }
+
+    static void requireDesktop() {
+        if (!supportsDesktop(android.os.Build.VERSION.SDK_INT)) {
+            throw new UnsupportedOperationException("Desktop requires Android 15 or newer");
+        }
+    }
+
     private final int mSdk;
     private final boolean mShell;
     private final boolean mTermuxInstalled;
@@ -35,7 +45,7 @@ final class RuntimeCapabilities {
             case AUTOMATION, BUILTIN_UI -> "";
             case SHELL, VIRTUAL_DISPLAY -> mShell ? "" : "shizuku";
             case TERMUX -> !mTermuxInstalled ? "termux" : !mTermuxAuthorized ? "termux_run_command" : "";
-            case DESKTOP -> mSdk < DESKTOP_MIN_SDK ? "android_15"
+            case DESKTOP -> !supportsDesktop(mSdk) ? "android_15"
                     : !mShell ? "shizuku" : !mDesktopPrepared ? "desktop_setup" : "";
         };
     }

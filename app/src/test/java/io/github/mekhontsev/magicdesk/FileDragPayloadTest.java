@@ -3,8 +3,6 @@ package io.github.mekhontsev.magicdesk;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
-import android.view.View;
-
 import java.util.AbstractList;
 import java.util.Collections;
 import java.util.List;
@@ -13,14 +11,24 @@ import org.junit.Test;
 
 public final class FileDragPayloadTest {
     @Test
-    public void externalDragsGrantReadOnlyAccess() {
-        assertEquals(View.DRAG_FLAG_GLOBAL | View.DRAG_FLAG_GLOBAL_URI_READ,
-                FileDragPayload.dragFlags(true));
-    }
-
-    @Test
-    public void localFileAndFolderDragsCanCrossOnlyOurOwnWindows() {
-        assertEquals(View.DRAG_FLAG_GLOBAL_SAME_APPLICATION, FileDragPayload.dragFlags(false));
+    public void dragScopePreservesPrivatePayloadsOnEverySupportedSdk() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Build { static class VERSION { static int SDK_INT; } }
+                static class View {
+                    static final int DRAG_FLAG_GLOBAL = 256, DRAG_FLAG_GLOBAL_URI_READ = 1;
+                    static final int DRAG_FLAG_GLOBAL_SAME_APPLICATION = 4096;
+                }
+                """ + RuntimeSourceFixture.methods("FileDragPayload", "dragFlags")
+                        .replace("android.os.Build", "Build") + """
+                public static void verify() {
+                    for (int sdk : new int[]{34, 35, 36}) {
+                        Build.VERSION.SDK_INT = sdk;
+                        check(dragFlags(true) == 257, "shareable drag lost its read-only grant");
+                        check(dragFlags(false) == (sdk >= 35 ? 4096 : 0), "private drag escaped scope");
+                        check((dragFlags(false) & View.DRAG_FLAG_GLOBAL) == 0, "private drag exposed globally");
+                    }
+                }
+                """);
     }
 
     @Test

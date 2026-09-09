@@ -392,7 +392,10 @@ death. At most 32 retained sessions may exist.
 
 `get_state.services` describes automation, built-in UI, shell, Termux, virtual
 display and Desktop prerequisites independently of client permissions. These
-are not device probes. The current APK minimum remains Android 15.
+are not device probes. The APK minimum is Android 14; managed Desktop and its
+self-tests require Android 15+. On Android 14, `readiness.selfTestReady` is false
+with `selfTestUnavailableReason`, even when the phone is awake and unlocked.
+This does not block independent automation, shell, Files or terminal operations.
 `capture_screenshot` and `sample_pixels` also work without Desktop. An explicit
 display id selects that display; omission selects Desktop when active, otherwise
 display 0. Existing MCP authorization applies to both paths.
@@ -522,7 +525,7 @@ an immutable one-shot `PendingIntent` created by the app. Shell sends that
 creator-authorized token with the requested display, STANDARD activity type,
 mode, and bounds. Android therefore evaluates target access and URI grants as
 the app while privileged task placement remains shell-owned. A focused adapter
-selects the compatible creator and sender background-start modes for Android 15
+selects the compatible creator and sender background-start modes for Android 14, 15
 and 16.
 
 Only Activity-result requests need a relay lifecycle. They keep their nested

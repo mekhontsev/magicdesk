@@ -137,12 +137,14 @@ public final class FrameworkWindowingCompatTest {
     }
 
     @Test
-    public void shellProfileIsInitializedOnceBeforeOtherRuntimeConsumers() throws Exception {
+    public void shellBindingSuppliesSettingsWithoutResolvingOptionalWindowingApis() throws Exception {
         RuntimeSourceFixture.verify("""
                 static int probes, resolutions;
                 static class BuildConfig { static String FRAMEWORK_OVERRIDE = ""; }
                 static class FrameworkWindowingCompat {
                     private static FrameworkWindowingCompat sCurrent;
+                    private static int sDesktopToggle = -1;
+                    private static String sSettingError = "desktop developer setting was not supplied";
                     final String reason;
                     FrameworkWindowingCompat(String reason) { this.reason = reason; }
                     static String visibleTypesUnavailableReason(java.util.function.IntSupplier read) {
@@ -158,6 +160,7 @@ public final class FrameworkWindowingCompatTest {
                 + "}\n" + """
                 public static void verify() {
                     FrameworkWindowingCompat.initialize(1, "");
+                    check(probes == 0 && resolutions == 0, "shell binding resolved Desktop APIs");
                     FrameworkWindowingCompat profile = FrameworkWindowingCompat.current();
                     check(profile.reason.equals("toggle=1"), "wrong Settings reader");
                     FrameworkWindowingCompat.initialize(0, "");

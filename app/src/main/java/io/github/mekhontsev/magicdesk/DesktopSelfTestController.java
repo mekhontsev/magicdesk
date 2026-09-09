@@ -112,7 +112,7 @@ final class DesktopSelfTestController {
         result.arm(policy);
         try {
             DesktopSelfTestRunState.checkpoint();
-            final String phoneUiIssue = phoneUiUnavailableReason(appContext);
+            final String phoneUiIssue = unavailableReason(appContext);
             if (phoneUiIssue != null) {
                 result.add(DesktopSelfTestResult.State.FAIL,
                         "SELFTEST-PRECONDITION-000",
@@ -362,8 +362,8 @@ final class DesktopSelfTestController {
         }
     }
 
-    static String phoneUiUnavailableReason(final Context context) {
-        return AutomationDeviceState.capture(context).phoneUiUnavailableReason();
+    static String unavailableReason(final Context context) {
+        return AutomationDeviceState.capture(context).selfTestUnavailableReason();
     }
 
     private static Map<String, Integer> inspectWindowTransitionPrecondition(

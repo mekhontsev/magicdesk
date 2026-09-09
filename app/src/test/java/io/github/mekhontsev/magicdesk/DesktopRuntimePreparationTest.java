@@ -26,6 +26,8 @@ public final class DesktopRuntimePreparationTest {
         final String source = Files.readString(Path.of(RuntimeSourceFixture.MAIN + "DesktopSessionController.java"));
         assertTrue(source.indexOf("MagicDeskRuntime.prepareDesktop(")
                 < source.indexOf("DesktopHomeRoleLease.prepare("));
+        assertTrue(source.indexOf("RuntimeCapabilities.requireDesktop();")
+                < source.indexOf("DisplayProfileController.prepareTarget("));
     }
 
     @Test public void phoneSelfTestUsesProductionStartQueueBeforeObservingHost() throws Exception {
@@ -35,7 +37,7 @@ public final class DesktopRuntimePreparationTest {
                 static class DesktopSessionPolicy { static Object ISOLATED_SELF_TEST = new Object(); }
                 static class Display { static int INVALID_DISPLAY = -1; }
                 static class DesktopRuntimeBridge { static int getActiveDesktopDisplayId() { return -1; } }
-                static class DesktopSelfTestController { static String phoneUiUnavailableReason(Object c) { return null; } }
+                static class DesktopSelfTestController { static String unavailableReason(Object c) { return null; } }
                 static class DesktopSelfTestHostObserver { static void begin(long id) {} }
                 static class DesktopOperations {
                     static boolean queued;

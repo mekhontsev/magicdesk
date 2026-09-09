@@ -1,6 +1,8 @@
 # MagicDesk
 
-MagicDesk is an open-source workstation environment for Android 15 and newer.
+MagicDesk is an open-source workstation environment for Android 14 and newer.
+Its managed desktop requires Android 15+; automation, files, terminals and
+ordinary fullscreen tools have independent service requirements.
 It turns a phone, tablet, or Android secondary display into a practical desktop
 with native application windows, a taskbar and Start menu, desktop files and
 widgets, Files, Console, Task Manager, display capture, and physical keyboard
@@ -169,7 +171,12 @@ the [validation matrix](docs/testing-backlog.md).
 
 ## Requirements And Compatibility
 
-MagicDesk requires:
+The MagicDesk APK requires Android 14 / API 34 or newer. Shared tools and MCP
+do not require a desktop session. Shell-backed features require authorized
+Shizuku; Termux integration requires Termux and its external-command permission.
+Android 14 device validation is pending; see [runtime API levels](docs/runtime-api-levels.md).
+
+Managed Desktop additionally requires:
 
 - Android 15 / API 35 or newer;
 - firmware with working Android freeform windows;

@@ -1,6 +1,11 @@
 # Compatibility and issue reports
 
-MagicDesk targets capable Android 15+ firmware through one APK and one common
+The APK minimum is Android 14 / API 34. Managed Desktop requires Android 15 /
+API 35. Independent tools, automation and display resources have separate
+runtime prerequisites. Android 14 device validation is pending; see the
+[API-level contract](runtime-api-levels.md).
+
+MagicDesk's managed Desktop targets capable Android 15+ firmware through one APK and one common
 desktop runtime. The standard Android driver supports phone, simulated, and
 already connected secondary-display sessions. A platform-driver boundary
 separates that baseline from optional Nubia/REDMAGIC integration. A device
@@ -104,7 +109,7 @@ unverified until that firmware has been tested. This is intentional: private
 Binder methods, component names, shell commands, and framework behavior can
 change without an Android API-level change.
 
-Android 15 is an installable compatibility baseline, not yet a verified
+Android 15 is the managed-Desktop compatibility baseline, not by itself a verified
 firmware profile. Its WMShell uses the older `desktopmode moveToDesktop`
 command when that backend is enabled; MagicDesk detects either command name
 and retains its direct transaction fallback. Its older window-container API is

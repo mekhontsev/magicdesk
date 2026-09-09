@@ -22,17 +22,19 @@ public final class PhoneControlPanelControllerTest {
     public void displaySelectionAllowsOnlyOneSession() {
         final DesktopDisplayInfo phone = display(0, "phone", true, false);
         final DesktopDisplayInfo external = display(5, "virtual", true, true);
-        assertTrue(DisplaySelectionView.canStart(phone, -1, true, false));
-        assertTrue(DisplaySelectionView.canStart(phone, 0, true, false));
-        assertFalse(DisplaySelectionView.canStart(phone, 5, true, false));
-        assertTrue(DisplaySelectionView.canStart(external, -1, true, false));
-        assertTrue(DisplaySelectionView.canStart(external, 5, true, false));
-        assertFalse(DisplaySelectionView.canStart(external, 0, true, false));
-        assertFalse(DisplaySelectionView.canStart(external, -1, false, false));
-        assertFalse(DisplaySelectionView.canStart(external, -1, true, true));
-        assertFalse(DisplaySelectionView.canStart(null, -1, true, false));
+        assertTrue(DisplaySelectionView.canStart(phone, -1, true, false, 35));
+        assertTrue(DisplaySelectionView.canStart(phone, 0, true, false, 35));
+        assertFalse(DisplaySelectionView.canStart(phone, 5, true, false, 35));
+        assertTrue(DisplaySelectionView.canStart(external, -1, true, false, 35));
+        assertTrue(DisplaySelectionView.canStart(external, 5, true, false, 35));
+        assertFalse(DisplaySelectionView.canStart(external, 0, true, false, 35));
+        assertFalse(DisplaySelectionView.canStart(external, -1, false, false, 35));
+        assertFalse(DisplaySelectionView.canStart(external, -1, true, true, 35));
+        assertFalse(DisplaySelectionView.canStart(null, -1, true, false, 35));
         assertFalse(DisplaySelectionView.canStart(
-                display(6, "internal", false, false), -1, true, false));
+                display(6, "internal", false, false), -1, true, false, 35));
+        assertFalse(DisplaySelectionView.canStart(phone, -1, true, false, 34));
+        assertFalse(DisplaySelectionView.canStart(external, -1, true, false, 34));
     }
 
     static DesktopDisplayInfo display(final int id, final String source,

@@ -80,7 +80,7 @@ final class DesktopSelfTestLauncher {
         if (!preparing()) {
             return;
         }
-        final String issue = DesktopSelfTestController.phoneUiUnavailableReason(mContext);
+        final String issue = DesktopSelfTestController.unavailableReason(mContext);
         if (issue != null) {
             finishPreparation(false, issue);
             return;

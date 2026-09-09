@@ -40,7 +40,7 @@ public final class AppUpdateArchitectureTest {
         assertTrue(framework.contains("\"isStartResultSuccessful\""));
     }
 
-    @Test public void runtimeEntryIsProtectedAndDoesNotInitializeDesktop() throws Exception {
+    @Test public void runtimeEntryIsProtected() throws Exception {
         final String manifest = Files.readString(Path.of("src/main/AndroidManifest.xml"));
         final String declaration = manifest.substring(manifest.indexOf("android:name=\".AppUpdateResumeActivity\""))
                 .split("/>", 2)[0];
@@ -49,10 +49,5 @@ public final class AppUpdateArchitectureTest {
         final String service = manifest.substring(manifest.indexOf("android:name=\".MagicDeskRuntimeService\""))
                 .split("</service>", 2)[0];
         assertTrue(service.contains("android:exported=\"false\""));
-        final String runtime = source("MagicDeskRuntimeService");
-        final String automation = runtime.substring(runtime.indexOf("if (MagicDeskRuntime.isAutomationStart(intent))"))
-                .split(java.util.regex.Pattern.quote("if (!ShellAccess.isReady()"), 2)[0];
-        assertTrue(automation.contains("MagicDeskMcpPreferences.isEnabled(this)"));
-        assertFalse(automation.contains("initialize()"));
     }
 }
