@@ -14,7 +14,7 @@ import java.util.Set;
 public final class MagicDeskMcpToolCatalogTest {
     @Test
     public void displayLifecycleIsSeparateFromDesktopSession() throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         final JSONObject create = tool(tools, "create_display");
         final JSONObject remove = tool(tools, "remove_display");
         assertFalse(create.getJSONObject("annotations").getBoolean("readOnlyHint"));
@@ -40,7 +40,7 @@ public final class MagicDeskMcpToolCatalogTest {
     @Test
     public void consumingActivityResultsIsNotAdvertisedAsReadOnlyOrIdempotent()
             throws Exception {
-        final JSONObject annotations = tool(MagicDeskMcpToolCatalog.create(false),
+        final JSONObject annotations = tool(MagicDeskMcpToolCatalog.create(),
                 "get_intent_result").getJSONObject("annotations");
         assertFalse(annotations.getBoolean("readOnlyHint"));
         assertFalse(annotations.getBoolean("idempotentHint"));
@@ -49,7 +49,7 @@ public final class MagicDeskMcpToolCatalogTest {
 
     @Test
     public void appFunctionParametersDeclareHomogeneousArrayContract() throws Exception {
-        final JSONObject parameters = tool(MagicDeskMcpToolCatalog.create(false),
+        final JSONObject parameters = tool(MagicDeskMcpToolCatalog.create(),
                 "execute_app_function").getJSONObject("inputSchema")
                 .getJSONObject("properties").getJSONObject("parameters");
         assertEquals("object", parameters.getString("type"));
@@ -59,7 +59,7 @@ public final class MagicDeskMcpToolCatalogTest {
 
     @Test
     public void shareAdvertisesTheCommonContentLimit() throws Exception {
-        final JSONObject files = tool(MagicDeskMcpToolCatalog.create(false), "share")
+        final JSONObject files = tool(MagicDeskMcpToolCatalog.create(), "share")
                 .getJSONObject("inputSchema").getJSONObject("properties")
                 .getJSONObject("files");
         assertEquals(AndroidContentPayload.MAX_URI_ITEMS, files.getInt("maxItems"));
@@ -67,49 +67,20 @@ public final class MagicDeskMcpToolCatalogTest {
     }
 
     @Test
-    public void developerToolsAreExplicitlyGated() throws Exception {
-        final Set<String> publicNames = names(
-                MagicDeskMcpToolCatalog.create(false));
-        final Set<String> developerNames = names(
-                MagicDeskMcpToolCatalog.create(true));
-
-        assertTrue(publicNames.contains("get_state"));
-        assertTrue(publicNames.contains("get_pointer_state"));
-        assertTrue(publicNames.contains("launch_app"));
-        assertTrue(publicNames.contains("list_ui_elements"));
-        assertTrue(publicNames.contains("invoke_ui_action"));
-        assertTrue(publicNames.contains("begin_trace"));
-        assertTrue(publicNames.contains("end_trace"));
-        assertTrue(publicNames.contains("get_termux_x11_status"));
-        assertTrue(publicNames.contains("reconnect_termux_x11"));
-        assertTrue(publicNames.contains("get_app_presentation"));
-        assertTrue(publicNames.contains("set_app_presentation"));
-        assertTrue(publicNames.contains("reset_app_presentation"));
-        assertFalse(publicNames.contains("run_self_test"));
-        assertFalse(publicNames.contains("cancel_self_test"));
-        assertFalse(publicNames.contains("clipboard.read_text"));
-        assertFalse(publicNames.contains("clipboard.write_text"));
-        assertFalse(publicNames.contains("clipboard.open"));
-        assertFalse(publicNames.contains("clipboard.share"));
-        assertFalse(publicNames.contains("clipboard.clear"));
-        assertTrue(developerNames.contains("run_self_test"));
-        assertTrue(developerNames.contains("cancel_self_test"));
-        assertTrue(developerNames.contains("clipboard.read_text"));
-        assertTrue(developerNames.contains("clipboard.write_text"));
-        assertTrue(developerNames.contains("clipboard.open"));
-        assertTrue(developerNames.contains("clipboard.share"));
-        assertTrue(developerNames.contains("clipboard.clear"));
-        assertTrue(developerNames.containsAll(publicNames));
-        assertTrue(developerNames.size() > publicNames.size());
+    public void catalogAlwaysIncludesPrivilegedTools() throws Exception {
+        final Set<String> all = names(MagicDeskMcpToolCatalog.create());
+        assertTrue(all.containsAll(Set.of("get_state", "run_self_test", "cancel_self_test",
+                "clipboard.read_text", "clipboard.write_text", "clipboard.open",
+                "clipboard.share", "clipboard.clear", "console.execute", "terminal.open")));
     }
 
     @Test
     public void androidIntegrationUsesOneTypedAndRawGateway()
             throws Exception {
-        final JSONArray publicTools = MagicDeskMcpToolCatalog.create(false);
+        final JSONArray publicTools = MagicDeskMcpToolCatalog.create();
         final Set<String> publicNames = names(publicTools);
         final Set<String> developerNames = names(
-                MagicDeskMcpToolCatalog.create(true));
+                MagicDeskMcpToolCatalog.create());
 
         assertTrue(publicNames.contains("query_intent_handlers"));
         assertTrue(publicNames.contains("launch_intent"));
@@ -126,8 +97,8 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(publicNames.contains("launch_desktop_entry"));
         assertFalse(publicNames.contains("launch_spec"));
 
-        assertFalse(publicNames.contains("send_broadcast"));
-        assertFalse(publicNames.contains("start_service"));
+        assertTrue(publicNames.contains("send_broadcast"));
+        assertTrue(publicNames.contains("start_service"));
         assertTrue(developerNames.contains("send_broadcast"));
         assertTrue(developerNames.contains("start_service"));
 
@@ -207,7 +178,7 @@ public final class MagicDeskMcpToolCatalogTest {
 
     @Test
     public void clipboardToolsAreTypedAndPrivacyGated() throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(true);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         final JSONObject write = tool(tools, "clipboard.write_text")
                 .getJSONObject("inputSchema");
         final JSONObject readOutput = dataProperties(
@@ -234,7 +205,7 @@ public final class MagicDeskMcpToolCatalogTest {
     public void pointerStateUsesOptionalDisplayAndPortableOutput()
             throws Exception {
         final JSONObject tool = tool(
-                MagicDeskMcpToolCatalog.create(false),
+                MagicDeskMcpToolCatalog.create(),
                 "get_pointer_state");
         final JSONObject input = tool.getJSONObject("inputSchema");
         final JSONObject output = tool.getJSONObject("outputSchema")
@@ -257,7 +228,7 @@ public final class MagicDeskMcpToolCatalogTest {
     @Test
     public void applicationPresentationToolsExposePortableScale()
             throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         final JSONArray builtins = tool(tools, "open_builtin")
                 .getJSONObject("inputSchema")
                 .getJSONObject("properties")
@@ -287,7 +258,7 @@ public final class MagicDeskMcpToolCatalogTest {
 
     @Test
     public void applicationActionsRequireProfileIdentity() throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(true);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         for (final String name : new String[]{"launch_app", "get_app_presentation",
                 "set_app_presentation", "reset_app_presentation", "force_stop_app",
                 "list_app_actions", "invoke_app_action"}) {
@@ -299,7 +270,7 @@ public final class MagicDeskMcpToolCatalogTest {
 
     @Test
     public void namesAreUniqueAndSchemasAreClosed() throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(true);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         final Set<String> names = new HashSet<>();
         for (int index = 0; index < tools.length(); index++) {
             final JSONObject tool = tools.getJSONObject(index);
@@ -320,32 +291,9 @@ public final class MagicDeskMcpToolCatalogTest {
     }
 
     @Test
-    public void shellToolsHaveAnIndependentGate() throws Exception {
-        final Set<String> normal = names(
-                MagicDeskMcpToolCatalog.create(true, false));
-        final Set<String> shell = names(
-                MagicDeskMcpToolCatalog.create(false, true));
-
-        assertFalse(normal.contains("console.execute"));
-        assertFalse(normal.contains("files.list"));
-        assertFalse(normal.contains("terminal.read"));
-        assertTrue(shell.contains("console.execute"));
-        assertTrue(shell.contains("files.list"));
-        assertTrue(shell.contains("terminal.open"));
-        assertTrue(shell.contains("terminal.list"));
-        assertTrue(shell.contains("terminal.read"));
-        assertTrue(shell.contains("terminal.write"));
-        assertTrue(shell.contains("terminal.send_key"));
-        assertTrue(shell.contains("terminal.close"));
-        assertTrue(shell.contains("tmux.list"));
-        assertTrue(shell.contains("tmux.open"));
-        assertFalse(shell.contains("run_self_test"));
-    }
-
-    @Test
     public void tmuxToolsExposeAvailabilityAndTypedLaunchFields()
             throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(false, true);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         final JSONObject list = tool(tools, "tmux.list")
                 .getJSONObject("outputSchema")
                 .getJSONObject("properties")
@@ -370,7 +318,7 @@ public final class MagicDeskMcpToolCatalogTest {
 
     @Test
     public void terminalToolsUseOpaqueIdsAndSemanticInput() throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(false, true);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         final JSONObject open = tool(tools, "terminal.open")
                 .getJSONObject("outputSchema")
                 .getJSONObject("properties")
@@ -395,7 +343,7 @@ public final class MagicDeskMcpToolCatalogTest {
     public void launchAppAcceptsOptionalInitialWindowBounds()
             throws Exception {
         final JSONObject schema = tool(
-                MagicDeskMcpToolCatalog.create(false), "launch_app")
+                MagicDeskMcpToolCatalog.create(), "launch_app")
                 .getJSONObject("inputSchema");
         final JSONObject bounds = schema.getJSONObject("properties")
                 .getJSONObject("bounds");
@@ -411,7 +359,7 @@ public final class MagicDeskMcpToolCatalogTest {
     @Test
     public void AndroidActivityToolsExposePresentationAndResults()
             throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         final JSONObject launch = tool(tools, "launch_intent")
                 .getJSONObject("inputSchema")
                 .getJSONObject("properties");
@@ -442,7 +390,7 @@ public final class MagicDeskMcpToolCatalogTest {
 
     @Test
     public void rawAndManagedFullscreenPathsAreExplicit() throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         final JSONObject raw = tool(tools, "set_window_mode");
         final JSONObject managed = tool(tools, "arrange_task");
 
@@ -460,7 +408,7 @@ public final class MagicDeskMcpToolCatalogTest {
 
     @Test
     public void selfTestSchemaExposesFullAndFailFastModes() throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(true);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         final JSONObject runTool = tool(tools, "run_self_test");
         final JSONObject schema = runTool
                 .getJSONObject("inputSchema");
@@ -477,6 +425,7 @@ public final class MagicDeskMcpToolCatalogTest {
                 .has("lastCompletedStage"));
         final JSONObject progress = tool(tools, "get_self_test").getJSONObject("outputSchema")
                 .getJSONObject("properties").getJSONObject("data").getJSONObject("properties")
+                .getJSONObject("currentRun").getJSONObject("properties")
                 .getJSONObject("progress").getJSONObject("properties");
         assertTrue(progress.has("stageLabel"));
         assertTrue(progress.has("lastResult"));
@@ -492,7 +441,7 @@ public final class MagicDeskMcpToolCatalogTest {
     @Test
     public void semanticUiAndWaitSchemasExposeStableStateFields()
             throws Exception {
-        final JSONArray tools = MagicDeskMcpToolCatalog.create(false);
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
         final JSONObject invoke = tool(tools, "invoke_ui_action")
                 .getJSONObject("inputSchema");
         final JSONObject wait = tool(tools, "wait_for_state")

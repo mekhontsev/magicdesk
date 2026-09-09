@@ -2,8 +2,11 @@ package io.github.mekhontsev.magicdesk;
 
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -47,6 +50,7 @@ final class DesktopSelfTestRunState {
 
     private static Snapshot sSnapshot = Snapshot.idle();
     private static Runnable sPreparationCancellationHandler;
+    private static int sExpectedSessionCloseDisplayId = -1;
 
     private DesktopSelfTestRunState() {
     }
@@ -68,13 +72,14 @@ final class DesktopSelfTestRunState {
                     modeName(mode),
                     "PREPARE",
                     "",
-                    false,
+                    "",
                     Math.max(0L, requestedAtMillis),
                     0L,
                     0L,
-                    "request accepted", Progress.EMPTY);
+                    "request accepted", Progress.EMPTY, "pending");
             sSnapshot = snapshot;
             sPreparationCancellationHandler = null;
+            sExpectedSessionCloseDisplayId = -1;
         }
         record(snapshot, "starting", true);
         return snapshot.runId;
@@ -92,7 +97,7 @@ final class DesktopSelfTestRunState {
             final long requestedAt;
             final String selectedTarget;
             final String selectedMode;
-            final boolean cancellationRequested;
+            final String cancellationReason;
             if (requestedRunId > 0L) {
                 if (current.runId != requestedRunId
                         || current.state != State.STARTING) {
@@ -104,7 +109,7 @@ final class DesktopSelfTestRunState {
                         ? clean(target) : current.target;
                 selectedMode = current.mode.isEmpty()
                         ? modeName(mode) : current.mode;
-                cancellationRequested = current.cancellationRequested;
+                cancellationReason = current.cancellationReason;
             } else {
                 if (current.state.active()) {
                     return 0L;
@@ -113,7 +118,7 @@ final class DesktopSelfTestRunState {
                 requestedAt = Math.max(0L, startedAtMillis);
                 selectedTarget = clean(target);
                 selectedMode = modeName(mode);
-                cancellationRequested = false;
+                cancellationReason = "";
             }
             snapshot = new Snapshot(
                     runId,
@@ -123,13 +128,14 @@ final class DesktopSelfTestRunState {
                     "PREPARE",
                     current.runId == runId
                             ? current.lastCompletedStage : "",
-                    cancellationRequested,
+                    cancellationReason,
                     requestedAt,
                     Math.max(requestedAt, startedAtMillis),
                     0L,
-                    "self-test running", Progress.EMPTY);
+                    "self-test running", Progress.EMPTY, "pending");
             sSnapshot = snapshot;
             sPreparationCancellationHandler = null;
+            if (current.runId != runId) sExpectedSessionCloseDisplayId = -1;
         }
         record(snapshot, "running", true);
         return snapshot.runId;
@@ -165,7 +171,7 @@ final class DesktopSelfTestRunState {
                 return;
             }
             sSnapshot = sSnapshot.withLastCompletedStage(
-                    clean(stage), state, clean(label), clean(detail));
+                    clean(stage), state, clean(label), detail);
         }
         notifyChanged();
     }
@@ -199,7 +205,7 @@ final class DesktopSelfTestRunState {
                 return;
             }
             snapshot = sSnapshot.withState(
-                    State.CLEANUP, "CLEANUP", "cleanup running", 0L);
+                    State.CLEANUP, "CLEANUP", "cleanup running", 0L, "pending");
             sSnapshot = snapshot;
         }
         record(snapshot, "cleanup", true);
@@ -222,12 +228,25 @@ final class DesktopSelfTestRunState {
                     cancelled ? State.CANCELLED : State.COMPLETED,
                     cancelled ? "CANCELLED" : "COMPLETE",
                     clean(detail),
-                    Math.max(sSnapshot.requestedAtMillis, completedAtMillis));
+                    Math.max(sSnapshot.requestedAtMillis, completedAtMillis),
+                    cancelled ? "cancelled" : !successful ? "failed"
+                            : sSnapshot.progress.warnings > 0 ? "warnings" : "passed");
             sSnapshot = snapshot;
             sPreparationCancellationHandler = null;
         }
         record(snapshot, cancelled ? "cancelled" : "finished",
                 cancelled || successful, resultModifiedAtMillis);
+    }
+
+    // Only the display-removal fixture declares this immediately before removing
+    // its own display. An unrelated session loss must still cancel the test.
+    static void expectSessionClose(final long runId, final int displayId) {
+        synchronized (LOCK) {
+            if (sSnapshot.runId == runId && sSnapshot.state == State.RUNNING
+                    && !sSnapshot.cancellationRequested) {
+                sExpectedSessionCloseDisplayId = displayId;
+            }
+        }
     }
 
     static boolean registerPreparationCancellationHandler(
@@ -272,6 +291,9 @@ final class DesktopSelfTestRunState {
         final long runId;
         synchronized (LOCK) {
             runId = sSnapshot.runId;
+            if (sExpectedSessionCloseDisplayId == displayId) {
+                return;
+            }
         }
         requestCancellation(
                 runId,
@@ -302,7 +324,8 @@ final class DesktopSelfTestRunState {
             if (current.cancellationRequested) {
                 return CancellationStatus.ALREADY_REQUESTED;
             }
-            snapshot = current.withCancellationRequested(clean(detail));
+            snapshot = current.withCancellationRequested(clean(detail),
+                    "session_closed".equals(operation) ? "session_closed" : "user");
             sSnapshot = snapshot;
             status = CancellationStatus.ACCEPTED;
             handler = current.state == State.STARTING
@@ -369,6 +392,7 @@ final class DesktopSelfTestRunState {
             LISTENERS.clear();
             sSnapshot = Snapshot.idle();
             sPreparationCancellationHandler = null;
+            sExpectedSessionCloseDisplayId = -1;
         }
     }
 
@@ -424,6 +448,8 @@ final class DesktopSelfTestRunState {
         final String stage;
         final String lastCompletedStage;
         final boolean cancellationRequested;
+        final String cancellationReason;
+        final String outcome;
         final long requestedAtMillis;
         final long startedAtMillis;
         final long completedAtMillis;
@@ -437,19 +463,22 @@ final class DesktopSelfTestRunState {
                 final String mode,
                 final String stage,
                 final String lastCompletedStage,
-                final boolean cancellationRequested,
+                final String cancellationReason,
                 final long requestedAtMillis,
                 final long startedAtMillis,
                 final long completedAtMillis,
                 final String detail,
-                final Progress progress) {
+                final Progress progress,
+                final String outcome) {
             this.runId = runId;
             this.state = state;
             this.target = target;
             this.mode = mode;
             this.stage = stage;
             this.lastCompletedStage = lastCompletedStage;
-            this.cancellationRequested = cancellationRequested;
+            this.cancellationRequested = !cancellationReason.isEmpty();
+            this.cancellationReason = cancellationReason;
+            this.outcome = outcome;
             this.requestedAtMillis = requestedAtMillis;
             this.startedAtMillis = startedAtMillis;
             this.completedAtMillis = completedAtMillis;
@@ -476,6 +505,9 @@ final class DesktopSelfTestRunState {
                     .put("lastCompletedStage", lastCompletedStage.isEmpty()
                             ? JSONObject.NULL : lastCompletedStage)
                     .put("cancelRequested", cancellationRequested)
+                    .put("cancellationReason", cancellationReason.isEmpty()
+                            ? JSONObject.NULL : cancellationReason)
+                    .put("outcome", outcome)
                     .put("requestedAtMillis", nullableTimestamp(
                             requestedAtMillis))
                     .put("startedAtMillis", nullableTimestamp(startedAtMillis))
@@ -488,9 +520,9 @@ final class DesktopSelfTestRunState {
         private Snapshot withStage(final String value, final String label) {
             return new Snapshot(
                     runId, state, target, mode, value, lastCompletedStage,
-                    cancellationRequested,
+                    cancellationReason,
                     requestedAtMillis, startedAtMillis, completedAtMillis,
-                    detail, progress.withStageLabel(label));
+                    detail, progress.withStageLabel(label), outcome);
         }
 
         private Snapshot withLastCompletedStage(final String value,
@@ -498,35 +530,36 @@ final class DesktopSelfTestRunState {
                 final String label, final String checkDetail) {
             return new Snapshot(
                     runId, state, target, mode, stage, value,
-                    cancellationRequested,
+                    cancellationReason,
                     requestedAtMillis, startedAtMillis, completedAtMillis,
-                    detail, progress.completed(result, label, checkDetail));
+                    detail, progress.completed(value, result, label, checkDetail), outcome);
         }
 
-        private Snapshot withCancellationRequested(final String detail) {
+        private Snapshot withCancellationRequested(final String detail, final String reason) {
             return new Snapshot(
-                    runId, state, target, mode, stage, lastCompletedStage, true,
+                    runId, state, target, mode, stage, lastCompletedStage, reason,
                     requestedAtMillis, startedAtMillis, completedAtMillis,
-                    detail, progress);
+                    detail, progress, outcome);
         }
 
         private Snapshot withState(
                 final State value,
                 final String currentStage,
                 final String currentDetail,
-                final long completedAt) {
+                final long completedAt,
+                final String outcome) {
             return new Snapshot(
                     runId, value, target, mode, currentStage,
                     lastCompletedStage,
-                    cancellationRequested,
+                    cancellationReason,
                     requestedAtMillis, startedAtMillis, completedAt,
-                    currentDetail, progress.withStageLabel(""));
+                    currentDetail, progress.withStageLabel(""), outcome);
         }
 
         private static Snapshot idle() {
             return new Snapshot(
-                    0L, State.IDLE, "", "", "", "", false,
-                    0L, 0L, 0L, "no run in this process", Progress.EMPTY);
+                    0L, State.IDLE, "", "", "", "", "",
+                    0L, 0L, 0L, "no run in this process", Progress.EMPTY, "none");
         }
 
         private static Object nullableTimestamp(final long value) {
@@ -535,7 +568,11 @@ final class DesktopSelfTestRunState {
     }
 
     static final class Progress {
-        static final Progress EMPTY = new Progress("", "", "", "", 0, 0, 0, 0);
+        static final Progress EMPTY = new Progress("", "", "", "", 0, 0, 0, 0,
+                List.of(), null);
+        static final int MAX_CHECKS = 512;
+        final List<DesktopSelfTestResult.Check> checks;
+        final DesktopSelfTestResult.Check firstFailure;
         final String stageLabel;
         final String lastLabel;
         final String lastResult;
@@ -547,7 +584,9 @@ final class DesktopSelfTestRunState {
 
         private Progress(final String stageLabel, final String lastLabel,
                 final String lastResult, final String lastDetail, final int passed,
-                final int warnings, final int failed, final int notTested) {
+                final int warnings, final int failed, final int notTested,
+                final List<DesktopSelfTestResult.Check> checks,
+                final DesktopSelfTestResult.Check firstFailure) {
             this.stageLabel = stageLabel;
             this.lastLabel = lastLabel;
             this.lastResult = lastResult;
@@ -556,20 +595,42 @@ final class DesktopSelfTestRunState {
             this.warnings = warnings;
             this.failed = failed;
             this.notTested = notTested;
+            this.checks = checks;
+            this.firstFailure = firstFailure;
         }
 
         Progress withStageLabel(final String label) {
             return new Progress(label, lastLabel, lastResult, lastDetail,
-                    passed, warnings, failed, notTested);
+                    passed, warnings, failed, notTested, checks, firstFailure);
         }
 
-        Progress completed(final DesktopSelfTestResult.State result,
+        Progress completed(final String code, final DesktopSelfTestResult.State result,
                 final String label, final String detail) {
+            final DesktopSelfTestResult.Check check =
+                    new DesktopSelfTestResult.Check(result, code, label, detail);
+            final List<DesktopSelfTestResult.Check> updated = new ArrayList<>(checks);
+            if (updated.size() == MAX_CHECKS) updated.remove(0);
+            updated.add(check);
             return new Progress(stageLabel, label, result.name(), detail,
                     passed + (result == DesktopSelfTestResult.State.PASS ? 1 : 0),
                     warnings + (result == DesktopSelfTestResult.State.WARN ? 1 : 0),
                     failed + (result == DesktopSelfTestResult.State.FAIL ? 1 : 0),
-                    notTested + (result == DesktopSelfTestResult.State.NOT_TESTED ? 1 : 0));
+                    notTested + (result == DesktopSelfTestResult.State.NOT_TESTED ? 1 : 0),
+                    List.copyOf(updated), firstFailure != null ? firstFailure
+                            : result == DesktopSelfTestResult.State.FAIL ? check : null);
+        }
+
+        JSONObject checksJson() throws JSONException {
+            final JSONArray values = new JSONArray();
+            final JSONArray failures = new JSONArray();
+            for (DesktopSelfTestResult.Check check : checks) {
+                values.put(check.toJson());
+                if (check.state == DesktopSelfTestResult.State.FAIL) failures.put(check.toJson());
+            }
+            return new JSONObject().put("checks", values)
+                    .put("failures", failures)
+                    .put("checksTruncated", passed + warnings + failed + notTested > checks.size())
+                    .put("firstFailure", firstFailure == null ? JSONObject.NULL : firstFailure.toJson());
         }
 
         JSONObject toJson() throws JSONException {

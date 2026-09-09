@@ -476,19 +476,63 @@ runtime integration and are not distributed through the same release path.
   observer and no persistent log. Exact UI waits use journal notifications and
   a bounded recheck for `View` state changes that Android does not publish.
 - `MagicDeskMcpRuntime` is owned by `MagicDeskRuntimeService`. When explicitly
-  enabled, it starts one bounded Streamable HTTP server on literal
-  `127.0.0.1:8765`; stopping the runtime closes the listener, active and queued
-  client sockets, workers, and backend. A closed transport cannot be restarted;
-  enabling the runtime again creates a new transport with its own resources.
+  enabled, it starts a bounded Streamable HTTP server on literal
+  `127.0.0.1:8765`, plus an optional independently authenticated listener bound
+  to one selected private IPv4 interface and port. Network callbacks reconcile
+  address changes only while network access is enabled; there is no poller.
+  Network listener failure does not stop loopback or close the shared backend.
+  Stopping the runtime closes both listeners, client sockets, workers and backend.
+  A closed transport cannot be restarted; enabling it again creates a new one.
   A user launch may first create the service in automation-only mode so an MCP
   client can connect before Shizuku is available. That mode owns only the
   foreground service and MCP transport. The same service is promoted in place
   after setup authorization; desktop, task, input, and platform runtimes are
   not initialized by the automation-only start.
   `MagicDeskMcpBackend` only maps MCP tools and resources to the shared action
-  and state boundary. Developer input, self-test, force-stop, broadcast, and
-  service tools require a separate setting and disappear when that setting is
-  disabled.
+  and state boundary. `McpAuthorizedBackend` checks a live, listener-specific
+  `McpAccessPolicy` before every command. The complete catalog and permission
+  descriptions remain stable when grants change; unknown tools fail closed.
+  Local and network tokens and permission sets are independent. The optional
+  network transport is HTTP, not TLS, and requires a trusted test LAN or VPN.
+- `AutomationDeviceState` shares on-demand awake/lock prerequisites between MCP
+  and the self-test launcher. Build, process and installation identities are
+  separate observations. `DesktopSelfTestResult` persists an atomic JSON result
+  keyed by run id; current progress never borrows another run's saved report.
+  Exact-run waits can use that saved result after process restart. Expiration of
+  a wait is an observation outcome, not cancellation of the operation.
+- `AutomationFileTransfers` owns at most 16 durable transfer journals and no
+  persistent descriptors. `ShellAutomationTransferStorage` reuses Files'
+  identity-verified IO and publishes completed uploads from a sibling temporary
+  file after length and SHA-256 verification. Sequential chunks are bounded to
+  128 KiB; acknowledged retries must contain identical bytes. Aborting removes
+  only the original incomplete file. Downloads detect identity/size/mtime
+  changes and provide a final digest for the client. This protocol is separate
+  from desktop, task and window policy.
+- `MagicDeskAppUpdates` records bounded per-operation installer receipts.
+  `ShellAppUpdate` stages a same-package, same-signer APK using the shell-owned
+  Android `PackageInstaller`; framework profile context belongs to
+  `FrameworkUserApi`. The app persists the session identity before commit and
+  hands the staged operation to `ShellAppUpdateService`, a separate,
+  one-operation Shizuku daemon. The ordinary command service stays non-daemon.
+  `FrameworkPackageInstallerApi` explicitly requests package replacement for
+  shell sessions and receives Android's installer result through a
+  typed Binder callback in the surviving worker. A descriptor grants access
+  only to one app-private result file; `AppUpdateReceipt` bounds and checksums
+  that result so a partial write remains pending, not success. The worker
+  waits on callback events with a deadline and exits after the operation.
+  On success it starts the installer-only `AppUpdateResumeActivity`, protected
+  by the signature-level `INSTALL_PACKAGES` permission. Its `Theme.NoDisplay`
+  entry creates no window, starts enabled automation and immediately finishes.
+  `FrameworkUserApi` launches it with the real shell identity and the requesting
+  Android user, not the worker's synthetic application context.
+  This avoids depending on background-service autolaunch while leaving
+  `MagicDeskRuntimeService` unexported. Ordinary applications cannot invoke the
+  entry. Automation-disabled state is still honored; no HOME is acquired.
+  `MagicDeskUpdateReceiver` retains protected `MY_PACKAGE_REPLACED` for updates
+  performed by other installers; those broadcasts can be blocked by firmware.
+  Client reconnect logic is outside the Android process. Reconnect expiration
+  or a missing installer callback remains an unknown outcome, not permission
+  to repeat installation. No update worker runs during ordinary operation.
 - `AndroidIntegrationGateway` is the single application boundary for typed and raw
   Android intents, semantic URI/file/share operations, published shortcuts,
   notification `PendingIntent` actions, Activity results, and external App
@@ -602,8 +646,7 @@ runtime integration and are not distributed through the same release path.
   Nested diagnostic fields are copied when recorded; later edits to an
   operation response cannot modify the saved evidence. Result and event
   snapshots likewise never expose the registries' internal JSON objects.
-- Direct Files, shell, and Terminal automation has a second independent
-  setting.
+- Direct file reads, file writes and shell execution have separate permissions.
   `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
   service as built-in Files. `DesktopAutomationConsoleSessions` owns a bounded
   set of lifecycle-scoped `PersistentAutomationShellSession` instances and
@@ -627,8 +670,8 @@ runtime integration and are not distributed through the same release path.
   component on Android 15. It exposes only a small non-developer subset and
   executes it through `DesktopAutomationController`.
 - App Functions never accept arbitrary shell commands. MCP exposes shell and
-  broad filesystem operations only behind its explicit Files, shell, and
-  Terminal setting. Transport authentication, optional tool gates, platform
+  filesystem operations only behind their explicit permissions.
+  Transport authentication, command permissions, platform
   permissions, and action validation remain independent checks.
 
 ### Desktop UI

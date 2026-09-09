@@ -33,9 +33,12 @@ public final class MagicDeskRuntime {
                 || !MagicDeskMcpPreferences.isEnabled(context)) {
             return;
         }
-        context.startForegroundService(
-                new Intent(context, MagicDeskRuntimeService.class)
-                        .setAction(ACTION_START_AUTOMATION));
+        context.startForegroundService(automationIntent());
+    }
+
+    static Intent automationIntent() {
+        return new Intent().setClassName(BuildConfig.APPLICATION_ID,
+                MagicDeskRuntimeService.class.getName()).setAction(ACTION_START_AUTOMATION);
     }
 
     static boolean isAutomationStart(final Intent intent) {

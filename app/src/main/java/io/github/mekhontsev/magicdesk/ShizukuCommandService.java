@@ -1204,6 +1204,21 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public ShellFileInfo publishVerifiedShellFile(String source, long deviceId, long inode,
+            String target, boolean overwrite) {
+        return mFileSystem.publishVerifiedFile(source, deviceId, inode, target, overwrite);
+    }
+
+    @Override public String prepareMagicDeskUpdate(String source, long deviceId,
+            long inode, String sha256, int userId) {
+        return ShellAppUpdate.prepare(mContext, mFileSystem, source, deviceId, inode, sha256, userId);
+    }
+
+    @Override public void abandonMagicDeskUpdate(int sessionId, int userId) {
+        ShellAppUpdate.abandon(mContext, sessionId, userId);
+    }
+
+    @Override
     public ShellFileInfo createAvailableShellEntry(
             final String parentPath,
             final String name,

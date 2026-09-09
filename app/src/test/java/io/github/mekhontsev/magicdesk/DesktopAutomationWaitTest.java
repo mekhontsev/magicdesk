@@ -122,8 +122,10 @@ public final class DesktopAutomationWaitTest {
                     static final int INVALID_ARGUMENT = 1, ACTION_FAILED = 2, TIMEOUT = 3;
                 }
                 static class DesktopAutomationResult {
+                    final JSONObject data;
+                    DesktopAutomationResult(JSONObject data) { this.data = data; }
                     static DesktopAutomationResult success(Object... args) {
-                        return new DesktopAutomationResult();
+                        return new DesktopAutomationResult((JSONObject) args[1]);
                     }
                     static DesktopAutomationResult failure(Object... args) {
                         throw new AssertionError(Arrays.toString(args));
@@ -158,6 +160,18 @@ public final class DesktopAutomationWaitTest {
                             .put("timeoutMillis", 1000L).put("fresh", true));
                     check(waits.equals(List.of(200L, 200L)), "global bounded observation was removed");
                     check(observations == 3, "fresh task state was not rechecked without callbacks");
+                    now = 0; observations = 0; waits.clear();
+                    DesktopAutomationResult expired = fixture.waitFor(new JSONObject()
+                            .put("condition", "self_test_finished").put("timeoutMillis", 100L));
+                    check(!expired.data.optBoolean("matched", true), "expired wait matched");
+                    check(expired.data.optBoolean("waitExpired", false), "expiration not reported");
+                    check(expired.data.optLong("timeoutMillis", 0) == 100L, "timeout missing");
+                    check(waits.equals(List.of(100L)), "self-test wait added polling");
+                    DesktopAutomationResult finished = fixture.waitFor(new JSONObject()
+                            .put("condition", "self_test_finished").put("timeoutMillis", 1000L));
+                    check(finished.data.optBoolean("matched", false), "later completion lost");
+                    check(!finished.data.optBoolean("waitExpired", true), "matched wait expired");
+                    check(now == 400L, "expiration changed the observed operation");
                 }
                 """ + RuntimeSourceFixture.methods("DesktopAutomationController",
                 "waitFor", "waitInterval"));

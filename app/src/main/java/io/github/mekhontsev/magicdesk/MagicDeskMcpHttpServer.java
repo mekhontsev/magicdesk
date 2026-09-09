@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
-/** Authenticated localhost-only MCP Streamable HTTP transport. */
+/** Bounded authenticated HTTP listener. The runtime, not the listener, owns the backend. */
 final class MagicDeskMcpHttpServer implements Closeable {
     private static final int SOCKET_TIMEOUT_MILLIS = 30_000;
     private static final int MAX_REQUEST_LINE_BYTES = 8 * 1024;
@@ -54,6 +54,7 @@ final class MagicDeskMcpHttpServer implements Closeable {
     private volatile String mLastError = "";
     private ServerSocket mServerSocket;
     private Thread mAcceptThread;
+    private String mNetworkOrigin;
 
     MagicDeskMcpHttpServer(
             final McpJsonRpcHandler handler,
@@ -68,14 +69,26 @@ final class MagicDeskMcpHttpServer implements Closeable {
 
     synchronized void start(final String host, final int port)
             throws IOException {
+        start(InetAddress.getByName(host), port, false);
+    }
+
+    synchronized void startNetwork(final InetAddress address, final int port)
+            throws IOException {
+        if (!McpNetworkInterfaces.isAllowed(address) || port < 1024 || port > 65535) {
+            throw new IOException("MCP network listener requires a private interface and port 1024-65535");
+        }
+        start(address, port, true);
+    }
+
+    private void start(final InetAddress address, final int port, final boolean network)
+            throws IOException {
         if (mClosed) {
             throw new IOException("MCP server is closed");
         }
         if (mRunning) {
             return;
         }
-        final InetAddress address = InetAddress.getByName(host);
-        if (!address.isLoopbackAddress()) {
+        if (!network && !address.isLoopbackAddress()) {
             throw new IOException("MCP server must bind to loopback");
         }
         final ServerSocket server = new ServerSocket();
@@ -91,13 +104,14 @@ final class MagicDeskMcpHttpServer implements Closeable {
             throw error;
         }
         mServerSocket = server;
+        mNetworkOrigin = network ? "http://" + address.getHostAddress() + ":" + port : null;
         mRunning = true;
         mLastError = "";
         mAcceptThread = daemonThread(() -> acceptLoop(server),
                 "MagicDeskMcpAccept");
         mAcceptThread.start();
         DesktopAutomationEventJournal.record(
-                "mcp", "server_start", true, host + ':' + port);
+                "mcp", "server_start", true, address.getHostAddress() + ':' + port);
     }
 
     @Override
@@ -127,7 +141,6 @@ final class MagicDeskMcpHttpServer implements Closeable {
         }
         mOpenConnections.clear();
         mWorkers.shutdownNow();
-        mHandler.close();
         DesktopAutomationEventJournal.record(
                 "mcp", "server_stop", true, "server stopped");
     }
@@ -218,7 +231,9 @@ final class MagicDeskMcpHttpServer implements Closeable {
         if (!"/mcp".equals(request.path)) {
             return new Response(404, "Not Found", "", null);
         }
-        if (!isAllowedOrigin(request.headers.get("origin"))) {
+        final String origin = request.headers.get("origin");
+        if (!(mNetworkOrigin == null ? isAllowedOrigin(origin)
+                : isAllowedNetworkOrigin(origin, mNetworkOrigin))) {
             mRejected.incrementAndGet();
             return new Response(403, "Forbidden", "", null);
         }
@@ -382,6 +397,11 @@ final class MagicDeskMcpHttpServer implements Closeable {
                 .getBytes(StandardCharsets.UTF_8);
         final byte[] expected = expectedToken.getBytes(StandardCharsets.UTF_8);
         return MessageDigest.isEqual(provided, expected);
+    }
+
+    static boolean isAllowedNetworkOrigin(final String origin, final String expected) {
+        if (origin == null) return true; // Non-browser MCP clients omit Origin.
+        return expected.equals(origin);
     }
 
     private static void writeAndClose(

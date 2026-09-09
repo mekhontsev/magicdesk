@@ -75,8 +75,10 @@ are restored.
 
 When the AI can connect to MagicDesk, enable **Settings > Automation > Local
 MCP automation server**. A client on the same phone uses the loopback endpoint
-directly. A computer uses the documented `adb forward`; never expose the MCP
-listener on a LAN. Treat its bearer token as a password.
+directly. A computer can use the documented `adb forward`, or the separate,
+explicitly enabled network listener on a trusted test LAN or protected VPN.
+The network listener has its own token and permissions; it is unencrypted HTTP
+and must not be published to the internet. Treat bearer tokens as passwords.
 
 Start with semantic observations and actions:
 

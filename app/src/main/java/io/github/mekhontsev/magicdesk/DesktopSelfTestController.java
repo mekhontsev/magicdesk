@@ -8,9 +8,7 @@ import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.STEP_TIMEOUT_M
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.findDesktopTaskOnAnyDisplay;
 import static io.github.mekhontsev.magicdesk.DesktopSelfTestTasks.waitForFrontTask;
 
-import android.app.KeyguardManager;
 import android.content.Context;
-import android.os.PowerManager;
 import android.os.SystemClock;
 import android.view.Display;
 
@@ -226,6 +224,9 @@ final class DesktopSelfTestController {
         } finally {
             result.disarm();
             DesktopSelfTestRunState.beginCleanup(runId);
+            // Cleanup closes the cancellation gate atomically; a Stop accepted
+            // at the end of the last custom suite still invalidates this run.
+            if (DesktopSelfTestRunState.isCancellationRequested()) result.cancel();
             try {
                 finishCleanup(
                         appContext,
@@ -362,20 +363,7 @@ final class DesktopSelfTestController {
     }
 
     static String phoneUiUnavailableReason(final Context context) {
-        if (context == null) {
-            return "application context is unavailable";
-        }
-        final PowerManager powerManager =
-                context.getSystemService(PowerManager.class);
-        if (powerManager != null && !powerManager.isInteractive()) {
-            return "wake and unlock the phone before starting the test";
-        }
-        final KeyguardManager keyguardManager =
-                context.getSystemService(KeyguardManager.class);
-        if (keyguardManager != null && keyguardManager.isKeyguardLocked()) {
-            return "unlock the phone before starting the test";
-        }
-        return null;
+        return AutomationDeviceState.capture(context).phoneUiUnavailableReason();
     }
 
     private static Map<String, Integer> inspectWindowTransitionPrecondition(

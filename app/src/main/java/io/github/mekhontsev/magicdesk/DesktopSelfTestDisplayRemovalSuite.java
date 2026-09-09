@@ -59,6 +59,7 @@ final class DesktopSelfTestDisplayRemovalSuite {
                         "window transitions did not finish on display "
                                 + displayId + ": " + idle.detail);
             }
+            DesktopSelfTestRunState.expectSessionClose(result.runId(), displayId);
             lease.close();
             waitForDisplayRemoval(displayId);
             result.add(DesktopSelfTestResult.State.PASS,

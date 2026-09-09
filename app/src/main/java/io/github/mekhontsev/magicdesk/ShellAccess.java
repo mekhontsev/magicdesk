@@ -739,6 +739,52 @@ public final class ShellAccess {
         return new ShellFileCreation(requireService(), parentPath, name);
     }
 
+    static ShellFileInfo publishVerifiedShellFile(final ShellFileInfo file,
+            final String target, final boolean overwrite) throws IOException {
+        try {
+            return requireService().publishVerifiedShellFile(file.absolutePath,
+                    file.deviceId, file.inode, target, overwrite);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("file publish", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("file publish", error);
+        }
+    }
+
+    static String prepareMagicDeskUpdate(ShellFileInfo apk, String sha256, int userId) throws IOException {
+        try {
+            return requireService().prepareMagicDeskUpdate(apk.absolutePath, apk.deviceId, apk.inode, sha256, userId);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("app update", error);
+        } catch (RuntimeException error) { throw shellFileFailure("app update", error); }
+    }
+
+    static void abandonMagicDeskUpdate(int sessionId, int userId) throws IOException {
+        try { requireService().abandonMagicDeskUpdate(sessionId, userId); }
+        catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("update cleanup", error);
+        } catch (RuntimeException error) { throw shellFileFailure("update cleanup", error); }
+    }
+
+    static void deleteVerifiedShellFile(final ShellFileInfo file) throws IOException {
+        deleteVerifiedShellFile(file.absolutePath, file.deviceId, file.inode);
+    }
+
+    static void deleteVerifiedShellFile(final String path, final long deviceId,
+            final long inode) throws IOException {
+        try {
+            requireService().deleteVerifiedShellFile(path, deviceId, inode);
+        } catch (RemoteException error) {
+            handleServiceFailure(error);
+            throw shellFileFailure("file cleanup", error);
+        } catch (RuntimeException error) {
+            throw shellFileFailure("file cleanup", error);
+        }
+    }
+
     static ShellFileInfo renameShellEntry(
             final String absolutePath, final String newName)
             throws IOException {

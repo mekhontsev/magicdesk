@@ -4,13 +4,11 @@ import static io.github.mekhontsev.magicdesk.AutomationJsonArguments.requiredInt
 import static io.github.mekhontsev.magicdesk.AutomationJsonArguments.requiredLong;
 
 import android.app.ActivityOptions;
-import android.app.KeyguardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Point;
 import android.graphics.Rect;
-import android.os.PowerManager;
 import android.os.SystemClock;
 import android.view.Display;
 import android.view.MotionEvent;
@@ -307,6 +305,7 @@ final class DesktopAutomationController {
             try {
                 observation = observeCondition(condition, args);
                 if (observation.optBoolean("matched", false)) {
+                    observation.put("waitExpired", false);
                     return record("wait_for_state",
                             DesktopAutomationResult.success(
                                     "condition matched", observation));
@@ -336,11 +335,11 @@ final class DesktopAutomationController {
         }
         try {
             observation.put("timeoutMillis", timeoutMillis);
+            observation.put("waitExpired", true);
         } catch (JSONException ignored) {
         }
-        return record("wait_for_state", DesktopAutomationResult.failure(
-                DesktopAutomationErrorCode.TIMEOUT,
-                "condition timed out", true, observation));
+        return record("wait_for_state", DesktopAutomationResult.success(
+                "observation wait expired; the operation was not cancelled", observation));
     }
 
     static long waitInterval(final String condition, final long remaining,
@@ -924,14 +923,11 @@ final class DesktopAutomationController {
 
     private DesktopAutomationResult runSelfTest(final JSONObject args)
             throws JSONException {
-        final KeyguardManager keyguard =
-                mContext.getSystemService(KeyguardManager.class);
-        final PowerManager power =
-                mContext.getSystemService(PowerManager.class);
-        if ((keyguard != null && keyguard.isDeviceLocked())
-                || (power != null && !power.isInteractive())) {
+        final AutomationDeviceState readiness = AutomationDeviceState.capture(mContext);
+        final String unavailable = readiness.phoneUiUnavailableReason();
+        if (unavailable != null) {
             return DesktopAutomationResult.failure(
-                    "unlock the phone before starting the self-test");
+                    unavailable, readiness.toJson(ShellAccess.currentSnapshot().isReady()));
         }
         final String rawTarget = optionalString(args, "target", "simulated")
                 .toLowerCase(Locale.ROOT);
@@ -1383,24 +1379,32 @@ final class DesktopAutomationController {
                 }
                 final DesktopSelfTestRunState.Snapshot snapshot =
                         DesktopSelfTestRunState.snapshot();
-                final long resultModifiedAtMillis =
-                        DesktopSelfTestResult.lastModifiedMillis(mContext);
-                final JSONObject state = snapshot.toJson();
-                final java.util.Iterator<String> keys = state.keys();
-                while (keys.hasNext()) {
-                    final String key = keys.next();
-                    observation.put(key, state.get(key));
-                }
-                return observation.put("matched",
-                                snapshot.runId == runId
-                                        && snapshot.terminal())
-                        .put("expectedRunId", runId)
-                        .put("resultModifiedAtMillis",
-                                resultModifiedAtMillis);
+                final JSONObject saved = snapshot.runId == runId ? null
+                        : DesktopSelfTestResult.readSavedResult(mContext, false);
+                return selfTestCompletion(runId, snapshot, saved);
             }
             default:
                 throw new IllegalArgumentException("unknown wait condition");
         }
+    }
+
+    static JSONObject selfTestCompletion(final long runId,
+            final DesktopSelfTestRunState.Snapshot snapshot, final JSONObject saved)
+            throws JSONException {
+        if (snapshot.runId == runId) {
+            return snapshot.toJson().put("expectedRunId", runId)
+                    .put("matched", snapshot.terminal()).put("runKnown", true)
+                    .put("source", "current_run");
+        }
+        if (saved != null && saved.optBoolean("available") && saved.optLong("runId") == runId) {
+            return new JSONObject().put("expectedRunId", runId).put("runId", runId)
+                    .put("matched", true).put("runKnown", true).put("source", "saved_result")
+                    .put("state", "completed").put("active", false)
+                    .put("outcome", saved.getString("outcome"))
+                    .put("buildId", saved.getString("buildId"));
+        }
+        return new JSONObject().put("expectedRunId", runId).put("matched", false)
+                .put("runKnown", false).put("currentRunId", snapshot.runId);
     }
 
     private static TaskRepository.Snapshot observedWaitTasks(

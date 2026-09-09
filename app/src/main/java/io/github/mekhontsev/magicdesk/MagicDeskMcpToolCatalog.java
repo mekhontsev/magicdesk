@@ -9,14 +9,7 @@ final class MagicDeskMcpToolCatalog {
     private MagicDeskMcpToolCatalog() {
     }
 
-    static JSONArray create(final boolean includeDeveloperTools)
-            throws JSONException {
-        return create(includeDeveloperTools, false);
-    }
-
-    static JSONArray create(
-            final boolean includeDeveloperTools,
-            final boolean includeShellTools) throws JSONException {
+    static JSONArray create() throws JSONException {
         final JSONArray tools = new JSONArray()
                 .put(readTool(
                         "get_state",
@@ -102,8 +95,9 @@ final class MagicDeskMcpToolCatalog {
                 .put(readTool(
                         "get_self_test",
                         "Get self-test result",
-                        "Read the current status and latest desktop self-test report.",
-                        emptySchema()))
+                        "Read current-run checks separately from the last saved result; each carries its run id.",
+                        objectSchema(new JSONObject().put("includeReport",
+                                booleanProperty("Include bounded text in the saved result; default false.")))))
                 .put(readTool(
                         "get_termux_x11_status",
                         "Get Termux:X11 status",
@@ -416,11 +410,10 @@ final class MagicDeskMcpToolCatalog {
                         "Stop screen recording",
                         "Finalize and save the active desktop recording.",
                         emptySchema()));
-        if (includeDeveloperTools) {
             tools.put(destructiveTool(
                         "force_stop_app",
                         "Force stop application",
-                        "Force-stop an Android package. Developer automation only.",
+                        "Force-stop an Android package.",
                         objectSchema(new JSONObject().put(
                                 "appIdentity", stringProperty(
                                         "Profile-scoped identity returned by list_apps.")),
@@ -428,22 +421,22 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "send_broadcast",
                         "Send Android broadcast",
-                        "Send a typed or raw broadcast Intent. Developer automation only because it can trigger background state changes.",
+                        "Send a typed or raw broadcast Intent. Sensitive operation because it can trigger background state changes.",
                         intentSchema(true)))
                 .put(actionTool(
                         "start_service",
                         "Start Android service",
-                        "Start a typed or raw Android service Intent. Developer automation only because it is an invisible background operation.",
+                        "Start a typed or raw Android service Intent. Sensitive operation because it is an invisible background operation.",
                         intentSchema(true)))
                 .put(readTool(
                         "clipboard.read_text",
                         "Read clipboard text",
-                        "Read text from Android's system clipboard. Developer automation only because clipboard contents may contain secrets; Android may require a focused MagicDesk window.",
+                        "Read text from Android's system clipboard. Sensitive operation because clipboard contents may contain secrets; Android may require a focused MagicDesk window.",
                         emptySchema()))
                 .put(actionTool(
                         "clipboard.write_text",
                         "Write clipboard text",
-                        "Write bounded plain text to Android's system clipboard. Developer automation only.",
+                        "Write bounded plain text to Android's system clipboard.",
                         objectSchema(new JSONObject()
                                         .put("text", stringProperty(
                                                 "Text to place on the clipboard."))
@@ -455,21 +448,21 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "clipboard.open",
                         "Open clipboard link or file",
-                        "Open the current clipboard file or web link through the production desktop Intent launcher. Developer automation only.",
+                        "Open the current clipboard file or web link through the production desktop Intent launcher.",
                         objectSchema(new JSONObject().put(
                                 "displayId", integerProperty(
                                         "Optional active desktop display id.")))))
                 .put(actionTool(
                         "clipboard.share",
                         "Share clipboard content",
-                        "Open Android's share chooser for the current clipboard content through the production desktop Intent launcher. Developer automation only.",
+                        "Open Android's share chooser for the current clipboard content through the production desktop Intent launcher.",
                         objectSchema(new JSONObject().put(
                                 "displayId", integerProperty(
                                         "Optional active desktop display id.")))))
                 .put(destructiveTool(
                         "clipboard.clear",
                         "Clear clipboard",
-                        "Clear Android's system clipboard and a matching published MagicDesk file operation. Developer automation only.",
+                        "Clear Android's system clipboard and a matching published MagicDesk file operation.",
                         emptySchema()))
                 .put(actionTool(
                         "run_self_test",
@@ -494,7 +487,7 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "send_key",
                         "Send key",
-                        "Inject one Android key event on a desktop display. Developer automation only.",
+                        "Inject one Android key event on a desktop display.",
                         objectSchema(new JSONObject()
                                         .put("displayId", integerProperty(
                                                 "Optional active display id."))
@@ -523,11 +516,43 @@ final class MagicDeskMcpToolCatalog {
                                 .put("button", enumProperty(
                                         "Pointer button.",
                                         "primary", "secondary")))));
-        }
-        if (includeShellTools) {
-            addShellTools(tools);
-        }
+        addShellTools(tools);
+        addTransferTools(tools);
+        tools.put(destructiveTool("app.update", "Update MagicDesk",
+                "Install a same-package, same-signer APK with no downgrade or data reset. Requires an inactive desktop. A one-operation Shizuku worker restores enabled MCP after installation. Reconnect and query app.update_status with the same updateId; do not retry using a new id after a lost response.",
+                objectSchema(new JSONObject().put("updateId", stringProperty("Unique client operation id, 16-64 letters, digits, underscores or hyphens."))
+                        .put("path", stringProperty("Absolute shell-readable APK path, typically from files.upload_commit."))
+                        .put("sha256", stringProperty("Expected APK SHA-256 digest.")), "updateId", "path", "sha256")))
+                .put(readTool("app.update_status", "MagicDesk update status", "Read the durable installer result for an exact update operation.",
+                        objectSchema(new JSONObject().put("updateId", stringProperty("Id passed to app.update.")), "updateId")));
         return tools;
+    }
+
+    private static void addTransferTools(JSONArray tools) throws JSONException {
+        final JSONObject id = stringProperty("Client-generated unique id, 16-64 letters, digits, hyphens or underscores. Reuse only for retries of the same transfer.");
+        tools.put(actionTool("files.upload_begin", "Begin upload",
+                "Create a resumable upload for an ordinary shell-writable file. No destination is published until commit; idempotent for this transferId.",
+                objectSchema(new JSONObject().put("transferId", id).put("path", stringProperty("Absolute destination path."))
+                        .put("size", integerProperty("Exact file length in bytes."))
+                        .put("sha256", stringProperty("Expected SHA-256 digest."))
+                        .put("overwrite", booleanProperty("Explicitly replace an existing ordinary file on commit; default false.")),
+                        "transferId", "path", "size", "sha256")))
+                .put(actionTool("files.upload_chunk", "Upload chunk", "Write up to 128 KiB. Repeating acknowledged bytes is safe; different bytes or gaps are rejected.",
+                        objectSchema(new JSONObject().put("transferId", id).put("offset", integerProperty("Acknowledged byte offset."))
+                                .put("data", stringProperty("Base64-encoded binary chunk.")), "transferId", "offset", "data")))
+                .put(readTool("files.upload_status", "Upload status", "Read acknowledged upload position after reconnecting.",
+                        objectSchema(new JSONObject().put("transferId", id), "transferId")))
+                .put(actionTool("files.upload_commit", "Commit upload", "Verify size and SHA-256, then publish the file. Retrying a completed commit does not rewrite the destination.",
+                        objectSchema(new JSONObject().put("transferId", id), "transferId")))
+                .put(destructiveTool("files.upload_abort", "Abort upload", "Delete only the verified incomplete upload file. A committed destination is never deleted.",
+                        objectSchema(new JSONObject().put("transferId", id), "transferId")))
+                .put(readTool("files.download_begin", "Begin download", "Snapshot an ordinary shell-readable file and its SHA-256. Download sessions survive reconnection and app restart.",
+                        objectSchema(new JSONObject().put("transferId", id).put("path", stringProperty("Absolute source path.")), "transferId", "path")))
+                .put(readTool("files.download_chunk", "Download chunk", "Read a bounded file range. Rejects changed files; the client must verify the final SHA-256.",
+                        objectSchema(new JSONObject().put("transferId", id).put("offset", integerProperty("Byte offset."))
+                                .put("length", integerRangeProperty("Chunk bytes; default 131072.", 1, 131072)), "transferId", "offset")))
+                .put(actionTool("files.download_finish", "Finish download", "Release a download session after verifying the local file; never modifies the source.",
+                        objectSchema(new JSONObject().put("transferId", id), "transferId")));
     }
 
     private static JSONObject waitSchema() throws JSONException {
@@ -1058,7 +1083,8 @@ final class MagicDeskMcpToolCatalog {
         return new JSONObject()
                 .put("name", name)
                 .put("title", title)
-                .put("description", description)
+                .put("description", description + " Required permission: "
+                        + McpAccessPolicy.permissionName(name) + ".")
                 .put("inputSchema", schema)
                 .put("outputSchema", resultSchema(name))
                 .put("annotations", new JSONObject()
@@ -1095,6 +1121,10 @@ final class MagicDeskMcpToolCatalog {
         switch (toolName) {
             case "get_state":
                 properties.put("generatedAtMillis", integerProperty("Timestamp."))
+                        .put("app", openObjectProperty("Build identity, process instance and install time."))
+                        .put("device", openObjectProperty("Device model and Android release."))
+                        .put("readiness", openObjectProperty("Awake/lock state and required prerequisite actions."))
+                        .put("connection", openObjectProperty("Listener scope and current granted permissions."))
                         .put("session", openObjectProperty("Desktop session."))
                         .put("ui", openObjectProperty("Desktop UI state."))
                         .put("runtime", openObjectProperty("Runtime state."));
@@ -1186,11 +1216,49 @@ final class MagicDeskMcpToolCatalog {
                         "Compatibility report."));
                 break;
             case "get_self_test":
-                selfTestStateProperties(properties);
-                properties.put("running", booleanProperty("Test is active."))
-                        .put("resultModifiedAtMillis", integerProperty(
-                                "Timestamp of the latest saved result."))
-                        .put("report", stringProperty("Latest test report."));
+                final JSONObject runProperties = new JSONObject();
+                selfTestStateProperties(runProperties);
+                runProperties.put("buildId", stringProperty("Source build identity."))
+                        .put("checks", arrayProperty("Bounded current-run checks.", selfTestCheckSchema()))
+                        .put("failures", arrayProperty("Failures within the retained checks.", selfTestCheckSchema()))
+                        .put("checksTruncated", booleanProperty("Older checks were evicted."))
+                        .put("firstFailure", selfTestCheckSchema()
+                                .put("type", new JSONArray().put("object").put("null")));
+                properties.put("currentRun", objectSchema(runProperties))
+                        .put("lastCompletedResult", openObjectProperty(
+                                "Saved result with runId, target, buildId, checks and failures; never attributed to currentRun.")
+                                .put("type", new JSONArray().put("object").put("null")));
+                break;
+            case "wait_for_state":
+                properties.put("matched", booleanProperty("The observed condition was satisfied."))
+                        .put("waitExpired", booleanProperty("Only this observation wait expired; the operation was not cancelled."))
+                        .put("condition", stringProperty("Requested condition."))
+                        .put("runKnown", booleanProperty("For self_test_finished: the exact requested run is known."))
+                        .put("source", stringProperty("Source of a self-test result: current_run or saved_result."));
+                break;
+            case "files.upload_begin": case "files.upload_chunk": case "files.upload_status":
+            case "files.upload_commit": case "files.upload_abort": case "files.download_begin":
+            case "files.download_chunk": case "files.download_finish":
+                properties.put("transferId", stringProperty("Transfer identity."))
+                        .put("state", stringProperty("active, completed or aborted."))
+                        .put("path", stringProperty("Destination or source path."))
+                        .put("size", integerProperty("File bytes."))
+                        .put("sha256", stringProperty("Complete file digest."))
+                        .put("offset", integerProperty("Acknowledged upload position or requested download offset."))
+                        .put("chunkBytes", integerProperty("Maximum decoded chunk bytes."))
+                        .put("nextOffset", integerProperty("Next download offset."))
+                        .put("data", stringProperty("Base64 download chunk."))
+                        .put("eof", booleanProperty("End of download."));
+                break;
+            case "app.update": case "app.update_status":
+                properties.put("updateId", stringProperty("Exact operation id."))
+                        .put("state", stringProperty("unknown, preparing, submitted, submission_unknown, installed, user_action_required or failed."))
+                        .put("sessionId", integerProperty("Android PackageInstaller session id."))
+                        .put("sha256", stringProperty("Verified APK digest."))
+                        .put("versionCode", integerProperty("Expected installed version code."))
+                        .put("versionName", stringProperty("Expected installed version name."))
+                        .put("installerStatus", integerProperty("Android PackageInstaller result."))
+                        .put("detail", nullableStringProperty("Installer detail."));
                 break;
             case "run_self_test":
                 selfTestStateProperties(properties);
@@ -1593,6 +1661,9 @@ final class MagicDeskMcpToolCatalog {
                         .put("notTested", integerProperty("Completed NOT_TESTED count."))))
                 .put("cancelRequested", booleanProperty(
                         "Whether cancellation has been requested."))
+                .put("cancellationReason", nullableStringProperty("user or session_closed, otherwise null."))
+                .put("outcome", enumProperty("Run outcome, independent of wait expiration.",
+                        "none", "pending", "passed", "warnings", "failed", "cancelled"))
                 .put("requestedAtMillis", nullableIntegerProperty(
                         "Request timestamp."))
                 .put("startedAtMillis", nullableIntegerProperty(
@@ -1600,6 +1671,14 @@ final class MagicDeskMcpToolCatalog {
                 .put("completedAtMillis", nullableIntegerProperty(
                         "Terminal-state timestamp."))
                 .put("detail", stringProperty("Lifecycle detail."));
+    }
+
+    private static JSONObject selfTestCheckSchema() throws JSONException {
+        return objectSchema(new JSONObject()
+                .put("code", stringProperty("Existing self-test check code."))
+                .put("state", enumProperty("Check result.", "PASS", "WARN", "FAIL", "NOT_TESTED"))
+                .put("label", stringProperty("Check label."))
+                .put("detail", stringProperty("Bounded check detail.")));
     }
 
     private static void terminalResultProperties(

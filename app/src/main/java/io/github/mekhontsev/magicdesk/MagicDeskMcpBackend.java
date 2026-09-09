@@ -17,11 +17,14 @@ final class MagicDeskMcpBackend implements McpBackend {
     private final DesktopAutomationTerminalWindows mTerminals =
             new DesktopAutomationTerminalWindows();
     private final DesktopAutomationTmuxSessions mTmux;
+    private final AutomationFileTransfers mTransfers;
 
     MagicDeskMcpBackend(final Context context) {
         mContext = context.getApplicationContext();
         mAutomation = new DesktopAutomationController(mContext);
         mTmux = new DesktopAutomationTmuxSessions(mContext, mTerminals);
+        mTransfers = new AutomationFileTransfers(mContext.getFilesDir().toPath().resolve("mcp-transfers"),
+                new ShellAutomationTransferStorage());
     }
 
     @Override
@@ -31,10 +34,14 @@ final class MagicDeskMcpBackend implements McpBackend {
 
     @Override
     public JSONArray listTools() throws JSONException {
-        final MagicDeskMcpPreferences.Values settings =
-                MagicDeskMcpPreferences.load(mContext);
-        return MagicDeskMcpToolCatalog.create(
-                settings.developerTools, settings.shellTools);
+        return MagicDeskMcpToolCatalog.create();
+    }
+
+    McpBackend scoped(final boolean network) {
+        return new McpAuthorizedBackend(this, network ? "network" : "local", () -> {
+            final var settings = MagicDeskMcpPreferences.load(mContext);
+            return network ? settings.networkAccess : settings.localAccess;
+        });
     }
 
     @Override
@@ -60,6 +67,23 @@ final class MagicDeskMcpBackend implements McpBackend {
         final JSONObject args = arguments == null
                 ? new JSONObject() : arguments;
         final JSONObject data;
+        if (name.equals("app.update") || name.equals("app.update_status")) {
+            try {
+                return successResult(name.equals("app.update") ? MagicDeskAppUpdates.start(mContext, args)
+                        : MagicDeskAppUpdates.status(mContext, args.getString("updateId")));
+            } catch (java.io.IOException error) {
+                return actionResult(DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,
+                        ShellAccess.usefulMessage(error), true));
+            }
+        }
+        if (name.startsWith("files.upload_") || name.startsWith("files.download_")) {
+            try {
+                return successResult(mTransfers.execute(name, args));
+            } catch (java.io.IOException error) {
+                return actionResult(DesktopAutomationResult.failure(DesktopAutomationErrorCode.FILE_ACCESS_FAILED,
+                        ShellAccess.usefulMessage(error), true));
+            }
+        }
         switch (name) {
             case "get_state":
                 data = mAutomation.stateReader().state();
@@ -91,7 +115,7 @@ final class MagicDeskMcpBackend implements McpBackend {
                 data = mAutomation.stateReader().diagnostics();
                 return successResult(data);
             case "get_self_test":
-                data = mAutomation.stateReader().selfTest();
+                data = mAutomation.stateReader().selfTest(args.optBoolean("includeReport", false));
                 return successResult(data);
             case "get_termux_x11_status":
                 data = mAutomation.stateReader().termuxX11Status();
@@ -105,12 +129,6 @@ final class MagicDeskMcpBackend implements McpBackend {
                 || name.startsWith("console.")
                 || name.startsWith("terminal.")
                 || name.startsWith("tmux.")) {
-            if (!MagicDeskMcpPreferences.load(mContext).shellTools) {
-                return actionResult(DesktopAutomationResult.failure(
-                        DesktopAutomationErrorCode.TOOL_DISABLED,
-                        "Files, shell, Terminal, and tmux automation tools are disabled",
-                        false));
-            }
             switch (name) {
                 case "files.list":
                     return actionResult(mFiles.list(args));
@@ -153,7 +171,7 @@ final class MagicDeskMcpBackend implements McpBackend {
         final DesktopAutomationResult result = mAutomation.execute(
                 name,
                 args,
-                MagicDeskMcpPreferences.load(mContext).developerTools);
+                true); // The listener-scoped policy already authorized this exact action.
         return actionResult(result);
     }
 
@@ -223,7 +241,7 @@ final class MagicDeskMcpBackend implements McpBackend {
         return actionResult(DesktopAutomationResult.failure(message));
     }
 
-    private static JSONObject actionResult(
+    static JSONObject actionResult(
             final DesktopAutomationResult result) throws JSONException {
         final JSONObject structured = result.toJson();
         final JSONArray content = new JSONArray().put(new JSONObject()

@@ -31,13 +31,19 @@ final class SettingsView {
 
         void setMcpEnabled(boolean enabled);
 
-        void setMcpDeveloperTools(boolean enabled);
-
-        void setMcpShellTools(boolean enabled);
+        void configureMcpAccess(boolean network);
 
         void copyMcpConnection();
 
         void regenerateMcpToken();
+
+        void setMcpNetworkEnabled(boolean enabled);
+
+        void configureMcpNetwork();
+
+        void copyMcpNetworkConnection();
+
+        void regenerateMcpNetworkToken();
 
         void configureTermuxX11();
 
@@ -65,9 +71,9 @@ final class SettingsView {
     private Switch mSystemDesktopMode;
     private TextView mSystemDesktopModeStatus;
     private Switch mMcpEnabled;
-    private Switch mMcpDeveloperTools;
-    private Switch mMcpShellTools;
     private TextView mMcpStatus;
+    private Switch mMcpNetworkEnabled;
+    private TextView mMcpNetworkStatus;
     private boolean mRendering;
 
     SettingsView(final Activity activity, final Actions actions) {
@@ -177,20 +183,8 @@ final class SettingsView {
                 mActions.setMcpEnabled(checked);
             }
         });
-        mMcpDeveloperTools = addSwitch(
-                content, R.string.settings_mcp_developer_tools);
-        mMcpDeveloperTools.setOnCheckedChangeListener((button, checked) -> {
-            if (!mRendering) {
-                mActions.setMcpDeveloperTools(checked);
-            }
-        });
-        mMcpShellTools = addSwitch(
-                content, R.string.settings_mcp_shell_tools);
-        mMcpShellTools.setOnCheckedChangeListener((button, checked) -> {
-            if (!mRendering) {
-                mActions.setMcpShellTools(checked);
-            }
-        });
+        addAction(content, android.R.drawable.ic_lock_lock,
+                R.string.settings_mcp_local_access, () -> mActions.configureMcpAccess(false));
         mMcpStatus = new TextView(mActivity);
         mMcpStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
         mMcpStatus.setTextSize(12);
@@ -208,6 +202,25 @@ final class SettingsView {
                 android.R.drawable.ic_popup_sync,
                 R.string.settings_mcp_regenerate_token,
                 mActions::regenerateMcpToken);
+
+        mMcpNetworkEnabled = addSwitch(content, R.string.settings_mcp_network_enabled);
+        mMcpNetworkEnabled.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setMcpNetworkEnabled(checked);
+        });
+        addAction(content, android.R.drawable.ic_lock_lock,
+                R.string.settings_mcp_network_access, () -> mActions.configureMcpAccess(true));
+        mMcpNetworkStatus = new TextView(mActivity);
+        mMcpNetworkStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mMcpNetworkStatus.setTextSize(12);
+        mMcpNetworkStatus.setPadding(dp(8), dp(7), dp(8), dp(7));
+        content.addView(mMcpNetworkStatus, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        addAction(content, android.R.drawable.ic_menu_preferences,
+                R.string.settings_mcp_network_configure, mActions::configureMcpNetwork);
+        addAction(content, android.R.drawable.ic_menu_set_as,
+                R.string.settings_mcp_network_copy, mActions::copyMcpNetworkConnection);
+        addAction(content, android.R.drawable.ic_popup_sync,
+                R.string.settings_mcp_network_token, mActions::regenerateMcpNetworkToken);
 
         if (TermuxX11Integration.isAvailable(mActivity)) {
             addSection(content, R.string.settings_section_integrations, 14);
@@ -265,8 +278,7 @@ final class SettingsView {
                 || mOpenTouchpadAutomatically == null
                 || mOpenFilesWithSingleClick == null
                 || mcp == null || runtime == null
-                || mMcpEnabled == null || mMcpDeveloperTools == null
-                || mMcpShellTools == null
+                || mMcpEnabled == null
                 || mMcpStatus == null) {
             return;
         }
@@ -285,12 +297,13 @@ final class SettingsView {
         mDisableAdaptiveBrightness.setChecked(
                 settings.disableAdaptiveBrightnessOnExternalDesktop);
         mMcpEnabled.setChecked(mcp.enabled);
-        mMcpDeveloperTools.setChecked(mcp.developerTools);
-        mMcpDeveloperTools.setEnabled(mcp.enabled);
-        mMcpDeveloperTools.setAlpha(mcp.enabled ? 1f : 0.5f);
-        mMcpShellTools.setChecked(mcp.shellTools);
-        mMcpShellTools.setEnabled(mcp.enabled);
-        mMcpShellTools.setAlpha(mcp.enabled ? 1f : 0.5f);
+        mMcpNetworkEnabled.setChecked(mcp.enabled && mcp.networkEnabled);
+        mMcpNetworkEnabled.setEnabled(mcp.enabled);
+        mMcpNetworkStatus.setText(!mcp.networkEnabled
+                ? mActivity.getString(R.string.settings_mcp_network_disabled)
+                : runtime.networkRunning ? runtime.networkEndpoint
+                : mActivity.getString(R.string.settings_mcp_network_unavailable,
+                        runtime.networkError));
         final int status = runtime.running
                 ? R.string.settings_mcp_status_running
                 : mcp.enabled

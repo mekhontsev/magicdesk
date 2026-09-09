@@ -402,6 +402,10 @@ public final class MagicDeskRuntimeService extends Service
     public int onStartCommand(final Intent intent, final int flags, final int startId) {
         startForeground(NOTIFICATION_ID, buildNotification());
         if (MagicDeskRuntime.isAutomationStart(intent)) {
+            if (!MagicDeskMcpPreferences.isEnabled(this) && !mInitialized) {
+                stopSelf();
+                return START_NOT_STICKY;
+            }
             mMcpRuntime.reconcile();
             updateNotification();
             return START_NOT_STICKY;

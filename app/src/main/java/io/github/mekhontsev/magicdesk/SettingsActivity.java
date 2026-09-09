@@ -153,13 +153,32 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
-    public void setMcpDeveloperTools(final boolean enabled) {
-        saveSetting(MagicDeskMcpPreferences.setDeveloperTools(this, enabled));
-    }
-
-    @Override
-    public void setMcpShellTools(final boolean enabled) {
-        saveSetting(MagicDeskMcpPreferences.setShellTools(this, enabled));
+    public void configureMcpAccess(final boolean network) {
+        final var values = MagicDeskMcpPreferences.load(this);
+        final var access = network ? values.networkAccess : values.localAccess;
+        final var permissions = McpAccessPolicy.Permission.values();
+        final CharSequence[] labels = new CharSequence[permissions.length];
+        final boolean[] checked = new boolean[permissions.length];
+        for (int i = 0; i < permissions.length; i++) {
+            labels[i] = getString(permissions[i].label);
+            checked[i] = access.has(permissions[i]);
+        }
+        final android.widget.TextView warning = new android.widget.TextView(this);
+        warning.setText(R.string.mcp_permissions_warning);
+        final int padding = Math.round(16 * getResources().getDisplayMetrics().density);
+        warning.setPadding(padding, padding, padding, padding);
+        new AlertDialog.Builder(this)
+                .setTitle(network ? R.string.settings_mcp_network_access : R.string.settings_mcp_local_access)
+                .setView(warning)
+                .setMultiChoiceItems(labels, checked, (dialog, index, selected) -> checked[index] = selected)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                    final java.util.Set<String> selected = new java.util.HashSet<>();
+                    for (int i = 0; i < permissions.length; i++) {
+                        if (checked[i]) selected.add(permissions[i].id);
+                    }
+                    saveSetting(MagicDeskMcpPreferences.setAccess(this, network, selected));
+                }).show();
     }
 
     @Override
@@ -192,13 +211,50 @@ public final class SettingsActivity extends Activity
 
     @Override
     public void regenerateMcpToken() {
+        regenerateMcpToken(false);
+    }
+
+    @Override public void setMcpNetworkEnabled(final boolean enabled) {
+        if (!enabled) {
+            saveSetting(MagicDeskMcpPreferences.setNetworkEnabled(this, false));
+        } else {
+            McpNetworkSettingsDialog.show(this, true, this::saveSetting, this::render);
+        }
+    }
+
+    @Override public void configureMcpNetwork() {
+        McpNetworkSettingsDialog.show(this, false, this::saveSetting, this::render);
+    }
+
+    @Override public void copyMcpNetworkConnection() {
+        final var settings = MagicDeskMcpPreferences.load(this);
+        final var runtime = MagicDeskMcpRuntime.snapshot();
+        if (!runtime.networkRunning || settings.networkToken.isEmpty()) {
+            Toast.makeText(this, R.string.settings_mcp_copy_failed, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final boolean copied = AndroidClipboardGateway.get(this).writeText(
+                getString(R.string.settings_mcp_network_copy),
+                "Endpoint: " + runtime.networkEndpoint
+                        + "\nAuthorization: Bearer " + settings.networkToken, true).successful;
+        Toast.makeText(this, copied ? R.string.settings_mcp_copied
+                : R.string.settings_mcp_copy_failed, Toast.LENGTH_SHORT).show();
+    }
+
+    @Override public void regenerateMcpNetworkToken() {
+        regenerateMcpToken(true);
+    }
+
+    private void regenerateMcpToken(final boolean network) {
         new AlertDialog.Builder(this)
-                .setTitle(R.string.settings_mcp_regenerate_token)
+                .setTitle(network ? R.string.settings_mcp_network_token
+                        : R.string.settings_mcp_regenerate_token)
                 .setMessage(R.string.settings_mcp_regenerate_confirm)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.action_reset, (dialog, which) -> {
                     final boolean saved =
-                            MagicDeskMcpPreferences.regenerateToken(this);
+                            network ? MagicDeskMcpPreferences.regenerateNetworkToken(this)
+                                    : MagicDeskMcpPreferences.regenerateToken(this);
                     saveSetting(saved);
                     if (saved) {
                         Toast.makeText(

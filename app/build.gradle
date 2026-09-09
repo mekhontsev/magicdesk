@@ -8,6 +8,17 @@ def baseVersionCode = providers.gradleProperty(
         'magicDeskVersionCode').get().toInteger()
 def versionSuffix = providers.gradleProperty(
         'MAGICDESK_VERSION_SUFFIX').orNull
+// Stable source identity distinguishes local APKs sharing a version number.
+def sourceDigest = java.security.MessageDigest.getInstance('SHA-256')
+def sourceFiles = rootProject.fileTree('.') {
+    include 'app/src/main/**', 'hidden-api-stubs/src/main/**', 'gradle/**'
+    include '*.gradle', 'app/*.gradle', 'gradle.properties'
+}.files.sort { rootProject.relativePath(it) }
+sourceFiles.each { file ->
+    sourceDigest.update(rootProject.relativePath(file).getBytes('UTF-8'))
+    sourceDigest.update(file.bytes)
+}
+def sourceId = sourceDigest.digest().encodeHex().toString()
 def requestedPlatformOverride = providers.gradleProperty(
         'MAGICDESK_PLATFORM_OVERRIDE').orNull
 def debugPlatformOverride = requestedPlatformOverride == null
@@ -35,6 +46,7 @@ android {
         minSdk = 35
         targetSdk = 37
         versionCode = baseVersionCode
+        buildConfigField 'String', 'SOURCE_ID', '"' + sourceId + '"'
         versionName = versionSuffix == null || versionSuffix.isBlank()
                 ? baseVersionName
                 : baseVersionName + '-' + versionSuffix

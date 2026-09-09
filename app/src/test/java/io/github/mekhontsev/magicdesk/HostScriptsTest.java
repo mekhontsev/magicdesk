@@ -213,11 +213,19 @@ public final class HostScriptsTest {
         final Path adb = temporary.newFile().toPath();
         Files.writeString(adb, "#!" + shell + "\n"
                 + "case \"$*\" in\n"
-                + "  *' cat '*) printf 'Outcome: %s\\n' \"$TEST_OUTCOME\" ;;\n"
+                + "  *' cat '*) printf '%s\\n' \"$TEST_RESULT\" ;;\n"
                 + "esac\n");
         assertTrue(adb.toFile().setExecutable(true));
+        final String state = switch (outcome) {
+            case "PASS" -> "passed";
+            case "WARN" -> "warnings";
+            default -> outcome.toLowerCase(java.util.Locale.ROOT);
+        };
+        final String result = new org.json.JSONObject().put("available", true)
+                .put("completedAtMillis", 1).put("outcome", state)
+                .put("report", "Outcome: " + outcome).toString();
         return run("smoke-simulated-display.sh",
-                Map.of("ADB", adb.toString(), "TEST_OUTCOME", outcome));
+                Map.of("ADB", adb.toString(), "TEST_RESULT", result));
     }
 
     private Path coreApk(final List<String> helpers) throws Exception {

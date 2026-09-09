@@ -267,6 +267,34 @@ final class ShellFileSystem implements AutoCloseable {
         }
     }
 
+    ShellFileInfo publishVerifiedFile(final String sourcePath, final long deviceId,
+            final long inode, final String targetPath, final boolean overwrite) {
+        final Path source = ShellFilePathPolicy.mutableEntry(sourcePath);
+        final Path target = ShellFilePathPolicy.absolute(targetPath);
+        if (!source.getParent().equals(target.getParent()) || source.equals(target)) {
+            throw new IllegalArgumentException("publish requires distinct sibling paths");
+        }
+        try {
+            final StructStat stat = Os.lstat(source.toString());
+            if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_dev != deviceId || stat.st_ino != inode) {
+                throw new IllegalArgumentException("upload file was replaced");
+            }
+            if (Files.exists(target, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    && (!overwrite || !Files.isRegularFile(target, java.nio.file.LinkOption.NOFOLLOW_LINKS))) {
+                throw new IllegalArgumentException("destination exists or is not an ordinary file");
+            }
+            if (overwrite) {
+                Files.move(source, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                Files.move(source, target);
+            }
+            return toInfo(target);
+        } catch (IOException | ErrnoException error) {
+            throw failure("cannot publish " + target, error);
+        }
+    }
+
     long startOperation(
             final int operation,
             final String[] sourcePaths,

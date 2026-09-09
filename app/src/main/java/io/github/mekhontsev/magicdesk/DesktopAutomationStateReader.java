@@ -46,10 +46,10 @@ final class DesktopAutomationStateReader {
                 DesktopWindowObservation.capture();
         final JSONObject result = new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())
-                .put("app", new JSONObject()
-                        .put("package", BuildConfig.APPLICATION_ID)
-                        .put("versionName", BuildConfig.VERSION_NAME)
-                        .put("versionCode", BuildConfig.VERSION_CODE))
+                .put("app", AutomationDeviceState.appJson(mContext))
+                .put("device", AutomationDeviceState.deviceJson())
+                .put("readiness", AutomationDeviceState.capture(mContext)
+                        .toJson(shell.isReady()))
                 .put("shell", new JSONObject()
                         .put("ready", shell.isReady())
                         .put("installed", shell.installed)
@@ -394,13 +394,28 @@ final class DesktopAutomationStateReader {
     }
 
     JSONObject selfTest() throws JSONException {
+        return selfTest(false);
+    }
+
+    JSONObject selfTest(final boolean includeReport) throws JSONException {
         final DesktopSelfTestRunState.Snapshot snapshot =
                 DesktopSelfTestRunState.snapshot();
-        return snapshot.toJson()
-                .put("running", snapshot.active())
-                .put("resultModifiedAtMillis",
-                        DesktopSelfTestResult.lastModifiedMillis(mContext))
-                .put("report", DesktopSelfTestResult.readLastResult(mContext));
+        final JSONObject saved = DesktopSelfTestResult.readSavedResult(mContext, includeReport);
+        return selfTestJson(snapshot, saved);
+    }
+
+    static JSONObject selfTestJson(final DesktopSelfTestRunState.Snapshot snapshot,
+            final JSONObject saved) throws JSONException {
+        final JSONObject run = snapshot.toJson()
+                .put("buildId", BuildConfig.SOURCE_ID);
+        final JSONObject checks = snapshot.progress.checksJson();
+        final java.util.Iterator<String> keys = checks.keys();
+        while (keys.hasNext()) {
+            final String key = keys.next();
+            run.put(key, checks.get(key));
+        }
+        return new JSONObject().put("currentRun", run)
+                .put("lastCompletedResult", saved == null ? JSONObject.NULL : saved);
     }
 
     private JSONObject sessionJson(

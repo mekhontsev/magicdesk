@@ -442,4 +442,12 @@ interface IShizukuCommandService {
         int displayId, int taskId, IBinder activityToken) = 124;
 
     void initializeFramework(int desktopToggle, String settingError) = 125;
+
+    ShellFileInfo publishVerifiedShellFile(String source, long deviceId, long inode,
+        String target, boolean overwrite) = 126;
+
+    String prepareMagicDeskUpdate(String source, long deviceId, long inode,
+        String sha256, int userId) = 127;
+
+    void abandonMagicDeskUpdate(int sessionId, int userId) = 128;
 }

@@ -21,6 +21,8 @@ nbproject/private/
 .externalNativeBuild/
 .cxx/
 captures/
+__pycache__/
+*.pyc
 
 *.jks
 *.keystore

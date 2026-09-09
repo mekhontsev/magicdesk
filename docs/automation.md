@@ -48,6 +48,27 @@ curl -sS http://127.0.0.1:8765/mcp \
 The server supports MCP `initialize`, `ping`, `tools/list`, `tools/call`,
 `resources/list`, and `resources/read`. It does not require an MCP session ID.
 
+### Direct Network Access
+
+**Network MCP access** is opt-in. Select a currently available private IPv4
+interface and a port from 1024 through 65535. The server binds that concrete
+address, never a wildcard. Interface changes use network callbacks, not a
+background polling loop. An unavailable interface leaves network access stopped
+and visible in settings; the loopback listener remains independent.
+
+The network token and permission set are separate from the local ones. Rotating
+one token does not change the other. Requests without a browser Origin header
+are accepted with the correct token; browser requests must use the exact bound
+origin. Tokens never appear in diagnostics or the public state projection.
+
+This transport is **unencrypted HTTP**. Use only a controlled test network or a
+protected VPN; do not forward its port to the internet. A private address alone
+does not provide encryption or make other users of the LAN trustworthy.
+
+File transfer and update clients can use `scripts/mcp-client.py` without ADB.
+Supply the token through `MAGICDESK_TOKEN` or `--token-file`, not command-line
+arguments. Non-loopback HTTP requires `--allow-plaintext-network` explicitly.
+
 ### Starting After a Phone Reboot
 
 When the MCP server is enabled, opening MagicDesk from its normal launcher icon
@@ -61,23 +82,57 @@ For Codex on the phone, open MagicDesk once after a reboot. A client with live
 MCP reloading can then use `/mcp reload`; otherwise restart or resume the client
 once so it discovers the server. No automatic boot receiver is installed.
 
-## Access Levels
+For updates initiated through `app.update`, a short-lived Shizuku worker waits
+for Android's installation result independently of the old application process.
+It writes a bounded durable receipt, invokes the installer-only process entry
+after success, and exits. That entry is a `Theme.NoDisplay` Activity with no
+window or Recents entry; it starts enabled automation and immediately finishes.
+This does not rely on delivery of the package-replaced
+broadcast and adds no continuously running updater. The normal Shizuku command
+service retains its original lifetime. Neither the worker nor the new runtime
+opens desktop or takes HOME, and disabled automation remains disabled.
 
-The tool catalog has three explicit levels:
+For APK replacements performed by other installers, the manifest receiver for Android's protected
+`MY_PACKAGE_REPLACED` event restores enabled automation. It starts the existing
+foreground service without opening an Activity, starting desktop, or taking
+HOME. Disabled automation stays disabled. This applies equally to local and
+network listeners. Clients reconnect to their existing endpoint and token;
+the server cannot reload a client's cached tool schemas for it.
 
-- Normal tools read and operate the desktop through ordinary MagicDesk
-  workflows.
-- **Developer automation tools** adds self-tests, synthetic pointer and key
-  input, and package force-stop.
-- **Files, shell, and Terminal automation tools** separately adds direct
-  access to the shell-visible filesystem, persistent headless
-  `/system/bin/sh` sessions, and visible interactive PTY windows. This level
-  can read, modify, and execute data with the connected shell identity.
+Firmware autostart restrictions can suppress that broadcast. If it is blocked,
+open MagicDesk normally to restore the same endpoint. Installation may have
+succeeded even when reconnect expires. An update permission explicitly
+authorizes the one-operation worker, not persistent monitoring, boot autostart,
+or changes to the device's battery and autostart settings.
 
-The two optional levels are independent and disappear from `tools/list` while
-disabled. Turning off the MCP server also turns off both optional levels and
-closes all MCP-owned headless shell sessions. User-opened Terminal windows keep
-their normal desktop lifecycle.
+## Permissions
+
+`tools/list` always returns the full catalog, including commands that are not
+currently permitted. Every description names its required permission. The
+listener checks its current permission set on every invocation, before calling
+the shared backend. Disallowed calls return `TOOL_DISABLED` with the missing
+permission and `local` or `network` scope. Changing permissions does not change
+the catalog and does not require restarting the AI session.
+
+Both listeners default to authenticated observation only: device/runtime state,
+task and application lists, diagnostic reports, and bounded event traces.
+These observations can contain application names and are not anonymous data.
+Each listener independently grants:
+
+- `control`: desktop, application, window and semantic UI actions;
+- `input_tests`: synthetic input, self-tests and package force-stop;
+- `content`: capture, clipboard, notification contents and Activity results;
+- `files_read`: filesystem listing and downloads;
+- `files_write`: uploads, creation and replacement;
+- `shell`: shell/terminal/tmux and background Intent/desktop-entry commands;
+- `update`: replacement of the MagicDesk APK.
+
+These are command capabilities, not isolated sandboxes: shell, input, UI control,
+and code replacement can have broad effects or reach other application features.
+Grant them only to trusted clients. Revocation applies to subsequent calls;
+already accepted operations may finish. Disabling MCP resets permissions,
+disables network access, and closes MCP-owned headless shells. User-opened
+Terminal windows keep their normal lifecycle. Tokens remain private and stable.
 
 ## Result Contract
 
@@ -247,7 +302,7 @@ exists for compatibility investigation: it changes Android's task mode
 directly and can therefore reproduce firmware behavior that managed
 fullscreen planes are designed to isolate.
 
-Developer-only commands are:
+Commands with input, content, or shell permissions include:
 
 - `magicdesk.force_stop_app`
 - `magicdesk.send_broadcast`
@@ -276,7 +331,7 @@ Clipboard automation uses Android's system clipboard through the same gateway
 as Console and built-in UI copy actions. Reading is explicit, returns bounded
 text plus MIME metadata, and may require a focused MagicDesk window under
 Android clipboard privacy rules. Writing supports Android's sensitive-content
-marker. These commands require Developer automation; clipboard contents are
+marker. These commands require the content permission; clipboard contents are
 never exposed as an MCP resource, included in diagnostics, or declared as App
 Functions.
 The text limit is 262,144 UTF-16 code units. Read results retain the original
@@ -337,6 +392,61 @@ cached and does not launch an external command during a state read.
 configured running display. It never starts or stops the X server. Both tools
 require Termux, Termux:X11, the Termux external-command setting, and the
 `RUN_COMMAND` permission.
+
+## File Transfers and Updates
+
+`files.upload_begin` takes a client-generated `transferId`, absolute destination
+`path`, exact byte `size`, expected `sha256`, and explicit `overwrite` (default
+false). `files.upload_chunk` writes base64 chunks of at most 128 KiB at the
+acknowledged offset. Identical retries are accepted, gaps or different bytes
+are rejected. `files.upload_status` resumes after reconnect or process restart.
+`files.upload_commit` checks length and digest before publishing; retrying a
+completed commit never rewrites the destination. `files.upload_abort` removes
+only an incomplete upload, not a published file. The destination must be
+shell-writable; arbitrary private application files do not become accessible.
+
+`files.download_begin` snapshots an ordinary shell-readable path and its
+SHA-256. `files.download_chunk` reads bounded ranges, detecting changed file
+identity, size or modification time. The client must verify the final digest
+and call `files.download_finish`; it can also finish an abandoned download.
+At most 16 active transfers exist. Finished receipts are pruned when needed;
+unfinished uploads require explicit abort. There is no periodic cleanup worker.
+Transfers currently address filesystem paths, not arbitrary content-provider URIs.
+
+`app.update(path, sha256, updateId)` replaces only MagicDesk with a same-signer
+APK of an equal or greater version code. It requires a closed desktop and no
+active self-test. It neither uninstalls the package nor clears application data.
+The `update` permission is separate from upload permissions. Android's
+`PackageInstaller` owns the committed installation and reports its result to the
+independent Shizuku worker, which writes a durable receipt before starting the
+new automation runtime. `app.update_status(updateId)` returns that exact operation's
+state; a lost response during replacement is not evidence of installation
+failure and must not cause a new update request.
+
+The host client uploads/downloads binary data directly, without filling the AI
+conversation with base64. Its `update` command closes desktop through production
+cleanup, uploads the APK, submits once, reconnects, and checks installer status
+and the resulting app version. Interrupted operations print their id for resume:
+
+```sh
+python scripts/mcp-client.py --token-file /private/mcp-token upload build.apk /data/local/tmp/build.apk
+python scripts/mcp-client.py --token-file /private/mcp-token download /sdcard/Download/report.txt report.txt
+python scripts/mcp-client.py --token-file /private/mcp-token update app/build/outputs/apk/debug/app-debug.apk
+```
+
+For a network listener, add `--endpoint http://PRIVATE_IP:PORT/mcp` and
+`--allow-plaintext-network` only on the approved LAN/VPN. `--transfer-id` resumes
+uploads/downloads; `--update-id` resumes observation of an update. Expiring the
+client deadline leaves the operation's outcome pending, not cancelled.
+The uploaded source APK remains at the returned path; Android owns its separate
+installer staging session. An installer requesting user intervention is reported
+as `user_action_required`, never silently bypassed or auto-approved.
+
+Host client protocol fixtures run with:
+
+```sh
+python -m unittest discover -s scripts/tests -p test_mcp_client.py
+```
 
 ## Android Integration
 
@@ -488,10 +598,9 @@ have bounded encoded size, nesting depth, property count, string length, and
 array length before they cross the shell Binder boundary.
 
 Visible Activity, chooser, shortcut, notification, and App Function tools are
-part of the normal authenticated catalog. `send_broadcast` and `start_service`
-can mutate application state invisibly, so they are present only while
-Developer automation tools are enabled. Turning that setting off removes them
-from `tools/list` and the shared action boundary rejects direct calls as well.
+part of the authenticated catalog. `send_broadcast` and `start_service` can mutate
+application state invisibly, so executing them requires the shell permission.
+They remain visible in the catalog while disabled.
 
 ## Events and Waits
 
@@ -544,6 +653,11 @@ rather than provide persistent telemetry.
 Asynchronous commands return when MagicDesk accepts the request. Use
 `wait_for_state` to establish the required postcondition instead of assuming a
 fixed delay.
+
+Observation expiration returns `success=true`, `matched=false`, and
+`waitExpired=true`. It does not cancel or fail the observed operation. A matched
+condition has `waitExpired=false`; invalid requests and observation errors are
+still tool failures. Always inspect `matched`, not only the common envelope.
 
 Read-only resources are available at `magicdesk://state`,
 `magicdesk://displays`, `magicdesk://tasks`, `magicdesk://apps`,
@@ -600,6 +714,23 @@ keep Diagnostics above the workspace under test. Cancellation still runs cleanup
 and preserves the previous saved result.
 
 Interactive self-tests require an awake, unlocked device and a visible target.
+`get_state.readiness` reports awake, lock, and Shizuku prerequisites and explicit
+required actions; unknown lock observations never mean ready. `get_state.app`
+includes a source build identity, process instance id, and installation time,
+so builds sharing a version number and restarted processes can be distinguished.
+
+`get_self_test` separates `currentRun` from `lastCompletedResult`. Each has its
+own run id, target, build identity, and structured checks/failures. Current-run
+checks retain the last 512 entries and preserve the first failure separately;
+the saved result retains the first 512 checks and up to 512 failures with
+explicit truncation flags. `includeReport=true` adds a bounded text report from
+that saved result only. A cancelled run does not replace the last saved result.
+`wait_for_state(condition=self_test_finished, runId=...)` matches only that run,
+including its saved result after a process restart. It never attaches an older
+report to a new request. Outcome and cancellation reason are distinct fields.
+Expected fixture-display removal is owned by the exact test run and does not
+mark successful cleanup as user/session cancellation.
+
 MCP can start and observe phone, simulated, wired, and wireless tests without
 weakening their assertions or changing their production cleanup path. The
 optional `mode` is `full` by default. `fail_fast` stops the workflow after the
