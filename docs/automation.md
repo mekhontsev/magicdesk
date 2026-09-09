@@ -1,13 +1,16 @@
 # MagicDesk Automation
 
-MagicDesk exposes one typed desktop automation gateway through two adapters:
+MagicDesk exposes shared services and managed Desktop through one typed action
+boundary with two adapters:
 
-- a local Model Context Protocol (MCP) server for user-authorized clients;
+- a Model Context Protocol (MCP) server with loopback and optional network access;
 - Android App Functions for authorized system agents on Android 16 and newer.
 
-Both adapters use the production session, task, window, input, capture, and UI
-controllers. Automation does not implement a second desktop policy or a
-parallel task observer.
+Both adapters use production services and controllers. Automation does not
+implement a second desktop policy or a parallel task observer. The APK baseline
+is Android 14; managed Desktop and its self-tests require Android 15. Server
+availability, service prerequisites and client grants are independent checks.
+See [Runtime API levels](runtime-api-levels.md) for the validation boundary.
 
 ## Local MCP Server
 
@@ -74,9 +77,9 @@ arguments. Non-loopback HTTP requires `--allow-plaintext-network` explicitly.
 When the MCP server is enabled, opening MagicDesk from its normal launcher icon
 starts the server before the Shizuku compatibility audit. This intentionally
 does not start desktop, input, task-observer, or vendor runtime components.
-An automation client can therefore connect first and bring up Shizuku later;
-the same MagicDesk process then promotes to the full runtime after the normal
-audit succeeds, without replacing the MCP connection.
+An automation client can therefore connect first; after Shizuku starts, the
+same process exposes newly available shell services without replacing the MCP
+connection. Desktop still requires an explicit session start and its own setup.
 
 For Codex on the phone, open MagicDesk once after a reboot. A client with live
 MCP reloading can then use `/mcp reload`; otherwise restart or resume the client
@@ -343,10 +346,13 @@ Oversized writes are rejected, not truncated.
 Both preserve `ClipData` URI grants and enter the normal desktop Intent launch
 coordinator.
 
-Shell-gated commands are:
+File commands use the separate read/write grants:
 
-- `magicdesk.files.list`, `magicdesk.files.stat`,
-  `magicdesk.files.create`, and `magicdesk.files.rename`;
+- `magicdesk.files.list`, `magicdesk.files.stat` and downloads require file read.
+- `magicdesk.files.create`, `magicdesk.files.rename` and uploads require file write.
+
+Shell-granted commands are:
+
 - `magicdesk.console.open`, `magicdesk.console.execute`,
   `magicdesk.console.status`, and `magicdesk.console.close`;
 - `magicdesk.terminal.open`, `magicdesk.terminal.list`,
@@ -694,22 +700,26 @@ Read-only resources are available at `magicdesk://state`,
 
 ## Security Boundary
 
-- The listener binds only to literal IPv4 loopback, never Wi-Fi, USB
-  networking, or an external interface.
+- Loopback and optional network listeners have independent bindings, tokens
+  and live permission policies. Network binds one selected private IPv4 address,
+  not a wildcard, and its HTTP traffic is unencrypted.
 - A 256-bit token authenticates every request with constant-time comparison.
-- Supplied browser origins must identify a literal loopback host.
+- Supplied browser origins are validated against the listener's binding policy;
+  network requests must use the exact bound origin.
 - Request lines, headers, bodies, workers, queues, screenshots, list pages,
   event history, shell sessions, and Terminal reads are bounded.
-- ADB forwarding grants access to the host process that owns that forwarding
-  connection. Treat the token as a password.
+- ADB forwarding is an optional transport, not authorization. Any client that
+  can reach a listener must still provide its token. Treat it as a password.
 - MCP permissions do not elevate the shell identity. With root-backed Shizuku,
   shell-gated operations consequently have root privileges by the user's
   explicit choice.
 - Android handler discovery reports the selected visibility scope, exported
   state, required permission, and exact component. Actual execution remains
   subject to Android's component and permission checks.
-- The bearer token authorizes visible application actions as well as desktop
-  actions. Keep the MCP server disabled when it is not in use.
+- A valid token permits observation; mutations and sensitive content require
+  their respective grants. Shell and input grants allow broad device control.
+  Revocation affects subsequent requests, not accepted operations. Keep unused
+  listeners disabled.
 
 ## Android App Functions
 
@@ -721,7 +731,7 @@ contracts as the authenticated automation gateway.
 
 The platform protects the service with
 `android.permission.BIND_APP_FUNCTION_SERVICE`. Ordinary applications cannot
-bind directly. Android 15 keeps the component disabled. App Functions omit
+bind directly. Android 14 and 15 keep the component disabled. App Functions omit
 force-stop, synthetic input, self-test, direct filesystem operations, and
 shell execution. This published service is independent of the MCP tools that
 discover and invoke App Functions exported by other applications.

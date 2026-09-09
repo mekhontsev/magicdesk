@@ -1,9 +1,9 @@
 # MagicDesk Architecture
 
-This document describes the implementation boundaries behind MagicDesk's
-desktop environment on Android with optional RedMagic integration. It is
-intended for contributors, reviewers, and users diagnosing compatibility
-problems.
+This document describes MagicDesk's shared tools, automation, display resources
+and optional managed Desktop. The core uses Android services; focused firmware
+and SoC adapters extend individual capabilities. It is intended for contributors,
+reviewers and users diagnosing compatibility problems.
 
 ## Runtime Layers
 
@@ -78,8 +78,9 @@ registries documented below.
 
 ## Architecture Guardrails
 
-Several plausible implementations conflict with RedMagic's secondary-display
-stack. These constraints preserve behavior established through device testing.
+These constraints apply to the shared Android architecture. Firmware-specific
+evidence and active optional interfaces belong in the
+[vendor audit](nubia-vendor-audit.md).
 
 ### Keep physical input independent of the IME
 
@@ -89,18 +90,12 @@ delivery, repeat, modifiers and keyboard layouts. The key-only
 `DesktopShortcutService` handles desktop combinations before system policy;
 it never requests accessibility window content or editor text.
 
-### Use WMShell instead of WindowReply
+### Keep task transitions at the framework boundary
 
-Nubia exposes private `ActivityClient` methods named
-`toggleSwitchNormaltoHangWr`, `toggleSwitchHangtoNormalWr`,
-`toggleSwitchFromFreeformWrtoFullScreen`, and
-`toggleSwitchFromFullScreenToFreeformWr`. They participate in a vendor
-allowlist and are not a general desktop contract for arbitrary applications.
-
-The WMShell `DesktopTasksController` path accepts real task IDs, preserves task
-identity, and supports applications outside that allowlist. Direct
-ActivityTaskManager and WindowOrganizer transactions provide a bounded
-same-display fallback when an individual WMShell operation is unavailable.
+Window commands address exact Android task IDs through the shared transition
+gateway. Framework adapters select available WMShell, ActivityTaskManager and
+WindowOrganizer operations. UI and platform extensions do not implement their
+own task transitions or package-specific launch policy.
 
 ### Route devices through Android
 
@@ -236,43 +231,21 @@ protected by the framework
 `MANAGE_ACTIVITY_TASKS` permission, so only the authorized shell runtime can
 create it.
 
-The [Chrome custom-caption input investigation](chrome-custom-caption-investigation.md)
-documents why a shell-side gesture-transfer or synthetic-click layer cannot
-reliably repair a firmware caption that consumes application exclusion regions.
+Custom caption controls require WMShell to preserve the application's
+display-specific gesture-exclusion regions. Shell privilege does not give
+MagicDesk ownership of SystemUI's input-window tokens. Replaying a caption
+click as a synthetic touch is not equivalent to delivering its original mouse
+stream. Current validation gaps are recorded in
+[Compatibility](compatibility.md#known-limitations).
 
-### Keep WMShell desktop decorations enabled as a unit
+### Keep native desktop decorations enabled
 
-Android's fullscreen **App Handle** and a freeform task's native caption are
-different decorations, but the tested Nubia SystemUI creates both through its
-WMShell desktop-window-decoration module. The handle is the small control at
-the top of an otherwise fullscreen task; dragging it is a firmware-provided
-way to enter desktop windowing. It is not a stale freeform caption and cannot
-be removed through MagicDesk's task-local caption-inset repair.
-
-Two configuration experiments establish the boundary on this firmware:
-
-| Configuration at SystemUI startup | Fullscreen App Handle | Freeform mode | Native freeform caption |
-| --- | --- | --- | --- |
-| Desktop features enabled and device restrictions disabled | Shown | Works | Shown |
-| `override_desktop_mode_features=0` | Hidden | Works | Not created |
-| Device restrictions enforced | Hidden | Works | Not created |
-
-These values are cached by SystemUI. Changing them for only a MagicDesk
-session therefore requires restarting SystemUI both when entering and leaving
-the session. That restart also rebuilds WMShell task repositories and briefly
-removes system bars and decorations. It is unsafe during interrupted wired or
-wireless projection and can disturb system dialogs, capture UI, and the phone
-launcher. The narrower firmware flags for handle animation, hold-to-drag input,
-input fixes, and immersive hiding do not disable the fullscreen handle while
-retaining freeform captions.
-
-MagicDesk consequently provisions native desktop decorations as one firmware
-capability and accepts the fullscreen App Handle when the firmware couples the
-two surfaces. It must not restart SystemUI at desktop-session boundaries,
-patch or overlay SystemUI, or replace the native caption merely to hide that
-handle. A future platform backend may expose a narrower supported control, but
-absence of such a control is a cosmetic firmware limitation rather than a task
-transition failure.
+Native freeform captions and the fullscreen App Handle can be supplied by one
+firmware decoration module. Disabling that module to remove the handle can
+also remove freeform controls. MagicDesk preserves native decoration ownership;
+it does not restart SystemUI at session boundaries or draw substitute captions.
+A handle that cannot be hidden independently is a cosmetic firmware limitation,
+not justification for changing task lifecycle.
 
 ### Do not recreate application tasks through display 0
 
@@ -314,7 +287,7 @@ task; workspace operations carry a named back-to-front plan. A multi-task
 activation is rejected, not interpreted as a workspace restore.
 `DesktopWorkspaceQueue` orders complete user intents on the controller Handler,
 including their live snapshot, toggle decision, host-input preparation, and
-shell acknowledgement. It replaces the separate Show/Restore queue. Requested
+shell acknowledgement, including Show/Restore. Requested
 focus is kept separate from observed focus; the next click cannot use the
 uncommitted target of its predecessor. Stop cancels the session's outstanding
 intents without admitting late acknowledgements into the next session.
@@ -397,7 +370,8 @@ runtime integration and are not distributed through the same release path.
 
 - `ControlActivity` and `PhoneControlPanelController` provide the compact phone
   control surface. They do not create taskbar, wallpaper, or app-catalog UI.
-- `FileManagerActivity` is an ordinary resizable desktop task. The activity owns
+- `FileManagerActivity` is an ordinary tool Activity, fullscreen outside Desktop
+  or a managed window inside it. The activity owns
   navigation and selection; `FileManagerView` renders them and routes user actions.
   `FileDirectoryReader` reads a complete listing on the existing Files worker;
   `FileManagerOperationController` owns
@@ -449,8 +423,8 @@ runtime integration and are not distributed through the same release path.
   `RuntimeDesktopInputCoordinator` composes
   input-device routing, the phone pointer and shortcut filter, desktop text routing,
   and software-keyboard policy. `RuntimeDesktopTaskCoordinator` owns the
-  process-level `DesktopTaskController`, keeps task observation available
-  while shell access is ready, and binds display-scoped task reconciliation to
+  process-level `DesktopTaskController`, initializes Desktop observation for
+  the managed session, and binds display-scoped task reconciliation to
   the active session snapshot. It implements the narrow `DesktopTaskRuntime`
   contract exposed through `MagicDeskRuntime`; callers do not locate a
   process-global active task controller. The optional non-reference-counted partial
@@ -473,8 +447,8 @@ runtime integration and are not distributed through the same release path.
 
 ### Automation boundary
 
-- `DesktopAutomationController` is the single typed action boundary for local
-  automation. It validates JSON arguments, delegates to the existing session,
+- `DesktopAutomationController` is the single typed action boundary for
+  automation. It validates JSON arguments, delegates to shared services and session,
   task, window, capture, and UI controllers, and returns a uniform
   `DesktopAutomationResult`. It does not implement a second desktop policy.
 - `DesktopAutomationStateReader` exposes immutable snapshots of runtime,
@@ -518,8 +492,8 @@ runtime integration and are not distributed through the same release path.
   A user launch may first create the service in automation-only mode so an MCP
   client can connect before Shizuku is available. That mode owns only the
   foreground service and MCP transport. The same service is promoted in place
-  after setup authorization; desktop, task, input, and platform runtimes are
-  not initialized by the automation-only start.
+  as requested services become available; Desktop coordinators initialize only
+  for an explicit Desktop session, not merely because Shizuku connected.
   `MagicDeskMcpBackend` only maps MCP tools and resources to the shared action
   and state boundary. `McpAuthorizedBackend` checks a live, listener-specific
   `McpAccessPolicy` before every command. The complete catalog and permission
@@ -609,7 +583,7 @@ runtime integration and are not distributed through the same release path.
   same bounded store without retaining their Intent payload. The exported
   relay Activity requires `MANAGE_ACTIVITY_TASKS`, so only the same privileged
   task-launch boundary can consume those one-shot ids. Broadcast and service
-  starts are developer-only because they have no visible UI.
+  starts require the shell grant because they have no visible UI.
 - `AndroidLaunchSpec` keeps the task's semantic target separate from the
   Activity used to execute a launch. `AppTaskController` derives task reuse
   identity from the concrete component for direct Intent launches. System
@@ -702,7 +676,7 @@ runtime integration and are not distributed through the same release path.
   returned as MCP image content and are never staged in a filesystem cache.
 - `MagicDeskAppFunctionService` is the Android 16 system-agent adapter. Android
   protects it with `BIND_APP_FUNCTION_SERVICE`; resource gating disables the
-  component on Android 15. It exposes only a small non-developer subset and
+  component below Android 16. It exposes only a small non-shell subset and
   executes it through `DesktopAutomationController`.
 - App Functions never accept arbitrary shell commands. MCP exposes shell and
   filesystem operations only behind their explicit permissions.
@@ -828,12 +802,11 @@ by this foundation.
   shell UserService. `ShellTaskObserver` registers the framework listener, and
   `FrameworkTaskObservationSource` centralizes the supplemental task snapshot
   and its typed observations.
-- `ShellWindowedTaskLauncher` owns every fresh windowed launch, independent of
-  display type. It observes the new task through the persistent framework
-  listener and joins mode and bounds to the task's original OPEN transition;
-  every target launches into Android's standard root workspace. The standalone
-  shell command remains a diagnostic entry point and is not used by the
-  application launch path.
+- `ShellTaskLauncher` owns fresh windowed launches, independent of display
+  type. It observes the new task through the persistent framework listener.
+  A task starts behind HOME until its identity is known; one complete native
+  OPEN then establishes its freeform mode, bounds and visible order in Android's
+  standard root workspace. Callers do not append to an expired opening token.
 - `ShellActivityStartController` is MagicDesk's single owner of Android's global
   activity-controller slot and dispatches starts to the external-migration and
   windowed-startup policies. `ShellTaskActivityModeGuard` follows only
@@ -892,8 +865,8 @@ by this foundation.
 - `DesktopTaskParkingController` continuously derives a lightweight workspace
   snapshot from the task state already read by `DesktopTaskController`; it does
   not run a second task poll. A normal desktop close refreshes that snapshot
-  before external tasks are parked on display 0. Host replacement, vendor mode
-  exit, and sudden display removal preserve the latest complete snapshot before
+  before external tasks are parked on display 0. Host replacement
+  and sudden display removal preserve the latest complete snapshot before
   session teardown, including when the disappearing display can no longer be
   queried. A later desktop host restores only the same still-live task IDs on
   external, simulated, or phone desktops. Mode, relative bounds, visibility,
@@ -1247,7 +1220,7 @@ isolated behind these boundaries.
 - `DesktopDisplayDrivers` is the only registry for resolving those drivers.
   `DesktopOperations` serializes public session transitions and delegates
   the selected target to the registry.
-- `DesktopOperations` remains the compatibility facade used by activities
+- `DesktopOperations` is the action facade used by activities
   and shortcuts. `DesktopSessionTransitionCoordinator` owns activation,
   close, and caption transport sequencing; `SerializedDesktopOperationQueue` provides the
   single ordered executor shared with shell settings and input policy. The
@@ -1390,7 +1363,7 @@ builds user-facing View/Share Intents from the same payload.
 Read grants travel in both `ClipData` and Intent flags, so the selected
 application receives the same content that MagicDesk classified. Clipboard
 **Open** and **Share** are explicit desktop actions and launch through the
-production Android integration path; developer MCP exposes the same operations
+production Android integration path; content-authorized MCP exposes the same operations
 without adding another executor. Dropping content on an application or its
 taskbar instance uses the same payload and gateway; an existing task id is an
 explicit presentation target rather than an inferred package reuse. Ordinary
@@ -1426,7 +1399,8 @@ third transport. An explicit toolbar or MCP request invokes one bounded
 absent tmux executable from an empty tmux server, validates session ids and
 names, and constructs quoted attach or create commands. A selected session is
 then opened through the ordinary Termux Console path. There is no session
-poller, and closing the Console closes only that tmux client. The public Termux
+poller. Ending the retained Console session closes only that tmux client;
+closing its window merely detaches the view. The public Termux
 command boundary does not transfer the PTY stream of an ordinary Termux app
 session, so those sessions remain owned by the Termux UI.
 
@@ -1523,7 +1497,7 @@ close operation; transport-specific code stops at target preparation.
 - `ShellVirtualDisplays` owns headless Android virtual-display tokens independently
   of HOME/tasks. Several displays may coexist, but only one desktop session runs
   at a time. Creation size and density are configurable; scrcpy captures an
-  existing logical display without owning its lifecycle. Android 15 primitives
+  existing logical display without owning its lifecycle. Framework primitives
   and hidden flags belong to `FrameworkVirtualDisplayApi`. App-owner Binder death
   releases its display tokens. A callback-driven ImageReader supplies the
   output Surface required to keep the display ON on Android 15 and 16.
@@ -1559,13 +1533,10 @@ touchable region. Synthetic events target an explicit display; physical pointer
 dragging additionally exercises InputReader's device associations.
 
 - A normal launch on display 0 opens the phone control panel.
-- **Open desktop here** uses a dedicated task excluded from Recents. The phone
-  control panel remains MagicDesk's only Recents card, while the desktop uses
-  the same host model on tablets, phones, and external displays.
-- An external desktop is a display-sized standard multi-window activity on
-  the connected Android secondary display. Its position in the task stack separates
-  visible windows from resumed minimized windows without replacing the phone
-  launcher.
+- Starting Desktop on the phone uses a dedicated HOME task excluded from Recents.
+- An external desktop is a display-sized secondary HOME Activity. Its stack
+  position separates exposed workspace tasks from tasks below HOME. The phone
+  uses the separate MagicDesk phone HOME for the duration of that session.
 - Phone control and external desktop are separate tasks and may coexist.
 
 Contributors can run `scripts/smoke-simulated-display.sh` from a host with ADB.
@@ -1985,20 +1956,18 @@ default and can be overridden by the user for the next session.
 Returning to an already active desktop is display-scoped and does not restart
 the session. `PRESENT_WORKSPACE` orders every managed fullscreen plane below
 the HOME host and raises every live managed freeform task above it. On a phone
-desktop, Android's HOME intent and a repeated **Open desktop here** request use
+desktop, Android's HOME intent and the control panel's **Show desktop** use
 this operation; a foreign fullscreen phone task is left to Android's normal
 HOME transition. The external-session touchpad exposes the same operation for
 its target display, so its own phone task and every other display remain
 untouched. `PRESENT_DESKTOP` remains the separate command that conceals all
 application windows to expose bare wallpaper.
 
-**Open desktop here** is a phone-target action. The control panel keeps it in a
-stable location but disables it while an external desktop session is active;
-the action boundary rejects the same conflicting request if it arrives through
-an intent instead of the button. **Start external desktop** and wireless
-connection actions are disabled while a phone desktop is active, with the same
-guard repeated at their action boundaries. Switching targets therefore requires
-closing the current desktop session first.
+The control panel uses one display selector and **Start desktop** action.
+For the active target it offers **Show desktop**. Starting another target is
+disabled while a session is owned, and the action boundary rejects conflicting
+requests from other callers too. Switching targets requires closing the current
+session first; ordinary tool placement remains independent.
 
 Task mode is not an ownership signal on display 0. MagicDesk claims a task
 before submitting a desktop launch or window transition, and only claimed
@@ -2458,13 +2427,13 @@ request.
 
 ## External Desktop Activation
 
-On **Start external desktop**, MagicDesk:
+When starting Desktop on a selected external display, MagicDesk:
 
-1. discovers Android's connected wired, wireless, or overlay display;
+1. resolves the selected live display and its stable identity;
 2. loads the profile keyed by that display's stable identity;
 3. optionally applies a platform-specific physical output timing;
 4. corrects geometry and applies the display profile DPI;
-5. creates or normalizes the display-sized MagicDesk fullscreen HOME host;
+5. acquires HOME and creates its display-sized secondary HOME host;
 6. focuses the desktop and restores the last visible window layout.
 
 The desktop target always contains the Android display that actually hosts the
@@ -2510,45 +2479,27 @@ restoration count. This lifecycle is independent of optional input-focus repair.
 
 ### Output timing
 
-Before activation, the phone control panel reads Nubia's current and available
-DisplayPort timings from `/sys/kernel/lcd_enhance/edid_modes`. It offers all
-valid advertised resolutions and refresh rates, with duplicate timings
-normalized. A saved timing is used only while it remains in that list;
-otherwise MagicDesk chooses the highest native resolution, the highest refresh
-rate at that resolution, and avoids a cinema-aspect duplicate when a normal
-timing exists.
+Output mode discovery and selection belong to the projection contract, with
+optional firmware and SoC backends plus Android's display-mode list. The
+control panel presents the returned capability instead of assuming a vendor
+node exists. Stable permission denial is cached and reported as an observation,
+not retried on every UI refresh.
 
-The vendor node is an optional capability rather than a desktop prerequisite.
-If shell UID 2000 cannot open it, `NubiaHdmiModeController` caches that stable
-firmware-level denial for the process lifetime and falls back to the modes
-reported by Android `DisplayManager`. It applies a selected public mode through
-`cmd display` where the firmware honors that API and clears a failed request
-after a settlement timeout. Callers do not implement separate model checks or
-retry a permanently denied node on every control-panel refresh.
+The Nubia timing controller can use advertised EDID timings when its nodes are
+accessible. The independent Qualcomm backend can supply additional timings;
+Android remains the baseline. If no backend exposes selectable alternatives,
+the active physical mode remains usable and read-only. Exact vendor operations
+are described in the [vendor audit](nubia-vendor-audit.md).
 
-Changing the physical timing writes the selected EDID mode, pulses HDMI HPD,
-then waits for three stable observations of the requested mode. HPD is restored
-on failure so an interrupted mode change does not leave the connector disabled.
-The physical display id is resolved again because the firmware can recreate it
-during this transition. The operation runs before the desktop session starts,
-so no MagicDesk task is attached to a disappearing display.
+Physical timing changes happen before Desktop attaches tasks to the target.
+Preparation waits for the selected mode and resolves the display identity again
+because a mode change can recreate the logical display. The per-display profile
+stores output timing separately from UI density.
 
-The per-display profile stores output timing independently from desktop DPI.
-`PlatformProjectionDriver.prepareExternalDisplay` applies the selected physical
-mode in one step before desktop activation. `WiredDisplayDriver` then resolves
-the connected display again and starts the desktop on that settled target.
-Output timing changes HDMI/DisplayPort geometry; desktop DPI changes UI scale.
-
-Selecting **System/native** relinquishes MagicDesk's Android display-mode
-preference once, when changing away from an explicit MagicDesk timing. Later
-desktop starts leave the mode selected by SmartCast or another system UI
-untouched. This ownership distinction is persisted with the display profile,
-so restarting MagicDesk cannot repeatedly clear a system-owned mode.
-
-Some firmware hides the EDID node from shell UID 2000. MagicDesk records that
-capability state in diagnostics and continues through the SoC backend or
-Android's public display-mode list. If neither source exposes alternate
-timings, the active physical mode remains usable but read-only.
+**System/native** relinquishes MagicDesk's Android mode preference once when
+leaving an explicit MagicDesk selection. Later starts preserve the system's mode;
+there is no repeated reset. Failure to apply an optional timing does not imply
+that the monitor's current mode cannot host Desktop.
 
 ### Caption visibility
 
@@ -2933,7 +2884,7 @@ Diagnostics, and restoration remain in the manually opened **Device setup**
 screen.
 
 Desktop panels and dialogs use ordinary application windows and require no
-display-over-other-apps permission. Their short-lived host task is excluded
+display-over-other-apps permission. Their session-owned chrome host is excluded
 from Recents and all MagicDesk application-task policy.
 
 The boot ID marks configuration that still requires reboot. MagicDesk never
@@ -3053,7 +3004,6 @@ These constraints define the supported implementation paths:
   organizer area beside the standard workspace. Its chrome task accepts focus
   only for a requested focusable panel or dialog; application tasks never enter
   that area.
-- Nubia `WindowReply` is allowlisted and cannot manage arbitrary packages.
 - Moving a running task through display 0 can kill or recreate the application.
 - Fixed sleeps around task transitions are both visible and race-prone.
 - Generic configuration changes cannot reliably refresh stale insets: some
@@ -3061,12 +3011,9 @@ These constraints define the supported implementation paths:
   exact task-local caption source instead.
 - Asynchronous add/remove of the replacement inset source can be coalesced by
   Nubia before the client observes it; both stages require sync callbacks.
-- Accessibility key filtering does not reliably receive physical keys routed
-  to the external desktop.
-- Per-button mouse reinjection loses application context and pointer semantics;
-  forwarding the complete grabbed source does not.
-- Disabling or force-stopping Nubia's entire input package breaks Touch Panel;
-  the DisplayManager phone-screen guard solves the wake problem at its source.
+- Physical devices keep their original Android event streams and identities.
+  The key-only shortcut filter is restricted to confirmed desktop keyboards.
+  Phone pointer injection is a separate virtual device, not physical relay.
 - Phone-screen-off process protection uses only the transient vendor
   service-working heartbeat; no persistent freezer whitelist is installed.
 - ZTE audio source `80` is a `MediaRecorder` path. Replacing it with
@@ -3097,6 +3044,11 @@ Every main-app build compiles two native helpers from source: the virtual mouse
 and PTY transport. CI verifies that the main APK contains both
 and no `.ko`, and that the Kernel Fixes APK contains exactly the reviewed module
 and no main-app native helper.
+
+Native artifacts currently cover ARM64 only, and the host NDK helper target
+still uses API 35. The APK's API 34 manifest floor does not establish that native
+compatibility. Remaining ABI/API validation is documented in
+[Runtime API levels](runtime-api-levels.md).
 
 Host regression support under `app/src/testSupport/java` uses the JDK compiler
 to execute selected production method bodies against controlled dependencies.

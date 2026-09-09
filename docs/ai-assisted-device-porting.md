@@ -3,7 +3,7 @@
 This workflow is for a contributor who has access to an unsupported or partly
 supported Android device and wants to investigate it with an AI coding agent.
 It applies whether the agent runs on the phone, in Termux, or on a computer
-connected through ADB.
+connected through MCP or ADB.
 
 The goal is not to produce a device-specific MagicDesk build. The result must
 remain part of the single APK and codebase, with generic Android behavior kept
@@ -18,9 +18,12 @@ Use this track when the device owner cannot build MagicDesk. The owner and AI
 can still produce a useful, bounded handoff:
 
 1. Install the current signed development APK.
-2. Complete Device Setup using the normal shell UID 2000 runtime first.
+2. Identify the layer: independent tools/automation start at API 34; Desktop at
+   API 35. Authorize shell-backed services, and complete Device Setup only for
+   Desktop, using the normal UID 2000 runtime.
 3. Reproduce one problem and collect the refreshed compatibility report.
-4. Run the available self-tests and complete the relevant manual checklist.
+4. Run the relevant service workflows. For Desktop on API 35+, run available
+   self-tests and complete its manual checklist.
 5. Open one GitHub issue with the report, exact steps, expected result, actual
    result, and any comparison with the firmware's own projection UI.
 
@@ -41,7 +44,8 @@ The AI should read these files in order:
 3. `docs/architecture.md`
 4. `docs/compatibility.md`
 5. `docs/automation.md`
-6. the source package that owns the affected behavior
+6. `docs/runtime-api-levels.md`
+7. the source package that owns the affected behavior
 
 Reading only the nearest failing class is not enough for window, display,
 input, launcher, and cleanup changes. Those behaviors deliberately share
@@ -56,9 +60,9 @@ Before editing:
 2. Refresh **Tools > Diagnostics** after the failure. Use **Extended vendor
    probe** only after explicit user confirmation and only when the standard
    report lacks evidence for a firmware feature.
-3. Run each available phone, simulated, wired, and wireless self-test while
-   the device is awake and unlocked. Record unavailable targets rather than
-   treating them as failures.
+3. For Desktop, run each relevant phone, simulated, wired and wireless self-test
+   while the device is awake and unlocked. For independent services, establish
+   their baseline without Desktop. Record unavailable targets explicitly.
 4. Check `git status`. Preserve unrelated owner changes and do not commit
    reports, captures, `local.properties`, or device-specific secrets.
 
@@ -115,6 +119,9 @@ Assign the failure to the narrowest owner that explains the evidence:
 | Evidence | Owner |
 | --- | --- |
 | Behavior common to compatible Android firmware | Shared Android runtime |
+| Tool startup or placement without Desktop | `RuntimeCapabilities`, `ToolApplications`, `ToolLaunchTarget` |
+| Display creation/removal independent of Desktop | `DisplayOperations` and its resource owner |
+| Files, content, terminal lifetime | Existing shared service, not a Desktop or MCP adapter |
 | Phone, wired, wireless, or simulated lifecycle | Existing display driver |
 | Firmware-only interface outside Android or SoC APIs | `PlatformExtension` component |
 | Chipset display service or mode discovery | `SocDisplayModeBackend` |
@@ -181,7 +188,8 @@ Run local verification:
 Then verify on the target device:
 
 1. Re-run the exact reproduction inside an MCP trace when available.
-2. Run phone and simulated self-tests.
+2. For Desktop work, run phone and simulated self-tests. For shared services,
+   run their independent workflows and verify no HOME/session is acquired.
 3. Run each affected wired or wireless self-test on a real connected target.
 4. On hardware with a vendor extension, build once with
    `-PMAGICDESK_PLATFORM_OVERRIDE=android` and verify that the standard driver
@@ -210,7 +218,8 @@ Prefer small commits separated by concern:
 2. implementation;
 3. confirmed firmware profile and documentation.
 
-Amend small corrections that belong to the immediately preceding concern.
+With the user's authorization, amend small corrections that belong to the
+immediately preceding concern. Do not rewrite Git history independently.
 Before handing off, report the commands and device tests that actually ran,
 remaining unavailable targets, and any residual firmware limitation.
 

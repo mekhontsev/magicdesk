@@ -5,7 +5,8 @@ the current source on 2026-09-08. It covers shared compatibility
 policies, active vendor integrations, their owners, and known limitations.
 Test runs and their results belong in compatibility reports, not this inventory.
 
-Android 15 / API 35 is the minimum baseline. Shared Android mechanisms include
+Android 15 / API 35 is the managed-Desktop baseline; the APK and independent
+services have an Android 14 / API 34 floor. Shared Android mechanisms include
 hidden framework APIs used through the authorized Shizuku shell UserService
 (UID 2000); they are not necessarily public application SDK APIs. Linux
 uinput is also the shared phone-pointer transport. Conversely, a method in an `android.*`
@@ -206,8 +207,8 @@ with that flag enabled it searches for an active freeform/external display.
 That fallback also exists in
 [AOSP Android 15](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android15-release/services/core/java/com/android/server/wm/InputManagerCallback.java).
 Setting a display's default windowing mode to freeform does not itself enable
-this global pointer-routing flag. MagicDesk explicitly associates its virtual
-outputs instead. A cursor absent from the external screen is therefore not
+this global pointer-routing flag. MagicDesk explicitly associates physical input
+locations and its virtual phone pointer instead. A cursor absent from the external screen is therefore not
 by itself evidence of a vendor rendering defect.
 
 The firmware's `WindowManagerService.SettingsObserver` observes this global

@@ -13,3 +13,5 @@ Describe the behavior changed and why.
 Describe any Android, firmware, or hardware assumptions. Device-specific
 behavior should remain behind capability checks and platform drivers so the
 project continues to ship as one MagicDesk APK from one codebase.
+Preserve the Android 14 shared-tools path and Android 15 managed-Desktop floor;
+state which layer was tested and any missing native/device coverage.

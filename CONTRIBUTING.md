@@ -6,6 +6,11 @@ Android Studio, IntelliJ IDEA, or another Gradle-aware editor; do not open the
 
 ## Compatibility Direction
 
+The APK minimum is Android 14 / API 34; managed Desktop requires Android 15 /
+API 35. Preserve independent tools and automation without Desktop setup or
+HOME ownership. Read [Runtime API levels](docs/runtime-api-levels.md) before
+changing shared prerequisites or using newer APIs.
+
 The project aims to support as many compatible devices and firmware versions
 as practical through one MagicDesk APK and one codebase. Prefer runtime
 capability probing, shared Android behavior, and focused platform drivers over
@@ -32,6 +37,12 @@ sdk.dir=/absolute/path/to/android-sdk
 
 Termux builds use `$PREFIX/bin/clang` and do not require the desktop NDK
 toolchain.
+
+The current native helpers are ARM64-only. The host NDK target still uses API
+35 and must be aligned/validated for API 34 before claiming native support at
+the APK floor. Windows build smoke is not emulator coverage; an x86_64 emulator
+matrix needs matching helper binaries. See the API-level document for the
+remaining validation contract.
 
 ## Verification
 
@@ -87,6 +98,13 @@ Linux CI runs the same script. The Windows build still compiles the Android
 native helpers through the NDK; it does not execute Linux host fixtures.
 
 Debug and pull-request builds do not require release-signing credentials.
+
+Choose device verification by the changed layer. Shared tools and automation
+need their actual workflows without Desktop; Android 14 cannot run Desktop
+self-tests. Window/focus work needs phone and simulated self-tests, and shared
+area/display ownership also needs wired coverage. A simulated display on newer
+Android does not emulate an older OS. Documentation-only changes need link,
+contract and diff checks rather than an APK installation.
 
 For privileged device testing, start an installed Shizuku manager with the
 canonical shell launcher. From an already authorized ADB connection:

@@ -61,6 +61,21 @@ separate from these feature requirements.
 
 ## Verification
 
+### Native Build Boundary
+
+The two native helpers are currently packaged only for `arm64-v8a`.
+The desktop-host NDK path in `gradle/native-helpers.gradle` still compiles with
+`--target=aarch64-linux-android35`; the Termux path uses its installed compiler.
+Neither establishes API 34 native compatibility merely because the manifest's
+minimum is 34. Aligning and validating the helpers against API 34 is required
+before claiming that release's shell/Termux/pointer workflows are supported.
+
+The current APK is not an x86_64 emulator build. Linux and Windows build smoke
+checks do not run an Android emulator or provide another ABI. An Android Studio
+API 34/35/36 test matrix needs matching native artifacts as well as system images.
+
+### Static And Device Checks
+
 Normal `verifyDevelopment` compiles, merges the installable manifest and runs
 Lint against the actual API 34 minimum. `RuntimeLayerSdkTest` verifies early
 Desktop rejection and independent service retention; file-drag, control-panel

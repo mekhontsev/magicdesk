@@ -5,6 +5,11 @@ API 35. Independent tools, automation and display resources have separate
 runtime prerequisites. Android 14 device validation is pending; see the
 [API-level contract](runtime-api-levels.md).
 
+The core is vendor-independent: shared Android adapters own tasks, input routing,
+IME policy, HOME, displays, files and automation. Vendor extensions are not
+required for that architecture, and their presence is not proof of a working
+device. Actual release/firmware coverage must be evaluated per subsystem.
+
 MagicDesk's managed Desktop targets capable Android 15+ firmware through one APK and one common
 desktop runtime. The standard Android driver supports phone, simulated, and
 already connected secondary-display sessions. A platform-driver boundary
@@ -56,7 +61,9 @@ physical displays are reconciled by stable identity when they return.
 **Compatibility (next session)** groups six
 optional shared mechanisms: stalled-focus repair, stale fullscreen caption
 refresh, wired/wireless phone-task isolation, retained phone-task recovery,
-stale phone freeform Recents cleanup, and phone Recents redirection to Start.
+stale phone freeform Recents cleanup, and phone Recents redirection to HOME.
+For external sessions, routed HOME selects phone Start's Recent page; for phone
+Desktop, it presents the workspace.
 Every platform can override these individually. The Android baseline recommends
 focus repair enabled and the other five disabled. Stock Nubia firmware recommends
 all six; hybrid firmware adds the recommendations of its selected components
@@ -102,7 +109,8 @@ source of truth; simulated and secondary-display support is unaffected.
   a connected secondary display.
 - **Unsupported platform** means the Android-version baseline or selected
   session requirements are not met. Device Setup does not apply unsupported
-  platform-specific properties.
+  platform-specific properties. An unsupported Desktop does not mean the APK's
+  independent tools or automation are unavailable.
 
 An OTA changes the fingerprint. A previously tested model therefore becomes
 unverified until that firmware has been tested. This is intentional: private
@@ -153,6 +161,37 @@ Unverified reports and partially completed test matrices remain in
 [`testing-backlog.md`](testing-backlog.md). They are promoted here only after a
 user confirms the relevant desktop, window, input, and cleanup workflows on the
 exact fingerprint.
+
+OnePlus 5 with LineageOS 22.2 / Android 15 has also been exercised directly using
+the Standard Android provider: phone/simulated Desktop, Miracast, physical input
+and HOME cleanup. Its validation is tracked in the matrix, not yet as a
+complete fingerprint-scoped catalog profile. This is evidence of the shared
+path on non-Nubia firmware, not certification of every Lineage build.
+
+## Known Limitations
+
+- Android 14 installation is the chosen APK baseline, but device and native
+  helper validation remain pending. The current helpers are ARM64-only; see
+  [Runtime API levels](runtime-api-levels.md).
+- Application-requested immersive state may be unavailable on Android 15
+  firmware, including the tested Lineage path. Explicit fullscreen remains a
+  separate operation; unsupported observation is not a negative app request.
+- Native caption controls vary by firmware. Production does not infer their
+  meaning from coordinates. The native caption snap self-test scenario is
+  currently supplied only by the Nubia diagnostics provider.
+- Custom-caption mouse handling depends on WMShell preserving the application's
+  display-specific gesture-exclusion regions. MagicDesk does not replace
+  native captions or replay intercepted clicks.
+- Abrupt display removal can leave framework transition-performance state.
+  Cleanup detects new residue; it cannot safely repair an orphaned system
+  transition by issuing another application transaction.
+- Full work-profile/Private Space support and additional built-in screens on
+  dual-screen devices are not implemented/verified by the current identity
+  and display infrastructure.
+
+Native system shadows are expected. Self-test fixture-color comparisons account
+for their dimming; a literal source RGB match is not required on the composed
+screen.
 
 ## Error behavior
 
@@ -233,11 +272,13 @@ canonical [AI-assisted device support workflow](ai-assisted-device-porting.md).
 It covers MCP tracing, architecture classification, regression evidence, and
 the handoff format without requiring the agent to inherit prior chat history.
 
-1. Install the current development APK and complete normal Device Setup.
+1. Install the current development APK. Validate independent tools first;
+   complete normal Device Setup only for managed Desktop on Android 15+.
 2. Open **Tools > Diagnostics**, refresh the normal report, then explicitly run
    **Extended vendor probe** if the standard driver lacks a firmware feature.
-3. Run the self-test for each available phone, simulated, wired, and wireless
-   target while the device is awake and unlocked.
+3. On Android 15+, run the self-test for each available phone, simulated, wired,
+   and wireless target while the device is awake and unlocked. On Android 14,
+   use the independent-service matrix instead.
 4. Open **Compatibility checklist** and record manual results for startup,
    window geometry, fullscreen restore, physical input, capture, task restore,
    HOME-role lifecycle, and output configuration on each target.
@@ -257,13 +298,12 @@ not multiplied into phone/wired/wireless/simulated driver combinations.
 This is diagnostic permission evidence only. MagicDesk routes physical devices
 through Android; it does not open or write their event nodes.
 
-After confirmed Shizuku Device Setup and reboot, the issue report should show
-global freeform and resizable-activity settings enabled, both reviewed
-`persist.wm.debug.desktop_*` properties disabled, and WMShell desktopmode
-available. If provisioning is rejected on an unverified firmware, MagicDesk
-reports the failed property or WMShell check and retains direct
-ActivityTaskManager and WindowOrganizer transactions as the bounded task
-fallback.
+After required Desktop setup and any requested reboot, the report should show
+the common freeform/resizable settings enabled. The two reviewed
+`persist.wm.debug.desktop_*` properties are requirements only for the selected
+Nubia extension. WMShell command availability is probed independently; its
+absence can use the central framework transaction path. A rejected required
+setup operation still blocks Desktop, not independent tools.
 
 On some Nubia firmware, Android keeps notification-listener access enabled
 after an app process or package restart but does not bind the service again.

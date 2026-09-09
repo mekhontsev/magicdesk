@@ -1,98 +1,100 @@
 # Validation Matrix
 
-This file records current device coverage and validation that still requires
-specific hardware or user interaction. Build success alone does not prove
-firmware task, display, input, or capture behavior.
+This is the current coverage and remaining validation plan, not a log of test
+runs. Build success does not prove firmware behavior. Exact run IDs, results,
+fingerprints and reproduction details belong in compatibility reports.
 
-## Maintainer Platform
+## Device Coverage
 
-- RedMagic 11 Pro (`NX809J`)
-- Android 16 / API 36
-- Firmware build `20260204.221845`
-- Authorized shell UserService running as `uid=2000`, `u:r:shell:s0`
-- Phone, simulated, HDMI, Miracast, physical keyboard/mouse/touchpad, phone
-  touchpad, recording, HOME-role lifecycle, and task cleanup are available for
-  direct testing
+| Device | Runtime | Exercised scope |
+| --- | --- | --- |
+| RedMagic 11 Pro NX809J EEA | Android 16 / API 36, build `20260204.221845` | Direct phone/simulated/HDMI/Miracast testing, physical and phone input, recording, HOME lifecycle, task cleanup |
+| OnePlus 5 | LineageOS 22.2 / Android 15 / API 35 | Direct phone/simulated and Miracast testing on the Standard Android provider, physical mouse/keyboard, phone HOME cleanup, remote MCP |
+| RedMagic 11 Pro NX809J-UN | Android 16, build `20260625.022314` | Community desktop startup, external sizing, task recovery, output modes, recording and optional launch targets |
+| nubia Z80 Ultra NX741J | Android 16, build `20251229.234747` | Community wired/freeform, `2560x1080@75`, focus, keyboard, phone-screen-off, recovery and simulated cleanup |
 
-## Community Platforms
+This is coverage of workflows, not a zero-failure claim for every current build.
+OnePlus immersive-request publication remains a known limitation; its exact
+fingerprint profile has not been added to the declarative catalog.
+The Nubia HDMI node is not shell-readable on the EEA/Z80 profiles, but the
+confirmed physical modes remain usable through Android. Hardware controls vary.
 
-### RedMagic 11 Pro (`NX809J-UN`)
-
-- Android 16 / API 36, firmware build `20260625.022314`
-- Diagnostics and user validation cover desktop startup, external sizing,
-  task recovery, Mora discovery, output modes, and display recording.
-
-### nubia Z80 Ultra (`NX741J`, `PQ85A01-UN`)
-
-- Android 16 / API 36, MyOS build `MyOS16.0.16_NX741J_NEEA`, firmware
-  `20251229.234747`
-- Diagnostics and user validation cover wired desktop operation, multiple
-  freeform windows, `2560x1080@75` output and wide external sizing through the
-  physical display, focus transfer, keyboard input, phone-screen-off behavior,
-  task recovery, and simulated self-test cleanup.
-- Shell UID 2000 cannot read `/sys/kernel/lcd_enhance/edid_modes`; root can.
-  This no longer blocks the confirmed wide mode: Android reports the active
-  physical-display timing and MagicDesk retains it across desktop sessions.
-- Fan and pump nodes expected on RedMagic gaming phones are absent.
+See [Compatibility](compatibility.md) for profile confidence and limitations.
 
 ## Automated Coverage
 
-- JVM tests cover state models, parsers, lifecycle ownership, task and display
-  policies, shell quoting, filesystem operations, and platform isolation.
-- Android lint and debug assembly cover the main application and independent
-  Kernel Fixes APK. Package-boundary checks reject input helpers or kernel
-  artifacts in the wrong APK.
-- CI builds on Linux and Windows. Non-documentation pushes to `main` also build,
-  sign, verify, and publish the rolling development APK.
-- The desktop self-test runs the production session and task paths on phone,
-  simulated, wired, or wireless targets. It verifies initial window mode,
-  native caption and resize geometry, focus with injected text, snap,
-  fullscreen restore, true-fullscreen Alt+Tab, display removal, phone-task
-  isolation, window-launch wallpaper continuity, and owned cleanup.
-- A task-stack invariant guard rejects visible intermediate display or
-  windowing-mode detours, freeform tasks on display 0, and wallpaper-only gaps.
-  It records snapshots only during an explicit self-test.
-- Debug lifecycle instrumentation exposes the same simulated-display test to a
-  host with ADB. Physical-display runs remain manual.
+- JVM tests cover state models, parsers, resource ownership, task/display policy,
+  shell quoting, files, content, profile identities and platform isolation.
+- Lint and assembly validate the APK's API 34 minimum and module boundaries.
+  Native helpers still need API 34 alignment/validation; see
+  [Runtime API levels](runtime-api-levels.md).
+- Linux and Windows CI build artifacts. Linux also runs native protocol/PTY
+  fixtures. These jobs do not run Android emulators.
+- Desktop self-tests run production lifecycle, launch, focus, fullscreen,
+  caption/resize, mixed-window, taskbar, wallpaper and cleanup paths.
+- Native caption-menu snap is a provider-defined test scenario, currently Nubia
+  only. Other devices still exercise the common geometry and focus assertions.
+- The stack guard checks only during an explicit test. Display-0 freeform
+  isolation applies during external sessions and cleanup, not to legitimate
+  phone Desktop windows.
+- Fixture pixel checks recognize their colors under neutral system shadows.
+  Wallpaper continuity and panel visibility keep separate assertions.
+- MCP reports exact test run identity, current stage, last completed check,
+  terminal result and cleanup. An accepted request or expired wait is not a pass.
 
-## Pending Functional Validation
+## Independent-Service Matrix
 
-- [ ] Investigate retained WindowManager transition-performance entries after
-  an ordinary simulated desktop Close. On the maintainer Android 16 firmware,
-  the 2026-09-06 audit observed this before and after its changes: start a
-  simulated session, open Start or a terminal, then use production Close.
-  The desktop closes, but a later report can reference its removed display.
-  Self-test cleanup in the same process reported no newly stale entries.
-  Compare the normal and self-test display-release boundaries; passing the
-  self-test alone does not verify this manual lifecycle case.
-- [ ] After clearing application data, verify **Restore defaults** removes
-  desktop settings and properties, resets display 0 overrides, normalizes
-  phone tasks, and requests one reboot.
-- [ ] Verify file and recursive-folder move between Files and Desktop, drop
-  onto a Files folder, and `Ctrl`-drag copy in both directions.
-- [ ] Record with **Microphone** and verify synchronized audio in the final MP4.
-- [ ] Record with **No audio** and verify a playable video with no temporary
-  audio or mux files.
-- [ ] Under the Standard Android platform, verify video-only recording and
-  cleanup on firmware without the Nubia internal-audio source.
-- [ ] On Nubia firmware without source `80`, verify diagnostics reports it as
-  unavailable and recording remains video-only without constructing the
-  vendor `MediaRecorder` path.
+Run these without Desktop; managed Desktop self-tests cannot prove isolation:
 
-## Pending Hardware Validation
+- [ ] On actual API 34, verify cold app/MCP startup and early Desktop/self-test
+  rejection without HOME or display-policy changes.
+- [ ] Verify Shizuku loss/reconnect while ordinary UI and authorized Termux
+  remain independent; unavailable shell operations must fail explicitly.
+- [ ] Verify Files operations, transfers and URI grants, including private drag
+  boundaries on API 34 versus same-application cross-window drag on API 35+.
+- [ ] Verify retained shell/Termux detach/reattach, explicit End session,
+  transport failure and process replacement. Test with and without tmux.
+- [ ] Create a virtual display, launch/capture fullscreen tools there and remove
+  it without Desktop; verify viewer/display/session lifetimes separately.
+- [ ] Verify APK update, exact installer receipt and reconnect on API 34/35/36,
+  without retrying an accepted installation after transport loss.
+- [ ] Validate local/network grant changes, interface loss, wrong tokens,
+  transfer retries and digest checks independently of Desktop.
 
-- [ ] Verify proportional file, shortcut, and widget placement across two
-  differently sized external desktops.
-- [ ] Test first-run onboarding on a compatible device that has never used
-  root and retains stock desktop properties.
-- [ ] Run onboarding, Diagnostics, phone/simulated/HDMI/Miracast self-tests,
-  capture, input, HOME-role lifecycle, and task cleanup on Android 15 hardware.
-- [ ] Validate the Standard Android platform on non-ZTE hardware with native
-  secondary-display freeform support.
-- [ ] Validate system audio routing across HDMI, USB, Bluetooth, and the phone
-  speaker.
-- [ ] On display 0, verify Home and Recents remain unavailable while local
-  freeform tasks are active and return after cleanup and UserService death.
+## Remaining Desktop Validation
+
+- [ ] Compare ordinary Close followed by explicit virtual-display removal with
+  self-test removal, with keyboard associations present and absent. Check for
+  newly stale WindowManager transition-performance entries after each boundary.
+  Close alone must keep the display; a passed isolated run does not prove the
+  manual removal path.
+- [ ] Recheck application-driven immersive entry/restore when request
+  publication is unavailable, preserving the missing-observation result.
+- [ ] Exercise a cold app redirect plus runtime permission dialog; verify initial
+  mode/configuration, Activity survival and subsequent native resize.
+- [ ] Verify original mouse delivery to application-owned custom caption regions
+  on each target without replayed clicks or replacement captions.
+- [ ] Verify HOME, phone Recent and return-to-workspace with compatibility
+  redirection both enabled and disabled, including UserService loss.
+- [ ] After clearing app data, verify Restore defaults and stale task cleanup
+  without selecting a replacement HOME on the user's behalf.
+- [ ] Verify file/folder move and Ctrl-drag copy between Files and Desktop.
+- [ ] Verify per-app density release on cross-display return and Close.
+- [ ] Verify proportional files, shortcuts and widgets across differently sized
+  displays, and multiple owned displays with only one managed Desktop.
+- [ ] Verify microphone synchronization, video-only cleanup and standard-provider
+  recording without optional vendor internal audio.
+
+## Additional Hardware And Release Coverage
+
+- [ ] Align native helpers to the API 34 floor and provide matching ABIs before
+  an Android Studio x86_64 API 34/35/36 emulator matrix.
+- [ ] Test supported stock Pixel, Samsung and Xiaomi Android 15+ firmware;
+  shared architecture is not a substitute for this coverage.
+- [ ] Complete more Android 15 physical-output/capture scenarios and onboarding
+  on devices with no previous Desktop configuration.
+- [ ] Validate secondary built-in screens before enabling them as Desktop targets.
+- [ ] Validate HDMI/USB/Bluetooth/phone audio routing.
 - [ ] Validate VITURE Beast's 1200-line 3D EDID transition with the independent
-  Kernel Fixes APK.
-- [ ] Repeat phone-screen-off and freezer recovery after a RedMagic OTA.
+  Kernel Fixes APK on its exact supported kernel.
+- [ ] Repeat optional phone-power and hardware restoration after relevant OTAs.

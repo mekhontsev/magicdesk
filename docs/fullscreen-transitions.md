@@ -171,8 +171,8 @@ ordinary root workspace on every target. Selecting an ordinary freeform task,
 including one above a retained fullscreen plane, submits its complete ordering
 WCT once as a system-played `TO_FRONT`. WMCore's transition assigns root surface
 layers at the start and finish boundaries. A plain WCT synchronization callback
-does not require that assignment: a wired reproduction confirmed Files first in
-the task hierarchy and focused while its surface still remained below Golly.
+does not require that assignment: task hierarchy and input focus alone cannot
+prove the same composed surface order.
 The same policy applies to covered freeform tasks, whose surfaces must be
 brought forward even when the previous snapshot says invisible.
 Fullscreen-plane selection remains an atomic WCT with explicit plane surface
@@ -233,14 +233,12 @@ shared `DisplayWindowingSession` lifecycle, not to a firmware focus policy.
 Focus repair is enabled by default in the Android baseline on every platform;
 an explicit user disable remains effective for subsequent sessions.
 
-## Rejected approaches
+## Submission Constraints
 
-- Moving fullscreen peers into one shared organizer area while switching can
-  avoid a firmware mode-loss symptom, but the preparation reparents live tasks
-  and can make browser-style applications leave immersive fullscreen.
-- Keeping one task in the display parent and another in an organizer area can
-  make a particular two-task order fast, but the accidental asymmetry does not
-  provide stable ordering identities for an arbitrary number of tasks.
+- Do not reparent fullscreen peers into a shared area during selection.
+  Reparenting can make applications leave immersive fullscreen.
+- Every fullscreen peer needs a stable ordering identity. A special hierarchy
+  for only two tasks is not a general workspace contract.
 - Using BLAST draw synchronization for fullscreen-plane selection or stopped
   targets adds an unnecessary app-visible handoff and can leave the sync
   waiting for a surface that is not expected to draw. For ordinary freeform
@@ -311,8 +309,8 @@ token is not present in SystemUI's local pending-transition registry. Current
 WMShell versions adopt the token when `onTransitionReady` arrives, then play
 and finish it through their normal handlers. The centralized
 `startForShellAdoption` boundary records this ownership contract in code and
-returns an opaque token for future experiments; production callers must not
-finish that token themselves. Replacing this path requires preserving the
+returns an opaque token; production callers must not finish that token
+themselves. Replacing this path requires preserving the
 existing WCT, transition type, ordering, and surface-producing behavior.
 
 Owned desktop display teardown passes one bounded quiescence gate. It waits for
@@ -338,12 +336,11 @@ The ordering also exists in AOSP Android 16's
 [`Transition`](https://github.com/aosp-mirror/platform_frameworks_base/blob/android16-release/services/core/java/com/android/server/wm/Transition.java)
 and
 [`TransitionController`](https://github.com/aosp-mirror/platform_frameworks_base/blob/android16-release/services/core/java/com/android/server/wm/TransitionController.java).
-A controlled experiment requiring
-the entire WMShell queue to be idle before removal did not prevent this residue;
-do not treat a longer pre-removal wait as its fix. Compare attached input devices
-and post-removal configuration events when a previously passing test hits this
-case. Connecting a keyboard matters to this reproduction; successful
-pointer-only runs do not cover it.
+Pre-removal quiescence cannot prevent a configuration transition created during
+removal itself. Compare attached input devices and post-removal configuration
+events when diagnosing residue; a longer pre-removal wait does not resolve that
+ownership gap. Keyboard-associated removal and pointer-only removal require
+separate coverage.
 
 `DesktopInputSession` releases input-location associations before production
 display removal. Physical composite devices retain their identities and regain

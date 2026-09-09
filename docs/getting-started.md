@@ -1,169 +1,190 @@
 # Getting Started
 
-This guide covers installation, device preparation, desktop session startup,
-normal shutdown, updates, and removal. See [Compatibility](compatibility.md)
-for firmware requirements and issue reports.
+MagicDesk has independent tools and automation on Android 14+, with managed
+Desktop on Android 15+. These instructions describe the current development
+build. See [Compatibility](compatibility.md) for tested devices and
+[runtime API levels](runtime-api-levels.md) for unverified boundaries, including
+Android 14 native execution.
 
-## Requirements
+## Install
 
-The MagicDesk APK requires Android 14 / API 34 or newer. Files, terminal
-sessions, MCP and ordinary fullscreen tool windows do not require Desktop
-provisioning or HOME ownership. Enable only the permissions needed for the
-chosen service. Android 14 device validation is pending.
+Install the [stable APK](https://github.com/mekhontsev/magicdesk/releases/latest)
+or the [development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk),
+then open MagicDesk. Phone Control Panel is the starting point for tools,
+display selection and Desktop.
 
-Managed Desktop additionally requires:
+For shell-backed operations:
 
-- Android 15 / API 35 or newer;
-- firmware with working Android freeform windows;
-- the official Shizuku application with an authorized server running;
-- one Device Setup pass and reboot before the first desktop session.
+1. Install official [Shizuku](https://github.com/RikkaApps/Shizuku/releases).
+2. Start its server using a method from the
+   [Shizuku setup guide](https://shizuku.rikka.app/guide/setup/).
+3. Authorize MagicDesk when it requests Shizuku access.
 
-A desktop can run on the phone display without external hardware. An external
-desktop additionally requires a wired or wireless secondary display that
-Android accepts application tasks on. Video output, Miracast, physical input
-routing, and native window behavior remain firmware capabilities.
+MagicDesk does not start Shizuku itself or require root. After a reboot,
+Shizuku may need restarting, depending on its startup method. Missing shell
+access does not prevent ordinary UI or independently authorized Termux
+sessions from opening.
 
-## Install And Start Shizuku
+## Open Tools
 
-1. Install Shizuku from its
-   [official GitHub Releases](https://github.com/RikkaApps/Shizuku/releases).
-2. Start the Shizuku server using wireless debugging, ADB, or a deliberately
-   configured root method supported by Shizuku.
-3. Confirm in Shizuku that the server is running.
-4. Open MagicDesk and grant its Shizuku request.
+Use **Files**, **Console**, **Termux Console** or **Terminal sessions** in the
+control panel. By default they open on the phone. **Open on selected display**
+uses the display selected below.
 
-For the standard wireless-debugging setup, follow the
-[official Shizuku guide](https://shizuku.rikka.app/guide/setup/). A server
-started through wireless debugging or ADB normally needs to be started again
-after every phone reboot.
+Outside Desktop these are ordinary fullscreen Activities. If the destination
+already has a MagicDesk Desktop session, the tools use its managed window path.
+Neither action starts a session implicitly or requires Desktop provisioning.
 
-MagicDesk does not install, start, or configure Shizuku. Privileged operations
-require its live authorized service. Ordinary UI and authorized Termux sessions
-have separate prerequisites; missing shell access does not disable those paths.
+Files and Android-shell Console need authorized Shizuku. Termux Console needs
+Termux, external app commands enabled in its configuration, and MagicDesk's
+Termux `RUN_COMMAND` permission. Termux and Android-shell sessions use different
+UIDs and filesystem access.
 
-## Prepare The Device
+Closing a terminal window detaches it. **Terminal sessions** can reopen the
+same retained session; **End session** terminates it. Retention lasts only
+while the MagicDesk process and transport survive. Optional tmux sessions
+inside Termux provide a separate lifetime for longer-running programs.
 
-This preparation is for managed Desktop on Android 15+. On Android 14, use the
-phone control panel's tools and display controls directly. **Start desktop** is
-unavailable, while creating a virtual display does not start a Desktop session.
+See [Workstation tools](workstation-tools.md).
 
-1. Install MagicDesk from a tagged
-   [GitHub Release](https://github.com/mekhontsev/magicdesk/releases) or a
-   development build.
-2. Open MagicDesk on the phone.
-3. Select **Prepare device**.
-4. Review the detected platform and capability results.
-5. Reboot when requested. Android and WMShell cache part of the desktop
-   configuration during startup.
-6. Restart Shizuku if its startup method requires it, then open MagicDesk.
+## Choose Or Create A Display
 
-MagicDesk has no boot receiver. A phone reboot therefore returns to ordinary
-Android until the user starts MagicDesk again.
+The control panel lists live displays by identity, source and geometry.
+Select the phone, an existing wired/wireless display, or a MagicDesk-owned
+virtual display. Availability is checked again when an action runs.
 
-Notification access is optional. Grant it from Android settings only when the
-MagicDesk notification center and notification popups are wanted.
+**Create display** offers:
 
-## Start A Desktop
+- **Virtual display:** a headless display, suitable for a scrcpy viewer;
+  several may coexist.
+- **Display with phone preview:** Android's preview surface on the phone.
+  Its shared overlay configuration cannot replace an existing overlay set.
 
-MagicDesk uses the same desktop implementation for every target:
+Choose dimensions and scale. Creation requires Shizuku but does not acquire
+HOME or start Desktop. **Copy scrcpy command** copies a command for viewing
+that existing display from a computer; MagicDesk does not bundle or start the
+computer-side viewer.
 
-- **Phone** runs the workspace on display 0. This is useful on tablets and on
-  devices whose external output is mirror-only.
-- **Wired** uses an Android secondary display connected through the device's
-  supported physical output.
-- **Wireless** uses an already connected Miracast display. A platform-specific
-  connection action is shown only when that platform exposes a verified UI.
-- **Simulated** creates a temporary secondary display for development and the
-  built-in self-test.
+**Connect wireless display** opens the available Android Cast settings or
+platform connection UI. Complete the connection there and return to MagicDesk.
+A mirroring image is not itself an active MagicDesk session: Android must first
+publish a usable secondary display, which can then be selected.
 
-For a wired session, connect the monitor and select **Start external
-desktop**. For a wireless session, connect through the system projection UI,
-return to Phone Control Panel after Android reports the display, and select
-**Start external desktop**. **Open desktop here** starts on the phone.
+The resource lifetimes are separate:
 
-The Standard Android driver leaves connection, disconnection, and output timing
-under system control. A supported platform driver may add output modes, Fill
-display, and a connection shortcut without replacing the Android display that
-hosts the desktop.
+- **Close desktop** keeps the selected display.
+- **Remove display** is available only for MagicDesk-owned displays. It closes
+  a session on that display first and removes it after cleanup.
+- Wired and wireless connections remain under system control.
+- Stopping a viewer does not remove a MagicDesk-created display. Process loss
+  releases MagicDesk's owned display resources.
 
-## Normal Workflow
+Additional built-in screens on dual-screen devices are not yet verified
+Desktop targets. A virtual display does not emulate another Android version.
 
-Applications launched from Start are ordinary Android tasks. MagicDesk can
-place them in windowed or fullscreen mode, remember an explicit launch choice,
-and preserve visible freeform layout and stacking order.
+## Prepare And Start Desktop
 
-Use **Close desktop** to leave the desktop while retaining live application
-tasks. Starting another desktop later restores tasks that Android has not
-closed, including their saved modes, positions, visibility, and stacking.
-Unexpected external-display removal follows the same preservation path.
+Only managed Desktop needs this preparation:
 
-Use **Exit MagicDesk** when the workspace should be discarded. Exit closes
-MagicDesk windows, clears the saved live session, restores owned runtime state,
-and stops MagicDesk services.
+1. On Android 15+, open **Settings > Device setup**.
+2. Complete the required freeform/resizable setup and any applicable platform
+   checks.
+3. Reboot only if setup requests it; cached framework configuration may require
+   that step. MagicDesk never reboots automatically.
+4. Restart Shizuku as needed and reopen MagicDesk.
+5. Select a display and press **Start desktop**.
 
-The persistent phone notification provides two direct routes while MagicDesk
-is running:
+Only one Desktop session runs at a time. Close it before selecting another
+target. **Show desktop** returns to the active workspace, keeping its managed
+freeform tasks and demoting managed fullscreen tasks on that display.
 
-- tap the notification to open Phone Control Panel;
-- select **Open touchpad** to reopen the phone touchpad for the active desktop.
+During Desktop, MagicDesk temporarily owns Android's HOME role. In an external
+session, phone Start and desktop Start are independent: phone Start launches
+ordinary fullscreen phone apps and shows phone recent tasks. On the phone
+Desktop target, HOME shows the desktop workspace.
 
-## Display Size And DPI
+Notification-listener access is optional. Grant it only when MagicDesk's
+notification center and popups are wanted.
 
-Output mode and DPI are stored per monitor. Desktop item and
-application-window positions use relative coordinates so a global layout can
-adapt to differently sized displays.
+## Close, Exit And Recovery
 
-For a 1920-pixel-wide display, `160` DPI is a useful starting point. Open the
-System panel from the taskbar battery indicator or with `Win+Q` to adjust it.
-**Reset** removes the MagicDesk density override. **System / native** removes
-a forced Android output mode and lets the connected display select its native
-timing again.
+**Close desktop** returns HOME to its previous role state, releases input and
+other session-owned changes, and returns surviving managed applications to
+phone fullscreen. It records the workspace for a later session, restoring
+only tasks that are still alive. It keeps independent tools, retained terminals
+and owned displays available.
 
-Available resolutions and refresh rates depend on what Android and the active
-platform or SoC backend can read under the connected shell identity. A missing
-vendor timing interface disables only that control.
+**Exit MagicDesk** also clears that live workspace record, closes built-in
+windows, ends retained terminal sessions and stops the runtime. Neither action
+deletes Desktop files.
 
-## Development Builds
+Unexpected display loss runs the same session cleanup. After process loss,
+startup recovery relinquishes stale MagicDesk HOME ownership before waiting
+for Shizuku. MagicDesk is not offered as an inactive HOME choice. When there
+was no explicit HOME holder at session start, Android may show its launcher
+chooser again; MagicDesk does not choose a replacement on the user's behalf.
 
-Every non-documentation push to `main` publishes a release-signed development
-APK at a stable URL:
+The persistent notification opens Phone Control Panel. Its separate touchpad
+action opens the phone input surface for an active external session.
 
-[Download the current development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk)
+## Scale And Output
 
-The [development release page](https://github.com/mekhontsev/magicdesk/releases/tag/development)
-includes the exact commit, checksum, and CI run. The version shown in About
-and Diagnostics contains the build number and short commit, for example
-`1.9.1-dev.123.abcdef0`.
+The System panel exposes display density; physical output resolution/refresh
+selection depends on Android and available platform/SoC capabilities.
+**System/native** relinquishes MagicDesk's forced output selection.
 
-Development builds use the release signing certificate but contain unreleased
-changes. Tagged releases remain available from the normal Releases page.
+Application-specific interface scale is independent of display density.
+It applies to managed tasks and is reset to inherited density when they return
+to ordinary phone use. Desktop files are shared across displays; item positions
+and window bounds adapt to each work area.
 
-## Restore Defaults And Uninstall
+The optional **Settings > Android system** desktop-mode switch changes Android's
+own external-display policy. It is not a MagicDesk session requirement and may
+add system decorations. Follow its reconnect/restart guidance; Close does not
+toggle it.
 
-Before uninstalling MagicDesk:
+## Automation
 
-1. Open **Device Setup**.
-2. Select **Restore defaults**.
-3. Reboot the phone.
-4. Uninstall MagicDesk.
+Enable loopback MCP in Settings for a local client. Network access is a separate
+opt-in with its own interface, port, token and permission set. Copy connection
+data through the UI and treat it as a secret.
 
-Android does not let an application perform this cleanup while its package is
-being removed. If MagicDesk was already uninstalled, reinstall it, grant
-Shizuku access, run **Restore defaults**, reboot, and then remove it again.
+MCP does not require Desktop to be active. Its state reports missing service
+prerequisites, and its entire command catalog remains visible when grants
+change. Network HTTP is unencrypted: use only a trusted LAN or protected tunnel.
 
-Restore defaults removes MagicDesk's desktop-windowing overrides, resets
-primary-display size, density, and scaling overrides, and normalizes stale
-phone tasks. It restores firmware defaults rather than values captured by an
-earlier MagicDesk installation.
+For remote file transfer, recoverable APK updates, exact self-test run tracking
+and client reconnection, follow [Automation](automation.md).
+
+## Updates And Removal
+
+Development builds are published at the stable
+[development link](https://github.com/mekhontsev/magicdesk/releases/tag/development)
+with their commit, checksum and CI run. They use the release certificate but
+contain unreleased changes.
+
+Close Desktop before installing an APK. Terminal retention does not survive
+package replacement. MCP's explicit APK-update protocol retains its installer
+operation identity; a dropped connection is not a reason to submit the update
+again.
+
+Before uninstalling, close Desktop and remove owned displays. If Device Setup
+changed system configuration, use **Device setup > Restore defaults** and
+follow its reboot guidance before uninstalling.
+
+Restore defaults removes desktop-windowing overrides and resets primary-display
+size, density and scaling overrides. It restores system defaults, not an
+arbitrary earlier installation's values. Android cannot run that cleanup after
+removing the package; reinstall and authorize MagicDesk if it is needed.
+Tools-only use does not require Desktop provisioning or its reset procedure.
 
 ## Problems
 
-Open **Tools > Diagnostics** after reproducing a failure and attach the full
-report plus exact steps to a GitHub issue. See
-[Compatibility and issue reports](compatibility.md) for the report contents,
-privacy boundary, support levels, and tested firmware.
+After reproducing a problem, open Diagnostics and attach the complete report
+and exact steps to an issue. Reports omit user files, account data, notification
+contents and the installed-app catalog.
 
-The built-in desktop self-test requires an awake and unlocked phone with no
-other MagicDesk desktop session running. It can target phone, simulated,
-wired, or wireless displays. Its current coverage and remaining hardware work
-are recorded in the [validation matrix](testing-backlog.md).
+Desktop self-tests require an awake, unlocked Android 15+ phone, no other
+Desktop session, and no user interaction during the run. Their guard/report
+window shows progress and can stop the exact run. They do not validate
+independent Android 14 tools. See the [validation plan](testing-backlog.md).

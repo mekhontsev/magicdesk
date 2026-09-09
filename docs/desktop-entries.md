@@ -109,7 +109,9 @@ It runs `Exec` through Termux's documented `RUN_COMMAND` service and
 Termux must be installed, external app commands must be enabled in Termux, and
 the `RUN_COMMAND` permission must be granted to MagicDesk. With
 `Terminal=true`, MagicDesk opens a new Termux-backed Console and owns that PTY
-for the lifetime of the window.
+as a retained terminal session. Closing its window detaches the view; explicit
+session termination closes the PTY. Desktop Entry command tracking does not own
+that lifetime.
 
 Unknown backend names invalidate the entry instead of executing the command in
 an unintended environment.

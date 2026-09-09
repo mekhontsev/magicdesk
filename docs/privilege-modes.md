@@ -1,188 +1,179 @@
-# Shell Access And Display Modes
+# Privilege Boundaries
 
-MagicDesk has one runtime privilege identity: an authorized Android shell,
-normally the ADB-equivalent UID 2000. The current APK binds it through an
-official Shizuku UserService. Shizuku is the Binder transport and lifecycle
-owner, not the source of the shell capabilities described below. Display
-selection is an independent session property.
+The APK baseline is Android 14; managed Desktop requires Android 15. Ordinary
+UI, shared services, Desktop ownership and client authorization are separate
+boundaries. A missing Desktop capability does not disable an independent tool.
 
-## Runtime Contract
+## Identities And Prerequisites
 
-MagicDesk uses `dev.rikka.shizuku` API 13 and a bound UserService. It does not
-invoke `su` or fall back to an ordinary application-UID mode.
+| Boundary | Identity and authority |
+| --- | --- |
+| Ordinary UI and Android content integration | MagicDesk app UID and its Android permissions |
+| Privileged files, shell, display, task and input operations | Authorized Shizuku UserService, normally shell UID 2000 |
+| Termux commands and PTYs | Termux UID, with its external-command configuration and MagicDesk's `RUN_COMMAND` grant |
+| MCP request | Listener token and grants, followed by the operation's service and Android permission checks |
+| Optional Kernel Fixes APK | Separate application with an explicit root workflow; never a main-APK dependency |
 
-The runtime contract is deliberately strict:
+`RuntimeCapabilities` reports prerequisites; it does not grant permissions
+or certify a firmware API. MCP and built-in UI can start before Shizuku. Files
+and shell-backed operations require it. Termux's own terminal transport has
+separate authorization. Creating a virtual display requires shell access, not
+HOME or WMShell Desktop.
 
-- Shizuku must be installed and running.
-- The user must grant MagicDesk access.
-- The connected UserService must report Android shell UID 2000 or root UID 0.
-- Both identities use the same commands and feature set; MagicDesk has no
-  root-specific runtime branch.
-- Losing Shizuku stops privileged runtime work instead of changing security
-  boundaries silently.
+## Shell Service
 
-The user normally starts Shizuku through wireless debugging or ADB. MagicDesk
-does not install, start, or configure the Shizuku manager.
+MagicDesk uses the official Shizuku API and one bound command UserService.
+The user starts Shizuku and grants access. The service must report UID 2000
+or UID 0; both use the same implementation with their actual observed
+permissions. MagicDesk does not invoke `su`, acquire root, or substitute an
+app-UID shell when access fails.
+
+`ShellAccess` caches immutable connection state updated by Binder and
+permission events. Explicit audits and command failures refresh it. Ordinary
+commands do not repeat the manager/UID probe.
+
+Finite operations use typed AIDL or bounded shell commands. Long-lived resources
+have explicit Binder/descriptor owners. Process or service death releases those
+resources; cleanup journals preserve pending restoration without overwriting
+state another owner changed.
+
+The privileged service can manage tasks, displays, input associations and
+accessible files only where Android's permissions, SELinux and framework APIs
+allow it. Shell is not SystemUI and does not own another application's window
+tokens. Optional vendor methods are separately detected and allowlisted.
+
+## Content And Launch Authorization
+
+Files operates on paths accessible to the connected shell UID. Other Android
+apps receive bounded content-URI grants for selected files, never the shell
+Binder or unrestricted filesystem authority. Directory clipboard operations
+stay internal. URI grants, app identity and shell placement authority are
+checked independently.
+
+Android intent integration checks whether the target is accessible to the
+MagicDesk application. Shell supplies placement authority, not permission to
+launch arbitrary protected targets on behalf of the app. App-authorized
+PendingIntents retain their creator identity and grants.
+
+Retained shell and Termux terminals preserve their selected backend. A failed
+Termux request is not retried as a shell command. Closing a window detaches its
+view; explicit session termination or runtime exit releases the PTY. Package
+replacement and process death do not preserve those terminals.
+
+## Input And HOME Ownership
+
+Physical keyboards and mice remain Android devices. A session journals and
+changes input-location associations for its selected display. Composite devices
+sharing a location share one route; hot-plug callbacks reconcile them without
+reading or forwarding the physical event streams.
+
+`DesktopShortcutService` is a key-only Accessibility filter. It consumes
+Desktop shortcuts from confirmed desktop keyboards, not ordinary editor text,
+and requests no window-content access. Its session-owned enablement preserves
+other Accessibility services. Layout cycling resolves Android physical-keyboard
+layouts against enabled IME subtypes and synchronizes the selected subtype.
+An IME must expose those languages through Android; MagicDesk does not choose
+a replacement IME.
+
+The phone touchpad owns one virtual relative mouse. Android handles cursor
+acceleration, hover, dragging and right click. The external editor connects
+directly to the user's normal phone IME through Android's display IME policy.
+MagicDesk does not capture or relay its text.
+
+Close releases routing, shortcut enablement and the phone pointer before any
+owned display removal. Binder death and durable ownership records cover
+interrupted cleanup; unknown inventory is not treated as an empty device list.
+
+Managed Desktop temporarily holds HOME. Close restores the previous role state
+before tearing down its remaining task surfaces. Disabling HOME components is
+a later cleanup phase, so Android cannot remove a live host during task parking.
+Inactive MagicDesk HOME components are disabled. Startup recovery relinquishes
+stale HOME ownership without waiting for Shizuku.
+
+## MCP Access
+
+MCP is disabled by default. Loopback binds to `127.0.0.1:8765`; optional network
+access binds to one selected private IPv4 interface and configured port.
+Tokens and grants are independent for the two listeners. Authentication is
+required even for observation.
+
+The full catalog remains discoverable. Observation is always allowed to an
+authenticated client; additional grants cover:
+
+- Desktop/application control.
+- Injected input, self-tests and force-stop.
+- Screen, clipboard and notification contents.
+- File reads/downloads.
+- File writes/uploads.
+- Shell commands, terminals and background execution.
+- MagicDesk APK updates.
+
+These are operation gates, not isolation between mutually untrusted clients.
+Shell access can read and modify files; input can operate privileged UI.
+Grant changes affect subsequent requests, not rollback of accepted actions.
+
+Network transport is HTTP without TLS. Use a trusted LAN or protected VPN/tunnel,
+never a directly exposed Internet endpoint. Android permissions and service
+availability still apply after MCP authorization.
+
+APK update is same-package and same-signer, using Android PackageInstaller.
+A separate one-operation shell worker survives replacement, records the
+installer result and resumes enabled automation. Reconnect is client-owned;
+an unknown result is not permission to install again. See
+[Automation](automation.md) for the exact operation protocol.
+
+## Persistent Setup Versus Session State
+
+Desktop setup on API 35+ manages two common global overrides:
+
+```text
+enable_freeform_support = 1
+force_resizable_activities = 1
+```
+
+These are persistent provisioning, not Close-time leases. Firmware-specific
+setup is owned by its extension; Nubia additionally manages the two allowlisted
+desktop eligibility/rounded-corner properties described in the
+[vendor audit](nubia-vendor-audit.md).
+
+The optional `force_desktop_mode_on_external_displays` switch lives in
+**Settings > Android system**. Android is its only value store. Changes require
+shell access and no active Desktop; the UI warns about decorations and advises
+reconnection or a firmware-dependent restart. It is not a required setup gate,
+input-routing substitute or startup write. Close leaves it unchanged.
+
+By contrast, HOME, input routes, display-default mode, external IME policy and
+managed task density have session owners and restoration rules. Display
+resources have their own lifetime: Close does not remove them, and removal
+requires verified MagicDesk ownership.
+
+**Restore defaults** removes Desktop setup overrides and primary-display
+size/density/scaling overrides, and normalizes stale phone tasks. It restores
+system defaults, not arbitrary earlier installation values.
+
+## Optional Phone Power And Hardware
+
+Phone-screen power control uses discovered Android display commands.
+The optional Nubia provider additionally protects other desktop app UIDs through
+its transient `cfreezer` heartbeat while the phone screen is off. MagicDesk's
+own UID is excluded and relies on its HOME status on that inspected firmware.
+This is not a general Android HOME guarantee for every power manager.
+
+The helper restores power and releases its owned protection on normal cleanup
+or owner loss. Hardware settings and caption-privacy overrides have their own
+capability checks and restoration owners. Details belong in the
+[Nubia vendor audit](nubia-vendor-audit.md), not in shared input policy.
 
 ## Artifact Trust
 
-Tagged releases and rolling development builds are signed with the same
-certificate. Its SHA-256 fingerprint is:
+Stable and development APKs use the same signing certificate. Its SHA-256 is:
 
 ```text
 3A:F3:FE:F8:95:AC:BC:9C:B7:7B:FD:BB:7E:91:79:42:
 95:70:72:14:97:E3:6E:C1:E4:19:68:C9:4B:52:99:50
 ```
 
-The main APK contains no independent privilege-escalation path, kernel module,
-or kernel-module loader. Optional local MCP automation is disabled by default,
-binds only to loopback, and requires a generated bearer token. The separate
-Kernel Fixes APK remains outside the main application's runtime and release
-boundary.
-
-## Capability Boundary
-
-On the verified firmware, shell UID 2000 can:
-
-- activate RedMagic external desktop mode and launch Touch Panel;
-- observe exact tasks and apply ActivityTaskManager, WindowOrganizer, and
-  WMShell desktop transactions;
-- configure display geometry and density and capture screenshots;
-- reveal native WMShell captions while the desktop session is active;
-- lock the phone and control the physical state of display 0;
-- browse and mutate every filesystem path available to shell through the
-  built-in Files task, while sharing only individual capability URIs with
-  ordinary Android applications;
-- run user-entered commands in independent, lifecycle-bound `/system/bin/sh`
-  sessions through built-in Console windows;
-- install a user-confirmed APK through Android's shell package-manager command;
-- change physical-keyboard layouts;
-- associate input devices with displays and create a virtual phone pointer;
-- use stock RedMagic bypass-charging, fan, pump, and thermal interfaces.
-
-`ShellAccess` owns an immutable cached state. Binder-received, Binder-dead,
-and permission-result events update that state; ordinary commands do not probe
-the manager, permission, API version, and UID again. Device Setup and
-Diagnostics can request an explicit fresh probe. A command failure also causes
-one refresh before later work is allowed to continue.
-
-Exact task observation runs directly inside the existing shell UserService.
-The APK registers one typed AIDL callback; its Binder owns the corresponding
-`TaskStackListener` and centralized `FrameworkTaskObservationSource`. Stopping
-the desktop, losing the APK, or losing Shizuku unregisters the listener without
-leaving a separate `app_process` behind.
-
-## Input Streams
-
-Physical keyboards and mice remain native Android input devices. The
-shell-owned `DesktopInputRoutingSession` associates input locations with the
-desktop display unique ID and journals their previous runtime associations.
-Composite devices sharing a location share one association. Hot-plug callbacks
-reconcile routes without reading or forwarding physical event streams.
-
-`DesktopShortcutService` is a key-only Accessibility filter, independent of
-the user's IME. Shizuku enables it for the desktop session and restores that
-enablement on Close, preserving other services. It consumes desktop shortcuts
-only from keyboards confirmed on the target display; ordinary input continues
-through Android. No accessibility window content or editor text is requested.
-
-`libmagicdesk_uinput_bridge.so` provides a virtual relative mouse solely for
-the phone touchpad. Its location is associated before creation. EOF or Binder
-owner death destroys that device; there is no idle keepalive.
-
-One serialized input owner orders startup, hot-plug and teardown on every
-platform. Close destroys the phone pointer and restores input associations
-before display removal. Durable ownership journals make cleanup retryable after
-process loss without overwriting unrelated system routes.
-
-Layout selection follows Android's enabled IME subtype order. MagicDesk never
-selects an IME or hardcodes a language. An IME that keeps languages internally
-but exposes only one Android subtype cannot support system-wide physical
-layout cycling; changing the IME is the appropriate workaround.
-
-## Phone Display Guard
-
-While the external desktop remains active, MagicDesk can dim display 0 without
-breaking external physical input. A shell helper owns DisplayManager's
-`power-off 0` state and restores it with the operation advertised by the
-platform (`power-on` on Android 15 or `power-reset` on Android 16). Command
-discovery is shared with diagnostics and probes only help or argument
-validation without a display ID, leaving the screen state unchanged.
-
-The same heartbeat marks MagicDesk and the application UIDs owning live tasks
-on the desktop display as active through RedMagic's transient `cfreezer` API.
-Without that signal the firmware can freeze those processes while display 0 is
-off. Normal teardown clears the state, and the vendor service expires it after
-an abnormal stop.
-
-Physical power, MagicDesk's Wake action, display cable
-removal, APK shutdown, and Shizuku death all restore normal DisplayManager
-ownership. This is a fail-open guard, not a persistent screen policy.
-
-## Display Targets
-
-- **Primary** selects Android display 0. It supports tablets and development
-  without an external monitor.
-- **Current** keeps the desktop on the display where setup was opened.
-- **External** selects the active external desktop display and falls back to
-  Current when none exists.
-- **Auto** prefers an active external desktop display, otherwise Current. A
-  platform driver may exclude a physical mirror-only display when the firmware
-  still routes its pointer to the phone.
-
-Display IDs are resolved at each transition and are never persisted as device
-constants. Primary/Current operation does not activate a managed external
-desktop transport, launch a vendor input panel, or apply an external monitor
-profile.
-
-## Device Setup
-
-Device Setup always audits and configures the two required Android
-desktop-windowing values:
-
-```sh
-settings put global enable_freeform_support 1
-settings put global force_resizable_activities 1
-```
-
-These are device-wide provisioning values, not session overrides. Close Desktop
-does not clear them; Restore defaults does.
-
-The optional `force_desktop_mode_on_external_displays` global value is exposed
-under **Settings > Android system**, not required by Device Setup. A confirmed
-change uses the connected shell service while no desktop session is owned and
-verifies the resulting Android value. The UI warns about system navigation bars
-and advises reconnecting the display; some firmware may require an Android
-restart. Neither creates a mandatory setup gate.
-There is no automatic reboot or preference reapplied at startup. This setting
-affects external HOME, system decorations and input policy; it is independent
-of the optional physical-input bridge and survives Close Desktop.
-
-The Nubia platform extension additionally manages two firmware properties:
-
-```sh
-setprop persist.wm.debug.desktop_mode_enforce_device_restrictions false
-setprop persist.wm.debug.desktop_use_rounded_corners false
-```
-
-The connected shell UserService writes the global settings. On supported
-firmware, the ordinary MagicDesk process uses a verified RedMagic property
-service for the two persistent properties. Its production wrapper accepts only
-those two keys and boolean/absent values, and verifies each write with
-`getprop`.
-
-WMShell and ActivityTaskManager cache these values. Device Setup records the
-current boot ID and requires a real reboot after a change. **Restore defaults**
-deletes the three global overrides, clears the two persistent properties, resets
-the primary-display size/density/scaling overrides, and normalizes stale phone
-desktop tasks. It intentionally restores firmware defaults rather than values
-captured by an earlier MagicDesk installation.
-
-MagicDesk has no boot receiver. Rebooting leaves the phone in its normal state
-until the user launches MagicDesk manually.
-
-## Optional Root Add-ons
-
-The separate `MagicDesk Kernel Fixes` APK is outside this runtime contract. It
-has its own icon, requests root itself, and is never discovered or launched by
-the main application. See [VITURE XR resolution fix](xr-resolution-fix.md).
+The main APK contains no kernel module or loader. The independent
+**MagicDesk Kernel Fixes** APK has its own explicit root workflow and is not
+discovered or launched by MagicDesk. Its exact firmware restrictions are in
+[VITURE XR resolution fix](xr-resolution-fix.md).
