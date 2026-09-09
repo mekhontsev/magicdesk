@@ -1,5 +1,15 @@
 # Third-Party Notices
 
+## Lucide icons
+
+MagicDesk controls use Lucide's `sliders-horizontal`, `settings`, `volume-2`,
+`volume-x`, `plus`, `minus`, `cast`, `log-out`, and `list` icons, converted
+to Android VectorDrawables.
+The applicable ISC and Feather MIT notices are included in the APK:
+[`lucide.txt`](app/src/main/assets/licenses/lucide.txt).
+
+- Upstream: https://github.com/lucide-icons/lucide
+
 ## Termux terminal-emulator
 
 MagicDesk uses the `terminal-emulator` module from Termux app version

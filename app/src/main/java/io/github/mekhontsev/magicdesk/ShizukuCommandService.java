@@ -308,13 +308,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
-    public String updateHardwareKeyboardLayout(
-            final String mode,
-            final String currentDescriptor) {
+    public String updateHardwareKeyboardLayout(final String mode) {
         try {
             final HardwareKeyboardLayoutCommand.Result result =
-                    HardwareKeyboardLayoutCommand.execute(
-                            mode, currentDescriptor);
+                    HardwareKeyboardLayoutCommand.execute(mode);
             if (result.isAvailable()) {
                 persistHardwareKeyboardLayout(result);
             }

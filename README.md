@@ -234,7 +234,7 @@ Shared compatibility policies can be selected in Settings on every vendor.
 | `Alt+F4` | Close active task |
 | `Win+Backspace` | Send Android Back to the desktop display |
 | `Win+L` | Lock phone |
-| `Win+N` / `Win+Q` | Notifications / System panel |
+| `Win+N` / `Win+Q` | Notifications / Quick controls |
 | `Win+I` | MagicDesk Settings |
 | `Win+Print Screen` | Capture desktop |
 | `Win+Shift+Print Screen` | Start/stop recording |
@@ -295,7 +295,6 @@ API 34 native validation and other ABIs remain in the
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Privilege boundaries](docs/privilege-modes.md)
 - [Validation plan](docs/testing-backlog.md)
-- [Nubia vendor interface audit](docs/nubia-vendor-audit.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Project

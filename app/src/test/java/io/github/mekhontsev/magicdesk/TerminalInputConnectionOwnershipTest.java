@@ -4,6 +4,27 @@ import org.junit.Test;
 
 /** Exercises the real View/IME methods without requiring a running Android IME. */
 public final class TerminalInputConnectionOwnershipTest {
+    @Test public void anotherConnectionDoesNotRevokeTheConnectionStillUsedByTheIme() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() {
+                    ConsoleTerminalView view = new ConsoleTerminalView();
+                    ConsoleTerminalSession session = new ConsoleTerminalSession();
+                    view.attach(session, null);
+                    var ime = view.onCreateInputConnection(new EditorInfo());
+                    var other = view.onCreateInputConnection(new EditorInfo());
+                    for (int i=0; i<12; i++) {
+                        check(ime.commitText("q", 1), "live IME commit rejected after another connection was created");
+                    }
+                    check(ime.sendKeyEvent(new KeyEvent()), "live IME key rejected");
+                    other.closeConnection();
+                    check(ime.commitText("a", 1), "closing another connection revoked the live IME");
+                    check(!other.commitText("closed", 1), "closed connection accepted input");
+                    check(session.output.toString().equals("qqqqqqqqqqqqa"), "IME text was lost");
+                    check(view.dispatchedKeys == 1, "IME key was lost or duplicated");
+                }
+                """);
+    }
+
     @Test public void detachedViewRejectsEveryLateImeWrite() throws Exception {
         RuntimeSourceFixture.verify(fixture() + """
                 public static void verify() {
@@ -27,7 +48,7 @@ public final class TerminalInputConnectionOwnershipTest {
                 """);
     }
 
-    @Test public void replacementAndReattachmentNeverReviveAnOldConnection() throws Exception {
+    @Test public void closingAndReattachmentNeverReviveAnOldConnection() throws Exception {
         RuntimeSourceFixture.verify(fixture() + """
                 public static void verify() {
                     ConsoleTerminalView view = new ConsoleTerminalView();
@@ -35,8 +56,8 @@ public final class TerminalInputConnectionOwnershipTest {
                     view.attach(session, null);
                     var first = view.onCreateInputConnection(new EditorInfo());
                     var second = view.onCreateInputConnection(new EditorInfo());
-                    check(!first.commitText("stale", 1), "replacement retained old connection");
                     first.closeConnection();
+                    check(!first.commitText("stale", 1), "closed connection accepted input");
                     check(second.commitText("a", 1), "old close invalidated new connection");
                     view.attach(null, null);
                     view.attach(session, null);
@@ -88,13 +109,15 @@ public final class TerminalInputConnectionOwnershipTest {
                 static class ConsoleTerminalView {
                     ConsoleTerminalSession mSession;
                     ClipboardActions mClipboardActions;
-                    TerminalInputConnection mInputConnection;
+                    Object mInputAttachment;
                     int dispatchedKeys;
                     void resizeTerminal() {} void invalidate() {} void scrollToBottom() {}
                     boolean dispatchKeyEvent(KeyEvent event) { dispatchedKeys++; return true; }
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalView",
                         "attach", "onCheckIsTextEditor", "onCreateInputConnection") + """
                     private final class TerminalInputConnection extends BaseInputConnection implements InputConnection {
+                        final Object mAttachment=mInputAttachment;
+                        boolean mClosed;
                         String mComposingText="";
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalView", "isActive", "closeConnection",
                         "commitText", "setComposingText", "finishComposingText", "replaceComposingText",

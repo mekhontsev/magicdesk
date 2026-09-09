@@ -71,7 +71,7 @@ final class RedmagicHardwarePanelController
         mFanButtons.clear();
         mPumpButtons.clear();
 
-        addHeading(parent, R.string.hardware_section_title, spacing);
+        mUi.addControlSection(parent, R.string.hardware_section_title, spacing);
         mStatus = statusText();
         parent.addView(mStatus, matchWidth());
 
@@ -330,22 +330,6 @@ final class RedmagicHardwarePanelController
         status.setTextColor(DesktopUiFactory.COLOR_MUTED);
         status.setTextSize(13);
         return status;
-    }
-
-    private void addHeading(
-            final LinearLayout parent,
-            final int textResId,
-            final int spacing) {
-        final TextView heading = new TextView(mActivity);
-        heading.setText(textResId);
-        heading.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        heading.setTextSize(14);
-        final LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, spacing, 0, dp(4));
-        parent.addView(heading, params);
     }
 
     private TextView addLabel(

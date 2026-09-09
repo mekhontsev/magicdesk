@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.provider.Settings;
 import android.util.Log;
 
 import java.io.IOException;
@@ -43,15 +42,10 @@ final class HardwareKeyboardLayoutController {
     }
 
     static void refresh(final Runnable completion) {
-        runRefresh("sync", completion);
-    }
-
-    static void syncWithInputMethod() {
-        runRefresh("ime", null);
+        runRefresh(completion);
     }
 
     private static void runRefresh(
-            final String mode,
             final Runnable completion) {
         if (!ShellAccess.isReady()) {
             runCompletion(completion);
@@ -66,7 +60,7 @@ final class HardwareKeyboardLayoutController {
         }
         DesktopOperations.executeSerialized(() -> {
             try {
-                apply(mode);
+                apply("sync");
             } finally {
                 REFRESH_IN_PROGRESS.set(false);
                 runCompletion(completion);
@@ -83,12 +77,7 @@ final class HardwareKeyboardLayoutController {
     private static void apply(final String mode) {
         final String output;
         try {
-            final String current = Settings.Global.getString(
-                    MagicDeskApplication.applicationContext()
-                            .getContentResolver(),
-                    LAYOUT_STATE);
-            output = ShellAccess.updateHardwareKeyboardLayout(
-                    mode, current).trim();
+            output = ShellAccess.updateHardwareKeyboardLayout(mode).trim();
         } catch (IOException e) {
             Log.w(TAG, "hardware keyboard layout command failed", e);
             return;

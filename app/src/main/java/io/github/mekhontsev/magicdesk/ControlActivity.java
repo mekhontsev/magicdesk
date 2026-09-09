@@ -154,7 +154,7 @@ public final class ControlActivity extends Activity
         mSessionController = new MagicDeskSessionController(this);
         mWirelessConnectionUiAvailable =
                 mProjection.hasWirelessConnectionUi(this);
-        mStatus = getString(isExternalDesktopActive()
+        mStatus = getString(DesktopRuntimeBridge.getActiveDesktopDisplayId() >= 0
                 ? R.string.control_status_desktop_active
                 : R.string.control_status_ready);
         setContentView(mPanel.createView());
@@ -175,7 +175,7 @@ public final class ControlActivity extends Activity
         // Returning from a cancelled picker already leaves the panel visible.
         mReturnToPanelAfterWirelessConnection = false;
         MagicDeskRuntime.refreshNotification();
-        mStatus = getString(isExternalDesktopActive()
+        mStatus = getString(DesktopRuntimeBridge.getActiveDesktopDisplayId() >= 0
                 ? R.string.control_status_desktop_active
                 : R.string.control_status_ready);
         if (mPanel != null) {
@@ -523,12 +523,10 @@ public final class ControlActivity extends Activity
                 ShellAccess.isReady() && mPhoneUi.isAvailable(),
                 mProjection.supportsOutputConfiguration(),
                 mExternalModeSelection,
-                selectedDisplay() != null && "wired".equals(selectedDisplay().source),
                 mWirelessConnectionUiAvailable,
                 wirelessConnected(),
                 mStatus,
-                ShellAccess.statusLabel(),
-                currentDisplayId()));
+                ShellAccess.statusLabel()));
     }
 
     private void registerDisplayListener() {
@@ -600,21 +598,8 @@ public final class ControlActivity extends Activity
         });
     }
 
-    private boolean isExternalDesktopActive() {
-        final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getActiveDesktopTarget();
-        return target != null
-                && target.displayId > Display.DEFAULT_DISPLAY
-                && target.kind != DesktopDisplayTarget.Kind.PHONE;
-    }
-
     private boolean hasDesktopSessionActiveOrStarting() {
         return DesktopRuntimeBridge.getActiveDesktopTarget() != null;
     }
 
-    private int currentDisplayId() {
-        final Display display = getDisplay();
-        return display == null
-                ? Display.DEFAULT_DISPLAY : display.getDisplayId();
-    }
 }

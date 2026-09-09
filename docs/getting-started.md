@@ -129,8 +129,12 @@ action opens the phone input surface for an active external session.
 
 ## Scale And Output
 
-The System panel exposes display density; physical output resolution/refresh
-selection depends on Android and available platform/SoC capabilities.
+**Quick controls**, opened by the taskbar sliders icon, exposes display density,
+audio, pointer speed and available hardware controls. Its gear opens **MagicDesk
+settings**; **Android sound settings** opens the separate Android page.
+Physical output resolution/refresh is selected with the target screen in Phone
+Control Panel, before starting Desktop, and depends on Android and available
+platform/SoC capabilities.
 **System/native** relinquishes MagicDesk's forced output selection.
 
 Application-specific interface scale is independent of display density.

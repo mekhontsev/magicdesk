@@ -56,14 +56,7 @@ final class PointerSpeedPanelController {
     }
 
     void populate(final LinearLayout parent, final int spacing) {
-        final TextView title = mUi.sectionTitle(
-                R.string.hardware_input_section);
-        final LinearLayout.LayoutParams titleParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        titleParams.setMargins(0, spacing, 0, 0);
-        parent.addView(title, titleParams);
+        mUi.addControlSection(parent, R.string.hardware_input_section, spacing);
 
         final LinearLayout row = new LinearLayout(mActivity);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -74,9 +67,10 @@ final class PointerSpeedPanelController {
         label.setTextColor(DesktopUiFactory.COLOR_TEXT);
         label.setTextSize(13);
         row.addView(label, new LinearLayout.LayoutParams(
-                dp(108), LinearLayout.LayoutParams.WRAP_CONTENT));
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
         mSlider = new SeekBar(mActivity);
+        mSlider.setContentDescription(mActivity.getString(R.string.pointer_speed));
         mSlider.setMin(MIN_SPEED);
         mSlider.setMax(MAX_SPEED);
         mSlider.setKeyProgressIncrement(1);
@@ -105,9 +99,6 @@ final class PointerSpeedPanelController {
                         apply(seekBar.getProgress());
                     }
                 });
-        row.addView(mSlider, new LinearLayout.LayoutParams(
-                0, dp(40), 1));
-
         mValue = new TextView(mActivity);
         mValue.setTextColor(DesktopUiFactory.COLOR_MUTED);
         mValue.setTextSize(13);
@@ -118,6 +109,8 @@ final class PointerSpeedPanelController {
         parent.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
+        parent.addView(mSlider, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(40)));
         refresh();
     }
 

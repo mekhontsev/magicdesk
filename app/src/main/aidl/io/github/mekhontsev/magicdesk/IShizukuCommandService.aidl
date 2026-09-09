@@ -40,8 +40,7 @@ interface IShizukuCommandService {
 
     void writeStream(long requestId, String line) = 6;
 
-    String updateHardwareKeyboardLayout(
-        String mode, String currentDescriptor) = 7;
+    String updateHardwareKeyboardLayout(String mode) = 7;
 
     ParcelFileDescriptor openHeartbeatStream(
         String command, long requestId, IBinder ownerToken) = 9;

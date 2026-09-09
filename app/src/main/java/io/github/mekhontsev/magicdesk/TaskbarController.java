@@ -268,13 +268,13 @@ final class TaskbarController {
                 mActivity.getString(R.string.tooltip_phone_screen));
 
         mSystemButton = taskbarButton(
-                android.R.drawable.ic_menu_manage,
-                R.string.section_system);
+                R.drawable.ic_quick_controls,
+                R.string.section_quick_controls);
         mSystemButton.setOnClickListener(view ->
                 mActivity.toggleSystemPanel());
         mActivity.registerAutomationUiElement(
-                mSystemButton, "taskbar.system", "button",
-                mActivity.getString(R.string.section_system));
+                mSystemButton, "taskbar.quick_controls", "button",
+                mActivity.getString(R.string.section_quick_controls));
         addButton(taskbar, mSystemButton);
 
         mBatteryStatus = new TextView(mActivity);
@@ -495,16 +495,11 @@ final class TaskbarController {
         if (mKeyboardLayout == null) {
             return;
         }
-        final String layout = Settings.Global.getString(
-                mActivity.getContentResolver(),
-                DesktopShellActivity.HARDWARE_LAYOUT_STATE);
         String layoutLabel = Settings.Global.getString(
                 mActivity.getContentResolver(),
                 DesktopShellActivity.HARDWARE_LAYOUT_LABEL_STATE);
         if (layoutLabel == null || layoutLabel.isEmpty()) {
-            layoutLabel = "russian".equals(layout)
-                    ? "RU"
-                    : ("english".equals(layout) ? "EN" : "??");
+            layoutLabel = "??";
         }
         final String layoutName = Settings.Global.getString(
                 mActivity.getContentResolver(),

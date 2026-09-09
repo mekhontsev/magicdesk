@@ -338,6 +338,15 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void configureConsoleFontSize() {
+        ConsoleFontSizeDialog.show(this, R.string.settings_console_font_size,
+                ConsolePreferences.fontSizeSp(this), ConsolePreferences.DEFAULT_FONT_SIZE_SP, size -> {
+                    ConsolePreferences.setFontSizeSp(this, size);
+                    render();
+                });
+    }
+
+    @Override
     public void openApplicationSettings() {
         final android.view.Display display = getDisplay();
         final int displayId = display == null

@@ -15,6 +15,9 @@ import android.widget.Spinner;
 import android.widget.TextView;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /** Display preparation controls; these do not acquire a desktop session. */
@@ -24,6 +27,7 @@ final class DisplaySelectionView {
         void startSelectedDesktop();
         void createDisplay(VirtualDisplaySpec spec, boolean preview);
         void removeDisplay(DesktopDisplayInfo display);
+        void setExternalOutputTiming(String outputTiming);
     }
 
     private final Activity mActivity;
@@ -31,11 +35,16 @@ final class DisplaySelectionView {
     private final Actions mActions;
     private final Spinner mSelector;
     private final Button mStart;
-    private final Button mCreate;
+    private final ImageButton mCreate;
     private final ImageButton mDelete;
     private final ImageButton mCopy;
     private final TextView mCommand;
     private final ArrayAdapter<String> mLabels;
+    private final View mOutputOptions;
+    private Spinner mOutputMode;
+    private ArrayAdapter<String> mOutputModeAdapter;
+    private List<PlatformProjectionDriver.Mode> mOutputModes = Collections.emptyList();
+    private boolean mOutputModesConfigurable;
     private DesktopDisplayInfo[] mDisplays = new DesktopDisplayInfo[0];
     private DesktopDisplayInfo mSelected;
     private int mRenderGeneration;
@@ -64,6 +73,9 @@ final class DisplaySelectionView {
             @Override public void onNothingSelected(final AdapterView<?> p) { }
         });
         row.addView(mSelector, new LinearLayout.LayoutParams(0, dp(52), 1));
+        mCreate = ui.menuIconButton(R.drawable.ic_add, R.string.display_create);
+        mCreate.setOnClickListener(v -> showCreateDialog());
+        row.addView(mCreate, new LinearLayout.LayoutParams(dp(48), dp(52)));
         mDelete = ui.menuIconButton(R.drawable.ic_file_delete,
                 R.string.display_remove);
         mDelete.setOnClickListener(v -> {
@@ -79,11 +91,17 @@ final class DisplaySelectionView {
         });
         row.addView(mDelete, new LinearLayout.LayoutParams(dp(48), dp(52)));
         parent.addView(row);
+        mOutputOptions = createOutputModeView();
+        parent.addView(mOutputOptions);
         mStart = ui.actionButton(R.string.display_start, DesktopUiFactory.COLOR_CYAN);
+        mStart.setTextSize(15);
+        mStart.setSingleLine(false);
+        mStart.setMaxLines(2);
         mStart.setOnClickListener(v -> mActions.startSelectedDesktop());
         parent.addView(mStart, new LinearLayout.LayoutParams(-1, dp(52)));
 
         final LinearLayout commandRow = new LinearLayout(activity);
+        commandRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         mCommand = new TextView(activity);
         mCommand.setTextColor(DesktopUiFactory.COLOR_MUTED);
         mCommand.setTextSize(12);
@@ -104,21 +122,19 @@ final class DisplaySelectionView {
         });
         commandRow.addView(mCopy, new LinearLayout.LayoutParams(dp(48), dp(48)));
         parent.addView(commandRow);
-        mCreate = ui.actionButton(R.string.display_create, DesktopUiFactory.COLOR_PANEL_ALT);
-        mCreate.setOnClickListener(v -> showCreateDialog());
-        parent.addView(mCreate, new LinearLayout.LayoutParams(-1, dp(52)));
     }
 
     void render(final DesktopDisplayInfo[] displays, final String selectedUniqueId,
-            final int activeId, final boolean shellReady, final boolean busy) {
+            final int activeId, final boolean shellReady, final boolean busy,
+            final boolean outputControlAvailable, final PlatformProjectionDriver.ModeSelection outputSelection) {
         final int generation = ++mRenderGeneration;
         mRendering = true;
-        mDisplays = displays;
+        mDisplays = orderedDisplays(displays);
         final List<String> labels = new ArrayList<>();
         int selectedIndex = -1;
-        for (int i = 0; i < displays.length; i++) {
-            labels.add(label(displays[i]));
-            if (displays[i].uniqueId.equals(selectedUniqueId)) {
+        for (int i = 0; i < mDisplays.length; i++) {
+            labels.add(label(mDisplays[i]));
+            if (mDisplays[i].uniqueId.equals(selectedUniqueId)) {
                 selectedIndex = i;
             }
         }
@@ -130,9 +146,14 @@ final class DisplaySelectionView {
             mLabels.clear();
             mLabels.addAll(labels);
         }
-        mSelected = selectedIndex >= 0 ? displays[selectedIndex] : null;
+        mSelected = selectedIndex >= 0 ? mDisplays[selectedIndex] : null;
         mSelector.setSelection(selectedIndex);
         mSelector.setEnabled(shellReady && !busy);
+        mOutputOptions.setVisibility(hasOutputControls(mSelected, outputControlAvailable)
+                ? View.VISIBLE : View.GONE);
+        renderOutputModes(outputSelection);
+        mOutputMode.setEnabled(canConfigureOutput(mSelected, outputControlAvailable,
+                outputSelection, activeId, shellReady, busy));
         mStart.setText(!RuntimeCapabilities.supportsDesktop(android.os.Build.VERSION.SDK_INT)
                 ? R.string.desktop_android_requirement
                 : mSelected != null && mSelected.id == activeId
@@ -146,9 +167,28 @@ final class DisplaySelectionView {
         mCommand.setText(remote ? DesktopDisplayCatalog.scrcpyCommand(mSelected) : "");
         ((View) mCommand.getParent()).setVisibility(remote ? View.VISIBLE : View.GONE);
         mCopy.setEnabled(remote);
+        // Spinner callbacks may be posted after setSelection; rendering is not a user choice.
         mSelector.post(() -> {
             if (generation == mRenderGeneration) { mRendering = false; }
         });
+    }
+
+    static DesktopDisplayInfo[] orderedDisplays(final DesktopDisplayInfo[] displays) {
+        final DesktopDisplayInfo[] ordered = displays.clone();
+        Arrays.sort(ordered, Comparator.comparingInt((DesktopDisplayInfo display) -> display.id).reversed());
+        return ordered;
+    }
+
+    static boolean hasOutputControls(final DesktopDisplayInfo display, final boolean available) {
+        return available && display != null && "wired".equals(display.source);
+    }
+
+    static boolean canConfigureOutput(final DesktopDisplayInfo display, final boolean available,
+            final PlatformProjectionDriver.ModeSelection selection, final int activeId,
+            final boolean shellReady, final boolean busy) {
+        return hasOutputControls(display, available) && shellReady && !busy && activeId < 0
+                && selection != null && selection.configurable
+                && (selection.systemDefaultAvailable || !selection.availableModes.isEmpty());
     }
 
     static boolean canStart(final DesktopDisplayInfo display, final int activeId,
@@ -161,6 +201,81 @@ final class DisplaySelectionView {
     private String label(final DesktopDisplayInfo display) {
         return display.name + " [" + display.id + "]"
                 + (display.canHostDesktop ? "" : " (" + mActivity.getString(R.string.display_unavailable) + ")");
+    }
+
+    private View createOutputModeView() {
+        final LinearLayout options = new LinearLayout(mActivity);
+        options.setOrientation(LinearLayout.VERTICAL);
+        options.setPadding(dp(6), dp(4), dp(3), dp(4));
+        final TextView label = new TextView(mActivity);
+        label.setText(R.string.external_display_resolution);
+        label.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        label.setTextSize(14);
+        options.addView(label, new LinearLayout.LayoutParams(-1, -2));
+        mOutputMode = new Spinner(mActivity, Spinner.MODE_DROPDOWN);
+        mOutputMode.setContentDescription(mActivity.getString(R.string.external_display_resolution));
+        mOutputModeAdapter = new ArrayAdapter<>(mActivity,
+                android.R.layout.simple_spinner_item, new ArrayList<>());
+        mOutputModeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        mOutputMode.setAdapter(mOutputModeAdapter);
+        mOutputMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(final AdapterView<?> parent, final View view,
+                    final int position, final long id) {
+                if (!mRendering && mOutputMode.isEnabled()
+                        && position >= 0 && position < mOutputModes.size()) {
+                    mActions.setExternalOutputTiming(mOutputModes.get(position).timingKey);
+                }
+            }
+            @Override public void onNothingSelected(final AdapterView<?> parent) { }
+        });
+        options.addView(mOutputMode, new LinearLayout.LayoutParams(-1, dp(48)));
+        return options;
+    }
+
+    private void renderOutputModes(final PlatformProjectionDriver.ModeSelection selection) {
+        final List<PlatformProjectionDriver.Mode> modes = new ArrayList<>();
+        if (selection != null && selection.systemDefaultAvailable) {
+            modes.add(new PlatformProjectionDriver.Mode("",
+                    mActivity.getString(R.string.external_display_system_native)));
+        }
+        if (selection != null) { modes.addAll(selection.availableModes); }
+        final boolean configurable = selection != null && selection.configurable;
+        if (mOutputModeAdapter.getCount() == 0 || !sameModes(mOutputModes, modes)
+                || mOutputModesConfigurable != configurable) {
+            mOutputModes = modes;
+            mOutputModesConfigurable = configurable;
+            mOutputModeAdapter.clear();
+            if (modes.isEmpty()) {
+                mOutputModeAdapter.add(mActivity.getString(R.string.external_display_no_modes));
+            } else {
+                for (final PlatformProjectionDriver.Mode mode : modes) {
+                    mOutputModeAdapter.add(configurable ? mode.displayLabel
+                            : mActivity.getString(R.string.external_display_system_mode, mode.displayLabel));
+                }
+            }
+            mOutputModeAdapter.notifyDataSetChanged();
+        }
+        if (selection == null || selection.target == null) {
+            mOutputMode.setSelection(0, false);
+            return;
+        }
+        final String selectedTiming = selection.systemDefaultSelected ? "" : selection.target.timingKey;
+        for (int index = 0; index < mOutputModes.size(); index++) {
+            if (selectedTiming.equals(mOutputModes.get(index).timingKey)) {
+                mOutputMode.setSelection(index, false);
+                return;
+            }
+        }
+    }
+
+    private static boolean sameModes(final List<PlatformProjectionDriver.Mode> left,
+            final List<PlatformProjectionDriver.Mode> right) {
+        if (left.size() != right.size()) { return false; }
+        for (int index = 0; index < left.size(); index++) {
+            if (!left.get(index).timingKey.equals(right.get(index).timingKey)
+                    || !left.get(index).displayLabel.equals(right.get(index).displayLabel)) { return false; }
+        }
+        return true;
     }
 
     private void showCreateDialog() {

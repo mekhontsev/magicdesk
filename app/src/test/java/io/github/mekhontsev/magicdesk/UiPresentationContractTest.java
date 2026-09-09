@@ -50,17 +50,14 @@ public final class UiPresentationContractTest {
     @Test
     public void unavailableControlStateInvalidatesAlreadyRunningDisplayProbes()
             throws IOException {
-        final String source = read("ControlActivity.java");
-        final String probe = source.substring(
-                source.indexOf("private void refreshSelectedOutput()"),
-                source.indexOf("private boolean isExternalDesktopActive()"));
+        final String probe = RuntimeSourceFixture.methods("ControlActivity", "refreshSelectedOutput");
         final int unavailable = probe.indexOf("if (display == null");
         assertTrue(unavailable >= 0);
-        assertTrue(probe.indexOf("++mOutputGeneration") < unavailable);
+        final int generation = probe.indexOf("++mOutputGeneration");
+        assertTrue(generation >= 0 && generation < unavailable);
         assertTrue(probe.contains("generation != mOutputGeneration || isActivityUnavailable()"));
         assertTrue(probe.contains("DesktopDisplayCatalog.require(display.id, display.uniqueId)"));
-        final String catalog = source.substring(source.indexOf("private void refreshCatalog()"),
-                source.indexOf("private void refreshCatalog()") + 500);
+        final String catalog = RuntimeSourceFixture.methods("ControlActivity", "refreshCatalog");
         assertTrue(catalog.contains("++mCatalogGeneration"));
         assertTrue(catalog.contains("generation != mCatalogGeneration || isActivityUnavailable()"));
     }

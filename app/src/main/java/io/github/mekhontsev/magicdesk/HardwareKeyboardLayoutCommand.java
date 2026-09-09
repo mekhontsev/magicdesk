@@ -31,34 +31,28 @@ public final class HardwareKeyboardLayoutCommand {
     }
 
     public static void main(final String[] args) {
-        if ((args.length < 1 || args.length > 2)
+        if (args.length != 1
                 || !("next".equals(args[0])
-                        || "sync".equals(args[0])
-                        || "ime".equals(args[0]))) {
+                        || "sync".equals(args[0]))) {
             System.err.println(
                     "usage: HardwareKeyboardLayoutCommand"
-                            + " <next|sync|ime>"
-                            + " [current-descriptor]");
+                            + " <next|sync>");
             System.exit(64);
             return;
         }
 
         try {
-            System.out.print(execute(
-                    args[0], args.length >= 2 ? args[1] : null).format());
+            System.out.print(execute(args[0]).format());
         } catch (ReflectiveOperationException | RuntimeException e) {
             e.printStackTrace(System.err);
             System.exit(1);
         }
     }
 
-    static Result execute(
-            final String mode,
-            final String persistedCurrent)
+    static Result execute(final String mode)
             throws ReflectiveOperationException {
         if (!"next".equals(mode)
-                && !"sync".equals(mode)
-                && !"ime".equals(mode)) {
+                && !"sync".equals(mode)) {
             throw new IllegalArgumentException("unsupported mode: " + mode);
         }
         final List<InputDevice> physicalKeyboards =
@@ -79,42 +73,36 @@ public final class HardwareKeyboardLayoutCommand {
                 ? Math.max(1, imeState.layoutMappings.size())
                 : 0;
         List<LayoutInfo> layouts;
-        int subtypeIndex = -1;
-        do {
-            if (advance) {
-                switchInputMethodSubtype();
-                imeState = getImeState();
-            }
+        int selectedIndex;
+        String initialDescriptor = null;
+        while (true) {
             layouts = resolveConfiguredLayouts(
                     inputManager, inputManagerInterface, getKeyboardLayout,
                     keyboardLayoutClass, physicalKeyboards.get(0), imeState);
             if (layouts.isEmpty()) {
-                if (advance && --remainingSwitches > 0) {
-                    continue;
-                }
                 throw new IllegalStateException(
                         "no configured hardware keyboard layouts found");
             }
-            // Keep the fallback selection stable across IME enumeration order.
+            // Stable ordering is only for labels, never a fallback selection.
             layouts.sort(Comparator.comparing(layout -> layout.descriptor));
-            subtypeIndex = findSubtypeIndex(
+            selectedIndex = findSubtypeIndex(
                     layouts, imeState.currentSubtype);
-        } while (advance
-                && --remainingSwitches > 0
-                && KeyboardLayoutPolicy.selectsCurrentLayout(
-                        layouts, subtypeIndex, persistedCurrent));
-
-        final int persistedIndex =
-                KeyboardLayoutPolicy.findCurrentIndex(
-                        layouts, persistedCurrent);
-        final int baseIndex = persistedIndex >= 0
-                ? persistedIndex : Math.max(0, subtypeIndex);
-        final int selectedIndex;
-        if ((advance || "ime".equals(mode))
-                && subtypeIndex >= 0) {
-            selectedIndex = subtypeIndex;
-        } else {
-            selectedIndex = baseIndex;
+            if (selectedIndex < 0) {
+                throw new IllegalStateException(
+                        "current input method subtype has no hardware keyboard layout");
+            }
+            final String descriptor = layouts.get(selectedIndex).descriptor;
+            if (remainingSwitches == 0
+                    || (initialDescriptor != null
+                            && !initialDescriptor.equals(descriptor))) {
+                break;
+            }
+            // Compare with Android's state before this command, not the last
+            // taskbar label. Different IMEs may expose the same layout.
+            initialDescriptor = descriptor;
+            remainingSwitches--;
+            switchInputMethodSubtype();
+            imeState = getImeState();
         }
         final LayoutInfo selected = layouts.get(selectedIndex);
         for (final InputDevice keyboard : physicalKeyboards) {

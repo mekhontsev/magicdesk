@@ -8,8 +8,10 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.PopupMenu;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -49,6 +51,8 @@ final class SettingsView {
 
         void configureIntegrationPackage(IntegrationPackage integration);
 
+        void configureConsoleFontSize();
+
         void openDeviceSetup();
 
         void openApplicationSettings();
@@ -80,6 +84,9 @@ final class SettingsView {
     private final java.util.EnumMap<IntegrationPackage, TextView> mIntegrationPackages =
             new java.util.EnumMap<>(IntegrationPackage.class);
     private View mTermuxX11Action;
+    private TextView mConsoleFontSize;
+    private final java.util.Map<Integer, View> mSections = new java.util.LinkedHashMap<>();
+    private ScrollView mScroll;
 
     SettingsView(final Activity activity, final Actions actions) {
         mActivity = activity;
@@ -96,15 +103,10 @@ final class SettingsView {
 
         final LinearLayout content = new LinearLayout(mActivity);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.addView(createHeader(), new LinearLayout.LayoutParams(
+        page.addView(centered(createHeader()), new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
-        final View headerDivider = new View(mActivity);
-        headerDivider.setBackgroundColor(DesktopUiFactory.COLOR_CYAN);
-        content.addView(headerDivider, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(1)));
-
-        addSection(content, R.string.settings_section_desktop, 14);
+        addSection(content, R.string.settings_section_desktop);
         mTaskbarAutoHide = addSwitch(
                 content, R.string.settings_taskbar_auto_hide);
         mTaskbarAutoHide.setOnCheckedChangeListener((button, checked) -> {
@@ -126,7 +128,14 @@ final class SettingsView {
                 R.string.app_presentation_profiles_title,
                 mActions::openApplicationSettings);
 
-        addSection(content, R.string.settings_section_session, 14);
+        addSection(content, R.string.settings_section_console);
+        mConsoleFontSize = new TextView(mActivity);
+        mConsoleFontSize.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mConsoleFontSize.setTextSize(12);
+        addAction(content, android.R.drawable.ic_menu_zoom, R.string.settings_console_font_size,
+                mActions::configureConsoleFontSize, mConsoleFontSize);
+
+        addSection(content, R.string.settings_section_session);
         mOpenTouchpadAutomatically = addSwitch(
                 content, R.string.settings_open_touchpad_automatically);
         mOpenTouchpadAutomatically.setOnCheckedChangeListener(
@@ -153,7 +162,7 @@ final class SettingsView {
                     }
                 });
 
-        addSection(content, R.string.settings_section_compatibility, 14);
+        addSection(content, R.string.settings_section_compatibility);
         for (final DesktopCompatibilityPolicy.Option option
                 : DesktopCompatibilityPolicy.Option.values()) {
             final Switch control = addSwitch(content, compatibilityLabel(option));
@@ -165,7 +174,7 @@ final class SettingsView {
             });
         }
 
-        addSection(content, R.string.settings_section_android, 14);
+        addSection(content, R.string.settings_section_android);
         mSystemDesktopMode = addSwitch(content, R.string.settings_system_desktop_mode);
         mSystemDesktopMode.setEnabled(false);
         mSystemDesktopMode.setOnCheckedChangeListener((button, checked) -> {
@@ -181,7 +190,7 @@ final class SettingsView {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        addSection(content, R.string.settings_section_automation, 14);
+        addSection(content, R.string.settings_section_automation);
         mMcpEnabled = addSwitch(content, R.string.settings_mcp_enabled);
         mMcpEnabled.setOnCheckedChangeListener((button, checked) -> {
             if (!mRendering) {
@@ -227,15 +236,14 @@ final class SettingsView {
         addAction(content, android.R.drawable.ic_popup_sync,
                 R.string.settings_mcp_network_token, mActions::regenerateMcpNetworkToken);
 
-        addSection(content, R.string.settings_section_integrations, 14);
+        addSection(content, R.string.settings_section_integrations);
         for (final IntegrationPackage integration : IntegrationPackage.values()) {
-            addAction(content, android.R.drawable.ic_menu_edit, integrationLabel(integration),
-                    () -> mActions.configureIntegrationPackage(integration));
             final TextView value = new TextView(mActivity);
             value.setTextColor(DesktopUiFactory.COLOR_MUTED);
             value.setTextSize(12);
-            value.setPadding(dp(8), dp(4), dp(8), dp(8));
-            content.addView(value);
+            value.setPadding(0, dp(4), 0, 0);
+            addAction(content, android.R.drawable.ic_menu_edit, integrationLabel(integration),
+                    () -> mActions.configureIntegrationPackage(integration), value);
             mIntegrationPackages.put(integration, value);
         }
         mTermuxX11Action = addAction(
@@ -244,7 +252,7 @@ final class SettingsView {
                     R.string.settings_termux_x11_command,
                     mActions::configureTermuxX11);
 
-        addSection(content, R.string.settings_section_support, 14);
+        addSection(content, R.string.settings_section_support);
         addAction(content,
                 android.R.drawable.ic_menu_manage,
                 R.string.action_device_setup,
@@ -258,8 +266,19 @@ final class SettingsView {
                 R.string.action_about,
                 mActions::showAbout);
 
-        final ScrollView scroll = new ScrollView(mActivity);
-        scroll.setFillViewport(true);
+        mScroll = new ScrollView(mActivity);
+        mScroll.setFillViewport(true);
+        mScroll.addView(centered(content), new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT));
+        final LinearLayout.LayoutParams scrollParams =
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
+        page.addView(mScroll, scrollParams);
+        return page;
+    }
+
+    private View centered(final View content) {
         final FrameLayout contentHost = new FrameLayout(mActivity);
         final int availableWidthDp = Math.max(
                 1,
@@ -271,14 +290,7 @@ final class SettingsView {
                         FrameLayout.LayoutParams.WRAP_CONTENT,
                         Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         contentHost.addView(content, contentParams);
-        scroll.addView(contentHost, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
-        final LinearLayout.LayoutParams scrollParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
-        page.addView(scroll, scrollParams);
-        return page;
+        return contentHost;
     }
 
     void render(
@@ -296,6 +308,8 @@ final class SettingsView {
             return;
         }
         mRendering = true;
+        mConsoleFontSize.setText(mActivity.getString(R.string.console_font_size_value,
+                ConsolePreferences.fontSizeSp(mActivity)));
         for (final IntegrationPackage integration : IntegrationPackage.values()) {
             final String saved = integration.configured(mActivity);
             mIntegrationPackages.get(integration).setText(saved.equals(integration.selected()) ? saved
@@ -354,7 +368,7 @@ final class SettingsView {
         header.setMinimumHeight(dp(46));
 
         final ImageView icon = new ImageView(mActivity);
-        icon.setImageResource(android.R.drawable.ic_menu_preferences);
+        icon.setImageResource(R.drawable.ic_settings);
         icon.setColorFilter(DesktopUiFactory.COLOR_CYAN);
         icon.setContentDescription(null);
         header.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
@@ -370,6 +384,21 @@ final class SettingsView {
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
         titleParams.setMargins(dp(10), 0, 0, 0);
         header.addView(title, titleParams);
+        final ImageButton sections = mUi.menuIconButton(R.drawable.ic_sections, R.string.settings_sections);
+        sections.setOnClickListener(view -> {
+            final PopupMenu menu = new PopupMenu(mActivity, sections);
+            for (final int section : mSections.keySet()) {
+                menu.getMenu().add(0, section, 0, section);
+            }
+            menu.setOnMenuItemClickListener(item -> {
+                final View heading = mSections.get(item.getItemId());
+                if (heading == null) { return false; }
+                mScroll.smoothScrollTo(0, Math.max(0, heading.getTop() - dp(8)));
+                return true;
+            });
+            menu.show();
+        });
+        header.addView(sections, new LinearLayout.LayoutParams(dp(48), dp(48)));
         return header;
     }
 
@@ -386,16 +415,23 @@ final class SettingsView {
 
     private void addSection(
             final LinearLayout parent,
-            final int titleResId,
-            final int topMargin) {
+            final int titleResId) {
+        final View divider = new View(mActivity);
+        divider.setBackgroundColor(DesktopUiFactory.COLOR_MUTED);
+        final LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+        dividerParams.setMargins(0, dp(20), 0, dp(10));
+        parent.addView(divider, dividerParams);
         final TextView title = mUi.sectionTitle(titleResId);
+        title.setAccessibilityHeading(true);
         title.setTextSize(16);
         final LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(dp(8), dp(topMargin), dp(8), dp(5));
+        params.setMargins(dp(8), 0, dp(8), dp(5));
         parent.addView(title, params);
+        mSections.put(titleResId, title);
     }
 
     private Switch addSwitch(
@@ -446,6 +482,15 @@ final class SettingsView {
             final int iconResId,
             final int labelResId,
             final Runnable action) {
+        return addAction(parent, iconResId, labelResId, action, null);
+    }
+
+    private View addAction(
+            final LinearLayout parent,
+            final int iconResId,
+            final int labelResId,
+            final Runnable action,
+            final TextView detail) {
         final LinearLayout row = new LinearLayout(mActivity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -470,7 +515,12 @@ final class SettingsView {
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
         labelParams.setMargins(dp(14), 0, dp(12), 0);
-        row.addView(label, labelParams);
+        final LinearLayout text = new LinearLayout(mActivity);
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.setPadding(0, dp(10), 0, dp(10));
+        text.addView(label);
+        if (detail != null) { text.addView(detail); }
+        row.addView(text, labelParams);
 
         final ImageView arrow = new ImageView(mActivity);
         arrow.setImageResource(android.R.drawable.ic_media_next);

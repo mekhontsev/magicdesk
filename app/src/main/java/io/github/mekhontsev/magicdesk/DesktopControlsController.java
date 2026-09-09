@@ -12,6 +12,7 @@ import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -248,19 +249,11 @@ final class DesktopControlsController {
     void populateSystem(
             final LinearLayout parent,
             final int spacing) {
-        final TextView displayTitle = mUi.sectionTitle(
-                R.string.system_display_section);
-        parent.addView(
-                displayTitle,
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT));
-        addDpiControls(parent);
-
-        mPlatformControls.populate(parent, spacing);
-
-        mPointerSpeed.populate(parent, spacing);
         mAudio.populate(parent, spacing);
+        mUi.addControlSection(parent, R.string.system_display_section, spacing);
+        addDpiControls(parent);
+        mPointerSpeed.populate(parent, spacing);
+        mPlatformControls.populate(parent, spacing);
     }
 
     void populateCapture(
@@ -422,12 +415,16 @@ final class DesktopControlsController {
                 new Handler(Looper.getMainLooper())) {
             @Override
             public void onChange(final boolean selfChange) {
-                HardwareKeyboardLayoutController.syncWithInputMethod();
+                HardwareKeyboardLayoutController.refresh();
             }
         };
         mActivity.getContentResolver().registerContentObserver(
                 Settings.Secure.getUriFor(
                         SELECTED_INPUT_METHOD_SUBTYPE),
+                false,
+                mInputMethodSubtypeObserver);
+        mActivity.getContentResolver().registerContentObserver(
+                Settings.Secure.getUriFor(Settings.Secure.DEFAULT_INPUT_METHOD),
                 false,
                 mInputMethodSubtypeObserver);
     }
@@ -472,12 +469,13 @@ final class DesktopControlsController {
         adjustment.setOrientation(LinearLayout.HORIZONTAL);
         adjustment.setGravity(Gravity.CENTER_VERTICAL);
 
-        final Button decrease = dpiStepButton(
-                "-", R.string.action_dpi_decrease, enabled);
+        final ImageButton decrease = dpiStepButton(
+                R.drawable.ic_remove, R.string.action_dpi_decrease, enabled);
         decrease.setOnClickListener(view -> adjustDpi(-DPI_BUTTON_STEP));
         adjustment.addView(decrease, dpiStepButtonParams());
 
         mDpiSlider = new SeekBar(mActivity);
+        mDpiSlider.setContentDescription(mActivity.getString(R.string.dpi_label));
         mDpiSlider.setMin(DPI_MIN);
         mDpiSlider.setMax(maximum);
         mDpiSlider.setKeyProgressIncrement(DPI_STEP);
@@ -514,8 +512,8 @@ final class DesktopControlsController {
         adjustment.addView(mDpiSlider, new LinearLayout.LayoutParams(
                 0, dp(DPI_BUTTON_SIZE_DP), 1));
 
-        final Button increase = dpiStepButton(
-                "+", R.string.action_dpi_increase, enabled);
+        final ImageButton increase = dpiStepButton(
+                R.drawable.ic_add, R.string.action_dpi_increase, enabled);
         increase.setOnClickListener(view -> adjustDpi(DPI_BUTTON_STEP));
         adjustment.addView(increase, dpiStepButtonParams());
         parent.addView(adjustment, new LinearLayout.LayoutParams(
@@ -526,23 +524,14 @@ final class DesktopControlsController {
         footer.setOrientation(LinearLayout.HORIZONTAL);
         footer.setGravity(Gravity.CENTER_VERTICAL);
 
-        final TextView range = new TextView(mActivity);
-        range.setText(mActivity.getString(
-                R.string.dpi_range,
-                Integer.valueOf(DPI_MIN),
-                Integer.valueOf(maximum)));
-        range.setTextColor(DesktopUiFactory.COLOR_MUTED);
-        range.setTextSize(11);
-        footer.addView(range, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-
         final int recommendedDpi = mActivity.getRecommendedDesktopDpi();
         final int recommendedLabel = recommendedDpi
                 == DesktopPreferences.SYSTEM_DESKTOP_DPI
                 ? DisplayMetrics.DENSITY_DEVICE_STABLE : recommendedDpi;
-        final Button defaultDpi = mUi.smallButton(
-                Integer.toString(recommendedLabel),
-                DesktopUiFactory.COLOR_CYAN);
+        final Button defaultDpi = mUi.menuItem(
+                mActivity.getString(R.string.action_dpi_recommended, recommendedLabel),
+                DesktopUiFactory.COLOR_TEXT);
+        defaultDpi.setTextSize(12);
         defaultDpi.setContentDescription(
                 mActivity.getString(R.string.action_dpi_default));
         defaultDpi.setTooltipText(
@@ -550,29 +539,26 @@ final class DesktopControlsController {
         defaultDpi.setEnabled(enabled);
         defaultDpi.setOnClickListener(view ->
                 mActivity.applyRecommendedDensity());
-        footer.addView(defaultDpi, dpiFooterButtonParams(dp(112)));
+        footer.addView(defaultDpi, new LinearLayout.LayoutParams(0, dp(40), 1));
 
-        final Button systemDpi = mUi.smallButton(
+        final Button systemDpi = mUi.menuItem(
                 R.string.action_dpi_system,
-                DesktopUiFactory.COLOR_PANEL_ALT);
+                DesktopUiFactory.COLOR_TEXT);
+        systemDpi.setTextSize(12);
+        systemDpi.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         systemDpi.setEnabled(enabled);
         systemDpi.setOnClickListener(view -> mActivity.resetDensity());
-        footer.addView(systemDpi, dpiFooterButtonParams(dp(82)));
+        footer.addView(systemDpi, new LinearLayout.LayoutParams(0, dp(40), 1));
         parent.addView(footer, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
-    private Button dpiStepButton(
-            final String text,
+    private ImageButton dpiStepButton(
+            final int drawableResId,
             final int descriptionResId,
             final boolean enabled) {
-        final Button button = mUi.smallButton(
-                text, DesktopUiFactory.COLOR_PANEL_ALT);
-        button.setTextSize(16);
-        button.setContentDescription(
-                mActivity.getString(descriptionResId));
-        button.setTooltipText(mActivity.getString(descriptionResId));
+        final ImageButton button = mUi.menuIconButton(drawableResId, descriptionResId);
         button.setEnabled(enabled);
         return button;
     }
@@ -583,14 +569,6 @@ final class DesktopControlsController {
                         dp(DPI_BUTTON_SIZE_DP),
                         dp(DPI_BUTTON_SIZE_DP));
         params.setMargins(dp(2), 0, dp(2), 0);
-        return params;
-    }
-
-    private LinearLayout.LayoutParams dpiFooterButtonParams(
-            final int width) {
-        final LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(width, dp(DPI_BUTTON_SIZE_DP));
-        params.setMargins(dp(4), dp(2), 0, dp(2));
         return params;
     }
 

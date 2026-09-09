@@ -1,15 +1,18 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Point;
 import android.os.Bundle;
 import android.text.InputType;
+import android.util.TypedValue;
 import android.view.GestureDetector;
 import android.view.InputDevice;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.inputmethod.BaseInputConnection;
@@ -32,15 +35,22 @@ final class ConsoleTerminalView extends View {
     private static final int NO_SELECTION = Integer.MIN_VALUE;
     private static final int SCROLL_ROWS = 3;
 
-    private final MagicDeskTerminalRenderer mRenderer;
+    private MagicDeskTerminalRenderer mRenderer;
     private final GestureDetector mGestures;
-    private final int mContentPadding;
-    private final int mTouchSlop;
+    private final ScaleGestureDetector mScaleGestures;
+    private int mContentPadding;
+    private int mTouchSlop;
+    private int mFontSizeSp;
+    private float mPinchFontSizeSp;
+    private float mFontWheelRemainder;
+    private boolean mFontScaleGesture;
+    private int mAppliedCellWidth;
+    private int mAppliedCellHeight;
     private final ConsoleTerminalInput mInput =
             new ConsoleTerminalInput(KeyCharacterMap::getDeadChar);
 
     private ConsoleTerminalSession mSession;
-    private TerminalInputConnection mInputConnection;
+    private Object mInputAttachment;
     private ClipboardActions mClipboardActions;
     private int mColumns = 80;
     private int mRows = 24;
@@ -51,7 +61,9 @@ final class ConsoleTerminalView extends View {
     private int mSelectionEndRow = NO_SELECTION;
     private float mDownX;
     private float mDownY;
-    private int mLastTouchRow;
+    private float mLastTouchY;
+    private float mTouchScrollRemainder;
+    private float mWheelScrollRemainder;
     private boolean mSelecting;
     private boolean mTouchScrolling;
     private boolean mTerminalMousePress;
@@ -59,11 +71,8 @@ final class ConsoleTerminalView extends View {
 
     ConsoleTerminalView(final Context context) {
         super(context);
-        mRenderer = new MagicDeskTerminalRenderer(
-                getResources().getDisplayMetrics().scaledDensity);
-        mContentPadding = Math.round(
-                6.0f * getResources().getDisplayMetrics().density);
-        mTouchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        mFontSizeSp = ConsolePreferences.fontSizeSp(context);
+        refreshFontMetrics();
         mGestures = new GestureDetector(
                 context,
                 new GestureDetector.SimpleOnGestureListener() {
@@ -74,23 +83,64 @@ final class ConsoleTerminalView extends View {
 
                     @Override
                     public void onLongPress(final MotionEvent event) {
-                        if (isTouch(event)) {
+                        if (isTouch(event) && !mTouchScrolling) {
                             beginSelection(event);
                         }
                     }
                 });
+        mScaleGestures = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override public boolean onScaleBegin(final ScaleGestureDetector detector) {
+                mPinchFontSizeSp = mFontSizeSp;
+                return true;
+            }
+
+            @Override public boolean onScale(final ScaleGestureDetector detector) {
+                mPinchFontSizeSp = Math.max(ConsolePreferences.MIN_FONT_SIZE_SP,
+                        Math.min(ConsolePreferences.MAX_FONT_SIZE_SP, mPinchFontSizeSp * detector.getScaleFactor()));
+                setFontSizeSp(Math.round(mPinchFontSizeSp));
+                return true;
+            }
+        });
+        mScaleGestures.setQuickScaleEnabled(false);
         setFocusable(true);
         setFocusableInTouchMode(true);
-        setVerticalScrollBarEnabled(false);
+        setVerticalScrollBarEnabled(true);
     }
 
     void attach(
             final ConsoleTerminalSession session,
             final ClipboardActions clipboardActions) {
-        if (mSession != session) { mInputConnection = null; }
+        if (mSession != session) { mInputAttachment = session == null ? null : new Object(); }
         mSession = session;
         mClipboardActions = clipboardActions;
         resizeTerminal();
+        invalidate();
+    }
+
+    int fontSizeSp() { return mFontSizeSp; }
+
+    void setFontSizeSp(final int size) {
+        final int bounded = ConsolePreferences.clampFontSize(size);
+        if (mFontSizeSp == bounded) { return; }
+        mFontSizeSp = bounded;
+        clearSelection();
+        refreshFontMetrics();
+    }
+
+    @Override
+    protected void onConfigurationChanged(final Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        refreshFontMetrics();
+    }
+
+    private void refreshFontMetrics() {
+        // Android applies the current display density and nonlinear accessibility font scale.
+        mRenderer = new MagicDeskTerminalRenderer(TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP, mFontSizeSp, getResources().getDisplayMetrics()));
+        mContentPadding = Math.round(6.0f * getResources().getDisplayMetrics().density);
+        mTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+        resizeTerminal();
+        clampTopRow();
         invalidate();
     }
 
@@ -227,6 +277,11 @@ final class ConsoleTerminalView extends View {
         if (mSession == null || keyCode == KeyEvent.KEYCODE_BACK) {
             return super.onKeyDown(keyCode, event);
         }
+        if (event.isShiftPressed() && !event.isCtrlPressed() && !event.isAltPressed()
+                && (keyCode == KeyEvent.KEYCODE_PAGE_UP || keyCode == KeyEvent.KEYCODE_PAGE_DOWN)) {
+            scrollRows(keyCode == KeyEvent.KEYCODE_PAGE_UP ? -mRows : mRows);
+            return true;
+        }
         if (event.isCtrlPressed() && event.isShiftPressed()) {
             if (keyCode == KeyEvent.KEYCODE_C && mClipboardActions != null) {
                 mClipboardActions.copySelection();
@@ -259,6 +314,7 @@ final class ConsoleTerminalView extends View {
         if (mSession == null) {
             return false;
         }
+        if (handleFontScaleGesture(event)) { return true; }
         mGestures.onTouchEvent(event);
         final TerminalEmulator emulator = mSession.emulator();
         final Point cell = cellAt(event);
@@ -267,9 +323,11 @@ final class ConsoleTerminalView extends View {
                 requestFocus();
                 mDownX = event.getX();
                 mDownY = event.getY();
-                mLastTouchRow = cell.y;
+                mLastTouchY = event.getY();
+                mTouchScrollRemainder = 0;
                 mTouchScrolling = false;
-                if (emulator.isMouseTrackingActive()
+                // A finger is a scroll gesture until a tap completes, not a held mouse button.
+                if (!isTouch(event) && emulator.isMouseTrackingActive()
                         && !isShiftPressed(event)) {
                     mTerminalMouseButton = mouseButton(event);
                     emulator.sendMouseEvent(
@@ -298,13 +356,10 @@ final class ConsoleTerminalView extends View {
                     return true;
                 }
                 if (isTouch(event)
-                        && Math.abs(event.getY() - mDownY) > mTouchSlop) {
+                        && (mTouchScrolling || Math.hypot(event.getX() - mDownX,
+                                event.getY() - mDownY) > mTouchSlop)) {
                     mTouchScrolling = true;
-                    final int rowDelta = cell.y - mLastTouchRow;
-                    if (rowDelta != 0) {
-                        scrollRows(rowDelta);
-                        mLastTouchRow = cell.y;
-                    }
+                    scrollTouch(event);
                     return true;
                 }
                 if (!isTouch(event)
@@ -330,7 +385,14 @@ final class ConsoleTerminalView extends View {
                         && !mTouchScrolling) {
                     clearSelection();
                     if (isTouch(event)) {
-                        showSoftKeyboard();
+                        if (emulator.isMouseTrackingActive() && !isShiftPressed(event)) {
+                            emulator.sendMouseEvent(TerminalEmulator.MOUSE_LEFT_BUTTON,
+                                    cell.x + 1, cell.y + 1, true);
+                            emulator.sendMouseEvent(TerminalEmulator.MOUSE_LEFT_BUTTON,
+                                    cell.x + 1, cell.y + 1, false);
+                        } else {
+                            showSoftKeyboard();
+                        }
                     }
                 }
                 return true;
@@ -349,20 +411,76 @@ final class ConsoleTerminalView extends View {
         if (amount == 0.0f) {
             return super.onGenericMotionEvent(event);
         }
+        if ((event.getMetaState() & KeyEvent.META_CTRL_ON) != 0) {
+            mFontWheelRemainder += amount;
+            final int steps = (int) mFontWheelRemainder;
+            mFontWheelRemainder -= steps;
+            setFontSizeSp(mFontSizeSp + steps);
+            return true;
+        }
+        mWheelScrollRemainder -= amount * SCROLL_ROWS;
+        final int rows = (int) mWheelScrollRemainder;
+        mWheelScrollRemainder -= rows;
+        scrollTerminal(rows, event);
+        return true;
+    }
+
+    private boolean handleFontScaleGesture(final MotionEvent event) {
+        if (!isTouch(event)) { return false; }
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) { mFontScaleGesture = false; }
+        if (event.getPointerCount() > 1 && !mFontScaleGesture) {
+            mFontScaleGesture = true;
+            clearSelection();
+            // Cancel the pending long press and consume until all fingers are lifted.
+            final MotionEvent cancel = MotionEvent.obtain(event);
+            cancel.setAction(MotionEvent.ACTION_CANCEL);
+            mGestures.onTouchEvent(cancel);
+            cancel.recycle();
+        }
+        mScaleGestures.onTouchEvent(event);
+        return mFontScaleGesture;
+    }
+
+    private void scrollTouch(final MotionEvent event) {
+        mTouchScrollRemainder += (mLastTouchY - event.getY()) / mRenderer.cellHeight();
+        mLastTouchY = event.getY();
+        final int rows = (int) mTouchScrollRemainder;
+        mTouchScrollRemainder -= rows;
+        scrollTerminal(rows, event);
+    }
+
+    private void scrollTerminal(final int rows, final MotionEvent event) {
+        if (rows == 0) { return; }
         final TerminalEmulator emulator = mSession.emulator();
         if (emulator.isMouseTrackingActive() && !isShiftPressed(event)) {
             final Point cell = cellAt(event);
-            emulator.sendMouseEvent(
-                    amount > 0.0f
-                            ? TerminalEmulator.MOUSE_WHEELUP_BUTTON
-                            : TerminalEmulator.MOUSE_WHEELDOWN_BUTTON,
-                    cell.x + 1,
-                    cell.y + 1,
-                    true);
+            final int button = rows < 0 ? TerminalEmulator.MOUSE_WHEELUP_BUTTON
+                    : TerminalEmulator.MOUSE_WHEELDOWN_BUTTON;
+            for (int i = 0; i < Math.abs(rows); i++) {
+                emulator.sendMouseEvent(button, cell.x + 1, cell.y + 1, true);
+            }
+        } else if (emulator.isAlternateBufferActive() && !isShiftPressed(event)) {
+            final String key = KeyHandler.getCode(rows < 0 ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN,
+                    0, emulator.isCursorKeysApplicationMode(), emulator.isKeypadApplicationMode());
+            for (int i = 0; i < Math.abs(rows); i++) { mSession.write(key); }
         } else {
-            scrollRows(amount > 0.0f ? -SCROLL_ROWS : SCROLL_ROWS);
+            scrollRows(rows);
         }
-        return true;
+    }
+
+    @Override
+    protected int computeVerticalScrollRange() {
+        return mRows + (mSession == null ? 0 : mSession.emulator().getScreen().getActiveTranscriptRows());
+    }
+
+    @Override
+    protected int computeVerticalScrollExtent() {
+        return mRows;
+    }
+
+    @Override
+    protected int computeVerticalScrollOffset() {
+        return computeVerticalScrollRange() - mRows + mTopRow;
     }
 
     @Override
@@ -379,8 +497,7 @@ final class ConsoleTerminalView extends View {
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         editorInfo.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI
                 | EditorInfo.IME_ACTION_NONE;
-        mInputConnection = new TerminalInputConnection();
-        return mInputConnection;
+        return new TerminalInputConnection();
     }
 
     private void resizeTerminal() {
@@ -393,11 +510,14 @@ final class ConsoleTerminalView extends View {
         final int rows = Math.max(2,
                 (int) (availableHeight / mRenderer.cellHeight()));
         if (columns == mColumns && rows == mRows && (mSession == null
-                || mSession.columns() == columns && mSession.rows() == rows)) {
+                || mSession.columns() == columns && mSession.rows() == rows)
+                && mAppliedCellWidth == cellWidth() && mAppliedCellHeight == cellHeight()) {
             return;
         }
         mColumns = columns;
         mRows = rows;
+        mAppliedCellWidth = cellWidth();
+        mAppliedCellHeight = cellHeight();
         if (mSession != null) {
             mSession.resize(
                     columns,
@@ -441,6 +561,7 @@ final class ConsoleTerminalView extends View {
         mTopRow += delta;
         clampTopRow();
         clearSelection();
+        awakenScrollBars();
         invalidate();
     }
 
@@ -503,6 +624,8 @@ final class ConsoleTerminalView extends View {
     }
 
     private final class TerminalInputConnection extends BaseInputConnection {
+        private final Object mAttachment = mInputAttachment;
+        private boolean mClosed;
         private String mComposingText = "";
 
         TerminalInputConnection() {
@@ -510,13 +633,14 @@ final class ConsoleTerminalView extends View {
         }
 
         private boolean isActive() {
-            // IME callbacks may outlive a window or an input-connection replacement.
-            return mInputConnection == this && mSession != null;
+            // Creating another connection does not close this one. Android owns its
+            // lifetime; the attachment token also rejects callbacks after detach/rebind.
+            return !mClosed && mAttachment == mInputAttachment && mSession != null;
         }
 
         @Override
         public void closeConnection() {
-            if (mInputConnection == this) { mInputConnection = null; }
+            mClosed = true;
             super.closeConnection();
         }
 

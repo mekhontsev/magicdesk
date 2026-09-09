@@ -42,6 +42,7 @@ public final class CommandConsoleActivity extends Activity
     private static final String EXTRA_ATTACH_ONLY =
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_ATTACH_ONLY";
     private static final String STATE_WORKING_DIRECTORY = "working_directory";
+    private static final String STATE_FONT_SIZE = "font_size_sp";
     private static final int COLOR_BACKGROUND = 0xFF090D14;
     private static final int COLOR_TEXT = 0xFFE5E7EB;
     private static final int COLOR_MUTED = 0xFF94A3B8;
@@ -173,6 +174,9 @@ public final class CommandConsoleActivity extends Activity
         mSnapshot = mBackend == DesktopExecBackend.SHELL
                 ? ShellAccess.currentSnapshot() : null;
         setContentView(createContentView());
+        if (savedInstanceState != null) {
+            mTerminalView.setFontSizeSp(savedInstanceState.getInt(STATE_FONT_SIZE, mTerminalView.fontSizeSp()));
+        }
 
         final String restoredDirectory = savedInstanceState == null
                 ? null : savedInstanceState.getString(STATE_WORKING_DIRECTORY);
@@ -239,6 +243,7 @@ public final class CommandConsoleActivity extends Activity
 
     @Override
     protected void onSaveInstanceState(final Bundle state) {
+        if (mTerminalView != null) { state.putInt(STATE_FONT_SIZE, mTerminalView.fontSizeSp()); }
         if (mSession != null) {
             state.putString(
                     STATE_WORKING_DIRECTORY,
@@ -325,7 +330,7 @@ public final class CommandConsoleActivity extends Activity
         if (isFinishing() || isDestroyed()) {
             return;
         }
-        mTerminalStatus = getString(R.string.console_terminal_ready);
+        mTerminalStatus = "";
         updateShellStatus();
         updateActions();
     }
@@ -437,6 +442,10 @@ public final class CommandConsoleActivity extends Activity
                 R.string.console_paste,
                 view -> pasteClipboard());
         mToolbar.addView(mPaste, buttonParams());
+        mToolbar.addView(createIconButton(android.R.drawable.ic_menu_zoom,
+                R.string.console_font_size, view -> ConsoleFontSizeDialog.show(this,
+                        R.string.console_font_size, mTerminalView.fontSizeSp(),
+                        ConsolePreferences.fontSizeSp(this), mTerminalView::setFontSizeSp)), buttonParams());
         if (mBackend == DesktopExecBackend.TERMUX) {
             mTmuxSessions = createIconButton(
                     android.R.drawable.ic_menu_recent_history,

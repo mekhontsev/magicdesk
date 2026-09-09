@@ -412,13 +412,10 @@ public final class ShellAccess {
         }
     }
 
-    static String updateHardwareKeyboardLayout(
-            final String mode,
-            final String currentDescriptor)
+    static String updateHardwareKeyboardLayout(final String mode)
             throws IOException {
         try {
-            return requireService().updateHardwareKeyboardLayout(
-                    mode, currentDescriptor);
+            return requireService().updateHardwareKeyboardLayout(mode);
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(

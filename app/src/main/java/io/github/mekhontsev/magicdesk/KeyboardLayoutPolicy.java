@@ -12,28 +12,6 @@ final class KeyboardLayoutPolicy {
     private KeyboardLayoutPolicy() {
     }
 
-    static int findCurrentIndex(
-            final List<? extends Layout> layouts,
-            final String current) {
-        if (current == null || current.isEmpty() || "null".equals(current)) {
-            return -1;
-        }
-        for (int index = 0; index < layouts.size(); index++) {
-            if (current.equals(layouts.get(index).descriptor())) {
-                return index;
-            }
-        }
-        return -1;
-    }
-
-    static boolean selectsCurrentLayout(
-            final List<? extends Layout> layouts,
-            final int selectedIndex,
-            final String current) {
-        return selectedIndex >= 0
-                && selectedIndex == findCurrentIndex(layouts, current);
-    }
-
     static String compactCode(
             final List<? extends Layout> layouts,
             final int selectedIndex) {

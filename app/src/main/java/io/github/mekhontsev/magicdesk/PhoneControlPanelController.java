@@ -1,9 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_BACKGROUND;
-import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_CYAN;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_MUTED;
-import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_PANEL_ALT;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_RED;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_TEXT;
 
@@ -11,26 +9,19 @@ import android.app.Activity;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.GridLayout;
+import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.TextView;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 
 final class PhoneControlPanelController {
     interface Actions extends DisplaySelectionView.Actions {
 
         void connectWirelessDisplay();
-
-        void setExternalOutputTiming(String outputTiming);
 
         void closeDesktop();
 
@@ -58,12 +49,10 @@ final class PhoneControlPanelController {
         final boolean phoneScreenControlAvailable;
         final boolean externalOutputControlAvailable;
         final PlatformProjectionDriver.ModeSelection externalModeSelection;
-        final boolean wiredDisplayConnected;
         final boolean wirelessConnectionUiAvailable;
         final boolean wirelessDisplayConnected;
         final String status;
         final String runtime;
-        final int currentDisplayId;
 
         State(
                 final DesktopDisplayInfo[] displays,
@@ -78,12 +67,10 @@ final class PhoneControlPanelController {
                 final boolean phoneScreenControlAvailable,
                 final boolean externalOutputControlAvailable,
                 final PlatformProjectionDriver.ModeSelection externalModeSelection,
-                final boolean wiredDisplayConnected,
                 final boolean wirelessConnectionUiAvailable,
                 final boolean wirelessDisplayConnected,
                 final String status,
-                final String runtime,
-                final int currentDisplayId) {
+                final String runtime) {
             this.displays = displays;
             this.selectedDisplayUniqueId = selectedDisplayUniqueId;
             this.activeDisplayId = activeDisplayId;
@@ -97,13 +84,11 @@ final class PhoneControlPanelController {
             this.externalOutputControlAvailable =
                     externalOutputControlAvailable;
             this.externalModeSelection = externalModeSelection;
-            this.wiredDisplayConnected = wiredDisplayConnected;
             this.wirelessConnectionUiAvailable =
                     wirelessConnectionUiAvailable;
             this.wirelessDisplayConnected = wirelessDisplayConnected;
             this.status = status;
             this.runtime = runtime;
-            this.currentDisplayId = currentDisplayId;
         }
     }
 
@@ -116,20 +101,11 @@ final class PhoneControlPanelController {
     private TextView mStatus;
     private TextView mRuntime;
     private TextView mDisplay;
-    private LinearLayout mExternalDisplayOptions;
     private Button mConnectWirelessDisplay;
     private DisplaySelectionView mDisplaySelection;
     private Button mCloseDesktop;
     private Button mTouchpad;
     private Button mPhoneScreen;
-    private GridLayout mSessionActions;
-    private Spinner mOutputMode;
-    private ArrayAdapter<String> mOutputModeAdapter;
-    private List<PlatformProjectionDriver.Mode> mOutputModes =
-            Collections.emptyList();
-    private boolean mOutputModesConfigurable;
-    private boolean mRendering = true;
-    private int mRenderGeneration;
 
     PhoneControlPanelController(
             final Activity activity,
@@ -151,22 +127,20 @@ final class PhoneControlPanelController {
                 dp(16));
         SystemBarInsets.addToPadding(page);
 
-        page.addView(createHeader(), new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        page.addView(centered(createHeader()));
 
         final ScrollView scroll = new ScrollView(mActivity);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
-        scroll.setPadding(0, dp(18), 0, 0);
+        scroll.setPadding(0, dp(8), 0, 0);
 
         final LinearLayout content = new LinearLayout(mActivity);
         content.setOrientation(LinearLayout.VERTICAL);
         addStatus(content);
-        addToolActions(content);
         addDesktopActions(content);
+        addToolActions(content);
         addSystemActions(content);
-        scroll.addView(content, new ScrollView.LayoutParams(
+        scroll.addView(centered(content), new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT));
         page.addView(scroll, new LinearLayout.LayoutParams(
@@ -177,36 +151,21 @@ final class PhoneControlPanelController {
     }
 
     void render(final State state) {
-        final int renderGeneration = ++mRenderGeneration;
-        mRendering = true;
         mStatus.setText(state.status);
         mRuntime.setText(mActivity.getString(
                 R.string.control_runtime_status, state.runtime));
-        final String externalDesktopDisplay = state.externalDesktopActive
-                ? Integer.toString(state.activeDisplayId)
+        final String desktopDisplay = state.activeDisplayId >= 0
+                ? desktopDisplayLabel(state.displays, state.activeDisplayId)
                 : mActivity.getString(R.string.state_off);
         mDisplay.setText(mActivity.getString(
-                R.string.control_display_status,
-                Integer.valueOf(state.currentDisplayId),
-                externalDesktopDisplay));
+                R.string.control_display_status, desktopDisplay));
         mDisplaySelection.render(state.displays, state.selectedDisplayUniqueId,
                 state.activeDisplayId, state.shellReady,
-                state.sessionOperationInProgress || state.displayOperation);
+                state.sessionOperationInProgress || state.displayOperation,
+                state.externalOutputControlAvailable, state.externalModeSelection);
         mConnectWirelessDisplay.setEnabled(state.wirelessConnectionUiAvailable
                 && !state.desktopSessionActive && !state.wirelessDisplayConnected
                 && !state.displayOperation);
-        final boolean canConfigureOutput =
-                !state.externalDesktopActive
-                        && state.shellReady
-                        && state.externalOutputControlAvailable
-                        && state.wiredDisplayConnected
-                        && !state.desktopSessionActive && !state.displayOperation;
-        mExternalDisplayOptions.setVisibility(
-                canConfigureOutput ? View.VISIBLE : View.GONE);
-        renderOutputModes(state.externalModeSelection);
-        mOutputMode.setEnabled(canConfigureOutput
-                && mOutputModesConfigurable
-                && !mOutputModes.isEmpty());
         final boolean canCloseDesktop = canCloseDesktop(
                 state.desktopSessionActive,
                 state.shellReady,
@@ -220,15 +179,16 @@ final class PhoneControlPanelController {
         mPhoneScreen.setText(state.phoneScreenOff
                 ? R.string.action_phone_screen_on
                 : R.string.action_phone_screen_off);
+        mUi.setControlIcon(mPhoneScreen, state.phoneScreenOff
+                ? R.drawable.ic_phone_screen_on : R.drawable.ic_phone_screen_off);
         mPhoneScreen.setEnabled(canControlPhoneScreen);
-        // Spinner selection callbacks can be posted after setSelection(). Keep
-        // rendering guarded through the current UI turn so merely displaying a
-        // mode never persists it as a user choice.
-        mStatus.post(() -> {
-            if (mRenderGeneration == renderGeneration) {
-                mRendering = false;
-            }
-        });
+    }
+
+    static String desktopDisplayLabel(final DesktopDisplayInfo[] displays, final int activeId) {
+        for (final DesktopDisplayInfo display : displays) {
+            if (display.id == activeId) { return display.name + " [" + activeId + "]"; }
+        }
+        return Integer.toString(activeId);
     }
 
     static boolean canCloseDesktop(
@@ -245,23 +205,21 @@ final class PhoneControlPanelController {
 
         final ImageView icon = new ImageView(mActivity);
         icon.setImageResource(R.drawable.ic_magicdesk);
-        header.addView(icon, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
 
         final LinearLayout titleBlock = new LinearLayout(mActivity);
         titleBlock.setOrientation(LinearLayout.VERTICAL);
         titleBlock.setPadding(dp(12), 0, 0, 0);
 
         final TextView title = new TextView(mActivity);
-        title.setText(mActivity.getString(
-                R.string.control_panel_title,
-                BuildConfig.VERSION_NAME));
+        title.setText(R.string.app_name);
         title.setTextColor(COLOR_TEXT);
-        title.setTextSize(24);
+        title.setTextSize(20);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         titleBlock.addView(title);
 
         final TextView subtitle = new TextView(mActivity);
-        subtitle.setText(R.string.control_panel_subtitle);
+        subtitle.setText(BuildConfig.VERSION_NAME);
         subtitle.setTextColor(COLOR_MUTED);
         subtitle.setTextSize(13);
         titleBlock.addView(subtitle);
@@ -270,14 +228,18 @@ final class PhoneControlPanelController {
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1));
+        final ImageButton settings = mUi.menuIconButton(
+                R.drawable.ic_settings, R.string.action_settings);
+        settings.setOnClickListener(view -> mActions.openSettings());
+        header.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
         return header;
     }
 
     private void addStatus(final LinearLayout parent) {
-        mStatus = statusText(COLOR_CYAN, 15, true);
+        mStatus = statusText(COLOR_TEXT, 14, true);
         parent.addView(mStatus);
 
-        mRuntime = statusText(COLOR_TEXT, 13, false);
+        mRuntime = statusText(COLOR_MUTED, 12, false);
         final LinearLayout.LayoutParams runtimeParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -285,56 +247,47 @@ final class PhoneControlPanelController {
         runtimeParams.setMargins(0, dp(7), 0, 0);
         parent.addView(mRuntime, runtimeParams);
 
+    }
+
+    private void addDesktopActions(final LinearLayout parent) {
+        mUi.addControlSection(parent, R.string.control_section_desktop, dp(16));
         mDisplay = statusText(COLOR_MUTED, 13, false);
         final LinearLayout.LayoutParams displayParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT);
-        displayParams.setMargins(0, dp(3), 0, 0);
+        displayParams.setMargins(0, 0, 0, dp(8));
         parent.addView(mDisplay, displayParams);
-
-    }
-
-    private void addDesktopActions(final LinearLayout parent) {
-        addSectionTitle(parent, R.string.control_section_desktop, dp(22));
-
         mDisplaySelection = new DisplaySelectionView(mActivity, mUi, mActions, parent);
-        mConnectWirelessDisplay = actionButton(
-                R.string.action_connect_wireless_display, COLOR_PANEL_ALT);
-        mConnectWirelessDisplay.setOnClickListener(view -> mActions.connectWirelessDisplay());
-        parent.addView(mConnectWirelessDisplay, fullWidthActionParams());
-
-        addExternalDisplayOptions(parent);
-
-        mSessionActions = actionGrid();
-        mCloseDesktop = actionButton(
-                R.string.action_close_desktop, COLOR_CYAN);
-        mCloseDesktop.setOnClickListener(
-                view -> mActions.closeDesktop());
-        addGridAction(mSessionActions, mCloseDesktop);
-
-        mTouchpad = actionButton(
-                R.string.action_open_touchpad, COLOR_CYAN);
+        final GridLayout sessionActions = actionGrid();
+        mTouchpad = mUi.controlAction(
+                R.string.action_open_touchpad, R.drawable.ic_touchpad, COLOR_TEXT);
         mTouchpad.setOnClickListener(view -> mActions.openTouchpad());
-        addGridAction(mSessionActions, mTouchpad);
+        addGridAction(sessionActions, mTouchpad);
 
-        mPhoneScreen = actionButton(
-                R.string.action_phone_screen_off, COLOR_CYAN);
+        mPhoneScreen = mUi.controlAction(
+                R.string.action_phone_screen_off, R.drawable.ic_phone_screen_off, COLOR_TEXT);
         mPhoneScreen.setOnClickListener(view -> mActions.togglePhoneScreen());
-        addGridAction(mSessionActions, mPhoneScreen);
+        addGridAction(sessionActions, mPhoneScreen);
+        mCloseDesktop = mUi.controlAction(
+                R.string.action_close_desktop, R.drawable.ic_close, COLOR_TEXT);
+        mCloseDesktop.setOnClickListener(view -> mActions.closeDesktop());
+        addGridAction(sessionActions, mCloseDesktop);
 
-        final Button settings = actionButton(
-                R.string.action_settings, COLOR_PANEL_ALT);
-        settings.setOnClickListener(view -> mActions.openSettings());
-        addGridAction(mSessionActions, settings);
-        parent.addView(mSessionActions, fullWidthWrapParams(dp(6)));
+        mConnectWirelessDisplay = mUi.controlAction(
+                R.string.action_connect_wireless_display, R.drawable.ic_cast, COLOR_TEXT);
+        mConnectWirelessDisplay.setOnClickListener(view -> mActions.connectWirelessDisplay());
+        addGridAction(sessionActions, mConnectWirelessDisplay);
+        parent.addView(sessionActions, fullWidthWrapParams(dp(4)));
     }
 
     private void addToolActions(final LinearLayout parent) {
-        addSectionTitle(parent, R.string.control_section_tools, dp(22));
+        mUi.addControlSection(parent, R.string.control_section_tools, dp(16));
         final android.widget.CheckBox selected = new android.widget.CheckBox(mActivity);
         selected.setText(R.string.tools_selected_display);
         selected.setTextColor(COLOR_TEXT);
+        selected.setTextSize(13);
+        selected.setMinHeight(dp(44));
         parent.addView(selected);
         final GridLayout grid = actionGrid();
         final String[] names = {"files", "console", "termux", "sessions"};
@@ -344,163 +297,27 @@ final class PhoneControlPanelController {
                 R.drawable.ic_file_console, R.drawable.ic_file_new_window};
         for (int i = 0; i < names.length; i++) {
             final String name = names[i];
-            final Button button = actionButton(labels[i], COLOR_PANEL_ALT);
-            final android.graphics.drawable.Drawable icon = mActivity.getDrawable(icons[i]);
-            icon.setBounds(0, 0, dp(24), dp(24));
-            button.setCompoundDrawables(icon, null, null, null);
-            button.setCompoundDrawablePadding(dp(8));
+            final Button button = mUi.controlAction(labels[i], icons[i], COLOR_TEXT);
             button.setOnClickListener(view -> mActions.openTool(name, selected.isChecked()));
             addGridAction(grid, button);
         }
         parent.addView(grid, fullWidthWrapParams(dp(6)));
     }
 
-    private void addExternalDisplayOptions(final LinearLayout parent) {
-        mExternalDisplayOptions = new LinearLayout(mActivity);
-        mExternalDisplayOptions.setOrientation(LinearLayout.VERTICAL);
-        final LinearLayout resolutionRow = optionRow();
-        resolutionRow.addView(optionLabel(R.string.external_display_resolution),
-                new LinearLayout.LayoutParams(
-                        0,
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        1));
-        mOutputMode = new Spinner(mActivity, Spinner.MODE_DROPDOWN);
-        mOutputModeAdapter = new ArrayAdapter<>(
-                mActivity,
-                android.R.layout.simple_spinner_item,
-                new ArrayList<>());
-        mOutputModeAdapter.setDropDownViewResource(
-                android.R.layout.simple_spinner_dropdown_item);
-        mOutputMode.setAdapter(mOutputModeAdapter);
-        mOutputMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(
-                    final AdapterView<?> parentView,
-                    final View selected,
-                    final int position,
-                    final long id) {
-                if (mRendering) {
-                    return;
-                }
-                if (position >= 0 && position < mOutputModes.size()) {
-                    mActions.setExternalOutputTiming(
-                            mOutputModes.get(position).timingKey);
-                }
-            }
-
-            @Override
-            public void onNothingSelected(final AdapterView<?> parentView) {
-            }
-        });
-        resolutionRow.addView(mOutputMode, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                dp(48)));
-        mExternalDisplayOptions.addView(resolutionRow);
-        parent.addView(mExternalDisplayOptions);
-    }
-
-    private void renderOutputModes(
-            final PlatformProjectionDriver.ModeSelection selection) {
-        final List<PlatformProjectionDriver.Mode> modes = new ArrayList<>();
-        if (selection != null && selection.systemDefaultAvailable) {
-            modes.add(new PlatformProjectionDriver.Mode(
-                    "", mActivity.getString(
-                            R.string.external_display_system_native)));
-        }
-        if (selection != null) {
-            modes.addAll(selection.availableModes);
-        }
-        final boolean configurable = selection != null
-                && selection.configurable;
-        if (mOutputModeAdapter.getCount() == 0
-                || !sameModes(mOutputModes, modes)
-                || mOutputModesConfigurable != configurable) {
-            mOutputModes = modes;
-            mOutputModesConfigurable = configurable;
-            mOutputModeAdapter.clear();
-            if (modes.isEmpty()) {
-                mOutputModeAdapter.add(
-                        mActivity.getString(R.string.external_display_no_modes));
-            } else {
-                for (final PlatformProjectionDriver.Mode mode : modes) {
-                    mOutputModeAdapter.add(configurable
-                            ? mode.displayLabel
-                            : mActivity.getString(
-                                    R.string.external_display_system_mode,
-                                    mode.displayLabel));
-                }
-            }
-            mOutputModeAdapter.notifyDataSetChanged();
-        }
-        if (selection == null || selection.target == null) {
-            mOutputMode.setSelection(0, false);
-            return;
-        }
-        final String selectedTiming = selection.systemDefaultSelected
-                ? "" : selection.target.timingKey;
-        for (int index = 0; index < mOutputModes.size(); index++) {
-            if (selectedTiming.equals(mOutputModes.get(index).timingKey)) {
-                mOutputMode.setSelection(index, false);
-                return;
-            }
-        }
-    }
-
-    private static boolean sameModes(
-            final List<PlatformProjectionDriver.Mode> left,
-            final List<PlatformProjectionDriver.Mode> right) {
-        if (left == right) {
-            return true;
-        }
-        if (left == null || right == null || left.size() != right.size()) {
-            return false;
-        }
-        for (int index = 0; index < left.size(); index++) {
-            if (!left.get(index).timingKey.equals(
-                    right.get(index).timingKey)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private LinearLayout optionRow() {
-        final LinearLayout row = new LinearLayout(mActivity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(48));
-        row.setPadding(dp(6), 0, dp(3), 0);
-        return row;
-    }
-
-    private TextView optionLabel(final int textResId) {
-        final TextView label = new TextView(mActivity);
-        label.setText(textResId);
-        label.setTextColor(COLOR_TEXT);
-        label.setTextSize(14);
-        return label;
-    }
 
     private void addSystemActions(final LinearLayout parent) {
-        final GridLayout actions = actionGrid();
-
-        final Button exit = actionButton(R.string.action_exit, COLOR_RED);
+        final Button exit = mUi.controlAction(R.string.action_exit, R.drawable.ic_exit, COLOR_RED);
         exit.setOnClickListener(view -> mActions.exitMagicDesk());
-        addGridAction(actions, exit);
-        parent.addView(actions, fullWidthWrapParams(dp(16)));
+        parent.addView(exit, fullWidthActionParams());
     }
 
-    private void addSectionTitle(
-            final LinearLayout parent,
-            final int titleResId,
-            final int topMargin) {
-        final TextView title = mUi.sectionTitle(titleResId);
-        final LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, topMargin, 0, dp(8));
-        parent.addView(title, params);
+    private View centered(final View view) {
+        final FrameLayout host = new FrameLayout(mActivity);
+        final int availableWidth = Math.max(1,
+                mActivity.getResources().getConfiguration().screenWidthDp - 36);
+        host.addView(view, new FrameLayout.LayoutParams(dp(Math.min(540, availableWidth)),
+                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        return host;
     }
 
     private TextView statusText(
@@ -520,17 +337,6 @@ final class PhoneControlPanelController {
         return grid;
     }
 
-    private Button actionButton(final int textResId, final int color) {
-        final Button button = mUi.actionButton(textResId, color);
-        button.setSingleLine(false);
-        button.setMaxLines(2);
-        button.setMinHeight(0);
-        button.setMinimumHeight(0);
-        button.setGravity(Gravity.CENTER);
-        button.setPadding(dp(8), dp(4), dp(8), dp(4));
-        return button;
-    }
-
     private void addGridAction(final GridLayout grid, final Button button) {
         final GridLayout.LayoutParams params = new GridLayout.LayoutParams();
         params.width = 0;
@@ -547,18 +353,6 @@ final class PhoneControlPanelController {
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         dp(ACTION_HEIGHT_DP));
         params.setMargins(dp(3), dp(3), dp(3), dp(3));
-        return params;
-    }
-
-    private LinearLayout.LayoutParams rowActionParams(
-            final boolean addStartMargin) {
-        final LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(0, dp(ACTION_HEIGHT_DP), 1);
-        params.setMargins(
-                addStartMargin ? dp(3) : 0,
-                dp(3),
-                addStartMargin ? 0 : dp(3),
-                dp(3));
         return params;
     }
 

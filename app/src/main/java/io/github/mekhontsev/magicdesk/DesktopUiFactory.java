@@ -5,12 +5,15 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.StateListDrawable;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public final class DesktopUiFactory {
@@ -51,6 +54,25 @@ public final class DesktopUiFactory {
         title.setTextSize(18);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         return title;
+    }
+
+    public void addControlSection(
+            final LinearLayout parent, final int titleResId, final int spacing) {
+        if (parent.getChildCount() > 0) {
+            final View divider = new View(mContext);
+            divider.setBackgroundColor(COLOR_PANEL_FOCUS);
+            final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+            params.setMargins(0, spacing, 0, spacing);
+            parent.addView(divider, params);
+        }
+        final TextView title = sectionTitle(titleResId);
+        title.setTextSize(14);
+        title.setAccessibilityHeading(true);
+        final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.bottomMargin = dp(6);
+        parent.addView(title, params);
     }
 
     public Button actionButton(final int textResId, final int accentColor) {
@@ -124,7 +146,9 @@ public final class DesktopUiFactory {
             final int descriptionResId) {
         final ImageButton button = new ImageButton(mContext);
         button.setImageResource(drawableResId);
-        button.setColorFilter(COLOR_TEXT);
+        button.setImageTintList(new ColorStateList(
+                new int[][] {new int[] {-android.R.attr.state_enabled}, new int[0]},
+                new int[] {COLOR_MUTED, COLOR_TEXT}));
         button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         button.setPadding(dp(10), dp(10), dp(10), dp(10));
         button.setBackground(menuItemBackground());
@@ -133,6 +157,26 @@ public final class DesktopUiFactory {
         button.setStateListAnimator(null);
         button.setDefaultFocusHighlightEnabled(false);
         return button;
+    }
+
+    Button controlAction(final int textResId, final int iconResId, final int emphasisColor) {
+        final Button button = menuItem(textResId, emphasisColor);
+        button.setSingleLine(false);
+        button.setMaxLines(2);
+        button.setTextSize(14);
+        button.setPadding(dp(8), dp(4), dp(8), dp(4));
+        button.setCompoundDrawableTintList(new ColorStateList(
+                new int[][] {new int[] {-android.R.attr.state_enabled}, new int[0]},
+                new int[] {COLOR_MUTED, emphasisColor == COLOR_RED ? COLOR_RED : COLOR_TEXT}));
+        setControlIcon(button, iconResId);
+        button.setCompoundDrawablePadding(dp(10));
+        return button;
+    }
+
+    void setControlIcon(final Button button, final int iconResId) {
+        final Drawable icon = mContext.getDrawable(iconResId).mutate();
+        icon.setBounds(0, 0, dp(22), dp(22));
+        button.setCompoundDrawablesRelative(icon, null, null, null);
     }
 
     TextView menuHeader(

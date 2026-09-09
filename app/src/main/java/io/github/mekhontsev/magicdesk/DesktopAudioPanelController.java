@@ -8,7 +8,7 @@ import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.view.Gravity;
 import android.widget.Button;
-import android.widget.GridLayout;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -24,7 +24,8 @@ final class DesktopAudioPanelController {
     private BroadcastReceiver mVolumeReceiver;
     private TextView mRouteStatus;
     private SeekBar mVolume;
-    private Button mMute;
+    private TextView mVolumeValue;
+    private ImageButton mMute;
 
     DesktopAudioPanelController(
             final DesktopShellActivity activity,
@@ -64,16 +65,7 @@ final class DesktopAudioPanelController {
     }
 
     void populate(final LinearLayout parent, final int spacing) {
-        final TextView heading = new TextView(mActivity);
-        heading.setText(R.string.audio_section_title);
-        heading.setTextColor(DesktopUiFactory.COLOR_TEXT);
-        heading.setTextSize(14);
-        final LinearLayout.LayoutParams headingParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        headingParams.setMargins(0, spacing, 0, dp(6));
-        parent.addView(heading, headingParams);
+        mUi.addControlSection(parent, R.string.audio_section_title, spacing);
 
         mRouteStatus = new TextView(mActivity);
         mRouteStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
@@ -82,7 +74,17 @@ final class DesktopAudioPanelController {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        final LinearLayout row = new LinearLayout(mActivity);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        mMute = mUi.menuIconButton(R.drawable.ic_volume, R.string.audio_mute);
+        mMute.setEnabled(mAudioManager != null);
+        mMute.setOnClickListener(view -> toggleMute());
+        row.addView(mMute, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
         mVolume = new SeekBar(mActivity);
+        mVolume.setContentDescription(mActivity.getString(R.string.audio_volume));
+        mVolume.setEnabled(mAudioManager != null);
+        mVolume.setSplitTrack(false);
         if (mAudioManager != null) {
             mVolume.setMax(mAudioManager.getStreamMaxVolume(
                     AudioManager.STREAM_MUSIC));
@@ -112,28 +114,27 @@ final class DesktopAudioPanelController {
                             final SeekBar seekBar) {
                     }
                 });
-        parent.addView(mVolume, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        row.addView(mVolume, new LinearLayout.LayoutParams(0, dp(48), 1));
+        mVolumeValue = new TextView(mActivity);
+        mVolumeValue.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mVolumeValue.setTextSize(12);
+        mVolumeValue.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        row.addView(mVolumeValue, new LinearLayout.LayoutParams(dp(60), dp(48)));
+        parent.addView(row);
 
-        final GridLayout actions = new GridLayout(mActivity);
-        actions.setColumnCount(
-                mActivity.isCompactDesktopPreview() ? 2 : 3);
-        mMute = actionButton(R.string.audio_mute);
-        mMute.setOnClickListener(view -> toggleMute());
-        addAction(actions, mMute);
-
-        final Button soundSettings = actionButton(
-                R.string.audio_sound_settings);
+        final Button soundSettings = mUi.menuItem(
+                R.string.audio_sound_settings, DesktopUiFactory.COLOR_TEXT);
+        soundSettings.setTextSize(13);
         soundSettings.setOnClickListener(view -> {
             mActivity.hideAllPanels();
             mActivity.invokeDesktopAction("sound-settings");
         });
-        addAction(actions, soundSettings);
-
-        parent.addView(actions, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        parent.addView(soundSettings, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(40)));
+        mActivity.registerAutomationUiElement(mMute, "quick_controls.mute", "button",
+                mActivity.getString(R.string.audio_mute));
+        mActivity.registerAutomationUiElement(soundSettings,
+                "quick_controls.android_sound", "button", mActivity.getString(R.string.audio_sound_settings));
         update();
     }
 
@@ -153,16 +154,21 @@ final class DesktopAudioPanelController {
             mVolume.setEnabled(true);
         }
         if (mMute != null) {
-            mMute.setText(muted
+            mMute.setImageResource(muted ? R.drawable.ic_volume_off : R.drawable.ic_volume);
+            final String action = mActivity.getString(muted
                     ? R.string.audio_unmute : R.string.audio_mute);
+            mMute.setContentDescription(action);
+            mMute.setTooltipText(action);
+            mActivity.registerAutomationUiElement(mMute, "quick_controls.mute", "button", action);
+        }
+        if (mVolumeValue != null) {
+            mVolumeValue.setText(mActivity.getString(R.string.audio_volume_value,
+                    volume, mAudioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)));
         }
         if (mRouteStatus != null) {
             mRouteStatus.setText(mActivity.getString(
                     R.string.audio_status,
-                    currentOutputName(),
-                    Integer.valueOf(volume),
-                    Integer.valueOf(mAudioManager.getStreamMaxVolume(
-                            AudioManager.STREAM_MUSIC))));
+                    currentOutputName()));
         }
     }
 
@@ -239,26 +245,6 @@ final class DesktopAudioPanelController {
             default:
                 return mActivity.getString(R.string.audio_route_unknown);
         }
-    }
-
-    private Button actionButton(final int textResId) {
-        final Button button = mUi.actionButton(
-                textResId, DesktopUiFactory.COLOR_PANEL_ALT);
-        button.setMinHeight(0);
-        button.setMinimumHeight(0);
-        button.setGravity(Gravity.CENTER);
-        button.setPadding(dp(5), dp(2), dp(5), dp(2));
-        return button;
-    }
-
-    private void addAction(
-            final GridLayout grid, final Button button) {
-        final GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-        params.width = 0;
-        params.height = dp(44);
-        params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
-        params.setMargins(dp(3), dp(3), dp(3), dp(3));
-        grid.addView(button, params);
     }
 
     private int dp(final int value) {

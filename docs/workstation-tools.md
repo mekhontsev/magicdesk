@@ -150,6 +150,23 @@ shell and installed tools. Both provide:
 - current-directory tracking and a direct action to open that directory in
   Files.
 
+Swipe with one finger or use the mouse wheel to scroll. In the ordinary shell,
+this reads scrollback; in a mouse-aware application such as tmux, it sends wheel
+events rather than dragging a selection. Alternate-screen applications without
+mouse reporting receive arrow keys. Hold a finger before dragging to select
+text locally, then use Copy. Hardware mouse selection keeps its normal meaning.
+Shift+mouse wheel and Shift+PageUp/PageDown read the Console's own scrollback
+without sending input to the terminal application.
+
+**Settings > Console > Default font size** chooses the size for new windows,
+from 8 to 40 sp (14 sp by default). An existing window keeps its own size; use
+its **Font size** toolbar action, pinch with two fingers, or hold Ctrl while
+scrolling the mouse wheel. Reset in the window's size dialog selects the current
+default. The override survives Activity recreation and does not change other
+windows or stored defaults. Fonts use Android's sp conversion, including the
+current display density and accessibility text scaling. A change resizes the
+existing terminal grid and PTY without restarting shell or tmux.
+
 Both shell-backed and Termux-backed Console windows use Android's system text
 clipboard. Clipboard contents are read only for an explicit Paste action; no
 background synchronization or clipboard history is maintained.
@@ -307,5 +324,14 @@ The Settings window controls persistent MagicDesk behavior, including:
 - common compatibility policies and the optional Android system desktop-mode
   setting.
 
-Display-specific output controls and DPI remain in the System panel rather
-than global Settings.
+Settings has section dividers and a persistent section-navigation menu.
+Phone Control Panel groups Desktop launch/session controls before independent
+tools, with Settings in its header. Unavailable session actions stay in place
+and are disabled.
+
+The taskbar sliders icon opens **Quick controls**, a content-sized panel above
+the taskbar with audio, interface scale, pointer speed, and available hardware
+controls. Its gear opens MagicDesk settings; the explicitly labelled Android
+sound action opens Android's settings. Physical output mode belongs to the
+selected screen in Phone Control Panel before Desktop startup, not to global
+preferences.

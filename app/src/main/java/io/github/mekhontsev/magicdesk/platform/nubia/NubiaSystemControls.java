@@ -13,7 +13,7 @@ import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
 
-/** RedMagic power and cooling controls contributed to the System panel. */
+/** RedMagic power and cooling controls contributed to Quick controls. */
 final class NubiaSystemControls implements PlatformSystemControls {
     private final DesktopShellActivity mActivity;
     private final DesktopUiFactory mUi;
@@ -54,14 +54,7 @@ final class NubiaSystemControls implements PlatformSystemControls {
 
     @Override
     public void populate(final LinearLayout parent, final int spacing) {
-        final TextView powerTitle = mUi.sectionTitle(
-                R.string.hardware_power_section);
-        final LinearLayout.LayoutParams powerTitleParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        powerTitleParams.setMargins(0, spacing, 0, 0);
-        parent.addView(powerTitle, powerTitleParams);
+        mUi.addControlSection(parent, R.string.hardware_power_section, spacing);
 
         mBatteryStatus = new TextView(mActivity);
         mBatteryStatus.setTextColor(DesktopUiFactory.COLOR_TEXT);

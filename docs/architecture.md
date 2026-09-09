@@ -264,6 +264,14 @@ plane and retains that plane for its complete fullscreen residency, so focus
 never reparents it during a fullscreen peer switch. The topology does not
 branch on display kind or vendor.
 
+Native freeform-to-fullscreen events are adopted by the existing shell plane
+owner without waiting for a user selection command. After the framework's
+transition barrier, the live root is replaced at its current workspace
+position; task mode, bounds, Activity identity and foreground selection remain
+unchanged. Ordinary phone tasks are not adopted. Stale mode events release the
+unused reservation, and restoration still accepts a desktop-owned native root
+that has not acquired a plane.
+
 On display 0 MagicDesk is the active HOME surface. Android's WMShell normally
 starts `DesktopWallpaperActivity` above Launcher when its freeform mode is
 used; that fullscreen activity exists specifically to hide Launcher. While a
@@ -370,6 +378,10 @@ runtime integration and are not distributed through the same release path.
 
 - `ControlActivity` and `PhoneControlPanelController` provide the compact phone
   control surface. They do not create taskbar, wallpaper, or app-catalog UI.
+  `DisplaySelectionView` owns the display picker and the selected wired
+  display's resolution/refresh-rate control, placed before Start. The mode
+  remains visible but read-only during a session; choosing a display
+  does not apply a mode or switch the active session.
 - `FileManagerActivity` is an ordinary tool Activity, fullscreen outside Desktop
   or a managed window inside it. The activity owns
   navigation and selection; `FileManagerView` renders them and routes user actions.
@@ -568,12 +580,13 @@ runtime integration and are not distributed through the same release path.
   `AndroidActivityAuthorization` independently evaluates enabled/exported
   state, same-package access, and permissions granted to the MagicDesk app.
   Shell is only a placement authority: denied app-identity access never crosses
-  that boundary. Public handlers without a required permission take the direct
-  shell path. Choosers, system resolvers, and allowed handlers requiring app
-  identity use an immutable one-shot `PendingIntent` created by the app and
+  that boundary. Public handlers without a required permission or URI grants
+  take the direct shell path. Choosers, system resolvers, content-grant Intents,
+  and allowed handlers requiring app identity use an immutable one-shot `PendingIntent` created by the app and
   sent by shell with the requested display, activity type, mode, and bounds.
   The token preserves app authorization and URI grants; shell contributes no
-  target authority. A focused compatibility adapter owns the Android 15 and 16
+  target authority. URI permissions travel with the Activity launch, without
+  separate package-wide grants. A focused compatibility adapter owns the Android 15 and 16
   background-start option semantics for both creator and sender.
   Activity-result requests require an app Activity lifecycle. They retain the
   nested target in `AndroidActivityRelayStore`; shell receives only an opaque
@@ -719,6 +732,11 @@ runtime integration and are not distributed through the same release path.
   `TYPE_APPLICATION_PANEL` windows and dialogs to the persistent
   `DesktopChromeActivity` token also used by the taskbar. There is no transient
   panel task or panel-specific organizer hierarchy.
+- `SystemPanelController` presents Quick controls using those same panel
+  windows. It measures content within the available work area and anchors the
+  panel above the taskbar, with scrolling when controls exceed that height.
+  Audio, density, pointer speed and optional hardware retain their existing
+  controller and observation owners; the UI adds no monitoring loop.
 - `DesktopInputController` handles shell UI input and delegates global physical
   shortcuts to the key-only Accessibility service.
 - `DesktopRuntimeBridge` is the weak-reference, main-thread boundary through
@@ -900,7 +918,13 @@ by this foundation.
 - `DesktopDisplayTaskState` owns the active controller's visible workspace,
   last visible Z-order, and fullscreen-transition freeze as one display-scoped
   value. It is cleared with that controller and is not process-global.
-- `NativeWindowBoundsController` calculates snap, maximize, and restore bounds.
+- `NativeWindowBoundsController` owns freeform bounds requests and the shared
+  restore history for native snap/maximize and MagicDesk shortcuts. Correcting
+  Android's full-height bounds to reserve the taskbar preserves the ordinary
+  window geometry. Restore uses that same history; subsequent native moves or
+  resizes replace it instead of triggering a resize back to the work area.
+  A bounds-command completion releases its pending state even if Android
+  constrained the requested rectangle or the next observation missed it.
 - `PhoneTouchpadReconciler` keeps the requested phone touchpad visible after
   display changes without overriding visible phone tasks. It raises an existing
   touchpad task before starting a replacement and treats restoration as pending
@@ -1344,6 +1368,18 @@ the main screen, alternate screen, cursor, colors, and scrollback. MagicDesk
 does not use Termux app session, JNI, or rendering code. Its own
 `ConsoleTerminalView` and `MagicDeskTerminalRenderer` provide Android input,
 mouse reporting, selection, clipboard operations, resize, and Canvas drawing.
+Each terminal `InputConnection` remains valid until Android closes it or the
+View's session attachment changes. Another connection factory call does not
+revoke the connection currently used by the IME. An attachment token prevents
+late input after detach/rebind, including reattachment to the same retained PTY;
+closing one connection cannot invalidate another. This lifetime is independent
+of keyboard language, input method, Desktop, and terminal backend.
+`ConsolePreferences` stores new-window font defaults in app-private preferences;
+the View owns its current sp size and the Activity saves that window value.
+Pinch and Ctrl+wheel are local presentation actions, never terminal mouse input.
+Display/font configuration changes and size adjustments recreate renderer metrics
+using Android's `TypedValue.applyDimension`. The existing session resize path
+receives changes to the grid or cell metrics, without replacing the PTY.
 The native relay has a small framed control protocol for input, resize, and
 working-directory requests. The Binder transport exposes raw output from its
 owned descriptor; the loopback transport frames output and metadata so one
@@ -2630,6 +2666,13 @@ MagicDesk operates on exact task IDs. Windowed launches and restores use native
 WMShell desktop transitions when available. Snap and maximize reserve the
 MagicDesk taskbar; true fullscreen does not.
 
+Native caption controls remain opaque: observing full-height freeform bounds
+can trigger vertical work-area correction, but does not identify a button press
+or imply a maximize/restore toggle. Ordinary move and resize observations do
+not submit a corrective transaction. Win+Down restores fullscreen first, then
+the saved freeform geometry for an arranged window, and demotes an ordinary
+window with no remaining restore history.
+
 The native transition probe reads WMShell help instead of branching on the
 Android version. It selects Android 15's `desktopmode moveToDesktop` or Android
 16's `desktopmode moveTaskToDesk` command when present, and otherwise uses the
@@ -2742,6 +2785,12 @@ keyboard cancels its pending Alt+Tab selection.
 `Ctrl+Space` uses `HardwareKeyboardLayoutController` to select the next
 configured Android layout for connected physical keyboards and update the
 taskbar label. No virtual keyboard identities or copied key streams are involved.
+Initial synchronization and IME-change notifications resolve the current Android
+subtype; saved taskbar values are output only. Switching also starts from that
+live selection, skipping duplicate layouts exposed by different IMEs within a
+bounded enumeration. An unresolved current subtype is an error, not a reason to
+select a saved descriptor or the first language in the list. This adds no
+periodic input query.
 
 The phone touchpad emits relative movement and native buttons through its
 session-owned virtual mouse. Its input location is independently associated
@@ -2850,7 +2899,7 @@ value before its first write and restores only state it owns on System, exit,
 or interrupted-session recovery.
 
 The runtime takes one initial hardware snapshot. Repeated thermal and vendor
-state reads run only while the System panel is visible; closing or switching
+state reads run only while Quick controls is visible; closing or switching
 away from that panel cancels the polling task without disabling controls or
 discarding owned fan and pump state.
 

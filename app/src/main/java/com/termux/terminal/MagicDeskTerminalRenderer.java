@@ -15,9 +15,9 @@ public final class MagicDeskTerminalRenderer {
     private final float mCellHeight;
     private final float mBaseline;
 
-    public MagicDeskTerminalRenderer(final float scaledDensity) {
+    public MagicDeskTerminalRenderer(final float textSizePixels) {
         mTextPaint.setTypeface(Typeface.MONOSPACE);
-        mTextPaint.setTextSize(14.0f * scaledDensity);
+        mTextPaint.setTextSize(textSizePixels);
         final Paint.FontMetrics metrics = mTextPaint.getFontMetrics();
         mCellWidth = (float) Math.ceil(mTextPaint.measureText("M"));
         mCellHeight = (float) Math.ceil(
