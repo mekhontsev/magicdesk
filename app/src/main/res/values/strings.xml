@@ -634,8 +634,8 @@
     <string name="setup_item_display_target">Desktop display</string>
     <string name="setup_item_device">Device compatibility</string>
     <string name="setup_item_shizuku">Shizuku shell service</string>
-    <string name="setup_item_desktop_eligibility">Full desktop eligibility</string>
-    <string name="setup_item_window_corners">Window corners</string>
+    <string name="setup_item_desktop_eligibility">Device restrictions (optional)</string>
+    <string name="setup_item_window_corners">Rounded corners (optional)</string>
     <string name="setup_item_reboot">Restart</string>
     <string name="setup_build_label">System build</string>
     <string name="setup_build_value">Android %1$s | %2$s</string>
@@ -646,10 +646,7 @@
     <string name="setup_value_unsupported">Unsupported: %1$s %2$s</string>
     <string name="setup_value_available">Available</string>
     <string name="setup_value_unavailable">Unavailable</string>
-    <string name="setup_value_enabled">Enabled</string>
-    <string name="setup_value_disabled">Disabled</string>
-    <string name="setup_value_square">Square</string>
-    <string name="setup_value_rounded">Rounded</string>
+    <string name="setup_value_unset">Not set</string>
     <string name="setup_value_required">Required</string>
     <string name="setup_value_not_required">Not required</string>
     <string name="setup_display_auto">Auto</string>

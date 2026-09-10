@@ -312,9 +312,14 @@ This is diagnostic permission evidence only. MagicDesk routes physical devices
 through Android; it does not open or write their event nodes.
 
 After required Desktop setup and any requested reboot, the report should show
-the common freeform/resizable settings enabled. The two reviewed
-`persist.wm.debug.desktop_*` properties are requirements only for the selected
-Nubia extension. WMShell command availability is probed independently; its
+the common freeform/resizable settings enabled. The selected Nubia extension
+also recommends `false` for `persist.wm.debug.desktop_mode_enforce_device_restrictions`
+and `persist.wm.debug.desktop_use_rounded_corners`. These are optional: denied
+writes or resets are recorded independently and do not block Desktop or the
+remaining settings. An optional property requests reboot only after a verified
+change. The report preserves empty and non-recommended values as warnings,
+not evidence that freeform windows cannot work; use the self-tests to verify
+actual behavior. WMShell command availability is probed independently; its
 absence can use the central framework transaction path. A rejected required
 setup operation still blocks Desktop, not independent tools.
 

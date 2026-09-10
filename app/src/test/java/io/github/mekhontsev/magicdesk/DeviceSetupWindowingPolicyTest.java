@@ -21,6 +21,13 @@ public final class DeviceSetupWindowingPolicyTest {
                 < configure.indexOf("ShellAccess.run(command)"));
         assertFalse(configure.contains("desktopMode"));
         assertFalse(configure.contains("SystemDesktopModeSetting"));
+        assertFalse(source.contains("requiresRebootForConfiguration"));
+        assertFalse(source.contains("windowing().isReady("));
+        assertTrue(configure.indexOf("if (!command.isEmpty()) {")
+                < configure.indexOf("savePendingReboot(preferences, before.bootId)"));
+        assertTrue(configure.contains("if (before.platform.windowing().configure("));
+        assertTrue(configure.indexOf("before.platform.windowing().configure(")
+                < configure.lastIndexOf("savePendingReboot(preferences, before.bootId)"));
     }
 
     @Test
@@ -31,6 +38,36 @@ public final class DeviceSetupWindowingPolicyTest {
                             (enabled & 1) != 0,
                             (enabled & 2) != 0));
         }
+    }
+
+    @Test
+    public void optionalPropertiesDoNotGateDesktopEntry() {
+        for (final String restrictions : new String[] {"", "true", "false"}) {
+            for (final String corners : new String[] {"", "true", "false"}) {
+                assertTrue(audit(true, true, true, true, false,
+                        restrictions, corners).canEnterMagicDesk());
+            }
+        }
+    }
+
+    @Test
+    public void requiredPrerequisitesStillGateDesktopEntry() {
+        assertFalse(audit(false, true, true, true, false, "false", "false").canEnterMagicDesk());
+        assertFalse(audit(true, false, true, true, false, "false", "false").canEnterMagicDesk());
+        assertFalse(audit(true, true, false, true, false, "false", "false").canEnterMagicDesk());
+        assertFalse(audit(true, true, true, false, false, "false", "false").canEnterMagicDesk());
+        assertFalse(audit(true, true, true, true, true, "false", "false").canEnterMagicDesk());
+    }
+
+    private static DeviceSetupManager.Audit audit(final boolean supported,
+            final boolean shellReady, final boolean freeform, final boolean resizable,
+            final boolean reboot, final String restrictions, final String corners) {
+        return new DeviceSetupManager.Audit("", null, null, shellReady, supported,
+                PlatformSupportLevel.UNVERIFIED, null, null,
+                "", "", "", "", "boot-id",
+                freeform ? "1" : "0", resizable ? "1" : "0", restrictions, corners,
+                freeform, resizable, "false".equals(restrictions), "false".equals(corners),
+                DeviceSetupManager.hasRequiredWindowingSettings(freeform, resizable), reboot);
     }
 
     @Test

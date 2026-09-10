@@ -96,9 +96,7 @@ public final class DeviceSetupManager {
         final boolean restrictionsDisabled = "false".equals(restrictionsValue);
         final boolean roundedCornersDisabled = "false".equals(roundedCornersValue);
         final boolean configurationReady = hasRequiredWindowingSettings(
-                freeformEnabled, resizableEnabled)
-                && platform.windowing().isReady(
-                        restrictionsDisabled, roundedCornersDisabled);
+                freeformEnabled, resizableEnabled);
         return new Audit(
                 runtimeError,
                 shellState,
@@ -142,19 +140,17 @@ public final class DeviceSetupManager {
         final String command = globalSettingsCommand(
                 before.freeformEnabled,
                 before.resizableEnabled);
-        final boolean vendorChangeRequired = before.platform.windowing()
-                .requiresRebootForConfiguration(
-                        before.restrictionsDisabled,
-                        before.roundedCornersDisabled);
-        if (!command.isEmpty() || vendorChangeRequired) {
-            savePendingReboot(preferences, before.bootId);
-        }
         if (!command.isEmpty()) {
+            // The required settings command can apply only part of its changes.
+            savePendingReboot(preferences, before.bootId);
             ShellAccess.run(command);
         }
-        before.platform.windowing().configure(
+        if (before.platform.windowing().configure(
                 before.restrictionsDisabled,
-                before.roundedCornersDisabled);
+                before.roundedCornersDisabled)) {
+            // Optional writes alone require a restart only after verified change.
+            savePendingReboot(preferences, before.bootId);
+        }
         final Audit after = audit(context, sessionProfile);
         if (!after.configurationReady) {
             throw new IOException(

@@ -10,6 +10,18 @@ import org.junit.Test;
 
 public final class CompatibilityDiagnosticsTest {
     @Test
+    public void optionalWindowingPropertiesPreserveRawValuesWithoutClaimingSupport() {
+        for (final String value : new String[] {"", "true", "false"}) {
+            final String detail = CompatibilityDiagnostics.optionalWindowingPropertyValue(value);
+            assertTrue(detail.contains("actual=" + (value.isEmpty() ? "<empty>" : value)));
+            assertTrue(detail.contains("recommended=false"));
+            assertTrue(detail.contains("does not block Desktop"));
+            assertTrue(detail.contains("verified by the desktop self-test"));
+            assertFalse(detail.contains("expected="));
+        }
+    }
+
+    @Test
     public void readsOnlyBoundedRecentTailOfOversizedLog() throws Exception {
         final java.nio.file.Path file = java.nio.file.Files.createTempFile("events-", ".log");
         try {

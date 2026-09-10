@@ -210,12 +210,12 @@ public final class DeviceSetupActivity extends Activity {
                         : R.string.setup_value_unavailable),
                 audit.shellReady);
         setStatusValue(mSetupView.restrictionsValue(),
-                getString(audit.restrictionsDisabled
-                        ? R.string.setup_value_enabled : R.string.setup_value_disabled),
+                audit.restrictionsValue.isEmpty()
+                        ? getString(R.string.setup_value_unset) : audit.restrictionsValue,
                 audit.restrictionsDisabled);
         setStatusValue(mSetupView.cornersValue(),
-                getString(audit.roundedCornersDisabled
-                        ? R.string.setup_value_square : R.string.setup_value_rounded),
+                audit.roundedCornersValue.isEmpty()
+                        ? getString(R.string.setup_value_unset) : audit.roundedCornersValue,
                 audit.roundedCornersDisabled);
         setStatusValue(mSetupView.rebootValue(),
                 getString(audit.rebootRequired

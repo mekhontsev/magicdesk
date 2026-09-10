@@ -331,11 +331,11 @@ public final class CompatibilityDiagnostics {
             appendCheck(report, "WM-ELIGIBILITY-001",
                     audit.restrictionsDisabled,
                     "Desktop-mode device restriction property",
-                    expectedValue("false", audit.restrictionsValue));
+                    optionalWindowingPropertyValue(audit.restrictionsValue));
             appendCheck(report, "WM-CORNERS-001",
                     audit.roundedCornersDisabled,
                     "Desktop rounded-corner property",
-                    expectedValue("false", audit.roundedCornersValue));
+                    optionalWindowingPropertyValue(audit.roundedCornersValue));
         }
         final NotificationManager notifications =
                 context.getSystemService(NotificationManager.class);
@@ -874,6 +874,13 @@ public final class CompatibilityDiagnostics {
     private static String expectedValue(final String expected, final String actual) {
         return "expected=" + expected + ", actual="
                 + (TextUtils.isEmpty(actual) ? "<empty>" : actual);
+    }
+
+    static String optionalWindowingPropertyValue(final String actual) {
+        return "recommended=false, actual="
+                + (actual == null || actual.isEmpty() ? "<empty>" : actual)
+                + "; optional, does not block Desktop; "
+                + "actual window support is verified by the desktop self-test";
     }
 
     private static String appVersion(final Context context) {

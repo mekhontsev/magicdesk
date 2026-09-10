@@ -187,11 +187,15 @@ MagicDesk confines that capability to:
 - `persist.wm.debug.desktop_mode_enforce_device_restrictions`
 - `persist.wm.debug.desktop_use_rounded_corners`
 
-Setup writes `false`; Restore defaults clears both overrides. The wrapper
-validates boolean/absent values and verifies writes. Shared setup also enables
+Setup recommends and attempts `false`; Restore defaults attempts to clear both
+overrides. Neither property gates Desktop startup. The wrapper validates
+boolean/absent values and verifies writes. Each property failure is recorded
+without preventing the other operation; only a verified optional change can
+add a reboot requirement. Diagnostics retains the raw property values rather
+than interpreting an empty value as a disabled restriction. Shared setup also enables
 `enable_freeform_support` and `force_resizable_activities` through shell access
-on every platform. Firmware readiness includes these provisioning/reboot
-requirements. Android's optional `force_desktop_mode_on_external_displays` is
+on every platform. These shared settings and any pending reboot remain required.
+Android's optional `force_desktop_mode_on_external_displays` is
 controlled separately from ordinary MagicDesk Settings; it is not part of
 firmware readiness or a Nubia API.
 

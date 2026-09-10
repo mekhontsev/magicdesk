@@ -45,12 +45,12 @@ public final class NubiaDesktopPropertyManager {
         return value;
     }
 
-    public static void write(final Property property, final String value)
+    public static boolean write(final Property property, final String value)
             throws IOException {
         requireProperty(property);
         requireBooleanOrEmpty(value);
         if (value.equals(read(property))) {
-            return;
+            return false;
         }
 
         final BoundedProcessRunner.Result result = run(
@@ -73,6 +73,7 @@ public final class NubiaDesktopPropertyManager {
                             + ": expected=" + printable(value)
                             + " observed=" + printable(observed));
         }
+        return true;
     }
 
     static boolean isBooleanOrEmpty(final String value) {

@@ -1015,8 +1015,9 @@ by this foundation.
   verify repeatable release to the original freeform parent, while the surface
   probe checks that the desktop remains rendered throughout the operation.
 - Fullscreen commands perform caption-source repair only when requested
-  by `PlatformWindowingDriver`. Phone freeform cleanup in self-tests follows
-  the same platform policy. Synthetic hover and clicks use standard
+  by the active session's `DesktopCompatibilityPolicy.Option.CAPTION_REFRESH` option.
+  Phone freeform cleanup in self-tests follows the same session policy.
+  Synthetic hover and clicks use standard
   display-targeted Android mouse events through the shell service.
 
 ### Framework compatibility services
@@ -1187,7 +1188,7 @@ isolated behind these boundaries.
   of `redmagic.app.manager` keeps the vendor property writer out of Device
   Setup without suppressing unrelated APIs retained by a hybrid ROM.
   `PlatformDriver` exposes only existing variation points.
-  `PlatformWindowingDriver` owns provisioning properties;
+  `PlatformWindowingDriver` owns optional provisioning properties;
   `PlatformProjectionDriver` owns output modes, wireless-launch integration,
   and caption transport; `PlatformPhoneUiDriver` owns phone-screen power control;
   `PlatformPointerDriver` owns optional read-only cursor observation. On Nubia
@@ -2978,8 +2979,8 @@ Settings.Global force_resizable_activities = 1
 ```
 
 `DeviceSetupManager` owns these common requirements; `PlatformWindowingDriver`
-adds only firmware-specific provisioning. A session owns its temporary display
-windowing default and restores that separately.
+adds only optional firmware-specific configuration. A session owns its temporary
+display windowing default and restores that separately.
 
 `SystemDesktopModeSetting` owns the optional Android global setting
 `force_desktop_mode_on_external_displays`, exposed in **Settings > Android system**.
@@ -3002,7 +3003,7 @@ reset uses the same no-session requirement as the global switch and reports
 partial persistence failures explicitly; it never resets required provisioning,
 application presentation profiles, or other settings.
 
-The Nubia/REDMAGIC platform additionally audits:
+The Nubia/REDMAGIC platform additionally audits and recommends:
 
 ```text
 persist.wm.debug.desktop_mode_enforce_device_restrictions = false
@@ -3015,6 +3016,13 @@ two persistent properties are written through the firmware's
 from the ordinary APK UID. `NubiaDesktopPropertyManager` exposes a closed
 enum, permits only boolean/absent values, and verifies every write. Generic
 Android never reads those properties as setup requirements or writes them.
+Neither property is a Desktop prerequisite. Setup attempts them independently;
+failed writes and resets produce diagnostic warnings without blocking the
+remaining operation or Desktop entry. The driver reports verified changes,
+not predicted writes, so a denied optional write alone cannot require reboot.
+Diagnostics preserves the raw values and does not equate an empty value with
+`false` or with unavailable window support. The desktop self-test verifies
+actual window behavior.
 
 Normal first-run UI exposes only the next required user action: start Shizuku,
 grant MagicDesk through Shizuku, prepare the device, restart, or start
@@ -3026,14 +3034,16 @@ Desktop panels and dialogs use ordinary application windows and require no
 display-over-other-apps permission. Their session-owned chrome host is excluded
 from Recents and all MagicDesk application-task policy.
 
-The boot ID marks configuration that still requires reboot. MagicDesk never
+The boot ID marks configuration that still requires reboot. Required Android
+settings are marked before their command because it can partially succeed;
+optional properties are marked only after a verified change. MagicDesk never
 reboots automatically and has no boot receiver. A successful audit after boot
 enters the control panel without flashing setup UI.
 
 **Restore defaults** is available independently of setup history. It stops the
 runtime, normalizes stale phone desktop tasks, removes the three global
-desktop-windowing overrides, clears the two allowlisted persistent properties,
-and resets primary-display size/density/scaling overrides. Removing overrides
+desktop-windowing overrides, attempts to clear the two allowlisted persistent
+properties, and resets primary-display size/density/scaling overrides. Removing overrides
 lets the firmware supply its defaults and remains usable after MagicDesk has
 been uninstalled and installed again. Diagnostics and background audits never
 authorize a runtime session or start services.
