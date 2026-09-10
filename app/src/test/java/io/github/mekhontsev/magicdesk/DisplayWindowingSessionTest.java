@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -51,87 +50,6 @@ public final class DisplayWindowingSessionTest {
         assertTrue(f.pending.isEmpty());
     }
 
-    @Test
-    public void freeformWithoutSecondaryHomeStillAcquiresDecorations() throws Exception {
-        final Fixture f = new Fixture();
-        f.display(2, "monitor", 5, false, false);
-        f.session.prepare(2);
-        assertFalse(f.pending.get("monitor").systemDecorations);
-        assertTrue(f.displays.get(2).systemDecorations);
-        final int reads = f.reads;
-        f.session.prepare(2);
-        assertEquals(reads, f.reads);
-        f.session.release(2);
-        assertEquals(5, f.displays.get(2).mode);
-        assertFalse(f.displays.get(2).systemDecorations);
-        assertTrue(f.pending.isEmpty());
-        assertEquals(List.of("2=5", "2=5"), f.writes);
-    }
-
-    @Test
-    public void restartRestoresModeAndDecorationsTogether() throws Exception {
-        final Fixture f = new Fixture();
-        f.display(2, "monitor", 1, false, false);
-        f.session.prepare(2);
-        assertEquals(5, f.displays.get(2).mode);
-        assertTrue(f.displays.get(2).systemDecorations);
-        new DisplayWindowingSession(f, f).recover();
-        assertEquals(1, f.displays.get(2).mode);
-        assertFalse(f.displays.get(2).systemDecorations);
-        assertTrue(f.pending.isEmpty());
-    }
-
-    @Test
-    public void decorationsRestoreWithoutUndoingAnotherOwnersMode() throws Exception {
-        final Fixture f = new Fixture();
-        f.display(2, "monitor", 1, false, false);
-        f.session.prepare(2);
-        f.display(2, "monitor", 6, false, true);
-        f.session.release(2);
-        assertEquals(6, f.displays.get(2).mode);
-        assertFalse(f.displays.get(2).systemDecorations);
-        assertTrue(f.pending.isEmpty());
-    }
-
-    @Test
-    public void unownedDecorationsAreNotReenabledAfterExternalChange() throws Exception {
-        final Fixture f = new Fixture();
-        f.session.prepare(2);
-        f.display(2, "monitor", 5, false, false);
-        f.session.release(2);
-        assertEquals(1, f.displays.get(2).mode);
-        assertFalse(f.displays.get(2).systemDecorations);
-    }
-
-    @Test
-    public void refusedDecorationsAfterModeWriteRestoresPartialPreparation() throws Exception {
-        final Fixture f = new Fixture();
-        f.display(2, "monitor", 1, false, false);
-        f.failAfterModeWrite = true;
-        assertThrows(IOException.class, () -> f.session.prepare(2));
-        assertEquals(5, f.displays.get(2).mode);
-        assertFalse(f.displays.get(2).systemDecorations);
-        f.session.release(2);
-        assertEquals(1, f.displays.get(2).mode);
-        assertFalse(f.displays.get(2).systemDecorations);
-        assertTrue(f.pending.isEmpty());
-    }
-
-    @Test
-    public void decorationsRestoreByStableIdentityAfterReconnect() throws Exception {
-        final Fixture f = new Fixture();
-        f.display(2, "monitor", 5, false, false);
-        f.session.prepare(2);
-        f.displays.remove(2);
-        f.session.release(2);
-        assertEquals(1, f.pending.size());
-        f.display(2, "other-monitor", 5, false, true);
-        f.display(7, "monitor", 5, false, true);
-        f.session.recover();
-        assertTrue(f.displays.get(2).systemDecorations);
-        assertFalse(f.displays.get(7).systemDecorations);
-        assertTrue(f.pending.isEmpty());
-    }
 
     @Test
     public void recoveryDoesNotUndoAnActiveSession() throws Exception {
@@ -280,7 +198,6 @@ public final class DisplayWindowingSessionTest {
         boolean failStorage;
         boolean failBeforeWrite;
         boolean failAfterWrite;
-        boolean failAfterModeWrite;
 
         Fixture() {
             display(0, "phone", 1, false);
@@ -288,13 +205,7 @@ public final class DisplayWindowingSessionTest {
         }
 
         void display(final int id, final String uniqueId, final int mode, final boolean virtual) {
-            display(id, uniqueId, mode, virtual, true);
-        }
-
-        void display(final int id, final String uniqueId, final int mode, final boolean virtual,
-                final boolean systemDecorations) {
-            displays.put(id, new DisplayWindowingSnapshot(id, uniqueId, mode, virtual,
-                    systemDecorations));
+            displays.put(id, new DisplayWindowingSnapshot(id, uniqueId, mode, virtual));
         }
 
         @Override
@@ -309,8 +220,7 @@ public final class DisplayWindowingSessionTest {
         }
 
         @Override
-        public void set(final int displayId, final String uniqueId, final int mode,
-                final boolean systemDecorations)
+        public void set(final int displayId, final String uniqueId, final int mode)
                 throws IOException {
             if (failBeforeWrite) {
                 failBeforeWrite = false;
@@ -320,12 +230,7 @@ public final class DisplayWindowingSessionTest {
             assertEquals(current.uniqueId, uniqueId);
             assertTrue("restore ownership must be saved before the write",
                     pending.containsKey(uniqueId));
-            if (failAfterModeWrite) {
-                failAfterModeWrite = false;
-                display(displayId, uniqueId, mode, current.virtual, current.systemDecorations);
-                throw new IOException("decorations refused after mode write");
-            }
-            display(displayId, uniqueId, mode, current.virtual, systemDecorations);
+            display(displayId, uniqueId, mode, current.virtual);
             writes.add(displayId + "=" + mode);
             if (failAfterWrite) {
                 failAfterWrite = false;

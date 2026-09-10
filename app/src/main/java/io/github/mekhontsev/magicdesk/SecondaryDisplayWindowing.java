@@ -88,10 +88,9 @@ final class SecondaryDisplayWindowing {
                     }
 
                     @Override
-                    public void set(final int displayId, final String uniqueId, final int mode,
-                            final boolean systemDecorations)
+                    public void set(final int displayId, final String uniqueId, final int mode)
                             throws IOException {
-                        ShellAccess.setDisplayWindowing(displayId, uniqueId, mode, systemDecorations);
+                        ShellAccess.setDisplayWindowing(displayId, uniqueId, mode);
                     }
                 }, new PreferencesStorage());
     }
@@ -111,11 +110,10 @@ final class SecondaryDisplayWindowing {
                     final JSONObject entry = entries.getJSONObject(i);
                     final DisplayWindowingSnapshot previous = new DisplayWindowingSnapshot(
                             entry.getInt("displayId"), entry.getString("uniqueId"),
-                            entry.getInt("mode"), entry.getBoolean("virtual"),
-                            entry.getBoolean("systemDecorations"));
+                            entry.getInt("mode"), entry.getBoolean("virtual"));
                     if (previous.displayId <= 0 || previous.uniqueId.isEmpty()
                             || previous.mode <= 0
-                            || previous.mode == 5 && previous.systemDecorations) {
+                            || previous.mode == 5) {
                         throw new IOException("invalid saved display default mode");
                     }
                     pending.put(previous.uniqueId, previous);
@@ -134,8 +132,7 @@ final class SecondaryDisplayWindowing {
                 for (DisplayWindowingSnapshot previous : pending.values()) {
                     entries.put(new JSONObject().put("displayId", previous.displayId)
                             .put("uniqueId", previous.uniqueId).put("mode", previous.mode)
-                            .put("virtual", previous.virtual)
-                            .put("systemDecorations", previous.systemDecorations));
+                            .put("virtual", previous.virtual));
                 }
             } catch (JSONException error) {
                 throw new IOException("cannot encode display mode restoration state", error);

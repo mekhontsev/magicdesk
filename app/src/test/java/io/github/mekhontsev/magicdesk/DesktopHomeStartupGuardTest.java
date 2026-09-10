@@ -16,6 +16,36 @@ import org.w3c.dom.NodeList;
 
 public final class DesktopHomeStartupGuardTest {
     @Test
+    public void sessionHostUsesAnExplicitComponentAndTypedHomeRoot() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Context {}
+                static class DesktopActivity {}
+                static class Intent {
+                    static final int FLAG_ACTIVITY_NEW_TASK = 1,
+                            FLAG_ACTIVITY_CLEAR_TOP = 2, FLAG_ACTIVITY_SINGLE_TOP = 4,
+                            FLAG_ACTIVITY_MULTIPLE_TASK = 8;
+                    final Class<?> component;
+                    int flags;
+                    Intent(Context context, Class<?> component) { this.component = component; }
+                    Intent addFlags(int value) { flags |= value; return this; }
+                }
+                """ + RuntimeSourceFixture.methods("DesktopActivity",
+                        "createLaunchIntent", "createDesktopHostIntent") + """
+                public static void verify() {
+                    Intent intent = createDesktopHostIntent(new Context());
+                    check(intent.component == DesktopActivity.class, "host must be explicit");
+                    check((intent.flags & (Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_MULTIPLE_TASK)) == 9, "display-local task");
+                }
+                """);
+        final String source = Files.readString(Path.of(
+                "src/main/java/io/github/mekhontsev/magicdesk/ShellDesktopHostLauncher.java"));
+        assertTrue(source.contains("FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME,"));
+        assertTrue(source.contains("activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME"));
+        assertTrue(source.contains("mService, displayId, taskId"));
+    }
+
+    @Test
     public void secondaryHomeAllowsPerDisplayInstances() throws Exception {
         final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(true);

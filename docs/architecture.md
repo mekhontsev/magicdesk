@@ -1545,7 +1545,7 @@ than selecting a launcher on the user's behalf.
 `DesktopHomeSurfaceRouter` atomically exposes exactly one primary HOME Activity
 before the role is claimed. External targets use `PhoneHomeActivity` on display
 0 and launch `DesktopActivity` through the typed Shizuku task API as the
-`SECONDARY_HOME` task on the selected display. A phone target exposes
+HOME task on the selected display. A phone target exposes
 the dedicated `PhoneDesktopHomeActivity` as primary HOME, so Android creates
 the desktop host directly in its standard task area without conflating it with
 the external-display host component.
@@ -1553,9 +1553,11 @@ the external-display host component.
 `DesktopActivity` uses `singleTop`, allowing Android to create a display-local
 secondary HOME instance. Android rejects `singleTask` and `singleInstance` for
 secondary HOME and can redirect the launch to display 0 while returning a
-successful start result. Root/system callers classify an explicit HOME Intent
-before display selection; the shell caller can instead inherit HOME from the
-requested root type, so shell-only verification does not cover this contract.
+successful start result. Session startup uses an explicit component Intent
+without HOME categories and requests the HOME root type through ActivityOptions.
+This keeps the selected display and root under the typed launch boundary for
+both shell and root callers. System HOME/SECONDARY_HOME Intents are separate
+entry points and delegate to the session's registered host on that display.
 The session registry owns the active host identity, independently of manifest
 launch-mode restrictions. Startup still verifies the actual display and HOME
 task type.
@@ -2570,25 +2572,18 @@ report collected after HOME release still explains the failed launch. It adds
 no retry, wait or task polling to a successful startup or an active session.
 
 Secondary sessions share one display-default policy on every platform:
-`SecondaryDisplayWindowing` prepares freeform and enables system decorations
-before HOME activation through
+`SecondaryDisplayWindowing` prepares freeform before HOME activation through
 `FrameworkRuntime.displayWindowing()` and the existing Shizuku Binder service.
 Display 0 is untouched; explicit fullscreen task modes remain independent.
-Android's secondary HOME eligibility requires a HOME-capable display. Enabling
-system decorations supplies that capability through the Android 15+ WindowManager
-API; it also permits system navigation UI. The same preparation applies to shell
-and root callers, without depending on their initial HOME classification.
 An unavailable or rejected display-default request fails preparation.
 
 `DisplayWindowingSession` captures and durably records the previous effective
-mode and system-decoration state only when either default changes. Close
-restores them after desktop teardown, and failed startup releases the same
-ownership, including a partially applied preparation. An already-freeform
-display with system decorations enabled requires neither a write nor a
-restoration entry. Android 15+'s getters resolve effective framework policy, so
-restoration preserves previous effective values, not the absence of raw
-overrides. A different mode selected by another owner is left intact, while
-owned decorations are restored independently. An already running secondary
+mode only when it changes. Close restores it after desktop teardown, and failed
+startup releases the same ownership, including a lost write acknowledgement.
+An already-freeform display requires neither a write nor a restoration entry.
+Android 15+'s getter resolves effective framework policy, so restoration
+preserves the previous effective mode, not the absence of a raw override.
+A different mode selected by another owner is left intact. An already running secondary
 launcher is not removed: restoring the display defaults does not promise a
 return to mirroring or transfer ownership of another launcher's task.
 

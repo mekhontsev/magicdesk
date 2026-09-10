@@ -225,7 +225,7 @@ final class DesktopSessionController {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy,
             final boolean restoreWindows) {
-        final Intent intent = DesktopActivity.createSecondaryHomeIntent(
+        final Intent intent = DesktopActivity.createDesktopHostIntent(
                 MagicDeskApplication.applicationContext())
                 .putExtra(
                         DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID,

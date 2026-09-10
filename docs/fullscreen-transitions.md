@@ -6,6 +6,9 @@ Android 15 can launch HOME separately in each organizer task display area.
 Only the registered HOME in the standard workspace owns the desktop UI.
 Additional instances are navigation delegates, retained until area removal;
 finishing them while the area is live causes Android to recreate them.
+Both `HOME` and `SECONDARY_HOME` Intents use this delegation, with an existing
+registered host on the same display and a distinct task identity. Ordinary
+application launches are not HOME delegates.
 The delegate task is non-focusable and translucent, and does not supply an
 Activity input sink. Independent delegate HOME roots receive the same policy.
 When a delegate shares the chrome host's root, `ShellDesktopChromeHost` retains

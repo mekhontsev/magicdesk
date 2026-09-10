@@ -10,8 +10,7 @@ public final class DisplayWindowingSnapshot implements Parcelable {
                 @Override
                 public DisplayWindowingSnapshot createFromParcel(final Parcel source) {
                     return new DisplayWindowingSnapshot(source.readInt(),
-                            source.readString(), source.readInt(), source.readBoolean(),
-                            source.readBoolean());
+                            source.readString(), source.readInt(), source.readBoolean());
                 }
 
                 @Override
@@ -24,15 +23,13 @@ public final class DisplayWindowingSnapshot implements Parcelable {
     public final String uniqueId;
     public final int mode;
     public final boolean virtual;
-    public final boolean systemDecorations;
 
     DisplayWindowingSnapshot(final int displayId, final String uniqueId,
-            final int mode, final boolean virtual, final boolean systemDecorations) {
+            final int mode, final boolean virtual) {
         this.displayId = displayId;
         this.uniqueId = uniqueId;
         this.mode = mode;
         this.virtual = virtual;
-        this.systemDecorations = systemDecorations;
     }
 
     @Override
@@ -46,6 +43,5 @@ public final class DisplayWindowingSnapshot implements Parcelable {
         destination.writeString(uniqueId);
         destination.writeInt(mode);
         destination.writeBoolean(virtual);
-        destination.writeBoolean(systemDecorations);
     }
 }

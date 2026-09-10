@@ -12,10 +12,10 @@ public final class DesktopActivity extends DesktopShellActivity {
                         | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     }
 
-    static Intent createSecondaryHomeIntent(final Context context) {
+    static Intent createDesktopHostIntent(final Context context) {
+        // The session selects both the component and the HOME root explicitly
+        // through ActivityOptions. This is not a system secondary-HOME request.
         return createLaunchIntent(context)
-                .setAction(Intent.ACTION_MAIN)
-                .addCategory(Intent.CATEGORY_SECONDARY_HOME)
                 .addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
     }
 }

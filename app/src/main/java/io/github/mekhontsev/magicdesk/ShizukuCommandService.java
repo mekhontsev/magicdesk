@@ -114,11 +114,10 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public void setDisplayWindowing(
-            final int displayId, final String uniqueId, final int mode,
-            final boolean systemDecorations) {
+            final int displayId, final String uniqueId, final int mode) {
         try {
             FrameworkRuntime.current().displayWindowing().set(
-                    displayId, uniqueId, mode, systemDecorations);
+                    displayId, uniqueId, mode);
         } catch (ReflectiveOperationException error) {
             throw new IllegalStateException("cannot set display default mode", error);
         }

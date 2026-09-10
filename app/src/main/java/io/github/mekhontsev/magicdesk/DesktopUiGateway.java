@@ -106,8 +106,11 @@ final class DesktopUiGateway {
 
     DesktopShellActivity desktopHomeRecipient(final DesktopShellActivity activity) {
         final Intent intent = activity.getIntent();
+        // Android may create HOME in each organizer area on either display.
+        // Secondary HOME must delegate too; finishing it causes a relaunch loop.
         if (intent == null || !Intent.ACTION_MAIN.equals(intent.getAction())
-                || !intent.hasCategory(Intent.CATEGORY_HOME)) {
+                || !(intent.hasCategory(Intent.CATEGORY_HOME)
+                        || intent.hasCategory(Intent.CATEGORY_SECONDARY_HOME))) {
             return null;
         }
         final DesktopShellActivity host;
