@@ -324,6 +324,9 @@ Shared compatibility policies can be selected in Settings on every vendor.
 
 ## Security
 
+Found a potential vulnerability? Use [private security reporting](https://github.com/mekhontsev/magicdesk/security/advisories/new),
+not public issues or the support bot. See the [security policy](SECURITY.md).
+
 Shizuku authorizes privileged shell operations, not every UI action. Files and
 Android-shell terminals use its connected identity; Termux uses its own.
 The main APK does not acquire root, patch SystemUI or load a kernel module.

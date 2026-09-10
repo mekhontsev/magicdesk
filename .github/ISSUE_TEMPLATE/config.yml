@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/mekhontsev/magicdesk/security/advisories/new
+    about: Use this private channel for suspected vulnerabilities, not a public issue or the support bot.
