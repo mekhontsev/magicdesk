@@ -2537,6 +2537,15 @@ Normal starts use `DesktopSessionPolicy.USER`; diagnostics can select the
 non-restoring, non-persisting `ISOLATED_SELF_TEST` policy without adding
 display-specific restore exceptions.
 
+Failed secondary HOME launches retain per-attempt evidence before cleanup:
+`DesktopHostLaunchDiagnostics` records the Android start result, stage, caller
+identity and returned task/type. Only a failure reads one bounded cross-display
+snapshot through `FrameworkTaskSnapshotSource`; it reports MagicDesk and HOME
+task metadata, never Intent extras or UI contents. Missing observations remain
+unknown. The bounded exception survives Binder into `DESKTOP-LAUNCH-002`, so a
+report collected after HOME release still explains the failed launch. It adds
+no retry, wait or task polling to a successful startup or an active session.
+
 Secondary sessions share one display-default policy on every platform:
 `SecondaryDisplayWindowing` prepares freeform before HOME activation through
 `FrameworkRuntime.displayWindowing()` and the existing Shizuku Binder service.

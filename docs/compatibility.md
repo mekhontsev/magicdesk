@@ -244,6 +244,9 @@ The report includes:
   system-controls provider, discovered fan/pump control keys, and readable
   effective state without changing cooling policy;
 - bounded structured MagicDesk error events;
+- failed secondary HOME launch evidence under `DESKTOP-LAUNCH-002`: launch
+  stage, process/Binder caller UID, Android start result, requested display,
+  returned task/type and a bounded pre-cleanup task sample across displays;
 - recent logcat entries from MagicDesk tags only;
 - a schema-versioned JSON summary with platform composition, per-component
   providers, typed capability observations, window-transition routing, and the

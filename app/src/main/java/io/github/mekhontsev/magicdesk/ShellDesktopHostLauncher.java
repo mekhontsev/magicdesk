@@ -36,24 +36,47 @@ final class ShellDesktopHostLauncher {
             throw new IllegalArgumentException(
                     "invalid desktop host component");
         }
-        removeStaleHostTasks(findDesktopHostTaskIds(displayId));
-        final int taskId = TaskDisplayAreaLaunchCommand.launchFullscreenTask(
-                mService,
-                displayId,
-                intent,
-                HOST_PACKAGE,
-                null,
-                FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME);
-        final Object task = HiddenTaskApi.requireTask(
-                mService, displayId, taskId);
-        if (HiddenTaskApi.getTaskActivityType(task)
-                != FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME) {
-            TaskControlCommand.removeTask(mService, taskId);
-            throw new IllegalStateException(
-                    "desktop host did not become a HOME task");
+        final DesktopHostLaunchDiagnostics diagnostic = new DesktopHostLaunchDiagnostics(
+                displayId, intent.getComponent().flattenToShortString());
+        int rejectedTaskId = -1;
+        try {
+            removeStaleHostTasks(findDesktopHostTaskIds(displayId));
+            diagnostic.stage = "start-activity";
+            final int taskId = TaskDisplayAreaLaunchCommand.launchFullscreenTask(
+                    mService,
+                    displayId,
+                    intent,
+                    HOST_PACKAGE,
+                    null,
+                    FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME,
+                    diagnostic::recordStartResult);
+            diagnostic.matchedTaskId = taskId;
+            diagnostic.stage = "verify-home-type";
+            final Object task = HiddenTaskApi.requireTask(
+                    mService, displayId, taskId);
+            final int activityType = HiddenTaskApi.getTaskActivityType(task);
+            diagnostic.matchedActivityType = activityType;
+            if (activityType != FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME) {
+                rejectedTaskId = taskId;
+                throw new IllegalStateException(
+                        "desktop host did not become a HOME task");
+            }
+            diagnostic.stage = "register-host";
+            mOwnership.markDesktopHost(taskId);
+            return taskId;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            final IllegalStateException failure = diagnostic.failure(mService, error);
+            // Preserve the rejected task in evidence before the existing cleanup
+            // removes it and the caller releases HOME/display ownership.
+            if (rejectedTaskId >= 0) {
+                try {
+                    TaskControlCommand.removeTask(mService, rejectedTaskId);
+                } catch (ReflectiveOperationException | RuntimeException cleanupError) {
+                    failure.addSuppressed(cleanupError);
+                }
+            }
+            throw failure;
         }
-        mOwnership.markDesktopHost(taskId);
-        return taskId;
     }
 
     private List<Integer> findDesktopHostTaskIds(final int displayId)

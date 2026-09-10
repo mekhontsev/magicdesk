@@ -442,6 +442,19 @@ public final class TaskDisplayAreaLaunchCommand {
             final String expectedPackage,
             final Object areaToken,
             final int activityType) throws ReflectiveOperationException {
+        return launchFullscreenTask(service, displayId, intent, expectedPackage,
+                areaToken, activityType, null);
+    }
+
+    static int launchFullscreenTask(
+            final Object service,
+            final int displayId,
+            final Intent intent,
+            final String expectedPackage,
+            final Object areaToken,
+            final int activityType,
+            final java.util.function.IntConsumer startResultObserver)
+            throws ReflectiveOperationException {
         return launchFullscreenTask(
                 service,
                 displayId,
@@ -449,7 +462,8 @@ public final class TaskDisplayAreaLaunchCommand {
                 expectedPackage,
                 areaToken,
                 activityType,
-                false);
+                false,
+                startResultObserver);
     }
 
     static int launchFullscreenTaskBehind(
@@ -493,6 +507,20 @@ public final class TaskDisplayAreaLaunchCommand {
             final Object areaToken,
             final int activityType,
             final boolean launchBehind) throws ReflectiveOperationException {
+        return launchFullscreenTask(service, displayId, intent, expectedPackage,
+                areaToken, activityType, launchBehind, null);
+    }
+
+    private static int launchFullscreenTask(
+            final Object service,
+            final int displayId,
+            final Intent intent,
+            final String expectedPackage,
+            final Object areaToken,
+            final int activityType,
+            final boolean launchBehind,
+            final java.util.function.IntConsumer startResultObserver)
+            throws ReflectiveOperationException {
         if (intent == null || intent.getComponent() == null) {
             throw new IllegalArgumentException(
                     "fullscreen launch requires an explicit target");
@@ -505,7 +533,7 @@ public final class TaskDisplayAreaLaunchCommand {
                 activityType,
                 launchBehind,
                 null,
-                options -> launchActivity(service, intent, options));
+                options -> launchActivity(service, intent, options, startResultObserver));
     }
 
     static int launchFullscreenPendingIntentTask(
@@ -703,6 +731,15 @@ public final class TaskDisplayAreaLaunchCommand {
             final Object service,
             final Intent intent,
             final ActivityOptions options) throws ReflectiveOperationException {
+        launchActivity(service, intent, options, null);
+    }
+
+    private static void launchActivity(
+            final Object service,
+            final Intent intent,
+            final ActivityOptions options,
+            final java.util.function.IntConsumer startResultObserver)
+            throws ReflectiveOperationException {
         final Class<?> applicationThreadClass =
                 Class.forName("android.app.IApplicationThread");
         final Class<?> profilerInfoClass =
@@ -733,6 +770,9 @@ public final class TaskDisplayAreaLaunchCommand {
                 Integer.valueOf(0),
                 null,
                 options.toBundle())).intValue();
+        if (startResultObserver != null) {
+            startResultObserver.accept(startResult);
+        }
         if (startResult < 0) {
             throw new IllegalStateException(
                     "startActivity returned " + startResult);

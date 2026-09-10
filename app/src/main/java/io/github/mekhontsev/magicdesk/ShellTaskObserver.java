@@ -597,8 +597,9 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             reportDesktopTaskOwnership();
             return taskId;
         } catch (ReflectiveOperationException | RuntimeException error) {
+            // Keep the host's bounded pre-cleanup evidence across Binder.
             throw new IllegalStateException(
-                    "cannot launch desktop host: " + usefulMessage(error),
+                    "cannot launch desktop host: " + ShellAccess.usefulMessage(error),
                     error);
         }
     }
