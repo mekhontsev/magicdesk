@@ -368,7 +368,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mSecondaryHomeStartPolicy.configure(Display.INVALID_DISPLAY);
             mMigrationGuard.configure(-1, false);
             mFreeformCleanup.configure(-1);
-            mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY);
+            mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY, false);
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             mTaskObservations.clearConfiguration();
             mDesktopChromeHost.close();
@@ -412,7 +412,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 mCompatibility.enabled(DesktopCompatibilityPolicy.Option.STALE_RECENTS_CLEANUP)
                         && displayId == Display.DEFAULT_DISPLAY
                                 ? displayId : -1);
-        mTaskActivityModeGuard.configure(displayId);
+        mTaskActivityModeGuard.configure(displayId, mCompatibility.enabled(
+                DesktopCompatibilityPolicy.Option.ACTIVITY_HANDOFF_REPAIR));
         mTaskObservations.configure(
                 displayId,
                 displayBounds,

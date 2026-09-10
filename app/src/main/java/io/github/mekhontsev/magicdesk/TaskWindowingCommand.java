@@ -83,18 +83,8 @@ public final class TaskWindowingCommand {
         if (right <= left || bottom <= top) {
             throw new IllegalArgumentException("invalid bounds");
         }
-        final Object service = HiddenTaskApi.getService();
-        HiddenTaskApi.requireTask(service, displayId, taskId);
-        // Match `am task resize`: the task service coordinates this request
-        // with an in-flight native caption transition. A direct synchronous
-        // WCT can race WMShell and leave its resize veil attached.
-        service.getClass().getMethod(
-                "resizeTask", Integer.TYPE, Rect.class, Integer.TYPE)
-                .invoke(
-                        service,
-                        Integer.valueOf(taskId),
-                        new Rect(left, top, right, bottom),
-                        Integer.valueOf(0));
+        HiddenTaskApi.resizeTaskBounds(HiddenTaskApi.getService(),
+                displayId, taskId, new Rect(left, top, right, bottom));
         System.out.println("task-bounds=" + taskId);
     }
 

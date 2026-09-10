@@ -73,6 +73,63 @@ public final class SystemDesktopModeSettingTest {
     }
 
     @Test
+    public void resetRemovesBothEnabledAndDisabledOverrides() throws Exception {
+        final FakeAccess access = new FakeAccess();
+        access.enabled = true;
+        assertTrue(SystemDesktopModeSetting.reset(access));
+        assertFalse(access.enabled);
+        assertFalse(access.hasOverride);
+        access.hasOverride = true;
+        assertFalse(SystemDesktopModeSetting.reset(access));
+        assertFalse(access.hasOverride);
+        assertEquals(2, access.resets);
+        assertEquals(0, access.writes);
+    }
+
+    @Test
+    public void resetChecksSessionEvenWhenAndroidModeIsAlreadyDisabled() {
+        final FakeAccess access = new FakeAccess();
+        access.allowed = false;
+        assertThrows(IOException.class, () -> SystemDesktopModeSetting.reset(access));
+        assertEquals(0, access.resets);
+    }
+
+    @Test
+    public void resetRequiresSuccessfulReadAndWrite() {
+        final FakeAccess access = new FakeAccess();
+        access.readFails = true;
+        assertThrows(IOException.class, () -> SystemDesktopModeSetting.reset(access));
+        assertEquals(0, access.resets);
+        access.readFails = false;
+        access.writeFails = true;
+        assertThrows(IOException.class, () -> SystemDesktopModeSetting.reset(access));
+        assertTrue(access.hasOverride);
+    }
+
+    @Test
+    public void resetVerifiesAndroidBeforeClearingCompatibilityOverrides() {
+        final FakeAccess access = new FakeAccess();
+        access.enabled = true;
+        access.ignoreWrite = true;
+        assertThrows(IOException.class, () -> DesktopCompatibilitySettings.resetDefaults(access,
+                () -> { throw new AssertionError("must not clear preferences after failed Android reset"); }));
+        assertEquals(1, access.resets);
+    }
+
+    @Test
+    public void combinedResetClearsOverridesAfterAndroidAndReportsStorageFailure() throws Exception {
+        final FakeAccess access = new FakeAccess();
+        access.enabled = true;
+        assertTrue(DesktopCompatibilitySettings.resetDefaults(access, () -> {
+            assertFalse(access.hasOverride);
+            return true;
+        }));
+        final IOException error = assertThrows(IOException.class,
+                () -> DesktopCompatibilitySettings.resetDefaults(access, () -> false));
+        assertTrue(error.getMessage().contains("preferences could not be saved"));
+    }
+
+    @Test
     public void optionalSettingHasNoPreferenceCopyOrRequiredSetupGate() throws Exception {
         final String source = source("SystemDesktopModeSetting");
         assertTrue(source.contains("Settings.Global.getInt("));
@@ -99,7 +156,9 @@ public final class SystemDesktopModeSettingTest {
         boolean readFails;
         boolean writeFails;
         boolean ignoreWrite;
+        boolean hasOverride = true;
         int writes;
+        int resets;
 
         @Override
         public boolean read() throws IOException {
@@ -122,6 +181,19 @@ public final class SystemDesktopModeSettingTest {
             }
             if (!ignoreWrite) {
                 enabled = value;
+                hasOverride = true;
+            }
+        }
+
+        @Override
+        public void reset() throws IOException {
+            resets++;
+            if (writeFails) {
+                throw new IOException("reset failed");
+            }
+            if (!ignoreWrite) {
+                enabled = false;
+                hasOverride = false;
             }
         }
     }

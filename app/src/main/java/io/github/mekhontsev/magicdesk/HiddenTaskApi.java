@@ -153,6 +153,23 @@ final class HiddenTaskApi {
         return getTaskToken(requireTask(service, displayId, taskId));
     }
 
+    static void resizeTaskBounds(
+            final Object service,
+            final int displayId,
+            final int taskId,
+            final Rect bounds) throws ReflectiveOperationException {
+        if (bounds == null || bounds.isEmpty()) {
+            throw new IllegalArgumentException("invalid bounds");
+        }
+        requireTask(service, displayId, taskId);
+        // Match `am task resize`: ATM coordinates with native caption
+        // transitions, unlike a competing synchronous bounds-only WCT.
+        service.getClass().getMethod(
+                "resizeTask", Integer.TYPE, Rect.class, Integer.TYPE)
+                .invoke(service, Integer.valueOf(taskId), new Rect(bounds),
+                        Integer.valueOf(0));
+    }
+
     static Object requireRootTaskToken(final Object service, final int displayId,
             final int rootTaskId) throws ReflectiveOperationException {
         for (final Object root : getRootTaskInfos(service, displayId)) {

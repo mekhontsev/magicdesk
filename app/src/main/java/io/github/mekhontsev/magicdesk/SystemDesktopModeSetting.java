@@ -15,6 +15,8 @@ final class SystemDesktopModeSetting {
         boolean canChange();
 
         void write(boolean enabled) throws IOException;
+
+        void reset() throws IOException;
     }
 
     private SystemDesktopModeSetting() {
@@ -35,7 +37,11 @@ final class SystemDesktopModeSetting {
     }
 
     static boolean setEnabled(final Context context, final boolean enabled) throws IOException {
-        return setEnabled(new Access() {
+        return setEnabled(access(context), enabled);
+    }
+
+    static Access access(final Context context) {
+        return new Access() {
             @Override
             public boolean read() throws IOException {
                 return SystemDesktopModeSetting.read(context);
@@ -50,7 +56,12 @@ final class SystemDesktopModeSetting {
             public void write(final boolean value) throws IOException {
                 ShellAccess.run(writeCommand(value));
             }
-        }, enabled);
+
+            @Override
+            public void reset() throws IOException {
+                ShellAccess.run(resetCommand());
+            }
+        };
     }
 
     static boolean setEnabled(final Access access, final boolean enabled) throws IOException {
@@ -67,6 +78,20 @@ final class SystemDesktopModeSetting {
             throw new IOException("Android desktop mode did not retain the requested value");
         }
         return true;
+    }
+
+    static boolean reset(final Access access) throws IOException {
+        if (!access.canChange()) {
+            throw new IOException("close Desktop and connect Shizuku before resetting Android desktop mode");
+        }
+        final boolean wasEnabled = access.read();
+        // Remove even an explicit false override; Android remains the only
+        // value store and absence resolves to its disabled default.
+        access.reset();
+        if (access.read()) {
+            throw new IOException("Android desktop mode did not retain its default value");
+        }
+        return wasEnabled;
     }
 
     static String writeCommand(final boolean enabled) {

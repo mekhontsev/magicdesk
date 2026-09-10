@@ -40,6 +40,10 @@ final class MagicDeskSettings {
                 state -> state.settings.compatibility.put(option, enabled));
     }
 
+    static boolean resetCompatibilityOptions() {
+        return DesktopStateStore.update(state -> state.settings.resetCompatibilityOptions());
+    }
+
     static boolean setOpenFilesWithSingleClick(final boolean enabled) {
         return DesktopStateStore.update(
                 state -> state.settings.openFilesWithSingleClick = enabled);
@@ -156,6 +160,10 @@ final class MagicDeskSettings {
                     TERMUX_X11_STARTUP_COMMAND,
                     termuxX11StartupCommand);
             return json;
+        }
+
+        void resetCompatibilityOptions() {
+            compatibility.clear();
         }
 
         DesktopCompatibilityPolicy compatibilityPolicy(

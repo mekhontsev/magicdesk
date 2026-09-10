@@ -8,6 +8,7 @@ public final class DesktopCompatibilityPolicy implements Parcelable {
     public enum Option {
         FOCUS_REPAIR("focusRepair"),
         CAPTION_REFRESH("captionRefresh"),
+        ACTIVITY_HANDOFF_REPAIR("activityHandoffRepair"),
         PHONE_TASK_ISOLATION("phoneTaskIsolation"),
         PHONE_TASK_RECOVERY("phoneTaskRecovery"),
         STALE_RECENTS_CLEANUP("staleRecentsCleanup"),

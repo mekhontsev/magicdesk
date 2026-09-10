@@ -86,6 +86,22 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void resetCompatibilityDefaults() {
+        if (mSystemDesktopModeBusy || !SystemDesktopModeSetting.canChange()) {
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.settings_compat_reset)
+                .setMessage(getString(R.string.settings_compat_reset_confirm,
+                        PlatformDrivers.current().name()))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, (dialog, which) ->
+                        applySystemSetting(() -> DesktopCompatibilitySettings.resetDefaults(
+                                getApplicationContext())))
+                .show();
+    }
+
+    @Override
     public void setSystemDesktopMode(final boolean enabled) {
         renderSystemDesktopMode();
         if (mSystemDesktopModeBusy || !SystemDesktopModeSetting.canChange()) {
@@ -101,24 +117,32 @@ public final class SettingsActivity extends Activity
     }
 
     private void applySystemDesktopMode(final boolean enabled) {
+        final Context context = getApplicationContext();
+        applySystemSetting(() -> SystemDesktopModeSetting.setEnabled(context, enabled));
+    }
+
+    private interface SystemSettingChange {
+        boolean apply() throws IOException;
+    }
+
+    private void applySystemSetting(final SystemSettingChange change) {
         if (mSystemDesktopModeBusy) {
             return;
         }
         mSystemDesktopModeBusy = true;
         renderSystemDesktopMode();
-        final Context context = getApplicationContext();
         new Thread(() -> {
             String failure = null;
             boolean changed = false;
             try {
-                changed = SystemDesktopModeSetting.setEnabled(context, enabled);
+                changed = change.apply();
             } catch (IOException | RuntimeException error) {
                 failure = error.getMessage();
                 if (failure == null || failure.isEmpty()) {
                     failure = error.getClass().getSimpleName();
                 }
                 CompatibilityDiagnostics.record("SYSTEM-DESKTOP-MODE-001",
-                        "Could not change Android desktop mode", failure, error);
+                        "Could not apply desktop compatibility settings", failure, error);
             }
             final String resultError = failure;
             final boolean resultChanged = changed;
@@ -127,7 +151,7 @@ public final class SettingsActivity extends Activity
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
-                renderSystemDesktopMode();
+                render();
                 if (resultError != null) {
                     new AlertDialog.Builder(this)
                             .setTitle(R.string.settings_save_failed)
@@ -425,9 +449,9 @@ public final class SettingsActivity extends Activity
                             : !canChange
                                     ? R.string.settings_system_desktop_mode_close
                                     : R.string.settings_system_desktop_mode_apply_notice;
-            mView.renderSystemDesktopMode(enabled, !mSystemDesktopModeBusy && canChange, status);
+            mView.renderSystemDesktopMode(enabled, canChange, mSystemDesktopModeBusy, status);
         } catch (IOException error) {
-            mView.renderSystemDesktopMode(null, false,
+            mView.renderSystemDesktopMode(null, false, mSystemDesktopModeBusy,
                     R.string.settings_system_desktop_mode_unavailable);
         }
     }

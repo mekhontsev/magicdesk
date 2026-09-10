@@ -27,6 +27,8 @@ final class SettingsView {
 
         void setCompatibilityOption(DesktopCompatibilityPolicy.Option option, boolean enabled);
 
+        void resetCompatibilityDefaults();
+
         void setSystemDesktopMode(boolean enabled);
 
         void setOpenFilesWithSingleClick(boolean enabled);
@@ -76,6 +78,7 @@ final class SettingsView {
     private Switch mOpenFilesWithSingleClick;
     private Switch mSystemDesktopMode;
     private TextView mSystemDesktopModeStatus;
+    private View mResetCompatibilityDefaults;
     private Switch mMcpEnabled;
     private TextView mMcpStatus;
     private Switch mMcpNetworkEnabled;
@@ -163,6 +166,9 @@ final class SettingsView {
                 });
 
         addSection(content, R.string.settings_section_compatibility);
+        mResetCompatibilityDefaults = addAction(content, android.R.drawable.ic_menu_revert,
+                R.string.settings_compat_reset, mActions::resetCompatibilityDefaults);
+        mResetCompatibilityDefaults.setEnabled(false);
         for (final DesktopCompatibilityPolicy.Option option
                 : DesktopCompatibilityPolicy.Option.values()) {
             final Switch control = addSwitch(content, compatibilityLabel(option));
@@ -347,7 +353,8 @@ final class SettingsView {
     }
 
     void renderSystemDesktopMode(
-            final Boolean enabled, final boolean canChange, final int statusResId) {
+            final Boolean enabled, final boolean canChange, final boolean busy,
+            final int statusResId) {
         if (mSystemDesktopMode == null) {
             return;
         }
@@ -355,8 +362,14 @@ final class SettingsView {
         if (enabled != null) {
             mSystemDesktopMode.setChecked(enabled);
         }
-        mSystemDesktopMode.setEnabled(enabled != null && canChange);
-        mSystemDesktopMode.setAlpha(enabled != null && canChange ? 1f : 0.5f);
+        final boolean editable = enabled != null && canChange && !busy;
+        mSystemDesktopMode.setEnabled(editable);
+        mSystemDesktopMode.setAlpha(editable ? 1f : 0.5f);
+        mResetCompatibilityDefaults.setEnabled(editable);
+        mResetCompatibilityDefaults.setAlpha(editable ? 1f : 0.5f);
+        for (final Switch control : mCompatibility.values()) {
+            control.setEnabled(!busy);
+        }
         mSystemDesktopModeStatus.setText(statusResId);
         mRendering = false;
     }
@@ -406,6 +419,7 @@ final class SettingsView {
         return switch (option) {
             case FOCUS_REPAIR -> R.string.settings_compat_focus_repair;
             case CAPTION_REFRESH -> R.string.settings_compat_caption_refresh;
+            case ACTIVITY_HANDOFF_REPAIR -> R.string.settings_compat_activity_handoff;
             case PHONE_TASK_ISOLATION -> R.string.settings_compat_phone_isolation;
             case PHONE_TASK_RECOVERY -> R.string.settings_compat_phone_recovery;
             case STALE_RECENTS_CLEANUP -> R.string.settings_compat_stale_recents;

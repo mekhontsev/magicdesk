@@ -1,7 +1,7 @@
 # Nubia Vendor Interface Audit
 
 This is an inventory of the mechanisms used by MagicDesk, checked against
-the current source on 2026-09-08. It covers shared compatibility
+the current source on 2026-09-10. It covers shared compatibility
 policies, active vendor integrations, their owners, and known limitations.
 Test runs and their results belong in compatibility reports, not this inventory.
 
@@ -45,11 +45,11 @@ to `FrameworkRuntime` and its adapters.
 
 ### Shared Compatibility Policies
 
-The six options are available on every platform in Settings' Compatibility
+The seven options are available on every platform in Settings' Compatibility
 section. An unset preference follows the platform recommendation. A complete
-Nubia extension recommends all six enabled. Focus repair is already enabled
+Nubia extension recommends all seven enabled. Focus repair is already enabled
 by the shared Android baseline; the extension supplies defaults only for the
-other five. Partial extension selection adds only the defaults associated
+other six. Partial extension selection adds only the defaults associated
 with its detected components.
 
 The HOME lease captures the policy for each session. A settings edit applies
@@ -60,14 +60,33 @@ actual input-routing and shortcut-filter readiness separately.
 | Option | Nubia component supplying the default | Shared implementation and scope |
 | --- | --- | --- |
 | `CAPTION_REFRESH` | `WINDOWING` | Refresh stale application-client caption insets through framework window transactions. |
+| `ACTIVITY_HANDOFF_REPAIR` | `WINDOWING` | Preserve task mode and pre-start freeform geometry across correlated Activity launches, including repeated starts delivered to the same Activity. |
 | `PHONE_TASK_ISOLATION` | `WINDOWING` | Phone-side launch/migration interception and freeform normalization during wired/wireless sessions. |
 | `PHONE_TASK_RECOVERY` | `WINDOWING` | Reconcile phone task modes and retained WMShell desktop membership around session setup, cleanup, and display loss. |
 | `STALE_RECENTS_CLEANUP` | `WINDOWING` | Remove matching orphaned phone freeform Recents entries during phone desktop observation. |
 | `RECENTS_TO_HOME` | `PHONE_UI` | Route the system Recents Activity request to MagicDesk HOME while its session is active. |
 
-These five implementations do not depend on private Nubia input or window-control
+These six implementations do not depend on private Nubia input or window-control
 APIs. Their default selection is firmware policy; portability alone does not
 justify enabling every correction on every platform.
+
+### Activity Handoff Repair
+
+The inspected firmware's `ActivityStarter` invokes
+`ActivityTaskManagerServiceMifavor.toggleWindowingModeTargetTask_WindowReply`
+for an existing target task. Its root-task branch can set an ordinary freeform
+task to fullscreen when the incoming Intent lacks the proprietary WindowReply
+identifier. WMShell can then return the task to freeform with fresh launch
+bounds. This also affects an Intent delivered to an already-running top
+Activity, not just a change of Activity class.
+
+`ACTIVITY_HANDOFF_REPAIR` enables the shared `ShellTaskActivityModeGuard`,
+which correlates pre-start geometry with typed task observations. Bounds-only
+repair uses Android's task-resize operation; mode repair retains the existing
+transition owner. The implementation does not add WindowReply identifiers,
+call this vendor API, or depend on an application package list. It is disabled
+by default without the Nubia windowing extension. User-selected modes and
+observed immersive requests retain their normal behavior.
 
 ### Caption Repair
 

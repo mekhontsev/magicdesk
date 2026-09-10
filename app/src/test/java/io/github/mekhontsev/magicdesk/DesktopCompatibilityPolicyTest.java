@@ -85,6 +85,33 @@ public final class DesktopCompatibilityPolicyTest {
         DesktopCompatibilityPolicy.fromBits(1 << 20);
     }
 
+    @Test
+    public void resetFollowsSelectedPlatformWithoutChangingOtherPreferencesOrSession() throws Exception {
+        final MagicDeskSettings.Values preferences = MagicDeskSettings.Values.defaults();
+        preferences.keepDesktopAwake = true;
+        preferences.taskbarAutoHide = true;
+        preferences.openTouchpadAutomatically = false;
+        preferences.termuxX11StartupCommand = "termux-x11 :2";
+        final var all = DesktopCompatibilityPolicy.Option.values();
+        DesktopCompatibilityPolicy platform = DesktopCompatibilityPolicy.NONE;
+        for (final var option : all) {
+            platform = platform.with(option, true);
+            preferences.compatibility.put(option, false);
+        }
+        final DesktopCompatibilityPolicy active = preferences.compatibilityPolicy(features(platform));
+        final JSONObject expected = preferences.toJson();
+        expected.put("compatibility", new JSONObject());
+        preferences.resetCompatibilityOptions();
+        assertEquals(expected.toString(), preferences.toJson().toString());
+        final var restored = MagicDeskSettings.Values.fromJson(preferences.toJson());
+        assertTrue(restored.compatibility.isEmpty());
+        for (final var option : all) {
+            assertTrue(restored.compatibilityPolicy(features(platform)).enabled(option));
+            assertFalse(restored.compatibilityPolicy(features(DesktopCompatibilityPolicy.NONE)).enabled(option));
+            assertFalse(active.enabled(option));
+        }
+    }
+
     private static PlatformFeatures features(final DesktopCompatibilityPolicy policy) {
         return new PlatformFeatures(true, true, policy, false);
     }

@@ -30,6 +30,26 @@ public final class DesktopStateStoreTest {
     }
 
     @Test
+    public void resetCompatibilityPersistsWithoutReplacingOtherState() throws Exception {
+        final MemoryStorage storage = new MemoryStorage();
+        DesktopStateStore.useStorageForTests(storage);
+        assertTrue(DesktopStateStore.update(state -> {
+            state.taskbarApps.add(app("example.application"));
+            state.appPresentations.put(app("example.application").application,
+                    new AppPresentationProfile(125));
+            state.settings.keepDesktopAwake = true;
+            state.settings.compatibility.put(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, false);
+        }));
+        assertTrue(MagicDeskSettings.resetCompatibilityOptions());
+        DesktopStateStore.useStorageForTests(storage);
+        assertTrue(MagicDeskSettings.load().compatibility.isEmpty());
+        assertTrue(MagicDeskSettings.load().keepDesktopAwake);
+        assertTrue(DesktopStateStore.read(state -> state.taskbarApps.contains(app("example.application")), false));
+        assertTrue(DesktopStateStore.read(state -> state.appPresentations.containsKey(
+                app("example.application").application), false));
+    }
+
+    @Test
     public void stateRoundTripPreservesDesktopConfiguration() throws Exception {
         final DesktopStateStore.State source = new DesktopStateStore.State();
         source.taskbarApps.add(app("example.application"));

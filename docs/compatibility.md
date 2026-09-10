@@ -58,17 +58,24 @@ shared policy from optional focus repair and reports pending display
 mode restoration. Close restores a changed effective default; disconnected
 physical displays are reconciled by stable identity when they return.
 
-**Compatibility (next session)** groups six
+**Compatibility (next session)** groups seven
 optional shared mechanisms: stalled-focus repair, stale fullscreen caption
-refresh, wired/wireless phone-task isolation, retained phone-task recovery,
-stale phone freeform Recents cleanup, and phone Recents redirection to HOME.
+refresh, Activity handoff mode/bounds repair, wired/wireless phone-task
+isolation, retained phone-task recovery, stale phone freeform Recents cleanup,
+and phone Recents redirection to HOME.
 For external sessions, routed HOME selects phone Start's Recent page; for phone
 Desktop, it presents the workspace.
 Every platform can override these individually. The Android baseline recommends
-focus repair enabled and the other five disabled. Stock Nubia firmware recommends
-all six; hybrid firmware adds the recommendations of its selected components
+focus repair enabled and the other six disabled. Stock Nubia firmware recommends
+all seven; hybrid firmware adds the recommendations of its selected components
 to the baseline. Explicit user choices take precedence. A session retains its selection
 through Close and display-loss cleanup; edits affect the next session.
+
+**Reset to platform defaults** in this section removes all seven user overrides
+and the optional Android external desktop-mode override (default: off).
+It requires Shizuku access and a closed Desktop. The selected platform supplies
+the compatibility defaults again; application DPI profiles and other settings
+are unchanged. This is separate from Device Setup's provisioning reset.
 
 Reports distinguish defaults, saved overrides, next-session selection, active
 selection. Physical input uses shared Android location-to-display associations,

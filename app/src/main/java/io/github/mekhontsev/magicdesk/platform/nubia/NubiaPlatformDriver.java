@@ -95,6 +95,7 @@ public final class NubiaPlatformDriver implements PlatformExtension {
             // These shared mechanisms address observed task failures in
             // stock firmware. Optional vendor APIs alone do not select them.
             defaults = defaults.with(Option.CAPTION_REFRESH, true)
+                    .with(Option.ACTIVITY_HANDOFF_REPAIR, true)
                     .with(Option.PHONE_TASK_ISOLATION, true)
                     .with(Option.PHONE_TASK_RECOVERY, true)
                     .with(Option.STALE_RECENTS_CLEANUP, true);

@@ -555,8 +555,11 @@
     <string name="settings_section_desktop">Desktop</string>
     <string name="settings_section_session">Session</string>
     <string name="settings_section_compatibility">Compatibility (next session)</string>
+    <string name="settings_compat_reset">Reset to platform defaults</string>
+    <string name="settings_compat_reset_confirm">Restore compatibility defaults for %1$s and reset Android desktop mode on external displays to off? Other settings will stay unchanged.</string>
     <string name="settings_compat_focus_repair">Repair stalled desktop input focus</string>
     <string name="settings_compat_caption_refresh">Clear stale fullscreen caption insets</string>
+    <string name="settings_compat_activity_handoff">Preserve window mode and bounds during activity launches</string>
     <string name="settings_compat_phone_isolation">Isolate phone tasks during wired and wireless desktop</string>
     <string name="settings_compat_phone_recovery">Reconcile retained desktop tasks on return to phone</string>
     <string name="settings_compat_stale_recents">Clean stale phone freeform entries from Recents</string>

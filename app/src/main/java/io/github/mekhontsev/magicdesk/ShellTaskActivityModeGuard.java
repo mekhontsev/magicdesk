@@ -14,7 +14,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-/** Preserves an explicitly selected task mode across activity handoffs. */
+/** Preserves the selected task mode and window bounds across activity handoffs. */
 final class ShellTaskActivityModeGuard implements
         ShellTaskLauncher.Listener,
         ShellActivityStartController.Listener {
@@ -42,6 +42,7 @@ final class ShellTaskActivityModeGuard implements
     private LaunchActivityIdentity mInitialLaunchIdentity;
     private int mInitialLaunchWindowingMode;
     private int mDisplayId = Display.INVALID_DISPLAY;
+    private boolean mEnabled;
 
     ShellTaskActivityModeGuard(
             final Object service,
@@ -52,11 +53,12 @@ final class ShellTaskActivityModeGuard implements
         mRefreshFullscreenCaption = refreshFullscreenCaption;
     }
 
-    synchronized void configure(final int displayId) {
-        if (mDisplayId == displayId) {
+    synchronized void configure(final int displayId, final boolean enabled) {
+        if (mDisplayId == displayId && mEnabled == enabled) {
             return;
         }
         mDisplayId = displayId;
+        mEnabled = enabled;
         mInitialLaunchIdentity = null;
         mInitialLaunchWindowingMode = 0;
         mTasks.clear();
@@ -67,6 +69,9 @@ final class ShellTaskActivityModeGuard implements
     public synchronized void onTaskLaunchStarting(
             final LaunchActivityIdentity identity,
             final int windowingMode) {
+        if (!mEnabled) {
+            return;
+        }
         mInitialLaunchIdentity = identity;
         mInitialLaunchWindowingMode = windowingMode;
     }
@@ -78,7 +83,7 @@ final class ShellTaskActivityModeGuard implements
             final int displayId,
             final Rect bounds,
             final int windowingMode) {
-        if (displayId != mDisplayId
+        if (!mEnabled || displayId != mDisplayId
                 || component == null
                 || !isSupportedMode(windowingMode)
                 || (windowingMode == WINDOWING_MODE_FREEFORM
@@ -109,6 +114,9 @@ final class ShellTaskActivityModeGuard implements
             final int displayId) {
         if (taskId < 0 || displayId != mDisplayId || component == null) {
             return false;
+        }
+        if (!mEnabled) {
+            return true;
         }
         final TaskRecord previous = mTasks.get(Integer.valueOf(taskId));
         if (previous != null
@@ -155,7 +163,7 @@ final class ShellTaskActivityModeGuard implements
     public synchronized boolean onActivityStarting(
             final Intent intent,
             final String packageName) {
-        if (intent == null || mDisplayId == Display.INVALID_DISPLAY) {
+        if (!mEnabled || intent == null || mDisplayId == Display.INVALID_DISPLAY) {
             return true;
         }
         final ComponentName component = intent.getComponent();
@@ -187,7 +195,8 @@ final class ShellTaskActivityModeGuard implements
         mPendingStarts.addLast(new PendingStart(
                 component == null ? null : component.flattenToShortString(),
                 requestedPackage,
-                now));
+                now,
+                mTasks.values()));
         return true;
     }
 
@@ -199,7 +208,7 @@ final class ShellTaskActivityModeGuard implements
         }
         final List<Correction> corrections = new ArrayList<>();
         synchronized (this) {
-            if (displayId != mDisplayId) {
+            if (!mEnabled || displayId != mDisplayId) {
                 return;
             }
             final List<ObservedTask> observedTasks = new ArrayList<>();
@@ -270,9 +279,15 @@ final class ShellTaskActivityModeGuard implements
                                 topComponent,
                                 topPackage,
                                 observation.windowingMode,
-                                observation.requestingImmersive());
+                                observation.requestingImmersive(),
+                                record.handoffBounds != null
+                                        && !observation.bounds.isEmpty()
+                                        && !record.handoffBounds.equals(
+                                                observation.bounds));
                 if (decision
                         == TaskActivityModeState.Decision.RESTORE_FREEFORM
+                        || decision
+                        == TaskActivityModeState.Decision.RESTORE_BOUNDS
                         || decision
                         == TaskActivityModeState.Decision.RESTORE_FULLSCREEN) {
                     corrections.add(new Correction(
@@ -280,6 +295,9 @@ final class ShellTaskActivityModeGuard implements
                             activityLabel(observation.topComponent,
                                     topPackage),
                             decision));
+                }
+                if (!record.activityState.isArmed()) {
+                    record.handoffBounds = null;
                 }
                 record.observeTop(topComponent, topPackage,
                         observation.windowingMode);
@@ -298,20 +316,31 @@ final class ShellTaskActivityModeGuard implements
                         correction.record.displayId,
                         correction.record.taskId,
                         mRefreshFullscreenCaption.getAsBoolean());
+            } else if (correction.decision
+                    == TaskActivityModeState.Decision.RESTORE_BOUNDS) {
+                // The native task-resize path preserves mode, focus and order,
+                // and cooperates with an in-flight window transition.
+                HiddenTaskApi.resizeTaskBounds(
+                        mService,
+                        correction.record.displayId,
+                        correction.record.taskId,
+                        correction.bounds);
             } else {
                 ShellPreparedTaskTransition.applyFreeform(
                         mService,
                         correction.record.displayId,
                         correction.record.taskId,
-                        new Rect(correction.record.bounds));
+                        correction.bounds);
             }
             synchronized (this) {
-                correction.record.activityState.correctionApplied();
+                correction.record.activityState.finishHandoff();
+                correction.record.handoffBounds = null;
             }
             Log.i(TAG, "restored activity handoff mode="
                     + modeLabel(correction.record.preferredWindowingMode)
                     + " task="
                     + correction.record.taskId
+                    + " correction=" + correction.decision
                     + " activity=" + correction.activityName);
             if (mListener != null) {
                 mListener.onTaskCorrected(
@@ -321,7 +350,14 @@ final class ShellTaskActivityModeGuard implements
             }
         } catch (ReflectiveOperationException | RuntimeException error) {
             synchronized (this) {
-                correction.record.activityState.correctionFailed();
+                if (correction.decision
+                        == TaskActivityModeState.Decision.RESTORE_BOUNDS) {
+                    // An unsupported resize must not become an idle retry loop.
+                    correction.record.activityState.finishHandoff();
+                    correction.record.handoffBounds = null;
+                } else {
+                    correction.record.activityState.correctionFailed();
+                }
             }
             report("could not restore activity handoff mode="
                     + modeLabel(correction.record.preferredWindowingMode)
@@ -332,7 +368,7 @@ final class ShellTaskActivityModeGuard implements
     }
 
     private synchronized int configuredDisplayId() {
-        return mDisplayId;
+        return mEnabled ? mDisplayId : Display.INVALID_DISPLAY;
     }
 
     private boolean isInitialFullscreenTask(
@@ -371,6 +407,7 @@ final class ShellTaskActivityModeGuard implements
             }
             match.record.activityState.arm(
                     candidate.component, candidate.packageName);
+            match.record.handoffBounds = candidate.bounds.get(match.record);
             Log.d(TAG, "armed observed activity handoff task="
                     + match.record.taskId + " activity=" + candidate.label());
             pending.remove();
@@ -420,6 +457,7 @@ final class ShellTaskActivityModeGuard implements
         final TaskActivityModeState activityState;
         final String rootComponent;
         final int preferredWindowingMode;
+        Rect handoffBounds;
         String topComponent;
         String topPackage;
         int windowingMode;
@@ -436,6 +474,7 @@ final class ShellTaskActivityModeGuard implements
             bounds = new Rect(initialBounds);
             rootComponent = component.flattenToShortString();
             preferredWindowingMode = targetWindowingMode;
+            windowingMode = targetWindowingMode;
             activityState = new TaskActivityModeState(
                     component.getPackageName(), targetWindowingMode);
         }
@@ -464,6 +503,14 @@ final class ShellTaskActivityModeGuard implements
         }
 
         boolean changedFor(final PendingStart candidate) {
+            // A repeated start can deliver onNewIntent to the same top
+            // Activity and still reset its window. It needs launch evidence,
+            // not a fabricated top-Activity change or a geometry watchdog.
+            final Rect beforeStart = candidate.bounds.get(record);
+            if (beforeStart != null && !observation.bounds.isEmpty()
+                    && !beforeStart.equals(observation.bounds)) {
+                return true;
+            }
             final String component = observation.topComponent == null
                     ? null : observation.topComponent.flattenToShortString();
             final String packageName = observation.topComponent == null
@@ -486,14 +533,26 @@ final class ShellTaskActivityModeGuard implements
         final String component;
         final String packageName;
         final long createdUptimeMillis;
+        final Map<TaskRecord, Rect> bounds = new HashMap<>();
 
         PendingStart(
                 final String expectedComponent,
                 final String expectedPackage,
-                final long createdAt) {
+                final long createdAt,
+                final java.util.Collection<TaskRecord> tasks) {
             component = expectedComponent;
             packageName = expectedPackage;
             createdUptimeMillis = createdAt;
+            // Freeze pre-start geometry, not the first post-start snapshot:
+            // the framework may have already reset bounds before top changes.
+            for (final TaskRecord task : tasks) {
+                if (task.preferredWindowingMode == WINDOWING_MODE_FREEFORM
+                        && task.windowingMode == WINDOWING_MODE_FREEFORM
+                        && !task.bounds.isEmpty()) {
+                    bounds.put(task, new Rect(task.handoffBounds == null
+                            ? task.bounds : task.handoffBounds));
+                }
+            }
         }
 
         boolean matches(final ObservedTask observed) {
@@ -513,6 +572,7 @@ final class ShellTaskActivityModeGuard implements
         final TaskRecord record;
         final String activityName;
         final TaskActivityModeState.Decision decision;
+        final Rect bounds;
 
         Correction(
                 final TaskRecord taskRecord,
@@ -521,6 +581,8 @@ final class ShellTaskActivityModeGuard implements
             record = taskRecord;
             activityName = correctedActivityName;
             decision = correctedDecision;
+            bounds = new Rect(taskRecord.handoffBounds == null
+                    ? taskRecord.bounds : taskRecord.handoffBounds);
         }
     }
 

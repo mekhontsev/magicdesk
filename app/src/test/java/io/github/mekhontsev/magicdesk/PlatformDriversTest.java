@@ -32,6 +32,7 @@ public final class PlatformDriversTest {
         assertTrue(driver.phoneUi().isAvailable());
         assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.CAPTION_REFRESH));
+        assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.ACTIVITY_HANDOFF_REPAIR));
         assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY));
         assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.STALE_RECENTS_CLEANUP));
         assertEquals(
@@ -73,6 +74,7 @@ public final class PlatformDriversTest {
         assertFalse(driver.phoneUi().isAvailable());
         assertTrue(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.CAPTION_REFRESH));
+        assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.ACTIVITY_HANDOFF_REPAIR));
         assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY));
         assertFalse(driver.features().compatibilityDefaults.enabled(DesktopCompatibilityPolicy.Option.STALE_RECENTS_CLEANUP));
         assertTrue(driver.additionalLaunchTargets().isEmpty());
@@ -129,6 +131,8 @@ public final class PlatformDriversTest {
         assertEquals("android", driver.selection()
                 .provider(PlatformComponent.WINDOWING).id);
         assertFalse(driver.diagnostics().hasNativeCaptionSnapSelfTest());
+        assertFalse(driver.features().compatibilityDefaults.enabled(
+                DesktopCompatibilityPolicy.Option.ACTIVITY_HANDOFF_REPAIR));
         assertTrue(driver.features().compatibilityDefaults.enabled(
                 DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertEquals("android", driver.selection()

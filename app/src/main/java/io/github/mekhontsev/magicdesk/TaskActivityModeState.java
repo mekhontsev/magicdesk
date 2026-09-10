@@ -1,10 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Pure state machine for preserving a task mode across activity handoffs. */
+/** Preserves task mode and freeform geometry across activity handoffs. */
 final class TaskActivityModeState {
     enum Decision {
         NONE,
         RESTORE_FREEFORM,
+        RESTORE_BOUNDS,
         RESTORE_FULLSCREEN,
         SETTLED,
         ALLOW_IMMERSIVE
@@ -51,13 +52,31 @@ final class TaskActivityModeState {
             final String topComponent,
             final String topPackage,
             final int windowingMode,
-            final Boolean requestingImmersive) {
+            final Boolean requestingImmersive,
+            final boolean boundsChanged) {
         if (!mArmed) {
             return Decision.NONE;
         }
         final boolean expectedActivityVisible = matchesExpected(
                 topComponent, topPackage);
         if (windowingMode == mPreferredWindowingMode) {
+            // A complete fullscreen/freeform round trip can occur between
+            // snapshots. The new activity still must inherit the window bounds.
+            if (windowingMode == WINDOWING_MODE_FREEFORM
+                    && expectedActivityVisible && boundsChanged) {
+                if (requestingImmersive == null) {
+                    return Decision.NONE;
+                }
+                if (requestingImmersive.booleanValue()) {
+                    clear();
+                    return Decision.ALLOW_IMMERSIVE;
+                }
+                if (mCorrectionInFlight) {
+                    return Decision.NONE;
+                }
+                mCorrectionInFlight = true;
+                return Decision.RESTORE_BOUNDS;
+            }
             mCorrectionInFlight = false;
             if (expectedActivityVisible) {
                 clear();
@@ -102,7 +121,7 @@ final class TaskActivityModeState {
         mCorrectionInFlight = false;
     }
 
-    void correctionApplied() {
+    void finishHandoff() {
         clear();
     }
 

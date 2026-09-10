@@ -850,13 +850,20 @@ by this foundation.
   standard root workspace. Callers do not append to an expired opening token.
 - `ShellActivityStartController` is MagicDesk's single owner of Android's global
   activity-controller slot and dispatches starts to the external-migration and
-  windowed-startup policies. `ShellTaskActivityModeGuard` follows only
-  activity handoffs inside a task observed as freeform. If such a handoff
-  changes that task to fullscreen without a client immersive request, it uses
-  the last observed freeform bounds to restore the same task. User fullscreen,
-  independent new-task launches, and application immersive requests are not
-  corrected. The policy is event-driven and has no package allowlist or
-  guessed startup delay.
+  windowed-startup policies. The session option `ACTIVITY_HANDOFF_REPAIR`
+  enables `ShellTaskActivityModeGuard`. It correlates Activity starts with the
+  existing typed task observer, preserving the task's selected mode and its
+  freeform bounds captured before the start. A fullscreen/freeform round trip
+  between samples can reset geometry without an observed mode change; this
+  needs only the native task-resize operation owned by `HiddenTaskApi`, not
+  another mode, focus or hierarchy transition. Repeated starts delivered to
+  the same top Activity are correlated by changed bounds as well as mode/top
+  changes. Ambiguous targets are not corrected. Explicit user mode changes,
+  independent new-task launches and application immersive requests remain
+  outside this policy. An unknown immersive observation does not authorize a
+  correction. Completed handoffs release their bounds; failed bounds-only
+  corrections do not retry during idle observation. There is no package
+  allowlist, additional observer or guessed startup delay.
 - `ShellProcessFailureTracker` passively correlates framework crash and
   ANR callbacks with the latest typed task snapshot for the active desktop
   display. It preserves Android's normal crash/ANR response and reports only a
@@ -1234,10 +1241,11 @@ isolated behind these boundaries.
 - `DesktopDisplayTarget` is the immutable identity of the active display
   environment. `DesktopRuntimeBridge` retains that target as one value so a
   display ID and its transport cannot become separate, stale state.
-- `DesktopCompatibilityPolicy` is the immutable selection of six optional
+- `DesktopCompatibilityPolicy` is the immutable selection of seven optional
   shared mechanisms: input-focus repair, stale caption
-  refresh, phone-task isolation during wired/wireless sessions, retained
-  phone-task recovery, stale phone freeform Recents cleanup, and Recents routing
+  refresh, Activity handoff mode/bounds repair, phone-task isolation during
+  wired/wireless sessions, retained phone-task recovery, stale phone freeform
+  Recents cleanup, and Recents routing
   to the leased phone HOME. `PlatformFeatures.compatibilityDefaults` supplies
   recommendations only; `MagicDeskSettings` stores independent user overrides.
   The Android baseline recommends focus repair enabled; firmware extensions
@@ -2985,6 +2993,14 @@ gate in MagicDesk. Close Desktop leaves the value unchanged;
 Restore defaults removes the override. The flag affects external HOME, system
 decorations and input policy, but does not prove correct physical-input routing.
 Physical-input routing is owned by the shared Android input session.
+
+`DesktopCompatibilitySettings.resetDefaults` coordinates the Settings reset:
+verify the Android global-setting reset first, then clear compatibility
+overrides through `MagicDeskSettings` and `DesktopStateStore`. Defaults remain
+owned by the selected platform, not copied into user preferences. The combined
+reset uses the same no-session requirement as the global switch and reports
+partial persistence failures explicitly; it never resets required provisioning,
+application presentation profiles, or other settings.
 
 The Nubia/REDMAGIC platform additionally audits:
 
