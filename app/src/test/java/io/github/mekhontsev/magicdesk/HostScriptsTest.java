@@ -117,8 +117,9 @@ public final class HostScriptsTest {
                 "magicdesk_pty_lifecycle_test:signal",
                 "magicdesk_pty_lifecycle_test:oversized"));
         expected.add("magicdesk_virtual_mouse_test:cwd");
+        expected.add("magicdesk_virtual_mouse_setup_test:cwd");
         assertEquals(expected, Files.readAllLines(fixture.log));
-        assertTrue(result.output.contains("verified (8 runs)"));
+        assertTrue(result.output.contains("verified (9 runs)"));
         assertEmptyDirectory(fixture.output);
     }
 
@@ -135,7 +136,7 @@ public final class HostScriptsTest {
         final var testResult = nativeVerifier(testFailure, "fragmented", false);
         assertEquals(testResult.output, 9, testResult.exitCode);
         assertEquals(3, Files.readAllLines(testFailure.log).size());
-        assertTrue(!testResult.output.contains("verified (8 runs)"));
+        assertTrue(!testResult.output.contains("verified (9 runs)"));
         assertEmptyDirectory(testFailure.output);
 
         final var inputFailure = nativeVerifierFixture();
