@@ -434,6 +434,75 @@ configured running display. It never starts or stops the X server. Both tools
 require Termux, Termux:X11, the Termux external-command setting, and the
 `RUN_COMMAND` permission.
 
+## Android UI Automation
+
+These commands work without Desktop on Android 14+. UI access and injected
+input require ready Shizuku, not a root device or a new accessibility service.
+Every UI observation and gesture specifies an Android `displayId`, including 0.
+Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
+
+| Tool | Contract |
+| --- | --- |
+| `ui.inspect` | Read accessibility windows, parent/child nodes, resource ids, text, bounds, state and supported actions. |
+| `ui.perform` | Click, long-click, focus, set/select text, scroll or reveal a node using an advertised action. |
+| `ui.wait` | Wait for exact selector presence/absence, including expected text and state flags. |
+| `ui.release` | Release the Android automation connection and cancel its pending UI waits. |
+| `input.gesture` | Explicit-display touch tap, long press, swipe or drag through bounded point lists. |
+| `input.key_chord` | Press ordered Android key names, release them in reverse order, including on failure. |
+| `device.keep_awake` | Acquire or renew a bounded screen-awake lease; no Shizuku or Desktop needed. |
+| `device.release_awake` | Release the exact lease token. |
+
+`ui.inspect` and `ui.wait` require the `content` permission. They can read text
+from other apps; password text and descriptions are redacted. The other commands
+require `input_tests`. These grants are independent for local and network
+clients. UI strings and entered text are not logged or added to diagnostics.
+Content revoked during a wait is not returned to the client.
+
+Example sequence after locating the intended editor:
+
+```json
+{"tool":"ui.inspect","arguments":{"displayId":0,"maxNodes":200}}
+{"tool":"ui.perform","arguments":{"elementId":"<returned handle>","action":"set_text","text":"First line\nSecond line"}}
+{"tool":"ui.wait","arguments":{"displayId":0,"selector":{"resourceId":"example.app:id/editor","text":"First line\nSecond line"},"timeoutMillis":5000}}
+```
+
+Selectors are exact conjunctions, not regexes or first-match heuristics. To wait
+for focus/check/selection changes, include that boolean in the selector.
+`ui.wait` returns `matched` and `timedOut`; a successful observation request does
+not imply its condition matched. `complete=false` means unavailable roots or
+bounded traversal/text truncation; it never proves absence. Canvas-only apps,
+protected surfaces and missing accessibility events remain platform limitations.
+Use screenshots or explicit gestures when semantic elements are unavailable.
+
+Snapshots are limited to 256 nodes, depth 40 and 64 KiB of text. Handles expire
+after 60 seconds and only four snapshots are retained. A changed/stale element
+fails explicitly, never falling back to its old coordinates. `accepted=true`
+means Android accepted the action, not that navigation or rendering finished.
+Inspect/wait again to verify. Unicode and line breaks go directly through
+Android's text action, not the clipboard or shell `input text` encoding.
+
+The automation connection preserves existing accessibility services and is
+released after 60 seconds without requests. An existing external automation
+connection is not evicted. Explicit release, MCP shutdown or APK process death
+also releases it. There is no persistent UI poller or Desktop dependency.
+
+Gestures use screen pixels and at most 32 points. Movement/press duration is
+0-5000 ms; drag can hold initially for 0-2000 ms. `input.key_chord` accepts 1-8
+distinct key names, such as `["CTRL_LEFT", "A"]`. Neither changes the physical
+mouse position. `click_pointer` also accepts `x` and `y` together for an atomic
+primary/secondary mouse click without a preceding hover command.
+
+An awake lease lasts 1000-1800000 ms (default five minutes). Acquire only after
+the user wakes and unlocks the device. Renew with the returned `leaseId`, and
+release it when finished. `get_state.automationAwake` reports the current token
+and remaining lifetime. The system screen-timeout setting is never modified;
+the lock expires automatically and is released when the MCP runtime stops.
+
+The debug-only `DebugUiAutomationActivity` supplies a harmless editor, password,
+mutable button identity and scrollable list for end-to-end verification through
+these same APIs. It does not register elements in MagicDesk's UI registry and
+is not included in release APKs.
+
 ## File Transfers and Updates
 
 `files.upload_begin` takes a client-generated `transferId`, absolute destination

@@ -449,4 +449,8 @@ interface IShizukuCommandService {
         String sha256, int userId) = 127;
 
     void abandonMagicDeskUpdate(int sessionId, int userId) = 128;
+
+    String executeUiAutomation(IBinder ownerToken, String operation, String arguments) = 129;
+
+    void releaseUiAutomation(IBinder ownerToken) = 130;
 }

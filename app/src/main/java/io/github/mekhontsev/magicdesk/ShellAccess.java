@@ -1252,6 +1252,10 @@ public final class ShellAccess {
         }
     }
 
+    static ShellUiAutomationHandle openUiAutomation() throws IOException {
+        return new ShellUiAutomationHandle(requireService());
+    }
+
     static java.util.Set<String> ownedInputPorts() throws IOException {
         try {
             return java.util.Set.of(requireService().getOwnedInputPorts());

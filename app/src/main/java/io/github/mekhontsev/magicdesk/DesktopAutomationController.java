@@ -1092,9 +1092,16 @@ final class DesktopAutomationController {
         }
         final Point positionedClick;
         synchronized (mPointerLock) {
-            positionedClick = mPointerDisplayId == displayId
+            if (args.has("x") || args.has("y")) {
+                final int x = AndroidUiSelector.integer(args, "x", -1, 0, 32768);
+                final int y = AndroidUiSelector.integer(args, "y", -1, 0, 32768);
+                if (x < 0 || y < 0) throw new IllegalArgumentException("both x and y are required");
+                positionedClick = new Point(x, y);
+            } else {
+                positionedClick = mPointerDisplayId == displayId
                     && mPointerPosition != null
                             ? new Point(mPointerPosition) : null;
+            }
             mPointerDisplayId = Display.INVALID_DISPLAY;
             mPointerPosition = null;
         }

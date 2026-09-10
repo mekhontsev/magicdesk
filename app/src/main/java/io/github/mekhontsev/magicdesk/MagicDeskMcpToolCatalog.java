@@ -509,13 +509,16 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "click_pointer",
                         "Click pointer",
-                        "Click at the last move_pointer coordinates once, or at the current virtual mouse position when no positioned hover is pending.",
+                        "Click atomically at explicit x/y, otherwise consume the last move_pointer coordinates once, or use the current virtual mouse position. Explicit coordinates work without Desktop.",
                         objectSchema(new JSONObject()
                                 .put("displayId", integerProperty(
                                         "Optional active display id."))
                                 .put("button", enumProperty(
                                         "Pointer button.",
-                                        "primary", "secondary")))));
+                                        "primary", "secondary"))
+                                .put("x", integerProperty("Optional x; requires y."))
+                                .put("y", integerProperty("Optional y; requires x.")))));
+        addAndroidUiTools(tools);
         addShellTools(tools);
         addTransferTools(tools);
         tools.put(destructiveTool("app.update", "Update MagicDesk",
@@ -526,6 +529,59 @@ final class MagicDeskMcpToolCatalog {
                 .put(readTool("app.update_status", "MagicDesk update status", "Read the durable installer result for an exact update operation.",
                         objectSchema(new JSONObject().put("updateId", stringProperty("Id passed to app.update.")), "updateId")));
         return tools;
+    }
+
+    private static void addAndroidUiTools(final JSONArray tools) throws JSONException {
+        final JSONObject display = integerProperty("Exact Android display id from list_displays, including 0. No Desktop required.");
+        final JSONObject maxNodes = integerProperty("Maximum nodes, 1-256. Truncated or inaccessible trees have complete=false.");
+        final JSONObject selector = new JSONObject();
+        for (final String key : java.util.List.of("package", "resourceId", "className", "text", "description")) {
+            selector.put(key, stringProperty("Exact " + key + " match; all supplied criteria must match the same node."));
+        }
+        for (final String key : java.util.List.of("enabled", "visible", "focused", "selected", "checked", "editable", "scrollable")) {
+            selector.put(key, booleanProperty("Expected " + key + " state."));
+        }
+        tools.put(readTool("ui.inspect", "Inspect Android UI",
+                "Read Android accessibility windows and nodes on one display, including other apps. Password text is redacted. Handles expire after 60 seconds or four newer snapshots. Canvas-only or protected UI may not expose nodes. Prefer MagicDesk's semantic list_ui_elements for its own controls.",
+                objectSchema(new JSONObject().put("displayId", display).put("maxNodes", maxNodes), "displayId")))
+                .put(actionTool("ui.perform", "Act on Android UI element",
+                        "Perform an advertised accessibility action on an elementId from ui.inspect/ui.wait. Rejects expired or changed identities, with no coordinate fallback. set_text preserves Unicode and line breaks. accepted is not proof of visual completion; verify using ui.wait.",
+                        objectSchema(new JSONObject().put("elementId", stringProperty("Short-lived opaque node handle."))
+                                .put("action", enumProperty("Use an action from the node's actions list.", "click", "long_click", "focus", "clear_focus",
+                                        "set_text", "select_text", "scroll_forward", "scroll_backward", "scroll_up", "scroll_down",
+                                        "scroll_left", "scroll_right", "show_on_screen"))
+                                .put("text", stringProperty("Required for set_text, up to 32768 characters; empty clears the field."))
+                                .put("start", integerProperty("Selection start for select_text."))
+                                .put("end", integerProperty("Selection end for select_text.")), "elementId", "action")))
+                .put(readTool("ui.wait", "Wait for Android UI",
+                        "Wait on accessibility events for a selector to be present or absent. Match expected text or flags to wait for state changes. Returns matched/timedOut, not a claimed action result. Incomplete observations never prove absence. No periodic UI polling.",
+                        objectSchema(new JSONObject().put("displayId", display).put("maxNodes", maxNodes)
+                                .put("selector", objectSchema(selector).put("minProperties", 1))
+                                .put("condition", enumProperty("Default present.", "present", "absent"))
+                                .put("timeoutMillis", integerProperty("0-60000 ms, default 5000.")), "displayId", "selector")))
+                .put(actionTool("ui.release", "Release Android UI connection",
+                        "Release UI node handles and Android UiAutomation, cancelling outstanding UI waits. Also released after 60 idle seconds or client process death. Does not disable existing accessibility services.", emptySchema()))
+                .put(actionTool("input.gesture", "Inject touch gesture",
+                        "Inject a bounded touch gesture on an explicit display without Desktop. Uses screen pixels; prefer ui.perform when the app exposes an action. A drag holds first, then moves. Does not reposition the hardware mouse cursor.",
+                        objectSchema(new JSONObject().put("displayId", display)
+                                .put("type", enumProperty("Gesture type.", "tap", "long_press", "swipe", "drag"))
+                                .put("points", arrayProperty("One point for tap/long_press; 2-32 ordered points for swipe/drag.",
+                                        objectSchema(new JSONObject().put("x", integerProperty("Screen x, 0-32768."))
+                                                .put("y", integerProperty("Screen y, 0-32768.")), "x", "y")))
+                                .put("durationMillis", integerProperty("Movement/press duration 0-5000 ms; defaults tap=0, long_press=600, swipe/drag=400."))
+                                .put("holdMillis", integerProperty("Drag's initial hold, 0-2000 ms, default 600.")), "displayId", "type", "points")))
+                .put(actionTool("input.key_chord", "Inject key chord",
+                        "Press 1-8 distinct Android key codes in order, then release in reverse order, including on failure. Example [CTRL_LEFT,A]. This is key input, not Unicode text entry; use ui.perform set_text for text.",
+                        objectSchema(new JSONObject().put("displayId", display)
+                                .put("keys", arrayProperty("Modifiers first, then the key; KEYCODE_ prefix is optional.", stringProperty("Android key name."))),
+                                "displayId", "keys")))
+                .put(actionTool("device.keep_awake", "Keep phone awake temporarily",
+                        "Keep an already awake, unlocked phone's display on for 1 second to 30 minutes. No Desktop or Shizuku required. Does not change screen timeout or bypass the lock screen. Returns a leaseId; pass it to renew an active lease. Expires automatically and is released when MCP stops.",
+                        objectSchema(new JSONObject().put("durationMillis", integerProperty("1000-1800000 ms, default 300000."))
+                                .put("leaseId", stringProperty("Required only to renew the currently held lease.")))))
+                .put(actionTool("device.release_awake", "Release awake lease",
+                        "Release the exact awake lease; a stale leaseId cannot release a newer lease.",
+                        objectSchema(new JSONObject().put("leaseId", stringProperty("Id returned by device.keep_awake.")), "leaseId")));
     }
 
     private static void addTransferTools(JSONArray tools) throws JSONException {
@@ -1133,6 +1189,23 @@ final class MagicDeskMcpToolCatalog {
             throws JSONException {
         final JSONObject properties = new JSONObject();
         switch (toolName) {
+            case "ui.inspect":
+                properties.put("snapshotId", stringProperty("Short-lived snapshot identity."))
+                        .put("complete", booleanProperty("False for inaccessible or truncated observations."))
+                        .put("nodes", arrayProperty("Nodes with opaque handles, parent ids and advertised actions.", openObjectProperty("UI node.")))
+                        .put("windows", arrayProperty("Accessibility windows.", openObjectProperty("Window.")));
+                break;
+            case "ui.wait":
+                properties.put("matched", booleanProperty("The requested condition was observed."))
+                        .put("timedOut", booleanProperty("Wait ended without observing the condition."))
+                        .put("complete", booleanProperty("Completeness of the final observation."))
+                        .put("matches", arrayProperty("Matching nodes with action handles.", openObjectProperty("UI node.")));
+                break;
+            case "device.keep_awake":
+                properties.put("held", booleanProperty("The wake lock is currently held."))
+                        .put("leaseId", stringProperty("Token for renewal or release."))
+                        .put("remainingMillis", integerProperty("Remaining lease lifetime."));
+                break;
             case "get_state":
                 properties.put("generatedAtMillis", integerProperty("Timestamp."))
                         .put("app", openObjectProperty("Build identity, process instance and install time."))

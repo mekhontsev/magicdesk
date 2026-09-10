@@ -32,6 +32,12 @@ final class McpAuthorizedBackend implements McpBackend {
                             .put("scope", mScope).put("permissions", access.toJson())));
         }
         final JSONObject result = mBackend.callTool(name, arguments);
+        // A content wait may outlive a permission change. Never return its captured UI after revocation.
+        if (McpAccessPolicy.required(name) == McpAccessPolicy.Permission.CONTENT
+                && !mAccess.get().allows(name)) {
+            return MagicDeskMcpBackend.actionResult(DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.TOOL_DISABLED, "Content permission was revoked", false));
+        }
         if ("get_state".equals(name)) {
             result.getJSONObject("structuredContent").getJSONObject("data")
                     .put("connection", new JSONObject().put("scope", mScope)

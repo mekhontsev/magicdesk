@@ -45,6 +45,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private final ShellDesktopDirectory mDesktopDirectory;
     private final ShellFileSystem mFileSystem;
     private final ShellVirtualDisplays mVirtualDisplays;
+    private final ShellUiAutomation mUiAutomation;
     private final Object mInputRoutingLock = new Object();
     private DesktopInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
@@ -63,12 +64,24 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
         mDesktopDirectory = new ShellDesktopDirectory();
         mFileSystem = new ShellFileSystem();
         mVirtualDisplays = new ShellVirtualDisplays(context);
+        mUiAutomation = new ShellUiAutomation(context);
         Log.i(TAG, "command service started uid=" + Os.getuid());
     }
 
     @Override
     public int uid() {
         return Os.getuid();
+    }
+
+    @Override public String executeUiAutomation(final IBinder ownerToken,
+            final String operation, final String arguments) {
+        return mUiAutomation.execute(ownerToken, operation, arguments);
+    }
+
+    @Override public void releaseUiAutomation(final IBinder ownerToken) {
+        final long identity = android.os.Binder.clearCallingIdentity();
+        try { mUiAutomation.release(ownerToken); }
+        finally { android.os.Binder.restoreCallingIdentity(identity); }
     }
 
     @Override
@@ -1405,6 +1418,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public void destroy() {
+        mUiAutomation.close();
         mVirtualDisplays.close();
         Log.i(TAG, "command service stopped");
         mDisplayRecording.close();

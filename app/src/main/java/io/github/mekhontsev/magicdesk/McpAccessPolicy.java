@@ -58,12 +58,15 @@ final class McpAccessPolicy {
                     "files.upload_status", "files.upload_commit", "files.upload_abort" -> Permission.FILES_WRITE;
             case "app.update" -> Permission.UPDATE;
             case "send_key", "move_pointer", "click_pointer", "run_self_test", "cancel_self_test",
+                    "ui.perform", "ui.release", "input.gesture", "input.key_chord",
+                    "device.keep_awake", "device.release_awake",
                     "force_stop_app" -> Permission.INPUT_TESTS;
             case "send_broadcast", "start_service", "launch_desktop_entry" -> Permission.SHELL;
             case "capture_screenshot", "sample_pixels", "start_recording", "stop_recording",
                     "clipboard.read_text", "clipboard.write_text", "clipboard.clear",
                     "clipboard.open", "clipboard.share", "list_notifications",
                     "get_intent_result", "get_activity_history" -> Permission.CONTENT;
+            case "ui.inspect", "ui.wait" -> Permission.CONTENT;
             case "start_desktop", "close_desktop", "create_display", "remove_display",
                     "launch_app", "set_app_presentation", "reset_app_presentation",
                     "launch_intent", "open_uri", "open_file", "share", "invoke_android_action",

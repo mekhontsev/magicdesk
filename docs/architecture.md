@@ -459,7 +459,7 @@ runtime integration and are not distributed through the same release path.
 
 ### Automation boundary
 
-- `DesktopAutomationController` is the single typed action boundary for
+- `DesktopAutomationController` is the typed action boundary for Desktop
   automation. It validates JSON arguments, delegates to shared services and session,
   task, window, capture, and UI controllers, and returns a uniform
   `DesktopAutomationResult`. It does not implement a second desktop policy.
@@ -489,6 +489,26 @@ runtime integration and are not distributed through the same release path.
   Activity and marshals snapshots and semantic actions onto the UI thread.
   Invoking an element delegates to its existing click or long-click listener;
   automation therefore cannot grow a second Start, taskbar, or menu policy.
+- `AndroidUiAutomation` provides independent Android UI automation on API 34+.
+  `ShellUiAutomationHandle` owns a Binder lifetime token; `ShellUiAutomation`
+  connects one `UiAutomation` lazily under shell identity. The focused
+  `FrameworkUiAutomationApi` owns hidden construction, connection and injection
+  signatures. Existing accessibility services are not suppressed; the shortcut
+  service still requests no window content. Another automation owner is an
+  explicit conflict, never displaced. Idle expiry, explicit release, backend
+  closure and Binder death release the connection and its bounded node cache.
+  Four snapshots of at most 256 nodes retain 60-second handles. Identity evidence
+  is immutable; recycled list rows cannot silently become another action target.
+  Missing or truncated observations do not prove an element absent.
+  Accessibility events wake UI waits without another task observer or a periodic
+  UI poller. Waits release the action lock, so concurrent actions can satisfy them.
+  Raw UI text never enters the desktop event journal or compatibility report.
+- `AndroidAutomationInput` submits explicit-display touch gestures and key chords,
+  always releasing pressed input on failure. It does not route physical devices
+  or change HOME, window policy, animation settings or the hardware cursor.
+  `AutomationAwakeLease` owns a timed public screen wake lock independently of
+  Desktop. It never changes screen timeout or unlocks/wakes a sleeping device;
+  exact tokens protect renewal and release from stale commands.
 - `DesktopAutomationTraceManager` defines a trace as a baseline in the same
   bounded event journal plus final state and task snapshots. It adds no task
   observer and no persistent log. Exact UI waits use journal notifications and
@@ -512,6 +532,9 @@ runtime integration and are not distributed through the same release path.
   descriptions remain stable when grants change; unknown tools fail closed.
   Local and network tokens and permission sets are independent. The optional
   network transport is HTTP, not TLS, and requires a trusted test LAN or VPN.
+  External UI inspection/waits require `content`; UI actions, injected gestures
+  and awake leases require `input_tests`. Content authorization is checked again
+  before returning a result that may have outlived a permission change.
 - `AutomationDeviceState` shares on-demand awake/lock prerequisites between MCP
   and the self-test launcher. Build, process and installation identities are
   separate observations. `DesktopSelfTestResult` persists an atomic JSON result

@@ -18,10 +18,12 @@ final class MagicDeskMcpBackend implements McpBackend {
             new DesktopAutomationTerminalWindows();
     private final DesktopAutomationTmuxSessions mTmux;
     private final AutomationFileTransfers mTransfers;
+    private final AndroidUiAutomation mAndroidUi;
 
     MagicDeskMcpBackend(final Context context) {
         mContext = context.getApplicationContext();
         mAutomation = new DesktopAutomationController(mContext);
+        mAndroidUi = new AndroidUiAutomation(mContext);
         mTmux = new DesktopAutomationTmuxSessions(mContext, mTerminals);
         mTransfers = new AutomationFileTransfers(mContext.getFilesDir().toPath().resolve("mcp-transfers"),
                 new ShellAutomationTransferStorage());
@@ -29,6 +31,7 @@ final class MagicDeskMcpBackend implements McpBackend {
 
     @Override
     public void close() {
+        mAndroidUi.close();
         mConsole.closeAll();
     }
 
@@ -67,6 +70,19 @@ final class MagicDeskMcpBackend implements McpBackend {
         final JSONObject args = arguments == null
                 ? new JSONObject() : arguments;
         final JSONObject data;
+        if (name.startsWith("ui.") || name.startsWith("input.") || name.startsWith("device.")) {
+            try {
+                final JSONObject result = mAndroidUi.execute(name, args);
+                if (result.has("accepted") && !result.getBoolean("accepted")) {
+                    return actionResult(DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,
+                            "Android declined the UI action", false, result));
+                }
+                return successResult(result);
+            } catch (java.io.IOException error) {
+                return actionResult(DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,
+                        ShellAccess.usefulMessage(error), false));
+            }
+        }
         if (name.equals("app.update") || name.equals("app.update_status")) {
             try {
                 return successResult(name.equals("app.update") ? MagicDeskAppUpdates.start(mContext, args)
@@ -87,6 +103,7 @@ final class MagicDeskMcpBackend implements McpBackend {
         switch (name) {
             case "get_state":
                 data = mAutomation.stateReader().state();
+                data.put("automationAwake", mAndroidUi.awakeState());
                 return successResult(data);
             case "get_pointer_state":
                 data = mAutomation.stateReader().pointerState(args);

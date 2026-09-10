@@ -8,6 +8,40 @@ import org.json.JSONObject;
 import org.junit.Test;
 
 public final class McpAccessPolicyTest {
+    @Test public void externalUiContentIsNotAnUnrestrictedObservation() throws Exception {
+        final McpAccessPolicy observe = new McpAccessPolicy(Set.of());
+        final McpAccessPolicy input = new McpAccessPolicy(Set.of("input_tests"));
+        final McpAccessPolicy content = new McpAccessPolicy(Set.of("content"));
+        for (String name : Set.of("ui.inspect", "ui.wait")) {
+            assertFalse(observe.allows(name));
+            assertFalse(input.allows(name));
+            assertTrue(content.allows(name));
+        }
+        for (String name : Set.of("ui.perform", "input.gesture", "input.key_chord", "device.keep_awake")) {
+            assertFalse(observe.allows(name));
+            assertFalse(content.allows(name));
+            assertTrue(input.allows(name));
+        }
+    }
+
+    @Test public void revocationWhileWaitingDoesNotReturnCapturedContent() throws Exception {
+        final AtomicReference<McpAccessPolicy> access = new AtomicReference<>(new McpAccessPolicy(Set.of("content")));
+        final McpBackend raw = new McpBackend() {
+            @Override public JSONArray listTools() { return new JSONArray(); }
+            @Override public JSONArray listResources() { return new JSONArray(); }
+            @Override public String readResource(String uri) { return "{}"; }
+            @Override public JSONObject callTool(String name, JSONObject args) throws org.json.JSONException {
+                access.set(new McpAccessPolicy(Set.of()));
+                return MagicDeskMcpBackend.actionResult(DesktopAutomationResult.success("done",
+                        new JSONObject().put("text", "private-test-value")));
+            }
+        };
+        final JSONObject result = new McpAuthorizedBackend(raw, "network", access::get)
+                .callTool("ui.wait", new JSONObject());
+        assertFalse(result.getJSONObject("structuredContent").getBoolean("success"));
+        assertFalse(result.toString().contains("private-test-value"));
+    }
+
     @Test public void everyToolHasAnExplicitPermissionAndUnknownToolsAreDenied() throws Exception {
         final McpAccessPolicy observe = new McpAccessPolicy(Set.of());
         final var all = MagicDeskMcpToolCatalog.create();
