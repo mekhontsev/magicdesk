@@ -219,8 +219,10 @@ in the next report.
    when the desktop cannot start.
 3. Press **Refresh** after the failing operation has completed.
 4. Review the report, then use **Copy report** or **Share report**.
-5. Paste the complete report into the GitHub issue template and add exact
-   reproduction steps, expected behavior, and observed behavior.
+5. Send the complete report through [Telegram support](telegram-support.md)
+   or paste it into the GitHub issue template. Add exact reproduction steps,
+   expected behavior, and observed behavior. For the bot, follow its private-chat
+   setup and use `/submit` once the report is ready.
 
 The report includes:
 

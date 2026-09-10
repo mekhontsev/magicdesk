@@ -18,8 +18,11 @@ root is not required.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
-[Community](https://t.me/magicdesk_android) |
 [Getting started](docs/getting-started.md)
+
+**Join the community: [Reddit r/MagicDesk](https://www.reddit.com/r/MagicDesk/) |
+[Telegram](https://t.me/magicdesk_android)** |
+[Support bot](https://t.me/MagicDeskSupportBot)
 
 This documentation describes the current development code. The stable APK may
 not yet include every feature below.
@@ -32,7 +35,7 @@ MagicDesk's strength is how its parts work together:
 
 - **Android apps and command-line tools share a desktop.** Keep a browser,
   editor, file manager and several Termux terminals in separate native windows,
-  with task switching, keyboard shortcuts and per-app interface scale.
+  with task switching, keyboard shortcuts and [per-app DPI](#per-app-dpi).
 - **Files connect the tools.** The desktop is a real folder. Files, clipboard,
   drag and drop, Android sharing and command launchers work with the same
   content, so a file can move from a terminal workflow to an Android app without
@@ -73,7 +76,7 @@ environment.
   controller. Selecting a task does not recreate its Activity.
 - Use Start search, app actions, pins, shortcuts, widgets, notifications,
   media controls and capture tools.
-- Set display density and application-specific interface scale. Per-app scale
+- Set display density and [per-app DPI](#per-app-dpi). Per-app scale
   follows the managed task across window modes and is released on return to
   ordinary phone use.
 - Keep a real Desktop folder with files, folders and editable `.desktop`
@@ -90,6 +93,31 @@ applications that Android or the user has closed. Only one managed Desktop
 session is active at a time.
 
 ![MagicDesk with overlapping Termux and Firefox windows](docs/images/magicdesk-multitasking.png)
+
+### Per-App DPI
+
+**Give each Android app its own interface scale, not one compromise for the
+whole screen.** Make a browser or file manager more compact to fit more content,
+while keeping another app's text and controls larger. Other applications and
+the taskbar keep their own scale. This changes the app's Android density, not
+the monitor resolution or just the zoom of one web page.
+
+Open an app's context menu in Desktop and choose **Application settings**.
+Select **Custom** and adjust **Interface scale** from **50% to 200%** of the
+display's density. Lower values make the interface smaller; higher values make
+it larger. **System** removes the app-specific override. Saved custom profiles
+are also available under **Settings > Application profiles**.
+
+The setting applies to running managed windows and is remembered for later
+Desktop sessions. It follows the app through freeform, snap, maximize and true
+fullscreen, using the selected display's density as its baseline. When the app
+returns to ordinary phone use, or Desktop closes, MagicDesk removes the active
+density override without forgetting your saved Desktop preference.
+
+Apps still choose their own layouts: reducing DPI can give an adaptive app
+more logical space, but cannot create a tablet interface it does not implement.
+Per-app DPI is a managed Desktop feature, not a system-wide override for an
+app outside MagicDesk's session.
 
 ## Tools Without Desktop
 
@@ -202,6 +230,21 @@ Android 16+ App Functions expose a smaller system-agent action surface.
 See [Automation and MCP](docs/automation.md) for configuration, permissions,
 transfer/update protocols and test control.
 
+## Downloads
+
+**[Latest release](https://github.com/mekhontsev/magicdesk/releases/latest)**
+is the place to start for regular use. It contains the latest numbered official
+release, its APK and release notes. Read the notes to see what changed and which
+limitations apply; the rest of this README may also describe features still in
+development.
+
+**[Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk)**
+is the rolling build of `main`, published after its required CI checks pass.
+Use it to try unreleased features and fixes before the next numbered release.
+It uses the regular MagicDesk package and release signing certificate, not the
+separate MagicDeskTest identity, and may be less stable than a numbered release.
+Include its full version from Diagnostics when reporting a problem.
+
 ## Requirements And Setup
 
 The APK requires **Android 14+**; managed **Desktop requires Android 15+**.
@@ -235,9 +278,13 @@ tools runtime and owned display available. **Exit MagicDesk** also ends retained
 terminals, closes built-in windows and stops the runtime. Neither action deletes
 the Desktop folder.
 
-[Getting started](docs/getting-started.md) covers updates, Termux, displays and
-removal. [Compatibility](docs/compatibility.md) separates standard support,
-device observations and optional vendor controls.
+**[Getting started](docs/getting-started.md)** is the step-by-step guide from
+installation to your first workspace. It explains Shizuku authorization,
+independent Files and terminal tools, Termux permissions, display creation and
+Desktop setup, as well as closing, updating and removing MagicDesk. Use it when
+you need the actual setup sequence rather than the feature overview here.
+[Compatibility](docs/compatibility.md) separates standard support, device
+observations and optional vendor controls.
 
 ## Input And Optional Features
 
@@ -294,12 +341,63 @@ access the client needs. Accepted actions may continue after a grant is revoked.
 See [Privilege boundaries](docs/privilege-modes.md) and
 [third-party notices](THIRD_PARTY_NOTICES.md).
 
+## Community And Support
+
+**[r/MagicDesk](https://www.reddit.com/r/MagicDesk/)** is the public subreddit
+for MagicDesk discussions, announcements and user setups. Share your workspace,
+compare experiences across devices, ask questions or propose improvements.
+Each topic has its own discussion thread, so other users can find and build on
+the same conversation.
+
+**[Telegram community](https://t.me/magicdesk_android)** is the shared place
+for release announcements, questions, device experiences and workflow ideas.
+Use it to discuss how you use MagicDesk and what you would like to improve.
+The support bot below is a separate private conversation for a specific report
+and its follow-up questions; posting on Reddit or in the Telegram community
+does not submit a bot case.
+
+### AI-Assisted Support
+
+**Report a problem and try a proposed fix from the same Telegram chat.**
+[MagicDesk Support Bot](https://t.me/MagicDeskSupportBot) connects your
+diagnostics to an AI-assisted development loop: GitHub Copilot can investigate
+the report, ask follow-up questions and propose code changes. When a candidate
+build succeeds, the bot sends you a **MagicDeskTest APK** to try. Send the
+results back to continue the same case, without building the app yourself or
+needing a GitHub account.
+
+Join the [Telegram community](https://t.me/magicdesk_android), open the bot
+privately, and follow `/start`. Send the complete Diagnostics report and steps
+to reproduce, then `/submit`. Answers and test results also need `/submit`;
+`/status` shows progress and what to do next.
+
+Each APK comes with links to its exact source, changes and GitHub build, plus
+its SHA-256. Sources and builds are published in the separate
+[MagicDeskTest repository](https://github.com/mekhontsev/magicdesk-test-builds).
+Follow the commit link in your APK message to inspect the proposed patch and
+the sources for that particular build; the repository's `main` is the shared
+test baseline, not your individual candidate. These are experimental support
+builds, not another official release channel.
+
+Reports and conversations go to a private support lab, but generated source
+can contain report details: **do not send secrets or personal files**.
+
+The service is experimental and processing capacity is limited. Test APKs use
+a separate package and signing key; they are not official releases or verified
+fixes. Installation is manual; merging a patch into MagicDesk requires
+maintainer review. Do not run regular and test Desktop sessions together.
+See [Telegram support](docs/telegram-support.md) for the steps, privacy and
+testing precautions. [GitHub issues](https://github.com/mekhontsev/magicdesk/issues)
+remain available for conventional bug reports.
+
 ## Diagnostics And Development
 
 Reproduce a problem, open Diagnostics, and attach its complete compatibility
-report and exact steps to an issue. Reports omit user files, account data,
-notification contents and the installed-app catalog. Self-tests are explicit,
-interactive checks, not background monitoring or a universal firmware guarantee.
+report and exact steps to a [bot case](docs/telegram-support.md) or GitHub issue.
+Reports omit user files, account data, notification contents and the installed-app
+catalog, but logs can contain filenames and package names: review before sending.
+Self-tests are explicit, interactive checks, not background monitoring or a
+universal firmware guarantee.
 
 The project uses JDK 17+, Android SDK/build-tools 37 and NDK
 `27.3.13750724`:
@@ -325,6 +423,7 @@ API 34 native validation and other ABIs remain in the
 - [Automation and MCP](docs/automation.md)
 - [Runtime API levels](docs/runtime-api-levels.md)
 - [Compatibility and issue reports](docs/compatibility.md)
+- [Telegram support and test builds](docs/telegram-support.md)
 - [Desktop Entry files](docs/desktop-entries.md)
 - [Fullscreen transitions](docs/fullscreen-transitions.md)
 - [Privilege boundaries](docs/privilege-modes.md)
@@ -334,7 +433,8 @@ API 34 native validation and other ABIs remain in the
 ## Project
 
 - Author: [Dmitry Mekhontsev](https://github.com/mekhontsev)
-- Community: [Telegram](https://t.me/magicdesk_android)
+- Community: [Reddit](https://www.reddit.com/r/MagicDesk/) and
+  [Telegram](https://t.me/magicdesk_android)
 - Package: `io.github.mekhontsev.magicdesk`
 - Minimum APK SDK: 34; managed Desktop: 35
 - Target SDK: 37

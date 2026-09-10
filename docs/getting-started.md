@@ -138,9 +138,17 @@ platform/SoC capabilities.
 **System/native** relinquishes MagicDesk's forced output selection.
 
 Application-specific interface scale is independent of display density.
-It applies to managed tasks and is reset to inherited density when they return
-to ordinary phone use. Desktop files are shared across displays; item positions
-and window bounds adapt to each work area.
+Open the app's context menu in Desktop, choose **Application settings**, then
+**Custom** and adjust **Interface scale** (50%-200%). Lower values make its UI
+more compact; higher values enlarge it. **System** restores inherited density.
+Use **Settings > Application profiles** to revisit saved custom profiles.
+The preference applies to managed tasks, including already running windows,
+and is remembered across Desktop sessions. Its active override is removed when
+the task returns to ordinary phone use or Desktop closes. See
+[Per-app DPI](../README.md#per-app-dpi) for behavior across window modes.
+
+Desktop files are shared across displays; item positions and window bounds
+adapt to each work area.
 
 The optional **Settings > Android system** desktop-mode switch changes Android's
 own external-display policy. It is not a MagicDesk session requirement and may
@@ -185,8 +193,13 @@ Tools-only use does not require Desktop provisioning or its reset procedure.
 ## Problems
 
 After reproducing a problem, open Diagnostics and attach the complete report
-and exact steps to an issue. Reports omit user files, account data, notification
-contents and the installed-app catalog.
+and exact steps to a [Telegram support case](telegram-support.md) or
+[GitHub issue](https://github.com/mekhontsev/magicdesk/issues). The support bot
+can relay AI follow-up questions and send an experimental APK with a proposed
+fix; no local build is needed. Reports omit user files, account data,
+notification contents and the installed-app catalog, but logs can contain
+filenames and package names. Review before sending, and read the bot's privacy
+and test-build precautions.
 
 Desktop self-tests require an awake, unlocked Android 15+ phone, no other
 Desktop session, and no user interaction during the run. Their guard/report
