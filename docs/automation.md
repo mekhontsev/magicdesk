@@ -862,6 +862,12 @@ focus before later window/input checks can run. Cleanup is observed under its
 own stage, not the failed assertion. Failed cleanup aborts the remaining workflow;
 `fail_fast` and cancellation proceed directly to the global finalizer instead.
 
+`WINDOW-022` recreates the immersive browser fixture through Android's Activity
+lifecycle. Its saved state restores the application request and client layout;
+the check requires a fresh frame acknowledgement, fullscreen geometry and input
+focus. Hardware configuration changes must not silently reset the fixture's
+toolbar while a previous instance's fullscreen marker remains on disk.
+
 The pre-run transition health entry records a one-shot WMShell queue snapshot,
 separately from WindowManager's transition-performance sessions. A window-setup
 query explicitly selects the WMShell dumpable: SystemUI's default critical-only

@@ -561,6 +561,38 @@ final class DesktopSelfTestWindowSuite {
                         new int[]{peerTaskId, secondPeerTaskId},
                         captureSource));
         require(result,
+                "WINDOW-022",
+                "Preserve application fullscreen after Activity recreation",
+                () -> {
+                    // Clear the old instance's acknowledgement: success must
+                    // come from the recreated client and its rendered surface.
+                    DesktopSelfTestFixtureState.clearImmersive(appContext);
+                    ShellAccess.run("/system/bin/am broadcast --user 0 -a "
+                            + ShellCommandLine.quote(
+                                    DesktopSelfTestActivity.ACTION_RECREATE)
+                            + " -p " + ShellCommandLine.quote(PACKAGE_NAME)
+                            + " --es " + ShellCommandLine.quote(
+                                    DesktopSelfTestActivity.EXTRA_TARGET_TOKEN)
+                            + " " + ShellCommandLine.quote(token));
+                    DesktopSelfTestFixtureState.awaitImmersive(
+                            appContext, token, displayId, true);
+                    final Rect surfaceBounds = DesktopSelfTestFixtureState
+                            .awaitImmersiveSurface(appContext, token, displayId);
+                    final TaskStackParser.Entry task = waitForTask(
+                            displayId, BROWSER_FIXTURE_CLASS,
+                            entry -> entry.taskId == immersiveTaskId
+                                    && entry.visible
+                                    && "fullscreen".equals(entry.windowingMode)
+                                    && DesktopSelfTestGeometry.matches(
+                                            entry.bounds, geometry.displayBounds));
+                    waitForFrontTask(displayId, immersiveTaskId);
+                    DesktopSelfTestInputSuite.waitForTaskInputFocus(
+                            displayId, immersiveTaskId);
+                    return "task=" + task.taskId + ", "
+                            + verifyFullscreenFixtureSurface(captureSource,
+                                    geometry.displayBounds, surfaceBounds);
+                });
+        require(result,
                 "WINDOW-016",
                 "Restore application-requested window bounds",
                 () -> {

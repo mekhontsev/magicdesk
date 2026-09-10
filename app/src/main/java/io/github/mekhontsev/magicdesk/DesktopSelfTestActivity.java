@@ -35,6 +35,8 @@ public class DesktopSelfTestActivity extends Activity {
             BuildConfig.APPLICATION_ID + ".action.SELF_TEST_SET_IMMERSIVE";
     static final String ACTION_LAUNCH_CHILD =
             BuildConfig.APPLICATION_ID + ".action.SELF_TEST_LAUNCH_CHILD";
+    static final String ACTION_RECREATE =
+            BuildConfig.APPLICATION_ID + ".action.SELF_TEST_RECREATE";
     static final String EXTRA_CHILD_TOKEN = "self_test_child_token";
     private static final int CHILD_REQUEST_CODE = 1;
     static final String EXTRA_IMMERSIVE = "self_test_immersive";
@@ -74,6 +76,8 @@ public class DesktopSelfTestActivity extends Activity {
                                 EXTRA_IMMERSIVE, false);
                         applyImmersive(enabled);
                         recordImmersiveFrame(enabled);
+                    } else if (ACTION_RECREATE.equals(intent.getAction())) {
+                        recreate();
                     } else if (ACTION_LAUNCH_CHILD.equals(intent.getAction())) {
                         // Exercise the app-owned ActivityStarter/result path,
                         // not MagicDesk's new-task launch gateway.
@@ -108,6 +112,7 @@ public class DesktopSelfTestActivity extends Activity {
         setContentView(content);
         final IntentFilter commands = new IntentFilter(ACTION_SET_IMMERSIVE);
         commands.addAction(ACTION_LAUNCH_CHILD);
+        commands.addAction(ACTION_RECREATE);
         registerReceiver(
                 mCommandReceiver,
                 commands,
@@ -125,6 +130,24 @@ public class DesktopSelfTestActivity extends Activity {
             mCommandReceiverRegistered = false;
         }
         super.onDestroy();
+    }
+
+    @Override
+    protected void onSaveInstanceState(final Bundle outState) {
+        outState.putBoolean(EXTRA_IMMERSIVE, mImmersiveEnabled);
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
+    protected void onRestoreInstanceState(final Bundle savedInstanceState) {
+        super.onRestoreInstanceState(savedInstanceState);
+        if (savedInstanceState.getBoolean(EXTRA_IMMERSIVE, false)) {
+            // Input-device changes can recreate the fixture after its first
+            // fullscreen frame. Restore the request and the new client surface,
+            // not just the task mode or a marker left by the previous instance.
+            applyImmersive(true);
+            recordImmersiveFrame(true);
+        }
     }
 
     @Override
