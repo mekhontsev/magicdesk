@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -14,6 +15,32 @@ import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
 public final class DesktopHomeStartupGuardTest {
+    @Test
+    public void secondaryHomeAllowsPerDisplayInstances() throws Exception {
+        final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        final NodeList activities = factory.newDocumentBuilder()
+                .parse(Path.of("src/main/AndroidManifest.xml").toFile())
+                .getElementsByTagName("activity");
+        final String android = "http://schemas.android.com/apk/res/android";
+        int found = 0;
+        for (int i = 0; i < activities.getLength(); i++) {
+            final Element activity = (Element) activities.item(i);
+            final NodeList categories = activity.getElementsByTagName("category");
+            for (int j = 0; j < categories.getLength(); j++) {
+                final String category = ((Element) categories.item(j))
+                        .getAttributeNS(android, "name");
+                if ("android.intent.category.SECONDARY_HOME".equals(category)) {
+                    // Android reroutes singleTask/singleInstance HOME to display 0.
+                    assertEquals("secondary HOME must support a display-local instance",
+                            "singleTop", activity.getAttributeNS(android, "launchMode"));
+                    found++;
+                }
+            }
+        }
+        assertEquals("one external HOME component", 1, found);
+    }
+
     @Test
     public void applicationEnablesItsRegisteredBackCallbacks() throws Exception {
         final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();

@@ -10,6 +10,8 @@ final class FrameworkDisplayWindowingApi {
     private final Method mGetDisplayInfo;
     private final Method mGetMode;
     private final Method mSetMode;
+    private final Method mGetSystemDecorations;
+    private final Method mSetSystemDecorations;
     private final Field mUniqueId;
     private final Field mType;
     private final int mVirtualDisplayType;
@@ -28,6 +30,9 @@ final class FrameworkDisplayWindowingApi {
         final Class<?> windows = Class.forName("android.view.IWindowManager");
         mGetMode = windows.getMethod("getWindowingMode", Integer.TYPE);
         mSetMode = windows.getMethod("setWindowingMode", Integer.TYPE, Integer.TYPE);
+        mGetSystemDecorations = windows.getMethod("shouldShowSystemDecors", Integer.TYPE);
+        mSetSystemDecorations = windows.getMethod("setShouldShowSystemDecors",
+                Integer.TYPE, Boolean.TYPE);
     }
 
     DisplayWindowingSnapshot read(final int displayId)
@@ -40,10 +45,12 @@ final class FrameworkDisplayWindowingApi {
         // This is the effective mode, not the raw persistent override.
         final int mode = ((Integer) mGetMode.invoke(mWindowManager, displayId)).intValue();
         return new DisplayWindowingSnapshot(displayId, (String) mUniqueId.get(info),
-                mode, mType.getInt(info) == mVirtualDisplayType);
+                mode, mType.getInt(info) == mVirtualDisplayType,
+                ((Boolean) mGetSystemDecorations.invoke(mWindowManager, displayId)).booleanValue());
     }
 
-    void set(final int displayId, final String uniqueId, final int mode)
+    void set(final int displayId, final String uniqueId, final int mode,
+            final boolean systemDecorations)
             throws ReflectiveOperationException {
         if (displayId <= 0 || mode <= 0 || uniqueId == null || uniqueId.isEmpty()) {
             throw new IllegalArgumentException("invalid secondary display mode request");
@@ -52,9 +59,18 @@ final class FrameworkDisplayWindowingApi {
         if (before == null || !uniqueId.equals(before.uniqueId)) {
             throw new IllegalStateException("secondary display identity changed");
         }
-        mSetMode.invoke(mWindowManager, displayId, mode);
+        if (before.mode != mode) {
+            mSetMode.invoke(mWindowManager, displayId, mode);
+        }
+        // Secondary HOME eligibility requires system decorations on Android 15+.
+        // Set this before launching HOME, not by relying on the caller UID's
+        // effect on ActivityRecord's initial activity-type classification.
+        if (before.systemDecorations != systemDecorations) {
+            mSetSystemDecorations.invoke(mWindowManager, displayId, systemDecorations);
+        }
         final DisplayWindowingSnapshot after = read(displayId);
-        if (after == null || !uniqueId.equals(after.uniqueId) || after.mode != mode) {
+        if (after == null || !uniqueId.equals(after.uniqueId) || after.mode != mode
+                || after.systemDecorations != systemDecorations) {
             throw new IllegalStateException("display default mode was not applied");
         }
     }

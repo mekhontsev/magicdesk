@@ -142,7 +142,7 @@ shell access and no active Desktop; the UI warns about decorations and advises
 reconnection or a firmware-dependent restart. It is not a required setup gate,
 input-routing substitute or startup write. Close leaves it unchanged.
 
-By contrast, HOME, input routes, display-default mode, external IME policy and
+By contrast, HOME, input routes, display-default mode and system decorations, external IME policy and
 managed task density have session owners and restoration rules. Display
 resources have their own lifetime: Close does not remove them, and removal
 requires verified MagicDesk ownership.

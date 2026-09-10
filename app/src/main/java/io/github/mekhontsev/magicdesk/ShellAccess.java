@@ -203,9 +203,10 @@ public final class ShellAccess {
     }
 
     static void setDisplayWindowing(
-            final int displayId, final String uniqueId, final int mode) throws IOException {
+            final int displayId, final String uniqueId, final int mode,
+            final boolean systemDecorations) throws IOException {
         try {
-            requireService().setDisplayWindowing(displayId, uniqueId, mode);
+            requireService().setDisplayWindowing(displayId, uniqueId, mode, systemDecorations);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("display mode write failed: " + usefulMessage(error), error);

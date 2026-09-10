@@ -255,7 +255,7 @@
             android:exported="true"
             android:banner="@mipmap/ic_launcher"
             android:icon="@mipmap/ic_launcher"
-            android:launchMode="singleTask"
+            android:launchMode="singleTop"
             android:logo="@mipmap/ic_launcher"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:roundIcon="@mipmap/ic_launcher"

@@ -428,7 +428,7 @@ interface IShizukuCommandService {
 
     DisplayWindowingSnapshot readDisplayWindowing(int displayId) = 119;
 
-    void setDisplayWindowing(int displayId, String uniqueId, int mode) = 120;
+    void setDisplayWindowing(int displayId, String uniqueId, int mode, boolean systemDecorations) = 120;
 
     DesktopDisplayInfo[] listDesktopDisplays() = 121;
 

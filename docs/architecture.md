@@ -1537,6 +1537,16 @@ the dedicated `PhoneDesktopHomeActivity` as primary HOME, so Android creates
 the desktop host directly in its standard task area without conflating it with
 the external-display host component.
 
+`DesktopActivity` uses `singleTop`, allowing Android to create a display-local
+secondary HOME instance. Android rejects `singleTask` and `singleInstance` for
+secondary HOME and can redirect the launch to display 0 while returning a
+successful start result. Root/system callers classify an explicit HOME Intent
+before display selection; the shell caller can instead inherit HOME from the
+requested root type, so shell-only verification does not cover this contract.
+The session registry owns the active host identity, independently of manifest
+launch-mode restrictions. Startup still verifies the actual display and HOME
+task type.
+
 The lease is the only owner of HOME transitions and HOME-surface selection.
 Normal close quiesces MagicDesk's HOME entry points, restores the previous
 holder, and retains existing HOME surfaces through workspace teardown. It
@@ -2547,18 +2557,27 @@ report collected after HOME release still explains the failed launch. It adds
 no retry, wait or task polling to a successful startup or an active session.
 
 Secondary sessions share one display-default policy on every platform:
-`SecondaryDisplayWindowing` prepares freeform before HOME activation through
+`SecondaryDisplayWindowing` prepares freeform and enables system decorations
+before HOME activation through
 `FrameworkRuntime.displayWindowing()` and the existing Shizuku Binder service.
 Display 0 is untouched; explicit fullscreen task modes remain independent.
-An unavailable or rejected default-mode request fails preparation.
+Android's secondary HOME eligibility requires a HOME-capable display. Enabling
+system decorations supplies that capability through the Android 15+ WindowManager
+API; it also permits system navigation UI. The same preparation applies to shell
+and root callers, without depending on their initial HOME classification.
+An unavailable or rejected display-default request fails preparation.
 
 `DisplayWindowingSession` captures and durably records the previous effective
-mode only when it changes the display default. Close restores it after desktop
-teardown, and failed startup releases the same ownership. An already-freeform
-display requires neither a write nor a restoration entry. Android 15+'s getter
-resolves an undefined override into framework policy, so restoration preserves
-the previous effective mode, not the absence of a raw override. A different
-mode selected by another owner is left intact.
+mode and system-decoration state only when either default changes. Close
+restores them after desktop teardown, and failed startup releases the same
+ownership, including a partially applied preparation. An already-freeform
+display with system decorations enabled requires neither a write nor a
+restoration entry. Android 15+'s getters resolve effective framework policy, so
+restoration preserves previous effective values, not the absence of raw
+overrides. A different mode selected by another owner is left intact, while
+owned decorations are restored independently. An already running secondary
+launcher is not removed: restoring the display defaults does not promise a
+return to mirroring or transfer ownership of another launcher's task.
 
 WindowManager retains physical-display overrides after disconnection. Pending
 restoration therefore uses the stable display identity, not the connection's

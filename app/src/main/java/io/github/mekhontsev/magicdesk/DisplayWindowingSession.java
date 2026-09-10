@@ -12,7 +12,8 @@ final class DisplayWindowingSession {
     interface Api {
         int[] displayIds() throws IOException;
         DisplayWindowingSnapshot read(int displayId) throws IOException;
-        void set(int displayId, String uniqueId, int mode) throws IOException;
+        void set(int displayId, String uniqueId, int mode, boolean systemDecorations)
+                throws IOException;
     }
 
     interface Storage {
@@ -42,7 +43,8 @@ final class DisplayWindowingSession {
                 || before.uniqueId == null || before.uniqueId.isEmpty()) {
             throw new IOException("secondary display default mode is unavailable");
         }
-        if (before.mode != FREEFORM) {
+        final boolean changesDefaults = before.mode != FREEFORM || !before.systemDecorations;
+        if (changesDefaults) {
             final Map<String, DisplayWindowingSnapshot> pending = mStorage.read();
             pending.put(before.uniqueId, before);
             // Persist before the Binder write: a lost acknowledgement or process
@@ -50,8 +52,8 @@ final class DisplayWindowingSession {
             mStorage.write(pending);
         }
         mActive = before;
-        if (before.mode != FREEFORM) {
-            mApi.set(displayId, before.uniqueId, FREEFORM);
+        if (changesDefaults) {
+            mApi.set(displayId, before.uniqueId, FREEFORM, true);
         }
     }
 
@@ -115,14 +117,16 @@ final class DisplayWindowingSession {
             throw new IOException("display default mode is unavailable during restore");
         }
         // Do not replace a different mode selected by another owner.
-        if (current.mode == FREEFORM) {
-            mApi.set(current.displayId, current.uniqueId, previous.mode);
+        final int mode = current.mode == FREEFORM ? previous.mode : current.mode;
+        final boolean decorations = previous.systemDecorations && current.systemDecorations;
+        if (current.mode != mode || current.systemDecorations != decorations) {
+            mApi.set(current.displayId, current.uniqueId, mode, decorations);
         }
     }
 
     synchronized String diagnostics() throws IOException {
-        return "policy=freeform, activeDisplay=" + (mActive == null ? -1 : mActive.displayId)
+        return "policy=freeform+secondary-home, activeDisplay=" + (mActive == null ? -1 : mActive.displayId)
                 + ", restoreEntries=" + mStorage.read().size()
-                + ", restoration=previous-effective-mode";
+                + ", restoration=previous-effective-defaults";
     }
 }
