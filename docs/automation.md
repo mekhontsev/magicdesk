@@ -868,6 +868,11 @@ the check requires a fresh frame acknowledgement, fullscreen geometry and input
 focus. Hardware configuration changes must not silently reset the fixture's
 toolbar while a previous instance's fullscreen marker remains on disk.
 
+`INPUT-VIRTUAL-001` checks the production phone-pointer device and route readiness
+on external targets using existing input lifecycle events. Synthetic window-input
+checks bypass this device, so they cannot establish its readiness. This does not
+claim coverage of physical mouse input or finger gestures on the phone touchpad.
+
 The pre-run transition health entry records a one-shot WMShell queue snapshot,
 separately from WindowManager's transition-performance sessions. A window-setup
 query explicitly selects the WMShell dumpable: SystemUI's default critical-only

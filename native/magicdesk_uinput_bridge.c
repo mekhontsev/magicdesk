@@ -134,7 +134,9 @@ static void emit_line(const char *line) {
     fflush(stdout);
 }
 
-static int create_virtual_mouse(const int uinput_fd) {
+static int configure_virtual_mouse(const int uinput_fd) {
+    unsigned int version = 0;
+    if (ioctl(uinput_fd, UI_GET_VERSION, &version) < 0) return -1;
     struct uinput_setup setup = {
         .id = {
             .bustype = BUS_VIRTUAL,
@@ -144,7 +146,20 @@ static int create_virtual_mouse(const int uinput_fd) {
         },
     };
     snprintf(setup.name, UINPUT_MAX_NAME_SIZE, "MagicDesk Mouse");
+    if (version >= 5) return ioctl(uinput_fd, UI_DEV_SETUP, &setup);
 
+    // Android releases do not determine the kernel's uinput protocol version.
+    // Version 4 configures the same device with one complete descriptor write.
+    struct uinput_user_dev device = {.id = setup.id};
+    memcpy(device.name, setup.name, sizeof(device.name));
+    const ssize_t count = write(uinput_fd, &device, sizeof(device));
+    if (count == (ssize_t)sizeof(device)) return 0;
+    if (count >= 0) errno = EIO;
+    return -1;
+}
+
+static int create_virtual_mouse(const int uinput_fd, const char **stage) {
+    *stage = "capabilities";
     if (ioctl(uinput_fd, UI_SET_EVBIT, EV_SYN) < 0
             || ioctl(uinput_fd, UI_SET_EVBIT, EV_KEY) < 0
             || ioctl(uinput_fd, UI_SET_EVBIT, EV_REL) < 0
@@ -163,11 +178,10 @@ static int create_virtual_mouse(const int uinput_fd) {
             return -1;
         }
     }
-    if (ioctl(uinput_fd, UI_DEV_SETUP, &setup) < 0
-            || ioctl(uinput_fd, UI_DEV_CREATE) < 0) {
-        return -1;
-    }
-    return 0;
+    *stage = "setup";
+    if (configure_virtual_mouse(uinput_fd) < 0) return -1;
+    *stage = "create";
+    return ioctl(uinput_fd, UI_DEV_CREATE);
 }
 
 static int set_control_primary(struct bridge_state *state, const bool pressed) {
@@ -253,9 +267,11 @@ int main(void) {
     sigaction(SIGINT, &action, NULL);
     sigaction(SIGTERM, &action, NULL);
     signal(SIGPIPE, SIG_IGN);
+    const char *stage = "open";
     const int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
-    if (fd < 0 || create_virtual_mouse(fd) < 0) {
-        fprintf(stderr, "MAGICDESK_MOUSE_ERROR create=%s\n", strerror(errno));
+    if (fd < 0 || create_virtual_mouse(fd, &stage) < 0) {
+        fprintf(stderr, "MAGICDESK_MOUSE_ERROR stage=%s create=%s\n",
+                stage, strerror(errno));
         if (fd >= 0) close(fd);
         return 1;
     }

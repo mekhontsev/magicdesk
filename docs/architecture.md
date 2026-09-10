@@ -126,6 +126,11 @@ HOME draws, workspace ownership is configured and parked-task restoration
 finishes. Routes are acquired first; the phone pointer's location can be
 associated before its virtual device exists. `DesktopMouseBridge` then creates
 one virtual relative mouse for the phone touchpad on external desktops.
+The native helper queries `UI_GET_VERSION`: protocol 5 uses `UI_DEV_SETUP`,
+while protocol 4 writes a `uinput_user_dev` descriptor. Both create the same
+relative mouse and use the same event stream. Selection depends on the kernel
+interface, not the Android release, vendor or service UID; setup errors remain
+errors rather than triggering another creation path.
 
 Close invalidates input readiness before queuing teardown. The same worker
 finishes any in-flight acquisition, destroys the phone pointer and restores

@@ -36,7 +36,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-for fixture in magicdesk_pty_working_directory_test magicdesk_pty_lifecycle_test magicdesk_virtual_mouse_test; do
+for fixture in magicdesk_pty_working_directory_test magicdesk_pty_lifecycle_test magicdesk_virtual_mouse_test magicdesk_virtual_mouse_setup_test; do
     printf 'Compile: %s (%s)\n' "$fixture" "$compiler"
     "$compiler" -std=c17 -D_GNU_SOURCE -O2 -Wall -Wextra -UNDEBUG \
         "$project_dir/native/tests/$fixture.c" -o "$work/$fixture"
@@ -51,4 +51,5 @@ for mode in pressure fragmented metadata hup signal oversized; do
     timeout --kill-after=2s 15s ./magicdesk_pty_lifecycle_test "$mode"
 done
 timeout --kill-after=2s 15s ./magicdesk_virtual_mouse_test
-printf 'Native host fixtures verified (8 runs).\n'
+timeout --kill-after=2s 15s ./magicdesk_virtual_mouse_setup_test
+printf 'Native host fixtures verified (9 runs).\n'

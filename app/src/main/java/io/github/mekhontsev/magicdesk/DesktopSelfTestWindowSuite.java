@@ -103,6 +103,10 @@ final class DesktopSelfTestWindowSuite {
         final DesktopSelfTestGeometry geometry = verifyDesktopViewport(
                 appContext, targetDisplayId, captureSource, result);
         verifyDesktopWallpaper(targetDisplayId, result);
+        if (target != DesktopSelfTestTarget.PHONE) {
+            check(result, "INPUT-VIRTUAL-001", "Verify phone virtual pointer readiness",
+                    () -> DesktopSelfTestInputSuite.awaitVirtualPointer(targetDisplayId));
+        }
         DesktopSelfTestHostObserver.markReady();
         DesktopSelfTestTaskStackGuard.begin(
                 targetDisplayId, desktopTask.taskId, "WINDOW-000");

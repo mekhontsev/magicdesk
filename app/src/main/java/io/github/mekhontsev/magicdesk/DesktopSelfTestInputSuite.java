@@ -47,6 +47,31 @@ final class DesktopSelfTestInputSuite {
     private DesktopSelfTestInputSuite() {
     }
 
+    static String awaitVirtualPointer(final int displayId) throws IOException {
+        final long deadline = SystemClock.uptimeMillis() + STEP_TIMEOUT_MILLIS;
+        long eventId = DesktopAutomationEventJournal.latestId();
+        // Injected test input bypasses the phone touchpad's virtual device.
+        // Observe its production readiness separately, without moving the cursor.
+        while (true) {
+            DesktopSelfTestRunState.checkpoint();
+            if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId
+                    && MagicDeskRuntime.isDesktopMouseBridgeReady()) {
+                return "display=" + displayId + ", virtual mouse and routing ready";
+            }
+            final long remaining = deadline - SystemClock.uptimeMillis();
+            if (remaining <= 0L) {
+                throw new IOException("virtual phone pointer did not become ready on display "
+                        + displayId);
+            }
+            try {
+                eventId = DesktopAutomationEventJournal.awaitChange(eventId, remaining);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                throw new IOException("virtual phone pointer readiness wait interrupted", error);
+            }
+        }
+    }
+
     static void runInitialWindowChecks(
             final DesktopSelfTestResult result,
             final Context context,
