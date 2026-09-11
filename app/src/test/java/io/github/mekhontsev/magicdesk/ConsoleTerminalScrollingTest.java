@@ -164,6 +164,36 @@ public final class ConsoleTerminalScrollingTest {
                 """);
     }
 
+    @Test public void linksRequireATapAndDoNotStealTerminalMouseReporting() throws Exception {
+        verify("""
+                View view=new View(); view.link=new TerminalHyperlink("https://example.com");
+                List<String> opened=new ArrayList<>();
+                view.mClipboardActions=new ClipboardActions() {
+                    public void copySelection() {} public void pasteClipboard() {}
+                    public void showLink(TerminalHyperlink link) { opened.add(link.uri()); }
+                };
+                view.onTouchEvent(touch(MotionEvent.ACTION_DOWN, 10));
+                view.onTouchEvent(touch(MotionEvent.ACTION_UP, 10));
+                check(opened.size()==1 && view.keyboardRequests==0, "link tap did not use explicit actions");
+                view.mSession.emulator.tracking=true;
+                view.onTouchEvent(mouse(MotionEvent.ACTION_DOWN, 10));
+                view.onTouchEvent(mouse(MotionEvent.ACTION_UP, 10));
+                check(opened.size()==1 && view.mSession.emulator.events.size()==2, "link stole TUI input");
+                MotionEvent down=mouse(MotionEvent.ACTION_DOWN,10); down.ctrl=true;
+                MotionEvent up=mouse(MotionEvent.ACTION_UP,10); up.ctrl=true;
+                view.onTouchEvent(down); view.onTouchEvent(up);
+                check(opened.size()==2 && view.mSession.emulator.events.size()==2, "Ctrl link sent TUI input");
+                view.mSession.emulator.tracking=false;
+                view.onTouchEvent(touch(MotionEvent.ACTION_DOWN,10));
+                view.onTouchEvent(touch(MotionEvent.ACTION_CANCEL,10));
+                check(opened.size()==2, "cancel activated link");
+                view.onTouchEvent(touch(MotionEvent.ACTION_DOWN,10));
+                view.onTouchEvent(touch(MotionEvent.ACTION_MOVE,50));
+                view.onTouchEvent(touch(MotionEvent.ACTION_UP,50));
+                check(opened.size()==2, "scroll activated link");
+                """);
+    }
+
     private static void verify(final String body) throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Point { int x,y; Point(int x,int y) { this.x=x; this.y=y; } }
@@ -226,12 +256,14 @@ public final class ConsoleTerminalScrollingTest {
                     boolean onKeyDown(int key,KeyEvent event) { return false; }
                 }
                 static class Input { String key(KeyEvent e,TerminalEmulator t) { return "key"; } }
-                interface ClipboardActions { void copySelection(); void pasteClipboard(); }
+                record TerminalHyperlink(String uri) {}
+                interface ClipboardActions { void copySelection(); void pasteClipboard(); void showLink(TerminalHyperlink link); }
                 static class View extends BaseView {
                     Session mSession=new Session(); Renderer mRenderer=new Renderer(); Gestures mGestures=new Gestures();
                     ScaleGestureDetector mScaleGestures=new ScaleGestureDetector();
                     boolean mFontScaleGesture; int mFontSizeSp=14, fontRefreshes; float mPinchFontSizeSp, mFontWheelRemainder;
                     Input mInput=new Input(); ClipboardActions mClipboardActions;
+                    TerminalHyperlink link; TerminalHyperlink linkAt(MotionEvent event) { return link; }
                     static final int SCROLL_ROWS=3;
                     int mRows=10, mTopRow, mTouchSlop=2, mTerminalMouseButton, keyboardRequests;
                     float mDownX, mDownY, mLastTouchY, mTouchScrollRemainder, mWheelScrollRemainder;

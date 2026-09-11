@@ -143,7 +143,8 @@ final class DesktopAutomationTerminalWindows {
                 return notFound(id);
             }
             return DesktopAutomationResult.success(
-                    "terminal session status", toJson(snapshot));
+                    "terminal session status", toJson(snapshot)
+                            .put("semantics", semantics(id)));
         } catch (IllegalArgumentException | JSONException error) {
             return invalid(error);
         } catch (RuntimeException error) {
@@ -158,16 +159,28 @@ final class DesktopAutomationTerminalWindows {
             final String id = sessionId(args);
             final String scope = args.optString("scope", "viewport")
                     .trim().toLowerCase(Locale.ROOT);
-            if (!scope.equals("viewport") && !scope.equals("transcript")) {
+            if (!scope.equals("viewport") && !scope.equals("transcript") && !scope.equals("command")) {
                 throw new IllegalArgumentException(
-                        "scope must be viewport or transcript");
+                        "scope must be viewport, transcript or command");
             }
             final int maxChars = Math.max(1, Math.min(
                     MAX_READ_CHARS,
                     args.optInt("maxChars", DEFAULT_READ_CHARS)));
-            final String full = ConsoleTerminalRegistry.read(
-                    id, scope.equals("transcript"));
+            final long commandId = args.optLong("commandId", -1);
+            if (scope.equals("command") && commandId <= 0) {
+                throw new IllegalArgumentException("command scope requires a positive commandId from terminal.status");
+            }
+            if (!scope.equals("command") && args.has("commandId")) {
+                throw new IllegalArgumentException("commandId requires command scope");
+            }
+            final String full = scope.equals("command") ? ConsoleTerminalRegistry.commandOutput(id, commandId)
+                    : ConsoleTerminalRegistry.read(id, scope.equals("transcript"));
             if (full == null) {
+                if (scope.equals("command") && ConsoleTerminalRegistry.status(id) != null) {
+                    return DesktopAutomationResult.success("command output unavailable",
+                            new JSONObject().put("terminalId", id).put("scope", scope)
+                                    .put("commandId", commandId).put("available", false));
+                }
                 return notFound(id);
             }
             final boolean truncated = full.length() > maxChars;
@@ -177,6 +190,8 @@ final class DesktopAutomationTerminalWindows {
                     new JSONObject()
                             .put("terminalId", id)
                             .put("scope", scope)
+                            .put("available", true)
+                            .put("commandId", scope.equals("command") ? commandId : JSONObject.NULL)
                             .put("text", text)
                             .put("truncated", truncated));
         } catch (IllegalArgumentException | JSONException error) {
@@ -184,6 +199,31 @@ final class DesktopAutomationTerminalWindows {
         } catch (RuntimeException error) {
             return unavailable(error);
         }
+    }
+
+    private static JSONObject semantics(final String id) throws JSONException {
+        final var metadata = ConsoleTerminalRegistry.metadata(id);
+        if (metadata == null) { return new JSONObject(); }
+        final JSONArray commands = new JSONArray();
+        for (final var command : ConsoleTerminalRegistry.commands(id)) {
+            final var position = command.position();
+            commands.put(new JSONObject().put("id", command.id()).put("state", command.state())
+                    .put("command", command.command()).put("commandKnown", command.commandKnown())
+                    .put("exitCode", command.exitCode() == null ? JSONObject.NULL : command.exitCode())
+                    .put("outputAvailable", command.outputAvailable())
+                    .put("position", position == null ? JSONObject.NULL : new JSONObject()
+                            .put("column", position.column()).put("row", position.row())));
+        }
+        final JSONArray links = new JSONArray();
+        for (final var link : ConsoleTerminalRegistry.links(id)) {
+            links.put(new JSONObject().put("row", link.row()).put("startColumn", link.startColumn())
+                    .put("endColumn", link.endColumn()).put("uri", link.uri()).put("id", link.id()));
+        }
+        return new JSONObject().put("shellState", metadata.shellState()).put("commands", commands)
+                .put("notification", metadata.notification()).put("notificationSequence", metadata.notificationSequence())
+                .put("progress", new JSONObject().put("state", metadata.progressState())
+                        .put("percent", metadata.progressPercent()))
+                .put("screenLinks", links).put("linksLimitReached", links.length() == 256);
     }
 
     DesktopAutomationResult write(final JSONObject arguments) {

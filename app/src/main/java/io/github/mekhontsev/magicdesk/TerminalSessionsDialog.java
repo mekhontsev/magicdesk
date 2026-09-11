@@ -21,7 +21,7 @@ final class TerminalSessionsDialog {
         final String[] labels = new String[sessions.size()];
         for (int i = 0; i < labels.length; i++) {
             final var session = sessions.get(i);
-            labels[i] = session.id + "  " + session.backend + "  " + session.workingDirectory;
+            labels[i] = session.taskLabel(session.backend) + "\n" + session.id + "  " + session.workingDirectory;
         }
         final AlertDialog.Builder dialog = new AlertDialog.Builder(activity)
                 .setTitle(R.string.terminal_sessions)

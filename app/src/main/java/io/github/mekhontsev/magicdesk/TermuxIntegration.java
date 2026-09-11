@@ -50,6 +50,7 @@ final class TermuxIntegration {
             + "  [ \"$old\" = \"$target\" ] || rm -f -- \"$old\"\n"
             + "done\n"
             + "trap - EXIT HUP INT TERM\n"
+            + TerminalShellIntegration.termuxBootstrap()
             + "exec \"$target\" --socket \"$1\" \"$2\" \"$3\" "
             + "\"$4\" \"$5\" "
             + "\"${SHELL:-${PREFIX:?}/bin/bash}\" "

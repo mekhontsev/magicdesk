@@ -62,13 +62,16 @@ public final class ShellExecutionEnvironmentTest {
     }
 
     @Test
-    public void interactivePromptUsesSeparateInputLineAndActualServiceIdentity() {
+    public void interactivePromptUsesTitleAndActualServiceIdentity() {
         final String shell = ShellExecutionEnvironment.interactiveShellStartup(ShellAccess.SHELL_UID);
         final String root = ShellExecutionEnvironment.interactiveShellStartup(ShellAccess.ROOT_UID);
-        assertTrue(shell.startsWith("PS1='${PWD}${| local status=$?;"));
-        assertTrue(shell.contains("(( status )) && REPLY=\" [exit $status]\"; return $status;"));
-        assertTrue(shell.endsWith("\n$ '\n"));
-        assertTrue(root.endsWith("\n# '\n"));
+        assertTrue(shell.contains("local status=$?"));
+        assertTrue(shell.contains("(( status )) && REPLY+=\"[exit $status] \""));
+        assertTrue(shell.contains("REPLY+='$ '"));
+        assertTrue(root.contains("REPLY+='# '"));
+        assertTrue(shell.contains("\\e]0;"));
+        assertTrue(shell.contains("\\e]133;B"));
+        assertFalse(shell.contains("\\e]133;C"));
         assertFalse(shell.contains("echo"));
     }
 

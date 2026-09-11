@@ -45,11 +45,7 @@ final class ShellExecutionEnvironment {
     }
 
     static String interactiveShellStartup(final int uid) {
-        // Android mksh reads ENV after its system rc. Keep the editable line short
-        // and preserve $? while computing the preceding line's optional status.
-        return "PS1='${PWD}${| local status=$?; "
-                + "(( status )) && REPLY=\" [exit $status]\"; return $status; }\n"
-                + (uid == ShellAccess.ROOT_UID ? "# " : "$ ") + "'\n";
+        return TerminalShellIntegration.androidPrompt(uid == ShellAccess.ROOT_UID);
     }
 
     static void prepareInteractiveShell(final Path target, final int uid) throws IOException {

@@ -11,7 +11,7 @@ import java.util.Stack;
 /**
  * Renders text into a screen. Contains all the terminal-specific knowledge and state. Emulates a subset of the X Window
  * System xterm terminal, which in turn is an emulator for a subset of the Digital Equipment Corporation vt100 terminal.
- * MagicDesk adaptation: unknown SGR codes are logged with locale-independent numeric formatting.
+ * MagicDesk owns OSC hyperlinks, notifications, progress, and shell integration.
  * <p>
  * References:
  * <ul>
@@ -164,6 +164,8 @@ public final class TerminalEmulator {
 
     /** The normal screen buffer. Stores the characters that appear on the screen of the emulated terminal. */
     private final TerminalBuffer mMainBuffer;
+    private final TerminalCommandHistory mCommands;
+    private TerminalHyperlink mHyperlink;
     /**
      * The alternate screen buffer, exactly as large as the display and contains no additional saved lines (so that when
      * the alternate screen buffer is active, you cannot scroll back to view saved lines).
@@ -326,6 +328,7 @@ public final class TerminalEmulator {
     public TerminalEmulator(TerminalOutput session, int columns, int rows, int cellWidthPixels, int cellHeightPixels, Integer transcriptRows, TerminalSessionClient client) {
         mSession = session;
         mScreen = mMainBuffer = new TerminalBuffer(columns, getTerminalTranscriptRows(transcriptRows), rows);
+        mCommands = new TerminalCommandHistory(mMainBuffer);
         mAltBuffer = new TerminalBuffer(columns, rows, rows);
         mClient = client;
         mRows = rows;
@@ -345,6 +348,8 @@ public final class TerminalEmulator {
     public TerminalBuffer getScreen() {
         return mScreen;
     }
+
+    public TerminalCommandHistory getCommandHistory() { return mCommands; }
 
     public boolean isAlternateBufferActive() {
         return mScreen == mAltBuffer;
@@ -1979,6 +1984,25 @@ public final class TerminalEmulator {
         }
     }
 
+    private void processNotification(String parameters) {
+        if (parameters.equals("4") || parameters.startsWith("4;")) {
+            String[] parts = parameters.split(";", -1);
+            try {
+                int state = parts.length == 1 ? 0 : Integer.parseInt(parts[1]);
+                int percent = parts.length > 2 && !parts[2].isEmpty() ? Integer.parseInt(parts[2]) : -1;
+                if (parts.length > 3 || state < 0 || state > 4 || percent < -1 || percent > 100
+                        || state == 1 && percent < 0) return;
+                mSession.onProgressChanged(state, state == 0 ? -1 : percent);
+            } catch (NumberFormatException ignored) { }
+        } else {
+            int separator = parameters.indexOf(';');
+            // Other numeric OSC 9 subcommands belong to terminal-specific protocols.
+            if (separator > 0 && parameters.substring(0, separator).chars().allMatch(Character::isDigit)) return;
+            String message = TerminalCommandHistory.bounded(parameters, 2048).strip();
+            if (!message.isEmpty()) mSession.onNotification(message);
+        }
+    }
+
     private void doOsc(int b) {
         switch (b) {
             case 7: // Bell.
@@ -2019,6 +2043,7 @@ public final class TerminalEmulator {
                 textParameter = mOSCOrDeviceControlArgs.substring(mOSCArgTokenizerIndex + 1);
                 break;
             } else if (b >= '0' && b <= '9') {
+                if (value > (Integer.MAX_VALUE - (b - '0')) / 10) return;
                 value = ((value < 0) ? 0 : value * 10) + (b - '0');
             } else {
                 unknownSequence(b);
@@ -2031,6 +2056,18 @@ public final class TerminalEmulator {
             case 1: // Change icon name to T.
             case 2: // Change window title to T.
                 setTitle(textParameter);
+                break;
+            case 8:
+                mHyperlink = TerminalHyperlink.parse(textParameter);
+                break;
+            case 9:
+                processNotification(textParameter);
+                break;
+            case 133:
+                if (!isAlternateBufferActive() && mCommands.accept(textParameter,
+                        mAboutToAutoWrap ? mCursorCol + 1 : mCursorCol, mCursorRow)) {
+                    mSession.onShellIntegrationChanged();
+                }
                 break;
             case 4:
                 // P s = 4 ; c ; spec → Change Color Number c to the color specified by spec. This can be a name or RGB
@@ -2485,7 +2522,7 @@ public final class TerminalEmulator {
         // so was mCursorCol changed after the offsetDueToCombiningChar conditional by another thread?
         // TODO: Check if there are thread synchronization issues with mCursorCol and mCursorRow, possibly causing others bugs too.
         if (column < 0) column = 0;
-        mScreen.setChar(column, mCursorRow, codePoint, getStyle());
+        mScreen.setChar(column, mCursorRow, codePoint, getStyle(), mHyperlink);
 
         if (autoWrap && displayWidth > 0)
             mAboutToAutoWrap = (mCursorCol == mRightMargin - displayWidth);
@@ -2525,6 +2562,9 @@ public final class TerminalEmulator {
 
     /** Reset terminal state so user can interact with it regardless of present state. */
     public void reset() {
+        mHyperlink = null;
+        mCommands.clear();
+        mSession.onProgressChanged(0, -1);
         setCursorStyle();
         mArgIndex = 0;
         mContinueSequence = false;
@@ -2567,6 +2607,7 @@ public final class TerminalEmulator {
 
     /** Change the terminal session's title. */
     private void setTitle(String newTitle) {
+        newTitle = TerminalCommandHistory.bounded(newTitle, 1024);
         String oldTitle = mTitle;
         mTitle = newTitle;
         if (!Objects.equals(oldTitle, newTitle)) {

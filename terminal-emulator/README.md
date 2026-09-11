@@ -12,8 +12,12 @@ PTY transports, Android windows, Desktop sessions, clipboard policy, or input
 routing. MagicDesk supplies those through its existing session and UI layers.
 There is no JNI library or dependency on an installed Termux application.
 
-The core parsing and buffer algorithms and their tests retain the upstream
-implementation. Unknown SGR codes use locale-independent diagnostic formatting.
+The upstream regression suite is retained. MagicDesk extends the parser and
+cell buffers with OSC 8 hyperlinks, OSC 9 notification/progress events and OSC
+133 shell command boundaries. Link attributes follow cells through editing and
+reflow; bounded command records reference buffer-owned markers rather than a
+second output transcript. OSC 0/2 titles use the existing title callback.
+Unknown SGR codes use locale-independent diagnostic formatting.
 The `TerminalSessionClient` callback interface excludes callbacks referencing the
 upstream process-owning `TerminalSession`. The unused `TerminalSession`, `JNI`,
 `ByteQueue`, and `ByteQueueTest` are not part of the module. Its Gradle build uses
@@ -26,6 +30,11 @@ clipboard Base64 behavior still requires device verification.
 Changes to parsing or buffer semantics belong here, not in a second parser
 around the PTY byte stream. Changes to this module's runtime sources contribute
 to the APK build identity.
+
+Opening links, posting notifications and shell startup hooks belong to the app.
+The module cannot execute an OSC payload or launch an Activity. See
+[terminal integration](../docs/terminal-integration.md) for supported protocols,
+UI behavior, limits and shell-specific capabilities.
 
 ## Verification
 

@@ -11,3 +11,6 @@ Emulator contributors. Individual source files retain their copyright notices.
 MagicDesk builds the emulator locally without the upstream PTY/session and JNI
 implementation; its client interface is limited to emulator callbacks.
 Unknown SGR codes use locale-independent diagnostic formatting.
+MagicDesk extends the parser and buffer metadata for OSC 8 hyperlinks,
+OSC 9 notifications/progress and OSC 133 command boundaries. These changes and
+their focused regression tests are maintained in the local module.

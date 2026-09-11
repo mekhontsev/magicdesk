@@ -260,10 +260,17 @@ static int open_shell_pty(
         (void) snprintf(login_name, sizeof(login_name), "%s", shell_name);
     }
     if (startup_command[0] == '\0') {
-        execl(shell_path, login_name, "-i", (char *) NULL);
+        const char *bash_rc = getenv("MAGICDESK_BASH_RC");
+        if (login_shell && strcmp(shell_name, "bash") == 0 && bash_rc != NULL) {
+            execl(shell_path, "bash", "--rcfile", bash_rc, "-i", (char *) NULL);
+        } else {
+            execl(shell_path, login_name, "-i", (char *) NULL);
+        }
     } else {
         static const char interactive_shell[] =
-                "\nexec \"$MAGICDESK_TERMUX_SHELL\" -i";
+                "\nif [ \"${MAGICDESK_TERMUX_SHELL##*/}\" = bash ] && [ -n \"${MAGICDESK_BASH_RC:-}\" ]; then\n"
+                "  exec \"$MAGICDESK_TERMUX_SHELL\" --rcfile \"$MAGICDESK_BASH_RC\" -i\n"
+                "else exec \"$MAGICDESK_TERMUX_SHELL\" -i; fi";
         const size_t command_length = strlen(startup_command);
         char *command = malloc(command_length + sizeof(interactive_shell));
         if (command == NULL) {

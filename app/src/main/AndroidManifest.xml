@@ -357,6 +357,12 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".TerminalNotificationActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/TransparentActivityTheme" />
+        <activity
             android:name=".CommandConsoleActivity"
             android:configChanges="density|fontScale|keyboard|keyboardHidden|layoutDirection|locale|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"

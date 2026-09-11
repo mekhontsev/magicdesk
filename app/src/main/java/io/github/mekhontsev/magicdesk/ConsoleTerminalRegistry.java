@@ -309,6 +309,50 @@ final class ConsoleTerminalRegistry {
         });
     }
 
+    static ConsoleTerminalSession.Metadata metadata(final String id) {
+        return callOnMain(() -> {
+            final Entry entry = find(id);
+            return entry == null ? null : entry.session.metadata();
+        });
+    }
+
+    static String commandOutput(final String id, final long commandId) {
+        return callOnMain(() -> {
+            final Entry entry = find(id);
+            return entry == null ? null : entry.session.emulator().getCommandHistory().output(commandId);
+        });
+    }
+
+    static List<com.termux.terminal.TerminalCommandHistory.Snapshot> commands(final String id) {
+        return callOnMain(() -> {
+            final Entry entry = find(id);
+            return entry == null ? List.of() : entry.session.emulator().getCommandHistory().snapshots();
+        });
+    }
+
+    record LinkSpan(int row, int startColumn, int endColumn, String uri, String id) { }
+
+    static List<LinkSpan> links(final String id) {
+        return callOnMain(() -> {
+            final Entry entry = find(id);
+            final List<LinkSpan> links = new ArrayList<>();
+            if (entry == null) { return links; }
+            final var emulator = entry.session.emulator();
+            final var screen = emulator.getScreen();
+            for (int row = 0; row < emulator.mRows; row++) {
+                for (int column = 0; column < emulator.mColumns;) {
+                    final var link = screen.getHyperlink(column, row);
+                    if (link == null) { column++; continue; }
+                    final int start = column++;
+                    while (column < emulator.mColumns && link.equals(screen.getHyperlink(column, row))) { column++; }
+                    links.add(new LinkSpan(row, start, column, link.uri(), link.id()));
+                    if (links.size() == 256) { return links; }
+                }
+            }
+            return links;
+        });
+    }
+
     static boolean sendKey(
             final String id, final int keyCode, final int metaState) {
         return callOnMain(() -> {
@@ -332,6 +376,7 @@ final class ConsoleTerminalRegistry {
             final ConsoleTerminalView view = entry.view.get();
             if (view != null) { view.attach(null, null); }
             entry.session.close();
+            TerminalNotifications.cancel(id);
             if (activity != null && !activity.isDestroyed()) {
                 activity.finishAndRemoveTask();
             }
@@ -473,6 +518,7 @@ final class ConsoleTerminalRegistry {
         WeakReference<ConsoleTerminalView> view = new WeakReference<>(null);
         final ConsoleTerminalSession session;
         long attachmentGeneration;
+        final TerminalNotificationLimiter notifications = new TerminalNotificationLimiter();
 
         Entry(final String id,
                 final Function<ConsoleTerminalSession.Listener, ConsoleTerminalSession> factory) {
@@ -497,6 +543,13 @@ final class ConsoleTerminalRegistry {
         @Override public void onCopyRequested(final String text) { notifyView(listener -> listener.onCopyRequested(text)); }
         @Override public void onPasteRequested() { notifyView(ConsoleTerminalSession.Listener::onPasteRequested); }
         @Override public void onBell() { notifyView(ConsoleTerminalSession.Listener::onBell); }
+        @Override public void onMetadataChanged() { notifyView(ConsoleTerminalSession.Listener::onMetadataChanged); }
+        @Override public void onNotification(final String message) {
+            if (notifications.accept(android.os.SystemClock.elapsedRealtime())) {
+                TerminalNotifications.show(snapshot(id), message);
+            }
+            notifyView(listener -> listener.onNotification(message));
+        }
 
         Snapshot snapshot(final String id) {
             final Activity owner = activity.get();

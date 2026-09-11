@@ -12,6 +12,10 @@ final class DesktopTaskDescription {
             final int labelResId,
             final int iconResId) {
         final String label = activity.getString(labelResId);
+        apply(activity, label, iconResId);
+    }
+
+    static void apply(final Activity activity, final String label, final int iconResId) {
         activity.setTaskDescription(
                 new ActivityManager.TaskDescription.Builder()
                         .setLabel(label)

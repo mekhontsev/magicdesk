@@ -59,6 +59,7 @@ final class TerminalTaskLabel {
                 index < value.length() && clean.length() < maxLength;
                 index++) {
             final char character = value.charAt(index);
+            if (Character.getType(character) == Character.FORMAT) { continue; }
             if (Character.isWhitespace(character)
                     || Character.isISOControl(character)) {
                 pendingSpace = clean.length() > 0;

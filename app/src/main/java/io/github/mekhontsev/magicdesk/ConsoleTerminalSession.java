@@ -33,6 +33,10 @@ final class ConsoleTerminalSession {
         void onPasteRequested();
 
         void onBell();
+
+        void onNotification(String message);
+
+        void onMetadataChanged();
     }
 
     interface DirectoryListener {
@@ -76,6 +80,22 @@ final class ConsoleTerminalSession {
     private final String mStartupCommand;
     private String mWorkingDirectory;
     private String mTitle = "";
+    private String mNotification = "";
+    private long mNotificationSequence;
+    private int mProgressState;
+    private int mProgressPercent = -1;
+    private boolean mTitleChanged;
+    private boolean mMetadataChanged;
+    private boolean mNotificationChanged;
+
+    record Metadata(String notification, long notificationSequence, int progressState,
+            int progressPercent, String shellState) { }
+
+    // Emulator metadata is read on the same main thread that consumes PTY output.
+    Metadata metadata() {
+        return new Metadata(mNotification, mNotificationSequence, mProgressState,
+                mProgressPercent, mEmulator.getCommandHistory().state());
+    }
     private TerminalProcessInfo mForegroundProcess =
             TerminalProcessInfo.unknown();
     private TerminalTransport mTransport;
@@ -267,6 +287,7 @@ final class ConsoleTerminalSession {
     }
 
     void clear() {
+        mEmulator.getCommandHistory().clear();
         mEmulator.getScreen().clearTranscript();
         write(new byte[]{0x0C});
         mListener.onScreenChanged();
@@ -501,6 +522,10 @@ final class ConsoleTerminalSession {
         }
         if (output.length > 0) {
             mEmulator.append(output, output.length);
+            // Apply only the final metadata in this output batch to Android UI.
+            if (mTitleChanged) { mTitleChanged = false; mListener.onTitleChanged(mTitle); }
+            if (mMetadataChanged) { mMetadataChanged = false; mListener.onMetadataChanged(); }
+            if (mNotificationChanged) { mNotificationChanged = false; mListener.onNotification(mNotification); }
             mListener.onScreenChanged();
             sendStartupCommandIfReady();
             scheduleForegroundProcessRefresh();
@@ -604,6 +629,20 @@ final class ConsoleTerminalSession {
     }
 
     private final class SessionOutput extends TerminalOutput {
+        @Override public void onNotification(final String message) {
+            mNotification = message;
+            mNotificationSequence++;
+            mNotificationChanged = true;
+        }
+
+        @Override public void onProgressChanged(final int state, final int percentage) {
+            mProgressState = state;
+            mProgressPercent = percentage;
+            mMetadataChanged = true;
+        }
+
+        @Override public void onShellIntegrationChanged() { mMetadataChanged = true; }
+
         @Override
         public void write(
                 final byte[] data, final int offset, final int count) {
@@ -620,7 +659,7 @@ final class ConsoleTerminalSession {
             synchronized (mLock) {
                 mTitle = newTitle == null ? "" : newTitle;
             }
-            mListener.onTitleChanged(newTitle);
+            mTitleChanged = true;
         }
 
         @Override

@@ -778,18 +778,19 @@ final class AutomationCommandCatalog {
                 .put(readTool(
                         "terminal.status",
                         "Get terminal status",
-                        "Read task, display, shell and foreground process, dimensions, title, and working directory.",
+                        "Read task, process, title, directory, shell command marks, progress, notifications and visible-screen hyperlinks.",
                         terminalSchema()))
                 .put(readTool(
                         "terminal.read",
                         "Read terminal screen",
-                        "Read the textual viewport or bounded transcript of an interactive terminal.",
+                        "Read the viewport, bounded transcript or shell-marked command output. Missing or expired command output returns available=false.",
                         objectSchema(new JSONObject()
                                         .put("terminalId", stringProperty(
                                                 "Interactive terminal id."))
                                         .put("scope", enumProperty(
                                                 "Text region to read.",
-                                                "viewport", "transcript"))
+                                                "viewport", "transcript", "command"))
+                                        .put("commandId", integerProperty("Command id from terminal.status; required only with scope=command."))
                                         .put("maxChars", integerProperty(
                                                 "Maximum returned characters, up to 65536.")),
                                 "terminalId")))
@@ -1629,6 +1630,8 @@ final class AutomationCommandCatalog {
                 properties.put("terminalId", stringProperty(
                                 "Interactive terminal id."))
                         .put("scope", stringProperty("Returned text region."))
+                        .put("available", booleanProperty("Whether the requested output remains available."))
+                        .put("commandId", nullableIntegerProperty("Command id, or null outside command scope."))
                         .put("text", stringProperty("Terminal text."))
                         .put("truncated", booleanProperty(
                                 "Whether older text was omitted."));
@@ -1823,7 +1826,8 @@ final class AutomationCommandCatalog {
                 .put("taskLabel", stringProperty(
                         "Current label derived from process metadata and OSC title."))
                 .put("foregroundProcess", openObjectProperty(
-                        "Foreground PTY process metadata."));
+                        "Foreground PTY process metadata."))
+                .put("semantics", openObjectProperty("Status-only OSC metadata: shellState, up to 128 commands, progress, last notification and up to 256 visible-screen link spans. Positions are zero-based buffer cells; negative rows are scrollback; endColumn is exclusive. Unknown exit codes are null."));
     }
 
     private static JSONObject emptySchema() throws JSONException {

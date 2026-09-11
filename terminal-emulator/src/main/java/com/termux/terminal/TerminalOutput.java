@@ -4,6 +4,13 @@ import java.nio.charset.StandardCharsets;
 
 /** A client which receives callbacks from events triggered by feeding input to a {@link TerminalEmulator}. */
 public abstract class TerminalOutput {
+    /** Untrusted application text. The host owns notification permission and presentation. */
+    public void onNotification(String message) { }
+
+    /** OSC 9;4 progress: state 0..4, percentage -1 when not supplied. */
+    public void onProgressChanged(int state, int percentage) { }
+
+    public void onShellIntegrationChanged() { }
 
     /** Write a string using the UTF-8 encoding to the terminal client. */
     public final void write(String data) {

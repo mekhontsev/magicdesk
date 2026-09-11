@@ -830,4 +830,17 @@
     <string name="display_removing">Removing display...</string>
     <string name="display_removed">Display removed</string>
     <string name="display_remove_failed">Could not remove display</string>
+    <string name="console_notifications">Terminal notifications</string>
+    <string name="console_session_expired">Terminal session has ended</string>
+    <string name="console_link">Terminal link</string>
+    <string name="console_commands">Command history</string>
+    <string name="console_no_commands">No shell command marks received</string>
+    <string name="console_command_unknown">Command not reported</string>
+    <string name="console_copy_command">Copy command</string>
+    <string name="console_copy_command_output">Copy output</string>
+    <string name="console_select_command">Select command</string>
+    <string name="console_select_output">Select output</string>
+    <string name="console_jump_command">Go to command</string>
+    <string name="console_output_expired">Output is no longer in the terminal buffer</string>
+    <string name="console_progress">Progress state %1$d, %2$d percent</string>
 </resources>

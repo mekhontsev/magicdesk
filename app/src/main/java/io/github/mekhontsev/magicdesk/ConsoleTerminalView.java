@@ -23,13 +23,16 @@ import android.view.inputmethod.InputMethodManager;
 import com.termux.terminal.KeyHandler;
 import com.termux.terminal.MagicDeskTerminalRenderer;
 import com.termux.terminal.TerminalEmulator;
+import com.termux.terminal.TerminalHyperlink;
 
 /** Interactive MagicDesk terminal surface with its own renderer. */
 final class ConsoleTerminalView extends View {
-    interface ClipboardActions {
+    interface Actions {
         void copySelection();
 
         void pasteClipboard();
+
+        void showLink(com.termux.terminal.TerminalHyperlink link);
     }
 
     private static final int NO_SELECTION = Integer.MIN_VALUE;
@@ -51,7 +54,7 @@ final class ConsoleTerminalView extends View {
 
     private ConsoleTerminalSession mSession;
     private Object mInputAttachment;
-    private ClipboardActions mClipboardActions;
+    private Actions mClipboardActions;
     private int mColumns = 80;
     private int mRows = 24;
     private int mTopRow;
@@ -109,7 +112,7 @@ final class ConsoleTerminalView extends View {
 
     void attach(
             final ConsoleTerminalSession session,
-            final ClipboardActions clipboardActions) {
+            final Actions clipboardActions) {
         if (mSession != session) { mInputAttachment = session == null ? null : new Object(); }
         mSession = session;
         mClipboardActions = clipboardActions;
@@ -209,6 +212,47 @@ final class ConsoleTerminalView extends View {
     void scrollToBottom() {
         mTopRow = 0;
         invalidate();
+    }
+
+    void jumpTo(final com.termux.terminal.TerminalMarker.Position position) {
+        if (position == null || mSession == null || mSession.emulator().isAlternateBufferActive()) { return; }
+        clearSelection();
+        mTopRow = position.row();
+        clampTopRow();
+        invalidate();
+    }
+
+    void selectRange(final com.termux.terminal.TerminalCommandHistory.Range range) {
+        if (range == null || mSession == null || mSession.emulator().isAlternateBufferActive()) { return; }
+        jumpTo(range.start());
+        if (range.start().equals(range.end())) { return; }
+        mSelectionStartColumn = range.start().column();
+        mSelectionStartRow = range.start().row();
+        mSelectionEndColumn = range.end().column() - 1;
+        mSelectionEndRow = range.end().row();
+        if (mSelectionEndColumn < 0) { mSelectionEndColumn = mColumns - 1; mSelectionEndRow--; }
+        invalidate();
+    }
+
+    private com.termux.terminal.TerminalHyperlink linkAt(final MotionEvent event) {
+        if (mSession == null || event.getX() < mContentPadding || event.getY() < mContentPadding
+                || event.getX() >= getWidth() - mContentPadding || event.getY() >= getHeight() - mContentPadding) {
+            return null;
+        }
+        final Point cell = cellAt(event);
+        return mSession.emulator().getScreen().getHyperlink(cell.x, mTopRow + cell.y);
+    }
+
+    @Override public android.view.PointerIcon onResolvePointerIcon(final MotionEvent event, final int index) {
+        return android.view.PointerIcon.getSystemIcon(getContext(), linkAt(event) == null
+                ? android.view.PointerIcon.TYPE_TEXT : android.view.PointerIcon.TYPE_HAND);
+    }
+
+    @Override public boolean onHoverEvent(final MotionEvent event) {
+        final var link = event.getActionMasked() == MotionEvent.ACTION_HOVER_EXIT ? null : linkAt(event);
+        final String tooltip = link == null ? null : link.uri();
+        if (!java.util.Objects.equals(getTooltipText(), tooltip)) { setTooltipText(tooltip); }
+        return super.onHoverEvent(event);
     }
 
     String visibleText() {
@@ -328,7 +372,8 @@ final class ConsoleTerminalView extends View {
                 mTouchScrolling = false;
                 // A finger is a scroll gesture until a tap completes, not a held mouse button.
                 if (!isTouch(event) && emulator.isMouseTrackingActive()
-                        && !isShiftPressed(event)) {
+                        && !isShiftPressed(event)
+                        && !((event.getMetaState() & KeyEvent.META_CTRL_ON) != 0 && linkAt(event) != null)) {
                     mTerminalMouseButton = mouseButton(event);
                     emulator.sendMouseEvent(
                             mTerminalMouseButton,
@@ -384,6 +429,12 @@ final class ConsoleTerminalView extends View {
                 } else if (event.getActionMasked() == MotionEvent.ACTION_UP
                         && !mTouchScrolling) {
                     clearSelection();
+                    final TerminalHyperlink link = linkAt(event);
+                    if (link != null && mClipboardActions != null && !isShiftPressed(event)
+                            && (!emulator.isMouseTrackingActive() || (event.getMetaState() & KeyEvent.META_CTRL_ON) != 0)) {
+                        mClipboardActions.showLink(link);
+                        return true;
+                    }
                     if (isTouch(event)) {
                         if (emulator.isMouseTrackingActive() && !isShiftPressed(event)) {
                             emulator.sendMouseEvent(TerminalEmulator.MOUSE_LEFT_BUTTON,

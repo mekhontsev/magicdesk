@@ -437,6 +437,11 @@ scrollback; and write text or semantic key events directly to the PTY. These
 operations do not use screenshots or synthetic pointer coordinates.
 `terminal.list` is a fast registry snapshot; `terminal.status` refreshes the
 reported working directory and foreground process from the live PTY.
+Its `semantics` object also reports OSC command history, progress, the last
+notification and bounded live-screen link spans. `terminal.read` accepts
+`scope=command` with a `commandId` from that history; expired/missing output
+returns `available=false` rather than a fabricated empty result. See
+[terminal integration](terminal-integration.md) for coordinates and limits.
 
 `terminal.open` accepts an optional `backend` of `shell` or `termux`. The
 default is `shell`. A Termux terminal requires the installed Termux app, its

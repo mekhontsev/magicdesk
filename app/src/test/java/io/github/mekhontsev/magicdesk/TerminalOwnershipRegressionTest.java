@@ -70,6 +70,7 @@ public final class TerminalOwnershipRegressionTest {
                     int getTaskId() { return 1; } void finishAndRemoveTask() { finished=true; } }
                 static class DesktopAutomationEventJournal { static void record(String t,String o,boolean s,String d) {} }
                 static class MagicDeskRuntime { static void refreshNotification() {} }
+                static class TerminalNotifications { static void cancel(String id) {} }
                 static class Entry implements ConsoleTerminalSession.Listener {
                     final ConsoleTerminalSession session; long attachmentGeneration;
                     WeakReference<Activity> activity=new WeakReference<>(null);

@@ -1474,6 +1474,13 @@ revoke the connection currently used by the IME. An attachment token prevents
 late input after detach/rebind, including reattachment to the same retained PTY;
 closing one connection cannot invalidate another. This lifetime is independent
 of keyboard language, input method, Desktop, and terminal backend.
+OSC metadata belongs to the emulator/session, not the attached Activity.
+`TerminalCommandHistory` retains bounded buffer-owned boundaries; hyperlink
+attributes travel with rendered cells. `TerminalNotifications` owns the Android
+channel and per-session notifications, with a user-initiated Activity entry
+returning through `ToolApplications`. `TerminalShellIntegration` supplies owned
+startup hooks without modifying user dotfiles. See [terminal integration](terminal-integration.md).
+
 `ConsolePreferences` stores new-window font defaults in app-private preferences;
 the View owns its current sp size and the Activity saves that window value.
 Pinch and Ctrl+wheel are local presentation actions, never terminal mouse input.

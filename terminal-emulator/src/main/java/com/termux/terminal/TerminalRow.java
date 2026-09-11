@@ -1,11 +1,14 @@
 package com.termux.terminal;
 
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A row in a terminal, composed of a fixed number of cells.
  * <p>
  * The text in the row is stored in a char[] array, {@link #mText}, for quick access during rendering.
+ * MagicDesk owns optional hyperlink cells and zero-width shell markers alongside the text.
  */
 public final class TerminalRow {
 
@@ -47,6 +50,8 @@ public final class TerminalRow {
     boolean mLineWrap;
     /** The style bits of each cell in the row. See {@link TextStyle}. */
     final long[] mStyle;
+    private TerminalHyperlink[] mLinks;
+    private ArrayList<TerminalMarker> mMarkers;
     /** If this row might contain chars with width != 1, used for deactivating fast path */
     boolean mHasNonOneWidthOrSurrogateChars;
 
@@ -65,6 +70,14 @@ public final class TerminalRow {
         final int x2 = line.findStartOfColumn(sourceX2);
         boolean startingFromSecondHalfOfWideChar = (sourceX1 > 0 && line.wideDisplayCharacterStartingAt(sourceX1 - 1));
         final char[] sourceChars = (this == line) ? Arrays.copyOf(line.mText, line.mText.length) : line.mText;
+        final long[] sourceStyles = this == line ? line.mStyle.clone() : line.mStyle;
+        final TerminalHyperlink[] sourceLinks = line.mLinks == null ? null
+                : this == line ? line.mLinks.clone() : line.mLinks;
+        final int destinationStart = destinationX;
+        final List<TerminalMarker> moving = line.markersIn(sourceX1, sourceX2);
+        for (TerminalMarker marker : moving) marker.release();
+        clearMarkers(destinationX, destinationX + sourceX2 - sourceX1);
+        for (TerminalMarker marker : moving) marker.move(this, destinationStart + marker.column - sourceX1);
         int latestNonCombiningWidth = 0;
         for (int i = x1; i < x2; i++) {
             char sourceChar = sourceChars[i];
@@ -80,7 +93,8 @@ public final class TerminalRow {
                 sourceX1 += latestNonCombiningWidth;
                 latestNonCombiningWidth = w;
             }
-            setChar(destinationX, codePoint, line.getStyle(sourceX1));
+            setChar(destinationX, codePoint, sourceStyles[sourceX1],
+                    sourceLinks == null ? null : sourceLinks[sourceX1]);
         }
     }
 
@@ -142,6 +156,8 @@ public final class TerminalRow {
     }
 
     public void clear(long style) {
+        clearMarkers(0, mColumns + 1);
+        mLinks = null;
         Arrays.fill(mText, ' ');
         Arrays.fill(mStyle, style);
         mSpaceUsed = (short) mColumns;
@@ -150,12 +166,28 @@ public final class TerminalRow {
 
     // https://github.com/steven676/Android-Terminal-Emulator/commit/9a47042620bec87617f0b4f5d50568535668fe26
     public void setChar(int columnToSet, int codePoint, long style) {
+        setChar(columnToSet, codePoint, style, null);
+    }
+
+    public void setChar(int columnToSet, int codePoint, long style, TerminalHyperlink link) {
         if (columnToSet  < 0 || columnToSet >= mStyle.length)
             throw new IllegalArgumentException("TerminalRow.setChar(): columnToSet=" + columnToSet + ", codePoint=" + codePoint + ", style=" + style);
 
         mStyle[columnToSet] = style;
 
         final int newCodePointDisplayWidth = WcWidth.width(codePoint);
+        if (newCodePointDisplayWidth > 0) {
+            if (link != null && mLinks == null) mLinks = new TerminalHyperlink[mColumns];
+            if (mLinks != null) {
+                mLinks[columnToSet] = link;
+                if (columnToSet + 1 < mColumns) {
+                    if (newCodePointDisplayWidth == 2) mLinks[columnToSet + 1] = link;
+                    else if (mHasNonOneWidthOrSurrogateChars && wideDisplayCharacterStartingAt(columnToSet)) {
+                        mLinks[columnToSet + 1] = null;
+                    }
+                }
+            }
+        }
 
         // Fast path when we don't have any chars with width != 1
         if (!mHasNonOneWidthOrSurrogateChars) {
@@ -179,10 +211,18 @@ public final class TerminalRow {
             if (wasExtraColForWideChar) setChar(columnToSet - 1, ' ', style);
             // Check if we are overwriting the first half of a wide character starting at the next column:
             boolean overwritingWideCharInNextColumn = newCodePointDisplayWidth == 2 && wideDisplayCharacterStartingAt(columnToSet + 1);
-            if (overwritingWideCharInNextColumn) setChar(columnToSet + 1, ' ', style);
+            if (overwritingWideCharInNextColumn) {
+                setChar(columnToSet + 1, ' ', style);
+                if (mLinks != null) mLinks[columnToSet + 1] = link;
+            }
         }
 
         char[] text = mText;
+        // Clearing a replaced wide character may also clear this destination cell.
+        if (!newIsCombining && mLinks != null) {
+            mLinks[columnToSet] = link;
+            if (newCodePointDisplayWidth == 2 && columnToSet + 1 < mColumns) mLinks[columnToSet + 1] = link;
+        }
         final int oldStartOfColumnIndex = findStartOfColumn(columnToSet);
         final int oldCodePointDisplayWidth = WcWidth.width(text, oldStartOfColumnIndex);
 
@@ -271,6 +311,8 @@ public final class TerminalRow {
     }
 
     boolean isBlank() {
+        if (mMarkers != null && !mMarkers.isEmpty()) return false;
+        if (mLinks != null) for (TerminalHyperlink link : mLinks) if (link != null) return false;
         for (int charIndex = 0, charLen = getSpaceUsed(); charIndex < charLen; charIndex++)
             if (mText[charIndex] != ' ') return false;
         return true;
@@ -278,6 +320,45 @@ public final class TerminalRow {
 
     public final long getStyle(int column) {
         return mStyle[column];
+    }
+
+    public TerminalHyperlink getHyperlink(int column) {
+        return mLinks == null ? null : mLinks[column];
+    }
+
+    void addMarker(TerminalMarker marker) {
+        if (mMarkers == null) mMarkers = new ArrayList<>();
+        mMarkers.add(marker);
+    }
+
+    void removeMarker(TerminalMarker marker) {
+        if (mMarkers != null) mMarkers.remove(marker);
+    }
+
+    private List<TerminalMarker> markersIn(int start, int end) {
+        if (mMarkers == null || mMarkers.isEmpty()) return List.of();
+        ArrayList<TerminalMarker> result = new ArrayList<>();
+        for (TerminalMarker marker : mMarkers) {
+            if (marker.column >= start && marker.column < end) result.add(marker);
+        }
+        return result;
+    }
+
+    void clearMarkers(int start, int end) {
+        for (TerminalMarker marker : markersIn(start, end)) marker.release();
+    }
+
+    int lastMetadataColumn() {
+        int last = 0;
+        if (mMarkers != null) for (TerminalMarker marker : mMarkers) last = Math.max(last, marker.column);
+        if (mLinks != null) for (int x = mLinks.length - 1; x >= last; x--) {
+            if (mLinks[x] != null) { last = x + 1; break; }
+        }
+        return last;
+    }
+
+    void reflowMarkers(int oldColumn, TerminalRow target, int column) {
+        for (TerminalMarker marker : markersIn(oldColumn, oldColumn + 1)) marker.move(target, column);
     }
 
 }

@@ -108,6 +108,7 @@ public final class MagicDeskTerminalRenderer {
                     externalRow,
                     viewportRow,
                     style,
+                    row.getHyperlink(column) != null,
                     isSelected(
                             column,
                             externalRow,
@@ -133,6 +134,7 @@ public final class MagicDeskTerminalRenderer {
             final int externalRow,
             final int viewportRow,
             final long style,
+            final boolean hyperlink,
             final boolean selected,
             final boolean cursor) {
         int foreground = resolveColor(
@@ -177,7 +179,7 @@ public final class MagicDeskTerminalRenderer {
                 (effects & TextStyle.CHARACTER_ATTRIBUTE_ITALIC) != 0
                         ? -0.2f : 0.0f);
         mTextPaint.setUnderlineText(
-                (effects & TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0);
+                hyperlink || (effects & TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0);
         mTextPaint.setStrikeThruText(
                 (effects & TextStyle.CHARACTER_ATTRIBUTE_STRIKETHROUGH) != 0);
         canvas.drawText(

@@ -74,7 +74,7 @@ public final class TerminalInputConnectionOwnershipTest {
 
     private static String fixture() throws Exception {
         return """
-                interface ClipboardActions {}
+                interface Actions {}
                 static class KeyEvent { static final int KEYCODE_FORWARD_DEL=112; }
                 static class KeyHandler {
                     static String getCode(int key,int meta,boolean cursor,boolean keypad) { return "delete"; }
@@ -108,7 +108,7 @@ public final class TerminalInputConnectionOwnershipTest {
                 }
                 static class ConsoleTerminalView {
                     ConsoleTerminalSession mSession;
-                    ClipboardActions mClipboardActions;
+                    Actions mClipboardActions;
                     Object mInputAttachment;
                     int dispatchedKeys;
                     void resizeTerminal() {} void invalidate() {} void scrollToBottom() {}

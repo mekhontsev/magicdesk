@@ -30,7 +30,7 @@ import java.util.function.Consumer;
 public final class CommandConsoleActivity extends Activity
         implements ShellAccess.StateListener,
         ConsoleTerminalSession.Listener,
-        ConsoleTerminalView.ClipboardActions {
+        ConsoleTerminalView.Actions {
     private static final String EXTRA_INITIAL_DIRECTORY =
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_DIRECTORY";
     private static final String EXTRA_AUTO_RUN_COMMAND =
@@ -53,6 +53,8 @@ public final class CommandConsoleActivity extends Activity
     private FrameLayout mTerminalContainer;
     private ConsoleTerminalSession mSession;
     private TextView mShellStatus;
+    private TextView mTerminalTitle;
+    private android.widget.ProgressBar mProgress;
     private LinearLayout mToolbar;
     private ImageButton mShowToolbar;
     private ImageButton mClear;
@@ -224,6 +226,8 @@ public final class CommandConsoleActivity extends Activity
                 mTerminalView,
                 getIntent().getStringExtra(EXTRA_TERMINAL_ID));
         applyLaunchRequest(getIntent(), false);
+        onTitleChanged(mSession.title());
+        onMetadataChanged();
         updateShellStatus();
         updateActions();
         mTerminalView.post(() -> {
@@ -360,7 +364,117 @@ public final class CommandConsoleActivity extends Activity
 
     @Override
     public void onTitleChanged(final String title) {
-        // Android owns the native caption title. Keep OSC titles internal.
+        final String fallback = getString(mBackend == DesktopExecBackend.TERMUX
+                ? R.string.console_termux_title : R.string.console_title);
+        final String label = TerminalTaskLabel.resolve(fallback,
+                mSession == null ? TerminalProcessInfo.unknown() : mSession.foregroundProcess(), title);
+        setTitle(label);
+        if (mTerminalTitle != null) {
+            mTerminalTitle.setText(label);
+            mTerminalTitle.setTooltipText(label);
+        }
+        DesktopTaskDescription.apply(this, label, R.drawable.ic_file_console);
+    }
+
+    @Override public void onNotification(final String message) { }
+
+    @Override public void onMetadataChanged() {
+        if (mSession == null || mProgress == null) { return; }
+        final var data = mSession.metadata();
+        mProgress.setVisibility(data.progressState() == 0 ? View.INVISIBLE : View.VISIBLE);
+        mProgress.setIndeterminate(data.progressState() == 3 || data.progressPercent() < 0);
+        if (data.progressPercent() >= 0) { mProgress.setProgress(data.progressPercent()); }
+        final int color = data.progressState() == 2 ? 0xFFEF4444
+                : data.progressState() == 4 ? COLOR_AMBER : COLOR_CYAN;
+        mProgress.setProgressTintList(ColorStateList.valueOf(color));
+        mProgress.setIndeterminateTintList(ColorStateList.valueOf(color));
+        mProgress.setContentDescription(getString(R.string.console_progress, data.progressState(), data.progressPercent()));
+    }
+
+    @Override public void showLink(final com.termux.terminal.TerminalHyperlink link) {
+        final TerminalLink target = TerminalLink.parse(link.uri());
+        final AlertDialog.Builder dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.console_link).setMessage(link.uri())
+                .setNeutralButton(android.R.string.copy, (which, button) -> copyText(link.uri()))
+                .setNegativeButton(android.R.string.cancel, null);
+        if (target.canOpen()) { dialog.setPositiveButton(R.string.action_open, (which, button) -> {
+            final int display = getDisplay() == null ? 0 : getDisplay().getDisplayId();
+            new Thread(() -> {
+                if (target.localPath() != null) { loadAndOpenPath(target.localPath()); return; }
+                try {
+                    final var result = new AndroidIntegrationGateway(this).openContent(
+                            AndroidContentPayload.text(getString(R.string.console_link), target.uri(), false,
+                                    AndroidContentPayload.Origin.APPLICATION), display);
+                    if (!result.success) { throw new IOException(result.message); }
+                } catch (Exception error) {
+                    runOnUiThread(() -> Toast.makeText(this, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show());
+                }
+            }, "MagicDeskTerminalLink").start();
+        }); }
+        dialog.show();
+    }
+
+    private void showCommandHistory() {
+        if (mSession == null) { return; }
+        final var history = mSession.emulator().getCommandHistory();
+        final var commands = new java.util.ArrayList<>(history.snapshots());
+        java.util.Collections.reverse(commands);
+        final String[] labels = new String[commands.size()];
+        for (int i = 0; i < labels.length; i++) {
+            final var command = commands.get(i);
+            labels[i] = (command.commandKnown() ? command.command() : getString(R.string.console_command_unknown))
+                    + "\n" + command.state() + (command.exitCode() == null ? "" : " [exit " + command.exitCode() + "]");
+        }
+        final AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(R.string.console_commands)
+                .setNegativeButton(android.R.string.cancel, null);
+        if (commands.isEmpty()) { dialog.setMessage(R.string.console_no_commands); }
+        else { dialog.setItems(labels, (picker, index) -> {
+            final var command = commands.get(index);
+            final java.util.ArrayList<String> actions = new java.util.ArrayList<>();
+            final java.util.ArrayList<Runnable> handlers = new java.util.ArrayList<>();
+            if (command.commandKnown()) {
+                actions.add(getString(R.string.console_copy_command)); handlers.add(() -> copyText(command.command()));
+            }
+            if (command.outputAvailable()) {
+                actions.add(getString(R.string.console_copy_command_output)); handlers.add(() -> {
+                    final String output = history.output(command.id());
+                    if (output != null) { copyText(output); }
+                    else { Toast.makeText(this, R.string.console_output_expired, Toast.LENGTH_SHORT).show(); }
+                });
+            }
+            if (command.position() != null && !mSession.emulator().isAlternateBufferActive()) {
+                for (final boolean output : new boolean[]{false, true}) {
+                    if (history.range(command.id(), output) == null) { continue; }
+                    actions.add(getString(output ? R.string.console_select_output : R.string.console_select_command));
+                    handlers.add(() -> {
+                        final var range = history.range(command.id(), output);
+                        if (range != null) { mTerminalView.selectRange(range); }
+                        else { Toast.makeText(this, R.string.console_output_expired, Toast.LENGTH_SHORT).show(); }
+                    });
+                }
+                actions.add(getString(R.string.console_jump_command)); handlers.add(() -> {
+                    for (final var latest : history.snapshots()) {
+                        if (latest.id() == command.id()) { mTerminalView.jumpTo(latest.position()); break; }
+                    }
+                });
+            }
+            new AlertDialog.Builder(this).setTitle(labels[index])
+                    .setItems(actions.toArray(new String[0]), (menu, action) -> handlers.get(action).run())
+                    .setNegativeButton(android.R.string.cancel, null).show();
+        }); }
+        dialog.show();
+    }
+
+    private void showNotificationSettings() {
+        TerminalNotifications.ensureChannel(this);
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1);
+        } else {
+            startActivity(new Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())
+                    .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, TerminalNotifications.CHANNEL));
+        }
     }
 
     @Override
@@ -411,6 +525,15 @@ public final class CommandConsoleActivity extends Activity
         SystemBarInsets.addToPadding(page);
         page.setBackgroundColor(COLOR_BACKGROUND);
 
+        // Ordinary fullscreen tools have no native caption; keep the OSC title visible there too.
+        mTerminalTitle = new TextView(this);
+        mTerminalTitle.setTextColor(COLOR_TEXT);
+        mTerminalTitle.setTextSize(13);
+        mTerminalTitle.setSingleLine(true);
+        mTerminalTitle.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        mTerminalTitle.setGravity(Gravity.CENTER_VERTICAL);
+        page.addView(mTerminalTitle, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(24)));
+
         mToolbar = new LinearLayout(this);
         mToolbar.setOrientation(LinearLayout.HORIZONTAL);
         mToolbar.setGravity(Gravity.CENTER_VERTICAL);
@@ -420,6 +543,7 @@ public final class CommandConsoleActivity extends Activity
         mShellStatus.setTextSize(12);
         mShellStatus.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         mShellStatus.setSingleLine(true);
+        mShellStatus.setEllipsize(android.text.TextUtils.TruncateAt.END);
         mShellStatus.setMaxWidth(dp(180));
         mToolbar.addView(mShellStatus, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -442,6 +566,10 @@ public final class CommandConsoleActivity extends Activity
                 R.string.console_paste,
                 view -> pasteClipboard());
         mToolbar.addView(mPaste, buttonParams());
+        mToolbar.addView(createIconButton(android.R.drawable.ic_menu_agenda,
+                R.string.console_commands, view -> showCommandHistory()), buttonParams());
+        mToolbar.addView(createIconButton(android.R.drawable.ic_dialog_info,
+                R.string.console_notifications, view -> showNotificationSettings()), buttonParams());
         mToolbar.addView(createIconButton(android.R.drawable.ic_menu_zoom,
                 R.string.console_font_size, view -> ConsoleFontSizeDialog.show(this,
                         R.string.console_font_size, mTerminalView.fontSizeSp(),
@@ -483,6 +611,11 @@ public final class CommandConsoleActivity extends Activity
         page.addView(toolbarScroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        mProgress = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        mProgress.setMax(100);
+        mProgress.setVisibility(View.INVISIBLE);
+        page.addView(mProgress, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(3)));
 
         mTerminalView = new ConsoleTerminalView(this);
         mTerminalView.setOnDragListener(this::handleFileDrop);
