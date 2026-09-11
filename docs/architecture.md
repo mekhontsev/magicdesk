@@ -732,9 +732,16 @@ runtime integration and are not distributed through the same release path.
   path. Terminal input therefore reaches the real PTY directly instead of
   synthesizing pointer coordinates. Closing the MCP server closes only its
   marker-delimited headless sessions, never a user-owned Terminal window.
-- `DesktopAutomationCapture` resolves the active display and asks the shell
-  service for either one PNG pipe or one bounded pixel batch. Image bytes are
-  returned as MCP image content and are never staged in a filesystem cache.
+- `DisplayCaptureRequest` describes a display and an optional immutable pixel
+  rectangle. `DisplayCaptureService` resolves geometry, validates selection,
+  and asks the existing shell capture backend for one cropped PNG pipe or one
+  bounded pixel batch. It is independent of MCP, accessibility and Desktop;
+  selection and publication belong to its callers. It rejects observed display
+  geometry changes rather than returning stale coordinate metadata.
+  `DesktopAutomationCapture` is the JSON/image adapter and owns only MCP's
+  omitted-display default (active Desktop, otherwise display 0). Image bytes
+  are never staged in a filesystem cache. Window or element bounds compose
+  with the same rectangle request, without additional MCP selection modes.
 - `MagicDeskAppFunctionService` is the Android 16 system-agent adapter. Android
   protects it with `BIND_APP_FUNCTION_SERVICE`; resource gating disables the
   component below Android 16. It exposes only a small non-shell subset and

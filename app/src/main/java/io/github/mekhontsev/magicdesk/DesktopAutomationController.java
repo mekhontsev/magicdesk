@@ -210,7 +210,7 @@ final class DesktopAutomationController {
                     result = reconnectTermuxX11();
                     break;
                 case CAPTURE_SCREENSHOT:
-                    result = captureScreenshot(args);
+                    result = mCapture.screenshot(args);
                     break;
                 case SAMPLE_PIXELS:
                     result = mCapture.samplePixels(args);
@@ -847,12 +847,6 @@ final class DesktopAutomationController {
                 new JSONObject()
                         .put("taskId", taskId)
                         .put("arrangement", arrangement));
-    }
-
-    private DesktopAutomationResult captureScreenshot(
-            final JSONObject args) {
-        return mCapture.screenshot(args.has("displayId")
-                ? Integer.valueOf(requiredInt(args, "displayId")) : null);
     }
 
     private DesktopAutomationResult startRecording()

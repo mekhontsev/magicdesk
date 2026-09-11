@@ -413,6 +413,24 @@ This does not block independent automation, shell, Files or terminal operations.
 display id selects that display; omission selects Desktop when active, otherwise
 display 0. Existing MCP authorization applies to both paths.
 
+`capture_screenshot` accepts an optional `region` in display pixels at the
+current rotation: `{"left":100,"top":200,"right":500,"bottom":600}`.
+Left/top are inclusive, right/bottom exclusive. Omit `region` for the full
+display. The rectangle must be nonempty and entirely inside the display;
+invalid regions return `INVALID_ARGUMENT`, never silent clipping or scaling.
+Output is an in-memory PNG at the region's exact pixel dimensions, with
+`sourceBounds`, `displayWidth`, `displayHeight` and Android
+`rotation` (0, 1, 2, 3). Image pixel `(x,y)` corresponds to display pixel
+`(x + sourceBounds.left, y + sourceBounds.top)`.
+
+For a window or UI element, read its bounds with `ui.inspect` and pass the
+rectangle to this same command. It captures visible composition, not hidden
+window contents; secure surfaces remain protected. UI inspection and capture
+are separate observations: a window can move between them. An observed display
+geometry change during capture returns retryable `CAPTURE_UNAVAILABLE` instead
+of an image with stale coordinate metadata. Each image edge is limited to
+8192 pixels and encoded PNG data to 32 MiB.
+
 `tmux.list` performs one bounded query under the Termux UID. Its successful
 result has `available=false` when tmux is not installed, so absence of the
 optional package is not reported as a transport failure. `tmux.open` accepts

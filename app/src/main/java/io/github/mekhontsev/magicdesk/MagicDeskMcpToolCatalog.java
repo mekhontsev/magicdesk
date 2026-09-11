@@ -264,10 +264,16 @@ final class MagicDeskMcpToolCatalog {
                 .put(readTool(
                         "capture_screenshot",
                         "Capture screenshot",
-                        "Capture a display as an in-memory PNG image, independently of Desktop.",
+                        "Capture a display or a pixel region as an in-memory PNG, independently of Desktop. region uses display coordinates (left/top inclusive, right/bottom exclusive) and must fit entirely inside the display. No scaling or implicit clipping. The image includes whatever is visibly composed there; it does not isolate an occluded window or element. Returns sourceBounds and original display dimensions for coordinate mapping.",
                         objectSchema(new JSONObject().put(
                                 "displayId", integerProperty(
-                                        "Display id; defaults to active Desktop or display 0.")))))
+                                        "Display id; defaults to active Desktop or display 0."))
+                                .put("region", objectSchema(new JSONObject()
+                                        .put("left", integerProperty("Inclusive left display pixel."))
+                                        .put("top", integerProperty("Inclusive top display pixel."))
+                                        .put("right", integerProperty("Exclusive right display pixel."))
+                                        .put("bottom", integerProperty("Exclusive bottom display pixel.")),
+                                        "left", "top", "right", "bottom")))))
                 .put(readTool(
                         "wait_for_state",
                         "Wait for state",
@@ -1383,6 +1389,14 @@ final class MagicDeskMcpToolCatalog {
                 properties.put("displayId", integerProperty("Display id."))
                         .put("width", integerProperty("Image width."))
                         .put("height", integerProperty("Image height."))
+                        .put("displayWidth", integerProperty("Full display width in pixels."))
+                        .put("displayHeight", integerProperty("Full display height in pixels."))
+                        .put("rotation", integerProperty("Android Surface rotation: 0, 1, 2 or 3."))
+                        .put("sourceBounds", objectSchema(new JSONObject()
+                                .put("left", integerProperty("Image origin x on the display."))
+                                .put("top", integerProperty("Image origin y on the display."))
+                                .put("right", integerProperty("Exclusive right edge."))
+                                .put("bottom", integerProperty("Exclusive bottom edge.")), "left", "top", "right", "bottom"))
                         .put("mimeType", stringProperty("Image MIME type."))
                         .put("captureSource", stringProperty("Capture source."));
                 break;

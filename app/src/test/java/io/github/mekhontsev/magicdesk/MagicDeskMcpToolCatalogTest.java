@@ -12,6 +12,31 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class MagicDeskMcpToolCatalogTest {
+    @Test public void captureUsesOneOptionalRectangleWithoutSelectorModes() throws Exception {
+        final var tools = MagicDeskMcpToolCatalog.create();
+        final var capture = tool(tools, "capture_screenshot");
+        final var input = capture.getJSONObject("inputSchema");
+        final var properties = input.getJSONObject("properties");
+        assertEquals(2, properties.length());
+        assertTrue(properties.has("displayId"));
+        assertTrue(properties.has("region"));
+        assertTrue(!input.has("required") || input.getJSONArray("required").length() == 0);
+        final var region = properties.getJSONObject("region");
+        assertEquals(4, region.getJSONObject("properties").length());
+        for (final String edge : Set.of("left", "top", "right", "bottom")) {
+            assertTrue(region.getJSONObject("properties").has(edge));
+            assertTrue(contains(region.getJSONArray("required"), edge));
+        }
+        assertEquals(4, region.getJSONArray("required").length());
+        assertFalse(region.getBoolean("additionalProperties"));
+        assertTrue(capture.getJSONObject("annotations").getBoolean("readOnlyHint"));
+        final var output = dataProperties(tools, "capture_screenshot");
+        assertTrue(output.has("sourceBounds"));
+        assertTrue(output.has("displayWidth"));
+        assertTrue(output.has("displayHeight"));
+        assertTrue(output.has("rotation"));
+    }
+
     @Test public void uiScopeAndFullTextAreDiscoverableWithoutDesktop() throws Exception {
         final JSONArray tools = MagicDeskMcpToolCatalog.create();
         for (final String name : Set.of("ui.inspect", "ui.wait")) {

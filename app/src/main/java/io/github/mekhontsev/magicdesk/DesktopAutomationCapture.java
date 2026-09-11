@@ -1,10 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
+import static io.github.mekhontsev.magicdesk.AutomationJsonArguments.requiredInt;
+
 import android.content.Context;
-import android.graphics.Point;
-import android.graphics.Rect;
-import android.hardware.display.DisplayManager;
-import android.os.ParcelFileDescriptor;
 import android.util.Base64;
 import android.view.Display;
 
@@ -12,98 +10,67 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.Locale;
 
-/** Shared in-memory display capture used by MCP screenshots and pixel probes. */
+/** MCP adaptation of shared display capture; selection stays in display coordinates. */
 final class DesktopAutomationCapture {
-    private static final int MAX_PIXEL_SAMPLES = 64;
-    private static final int MAX_CAPTURE_BYTES = 32 * 1024 * 1024;
-
-    private final Context mContext;
+    private final DisplayCaptureService mCapture;
 
     DesktopAutomationCapture(final Context context) {
-        mContext = context.getApplicationContext();
+        mCapture = new DisplayCaptureService(context);
     }
 
-    DesktopAutomationResult screenshot(final Integer requestedDisplayId) {
+    DesktopAutomationResult screenshot(final JSONObject args) {
         try {
-            final Target target = resolve(requestedDisplayId);
-            final byte[] png;
-            try (InputStream input =
-                         new ParcelFileDescriptor.AutoCloseInputStream(
-                                 ShellAccess.openDisplayCapture(
-                                         target.source,
-                                         new Rect(0, 0,
-                                                 target.width,
-                                                 target.height),
-                                         target.width,
-                                         target.height))) {
-                png = readBounded(input);
-            }
-            if (png.length == 0) {
-                throw new IOException("display capture returned no image");
-            }
-            final JSONObject data = new JSONObject()
-                    .put("displayId", target.displayId)
-                    .put("width", target.width)
-                    .put("height", target.height)
-                    .put("mimeType", "image/png")
-                    .put("captureSource", target.source.commandArgument());
+            final DisplayCaptureService.Image image = mCapture.capture(
+                    request(args, defaultDisplayId()));
+            final DisplayCaptureRequest.Region region = image.region();
+            final JSONObject data = metadata(image.display())
+                    .put("width", region.width())
+                    .put("height", region.height())
+                    .put("displayWidth", image.display().width())
+                    .put("displayHeight", image.display().height())
+                    .put("sourceBounds", new JSONObject()
+                            .put("left", region.left()).put("top", region.top())
+                            .put("right", region.right()).put("bottom", region.bottom()))
+                    .put("mimeType", "image/png");
             return DesktopAutomationResult.success(
-                    "display screenshot captured",
-                    data,
-                    new DesktopAutomationImage(
-                            "image/png",
-                            Base64.encodeToString(
-                                    png, Base64.NO_WRAP)));
-        } catch (IOException | JSONException | RuntimeException error) {
+                    "display screenshot captured", data,
+                    new DesktopAutomationImage("image/png",
+                            Base64.encodeToString(image.png(), Base64.NO_WRAP)));
+        } catch (IllegalArgumentException | JSONException error) {
+            return DesktopAutomationResult.failure(
+                    DesktopAutomationErrorCode.INVALID_ARGUMENT,
+                    ShellAccess.usefulMessage(error), false);
+        } catch (IOException | RuntimeException error) {
             return DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.CAPTURE_UNAVAILABLE,
                     ShellAccess.usefulMessage(error), true);
         }
     }
 
-    DesktopAutomationResult samplePixels(final JSONObject arguments) {
+    DesktopAutomationResult samplePixels(final JSONObject args) {
         try {
-            final JSONObject args = arguments == null
-                    ? new JSONObject() : arguments;
-            final Integer displayId = args.has("displayId")
-                    ? Integer.valueOf(args.getInt("displayId")) : null;
-            final Target target = resolve(displayId);
-            final JSONArray points = args.optJSONArray("points");
-            if (points == null || points.length() == 0
-                    || points.length() > MAX_PIXEL_SAMPLES) {
-                throw new IllegalArgumentException(
-                        "points must contain 1 to " + MAX_PIXEL_SAMPLES
-                                + " coordinates");
+            final JSONArray points = args.getJSONArray("points");
+            if (points.length() == 0 || points.length() > 64) {
+                throw new IllegalArgumentException("points must contain 1 to 64 coordinates");
             }
+            final int[] x = new int[points.length()];
+            final int[] y = new int[points.length()];
+            for (int i = 0; i < points.length(); i++) {
+                final JSONObject point = points.getJSONObject(i);
+                x[i] = requiredInt(point, "x");
+                y[i] = requiredInt(point, "y");
+            }
+            final DisplayCaptureService.Samples result = mCapture.samplePixels(
+                    displayId(args, defaultDisplayId()), x, y);
             final JSONArray samples = new JSONArray();
-            final int[] xCoordinates = new int[points.length()];
-            final int[] yCoordinates = new int[points.length()];
-            for (int index = 0; index < points.length(); index++) {
-                final JSONObject point = points.getJSONObject(index);
-                final int x = point.getInt("x");
-                final int y = point.getInt("y");
-                if (x < 0 || y < 0 || x >= target.width
-                        || y >= target.height) {
-                    throw new IllegalArgumentException(
-                            "pixel coordinate is outside the display");
-                }
-                xCoordinates[index] = x;
-                yCoordinates[index] = y;
-            }
-            final int[] colors = ShellAccess.captureDisplayPixels(
-                    target.source, xCoordinates, yCoordinates);
-            for (int index = 0; index < colors.length; index++) {
-                final int color = colors[index];
+            for (int i = 0; i < result.colors().length; i++) {
+                final int color = result.colors()[i];
                 samples.put(new JSONObject()
-                        .put("x", xCoordinates[index])
-                        .put("y", yCoordinates[index])
-                        .put("argb", String.format(
-                                Locale.ROOT, "#%08X", color))
+                        .put("x", x[i]).put("y", y[i])
+                        .put("argb", String.format(Locale.ROOT, "#%08X", color))
                         .put("alpha", (color >>> 24) & 0xFF)
                         .put("red", (color >>> 16) & 0xFF)
                         .put("green", (color >>> 8) & 0xFF)
@@ -111,12 +78,9 @@ final class DesktopAutomationCapture {
             }
             return DesktopAutomationResult.success(
                     "display pixels sampled",
-                    new JSONObject()
-                            .put("displayId", target.displayId)
-                            .put("width", target.width)
-                            .put("height", target.height)
-                            .put("captureSource",
-                                    target.source.commandArgument())
+                    metadata(result.display())
+                            .put("width", result.display().width())
+                            .put("height", result.display().height())
                             .put("samples", samples));
         } catch (IllegalArgumentException | JSONException error) {
             return DesktopAutomationResult.failure(
@@ -129,63 +93,34 @@ final class DesktopAutomationCapture {
         }
     }
 
-    private Target resolve(final Integer requestedDisplayId)
-            throws IOException {
-        final int activeDisplayId = DesktopRuntimeBridge
-                .getActiveDesktopDisplayId();
-        final int displayId = requestedDisplayId == null
-                ? Math.max(Display.DEFAULT_DISPLAY, activeDisplayId) : requestedDisplayId.intValue();
-        if (displayId < Display.DEFAULT_DISPLAY) {
-            throw new IOException("invalid display id");
+    static DisplayCaptureRequest request(final JSONObject args, final int defaultDisplayId)
+            throws JSONException {
+        final DisplayCaptureRequest.Region region;
+        if (args.has("region")) {
+            final JSONObject value = args.getJSONObject("region");
+            region = new DisplayCaptureRequest.Region(
+                    requiredInt(value, "left"), requiredInt(value, "top"),
+                    requiredInt(value, "right"), requiredInt(value, "bottom"));
+        } else {
+            region = null;
         }
-        final DisplayManager manager =
-                mContext.getSystemService(DisplayManager.class);
-        final Display display = manager == null
-                ? null : manager.getDisplay(displayId);
-        if (display == null) {
-            throw new IOException("display is unavailable");
-        }
-        final Point size = new Point();
-        display.getRealSize(size);
-        if (size.x <= 0 || size.y <= 0) {
-            throw new IOException("display has invalid dimensions");
-        }
-        return new Target(
-                displayId,
-                size.x,
-                size.y,
-                DisplayCaptureSource.logical(displayId));
+        return new DisplayCaptureRequest(displayId(args, defaultDisplayId), region);
     }
 
-    private static byte[] readBounded(final InputStream input)
-            throws IOException {
-        final ByteArrayOutputStream output = new ByteArrayOutputStream();
-        final byte[] buffer = new byte[32 * 1024];
-        int read;
-        while ((read = input.read(buffer)) >= 0) {
-            if (output.size() + read > MAX_CAPTURE_BYTES) {
-                throw new IOException("display capture is too large");
-            }
-            output.write(buffer, 0, read);
-        }
-        return output.toByteArray();
+    private static int displayId(final JSONObject args, final int defaultDisplayId)
+            throws JSONException {
+        return args.has("displayId") ? requiredInt(args, "displayId") : defaultDisplayId;
     }
 
-    private static final class Target {
-        final int displayId;
-        final int width;
-        final int height;
-        final DisplayCaptureSource source;
+    private static int defaultDisplayId() {
+        return Math.max(Display.DEFAULT_DISPLAY, DesktopRuntimeBridge.getActiveDesktopDisplayId());
+    }
 
-        Target(
-                final int displayId,
-                final int width,
-                final int height,
-                final DisplayCaptureSource source) {
-            this.displayId = displayId;
-            this.width = width;
-            this.height = height;
-            this.source = source;
-        }
+    private static JSONObject metadata(final DisplayCaptureService.Frame display)
+            throws JSONException {
+        return new JSONObject()
+                .put("displayId", display.displayId())
+                .put("rotation", display.rotation())
+                .put("captureSource", display.source().commandArgument());
     }
 }
