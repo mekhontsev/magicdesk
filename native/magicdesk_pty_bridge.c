@@ -33,12 +33,19 @@
 #define MAX_STARTUP_COMMAND (64U * 1024U)
 #define MAX_PROCESS_NAME 512U
 #define RELAY_BUFFER_SIZE 8192U
-#define CHILD_EXIT_GRACE_MILLIS 500
+#define SESSION_EXIT_GRACE_MILLIS 500
 
 struct relay_buffer {
     uint8_t bytes[FRAME_HEADER_SIZE + RELAY_BUFFER_SIZE];
     size_t offset;
     size_t length;
+};
+
+struct process_relationship {
+    char state;
+    pid_t parent;
+    pid_t group;
+    pid_t session;
 };
 
 static int write_all(int fd, const void *buffer, size_t length) {
@@ -367,7 +374,7 @@ static int read_process_name(
 }
 
 static int read_process_relationship(
-        pid_t process_id, pid_t *parent_process, pid_t *process_group) {
+        pid_t process_id, struct process_relationship *process) {
     char process_path[64];
     char status[1024];
     (void) snprintf(
@@ -389,17 +396,18 @@ static int read_process_relationship(
     char state = '\0';
     int parent = -1;
     int group = -1;
+    int session = -1;
     if (command_end == NULL
-            || sscanf(command_end + 1, " %c %d %d", &state, &parent, &group)
-                    != 3
-            || group < 1) {
+            || sscanf(command_end + 1, " %c %d %d %d", &state, &parent, &group, &session)
+                    != 4
+            || group < 1 || session < 1) {
         errno = EPROTO;
         return -1;
     }
-    if (parent_process != NULL) {
-        *parent_process = (pid_t) parent;
-    }
-    *process_group = (pid_t) group;
+    *process = (struct process_relationship) {
+        .state = state, .parent = (pid_t) parent,
+        .group = (pid_t) group, .session = (pid_t) session
+    };
     return 0;
 }
 
@@ -422,17 +430,13 @@ static pid_t find_process_group_member(
                 || value > INT_MAX) {
             continue;
         }
-        pid_t candidate_parent = -1;
-        pid_t candidate_group = -1;
-        if (read_process_relationship(
-                (pid_t) value,
-                &candidate_parent,
-                &candidate_group) == 0
-                && candidate_group == process_group) {
+        struct process_relationship candidate;
+        if (read_process_relationship((pid_t) value, &candidate) == 0
+                && candidate.group == process_group) {
             if (selected < 0 || value < selected) {
                 selected = (pid_t) value;
             }
-            if (candidate_parent == preferred_parent
+            if (candidate.parent == preferred_parent
                     && (preferred < 0 || value < preferred)) {
                 preferred = (pid_t) value;
             }
@@ -745,19 +749,56 @@ static int64_t monotonic_millis(void) {
     return (int64_t) now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
 
-static int await_child_exit(pid_t child, int notifications, int *status) {
+// Job control creates multiple process groups. Only this UNIX session belongs
+// to the PTY; a tmux server or other daemon that called setsid() is independent.
+static int signal_terminal_session(pid_t session, int signal_number) {
+    DIR *directory = opendir("/proc");
+    if (directory == NULL) { return -1; }
+    int live = 0;
+    int signal_error = 0;
+    struct dirent *entry;
+    while ((entry = readdir(directory)) != NULL) {
+        char *end;
+        const long value = strtol(entry->d_name, &end, 10);
+        if (*end != '\0' || value < 1 || value > INT_MAX) { continue; }
+        struct process_relationship process;
+        if (read_process_relationship((pid_t) value, &process) != 0
+                || process.session != session || process.state == 'Z' || process.state == 'X') {
+            continue;
+        }
+        live++;
+        if (signal_number != 0 && getsid((pid_t) value) == session) {
+            if (kill((pid_t) value, signal_number) != 0 && errno != ESRCH) {
+                signal_error = errno;
+            }
+            if (signal_number == SIGHUP && process.state == 'T') {
+                (void) kill((pid_t) value, SIGCONT);
+            }
+        }
+    }
+    closedir(directory);
+    if (signal_error != 0) { errno = signal_error; return -1; }
+    return live;
+}
+
+static int await_session_exit(pid_t child, int notifications, int shell_only) {
     const int64_t started = monotonic_millis();
     if (started < 0) {
         return -1;
     }
-    const int64_t deadline = started + CHILD_EXIT_GRACE_MILLIS;
+    const int64_t deadline = started + SESSION_EXIT_GRACE_MILLIS;
     for (;;) {
-        const pid_t result = waitpid(child, status, WNOHANG);
-        if (result == child) {
-            return 1;
-        }
+        // Reserve the session leader's PID until the final job sweep. Reaping
+        // the shell early would allow its session ID to be reused during cleanup.
+        siginfo_t info = {0};
+        const int result = waitid(P_PID, (id_t) child, &info, WEXITED | WNOHANG | WNOWAIT);
         if (result < 0 && errno != EINTR) {
             return -1;
+        }
+        if (result == 0 && info.si_pid == child) {
+            if (shell_only) { return 1; }
+            const int live = signal_terminal_session(child, 0);
+            if (live <= 0) { return live == 0 ? 1 : -1; }
         }
         const int64_t now = monotonic_millis();
         if (now < 0) {
@@ -767,7 +808,8 @@ static int await_child_exit(pid_t child, int notifications, int *status) {
             return 0;
         }
         // SIGCHLD is blocked and queued in this descriptor before fork, so
-        // exit between waitpid and poll cannot lose the wakeup. No state polling.
+        // exit between waitid and poll cannot lose the wakeup. Orphaned jobs may
+        // not notify us; the same grace deadline bounds their remaining lifetime.
         struct pollfd event = {.fd = notifications, .events = POLLIN};
         const int ready = poll(&event, 1, (int) (deadline - now));
         if (ready < 0 && errno != EINTR) {
@@ -781,19 +823,29 @@ static int await_child_exit(pid_t child, int notifications, int *status) {
 }
 
 static int stop_shell(pid_t child, int master, int notifications) {
-    (void) kill(-child, SIGHUP);
+    int cleanup_failed = signal_terminal_session(child, SIGHUP) < 0;
+    if (cleanup_failed) {
+        perror("signal terminal session");
+        (void) kill(-child, SIGHUP);
+    }
     close(master);
-    int status = 0;
-    int exited = await_child_exit(child, notifications, &status);
-    if (exited == 0) {
-        // Escalate only the owned shell process group after its HUP grace.
+    int exited = await_session_exit(child, notifications, 0);
+    if (exited != 1) {
+        if (signal_terminal_session(child, SIGKILL) < 0) {
+            perror("kill terminal session");
+            cleanup_failed = 1;
+        }
         (void) kill(-child, SIGKILL);
         (void) kill(child, SIGKILL);
-        exited = await_child_exit(child, notifications, &status);
+        exited = await_session_exit(child, notifications, 1);
     }
     if (exited != 1) {
         return 1;
     }
+    int status = 0;
+    pid_t reaped;
+    do { reaped = waitpid(child, &status, 0); } while (reaped < 0 && errno == EINTR);
+    if (reaped != child || cleanup_failed) { return 1; }
     return WIFEXITED(status) ? WEXITSTATUS(status)
             : WIFSIGNALED(status) ? 128 + WTERMSIG(status) : 1;
 }

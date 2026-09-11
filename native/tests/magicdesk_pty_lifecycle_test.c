@@ -4,6 +4,7 @@
 #undef main
 
 #include <assert.h>
+#include <sys/prctl.h>
 #include <sys/signalfd.h>
 #include <time.h>
 
@@ -31,12 +32,48 @@ static int64_t fixture_millis(void) {
     return (int64_t) now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
 
+static int probe_jobs(void) {
+    int ready[2];
+    assert(pipe(ready) == 0);
+    pid_t jobs[3];
+    for (size_t i = 0; i < 3; i++) {
+        jobs[i] = fork();
+        assert(jobs[i] >= 0);
+        if (jobs[i] == 0) {
+            close(ready[0]);
+            if (i == 2) {
+                assert(setsid() == getpid());
+            } else {
+                assert(setpgid(0, 0) == 0);
+            }
+            signal(SIGHUP, SIG_IGN);
+            assert(write_all(ready[1], "R", 1) == 0);
+            close(ready[1]);
+            for (;;) { pause(); }
+        }
+    }
+    close(ready[1]);
+    char ready_bytes[3];
+    assert(fixture_read_exact(ready[0], ready_bytes, sizeof(ready_bytes)) == 1);
+    close(ready[0]);
+    assert(tcsetpgrp(STDIN_FILENO, jobs[0]) == 0);
+    // The second job is stopped, so HUP alone cannot deliver its handler.
+    assert(kill(jobs[1], SIGSTOP) == 0);
+    int status;
+    assert(waitpid(jobs[1], &status, WUNTRACED) == jobs[1] && WIFSTOPPED(status));
+    uint8_t payload[12];
+    for (size_t i = 0; i < 3; i++) { encode_u32(payload + 4 * i, (uint32_t) jobs[i]); }
+    assert(write_all(STDOUT_FILENO, payload, sizeof(payload)) == 0);
+    for (;;) { pause(); }
+}
+
 static int probe(void) {
     struct termios attributes;
     assert(tcgetattr(STDIN_FILENO, &attributes) == 0);
     cfmakeraw(&attributes);
     assert(tcsetattr(STDIN_FILENO, TCSANOW, &attributes) == 0);
     const char *mode = getenv("MAGICDESK_PTY_FIXTURE");
+    if (strncmp(mode, "jobs", 4) == 0) { return probe_jobs(); }
     const int ignore_hup = strcmp(mode, "hup") == 0
             || strcmp(mode, "signal") == 0 || strcmp(mode, "oversized") == 0;
     if (ignore_hup) {
@@ -205,6 +242,8 @@ int main(int argc, char **argv) {
         return probe();
     }
     assert(argc == 2);
+    // Reap fixture jobs even when the production relay has already exited.
+    assert(prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0);
     signal(SIGPIPE, SIG_IGN);
     sigset_t mask;
     sigemptyset(&mask);
@@ -253,8 +292,19 @@ int main(int argc, char **argv) {
     const int hup = strcmp(argv[1], "hup") == 0;
     const int stop_signal = strcmp(argv[1], "signal") == 0;
     const int oversized = strcmp(argv[1], "oversized") == 0;
+    const int with_jobs = strncmp(argv[1], "jobs", 4) == 0;
+    pid_t jobs[3] = {0};
     int ok;
-    if (hup || stop_signal || oversized) {
+    if (with_jobs) {
+        uint8_t payload[16];
+        assert(receive_frame(fd, FRAME_OUTPUT, payload, sizeof(payload)) == 12);
+        for (size_t i = 0; i < 3; i++) {
+            jobs[i] = (pid_t) decode_u32(payload + 4 * i);
+            assert(jobs[i] > 0);
+        }
+        ok = 1;
+        if (strcmp(argv[1], "jobs-signal") == 0) { assert(kill(bridge, SIGTERM) == 0); }
+    } else if (hup || stop_signal || oversized) {
         uint8_t ready[16];
         ok = receive_frame(fd, FRAME_OUTPUT, ready, sizeof(ready)) == 1 && ready[0] == 'R';
         if (stop_signal) {
@@ -271,7 +321,7 @@ int main(int argc, char **argv) {
     } else {
         ok = pressure(fd, strcmp(argv[1], "fragmented") == 0);
     }
-    if (!stop_signal && !oversized) {
+    if (!stop_signal && !oversized && strcmp(argv[1], "jobs-signal") != 0) {
         close(fd);
     }
     int status = 0;
@@ -286,8 +336,27 @@ int main(int argc, char **argv) {
             assert(waitpid(bridge, &status, 0) == bridge);
         }
     }
-    if (stop_signal || oversized) {
+    if (stop_signal || oversized || strcmp(argv[1], "jobs-signal") == 0) {
         close(fd);
+    }
+    if (with_jobs) {
+        for (size_t i = 0; i < 3; i++) {
+            int job_status;
+            if (i == 2) {
+                if (waitpid(jobs[i], &job_status, WNOHANG) != 0) {
+                    fprintf(stderr, "FAIL: process in an independent session was terminated\n");
+                    ok = 0;
+                    continue;
+                }
+            } else if (wait_bridge(jobs[i], notifications, &job_status, 1000)) {
+                continue;
+            } else {
+                fprintf(stderr, "FAIL: terminal job %d survived PTY teardown\n", jobs[i]);
+                ok = 0;
+            }
+            assert(kill(jobs[i], SIGKILL) == 0);
+            assert(wait_bridge(jobs[i], notifications, &job_status, 1000));
+        }
     }
     close(notifications);
     if (ok) {

@@ -1429,7 +1429,8 @@ it to the session through an authenticated loopback stream. Both transports
 create a session leader and controlling terminal, forward terminal bytes,
 apply `TIOCSWINSZ`, expose the shell PID, and resolve `/proc/<pid>/cwd` within
 the process's own security domain. Ending the session, running `exit`, service
-death, or stream failure ends only that PTY and shell. A failed transport is
+death, or stream failure ends that PTY and its UNIX-session jobs, including
+foreground and background process groups. A failed transport is
 discarded rather than silently changing privilege or execution backend.
 
 Termux service resolution is restricted to the selected package and the
@@ -1446,7 +1447,11 @@ The native relay owns both directions in one nonblocking poll loop, with
 bounded input/output buffers and incremental control-frame decoding. A partial
 frame or backpressure in one direction cannot block the other direction or
 shutdown. Process signals wake the same poll owner; cleanup has a bounded
-HUP-to-kill sequence for the owned shell group, not a separate worker thread.
+HUP-to-kill sequence for the owned UNIX session, not a separate worker thread.
+The shell leader remains unreaped until cleanup finishes, reserving its session
+ID. Session membership is inspected only during teardown; an early shell exit
+does not leave HUP-ignoring jobs alive. Independently sessionized processes,
+including tmux servers, remain outside this ownership boundary.
 
 `ConsoleTerminalSession` owns transport and terminal state independently of a window.
 The registry releases sessions on explicit termination, shell EOF or runtime exit.
@@ -3379,8 +3384,10 @@ replace, the Android device self-tests.
 
 `scripts/verify-native.sh` builds and runs Linux host fixtures against the real
 native sources. PTY fixtures exercise bidirectional backpressure, partial
-frames, metadata and shutdown; virtual-pointer fixtures replace only device I/O
-to exercise motion, buttons, scrolling, protocol validation and write errors.
+frames, metadata and shutdown, including stopped jobs and HUP-ignoring jobs in
+separate groups while preserving an independent UNIX session. Virtual-pointer
+fixtures replace only device I/O to exercise motion, buttons, scrolling,
+protocol validation and write errors.
 They use bounded subprocess lifetimes and a temporary directory, without
 physical input access. Linux CI runs them in addition to Gradle verification.
 

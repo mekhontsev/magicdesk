@@ -47,9 +47,9 @@ TMPDIR=$work
 export TMPDIR
 cd -- "$work"
 timeout --kill-after=2s 15s ./magicdesk_pty_working_directory_test
-for mode in pressure fragmented metadata hup signal oversized; do
+for mode in pressure fragmented metadata hup signal oversized jobs jobs-signal; do
     timeout --kill-after=2s 15s ./magicdesk_pty_lifecycle_test "$mode"
 done
 timeout --kill-after=2s 15s ./magicdesk_virtual_mouse_test
 timeout --kill-after=2s 15s ./magicdesk_virtual_mouse_setup_test
-printf 'Native host fixtures verified (9 runs).\n'
+printf 'Native host fixtures verified (11 runs).\n'

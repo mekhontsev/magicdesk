@@ -21,6 +21,9 @@ to the retained terminal and takes precedence over OSC titles; tmux names belong
 to the tmux server. Ordinary Termux app tabs are not exposed by its command API.
 
 Closing an ordinary console window retains its PTY, emulator and programs.
+Ending the terminal releases its entire UNIX session, including foreground and
+background jobs that ignore hangup. Processes that created an independent UNIX
+session, such as a tmux server, are not terminated by PTY cleanup.
 Closing a managed tmux window disconnects only its client by releasing that
 client's controlling PTY; the tmux server retains the session and its programs,
 subject to the user's tmux configuration. Configuration recreation and transfer
