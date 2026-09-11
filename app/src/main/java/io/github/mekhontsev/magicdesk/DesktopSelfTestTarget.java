@@ -14,17 +14,17 @@ enum DesktopSelfTestTarget {
         if (this == PHONE) {
             return displayId == Display.DEFAULT_DISPLAY
                     && displayTarget != null
-                    && displayTarget.kind == DesktopDisplayTarget.Kind.PHONE;
+                    && displayTarget.output.kind == DesktopDisplayOutput.Kind.PHONE;
         }
         if (displayId <= Display.DEFAULT_DISPLAY
                 || displayTarget == null
-                || displayTarget.displayId != displayId) {
+                || displayTarget.workspaceDisplayId != displayId) {
             return false;
         }
         return this == SIMULATED
-                ? displayTarget.kind == DesktopDisplayTarget.Kind.SIMULATED
-                : displayTarget.kind == DesktopDisplayTarget.Kind.WIRED
-                        || displayTarget.kind
-                                == DesktopDisplayTarget.Kind.WIRELESS;
+                ? displayTarget.output.kind == DesktopDisplayOutput.Kind.SIMULATED
+                : displayTarget.output.kind == DesktopDisplayOutput.Kind.WIRED
+                        || displayTarget.output.kind
+                                == DesktopDisplayOutput.Kind.WIRELESS;
     }
 }

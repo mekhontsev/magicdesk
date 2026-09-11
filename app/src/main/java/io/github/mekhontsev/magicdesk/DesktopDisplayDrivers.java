@@ -17,18 +17,18 @@ final class DesktopDisplayDrivers {
     private DesktopDisplayDrivers() {
     }
 
-    static boolean isSupported(final DesktopDisplayTarget.Kind kind) {
+    static boolean isSupported(final DesktopDisplayOutput.Kind kind) {
         return FEATURES.supportsDisplay(kind);
     }
 
     static boolean isExternalDesktopSupported() {
         return FEATURES.supportsExternalDesktop()
                 || FEATURES.supportsDisplay(
-                        DesktopDisplayTarget.Kind.SIMULATED);
+                        DesktopDisplayOutput.Kind.SIMULATED);
     }
 
     static DesktopDisplayDriver forKind(
-            final DesktopDisplayTarget.Kind kind) {
+            final DesktopDisplayOutput.Kind kind) {
         if (kind == null) {
             throw new IllegalArgumentException("display kind is required");
         }
@@ -52,7 +52,7 @@ final class DesktopDisplayDrivers {
         if (target == null) {
             throw new IllegalArgumentException("display target is required");
         }
-        return forKind(target.kind);
+        return forKind(target.output.kind);
     }
 
     static void activateWired(final android.app.Activity source) {
@@ -73,27 +73,4 @@ final class DesktopDisplayDrivers {
         return DesktopRuntimeBridge.getDesktopTarget(displayId) != null;
     }
 
-    static int captureDisplayId(final int desktopDisplayId) {
-        final DesktopDisplayTarget target = activeTarget(desktopDisplayId);
-        return forTarget(target).captureDisplayId(target);
-    }
-
-    static DisplayCaptureSource captureSource(final int desktopDisplayId) {
-        final DesktopDisplayTarget target = activeTarget(desktopDisplayId);
-        return forTarget(target).captureSource(target);
-    }
-
-    private static DesktopDisplayTarget activeTarget(
-            final int desktopDisplayId) {
-        final DesktopDisplayTarget target = desktopDisplayId
-                == Display.DEFAULT_DISPLAY
-                ? DesktopDisplayTarget.phone()
-                : DesktopRuntimeBridge.getDesktopTarget(desktopDisplayId);
-        if (target == null) {
-            throw new IllegalStateException(
-                    "desktop target is unavailable for display "
-                            + desktopDisplayId);
-        }
-        return target;
-    }
 }

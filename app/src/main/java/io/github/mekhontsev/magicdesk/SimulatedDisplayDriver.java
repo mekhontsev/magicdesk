@@ -10,8 +10,8 @@ final class SimulatedDisplayDriver implements DesktopDisplayDriver {
                     true);
 
     @Override
-    public DesktopDisplayTarget.Kind kind() {
-        return DesktopDisplayTarget.Kind.SIMULATED;
+    public DesktopDisplayOutput.Kind kind() {
+        return DesktopDisplayOutput.Kind.SIMULATED;
     }
 
     @Override
@@ -39,12 +39,12 @@ final class SimulatedDisplayDriver implements DesktopDisplayDriver {
             final int removedDisplayId,
             final boolean activeDesktopRemoved) {
         requireTarget(target);
-        return target.displayId == removedDisplayId
+        return target.workspaceDisplayId == removedDisplayId
                 && activeDesktopRemoved;
     }
 
     private static void requireTarget(final DesktopDisplayTarget target) {
-        if (target == null || target.kind != DesktopDisplayTarget.Kind.SIMULATED) {
+        if (target == null || target.output.kind != DesktopDisplayOutput.Kind.SIMULATED) {
             throw new IllegalArgumentException("simulated target is required");
         }
     }

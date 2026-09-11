@@ -122,16 +122,16 @@ public final class DebugSelfTestActivity extends Activity {
         PHONE(DesktopSelfTestTarget.PHONE, null),
         SIMULATED(DesktopSelfTestTarget.SIMULATED, null),
         WIRED(DesktopSelfTestTarget.EXTERNAL,
-                DesktopDisplayTarget.Kind.WIRED),
+                DesktopDisplayOutput.Kind.WIRED),
         WIRELESS(DesktopSelfTestTarget.EXTERNAL,
-                DesktopDisplayTarget.Kind.WIRELESS);
+                DesktopDisplayOutput.Kind.WIRELESS);
 
         final DesktopSelfTestTarget selfTestTarget;
-        final DesktopDisplayTarget.Kind displayKind;
+        final DesktopDisplayOutput.Kind displayKind;
 
         LaunchTarget(
                 final DesktopSelfTestTarget selfTestTarget,
-                final DesktopDisplayTarget.Kind displayKind) {
+                final DesktopDisplayOutput.Kind displayKind) {
             this.selfTestTarget = selfTestTarget;
             this.displayKind = displayKind;
         }

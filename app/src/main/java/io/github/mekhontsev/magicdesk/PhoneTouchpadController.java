@@ -11,7 +11,7 @@ final class PhoneTouchpadController {
     }
 
     static void open() {
-        final int displayId = activeDisplayId();
+        final int displayId = activeWorkspaceDisplayId();
         if (displayId > Display.DEFAULT_DISPLAY) {
             open(displayId);
             return;
@@ -29,7 +29,7 @@ final class PhoneTouchpadController {
     }
 
     static boolean isVisible() {
-        final int displayId = activeDisplayId();
+        final int displayId = activeWorkspaceDisplayId();
         return isSupported(displayId)
                 && MagicDeskTouchpadActivity.isVisible(displayId);
     }
@@ -41,7 +41,7 @@ final class PhoneTouchpadController {
 
     static void restoreIfMissing(
             final DesktopOperations.TouchpadRestoreCallback callback) {
-        final int displayId = activeDisplayId();
+        final int displayId = activeWorkspaceDisplayId();
         final boolean missing = isSupported(displayId)
                 && MagicDeskTouchpadActivity.isRequested(displayId)
                 && !MagicDeskTouchpadActivity.isVisible(displayId);
@@ -90,7 +90,7 @@ final class PhoneTouchpadController {
                         .features().phoneTouchpad;
     }
 
-    private static int activeDisplayId() {
+    private static int activeWorkspaceDisplayId() {
         return DesktopRuntimeBridge.getActiveDesktopDisplayId();
     }
 }

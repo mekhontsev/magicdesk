@@ -753,7 +753,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private int prepareCloseFocus(final int taskId) {
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
-        final int hostTaskId = session.activeDisplayId() == mDisplayId
+        final int hostTaskId = session.activeWorkspaceDisplayId() == mDisplayId
                 ? session.hostTaskId() : -1;
         final int focusTaskId = selectCloseSurvivorTaskId(
                 mDisplayTaskState.visibleTasks(), taskId, hostTaskId);
@@ -1252,7 +1252,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private int currentDesktopHostTaskId() {
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
-        return session.activeDisplayId() == mDisplayId
+        return session.activeWorkspaceDisplayId() == mDisplayId
                 ? session.hostTaskId() : -1;
     }
 
@@ -1415,7 +1415,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private static boolean isActiveDesktopDisplay(final int displayId) {
         return displayId >= 0
                 && DesktopRuntimeBridge.getSessionSnapshot()
-                        .activeDisplayId() == displayId;
+                        .activeWorkspaceDisplayId() == displayId;
     }
 
     private static void recordWorkspaceCommandEvent(
@@ -1879,7 +1879,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
                 mNativeWindowBounds.getTaskbarMaximizedBounds();
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
-        final int desktopHostTaskId = session.activeDisplayId() == mDisplayId
+        final int desktopHostTaskId = session.activeWorkspaceDisplayId() == mDisplayId
                 ? session.hostTaskId() : -1;
         mTaskWatcher.configure(
                 mDisplayId,
@@ -1894,8 +1894,8 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         final DesktopDisplayTarget target =
                 DesktopRuntimeBridge.getDesktopTarget(mDisplayId);
         return target != null
-                && (target.kind == DesktopDisplayTarget.Kind.WIRED
-                        || target.kind == DesktopDisplayTarget.Kind.WIRELESS);
+                && (target.output.kind == DesktopDisplayOutput.Kind.WIRED
+                        || target.output.kind == DesktopDisplayOutput.Kind.WIRELESS);
     }
 
     @Override

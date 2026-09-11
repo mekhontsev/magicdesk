@@ -47,7 +47,7 @@ final class DesktopSessionTransitionCoordinator {
 
     void showWiredDesktop(final DesktopSessionPolicy policy) {
         if (!mFeatures.supportsDisplay(
-                DesktopDisplayTarget.Kind.WIRED)) {
+                DesktopDisplayOutput.Kind.WIRED)) {
             throw new IllegalStateException(
                     "wired displays are unsupported by the current platform");
         }
@@ -59,7 +59,7 @@ final class DesktopSessionTransitionCoordinator {
         if (display == null || !display.canHostDesktop) {
             throw new IllegalArgumentException("an available desktop display is required");
         }
-        if (!mFeatures.supportsDisplay(display.target().kind)) {
+        if (!mFeatures.supportsDisplay(display.target().output.kind)) {
             throw new IllegalStateException("display target is unsupported by the current platform");
         }
         enqueueDesktopStart(() -> {
@@ -82,11 +82,11 @@ final class DesktopSessionTransitionCoordinator {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         if (target == null
-                || target.displayId < Display.DEFAULT_DISPLAY) {
+                || target.workspaceDisplayId < Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException(
                     "a prepared desktop display target is required");
         }
-        if (!mFeatures.supportsDisplay(target.kind)) {
+        if (!mFeatures.supportsDisplay(target.output.kind)) {
             throw new IllegalStateException(
                     "display target is unsupported by the current platform");
         }
@@ -114,7 +114,7 @@ final class DesktopSessionTransitionCoordinator {
     void removeVirtualDisplay(final int displayId, final String uniqueId,
             final CompletionCallback callback) {
         final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (active != null && active.displayId == displayId) {
+        if (active != null && active.workspaceDisplayId == displayId) {
             // Revalidate ownership before changing a session. The second call
             // takes the gate again; a competing Start rejects deletion safely.
             mOperations.execute(() -> {
@@ -195,10 +195,10 @@ final class DesktopSessionTransitionCoordinator {
         mOperations.execute(() -> {
             final PlatformProjectionDriver.Transport transport =
                     target == null
-                                    || target.displayId
+                                    || target.output.displayId
                                             <= Display.DEFAULT_DISPLAY
                             ? PlatformProjectionDriver.Transport.NONE
-                            : transportFor(target.kind);
+                            : transportFor(target.output.kind);
             mProjection.setCaptionTransport(transport);
         });
     }
@@ -239,7 +239,7 @@ final class DesktopSessionTransitionCoordinator {
             recordCloseFailure("Could not restore phone screen", error);
         }
         final boolean prepared = homeReleased && phoneRestored;
-        MagicDeskRuntime.releaseDesktopInput(target.displayId,
+        MagicDeskRuntime.releaseDesktopInput(target.workspaceDisplayId,
                 () -> mOperations.execute(() -> parkAndClose(
                         target, mode, prepared, recoverPhoneTasks, callback)));
     }
@@ -283,13 +283,13 @@ final class DesktopSessionTransitionCoordinator {
             final CompletionCallback callback) {
         boolean success = prepared;
         try {
-            success &= closeDesktopSessionAndWait(target.displayId);
+            success &= closeDesktopSessionAndWait(target.workspaceDisplayId);
         } catch (RuntimeException error) {
             success = false;
             recordCloseFailure("Desktop close failed", error);
         }
         if (mode.parkTasks
-                && target.displayId > Display.DEFAULT_DISPLAY) {
+                && target.workspaceDisplayId > Display.DEFAULT_DISPLAY) {
             // Close owns recovery through its terminal result. If the display
             // disappeared, include tasks still retained there by SystemUI;
             // the recovery's bounded waits cover their late migration too.
@@ -297,8 +297,8 @@ final class DesktopSessionTransitionCoordinator {
                 final PhoneDesktopTaskRecovery.Result recovery =
                         PhoneDesktopTaskRecovery.recoverBlocking(
                                 recoverPhoneTasks,
-                                ExternalDisplayController.displayExists(target.displayId)
-                                        ? Display.INVALID_DISPLAY : target.displayId,
+                                ExternalDisplayController.displayExists(target.workspaceDisplayId)
+                                        ? Display.INVALID_DISPLAY : target.workspaceDisplayId,
                                 () -> !DesktopRuntimeBridge
                                         .isLocalDesktopActiveOrStarting());
                 if (!recovery.success || recovery.cancelled) {
@@ -314,7 +314,7 @@ final class DesktopSessionTransitionCoordinator {
             }
         }
         try {
-            SecondaryDisplayWindowing.release(target.displayId);
+            SecondaryDisplayWindowing.release(target.workspaceDisplayId);
         } catch (java.io.IOException | RuntimeException error) {
             success = false;
             CompatibilityDiagnostics.record("DISPLAY-WINDOWING-001",
@@ -381,14 +381,14 @@ final class DesktopSessionTransitionCoordinator {
 
     private void showPreferredDesktopNow() {
         final boolean wiredSupported = mFeatures.supportsDisplay(
-                DesktopDisplayTarget.Kind.WIRED);
+                DesktopDisplayOutput.Kind.WIRED);
         final boolean wirelessSupported = mFeatures.supportsDisplay(
-                DesktopDisplayTarget.Kind.WIRELESS);
+                DesktopDisplayOutput.Kind.WIRELESS);
         final DesktopDisplayTarget activeTarget =
                 DesktopRuntimeBridge.getActiveDesktopTarget();
         if (activeTarget != null
-                && activeTarget.displayId > Display.DEFAULT_DISPLAY
-                && mFeatures.supportsDisplay(activeTarget.kind)) {
+                && activeTarget.workspaceDisplayId > Display.DEFAULT_DISPLAY
+                && mFeatures.supportsDisplay(activeTarget.output.kind)) {
             DesktopDisplayDrivers.forTarget(activeTarget)
                     .showReady(null, activeTarget, DesktopSessionPolicy.USER);
             return;
@@ -404,7 +404,7 @@ final class DesktopSessionTransitionCoordinator {
         if (wirelessSupported
                 && wirelessDisplayId > Display.DEFAULT_DISPLAY) {
             DesktopDisplayDrivers
-                    .forKind(DesktopDisplayTarget.Kind.WIRELESS)
+                    .forKind(DesktopDisplayOutput.Kind.WIRELESS)
                     .showReady(
                             null,
                             DesktopDisplayTarget.wireless(
@@ -412,7 +412,7 @@ final class DesktopSessionTransitionCoordinator {
             return;
         }
         if (mFeatures.supportsDisplay(
-                DesktopDisplayTarget.Kind.SIMULATED)) {
+                DesktopDisplayOutput.Kind.SIMULATED)) {
             SimulatedDesktopDisplayController.show();
             return;
         }
@@ -438,11 +438,11 @@ final class DesktopSessionTransitionCoordinator {
     }
 
     private static PlatformProjectionDriver.Transport transportFor(
-            final DesktopDisplayTarget.Kind kind) {
-        if (kind == DesktopDisplayTarget.Kind.WIRED) {
+            final DesktopDisplayOutput.Kind kind) {
+        if (kind == DesktopDisplayOutput.Kind.WIRED) {
             return PlatformProjectionDriver.Transport.WIRED;
         }
-        if (kind == DesktopDisplayTarget.Kind.WIRELESS) {
+        if (kind == DesktopDisplayOutput.Kind.WIRELESS) {
             return PlatformProjectionDriver.Transport.WIRELESS;
         }
         return PlatformProjectionDriver.Transport.NONE;

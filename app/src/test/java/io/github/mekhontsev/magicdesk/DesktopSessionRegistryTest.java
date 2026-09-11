@@ -21,7 +21,7 @@ public final class DesktopSessionRegistryTest {
         final DesktopSessionSnapshot active = registry.snapshot();
         assertTrue(active.hasHost());
         assertSame(target, active.target());
-        assertEquals(7, active.activeDisplayId());
+        assertEquals(7, active.activeWorkspaceDisplayId());
         assertEquals(42, active.hostTaskId());
 
         registry.unregisterHost(7, false);
@@ -57,7 +57,7 @@ public final class DesktopSessionRegistryTest {
                 0, 42, DesktopDisplayTarget.phone(),
                 DesktopSessionPolicy.USER));
 
-        assertEquals(0, registry.snapshot().activeDisplayId());
+        assertEquals(0, registry.snapshot().activeWorkspaceDisplayId());
         assertEquals(41, registry.snapshot().hostTaskId());
     }
 
@@ -87,8 +87,8 @@ public final class DesktopSessionRegistryTest {
                 7, 41, DesktopDisplayTarget.wireless(7),
                 DesktopSessionPolicy.USER));
         assertEquals(
-                DesktopDisplayTarget.Kind.WIRED,
-                registry.snapshot().target().kind);
+                DesktopDisplayOutput.Kind.WIRED,
+                registry.snapshot().target().output.kind);
     }
 
     @Test
@@ -109,6 +109,6 @@ public final class DesktopSessionRegistryTest {
                 0, 41, DesktopDisplayTarget.phone(),
                 DesktopSessionPolicy.USER));
         assertFalse(registry.snapshot().hasHost());
-        assertEquals(7, registry.snapshot().target().displayId);
+        assertEquals(7, registry.snapshot().target().workspaceDisplayId);
     }
 }

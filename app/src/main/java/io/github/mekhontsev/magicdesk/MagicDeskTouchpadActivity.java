@@ -381,7 +381,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private void presentDesktopWorkspace() {
         final DesktopDisplayTarget target =
                 DesktopRuntimeBridge.getDesktopTarget(mTargetDisplayId);
-        if (target != null && target.displayId == mTargetDisplayId) {
+        if (target != null && target.workspaceDisplayId == mTargetDisplayId) {
             DesktopOperations.presentDesktopWorkspace(target, null);
         }
     }

@@ -28,23 +28,22 @@ final class DesktopSessionRegistry {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         if (mSnapshot.hasHost()
-                && (mSnapshot.activeDisplayId() != displayId
+                && (mSnapshot.activeWorkspaceDisplayId() != displayId
                         || mSnapshot.hostTaskId() != taskId)) {
             return false;
         }
         if (mSnapshot.hasHost()) {
             return target != null
-                    && sameTarget(mSnapshot.target(), target)
+                    && target.sameBinding(mSnapshot.target())
                     && mSnapshot.policy() == (policy == null
                             ? DesktopSessionPolicy.USER : policy);
         }
         final DesktopDisplayTarget registeredTarget = target == null
-                ? mSnapshot.targetForDisplay(displayId) : target;
+                ? mSnapshot.targetForWorkspace(displayId) : target;
         if (registeredTarget == null
-                || registeredTarget.displayId != displayId
+                || registeredTarget.workspaceDisplayId != displayId
                 || (mSnapshot.target() != null
-                        && !sameTarget(
-                                mSnapshot.target(), registeredTarget))) {
+                        && !registeredTarget.sameBinding(mSnapshot.target()))) {
             return false;
         }
         mSnapshot = mSnapshot.noteTarget(registeredTarget, policy);
@@ -63,12 +62,4 @@ final class DesktopSessionRegistry {
         mSnapshot = mSnapshot.close();
     }
 
-    private static boolean sameTarget(
-            final DesktopDisplayTarget first,
-            final DesktopDisplayTarget second) {
-        return first != null
-                && second != null
-                && first.displayId == second.displayId
-                && first.kind == second.kind;
-    }
 }

@@ -21,11 +21,12 @@ final class DesktopDisplayDriverSupport {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         if (target == null
-                || target.displayId <= Display.DEFAULT_DISPLAY) {
+                || target.workspaceDisplayId <= Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException(
                     "a ready secondary display target is required");
         }
         final Context context = MagicDeskApplication.applicationContext();
+        target.requireDirectBinding();
         final DesktopDisplayTarget preparedTarget =
                 DisplayProfileController.prepareTarget(
                         context, target);
@@ -35,7 +36,7 @@ final class DesktopDisplayDriverSupport {
         if (profile != null) {
             try {
                 ExternalDisplayController.applyStartupDensity(
-                        preparedTarget.displayId, profile.dpi);
+                        preparedTarget.workspaceDisplayId, profile.dpi);
             } catch (RuntimeException error) {
                 Log.w(TAG, "Could not prepare secondary display density",
                         error);
@@ -60,7 +61,7 @@ final class DesktopDisplayDriverSupport {
                     && driver.features().phoneTouchpad
                     && MagicDeskSettings.load()
                             .openTouchpadAutomatically) {
-                PhoneTouchpadController.open(target.displayId);
+                PhoneTouchpadController.open(target.workspaceDisplayId);
             }
         } catch (IOException error) {
             Log.w(TAG, "Desktop launch failed", error);
@@ -68,7 +69,7 @@ final class DesktopDisplayDriverSupport {
                     "DESKTOP-LAUNCH-002",
                     "Could not open MagicDesk on the selected display",
                     "kind=" + driver.kind()
-                            + " display=" + target.displayId
+                            + " display=" + target.workspaceDisplayId
                             + " error=" + error.getMessage(),
                     error);
         }

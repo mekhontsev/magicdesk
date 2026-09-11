@@ -269,11 +269,11 @@ public final class CompatibilityDiagnostics {
                         ? "inactive"
                         : (desktopSession.hasHost() ? "active" : "starting")
                                 + ", kind="
-                                + desktopTarget.kind.name()
+                                + desktopTarget.output.kind.name()
                                         .toLowerCase(Locale.ROOT)
-                                + ", display=" + desktopTarget.displayId
+                                + ", display=" + desktopTarget.workspaceDisplayId
                                 + ", activation="
-                                + desktopTarget.activationSource
+                                + desktopTarget.output.activationSource
                                         .diagnosticLabel)
                 .append('\n')
                 .append("Desktop task observer: ")
@@ -391,8 +391,8 @@ public final class CompatibilityDiagnostics {
                         : homeLease == null
                                 ? "available; lease=inactive"
                                 : "available; lease=" + homeLease.phase
-                                        + ", target=" + homeLease.targetKind
-                                        + ", display=" + homeLease.displayId
+                                        + ", target=" + homeLease.target().output.kind
+                                        + ", display=" + homeLease.target().workspaceDisplayId
                                         + ", previous="
                                         + describeHomeSelection(
                                                 homeLease.previousHome));
@@ -554,7 +554,7 @@ public final class CompatibilityDiagnostics {
     private static String desktopTaskRuntimeDetail(
             final DesktopSessionSnapshot session) {
         return "ready=" + MagicDeskRuntime.isTaskObserverReady()
-                + ", hostDisplay=" + session.activeDisplayId()
+                + ", hostDisplay=" + session.activeWorkspaceDisplayId()
                 + ", hostTask=" + session.hostTaskId();
     }
 

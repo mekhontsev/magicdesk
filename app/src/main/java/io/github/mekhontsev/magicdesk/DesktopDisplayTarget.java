@@ -1,142 +1,105 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Identifies one display environment that is ready to host the desktop. */
+/** Immutable binding of a task workspace to its selected output. */
 final class DesktopDisplayTarget {
-    enum Kind {
-        PHONE,
-        WIRED,
-        WIRELESS,
-        SIMULATED
-    }
+    final int workspaceDisplayId;
+    final DesktopDisplayOutput output;
 
-    enum ActivationSource {
-        MAGICDESK_REQUESTED("magicdesk-requested"),
-        ADOPTED_EXISTING("adopted-existing"),
-        UNKNOWN("unknown");
-
-        final String diagnosticLabel;
-
-        ActivationSource(final String diagnosticLabel) {
-            this.diagnosticLabel = diagnosticLabel;
+    DesktopDisplayTarget(final int workspaceDisplayId, final DesktopDisplayOutput output) {
+        if (workspaceDisplayId < 0 || output == null) {
+            throw new IllegalArgumentException("workspace and output are required");
         }
-    }
-
-    final Kind kind;
-    final int displayId;
-    final int profileDisplayId;
-    final String profileKey;
-    final ActivationSource activationSource;
-
-    private DesktopDisplayTarget(
-            final Kind kind,
-            final int displayId,
-            final int profileDisplayId,
-            final String profileKey,
-            final ActivationSource activationSource) {
-        if (kind == null || activationSource == null) {
-            throw new IllegalArgumentException(
-                    "display kind and activation source are required");
-        }
-        if (kind == Kind.PHONE
-                ? displayId != android.view.Display.DEFAULT_DISPLAY
-                : displayId <= android.view.Display.DEFAULT_DISPLAY) {
-            throw new IllegalArgumentException("invalid display id");
-        }
-        this.kind = kind;
-        this.displayId = displayId;
-        this.profileDisplayId = profileDisplayId;
-        this.profileKey = profileKey == null ? "" : profileKey;
-        this.activationSource = activationSource;
+        this.workspaceDisplayId = workspaceDisplayId;
+        this.output = output;
     }
 
     static DesktopDisplayTarget phone() {
-        return new DesktopDisplayTarget(
-                Kind.PHONE,
-                android.view.Display.DEFAULT_DISPLAY,
-                android.view.Display.DEFAULT_DISPLAY,
-                "",
-                ActivationSource.MAGICDESK_REQUESTED);
+        return direct(DesktopDisplayOutput.Kind.PHONE, 0,
+                DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED);
     }
 
     static DesktopDisplayTarget wired(final int displayId) {
-        return new DesktopDisplayTarget(
-                Kind.WIRED,
-                displayId,
-                displayId,
-                "",
-                ActivationSource.ADOPTED_EXISTING);
+        return direct(DesktopDisplayOutput.Kind.WIRED, displayId,
+                DesktopDisplayOutput.ActivationSource.ADOPTED_EXISTING);
     }
 
     static DesktopDisplayTarget wireless(final int displayId) {
-        return new DesktopDisplayTarget(
-                Kind.WIRELESS,
-                displayId,
-                displayId,
-                "",
-                ActivationSource.ADOPTED_EXISTING);
+        return direct(DesktopDisplayOutput.Kind.WIRELESS, displayId,
+                DesktopDisplayOutput.ActivationSource.ADOPTED_EXISTING);
     }
 
     static DesktopDisplayTarget simulated(final int displayId) {
-        return new DesktopDisplayTarget(
-                Kind.SIMULATED,
-                displayId,
-                displayId,
-                "",
-                ActivationSource.MAGICDESK_REQUESTED);
+        return direct(DesktopDisplayOutput.Kind.SIMULATED, displayId,
+                DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED);
     }
 
-    static DesktopDisplayTarget restore(
-            final Kind kind,
-            final int displayId,
-            final int profileDisplayId,
-            final String profileKey,
-            final ActivationSource activationSource) {
-        final DesktopDisplayTarget target = new DesktopDisplayTarget(
-                kind,
-                displayId,
-                displayId,
-                "",
-                activationSource);
-        return kind != Kind.PHONE
-                        && profileDisplayId > 0
-                        && profileKey != null
-                        && !profileKey.isEmpty()
-                ? target.withProfile(profileDisplayId, profileKey)
-                : target;
+    private static DesktopDisplayTarget direct(final DesktopDisplayOutput.Kind kind,
+            final int displayId, final DesktopDisplayOutput.ActivationSource source) {
+        return new DesktopDisplayTarget(displayId,
+                new DesktopDisplayOutput(kind, displayId, "", source));
     }
 
-    DesktopDisplayTarget withProfile(
-            final int newProfileDisplayId,
-            final String newProfileKey) {
-        if (newProfileDisplayId <= 0
-                || newProfileKey == null
-                || newProfileKey.isEmpty()) {
-            throw new IllegalArgumentException("invalid display profile");
+    static DesktopDisplayTarget restore(final DesktopDisplayOutput.Kind kind,
+            final int workspaceDisplayId, final int outputDisplayId,
+            final String profileKey, final DesktopDisplayOutput.ActivationSource source) {
+        return new DesktopDisplayTarget(workspaceDisplayId,
+                new DesktopDisplayOutput(kind, outputDisplayId, profileKey, source));
+    }
+
+    DesktopDisplayTarget withProfile(final String profileKey) {
+        return new DesktopDisplayTarget(workspaceDisplayId, output.withProfile(profileKey));
+    }
+
+    DesktopDisplayTarget withActivationSource(final DesktopDisplayOutput.ActivationSource source) {
+        return new DesktopDisplayTarget(workspaceDisplayId, output.withActivationSource(source));
+    }
+
+    boolean isPhoneWorkspace() {
+        return workspaceDisplayId == 0;
+    }
+
+    boolean ownsWorkspace(final int displayId) {
+        return workspaceDisplayId == displayId;
+    }
+
+    boolean usesOutput(final int displayId) {
+        return output.displayId == displayId;
+    }
+
+    boolean sameBinding(final DesktopDisplayTarget other) {
+        return other != null && workspaceDisplayId == other.workspaceDisplayId
+                && output.sameEndpoint(other.output);
+    }
+
+    android.os.Bundle toBundle() {
+        final android.os.Bundle bundle = new android.os.Bundle();
+        bundle.putInt("workspace", workspaceDisplayId);
+        bundle.putInt("output", output.displayId);
+        bundle.putString("kind", output.kind.name());
+        bundle.putString("profile", output.profileKey);
+        bundle.putString("activation", output.activationSource.name());
+        return bundle;
+    }
+
+    static DesktopDisplayTarget fromBundle(final android.os.Bundle bundle) {
+        if (bundle == null) {
+            return null;
         }
-        return new DesktopDisplayTarget(
-                kind,
-                displayId,
-                newProfileDisplayId,
-                newProfileKey,
-                activationSource);
-    }
-
-    DesktopDisplayTarget withActivationSource(
-            final ActivationSource newActivationSource) {
-        if (newActivationSource == null) {
-            throw new IllegalArgumentException(
-                    "activation source is required");
+        try {
+            return restore(DesktopDisplayOutput.Kind.valueOf(bundle.getString("kind", "")),
+                    bundle.getInt("workspace", -1), bundle.getInt("output", -1),
+                    bundle.getString("profile", ""),
+                    DesktopDisplayOutput.ActivationSource.valueOf(bundle.getString("activation", "")));
+        } catch (IllegalArgumentException error) {
+            return null;
         }
-        return new DesktopDisplayTarget(
-                kind,
-                displayId,
-                profileDisplayId,
-                profileKey,
-                newActivationSource);
     }
 
-    boolean hasProfile() {
-        return profileDisplayId > 0 && !profileKey.isEmpty();
+    void requireDirectBinding() {
+        // The production presenter still uses Android's normal display binding.
+        // Representing another binding must not silently enable an unverified backend.
+        if (workspaceDisplayId != output.displayId) {
+            throw new IllegalArgumentException("only direct desktop output is implemented");
+        }
     }
-
 }

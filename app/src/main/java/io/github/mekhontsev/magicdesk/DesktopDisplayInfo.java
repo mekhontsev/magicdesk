@@ -40,8 +40,8 @@ public final class DesktopDisplayInfo implements Parcelable {
             case "virtual":
             case "overlay":
                 return DesktopDisplayTarget.simulated(id).withActivationSource(owned
-                        ? DesktopDisplayTarget.ActivationSource.MAGICDESK_REQUESTED
-                        : DesktopDisplayTarget.ActivationSource.ADOPTED_EXISTING);
+                        ? DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED
+                        : DesktopDisplayOutput.ActivationSource.ADOPTED_EXISTING);
             default: throw new IllegalArgumentException("unsupported display source: " + source);
         }
     }

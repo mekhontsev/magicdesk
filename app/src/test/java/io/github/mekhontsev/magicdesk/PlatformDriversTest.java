@@ -55,13 +55,13 @@ public final class PlatformDriversTest {
         assertEquals("android", driver.selection()
                 .provider(PlatformComponent.PROJECTION).id);
         assertTrue(driver.features().supportsDisplay(
-                DesktopDisplayTarget.Kind.PHONE));
+                DesktopDisplayOutput.Kind.PHONE));
         assertTrue(driver.features().supportsDisplay(
-                DesktopDisplayTarget.Kind.SIMULATED));
+                DesktopDisplayOutput.Kind.SIMULATED));
         assertTrue(driver.features().supportsDisplay(
-                DesktopDisplayTarget.Kind.WIRED));
+                DesktopDisplayOutput.Kind.WIRED));
         assertTrue(driver.features().supportsDisplay(
-                DesktopDisplayTarget.Kind.WIRELESS));
+                DesktopDisplayOutput.Kind.WIRELESS));
         assertFalse(driver.audioCapture().isAvailable());
         assertFalse(driver.pointer().isAvailable());
         assertFalse(driver.projection().supportsOutputConfiguration());

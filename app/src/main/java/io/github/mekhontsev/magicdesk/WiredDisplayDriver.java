@@ -21,8 +21,8 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
     }
 
     @Override
-    public DesktopDisplayTarget.Kind kind() {
-        return DesktopDisplayTarget.Kind.WIRED;
+    public DesktopDisplayOutput.Kind kind() {
+        return DesktopDisplayOutput.Kind.WIRED;
     }
 
     @Override
@@ -60,6 +60,7 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         requireTarget(target);
+        target.requireDirectBinding();
         final android.content.Context context =
                 MagicDeskApplication.applicationContext();
         final DesktopDisplayTarget profiledTarget =
@@ -69,11 +70,11 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                         context, profiledTarget);
         try {
             DesktopDisplayTarget readyTarget = profiledTarget;
-            final String uniqueId = DesktopDisplayCatalog.require(target.displayId, null).uniqueId;
+            final String uniqueId = DesktopDisplayCatalog.require(target.output.displayId, null).uniqueId;
             if (mProjection.supportsOutputConfiguration()) {
                 mProjection.prepareExternalDisplay(
                         context,
-                        profiledTarget.profileDisplayId,
+                        profiledTarget.output.displayId,
                         profile);
                 int currentDisplayId = android.view.Display.INVALID_DISPLAY;
                 for (final DesktopDisplayInfo display : DesktopDisplayCatalog.read()) {
@@ -84,13 +85,13 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                             "wired display disappeared during output setup");
                 }
                 readyTarget = DesktopDisplayTarget.wired(currentDisplayId)
-                        .withActivationSource(target.activationSource);
+                        .withActivationSource(target.output.activationSource);
                 if (profile != null) {
                     readyTarget = readyTarget.withProfile(
-                            currentDisplayId, profile.key);
+                            profile.key);
                 }
             }
-            ExternalDisplayController.ensureLandscape(readyTarget.displayId);
+            ExternalDisplayController.ensureLandscape(readyTarget.workspaceDisplayId);
             DesktopDisplayDriverSupport.showReadySecondary(
                     readyTarget, policy);
         } catch (IOException | RuntimeException error) {
@@ -109,11 +110,11 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
             final int removedDisplayId,
             final boolean activeDesktopRemoved) {
         requireTarget(target);
-        return target.displayId == removedDisplayId;
+        return target.workspaceDisplayId == removedDisplayId;
     }
 
     private static void requireTarget(final DesktopDisplayTarget target) {
-        if (target == null || target.kind != DesktopDisplayTarget.Kind.WIRED) {
+        if (target == null || target.output.kind != DesktopDisplayOutput.Kind.WIRED) {
             throw new IllegalArgumentException("wired target is required");
         }
     }

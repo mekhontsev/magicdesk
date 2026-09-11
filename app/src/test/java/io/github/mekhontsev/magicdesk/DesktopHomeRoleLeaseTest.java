@@ -37,6 +37,23 @@ public final class DesktopHomeRoleLeaseTest {
     }
 
     @Test
+    public void stateRetainsCompleteBindingAcrossPhaseChanges() throws Exception {
+        final DesktopDisplayTarget original = DesktopDisplayTarget.simulated(7)
+                .withProfile("display:simulated:workspace");
+        final DesktopHomeRoleLease.AcquireResult result = acquire(original);
+        assertSame(original, result.state.target());
+        final DesktopHomeRoleLease.State releasing = result.state.withPhase(
+                DesktopHomeRoleLease.Phase.RELEASING);
+        assertSame(original, releasing.target());
+        final DesktopDisplayTarget differentOutput = DesktopDisplayTarget.restore(
+                DesktopDisplayOutput.Kind.SIMULATED, 7, 8,
+                "display:simulated:workspace",
+                DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED);
+        assertFalse(releasing.matches(differentOutput));
+        assertTrue(releasing.matches(original.withProfile("display:simulated:updated")));
+    }
+
+    @Test
     public void preparationEnablesSurfacesWithoutTakingHome() throws Exception {
         final DesktopHomeRoleLease.AcquireResult preparation =
                 DesktopHomeRoleLease.prepare(

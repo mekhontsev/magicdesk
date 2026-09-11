@@ -421,7 +421,7 @@ final class DesktopAutomationController {
             throw new IllegalArgumentException("display cannot host a desktop");
         }
         final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (active != null && active.displayId != display.id) {
+        if (active != null && active.workspaceDisplayId != display.id) {
             return DesktopAutomationResult.failure("close the active desktop before changing displays");
         }
         DesktopOperations.showDesktop(display);
@@ -912,7 +912,7 @@ final class DesktopAutomationController {
                 DesktopSelfTestExecutionPolicy.parse(optionalString(
                         args, "mode", "full"));
         final DesktopSelfTestTarget target;
-        DesktopDisplayTarget.Kind displayKind = null;
+        DesktopDisplayOutput.Kind displayKind = null;
         switch (rawTarget) {
             case "phone":
                 target = DesktopSelfTestTarget.PHONE;
@@ -922,11 +922,11 @@ final class DesktopAutomationController {
                 break;
             case "wired":
                 target = DesktopSelfTestTarget.EXTERNAL;
-                displayKind = DesktopDisplayTarget.Kind.WIRED;
+                displayKind = DesktopDisplayOutput.Kind.WIRED;
                 break;
             case "wireless":
                 target = DesktopSelfTestTarget.EXTERNAL;
-                displayKind = DesktopDisplayTarget.Kind.WIRELESS;
+                displayKind = DesktopDisplayOutput.Kind.WIRELESS;
                 break;
             default:
                 throw new IllegalArgumentException(
@@ -1156,8 +1156,8 @@ final class DesktopAutomationController {
                 return observation
                         .put("matched", session.hasHost()
                                 && (!args.has("displayId")
-                                    || args.optInt("displayId") == session.activeDisplayId()))
-                        .put("displayId", session.activeDisplayId());
+                                    || args.optInt("displayId") == session.activeWorkspaceDisplayId()))
+                        .put("displayId", session.activeWorkspaceDisplayId());
             }
             case "desktop_inactive": {
                 final DesktopSessionSnapshot session =

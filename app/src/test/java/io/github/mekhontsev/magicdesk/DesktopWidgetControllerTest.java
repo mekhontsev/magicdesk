@@ -87,7 +87,7 @@ public final class DesktopWidgetControllerTest {
     public void hostSavesWidgetStateWhenWorkspaceWasCreated() throws IOException {
         final String source = source("DesktopShellActivity");
         final String save = source.substring(source.indexOf("protected void onSaveInstanceState("),
-                source.indexOf("private static DesktopDisplayTarget.Kind parseTargetKind("));
+                source.indexOf("void releaseDesktopUiWindows()"));
         assertTrue(save.contains("if (mDesktopWorkspaceController != null) {\n"
                 + "            mDesktopWorkspaceController.saveInstanceState(outState);\n"
                 + "        }"));

@@ -868,7 +868,7 @@ final class DesktopSelfTestInputSuite {
                     toggleTaskbarTaskThroughDesktop(displayId, firstTaskId);
                     final DesktopSessionSnapshot session =
                             DesktopRuntimeBridge.getSessionSnapshot();
-                    if (session.activeDisplayId() != displayId
+                    if (session.activeWorkspaceDisplayId() != displayId
                             || session.hostTaskId() < 0) {
                         throw new IOException("desktop host is unavailable");
                     }
@@ -1529,7 +1529,7 @@ final class DesktopSelfTestInputSuite {
             final int taskId) throws IOException {
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
-        if (session.activeDisplayId() != displayId
+        if (session.activeWorkspaceDisplayId() != displayId
                 || session.hostTaskId() < 0) {
             throw new IOException("desktop host is unavailable");
         }

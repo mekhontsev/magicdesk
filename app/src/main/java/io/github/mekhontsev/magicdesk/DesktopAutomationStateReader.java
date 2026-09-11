@@ -49,7 +49,7 @@ final class DesktopAutomationStateReader {
         final DesktopDisplayTarget target = session.target();
         final ShellAccess.Snapshot shell = ShellAccess.currentSnapshot();
         final PlatformDriver platform = PlatformDrivers.current();
-        final int activeDisplayId = session.activeDisplayId();
+        final int activeDisplayId = session.activeWorkspaceDisplayId();
         final DesktopUiSnapshot ui = activeDisplayId >= Display.DEFAULT_DISPLAY
                 ? DesktopRuntimeBridge.getAutomationUiSnapshot(activeDisplayId)
                 : DesktopUiSnapshot.UNAVAILABLE;
@@ -126,7 +126,7 @@ final class DesktopAutomationStateReader {
                 arguments == null ? new JSONObject() : arguments,
                 "displayId");
         final int displayId = requestedDisplayId == null
-                ? session.activeDisplayId() : requestedDisplayId.intValue();
+                ? session.activeWorkspaceDisplayId() : requestedDisplayId.intValue();
         final PlatformSelection.Provider provider = PlatformDrivers.current()
                 .selection().provider(PlatformComponent.POINTER);
         final DesktopPointerState state = displayId >= Display.DEFAULT_DISPLAY
@@ -137,7 +137,7 @@ final class DesktopAutomationStateReader {
                 .put("generatedAtMillis", System.currentTimeMillis())
                 .put("displayId", displayId)
                 .put("active", session.hasHost()
-                        && displayId == session.activeDisplayId())
+                        && displayId == session.activeWorkspaceDisplayId())
                 .put("provider", state != null
                         ? state.provider
                         : provider == null ? "android" : provider.id)
@@ -444,23 +444,24 @@ final class DesktopAutomationStateReader {
     private JSONObject sessionJson(
             final DesktopSessionSnapshot session,
             final DesktopDisplayTarget target) throws JSONException {
-        final int displayId = session.activeDisplayId();
+        final int displayId = session.activeWorkspaceDisplayId();
         final JSONObject result = new JSONObject()
                 .put("active", session.hasHost())
                 .put("starting", target != null && !session.hasHost())
                 .put("displayId", displayId)
+                .put("outputDisplayId", session.activeOutputDisplayId())
+                .put("inputDisplayId", session.inputDisplayId())
                 .put("hostTaskId", session.hostTaskId());
         if (target == null) {
             return result.put("target", JSONObject.NULL);
         }
         result.put("target", new JSONObject()
-                .put("kind", target.kind.name()
-                        .toLowerCase(Locale.ROOT))
-                .put("displayId", target.displayId)
-                .put("profileDisplayId", target.profileDisplayId)
-                .put("profileKey", target.profileKey)
-                .put("activationSource",
-                        target.activationSource.diagnosticLabel));
+                .put("workspaceDisplayId", target.workspaceDisplayId)
+                .put("output", new JSONObject()
+                        .put("displayId", target.output.displayId)
+                        .put("kind", target.output.kind.name().toLowerCase(Locale.ROOT))
+                        .put("profileKey", target.output.profileKey)
+                        .put("activationSource", target.output.activationSource.diagnosticLabel)));
         if (displayId >= Display.DEFAULT_DISPLAY) {
             result.put("wallpaperRendered",
                             DesktopRuntimeBridge

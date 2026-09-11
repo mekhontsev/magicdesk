@@ -408,7 +408,7 @@ public final class MagicDeskRuntimeService extends Service
             mProjection.setCaptionTransport(
                     PlatformProjectionDriver.Transport.NONE);
         }
-        mDesktopInput.reconcileRuntime(desktopDisplayId());
+        mDesktopInput.reconcileRuntime(DesktopRuntimeBridge.getSessionSnapshot().inputDisplayId());
         updateDesktopTasks();
         mPlatform.startRuntime(this);
         mMcpRuntime.reconcile();
@@ -440,7 +440,7 @@ public final class MagicDeskRuntimeService extends Service
             return START_NOT_STICKY;
         }
         initialize();
-        mDesktopInput.reconcileRuntime(desktopDisplayId());
+        mDesktopInput.reconcileRuntime(DesktopRuntimeBridge.getSessionSnapshot().inputDisplayId());
         updateDesktopTasks();
         mDesktopSession.schedulePhoneTaskRecovery();
         reportDesktopPrepared();
@@ -463,7 +463,7 @@ public final class MagicDeskRuntimeService extends Service
             return;
         }
         final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(target.displayId);
+        options.setLaunchDisplayId(target.workspaceDisplayId);
         DesktopShellActivity.setLaunchWindowingMode(options, 5);
         startActivity(
                 DesktopShellActivity.createShowStartIntent(this, target),
@@ -570,7 +570,7 @@ public final class MagicDeskRuntimeService extends Service
             return;
         }
         mDesktopSession.refreshOwnership();
-        mDesktopInput.reconcileRuntime(desktopDisplayId());
+        mDesktopInput.reconcileRuntime(DesktopRuntimeBridge.getSessionSnapshot().inputDisplayId());
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
             updatePlatformCaptionTarget();
@@ -587,7 +587,7 @@ public final class MagicDeskRuntimeService extends Service
 
     private void handleDesktopOwnershipRefreshed(
             final boolean changed) {
-        mDesktopInput.setDesktopDisplay(desktopDisplayId(), changed);
+        mDesktopInput.setInputTarget(DesktopRuntimeBridge.getSessionSnapshot().inputDisplayId(), changed);
         updateAdaptiveBrightness();
         if (!changed) {
             updateSessionWakeLock();

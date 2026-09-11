@@ -18,8 +18,8 @@ public final class RuntimeDesktopSessionCoordinatorTest {
                     Kind kind = Kind.SIMULATED;
                 }
                 static class DesktopSessionSnapshot {
-                    DesktopDisplayTarget targetForDisplay(int id) { return new DesktopDisplayTarget(); }
-                    int activeDisplayId() { return 100; }
+                    DesktopDisplayTarget targetForWorkspace(int id) { return new DesktopDisplayTarget(); }
+                    int activeWorkspaceDisplayId() { return 100; }
                 }
                 static class DesktopRuntimeBridge {
                     static int closes;

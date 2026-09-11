@@ -561,7 +561,7 @@ public final class MagicDeskRuntime {
         }
         final int densityDpi =
                 DesktopTaskPresentationPolicy.resolveDensityDpi(
-                        application, session.activeDisplayId());
+                        application, session.activeWorkspaceDisplayId());
         return tasks.applyAppPresentation(
                 application, densityDpi, callback);
     }
@@ -662,7 +662,7 @@ public final class MagicDeskRuntime {
         if (tasks != null) {
             tasks.focusDesktopTask(displayId, taskId, callback);
         } else if (DesktopRuntimeBridge.getSessionSnapshot()
-                .activeDisplayId() == displayId) {
+                .activeWorkspaceDisplayId() == displayId) {
             completeTaskAction(
                     callback, false, "desktop task runtime unavailable");
         } else {

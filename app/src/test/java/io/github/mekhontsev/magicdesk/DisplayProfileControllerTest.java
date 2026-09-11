@@ -10,7 +10,7 @@ public final class DisplayProfileControllerTest {
         assertEquals(
                 "display:wireless:wifi:aa:bb:cc",
                 DisplayProfileController.stableProfileKey(
-                        DesktopDisplayTarget.Kind.WIRELESS,
+                        DesktopDisplayOutput.Kind.WIRELESS,
                         "wifi:aa:bb:cc",
                         "Living room",
                         null));
@@ -21,7 +21,7 @@ public final class DisplayProfileControllerTest {
         assertEquals(
                 "display:simulated:MagicDesk test|unknown",
                 DisplayProfileController.stableProfileKey(
-                        DesktopDisplayTarget.Kind.SIMULATED,
+                        DesktopDisplayOutput.Kind.SIMULATED,
                         "",
                         "MagicDesk test",
                         null));

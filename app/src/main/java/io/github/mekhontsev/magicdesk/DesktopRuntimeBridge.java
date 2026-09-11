@@ -53,7 +53,7 @@ public final class DesktopRuntimeBridge {
     }
 
     public static int getActiveDesktopDisplayId() {
-        return getSessionSnapshot().activeDisplayId();
+        return getSessionSnapshot().activeWorkspaceDisplayId();
     }
 
     static DesktopSessionSnapshot getSessionSnapshot() {
@@ -75,7 +75,7 @@ public final class DesktopRuntimeBridge {
     }
 
     static DesktopDisplayTarget getDesktopTarget(final int displayId) {
-        return getSessionSnapshot().targetForDisplay(displayId);
+        return getSessionSnapshot().targetForWorkspace(displayId);
     }
 
     static DesktopDisplayTarget getActiveDesktopTarget() {

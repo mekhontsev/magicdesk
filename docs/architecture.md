@@ -1579,8 +1579,39 @@ exists only for compilation; it is not packaged in the APK.
 A `SessionProfile` stores only a display selection policy. Runtime display IDs
 are never persisted as constants.
 
-`DesktopDisplayTarget` identifies a phone, wired, wireless, or simulated display
-that is ready for desktop content. Starting any desktop first acquires one
+`DesktopDisplayTarget` binds a logical task workspace (`workspaceDisplayId`) to
+a `DesktopDisplayOutput`. Output kind, output display ID, activation source and
+the saved profile key belong to the output. These roles are distinct even though
+the production presenter currently requires a direct binding: workspace and
+output are the same Android display. Representing a different binding does not
+enable output switching; startup rejects it before display setup or HOME changes.
+
+`DesktopSessionSnapshot` publishes the binding and registered host atomically.
+Host registration, task placement, window geometry, task density, capture and
+input routing address the workspace. Output mode preparation, transport caption
+policy and monitor-profile selection address the output. A profile still stores
+UI density and output timing together, but their application has different
+owners: density is applied to the workspace, physical timing to the output.
+Android runtime display IDs are not physical compositor tokens. Display catalog
+identity validation remains the resource boundary, including rediscovery after
+an output mode change.
+
+HOME lease state and the host Activity retain the complete immutable target,
+not separate reconstructed copies of its fields. Intent and saved-instance state
+use the same target Bundle codec. Matching a session checks both ends of the
+binding; changing profile values does not change display identity. Phone HOME
+selection follows task residency rather than the output transport. The input
+target is derived from the active workspace; route acquisition still waits for
+workspace preparation, and teardown preserves virtual-mouse recreation and
+association restoration ordering.
+
+Display removal recovery addresses the lost workspace. With direct bindings,
+unplugging the output also removes that workspace and retains the normal close
+behavior. There is one active Desktop session, no automatic parking on a virtual
+display, no output-exchange backend and no new framework capability prerequisite.
+The independent display resource, viewer and session lifetimes remain unchanged.
+
+Starting any desktop first acquires one
 persisted `DesktopHomeRoleLease`: MagicDesk temporarily becomes the package-wide
 Android HOME holder and remembers the previous role state plus the complete
 target. Android may have a working HOME surface while the role has no explicit
@@ -2587,10 +2618,11 @@ When starting Desktop on a selected external display, MagicDesk:
 5. acquires HOME and creates its display-sized secondary HOME host;
 6. focuses the desktop and restores the last visible window layout.
 
-The desktop target always contains the Android display that actually hosts the
-tasks. MagicDesk does not create a vendor projection display, infer lifecycle
-state from vendor settings, or return the physical transport to another mode
-when the desktop closes.
+The target's workspace identifies the Android display that actually hosts the
+tasks; its output identifies the selected presentation endpoint. The current
+presenter binds them directly. MagicDesk does not create a vendor projection
+display, infer lifecycle state from vendor settings, or return the physical
+transport to another mode when the desktop closes.
 
 Requests are serialized and duplicate requests during transition are ignored.
 With no external display, the shortcut cannot accidentally create a second
@@ -2598,8 +2630,8 @@ desktop on display 0.
 
 Display discovery and display hosting are separate contracts. The shared
 desktop-session path accepts only a ready `DesktopDisplayTarget`. That target
-identifies the Android display which owns tasks and the profile stored for the
-same output.
+identifies the Android display which owns tasks separately from the output and
+its profile. The four preparation drivers produce direct bindings.
 Phone, simulated, wired, wireless, UI, self-test, MCP, and App Functions starts
 all converge on this boundary before the common session controller runs.
 Normal starts use `DesktopSessionPolicy.USER`; diagnostics can select the

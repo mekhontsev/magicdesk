@@ -17,10 +17,13 @@ public final class DesktopCloseFailureTest {
                 }
                 static class Display { static final int DEFAULT_DISPLAY = 0, INVALID_DISPLAY = -1; }
                 interface CompletionCallback { void onComplete(boolean success); }
-                static class DesktopDisplayTarget {
+                static class DesktopDisplayOutput {
                     enum Kind { WIRED, SIMULATED }
-                    int displayId = 7;
                     Kind kind = Kind.WIRED;
+                }
+                static class DesktopDisplayTarget {
+                    int workspaceDisplayId = 7;
+                    DesktopDisplayOutput output = new DesktopDisplayOutput();
                 }
                 static class DesktopCloseMode { boolean parkTasks = true, showControlPanel = true; }
                 static class Log { static void i(String a, String b) {} static void w(String a, String b) {}
@@ -115,7 +118,7 @@ public final class DesktopCloseFailureTest {
                         selectedRecovery = expectedRecovery = true;
                         Fixture f = new Fixture();
                         DesktopDisplayTarget target = new DesktopDisplayTarget();
-                        if (fail.equals("remove")) target.kind = DesktopDisplayTarget.Kind.SIMULATED;
+                        if (fail.equals("remove")) target.output.kind = DesktopDisplayOutput.Kind.SIMULATED;
                         boolean[] succeeded = {false};
                         f.beginDesktopClose(target, new DesktopCloseMode(), ok -> {
                             completions++; succeeded[0] = ok;

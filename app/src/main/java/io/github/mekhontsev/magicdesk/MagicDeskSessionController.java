@@ -58,7 +58,7 @@ final class MagicDeskSessionController {
         if (!success) {
             return R.string.status_desktop_present_failed;
         }
-        return target.kind == DesktopDisplayTarget.Kind.PHONE
+        return target.isPhoneWorkspace()
                 ? R.string.control_status_ready
                 : R.string.control_status_desktop_active;
     }
@@ -218,14 +218,14 @@ final class MagicDeskSessionController {
     private static DesktopDisplayTarget externalTarget(
             final DesktopDisplayTarget target) {
         return target != null
-                        && target.displayId > Display.DEFAULT_DISPLAY
+                        && target.workspaceDisplayId > Display.DEFAULT_DISPLAY
                 ? target : null;
     }
 
     private String closeFailureCode(
             final DesktopDisplayTarget target) {
         if (target != null
-                && target.kind == DesktopDisplayTarget.Kind.WIRELESS) {
+                && target.output.kind == DesktopDisplayOutput.Kind.WIRELESS) {
             return "WIRELESS-DISPLAY-002";
         }
         return "DISPLAY-CLOSE-001";

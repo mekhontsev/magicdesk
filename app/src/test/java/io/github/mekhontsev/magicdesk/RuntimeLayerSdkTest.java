@@ -37,6 +37,10 @@ public final class RuntimeLayerSdkTest {
                 static class DesktopHomeRoleLease { static Object snapshot() { return null; } }
                 static class Mcp { int reconciles; void reconcile() { reconciles++; } }
                 static class Input { void reconcileRuntime(int id) {} }
+                static class DesktopRuntimeBridge {
+                    static SessionSnapshot getSessionSnapshot() { return new SessionSnapshot(); }
+                }
+                static class SessionSnapshot { int inputDisplayId() { return -1; } }
                 static class Session { void schedulePhoneTaskRecovery() {} }
                 Mcp mMcpRuntime = new Mcp();
                 Input mDesktopInput;

@@ -9,40 +9,40 @@ public final class DesktopInputSessionBoundaryTest {
         RuntimeSourceFixture.verify("""
                 static class Display { static final int INVALID_DISPLAY = -1; }
                 boolean mDestroyed, mDesktopPrepared;
-                int mDesktopDisplayId = -1, mClosingInputDisplayId = -1;
+                int mInputDisplayId = -1, mClosingInputDisplayId = -1;
                 final List<String> events = new ArrayList<>();
                 void updateShowImeOverride() { events.add("ime"); }
                 void updateInputBridges() { events.add("bridges"); }
                 void refreshDesktopInputSources() { events.add("sources"); }
-                boolean ownsExternalDesktop() { return mDesktopDisplayId > 0; }
+                boolean ownsExternalDesktop() { return mInputDisplayId > 0; }
                 public static void verify() {
                     Fixture f = new Fixture();
-                    f.setDesktopDisplay(7, true);
+                    f.setInputTarget(7, true);
                     check(f.events.equals(List.of("ime", "bridges", "sources")),
                             "external input setup changed: " + f.events);
                     f.mDesktopPrepared = true;
                     f.events.clear();
-                    f.setDesktopDisplay(7, false);
+                    f.setInputTarget(7, false);
                     check(f.mDesktopPrepared && f.events.isEmpty(),
                             "unchanged ownership restarted input");
                     f.mClosingInputDisplayId = 7;
                     f.events.clear();
-                    f.setDesktopDisplay(-1, true);
+                    f.setInputTarget(-1, true);
                     check(!f.mDesktopPrepared && f.mClosingInputDisplayId == -1,
                             "closed desktop retained readiness or suspension");
                     check(f.events.equals(List.of("ime", "bridges")),
                             "close skipped shared cleanup: " + f.events);
                     f.events.clear();
-                    f.setDesktopDisplay(0, true);
+                    f.setInputTarget(0, true);
                     check(f.events.equals(List.of("ime", "bridges")),
                             "phone desktop started external routing");
                     f.events.clear();
                     f.mDestroyed = true;
-                    f.setDesktopDisplay(7, true);
+                    f.setInputTarget(7, true);
                     check(f.events.isEmpty(), "destroyed runtime accepted ownership");
                 }
                 """ + RuntimeSourceFixture.methods("RuntimeDesktopInputCoordinator",
-                        "setDesktopDisplay", "clearCompletedInputClose"));
+                        "setInputTarget", "clearCompletedInputClose"));
     }
 
     @Test
@@ -52,7 +52,7 @@ public final class DesktopInputSessionBoundaryTest {
                     static final int INVALID_DISPLAY = -1, DEFAULT_DISPLAY = 0;
                 }
                 boolean mDestroyed, mDesktopPrepared;
-                int mDesktopDisplayId = 7, mClosingInputDisplayId = -1;
+                int mInputDisplayId = 7, mClosingInputDisplayId = -1;
                 int updates;
                 boolean mPointerReleaseExpected;
                 final Session mInputSession = new Session();
@@ -71,11 +71,11 @@ public final class DesktopInputSessionBoundaryTest {
                     check(!f.mDesktopPrepared && f.updates == 2, "close did not stop input");
                     f.onDesktopPrepared(7);
                     check(!f.mDesktopPrepared && f.updates == 2, "late readiness reopened input");
-                    f.mDesktopDisplayId = -1;
+                    f.mInputDisplayId = -1;
                     f.onDesktopPrepared(-1);
                     check(f.updates == 2, "inactive display accepted preparation");
                     f.clearCompletedInputClose(-1);
-                    f.mDesktopDisplayId = 7;
+                    f.mInputDisplayId = 7;
                     f.onDesktopPrepared(7);
                     check(f.mDesktopPrepared && f.updates == 3, "next session cannot acquire input");
                     f.mDestroyed = true;

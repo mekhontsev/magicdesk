@@ -56,24 +56,13 @@ public abstract class DesktopShellActivity extends Activity
     static final String EXTRA_ACTION = "magicdesk_action";
     static final String EXTRA_EXPECTED_DISPLAY_ID =
             "magicdesk_expected_display_id";
-    static final String EXTRA_PROFILE_DISPLAY_ID =
-            "magicdesk_profile_display_id";
-    static final String EXTRA_PROFILE_KEY = "magicdesk_profile_key";
-    static final String EXTRA_TARGET_KIND = "magicdesk_target_kind";
-    static final String EXTRA_ACTIVATION_SOURCE =
-            "magicdesk_activation_source";
+    static final String EXTRA_DISPLAY_TARGET = "magicdesk_display_target";
     static final String EXTRA_SESSION_POLICY = "magicdesk_session_policy";
     private static final String ACTION_SHOW_START = "show_start";
     static final String ACTION_RESTORE_WINDOWS = "restore_windows";
     private static final String STATE_TOOLS_VISIBLE = "tools_visible";
     private static final String STATE_EXPECTED_DISPLAY_ID =
             "expected_display_id";
-    private static final String STATE_PROFILE_DISPLAY_ID =
-            "profile_display_id";
-    private static final String STATE_PROFILE_KEY = "profile_key";
-    private static final String STATE_TARGET_KIND = "target_kind";
-    private static final String STATE_ACTIVATION_SOURCE =
-            "activation_source";
     private static final String STATE_SESSION_POLICY = "session_policy";
     private static final Map<Integer, Integer> EXPECTED_DISPLAY_BY_TASK =
             new HashMap<>();
@@ -120,11 +109,7 @@ public abstract class DesktopShellActivity extends Activity
     private boolean mTaskbarImeHold;
     private boolean mTaskbarStartHold;
     private int mExpectedDisplayId = Display.INVALID_DISPLAY;
-    private int mDesktopProfileDisplayId = Display.INVALID_DISPLAY;
-    private String mDesktopProfileKey = "";
-    private DesktopDisplayTarget.Kind mDesktopTargetKind;
-    private DesktopDisplayTarget.ActivationSource mActivationSource =
-            DesktopDisplayTarget.ActivationSource.UNKNOWN;
+    private DesktopDisplayTarget mDisplayTarget;
     private DesktopSessionPolicy mSessionPolicy = DesktopSessionPolicy.USER;
     private List<AppItem> mLastApps = Collections.emptyList();
     @Override
@@ -155,30 +140,13 @@ public abstract class DesktopShellActivity extends Activity
         final Bundle source = savedInstanceState == null
                 ? getIntent().getExtras() : savedInstanceState;
         if (source != null) {
-            mDesktopProfileDisplayId = source.getInt(
-                    savedInstanceState == null
-                            ? EXTRA_PROFILE_DISPLAY_ID
-                            : STATE_PROFILE_DISPLAY_ID,
-                    Display.INVALID_DISPLAY);
-            mDesktopProfileKey = source.getString(
-                    savedInstanceState == null
-                            ? EXTRA_PROFILE_KEY : STATE_PROFILE_KEY,
-                    "");
-            mDesktopTargetKind = parseTargetKind(source.getString(
-                    savedInstanceState == null
-                            ? EXTRA_TARGET_KIND : STATE_TARGET_KIND,
-                    ""));
-            mActivationSource = parseActivationSource(source.getString(
-                    savedInstanceState == null
-                            ? EXTRA_ACTIVATION_SOURCE
-                            : STATE_ACTIVATION_SOURCE,
-                    ""));
+            mDisplayTarget = DesktopDisplayTarget.fromBundle(source.getBundle(EXTRA_DISPLAY_TARGET));
             mSessionPolicy = DesktopSessionPolicy.parse(source.getString(
                     savedInstanceState == null
                             ? EXTRA_SESSION_POLICY : STATE_SESSION_POLICY,
                     ""));
         }
-        if (mDesktopTargetKind == null) {
+        if (mDisplayTarget == null) {
             DesktopDisplayTarget runtimeTarget =
                     DesktopRuntimeBridge.getDesktopTarget(displayId);
             if (runtimeTarget != null) {
@@ -191,16 +159,13 @@ public abstract class DesktopShellActivity extends Activity
                 if (homeLease != null
                         && homeLease.phase
                                 == DesktopHomeRoleLease.Phase.ACTIVE
-                        && homeLease.displayId == displayId) {
+                        && homeLease.target().ownsWorkspace(displayId)) {
                     runtimeTarget = homeLease.target();
                     mSessionPolicy = homeLease.policy;
                 }
             }
             if (runtimeTarget != null) {
-                mDesktopProfileDisplayId = runtimeTarget.profileDisplayId;
-                mDesktopProfileKey = runtimeTarget.profileKey;
-                mDesktopTargetKind = runtimeTarget.kind;
-                mActivationSource = runtimeTarget.activationSource;
+                mDisplayTarget = runtimeTarget;
             }
         }
         final DisplayManager displayManager =
@@ -372,15 +337,9 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onSaveInstanceState(final Bundle outState) {
         outState.putInt(STATE_EXPECTED_DISPLAY_ID, mExpectedDisplayId);
-        outState.putInt(
-                STATE_PROFILE_DISPLAY_ID, mDesktopProfileDisplayId);
-        outState.putString(STATE_PROFILE_KEY, mDesktopProfileKey);
-        outState.putString(
-                STATE_TARGET_KIND,
-                mDesktopTargetKind == null ? "" : mDesktopTargetKind.name());
-        outState.putString(
-                STATE_ACTIVATION_SOURCE,
-                mActivationSource.name());
+        if (mDisplayTarget != null) {
+            outState.putBundle(EXTRA_DISPLAY_TARGET, mDisplayTarget.toBundle());
+        }
         outState.putString(STATE_SESSION_POLICY, mSessionPolicy.name());
         outState.putBoolean(
                 STATE_TOOLS_VISIBLE,
@@ -390,30 +349,6 @@ public abstract class DesktopShellActivity extends Activity
             mDesktopWorkspaceController.saveInstanceState(outState);
         }
         super.onSaveInstanceState(outState);
-    }
-
-    private static DesktopDisplayTarget.Kind parseTargetKind(
-            final String value) {
-        if (value == null || value.isEmpty()) {
-            return null;
-        }
-        try {
-            return DesktopDisplayTarget.Kind.valueOf(value);
-        } catch (IllegalArgumentException ignored) {
-            return null;
-        }
-    }
-
-    private static DesktopDisplayTarget.ActivationSource
-            parseActivationSource(final String value) {
-        if (value == null || value.isEmpty()) {
-            return DesktopDisplayTarget.ActivationSource.UNKNOWN;
-        }
-        try {
-            return DesktopDisplayTarget.ActivationSource.valueOf(value);
-        } catch (IllegalArgumentException ignored) {
-            return DesktopDisplayTarget.ActivationSource.UNKNOWN;
-        }
     }
 
     void releaseDesktopUiWindows() {
@@ -860,15 +795,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     private DesktopDisplayTarget resolvedDesktopTarget() {
-        if (mDesktopTargetKind == null) {
-            return null;
-        }
-        return DesktopDisplayTarget.restore(
-                mDesktopTargetKind,
-                mExpectedDisplayId,
-                mDesktopProfileDisplayId,
-                mDesktopProfileKey,
-                mActivationSource);
+        return mDisplayTarget;
     }
 
     void handleLaunchAction(final Intent intent) {
@@ -889,7 +816,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     private boolean isPhoneDesktopHomeIntent(final Intent intent) {
-        return mDesktopTargetKind == DesktopDisplayTarget.Kind.PHONE
+        return mDisplayTarget != null && mDisplayTarget.isPhoneWorkspace()
                 && Intent.ACTION_MAIN.equals(intent.getAction())
                 && intent.hasCategory(Intent.CATEGORY_HOME);
     }
@@ -900,7 +827,7 @@ public abstract class DesktopShellActivity extends Activity
         if (target == null) {
             throw new IllegalArgumentException("desktop target is required");
         }
-        final Intent intent = target.kind == DesktopDisplayTarget.Kind.PHONE
+        final Intent intent = target.isPhoneWorkspace()
                 ? PhoneDesktopHomeActivity.createLaunchIntent(context)
                 : DesktopActivity.createLaunchIntent(context);
         return intent
@@ -2306,13 +2233,8 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     @Override
-    public int getDesktopProfileDisplayId() {
-        return mDesktopProfileDisplayId;
-    }
-
-    @Override
-    public String getDesktopProfileKey() {
-        return mDesktopProfileKey;
+    public DesktopDisplayOutput getDesktopOutput() {
+        return mDisplayTarget == null ? null : mDisplayTarget.output;
     }
 
     static void setLaunchWindowingMode(

@@ -73,9 +73,9 @@ final class DesktopAdaptiveBrightnessController {
             final DesktopDisplayTarget target) {
         return enabled
                 && target != null
-                && (target.kind == DesktopDisplayTarget.Kind.WIRED
-                        || target.kind
-                                == DesktopDisplayTarget.Kind.WIRELESS);
+                && (target.output.kind == DesktopDisplayOutput.Kind.WIRED
+                        || target.output.kind
+                                == DesktopDisplayOutput.Kind.WIRELESS);
     }
 
     private void updateMode(final boolean shouldDisable) throws IOException {

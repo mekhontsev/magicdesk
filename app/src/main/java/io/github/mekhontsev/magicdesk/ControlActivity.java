@@ -245,7 +245,7 @@ public final class ControlActivity extends Activity
         }
         final DesktopDisplayInfo display = selectedDisplay();
         final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (!DisplaySelectionView.canStart(display, active == null ? -1 : active.displayId,
+        if (!DisplaySelectionView.canStart(display, active == null ? -1 : active.workspaceDisplayId,
                 ShellAccess.isReady(), mDisplayOperation || DesktopOperations.isSessionTransitionInProgress(),
                 android.os.Build.VERSION.SDK_INT)) {
             return;
@@ -510,7 +510,7 @@ public final class ControlActivity extends Activity
         final boolean desktopSessionActive = homeLease != null
                 && homeLease.phase == DesktopHomeRoleLease.Phase.ACTIVE;
         final boolean externalRuntimeDesktop = activeTarget != null
-                && activeTarget.kind != DesktopDisplayTarget.Kind.PHONE;
+                && !activeTarget.isPhoneWorkspace();
         final boolean externalDesktopActive =
                 externalRuntimeDesktop;
         mPanel.render(new PhoneControlPanelController.State(

@@ -166,7 +166,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                 static final String TAG="test", DESKTOP_TASK_RETURN_COMMAND="task-return";
                 static int callbacks;
                 interface ResultCallback { void onComplete(boolean success); }
-                static class DesktopDisplayTarget { int displayId; DesktopDisplayTarget(int d) { displayId=d; } }
+                static class DesktopDisplayTarget { int workspaceDisplayId; DesktopDisplayTarget(int d) { workspaceDisplayId=d; } }
                 static class MagicDeskRuntime {
                     static int disabled,restored,displayId=7;
                     static void disableExternalTaskMigrationProtection() { disabled++; }

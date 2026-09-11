@@ -18,7 +18,7 @@ public final class PlatformFeatures {
         this.vendorHardware = vendorHardware;
     }
 
-    public boolean supportsDisplay(final DesktopDisplayTarget.Kind kind) {
+    public boolean supportsDisplay(final DesktopDisplayOutput.Kind kind) {
         if (kind == null) {
             return false;
         }

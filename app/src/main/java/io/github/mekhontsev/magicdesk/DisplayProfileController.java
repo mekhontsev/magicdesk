@@ -124,22 +124,21 @@ public final class DisplayProfileController {
             final Context context,
             final DesktopDisplayTarget target) {
         if (target == null
-                || target.kind == DesktopDisplayTarget.Kind.PHONE
-                || target.hasProfile()) {
+                || target.output.kind == DesktopDisplayOutput.Kind.PHONE
+                || target.output.hasProfile()) {
             return target;
         }
         final DisplayManager manager = context == null
                 ? null : context.getSystemService(DisplayManager.class);
         final Display display = manager == null
-                ? null : manager.getDisplay(target.profileDisplayId);
+                ? null : manager.getDisplay(target.output.displayId);
         if (display == null) {
             return target;
         }
         return target.withProfile(
-                target.profileDisplayId,
                 stableProfileKey(
-                        target.kind,
-                        readDisplayUniqueId(target.profileDisplayId),
+                        target.output.kind,
+                        readDisplayUniqueId(target.output.displayId),
                         display.getName(),
                         display.getMode()));
     }
@@ -147,18 +146,18 @@ public final class DisplayProfileController {
     static DisplayProfileStore.Profile loadPreparedProfile(
             final Context context,
             final DesktopDisplayTarget target) {
-        if (context == null || target == null || !target.hasProfile()) {
+        if (context == null || target == null || !target.output.hasProfile()) {
             return null;
         }
         final DisplayManager manager =
                 context.getSystemService(DisplayManager.class);
         final Display display = manager == null
-                ? null : manager.getDisplay(target.profileDisplayId);
+                ? null : manager.getDisplay(target.output.displayId);
         if (display == null) {
             return null;
         }
         return DisplayProfileStore.load(
-                target.profileKey, initialDpi(display));
+                target.output.profileKey, initialDpi(display));
     }
 
     private void refreshAfterDisplayChange() {
@@ -175,7 +174,8 @@ public final class DisplayProfileController {
     }
 
     private String resolveProfileKey() {
-        final String explicitProfileKey = mHost.getDesktopProfileKey();
+        final DesktopDisplayOutput output = mHost.getDesktopOutput();
+        final String explicitProfileKey = output == null ? "" : output.profileKey;
         if (!explicitProfileKey.isEmpty()) {
             return explicitProfileKey;
         }
@@ -195,7 +195,7 @@ public final class DisplayProfileController {
     }
 
     static String stableProfileKey(
-            final DesktopDisplayTarget.Kind kind,
+            final DesktopDisplayOutput.Kind kind,
             final String uniqueId,
             final String name,
             final Display.Mode mode) {
@@ -228,7 +228,8 @@ public final class DisplayProfileController {
         if (manager == null) {
             return current;
         }
-        final int profileDisplayId = mHost.getDesktopProfileDisplayId();
+        final DesktopDisplayOutput output = mHost.getDesktopOutput();
+        final int profileDisplayId = output == null ? Display.INVALID_DISPLAY : output.displayId;
         if (profileDisplayId > Display.DEFAULT_DISPLAY) {
             final Display profileDisplay = manager.getDisplay(profileDisplayId);
             if (profileDisplay != null) {
@@ -259,9 +260,7 @@ public final class DisplayProfileController {
 
         Display getDisplay();
 
-        int getDesktopProfileDisplayId();
-
-        String getDesktopProfileKey();
+        DesktopDisplayOutput getDesktopOutput();
 
         void onDisplayProfileReset();
 

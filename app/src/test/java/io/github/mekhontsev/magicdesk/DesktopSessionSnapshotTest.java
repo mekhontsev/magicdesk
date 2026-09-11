@@ -18,8 +18,8 @@ public final class DesktopSessionSnapshotTest {
                 DesktopSessionSnapshot.empty().noteTarget(target);
 
         assertFalse(snapshot.hasHost());
-        assertEquals(Display.INVALID_DISPLAY, snapshot.activeDisplayId());
-        assertSame(target, snapshot.targetForDisplay(7));
+        assertEquals(Display.INVALID_DISPLAY, snapshot.activeWorkspaceDisplayId());
+        assertSame(target, snapshot.targetForWorkspace(7));
     }
 
     @Test
@@ -30,7 +30,7 @@ public final class DesktopSessionSnapshotTest {
                 .registerHost(7, 42);
 
         assertTrue(snapshot.hasHost());
-        assertEquals(7, snapshot.activeDisplayId());
+        assertEquals(7, snapshot.activeWorkspaceDisplayId());
         assertEquals(42, snapshot.hostTaskId());
         assertSame(target, snapshot.target());
     }

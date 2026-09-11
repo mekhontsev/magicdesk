@@ -283,8 +283,8 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
             return;
         }
         mLaunching = true;
-        PhoneTouchpadController.release(lease.target().displayId);
-        PhoneAppLauncher.launch(this, result.app, lease.target().displayId,
+        PhoneTouchpadController.release(lease.target().workspaceDisplayId);
+        PhoneAppLauncher.launch(this, result.app, lease.target().workspaceDisplayId,
                 () -> {
                     final DesktopHomeRoleLease.State current = activeLease();
                     final boolean valid = !isFinishing() && !isDestroyed() && !mClosing
@@ -313,7 +313,7 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
         if (!initialLaunch || showRecent) {
             final DesktopHomeRoleLease.State lease = activeLease();
             if (lease != null) {
-                PhoneTouchpadController.release(lease.target().displayId);
+                PhoneTouchpadController.release(lease.target().workspaceDisplayId);
             }
         }
         if (showRecent) {

@@ -98,10 +98,10 @@ final class RuntimeDesktopSessionCoordinator {
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot();
         final DesktopDisplayTarget desktopTarget = displayRemoved
-                ? session.targetForDisplay(displayId)
+                ? session.targetForWorkspace(displayId)
                 : null;
         final boolean activeDesktopRemoved = displayRemoved
-                && session.activeDisplayId() == displayId;
+                && session.activeWorkspaceDisplayId() == displayId;
         final boolean externalDesktopRemoved = isExternalDesktopRemoval(
                 displayRemoved,
                 displayId,
@@ -139,7 +139,7 @@ final class RuntimeDesktopSessionCoordinator {
                 && !mRemovedDisplayRecovery.shouldContinue(session)) {
             clearRemovedDisplayRecovery();
         }
-        final int desktopDisplayId = session.activeDisplayId();
+        final int desktopDisplayId = session.activeWorkspaceDisplayId();
         if (session.target() != null) {
             mRecoverPhoneTasks = DesktopCompatibilitySettings.current().enabled(
                     DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY);
@@ -260,8 +260,8 @@ final class RuntimeDesktopSessionCoordinator {
                 return;
             }
             final DesktopDisplayTarget leasedTarget = lease.target();
-            if (leasedTarget.displayId == Display.DEFAULT_DISPLAY
-                    || mDisplayExists.test(leasedTarget.displayId)) {
+            if (leasedTarget.workspaceDisplayId == Display.DEFAULT_DISPLAY
+                    || mDisplayExists.test(leasedTarget.workspaceDisplayId)) {
                 mHomeLeaseRecoveryInFlight = true;
                 DesktopOperations.recoverDesktopSession(
                         leasedTarget,
@@ -275,7 +275,7 @@ final class RuntimeDesktopSessionCoordinator {
         try {
             if (DesktopHomeRoleLease.reconcile(sessionAlive)) {
                 Log.i(TAG, "reconciled stale desktop HOME lease display="
-                        + lease.displayId + " phase=" + lease.phase);
+                        + lease.target().workspaceDisplayId + " phase=" + lease.phase);
             }
         } catch (java.io.IOException error) {
             Log.w(TAG, "could not reconcile desktop HOME lease", error);
@@ -389,7 +389,7 @@ final class RuntimeDesktopSessionCoordinator {
         if (mDestroyed
                 || mLocalDesktopCleanupInFlight
                 || !LocalDesktopSessionState.isCleanupPending(mContext)
-                || session.activeDisplayId() == Display.DEFAULT_DISPLAY) {
+                || session.activeWorkspaceDisplayId() == Display.DEFAULT_DISPLAY) {
             return;
         }
         if (!ShellAccess.isReady()) {
@@ -467,8 +467,8 @@ final class RuntimeDesktopSessionCoordinator {
         }
 
         boolean shouldContinue(final DesktopSessionSnapshot session) {
-            if ((session.target() != null && session.target().displayId != displayId)
-                    || (session.hasHost() && session.activeDisplayId() != displayId)) {
+            if ((session.target() != null && session.target().workspaceDisplayId != displayId)
+                    || (session.hasHost() && session.activeWorkspaceDisplayId() != displayId)) {
                 // Checked on the task queue before each mutation as well as on
                 // lifecycle callbacks, including before a new host is ready.
                 cancel();

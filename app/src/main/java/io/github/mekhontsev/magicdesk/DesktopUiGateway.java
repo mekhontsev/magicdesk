@@ -95,7 +95,7 @@ final class DesktopUiGateway {
         final DesktopDisplayTarget activeTarget = sessionSnapshot().target();
         if (displayId == Display.DEFAULT_DISPLAY
                 && activeTarget != null
-                && activeTarget.kind == DesktopDisplayTarget.Kind.PHONE
+                && activeTarget.isPhoneWorkspace()
                 && ShellAccess.isReady()) {
             LocalDesktopSessionState.markCleanupPending(activity);
         }
@@ -168,7 +168,7 @@ final class DesktopUiGateway {
             final DesktopDisplayTarget target = mSession.snapshot().target();
             if (displayId < Display.DEFAULT_DISPLAY
                     || target == null
-                    || target.displayId != displayId) {
+                    || target.workspaceDisplayId != displayId) {
                 if (completion != null) {
                     completion.run();
                 }
@@ -253,7 +253,7 @@ final class DesktopUiGateway {
         synchronized (mHostLock) {
             mSession.noteTarget(target, policy);
         }
-        recordSession("target_selected", target.displayId, -1);
+        recordSession("target_selected", target.workspaceDisplayId, -1);
     }
 
     void clearDesktopTarget(final DesktopDisplayTarget target) {
@@ -261,7 +261,7 @@ final class DesktopUiGateway {
             mSession.clearTarget(target);
         }
         if (target != null) {
-            recordSession("target_cleared", target.displayId, -1);
+            recordSession("target_cleared", target.workspaceDisplayId, -1);
         }
     }
 
@@ -974,12 +974,12 @@ final class DesktopUiGateway {
             final DesktopSessionSnapshot snapshot = mSession.snapshot();
             if (snapshot.hasHost()) {
                 mSession.unregisterHost(
-                        snapshot.activeDisplayId(), true);
+                        snapshot.activeWorkspaceDisplayId(), true);
             }
             return null;
         }
         final DesktopSessionSnapshot snapshot = mSession.snapshot();
-        if (snapshot.activeDisplayId() != activity.getCurrentDisplayId()
+        if (snapshot.activeWorkspaceDisplayId() != activity.getCurrentDisplayId()
                 || snapshot.hostTaskId() != activity.getTaskId()) {
             recordSession(
                     "host_identity_mismatch",

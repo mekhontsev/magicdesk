@@ -2,26 +2,13 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 
-/** Owns lifecycle and policy for one desktop display environment. */
+/** Prepares one output transport for a directly hosted desktop. */
 interface DesktopDisplayDriver {
-    DesktopDisplayTarget.Kind kind();
+    DesktopDisplayOutput.Kind kind();
 
     DesktopDisplayFeatures features();
 
     DesktopDisplayTarget target(int displayId);
-
-    /** Logical display whose compositor output represents this desktop. */
-    default int captureDisplayId(final DesktopDisplayTarget target) {
-        if (target == null || target.kind != kind()) {
-            throw new IllegalArgumentException("matching display target is required");
-        }
-        return target.displayId;
-    }
-
-    default DisplayCaptureSource captureSource(
-            final DesktopDisplayTarget target) {
-        return DisplayCaptureSource.logical(captureDisplayId(target));
-    }
 
     /** Opens a normal user desktop on a ready logical task-host display. */
     default void showReady(

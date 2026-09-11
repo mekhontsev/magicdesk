@@ -11,8 +11,8 @@ public final class DesktopDisplayDriversTest {
     @Test
     public void registryProvidesOneDriverPerTargetKind() {
         assertTrue(DesktopDisplayDrivers.isExternalDesktopSupported());
-        for (final DesktopDisplayTarget.Kind kind
-                : DesktopDisplayTarget.Kind.values()) {
+        for (final DesktopDisplayOutput.Kind kind
+                : DesktopDisplayOutput.Kind.values()) {
             final DesktopDisplayDriver driver =
                     DesktopDisplayDrivers.forKind(kind);
 
@@ -24,37 +24,37 @@ public final class DesktopDisplayDriversTest {
     @Test
     public void targetFactoriesEnforceEachDriverEnvironment() {
         assertEquals(
-                DesktopDisplayTarget.Kind.PHONE,
+                DesktopDisplayOutput.Kind.PHONE,
                 DesktopDisplayDrivers
-                        .forKind(DesktopDisplayTarget.Kind.PHONE)
-                        .target(0).kind);
+                        .forKind(DesktopDisplayOutput.Kind.PHONE)
+                        .target(0).output.kind);
         assertEquals(
-                DesktopDisplayTarget.Kind.WIRED,
+                DesktopDisplayOutput.Kind.WIRED,
                 DesktopDisplayDrivers
-                        .forKind(DesktopDisplayTarget.Kind.WIRED)
-                        .target(3).kind);
+                        .forKind(DesktopDisplayOutput.Kind.WIRED)
+                        .target(3).output.kind);
         assertEquals(
-                DesktopDisplayTarget.Kind.WIRELESS,
+                DesktopDisplayOutput.Kind.WIRELESS,
                 DesktopDisplayDrivers
-                        .forKind(DesktopDisplayTarget.Kind.WIRELESS)
-                        .target(4).kind);
+                        .forKind(DesktopDisplayOutput.Kind.WIRELESS)
+                        .target(4).output.kind);
         assertEquals(
-                DesktopDisplayTarget.Kind.SIMULATED,
+                DesktopDisplayOutput.Kind.SIMULATED,
                 DesktopDisplayDrivers
-                        .forKind(DesktopDisplayTarget.Kind.SIMULATED)
-                        .target(195).kind);
+                        .forKind(DesktopDisplayOutput.Kind.SIMULATED)
+                        .target(195).output.kind);
     }
 
     @Test
     public void featureMatrixMatchesDisplayBehavior() {
         final DesktopDisplayFeatures phone = features(
-                DesktopDisplayTarget.Kind.PHONE);
+                DesktopDisplayOutput.Kind.PHONE);
         final DesktopDisplayFeatures wired = features(
-                DesktopDisplayTarget.Kind.WIRED);
+                DesktopDisplayOutput.Kind.WIRED);
         final DesktopDisplayFeatures wireless = features(
-                DesktopDisplayTarget.Kind.WIRELESS);
+                DesktopDisplayOutput.Kind.WIRELESS);
         final DesktopDisplayFeatures simulated = features(
-                DesktopDisplayTarget.Kind.SIMULATED);
+                DesktopDisplayOutput.Kind.SIMULATED);
 
         assertFalse(phone.phoneScreenControl);
         assertFalse(simulated.phoneScreenControl);
@@ -90,22 +90,21 @@ public final class DesktopDisplayDriversTest {
 
     @Test
     public void captureUsesTheTaskHostingDisplayForEveryTarget() {
-        final DesktopDisplayTarget wired = DesktopDisplayTarget.wired(287)
-                .withProfile(265, "display:wired:local:21");
+        final DesktopDisplayTarget wired = DesktopDisplayTarget.restore(
+                DesktopDisplayOutput.Kind.WIRED, 287, 265, "display:wired:local:21",
+                DesktopDisplayOutput.ActivationSource.ADOPTED_EXISTING);
 
-        assertEquals(287, driver(wired).captureDisplayId(wired));
+        assertEquals(287, DesktopCaptureTarget.sourceFor(wired).logicalDisplayId);
         assertEquals(
                 0,
-                driver(DesktopDisplayTarget.phone()).captureDisplayId(
-                        DesktopDisplayTarget.phone()));
+                DesktopCaptureTarget.sourceFor(DesktopDisplayTarget.phone()).logicalDisplayId);
         assertEquals(
                 8,
-                driver(DesktopDisplayTarget.wireless(8)).captureDisplayId(
-                        DesktopDisplayTarget.wireless(8)));
+                DesktopCaptureTarget.sourceFor(DesktopDisplayTarget.wireless(8)).logicalDisplayId);
     }
 
     private static DesktopDisplayFeatures features(
-            final DesktopDisplayTarget.Kind kind) {
+            final DesktopDisplayOutput.Kind kind) {
         return DesktopDisplayDrivers.forKind(kind).features();
     }
 

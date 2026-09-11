@@ -19,7 +19,7 @@ final class DesktopSelfTestLauncher {
     private final long mRunId;
     private final int mResultTaskId;
     private final DesktopSelfTestTarget mTarget;
-    private final DesktopDisplayTarget.Kind mDisplayKind;
+    private final DesktopDisplayOutput.Kind mDisplayKind;
     private final DesktopSelfTestExecutionPolicy mPolicy;
     private WeakReference<Activity> mActivity;
     private DisplayManager mDisplayManager;
@@ -28,7 +28,7 @@ final class DesktopSelfTestLauncher {
     private boolean mFinishingPreparation;
 
     private DesktopSelfTestLauncher(final Activity activity, final long runId,
-            final DesktopSelfTestTarget target, final DesktopDisplayTarget.Kind kind,
+            final DesktopSelfTestTarget target, final DesktopDisplayOutput.Kind kind,
             final DesktopSelfTestExecutionPolicy policy) {
         mContext = activity.getApplicationContext();
         mResultTaskId = activity.getTaskId();
@@ -46,7 +46,7 @@ final class DesktopSelfTestLauncher {
     }
 
     static boolean start(final Activity activity, final DesktopSelfTestTarget target,
-            final DesktopDisplayTarget.Kind kind, final DesktopSelfTestExecutionPolicy policy,
+            final DesktopDisplayOutput.Kind kind, final DesktopSelfTestExecutionPolicy policy,
             final long requestedRunId) {
         if (sActive != null || DesktopSelfTestController.isRunning()) {
             return false;
@@ -112,10 +112,10 @@ final class DesktopSelfTestLauncher {
                 if (!preparing()) {
                     return;
                 }
-                if (mDisplayKind != DesktopDisplayTarget.Kind.WIRELESS && wired > 0) {
+                if (mDisplayKind != DesktopDisplayOutput.Kind.WIRELESS && wired > 0) {
                     DesktopOperations.showWiredDesktop(DesktopSessionPolicy.ISOLATED_SELF_TEST);
-                    waitForDesktop(DesktopDisplayTarget.Kind.WIRED);
-                } else if (mDisplayKind == DesktopDisplayTarget.Kind.WIRED) {
+                    waitForDesktop(DesktopDisplayOutput.Kind.WIRED);
+                } else if (mDisplayKind == DesktopDisplayOutput.Kind.WIRED) {
                     finishPreparation(false, "connected wired display is unavailable");
                 } else if (wireless > 0) {
                     showWireless(wireless);
@@ -167,10 +167,10 @@ final class DesktopSelfTestLauncher {
         stopWirelessObservation();
         DesktopOperations.showDesktop(DesktopDisplayTarget.wireless(displayId),
                 DesktopSessionPolicy.ISOLATED_SELF_TEST);
-        waitForDesktop(DesktopDisplayTarget.Kind.WIRELESS);
+        waitForDesktop(DesktopDisplayOutput.Kind.WIRELESS);
     }
 
-    private void waitForDesktop(final DesktopDisplayTarget.Kind kind) {
+    private void waitForDesktop(final DesktopDisplayOutput.Kind kind) {
         new Thread(() -> {
             final long deadline = SystemClock.uptimeMillis()
                     + ExternalDisplayController.START_TIMEOUT_MS * 2L;
@@ -183,7 +183,7 @@ final class DesktopSelfTestLauncher {
                 final int id = DesktopRuntimeBridge.getActiveDesktopDisplayId();
                 final DesktopDisplayTarget display = DesktopRuntimeBridge.getDesktopTarget(id);
                 if (mTarget.matchesDisplay(id, display)
-                        && (kind == null || display.kind == kind)) {
+                        && (kind == null || display.output.kind == kind)) {
                     ready = true;
                     break;
                 }

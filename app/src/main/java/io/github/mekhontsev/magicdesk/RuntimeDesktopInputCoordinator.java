@@ -21,7 +21,7 @@ final class RuntimeDesktopInputCoordinator {
 
     private boolean mHasHardwareKeyboard;
     private boolean mHasExternalMouse;
-    private int mDesktopDisplayId = Display.INVALID_DISPLAY;
+    private int mInputDisplayId = Display.INVALID_DISPLAY;
     private boolean mDesktopPrepared;
     private int mClosingInputDisplayId = Display.INVALID_DISPLAY;
     private boolean mShowImeOverrideActive;
@@ -65,17 +65,17 @@ final class RuntimeDesktopInputCoordinator {
         mInputDevices.scheduleRefresh();
     }
 
-    void setDesktopDisplay(
+    void setInputTarget(
             final int displayId,
             final boolean ownershipChanged) {
         if (mDestroyed) {
             return;
         }
-        final int previousDisplayId = mDesktopDisplayId;
+        final int previousDisplayId = mInputDisplayId;
         if (displayId != previousDisplayId) {
             mDesktopPrepared = false;
         }
-        mDesktopDisplayId = displayId;
+        mInputDisplayId = displayId;
         clearCompletedInputClose(displayId);
         if (!ownershipChanged) {
             return;
@@ -91,10 +91,10 @@ final class RuntimeDesktopInputCoordinator {
         if (mDestroyed) {
             return;
         }
-        if (displayId != mDesktopDisplayId || !ShellAccess.isReady()) {
+        if (displayId != mInputDisplayId || !ShellAccess.isReady()) {
             mDesktopPrepared = false;
         }
-        mDesktopDisplayId = displayId;
+        mInputDisplayId = displayId;
         clearCompletedInputClose(displayId);
         updateShowImeOverride();
         updateInputBridges();
@@ -108,7 +108,7 @@ final class RuntimeDesktopInputCoordinator {
 
     boolean isMouseBridgeReady() {
         return !mDestroyed
-                && mInputSession.isPointerReady(mDesktopDisplayId);
+                && mInputSession.isPointerReady(mInputDisplayId);
     }
 
     boolean isFullShortcutMode() {
@@ -140,7 +140,7 @@ final class RuntimeDesktopInputCoordinator {
         if (mDestroyed) {
             return DesktopInputDiagnostics.Snapshot.unavailable();
         }
-        final int displayId = mDesktopDisplayId;
+        final int displayId = mInputDisplayId;
         // Observe the pointer before the report waits for native relay replies.
         final DesktopPointerState pointer = pointerState(
                 displayId, pointerProvider);
@@ -207,7 +207,7 @@ final class RuntimeDesktopInputCoordinator {
 
     private boolean isActiveDesktopDisplay(final int displayId) {
         return !mDestroyed && displayId >= Display.DEFAULT_DISPLAY
-                && displayId == mDesktopDisplayId;
+                && displayId == mInputDisplayId;
     }
 
     private void handleInputStateChanged(
@@ -234,7 +234,7 @@ final class RuntimeDesktopInputCoordinator {
     private void handleInputSessionStateChanged() {
         if (!mDestroyed) {
             final boolean ready = mInputSession.isPointerReady(
-                    mDesktopDisplayId);
+                    mInputDisplayId);
             if (ready != mLastReportedPointerReady) {
                 mLastReportedPointerReady = ready;
                 final boolean released = !ready && mPointerReleaseExpected;
@@ -247,9 +247,9 @@ final class RuntimeDesktopInputCoordinator {
                             "input",
                             operation,
                             ready || released,
-                            "display=" + mDesktopDisplayId,
+                            "display=" + mInputDisplayId,
                             new org.json.JSONObject()
-                                    .put("displayId", mDesktopDisplayId)
+                                    .put("displayId", mInputDisplayId)
                                     .put("pointerReady", ready)
                                     .put("expectedRelease", released));
                 } catch (org.json.JSONException ignored) {
@@ -257,7 +257,7 @@ final class RuntimeDesktopInputCoordinator {
                             "input",
                             operation,
                             ready || released,
-                            "display=" + mDesktopDisplayId);
+                            "display=" + mInputDisplayId);
                 }
             }
             updateInputBridges();
@@ -266,9 +266,9 @@ final class RuntimeDesktopInputCoordinator {
 
     private void updateInputBridges() {
         final int inputDisplayId = mDesktopPrepared && ShellAccess.isReady()
-                && mClosingInputDisplayId != mDesktopDisplayId
-                ? mDesktopDisplayId : Display.INVALID_DISPLAY;
-        if (mInputSession.isPointerReady(mDesktopDisplayId) && inputDisplayId < 0) {
+                && mClosingInputDisplayId != mInputDisplayId
+                ? mInputDisplayId : Display.INVALID_DISPLAY;
+        if (mInputSession.isPointerReady(mInputDisplayId) && inputDisplayId < 0) {
             mPointerReleaseExpected = true;
         }
         mInputSession.reconcile(inputDisplayId);
@@ -284,13 +284,13 @@ final class RuntimeDesktopInputCoordinator {
 
     private void refreshDesktopInputSources() {
         if (!mDestroyed && mDesktopPrepared && ShellAccess.isReady()
-                && mClosingInputDisplayId != mDesktopDisplayId) {
+                && mClosingInputDisplayId != mInputDisplayId) {
             mInputSession.refreshDevices();
         }
     }
 
     private boolean ownsExternalDesktop() {
-        return mDesktopDisplayId > Display.DEFAULT_DISPLAY;
+        return mInputDisplayId > Display.DEFAULT_DISPLAY;
     }
 
     private void updateShowImeOverride() {

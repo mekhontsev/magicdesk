@@ -41,14 +41,15 @@ final class DesktopSessionController {
             throw new IllegalArgumentException("display target is required");
         }
         RuntimeCapabilities.requireDesktop();
+        target.requireDirectBinding();
         final DesktopDisplayTarget preparedTarget =
                 DisplayProfileController.prepareTarget(
                         MagicDeskApplication.applicationContext(), target);
         DesktopStateStore.load();
-        if (!ExternalDisplayController.displayExists(preparedTarget.displayId)) {
+        if (!ExternalDisplayController.displayExists(preparedTarget.workspaceDisplayId)) {
             throw new IOException(
                     "desktop display no longer exists: "
-                            + preparedTarget.displayId);
+                            + preparedTarget.workspaceDisplayId);
         }
         final DesktopSessionPolicy resolvedPolicy = policy == null
                 ? DesktopSessionPolicy.USER : policy;
@@ -63,16 +64,16 @@ final class DesktopSessionController {
         try {
             DesktopRuntimeBridge.noteDesktopTarget(
                     preparedTarget, resolvedPolicy);
-            SecondaryDisplayWindowing.prepare(preparedTarget.displayId);
+            SecondaryDisplayWindowing.prepare(preparedTarget.workspaceDisplayId);
             DesktopHomeRoleLease.activate(homeAcquisition);
             final Boolean visibleTaskSnapshot =
                     MagicDeskRuntime.hasVisibleAppTaskSnapshot(
-                            preparedTarget.displayId);
+                            preparedTarget.workspaceDisplayId);
             final boolean restoreWindows = resolvedPolicy.restoreWorkspace
                     && visibleTaskSnapshot != null
                     && !visibleTaskSnapshot.booleanValue();
-            final int desktopTaskId = findDesktopTask(preparedTarget.displayId);
-            if (preparedTarget.kind == DesktopDisplayTarget.Kind.PHONE) {
+            final int desktopTaskId = findDesktopTask(preparedTarget.workspaceDisplayId);
+            if (preparedTarget.isPhoneWorkspace()) {
                 return showPrimaryHome(
                         preparedTarget,
                         resolvedPolicy,
@@ -81,17 +82,17 @@ final class DesktopSessionController {
                         desktopTaskId);
             }
             if (desktopTaskId >= 0) {
-                Log.i(TAG, "restoring desktop kind=" + preparedTarget.kind
-                        + " display=" + preparedTarget.displayId
+                Log.i(TAG, "restoring desktop kind=" + preparedTarget.output.kind
+                        + " display=" + preparedTarget.workspaceDisplayId
                         + " task=" + desktopTaskId);
                 if (!resolvedPolicy.restoreWorkspace) {
                     Log.i(TAG, "isolated desktop reuses host without restoring"
-                            + " display=" + preparedTarget.displayId);
+                            + " display=" + preparedTarget.workspaceDisplayId);
                 } else if (restoreWindows) {
                     MagicDeskRuntime.restoreLastVisibleWindows();
                 } else {
                     MagicDeskRuntime.restoreDesktopWorkspace(
-                            preparedTarget.displayId,
+                            preparedTarget.workspaceDisplayId,
                             java.util.Collections.singletonList(
                                     Integer.valueOf(desktopTaskId)),
                             null);
@@ -106,19 +107,19 @@ final class DesktopSessionController {
             final Intent intent = createExternalHomeIntent(
                     preparedTarget, resolvedPolicy, restoreWindows);
             final int hostTaskId = ShellAccess.launchDesktopHost(
-                    preparedTarget.displayId, intent);
-            Log.i(TAG, "launched desktop kind=" + preparedTarget.kind
-                    + " display=" + preparedTarget.displayId
+                    preparedTarget.workspaceDisplayId, intent);
+            Log.i(TAG, "launched desktop kind=" + preparedTarget.output.kind
+                    + " display=" + preparedTarget.workspaceDisplayId
                     + " task=" + hostTaskId
                     + " as HOME");
-            final boolean ready = waitForDesktopReady(preparedTarget.displayId);
+            final boolean ready = waitForDesktopReady(preparedTarget.workspaceDisplayId);
             if (!ready) {
-                SecondaryDisplayWindowing.release(preparedTarget.displayId);
+                SecondaryDisplayWindowing.release(preparedTarget.workspaceDisplayId);
                 DesktopHomeRoleLease.releaseAfterFailedStart(
                         homeAcquisition);
                 DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
                 MagicDeskRuntime.reconcileFailedDesktopLaunch(
-                        preparedTarget.displayId);
+                        preparedTarget.workspaceDisplayId);
             }
             if (ready && resolvedPolicy.restoreWorkspace) {
                 MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
@@ -127,7 +128,7 @@ final class DesktopSessionController {
             return new ShowResult(ready, true);
         } catch (IOException | RuntimeException error) {
             try {
-                SecondaryDisplayWindowing.release(preparedTarget.displayId);
+                SecondaryDisplayWindowing.release(preparedTarget.workspaceDisplayId);
             } catch (IOException releaseError) {
                 error.addSuppressed(releaseError);
             }
@@ -139,7 +140,7 @@ final class DesktopSessionController {
             }
             DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
             MagicDeskRuntime.reconcileFailedDesktopLaunch(
-                    preparedTarget.displayId);
+                    preparedTarget.workspaceDisplayId);
             throw error;
         }
     }
@@ -165,10 +166,9 @@ final class DesktopSessionController {
         final DesktopHomeRoleLease.State lease =
                 DesktopHomeRoleLease.snapshot();
         if (!session.hasHost()
-                || session.activeDisplayId() != target.displayId
+                || session.activeWorkspaceDisplayId() != target.workspaceDisplayId
                 || activeTarget == null
-                || activeTarget.kind != target.kind
-                || activeTarget.displayId != target.displayId
+                || !activeTarget.sameBinding(target)
                 || session.policy() != policy
                 || lease == null
                 || lease.phase != DesktopHomeRoleLease.Phase.ACTIVE
@@ -176,9 +176,9 @@ final class DesktopSessionController {
             return false;
         }
         MagicDeskRuntime.presentDesktopWorkspace(
-                target.displayId, session.hostTaskId(), callback);
-        Log.i(TAG, "presenting existing desktop kind=" + target.kind
-                + " display=" + target.displayId
+                target.workspaceDisplayId, session.hostTaskId(), callback);
+        Log.i(TAG, "presenting existing desktop kind=" + target.output.kind
+                + " display=" + target.workspaceDisplayId
                 + " task=" + session.hostTaskId());
         return true;
     }
@@ -196,14 +196,14 @@ final class DesktopSessionController {
                     "primary HOME did not create the phone desktop task");
         }
         Log.i(TAG, (homeAcquisition.created ? "launched" : "restoring")
-                + " primary Home desktop kind=" + target.kind
-                + " display=" + target.displayId
+                + " primary Home desktop kind=" + target.output.kind
+                + " display=" + target.workspaceDisplayId
                 + " task=" + desktopTaskId);
-        final boolean ready = waitForDesktopReady(target.displayId);
+        final boolean ready = waitForDesktopReady(target.workspaceDisplayId);
         if (!ready) {
             DesktopHomeRoleLease.releaseAfterFailedStart(homeAcquisition);
             DesktopRuntimeBridge.clearDesktopTarget(target);
-            MagicDeskRuntime.reconcileFailedDesktopLaunch(target.displayId);
+            MagicDeskRuntime.reconcileFailedDesktopLaunch(target.workspaceDisplayId);
             return new ShowResult(false, homeAcquisition.created);
         }
         if (policy.restoreWorkspace) {
@@ -211,7 +211,7 @@ final class DesktopSessionController {
                 MagicDeskRuntime.restoreLastVisibleWindows();
             } else if (!homeAcquisition.created) {
                 MagicDeskRuntime.restoreDesktopWorkspace(
-                        target.displayId,
+                        target.workspaceDisplayId,
                         java.util.Collections.singletonList(
                                 Integer.valueOf(desktopTaskId)),
                         null);
@@ -229,19 +229,8 @@ final class DesktopSessionController {
                 MagicDeskApplication.applicationContext())
                 .putExtra(
                         DesktopShellActivity.EXTRA_EXPECTED_DISPLAY_ID,
-                        target.displayId)
-                .putExtra(
-                        DesktopShellActivity.EXTRA_PROFILE_DISPLAY_ID,
-                        target.profileDisplayId)
-                .putExtra(
-                        DesktopShellActivity.EXTRA_PROFILE_KEY,
-                        target.profileKey)
-                .putExtra(
-                        DesktopShellActivity.EXTRA_TARGET_KIND,
-                        target.kind.name())
-                .putExtra(
-                        DesktopShellActivity.EXTRA_ACTIVATION_SOURCE,
-                        target.activationSource.name())
+                        target.workspaceDisplayId)
+                .putExtra(DesktopShellActivity.EXTRA_DISPLAY_TARGET, target.toBundle())
                 .putExtra(
                         DesktopShellActivity.EXTRA_SESSION_POLICY,
                         policy.name());

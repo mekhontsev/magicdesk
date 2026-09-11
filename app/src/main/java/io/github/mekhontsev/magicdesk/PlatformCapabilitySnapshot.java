@@ -67,16 +67,16 @@ public final class PlatformCapabilitySnapshot {
         final List<Entry> entries = new ArrayList<>();
         final PlatformFeatures features = platform.features();
         add(entries, platform, PlatformCapabilityId.DESKTOP_PHONE,
-                features.supportsDisplay(DesktopDisplayTarget.Kind.PHONE),
+                features.supportsDisplay(DesktopDisplayOutput.Kind.PHONE),
                 InternalDisplayDesktopConfig.capture(context).detail);
         add(entries, platform, PlatformCapabilityId.DESKTOP_SIMULATED,
                 features.supportsDisplay(
-                        DesktopDisplayTarget.Kind.SIMULATED), "");
+                        DesktopDisplayOutput.Kind.SIMULATED), "");
         add(entries, platform, PlatformCapabilityId.DESKTOP_WIRED,
-                features.supportsDisplay(DesktopDisplayTarget.Kind.WIRED), "");
+                features.supportsDisplay(DesktopDisplayOutput.Kind.WIRED), "");
         add(entries, platform, PlatformCapabilityId.DESKTOP_WIRELESS,
                 features.supportsDisplay(
-                        DesktopDisplayTarget.Kind.WIRELESS), "");
+                        DesktopDisplayOutput.Kind.WIRELESS), "");
         probe(entries, platform, PlatformCapabilityId.OUTPUT_CONFIGURATION,
                 () -> platform.projection().supportsOutputConfiguration(),
                 () -> "");

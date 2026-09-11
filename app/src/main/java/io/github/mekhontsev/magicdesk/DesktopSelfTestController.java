@@ -579,14 +579,14 @@ final class DesktopSelfTestController {
                     "active display=" + displayId + ", target=" + target);
         }
         if (target == DesktopSelfTestTarget.EXTERNAL) {
-            if (displayTarget.kind != DesktopDisplayTarget.Kind.WIRED
-                    && displayTarget.kind
-                            != DesktopDisplayTarget.Kind.WIRELESS) {
+            if (displayTarget.output.kind != DesktopDisplayOutput.Kind.WIRED
+                    && displayTarget.output.kind
+                            != DesktopDisplayOutput.Kind.WIRELESS) {
                 failAndAbort(result,
                         "SELFTEST-PRECONDITION-001",
                         "Selected desktop session is ready",
                         "external transport is unavailable: "
-                                + displayTarget.kind);
+                                + displayTarget.output.kind);
             }
         }
         result.add(DesktopSelfTestResult.State.PASS,

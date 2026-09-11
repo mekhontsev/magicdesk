@@ -10,8 +10,8 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
                     true);
 
     @Override
-    public DesktopDisplayTarget.Kind kind() {
-        return DesktopDisplayTarget.Kind.WIRELESS;
+    public DesktopDisplayOutput.Kind kind() {
+        return DesktopDisplayOutput.Kind.WIRELESS;
     }
 
     @Override
@@ -39,11 +39,11 @@ final class WirelessDisplayDriver implements DesktopDisplayDriver {
             final int removedDisplayId,
             final boolean activeDesktopRemoved) {
         requireTarget(target);
-        return target.displayId == removedDisplayId;
+        return target.workspaceDisplayId == removedDisplayId;
     }
 
     private static void requireTarget(final DesktopDisplayTarget target) {
-        if (target == null || target.kind != DesktopDisplayTarget.Kind.WIRELESS) {
+        if (target == null || target.output.kind != DesktopDisplayOutput.Kind.WIRELESS) {
             throw new IllegalArgumentException("wireless target is required");
         }
     }

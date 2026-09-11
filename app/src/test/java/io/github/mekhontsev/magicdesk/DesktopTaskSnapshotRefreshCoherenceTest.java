@@ -96,7 +96,7 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                     }
                 }
                 static class DesktopSessionSnapshot {
-                    int activeDisplayId() { return DesktopRuntimeBridge.activeDisplay; }
+                    int activeWorkspaceDisplayId() { return DesktopRuntimeBridge.activeDisplay; }
                 }
                 static class DesktopRuntimeBridge {
                     static int activeDisplay = 66;

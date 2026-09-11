@@ -46,9 +46,9 @@ public final class DesktopSelfTestCleanupOrchestrationTest {
                     static boolean isReady() { return ready; }
                     static String run(String command) throws IOException { if (!ready) throw new IOException("shell lost"); return "null"; }
                 }
-                static class DesktopDisplayTarget {}
+                static class DesktopDisplayTarget { int workspaceDisplayId; }
                 static class DesktopHomeRoleLease {
-                    static class State { int displayId; DesktopDisplayTarget target() { return new DesktopDisplayTarget(); } }
+                    static class State { DesktopDisplayTarget target() { return new DesktopDisplayTarget(); } }
                     static State lease = new State();
                     static State snapshot() { return lease; }
                 }

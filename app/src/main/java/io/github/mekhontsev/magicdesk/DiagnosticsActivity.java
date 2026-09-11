@@ -113,7 +113,7 @@ public final class DiagnosticsActivity extends Activity {
         if (target == null) {
             return DesktopSelfTestRunState.isActive();
         }
-        final DesktopDisplayTarget.Kind kind = requestedSelfTestDisplayKind(intent);
+        final DesktopDisplayOutput.Kind kind = requestedSelfTestDisplayKind(intent);
         final DesktopSelfTestExecutionPolicy policy = requestedSelfTestExecutionPolicy(intent);
         final long runId = intent.getLongExtra(EXTRA_SELF_TEST_RUN_ID, 0L);
         intent.removeExtra(EXTRA_SELF_TEST_TARGET);
@@ -497,7 +497,7 @@ public final class DiagnosticsActivity extends Activity {
         }
     }
 
-    private static DesktopDisplayTarget.Kind requestedSelfTestDisplayKind(
+    private static DesktopDisplayOutput.Kind requestedSelfTestDisplayKind(
             final Intent intent) {
         if (intent == null) {
             return null;
@@ -508,10 +508,10 @@ public final class DiagnosticsActivity extends Activity {
             return null;
         }
         try {
-            final DesktopDisplayTarget.Kind kind =
-                    DesktopDisplayTarget.Kind.valueOf(name);
-            return kind == DesktopDisplayTarget.Kind.WIRED
-                            || kind == DesktopDisplayTarget.Kind.WIRELESS
+            final DesktopDisplayOutput.Kind kind =
+                    DesktopDisplayOutput.Kind.valueOf(name);
+            return kind == DesktopDisplayOutput.Kind.WIRED
+                            || kind == DesktopDisplayOutput.Kind.WIRELESS
                     ? kind : null;
         } catch (IllegalArgumentException ignored) {
             return null;

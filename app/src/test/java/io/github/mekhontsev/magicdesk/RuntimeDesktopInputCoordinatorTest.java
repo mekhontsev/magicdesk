@@ -34,7 +34,7 @@ public final class RuntimeDesktopInputCoordinatorTest {
                 static class Display { static final int INVALID_DISPLAY = -1; }
                 static class ShellAccess { static boolean ready = true; static boolean isReady() { return ready; } }
                 boolean mDesktopPrepared, mPointerReleaseExpected;
-                int mDesktopDisplayId = 7, mClosingInputDisplayId = -1;
+                int mInputDisplayId = 7, mClosingInputDisplayId = -1;
                 final Session mInputSession = new Session();
                 static class Session {
                     int requested = -1;

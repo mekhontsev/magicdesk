@@ -98,14 +98,22 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 static class DesktopCompatibilityPolicy {
                     static final DesktopCompatibilityPolicy NONE = new DesktopCompatibilityPolicy();
                 }
-                static class DesktopDisplayTarget {
+                static class DesktopDisplayOutput {
                     enum Kind { PHONE, SIMULATED }
-                    Kind kind=Kind.SIMULATED; int displayId=7;
+                    Kind kind=Kind.SIMULATED;
+                }
+                static class DesktopDisplayTarget {
+                    int workspaceDisplayId=7;
+                    DesktopDisplayOutput output=new DesktopDisplayOutput();
+                    boolean isPhoneWorkspace() { return workspaceDisplayId==0; }
+                    boolean sameBinding(DesktopDisplayTarget other) {
+                        return other!=null && workspaceDisplayId==other.workspaceDisplayId
+                                && output.kind==other.output.kind;
+                    }
                 }
                 static class AndroidHomeSelection { String packageName="com.example.home"; }
                 static class State {
-                    int userId, displayId;
-                    DesktopDisplayTarget.Kind targetKind;
+                    int userId;
                     AndroidHomeSelection previousHome;
                     DesktopDisplayTarget target;
                     DesktopSessionPolicy policy; Phase phase;
@@ -114,7 +122,6 @@ public final class RuntimeHomeLeaseAdmissionTest {
                             DesktopSessionPolicy p, DesktopCompatibilityPolicy c, Phase ph) {
                         userId=user; previousHome=previous; target=t; policy=p; phase=ph;
                         compatibility=c;
-                        displayId=t.displayId; targetKind=t.kind;
                     }
                     DesktopDisplayTarget target() { return target; }
                 """ + RuntimeSourceFixture.methods("DesktopHomeRoleLease", "matches", "withPhase") + "}\n"

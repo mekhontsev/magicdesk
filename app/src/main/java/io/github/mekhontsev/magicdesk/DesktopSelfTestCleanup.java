@@ -325,8 +325,8 @@ final class DesktopSelfTestCleanup {
     private static void closeDesktopSessionAndWait(final int displayId) throws IOException {
         final DesktopHomeRoleLease.State home = DesktopHomeRoleLease.snapshot();
         final DesktopDisplayTarget active = DesktopRuntimeBridge.getDesktopTarget(displayId);
-        if (home != null && home.displayId != displayId) {
-            throw new IOException("HOME lease belongs to display " + home.displayId);
+        if (home != null && home.target().workspaceDisplayId != displayId) {
+            throw new IOException("HOME lease belongs to display " + home.target().workspaceDisplayId);
         }
         final DesktopDisplayTarget target = active != null ? active
                 : home != null ? home.target() : null;

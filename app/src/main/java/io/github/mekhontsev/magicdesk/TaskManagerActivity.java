@@ -190,8 +190,8 @@ public final class TaskManagerActivity extends Activity
     private static int observationDisplayId() {
         final DesktopSessionSnapshot session = DesktopRuntimeBridge.getSessionSnapshot();
         // A prepared target survives host recreation; it is not a standalone query path.
-        return session.hasHost() ? session.activeDisplayId()
-                : session.target() == null ? -1 : session.target().displayId;
+        return session.hasHost() ? session.activeWorkspaceDisplayId()
+                : session.target() == null ? -1 : session.target().workspaceDisplayId;
     }
 
     static List<TaskRepository.TaskEntry> allTasks(final TaskRepository.Snapshot snapshot) {

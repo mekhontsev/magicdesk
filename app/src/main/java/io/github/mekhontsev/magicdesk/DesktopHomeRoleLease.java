@@ -40,11 +40,7 @@ final class DesktopHomeRoleLease {
     static final class State {
         final int userId;
         final AndroidHomeSelection previousHome;
-        final DesktopDisplayTarget.Kind targetKind;
-        final int displayId;
-        final int profileDisplayId;
-        final String profileKey;
-        final DesktopDisplayTarget.ActivationSource activationSource;
+        private final DesktopDisplayTarget target;
         final DesktopSessionPolicy policy;
         final DesktopCompatibilityPolicy compatibility;
         final Phase phase;
@@ -67,11 +63,7 @@ final class DesktopHomeRoleLease {
             }
             this.userId = userId;
             this.previousHome = previousHome;
-            this.targetKind = target.kind;
-            this.displayId = target.displayId;
-            this.profileDisplayId = target.profileDisplayId;
-            this.profileKey = target.profileKey;
-            this.activationSource = target.activationSource;
+            this.target = target;
             this.policy = policy;
             this.compatibility = compatibility;
             this.phase = phase;
@@ -88,18 +80,11 @@ final class DesktopHomeRoleLease {
         }
 
         boolean matches(final DesktopDisplayTarget target) {
-            return target != null
-                    && targetKind == target.kind
-                    && displayId == target.displayId;
+            return this.target.sameBinding(target);
         }
 
         DesktopDisplayTarget target() {
-            return DesktopDisplayTarget.restore(
-                    targetKind,
-                    displayId,
-                    profileDisplayId,
-                    profileKey,
-                    activationSource);
+            return target;
         }
     }
 
@@ -156,7 +141,7 @@ final class DesktopHomeRoleLease {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy,
             final DesktopCompatibilityPolicy compatibility) throws IOException {
-        if (target == null || target.displayId < 0) {
+        if (target == null || target.workspaceDisplayId < 0) {
             throw new IOException("desktop HOME target is invalid");
         }
         synchronized (LOCK) {
@@ -165,8 +150,8 @@ final class DesktopHomeRoleLease {
                 if (!existing.matches(target)) {
                     throw new IOException(
                             "HOME is already leased to "
-                                    + existing.targetKind
-                                    + " display=" + existing.displayId);
+                                    + existing.target().output.kind
+                                    + " display=" + existing.target().workspaceDisplayId);
                 }
                 if (existing.policy != policy) {
                     throw new IOException("HOME lease policy mismatch: leased="
@@ -174,7 +159,7 @@ final class DesktopHomeRoleLease {
                 }
                 if (existing.phase == Phase.RELEASING) {
                     throw new IOException("HOME lease is releasing for "
-                            + existing.targetKind + " display=" + existing.displayId);
+                            + existing.target().output.kind + " display=" + existing.target().workspaceDisplayId);
                 }
                 final String holder = sBackend.getHomePackage(existing.userId);
                 if (MAGICDESK_PACKAGE.equals(holder)) {
@@ -285,10 +270,10 @@ final class DesktopHomeRoleLease {
         }
         if (!state.matches(target)) {
             throw new IOException("HOME lease target mismatch: leased="
-                    + state.targetKind + "/" + state.displayId
+                    + state.target().output.kind + "/" + state.target().workspaceDisplayId
                     + " requested=" + (target == null
                             ? "none"
-                            : target.kind + "/" + target.displayId));
+                            : target.output.kind + "/" + target.workspaceDisplayId));
         }
         return state;
     }
@@ -305,7 +290,7 @@ final class DesktopHomeRoleLease {
             throws IOException {
         synchronized (LOCK) {
             final State state = sStorage.read();
-            if (state == null || state.displayId != displayId) {
+            if (state == null || state.target().workspaceDisplayId != displayId) {
                 return false;
             }
             restoreOrAbandon(state);
@@ -366,7 +351,7 @@ final class DesktopHomeRoleLease {
             final State state = sStorage.read();
             return state != null
                     && state.phase == phase
-                    && state.displayId == displayId;
+                    && state.target().workspaceDisplayId == displayId;
         }
     }
 
@@ -445,13 +430,13 @@ final class DesktopHomeRoleLease {
     }
 
     private static boolean shouldPresentMagicDeskHome(final State state) {
-        return state.targetKind == DesktopDisplayTarget.Kind.PHONE
+        return state.target().isPhoneWorkspace()
                 || state.policy != DesktopSessionPolicy.ISOLATED_SELF_TEST;
     }
 
     private static DesktopHomeSurfaceRouter.Surface surfaceFor(
             final State state) {
-        return DesktopHomeSurfaceRouter.forTarget(state.targetKind);
+        return DesktopHomeSurfaceRouter.forTarget(state.target());
     }
 
     private static void restoreOrAbandon(final State state)
@@ -659,7 +644,7 @@ final class DesktopHomeRoleLease {
     }
 
     private static final class PreferencesStorage implements Storage {
-        private static final int STORAGE_FORMAT = 1;
+        private static final int STORAGE_FORMAT = 2;
         private static final String PREFERENCES =
                 "magicdesk_desktop_home_lease";
         private static final String FORMAT = "format";
@@ -672,7 +657,7 @@ final class DesktopHomeRoleLease {
                 "previous_availability";
         private static final String TARGET_KIND = "target_kind";
         private static final String DISPLAY_ID = "display_id";
-        private static final String PROFILE_DISPLAY_ID = "profile_display_id";
+        private static final String OUTPUT_DISPLAY_ID = "output_display_id";
         private static final String PROFILE_KEY = "profile_key";
         private static final String ACTIVATION_SOURCE = "activation_source";
         private static final String SESSION_POLICY = "session_policy";
@@ -701,14 +686,14 @@ final class DesktopHomeRoleLease {
                         preferences.getInt(USER_ID, -1),
                         previousHome,
                         DesktopDisplayTarget.restore(
-                                DesktopDisplayTarget.Kind.valueOf(
+                                DesktopDisplayOutput.Kind.valueOf(
                                         requiredString(
                                                 preferences, TARGET_KIND)),
                                 preferences.getInt(DISPLAY_ID, -1),
                                 preferences.getInt(
-                                        PROFILE_DISPLAY_ID, -1),
+                                        OUTPUT_DISPLAY_ID, -1),
                                 requiredString(preferences, PROFILE_KEY),
-                                DesktopDisplayTarget.ActivationSource.valueOf(
+                                DesktopDisplayOutput.ActivationSource.valueOf(
                                         requiredString(
                                                 preferences,
                                                 ACTIVATION_SOURCE))),
@@ -742,15 +727,15 @@ final class DesktopHomeRoleLease {
                             .putString(
                                     PREVIOUS_AVAILABILITY,
                                     state.previousHome.availability.name())
-                            .putString(TARGET_KIND, state.targetKind.name())
-                            .putInt(DISPLAY_ID, state.displayId)
+                            .putString(TARGET_KIND, state.target().output.kind.name())
+                            .putInt(DISPLAY_ID, state.target().workspaceDisplayId)
                             .putInt(
-                                    PROFILE_DISPLAY_ID,
-                                    state.profileDisplayId)
-                            .putString(PROFILE_KEY, state.profileKey)
+                                    OUTPUT_DISPLAY_ID,
+                                    state.target().output.displayId)
+                            .putString(PROFILE_KEY, state.target().output.profileKey)
                             .putString(
                                     ACTIVATION_SOURCE,
-                                    state.activationSource.name())
+                                    state.target().output.activationSource.name())
                             .putString(SESSION_POLICY, state.policy.name())
                             .putInt(COMPATIBILITY, state.compatibility.bits())
                             .putString(PHASE, state.phase.name())
@@ -778,7 +763,7 @@ final class DesktopHomeRoleLease {
                         && preferences.contains(PREVIOUS_AVAILABILITY)
                         && preferences.contains(TARGET_KIND)
                         && preferences.contains(DISPLAY_ID)
-                        && preferences.contains(PROFILE_DISPLAY_ID)
+                        && preferences.contains(OUTPUT_DISPLAY_ID)
                         && preferences.contains(PROFILE_KEY)
                         && preferences.contains(ACTIVATION_SOURCE)
                         && preferences.contains(SESSION_POLICY)

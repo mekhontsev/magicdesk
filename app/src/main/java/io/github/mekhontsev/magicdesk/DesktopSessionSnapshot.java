@@ -34,13 +34,21 @@ final class DesktopSessionSnapshot {
         return mPolicy;
     }
 
-    DesktopDisplayTarget targetForDisplay(final int displayId) {
-        return mTarget != null && mTarget.displayId == displayId
+    DesktopDisplayTarget targetForWorkspace(final int displayId) {
+        return mTarget != null && mTarget.workspaceDisplayId == displayId
                 ? mTarget : null;
     }
 
-    int activeDisplayId() {
+    int activeWorkspaceDisplayId() {
         return mHostDisplayId;
+    }
+
+    int activeOutputDisplayId() {
+        return hasHost() && mTarget != null ? mTarget.output.displayId : Display.INVALID_DISPLAY;
+    }
+
+    int inputDisplayId() {
+        return activeWorkspaceDisplayId();
     }
 
     int hostTaskId() {
@@ -53,9 +61,7 @@ final class DesktopSessionSnapshot {
 
     boolean isLocalActiveOrStarting() {
         return mHostDisplayId == Display.DEFAULT_DISPLAY
-                || (mTarget != null
-                        && mTarget.displayId == Display.DEFAULT_DISPLAY
-                        && mTarget.kind == DesktopDisplayTarget.Kind.PHONE);
+                || (mTarget != null && mTarget.isPhoneWorkspace());
     }
 
     DesktopSessionSnapshot noteTarget(final DesktopDisplayTarget target) {
@@ -72,7 +78,7 @@ final class DesktopSessionSnapshot {
     }
 
     DesktopSessionSnapshot clearTarget(final DesktopDisplayTarget target) {
-        if (!sameTarget(mTarget, target)) {
+        if (mTarget == null || !mTarget.sameBinding(target)) {
             return this;
         }
         return new DesktopSessionSnapshot(
@@ -83,7 +89,7 @@ final class DesktopSessionSnapshot {
     DesktopSessionSnapshot registerHost(
             final int displayId,
             final int taskId) {
-        if (mTarget == null || mTarget.displayId != displayId) {
+        if (mTarget == null || mTarget.workspaceDisplayId != displayId) {
             throw new IllegalStateException(
                     "desktop host does not match the prepared target");
         }
@@ -97,8 +103,8 @@ final class DesktopSessionSnapshot {
         DesktopDisplayTarget target = mTarget;
         if (!changingConfigurations
                 && target != null
-                && (displayId == target.displayId
-                        || target.kind == DesktopDisplayTarget.Kind.PHONE)) {
+                && (displayId == target.workspaceDisplayId
+                        || target.isPhoneWorkspace())) {
             target = null;
         }
         return new DesktopSessionSnapshot(
@@ -112,12 +118,4 @@ final class DesktopSessionSnapshot {
         return empty();
     }
 
-    private static boolean sameTarget(
-            final DesktopDisplayTarget first,
-            final DesktopDisplayTarget second) {
-        return first != null
-                && second != null
-                && first.displayId == second.displayId
-                && first.kind == second.kind;
-    }
 }

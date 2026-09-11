@@ -22,7 +22,7 @@ final class DesktopCaptureTarget {
         }
         final DisplayCaptureSource source;
         try {
-            source = DesktopDisplayDrivers.captureSource(
+            source = sourceForWorkspace(
                     desktopDisplayId);
         } catch (IllegalArgumentException | IllegalStateException error) {
             throw new IOException(error.getMessage(), error);
@@ -34,6 +34,20 @@ final class DesktopCaptureTarget {
         return new DesktopCaptureTarget(
                 desktopDisplayId,
                 physicalDisplayId);
+    }
+
+    static DisplayCaptureSource sourceForWorkspace(final int workspaceDisplayId) {
+        final DesktopDisplayTarget target = workspaceDisplayId == 0
+                ? DesktopDisplayTarget.phone()
+                : DesktopRuntimeBridge.getDesktopTarget(workspaceDisplayId);
+        if (target == null) {
+            throw new IllegalStateException("desktop workspace is unavailable: " + workspaceDisplayId);
+        }
+        return sourceFor(target);
+    }
+
+    static DisplayCaptureSource sourceFor(final DesktopDisplayTarget target) {
+        return DisplayCaptureSource.logical(target.workspaceDisplayId);
     }
 
     String diagnosticDetail() {

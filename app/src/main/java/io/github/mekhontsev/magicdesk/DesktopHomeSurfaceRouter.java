@@ -17,11 +17,11 @@ final class DesktopHomeSurfaceRouter {
     private DesktopHomeSurfaceRouter() {
     }
 
-    static Surface forTarget(final DesktopDisplayTarget.Kind targetKind) {
-        if (targetKind == null) {
+    static Surface forTarget(final DesktopDisplayTarget target) {
+        if (target == null) {
             throw new IllegalArgumentException("HOME target is required");
         }
-        return targetKind == DesktopDisplayTarget.Kind.PHONE
+        return target.isPhoneWorkspace()
                 ? Surface.DESKTOP : Surface.PHONE;
     }
 

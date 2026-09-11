@@ -8,49 +8,49 @@ public final class DesktopDisplayTargetTest {
     @Test
     public void factoriesPreserveKindAndDisplay() {
         assertEquals(
-                DesktopDisplayTarget.Kind.PHONE,
-                DesktopDisplayTarget.phone().kind);
+                DesktopDisplayOutput.Kind.PHONE,
+                DesktopDisplayTarget.phone().output.kind);
         assertEquals(
-                DesktopDisplayTarget.Kind.WIRED,
-                DesktopDisplayTarget.wired(7).kind);
+                DesktopDisplayOutput.Kind.WIRED,
+                DesktopDisplayTarget.wired(7).output.kind);
         assertEquals(
-                DesktopDisplayTarget.Kind.WIRELESS,
-                DesktopDisplayTarget.wireless(8).kind);
+                DesktopDisplayOutput.Kind.WIRELESS,
+                DesktopDisplayTarget.wireless(8).output.kind);
         assertEquals(
-                DesktopDisplayTarget.Kind.SIMULATED,
-                DesktopDisplayTarget.simulated(9).kind);
-        assertEquals(8, DesktopDisplayTarget.wireless(8).displayId);
-        assertEquals(0, DesktopDisplayTarget.phone().displayId);
+                DesktopDisplayOutput.Kind.SIMULATED,
+                DesktopDisplayTarget.simulated(9).output.kind);
+        assertEquals(8, DesktopDisplayTarget.wireless(8).workspaceDisplayId);
+        assertEquals(0, DesktopDisplayTarget.phone().workspaceDisplayId);
     }
 
     @Test
     public void profileMetadataIsExplicitAndImmutable() {
         final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7)
                 .withActivationSource(
-                        DesktopDisplayTarget.ActivationSource
+                        DesktopDisplayOutput.ActivationSource
                                 .MAGICDESK_REQUESTED)
-                .withProfile(3, "display:wired:local:123");
+                .withProfile( "display:wired:local:123");
 
-        assertEquals(7, target.displayId);
-        assertEquals(3, target.profileDisplayId);
-        assertEquals("display:wired:local:123", target.profileKey);
+        assertEquals(7, target.workspaceDisplayId);
+        assertEquals(7, target.output.displayId);
+        assertEquals("display:wired:local:123", target.output.profileKey);
         assertEquals(
-                DesktopDisplayTarget.ActivationSource.MAGICDESK_REQUESTED,
-                target.activationSource);
+                DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED,
+                target.output.activationSource);
     }
 
     @Test
     public void restorePreservesActivationSource() {
         final DesktopDisplayTarget target = DesktopDisplayTarget.restore(
-                DesktopDisplayTarget.Kind.WIRED,
+                DesktopDisplayOutput.Kind.WIRED,
                 7,
                 3,
                 "display:wired:local:123",
-                DesktopDisplayTarget.ActivationSource.MAGICDESK_REQUESTED);
+                DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED);
 
         assertEquals(
-                DesktopDisplayTarget.ActivationSource.MAGICDESK_REQUESTED,
-                target.activationSource);
+                DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED,
+                target.output.activationSource);
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -59,12 +59,12 @@ public final class DesktopDisplayTargetTest {
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void phoneTargetRejectsSecondaryDisplay() {
+    public void phoneOutputRejectsSecondaryDisplay() {
         DesktopDisplayTarget.restore(
-                DesktopDisplayTarget.Kind.PHONE,
+                DesktopDisplayOutput.Kind.PHONE,
                 7,
                 7,
                 "ignored",
-                DesktopDisplayTarget.ActivationSource.MAGICDESK_REQUESTED);
+                DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED);
     }
 }

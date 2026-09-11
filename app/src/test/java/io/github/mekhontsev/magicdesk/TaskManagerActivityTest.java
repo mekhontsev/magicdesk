@@ -169,9 +169,9 @@ public final class TaskManagerActivityTest {
                 static void load(int display, java.util.function.Consumer<Snapshot> callback) { loads++; pending = callback; }
                 static void complete() { var callback = pending; pending = null; callback.accept(next); }
             }
-            record Target(int displayId) {}
-            record DesktopSessionSnapshot(int activeDisplayId, int targetDisplay) {
-                boolean hasHost() { return activeDisplayId >= 0; }
+            record Target(int workspaceDisplayId) {}
+            record DesktopSessionSnapshot(int activeWorkspaceDisplayId, int targetDisplay) {
+                boolean hasHost() { return activeWorkspaceDisplayId >= 0; }
                 Target target() { return targetDisplay < 0 ? null : new Target(targetDisplay); }
             }
             static class DesktopRuntimeBridge {

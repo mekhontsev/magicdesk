@@ -71,7 +71,7 @@ final class DesktopSelfTestWindowSuite {
             }
             final DesktopSessionSnapshot session =
                     DesktopRuntimeBridge.getSessionSnapshot();
-            if (session.activeDisplayId() != targetDisplayId
+            if (session.activeWorkspaceDisplayId() != targetDisplayId
                     || session.hostTaskId() < 0) {
                 throw new IOException(
                         "desktop runtime has no host on display "
@@ -95,7 +95,7 @@ final class DesktopSelfTestWindowSuite {
                             appContext, result.runId()));
         }
         final DisplayCaptureSource captureSource =
-                DesktopDisplayDrivers.captureSource(
+                DesktopCaptureTarget.sourceForWorkspace(
                 targetDisplayId);
         DesktopSelfTestPhoneUiObserver.refreshTouchpadExpectation(
                 targetDisplayId);

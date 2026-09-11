@@ -133,7 +133,7 @@ public final class DesktopOperations {
                 CompatibilityDiagnostics.record(
                         "DESKTOP-HOME-006",
                         "Could not recover the desktop Home session",
-                        "display=" + (target == null ? -1 : target.displayId)
+                        "display=" + (target == null ? -1 : target.workspaceDisplayId)
                                 + " error=" + error.getMessage(),
                         error);
             }
@@ -200,8 +200,8 @@ public final class DesktopOperations {
                 boolean success = false;
                 try {
                     final int displayId = target != null
-                            && target.displayId > 0
-                            ? target.displayId
+                            && target.workspaceDisplayId > 0
+                            ? target.workspaceDisplayId
                             : MagicDeskRuntime.activeDesktopDisplayId();
                     if (displayId <= 0) {
                         success = true;

@@ -38,7 +38,7 @@ final class RuntimeDesktopTaskCoordinator {
                             DesktopRuntimeBridge.getSessionSnapshot();
                     final int hostTaskId = session.hostTaskId();
                     if (hostTaskId >= 0 && hostTaskId != mPreparedHostTaskId
-                            && session.activeDisplayId() == displayId
+                            && session.activeWorkspaceDisplayId() == displayId
                             && ownershipReady
                             && DesktopRuntimeBridge.isDesktopReadyOnDisplay(displayId)
                             && mParking.isWorkspacePrepared(session)) {
@@ -56,7 +56,7 @@ final class RuntimeDesktopTaskCoordinator {
         }
         final Mode mode = modeFor(session, shellReady);
         final int displayId = mode == Mode.ACTIVE
-                ? session.activeDisplayId() : Display.INVALID_DISPLAY;
+                ? session.activeWorkspaceDisplayId() : Display.INVALID_DISPLAY;
 
         if (mode == Mode.ACTIVE) {
             mTasks.setTaskWatcherEnabled(true);

@@ -26,11 +26,11 @@ public final class VirtualDisplaySpecTest {
     @Test public void catalogDoesNotInferOwnershipFromDisplayType() {
         final DesktopDisplayInfo owned = PhoneControlPanelControllerTest.display(3, "virtual", true, true);
         final DesktopDisplayInfo foreign = PhoneControlPanelControllerTest.display(4, "virtual", true, false);
-        assertEquals(DesktopDisplayTarget.Kind.SIMULATED, owned.target().kind);
-        assertEquals(DesktopDisplayTarget.ActivationSource.MAGICDESK_REQUESTED,
-                owned.target().activationSource);
-        assertEquals(DesktopDisplayTarget.ActivationSource.ADOPTED_EXISTING,
-                foreign.target().activationSource);
+        assertEquals(DesktopDisplayOutput.Kind.SIMULATED, owned.target().output.kind);
+        assertEquals(DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED,
+                owned.target().output.activationSource);
+        assertEquals(DesktopDisplayOutput.ActivationSource.ADOPTED_EXISTING,
+                foreign.target().output.activationSource);
         assertThrows(IllegalArgumentException.class,
                 () -> PhoneControlPanelControllerTest.display(5, "internal", false, false).target());
     }
