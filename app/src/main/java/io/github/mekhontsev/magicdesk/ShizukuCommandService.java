@@ -214,6 +214,22 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     }
 
     @Override
+    public void sendActivityOnDisplay(final android.app.PendingIntent intent, final int displayId) {
+        try {
+            FrameworkActivityLaunchApi.send(mContext, intent, displayId);
+        } catch (ReflectiveOperationException | android.app.PendingIntent.CanceledException error) {
+            throw new IllegalStateException("shell pending Activity launch failed", error);
+        }
+    }
+
+    @Override
+    public android.app.PendingIntent getShortcutLaunchIntent(
+            final String packageName, final String shortcutId) {
+        return ShellShortcutGateway.launchIntent(mContext, ShellShortcutGateway.require(
+                mContext, packageName, shortcutId, android.os.Process.myUserHandle()));
+    }
+
+    @Override
     public ShortcutInfo[] queryAppShortcuts(final String packageName) {
         return ShellShortcutGateway.query(mContext, packageName);
     }

@@ -138,8 +138,8 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "launch_app",
                         "Launch application",
-                        "Launch an Android application through the native MagicDesk window pipeline.",
-                        objectSchema(new JSONObject()
+                        "Launch an Android application on an ordinary display or through the active Desktop. Ordinary launches return acceptance; use ui.wait to verify the interface.",
+                        objectSchema(activityPlacementProperties()
                                         .put("appIdentity", stringProperty(
                                                 "Profile-scoped identity returned by list_apps."))
                                         .put("component", stringProperty(
@@ -152,8 +152,6 @@ final class MagicDeskMcpToolCatalog {
                                                 "reuse", "new"))
                                         .put("preferredTaskId", integerProperty(
                                                 "Existing task to activate when instance is reuse."))
-                                        .put("displayId", integerProperty(
-                                                "Active desktop display id."))
                                         .put("bounds", relativeBoundsProperty(
                                                 "Initial bounds within the desktop work area.")),
                                 "appIdentity")))
@@ -312,12 +310,12 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "launch_intent",
                         "Launch Android Intent",
-                        "Launch a typed or raw Android Activity Intent through the managed desktop window pipeline.",
+                        "Launch a typed or raw Activity Intent without requiring Desktop. Ordinary launches return acceptance; use ui.wait to verify the interface. An active Desktop destination retains managed placement.",
                         intentSchema(false)))
                 .put(actionTool(
                         "open_uri",
                         "Open URI",
-                        "Open a URI through the managed Android Activity and desktop window pipeline.",
+                        "Open a URI on an ordinary display or inside the active Desktop, preserving Android authorization.",
                         openUriSchema()))
                 .put(actionTool(
                         "open_file",
@@ -337,7 +335,7 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "invoke_android_action",
                         "Invoke Android action",
-                        "Invoke a stable semantic Android action through the managed desktop Activity pipeline.",
+                        "Invoke a stable semantic Android action without requiring Desktop; an active Desktop destination retains managed placement.",
                         androidActionSchema()))
                 .put(readTool(
                         "get_activity_history",
@@ -354,7 +352,7 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "invoke_app_action",
                         "Invoke application action",
-                        "Launch one published application shortcut through the desktop window pipeline.",
+                        "Launch a published application shortcut on an ordinary display or inside the active Desktop.",
                         appTargetSchema(true)))
                 .put(readTool(
                         "list_notifications",
@@ -448,17 +446,13 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool(
                         "clipboard.open",
                         "Open clipboard link or file",
-                        "Open the current clipboard file or web link through the production desktop Intent launcher.",
-                        objectSchema(new JSONObject().put(
-                                "displayId", integerProperty(
-                                        "Optional active desktop display id.")))))
+                        "Open the current clipboard file or web link through the shared Android launcher, without requiring Desktop.",
+                        objectSchema(activityPlacementProperties())))
                 .put(actionTool(
                         "clipboard.share",
                         "Share clipboard content",
-                        "Open Android's share chooser for the current clipboard content through the production desktop Intent launcher.",
-                        objectSchema(new JSONObject().put(
-                                "displayId", integerProperty(
-                                        "Optional active desktop display id.")))))
+                        "Open Android's share chooser for clipboard content without requiring Desktop.",
+                        objectSchema(activityPlacementProperties())))
                 .put(destructiveTool(
                         "clipboard.clear",
                         "Clear clipboard",
@@ -834,11 +828,15 @@ final class MagicDeskMcpToolCatalog {
     }
 
     private static JSONObject toolPlacementProperties() throws JSONException {
+        return activityPlacementProperties()
+                .put("uniqueId", stringProperty("Optional stable display identity to reject a stale selection."));
+    }
+
+    private static JSONObject activityPlacementProperties() throws JSONException {
         return new JSONObject().put("placement", enumProperty(
                         "auto selects Desktop when present, otherwise phone; display and phone are ordinary fullscreen launches.",
                         "auto", "phone", "display", "desktop"))
-                .put("displayId", integerProperty("Destination display; required for display placement."))
-                .put("uniqueId", stringProperty("Optional stable display identity to reject a stale selection."));
+                .put("displayId", integerProperty("Destination display, including 0; defaults to active Desktop or phone. Required for display placement."));
     }
 
     private static JSONObject sessionSchema() throws JSONException {
@@ -873,6 +871,11 @@ final class MagicDeskMcpToolCatalog {
                 .put("component", stringProperty(
                         "Optional flattened activity component."));
         if (actionId) {
+            final JSONObject placement = activityPlacementProperties();
+            properties.put("placement", placement.get("placement"))
+                    .put("displayId", placement.get("displayId"))
+                    .put("mode", enumProperty("Launch mode; windowed requires Desktop.",
+                            "auto", "windowed", "fullscreen"));
             properties.put("actionId", stringProperty(
                     "Action id returned by list_app_actions."));
             return objectSchema(properties, "appIdentity", "actionId");
@@ -882,7 +885,7 @@ final class MagicDeskMcpToolCatalog {
 
     private static JSONObject intentSchema(final boolean includeKind)
             throws JSONException {
-        final JSONObject properties = new JSONObject()
+        final JSONObject properties = activityPlacementProperties()
                 .put("name", stringProperty("Display name for Activity launches."))
                 .put("intentUri", stringProperty(
                         "Raw Android Intent URI used as the base request."))
@@ -910,8 +913,6 @@ final class MagicDeskMcpToolCatalog {
                         "Existing task to receive the action when instance is reuse."))
                 .put("bounds", relativeBoundsProperty(
                         "Initial bounds within the desktop work area."))
-                .put("displayId", integerProperty(
-                        "Optional active desktop display id."))
                 .put("chooser", booleanProperty(
                         "Wrap an Activity request in the Android chooser."))
                 .put("chooserTitle", stringProperty(
@@ -931,7 +932,7 @@ final class MagicDeskMcpToolCatalog {
     }
 
     private static JSONObject openUriSchema() throws JSONException {
-        return objectSchema(new JSONObject()
+        return objectSchema(activityPlacementProperties()
                         .put("uri", stringProperty("URI to open."))
                         .put("mimeType", stringProperty("Optional MIME type."))
                         .put("package", stringProperty("Optional target package."))
@@ -945,8 +946,6 @@ final class MagicDeskMcpToolCatalog {
                                 "Existing task to receive the action."))
                         .put("bounds", relativeBoundsProperty(
                                 "Initial bounds within the desktop work area."))
-                        .put("displayId", integerProperty(
-                                "Optional active desktop display id."))
                         .put("chooser", booleanProperty("Show Android chooser."))
                         .put("chooserTitle", stringProperty("Chooser title."))
                         .put("expectResult", booleanProperty(
@@ -955,9 +954,7 @@ final class MagicDeskMcpToolCatalog {
     }
 
     private static JSONObject openFileSchema() throws JSONException {
-        final JSONObject schema = objectSchema(new JSONObject()
-                .put("displayId", integerProperty(
-                        "Optional active desktop display id."))
+        final JSONObject schema = objectSchema(activityPlacementProperties()
                 .put("path", stringProperty("Absolute shell file path."))
                 .put("uri", stringProperty("Existing content URI."))
                 .put("mimeType", stringProperty("Optional MIME type."))
@@ -986,7 +983,7 @@ final class MagicDeskMcpToolCatalog {
     }
 
     private static JSONObject shareSchema() throws JSONException {
-        final JSONObject schema = objectSchema(new JSONObject()
+        final JSONObject schema = objectSchema(activityPlacementProperties()
                 .put("text", stringProperty("Optional shared text."))
                 .put("subject", stringProperty("Optional shared subject."))
                 .put("files", arrayProperty(
@@ -1005,8 +1002,6 @@ final class MagicDeskMcpToolCatalog {
                         "Existing task to receive the action."))
                 .put("bounds", relativeBoundsProperty(
                         "Initial bounds within the desktop work area."))
-                .put("displayId", integerProperty(
-                        "Optional active desktop display id."))
                 .put("chooser", booleanProperty("Show Android chooser."))
                 .put("chooserTitle", stringProperty("Chooser title.")));
         return schema.put("anyOf", new JSONArray()
@@ -1015,12 +1010,10 @@ final class MagicDeskMcpToolCatalog {
     }
 
     private static JSONObject androidActionSchema() throws JSONException {
-        return objectSchema(new JSONObject()
+        return objectSchema(activityPlacementProperties()
                         .put("actionId", enumProperty(
                                 "Stable Android action id.",
                                 AndroidDesktopActionCatalog.ids()))
-                        .put("displayId", integerProperty(
-                                "Optional active desktop display id."))
                         .put("mimeType", stringProperty(
                                 "Document MIME type."))
                         .put("multiple", booleanProperty(
@@ -1058,16 +1051,14 @@ final class MagicDeskMcpToolCatalog {
     }
 
     private static JSONObject notificationActionSchema() throws JSONException {
-        return objectSchema(new JSONObject()
+        return objectSchema(activityPlacementProperties()
                         .put("key", stringProperty(
                                 "Opaque notification key from list_notifications."))
                         .put("operation", enumProperty(
                                 "Notification operation.",
                                 "open", "action", "dismiss"))
                         .put("actionIndex", integerProperty(
-                                "Action index from list_notifications."))
-                        .put("displayId", integerProperty(
-                                "Optional active desktop display id.")),
+                                "Action index from list_notifications.")),
                 "key");
     }
 
@@ -1703,6 +1694,9 @@ final class MagicDeskMcpToolCatalog {
     private static void taskLaunchResultProperties(
             final JSONObject properties) throws JSONException {
         properties.put("displayId", integerProperty("Display id."))
+                .put("placement", enumProperty("Resolved placement.", "display", "desktop"))
+                .put("accepted", booleanProperty("Android accepted dispatch; not proof that a window appeared."))
+                .put("nextAction", stringProperty("Required observation after an ordinary launch."))
                 .put("mode", stringProperty("Requested launch mode."))
                 .put("taskObserved", booleanProperty(
                         "Whether the production launch identified a task."))

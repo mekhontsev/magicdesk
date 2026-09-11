@@ -40,20 +40,35 @@ final class AndroidIntegrationGateway {
     DesktopAutomationResult execute(
             final AndroidDesktopAction action,
             final int displayId) throws IOException, JSONException {
+        return execute(action, ToolLaunchTarget.resolve("auto", displayId,
+                DesktopRuntimeBridge.getActiveDesktopDisplayId()));
+    }
+
+    private DesktopAutomationResult execute(
+            final AndroidDesktopAction action,
+            final ToolLaunchTarget placement) throws IOException, JSONException {
         if (action == null) {
             throw new IllegalArgumentException("Android action is required");
         }
         if (action.application != null) {
             AppProfile.requireCurrent(mContext, action.application);
         }
+        final int displayId = placement.displayId;
+        if (action.kind == AndroidDesktopAction.Kind.SHORTCUT
+                || action.kind == AndroidDesktopAction.Kind.PENDING_INTENT
+                        && action.pendingIntent.isActivity()
+                || action.kind == AndroidDesktopAction.Kind.REQUEST
+                        && action.request.kind == AndroidIntegrationRequest.Kind.ACTIVITY) {
+            requireLaunchTarget(placement, action.presentation);
+        }
         final DesktopAutomationResult result;
         if (action.kind == AndroidDesktopAction.Kind.SHORTCUT) {
-            result = executeShortcut(action, displayId);
+            result = executeShortcut(action, placement);
         } else if (action.kind == AndroidDesktopAction.Kind.PENDING_INTENT) {
-            result = executePendingIntent(action, displayId);
+            result = executePendingIntent(action, placement);
         } else if (action.request.kind
                 == AndroidIntegrationRequest.Kind.ACTIVITY) {
-            result = launchActivity(action.request, displayId);
+            result = launchActivity(action.request, placement);
         } else if (action.request.kind
                 == AndroidIntegrationRequest.Kind.BROADCAST) {
             mContext.sendBroadcast(action.request.intent);
@@ -119,7 +134,7 @@ final class AndroidIntegrationGateway {
         return execute(
                 AndroidDesktopActionCatalog.create(
                         requiredString(args, "actionId"), args, "automation"),
-                optionalDisplayId(args));
+                launchTarget(args));
     }
 
     DesktopAutomationResult invokeDesktopAction(
@@ -155,7 +170,24 @@ final class AndroidIntegrationGateway {
         return execute(
                 AndroidDesktopAction.request(
                         "launch-intent", "mcp", request),
-                optionalDisplayId(args));
+                launchTarget(args));
+    }
+
+    DesktopAutomationResult launchApplication(final AppIdentity application,
+            final AppLaunchTarget target, final DesktopLaunchPresentation presentation,
+            final ToolLaunchTarget placement) throws IOException, JSONException {
+        AppProfile.requireCurrent(mContext, application);
+        final Intent intent = target.resolve(mPackageManager);
+        if (intent == null) {
+            return DesktopAutomationResult.failure("launcher Activity is unavailable");
+        }
+        final DesktopAutomationResult result = execute(AndroidDesktopAction.request(
+                "launch-app", "mcp", AndroidIntegrationRequest.activity(intent, target.packageName,
+                        presentation, false, "", false)).forApplication(application), placement);
+        if (result.success) {
+            result.data.put("appIdentity", application.persistentKey());
+        }
+        return result;
     }
 
     DesktopAutomationResult openUri(final JSONObject args)
@@ -172,7 +204,7 @@ final class AndroidIntegrationGateway {
                         AndroidIntegrationRequest.parse(
                                 request,
                                 AndroidIntegrationRequest.Kind.ACTIVITY)),
-                optionalDisplayId(args));
+                launchTarget(args));
     }
 
     DesktopAutomationResult openFile(final JSONObject args)
@@ -236,10 +268,11 @@ final class AndroidIntegrationGateway {
                         args.optBoolean("chooser", false),
                         optionalString(args, "chooserTitle", ""),
                         args.optBoolean("expectResult", false)));
-        final int displayId = optionalDisplayId(args);
+        final ToolLaunchTarget placement = launchTarget(args);
+        requireLaunchTarget(placement, request.presentation);
         grants.publish();
         // Observation may time out after dispatch; that must not revoke a consumer's URIs.
-        return execute(request, displayId);
+        return execute(request, placement);
     }
 
     DesktopAutomationResult share(final JSONObject args)
@@ -279,9 +312,10 @@ final class AndroidIntegrationGateway {
                         args.optBoolean("chooser", true),
                         optionalString(args, "chooserTitle", "Share with"),
                         false));
-        final int displayId = optionalDisplayId(args);
+        final ToolLaunchTarget placement = launchTarget(args);
+        requireLaunchTarget(placement, request.presentation);
         grants.publish();
-        return execute(request, displayId);
+        return execute(request, placement);
     }
 
     static String fileAction(final JSONObject args) {
@@ -482,7 +516,7 @@ final class AndroidIntegrationGateway {
                         new AndroidShortcutSpec(application, target, actionId),
                         AndroidIntegrationRequest.parsePresentation(
                                 args, DesktopTaskInstancePolicy.REUSE_EXISTING)),
-                optionalDisplayId(args));
+                launchTarget(args));
     }
 
     DesktopAutomationResult listNotifications(final JSONObject args)
@@ -627,7 +661,8 @@ final class AndroidIntegrationGateway {
 
     private DesktopAutomationResult executePendingIntent(
             final AndroidDesktopAction action,
-            final int displayId) throws JSONException {
+            final ToolLaunchTarget placement) throws IOException, JSONException {
+        final int displayId = placement.displayId;
         final PendingIntent pendingIntent = action.pendingIntent;
         if (!pendingIntent.isActivity()) {
             try {
@@ -646,11 +681,11 @@ final class AndroidIntegrationGateway {
                         false);
             }
         }
-        if (displayId < Display.DEFAULT_DISPLAY
-                || displayId != DesktopRuntimeBridge
-                        .getActiveDesktopDisplayId()) {
-            throw new IllegalArgumentException(
-                    "the requested display has no active desktop host");
+        if (!placement.desktop) {
+            ShellAccess.sendActivityOnDisplay(pendingIntent, displayId);
+            return OrdinaryActivityLaunch.accepted(displayId, new JSONObject()
+                    .put("creatorPackage", value(pendingIntent.getCreatorPackage()))
+                    .put("activity", true));
         }
         final String creatorPackage = value(pendingIntent.getCreatorPackage());
         if (creatorPackage.isEmpty()) {
@@ -719,16 +754,19 @@ final class AndroidIntegrationGateway {
 
     private DesktopAutomationResult executeShortcut(
             final AndroidDesktopAction action,
-            final int displayId) throws JSONException {
+            final ToolLaunchTarget placement) throws IOException, JSONException {
+        final int displayId = placement.displayId;
         requireShortcutPresentation(action.presentation);
-        if (displayId < Display.DEFAULT_DISPLAY
-                || displayId != DesktopRuntimeBridge
-                        .getActiveDesktopDisplayId()) {
-            throw new IllegalArgumentException(
-                    "the requested display has no active desktop host");
-        }
         final AndroidShortcutSpec shortcut = action.shortcut;
         AppProfile.requireCurrent(mContext, shortcut.application);
+        if (!placement.desktop) {
+            ShellAccess.sendActivityOnDisplay(ShellAccess.getShortcutLaunchIntent(
+                    shortcut.publisher.packageName, shortcut.shortcutId), displayId);
+            return OrdinaryActivityLaunch.accepted(displayId, new JSONObject()
+                    .put("package", shortcut.publisher.packageName)
+                    .put("appIdentity", shortcut.application.persistentKey())
+                    .put("actionId", shortcut.shortcutId));
+        }
         final DesktopActivityLaunchResult launch =
                 DesktopRuntimeBridge.invokeAppActionObserved(
                         shortcut.application,
@@ -802,7 +840,7 @@ final class AndroidIntegrationGateway {
 
     private DesktopAutomationResult launchActivity(
             final AndroidIntegrationRequest request,
-            final int displayId) throws IOException, JSONException {
+            final ToolLaunchTarget placement) throws IOException, JSONException {
         final Intent target = new Intent(request.intent);
         final AndroidActivityResolution resolution = ShellAccess.isReady()
                 ? ShellAccess.resolveActivity(target)
@@ -849,7 +887,7 @@ final class AndroidIntegrationGateway {
                 ? AndroidActivityResultStore.begin(target) : "";
         try {
             final DesktopAutomationResult result = launchResolvedActivity(
-                    request, displayId, target, resolution, launchPolicy, resultRequestId);
+                    request, placement, target, resolution, launchPolicy, resultRequestId);
             if (!resultRequestId.isEmpty()) {
                 // An observation failure can still have a live result relay.
                 // Return its id so the caller can wait for it or discard it.
@@ -868,11 +906,13 @@ final class AndroidIntegrationGateway {
 
     private DesktopAutomationResult launchResolvedActivity(
             final AndroidIntegrationRequest request,
-            final int displayId,
+            final ToolLaunchTarget placement,
             final Intent target,
             final AndroidActivityResolution resolution,
             final AndroidActivityLaunchPolicy launchPolicy,
             final String resultRequestId) throws IOException, JSONException {
+        final int displayId = placement.displayId;
+        requireLaunchTarget(placement, request.presentation);
         final ComponentName resolvedComponent = resolution.component;
         final Intent launchedIntent;
         final String relayId;
@@ -919,6 +959,18 @@ final class AndroidIntegrationGateway {
                     "Activity launch surface could not be resolved",
                     false,
                     describeExecution(target, request.kind));
+        }
+        if (!placement.desktop) {
+            try {
+                OrdinaryActivityLaunch.launch(mContext,
+                        request.presentation.instancePolicy.applyTo(launchedIntent),
+                        delivery, displayId);
+            } catch (IOException | RuntimeException error) {
+                AndroidActivityRelayStore.discard(relayId);
+                throw error;
+            }
+            return OrdinaryActivityLaunch.accepted(displayId,
+                    describeActivityLaunch(request, target, resolution, launchPolicy));
         }
         final AppLaunchTarget transportTarget = AppLaunchTarget.explicit(
                 component.getPackageName(),
@@ -1006,21 +1058,9 @@ final class AndroidIntegrationGateway {
                     describeExecution(target, request.kind)
                             .put("taskId", result.taskId));
         }
-        final JSONObject data = describeExecution(target, request.kind)
+        final JSONObject data = describeActivityLaunch(request, target, resolution, launchPolicy)
                 .put("displayId", displayId)
-                .put("mode", request.presentation.mode.wireName)
-                .put("instance", request.presentation.instancePolicy.wireName)
-                .put("resolvedComponent",
-                        resolvedComponent == null
-                                ? "" : resolvedComponent.flattenToShortString())
-                .put("resolution", resolution.stateName())
-                .put("handlerCount", resolution.handlerCount)
-                .put("authorization",
-                        describeAuthorization(resolution.authorization))
-                .put("launchIdentity", launchPolicy.identityName())
-                .put("delivery", launchPolicy.deliveryName())
-                .put("relay", launchPolicy.usesResultRelay())
-                .put("resultExpected", request.expectResult)
+                .put("placement", "desktop")
                 .put("taskObserved", true)
                 .put("taskId", observation.task.taskId)
                 .put("transportTaskId", result.taskId)
@@ -1028,6 +1068,23 @@ final class AndroidIntegrationGateway {
         describeObservedTask(data, observation.task);
         return DesktopAutomationResult.success(
                 "Android Activity launched", data);
+    }
+
+    private static JSONObject describeActivityLaunch(final AndroidIntegrationRequest request,
+            final Intent target, final AndroidActivityResolution resolution,
+            final AndroidActivityLaunchPolicy policy) throws JSONException {
+        return describeExecution(target, request.kind)
+                .put("mode", request.presentation.mode.wireName)
+                .put("instance", request.presentation.instancePolicy.wireName)
+                .put("resolvedComponent", resolution.component == null
+                        ? "" : resolution.component.flattenToShortString())
+                .put("resolution", resolution.stateName())
+                .put("handlerCount", resolution.handlerCount)
+                .put("authorization", describeAuthorization(resolution.authorization))
+                .put("launchIdentity", policy.identityName())
+                .put("delivery", policy.deliveryName())
+                .put("relay", policy.usesResultRelay())
+                .put("resultExpected", request.expectResult);
     }
 
     private ComponentName launchComponent(
@@ -1047,14 +1104,24 @@ final class AndroidIntegrationGateway {
     }
 
     private int optionalDisplayId(final JSONObject args) {
-        final int active = DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final int requested = args != null && args.has("displayId")
-                ? requiredInt(args, "displayId") : active;
-        if (requested < Display.DEFAULT_DISPLAY || requested != active) {
-            throw new IllegalArgumentException(
-                    "the requested display has no active desktop host");
+        return launchTarget(args).displayId;
+    }
+
+    ToolLaunchTarget launchTarget(final JSONObject args) {
+        return ToolLaunchTarget.resolve(optionalString(args, "placement", "auto"),
+                args != null && args.has("displayId") ? requiredInt(args, "displayId") : -1,
+                DesktopRuntimeBridge.getActiveDesktopDisplayId());
+    }
+
+    private void requireLaunchTarget(final ToolLaunchTarget placement,
+            final DesktopLaunchPresentation presentation) throws IOException {
+        placement.requireCurrent(DesktopRuntimeBridge.getActiveDesktopDisplayId());
+        if (!placement.desktop) {
+            OrdinaryActivityLaunch.requirePresentation(presentation);
         }
-        return requested;
+        if (placement.displayId != Display.DEFAULT_DISPLAY) {
+            DesktopDisplayCatalog.require(placement.displayId, null);
+        }
     }
 
     private static JSONObject describeExecution(

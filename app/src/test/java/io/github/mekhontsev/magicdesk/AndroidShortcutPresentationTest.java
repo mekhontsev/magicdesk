@@ -42,11 +42,12 @@ public final class AndroidShortcutPresentationTest {
                 "static void requireShortcutPresentation("));
         final int validate = execute.indexOf("requireShortcutPresentation(action.presentation)");
         assertTrue(validate >= 0);
+        assertTrue(validate < execute.indexOf("ShellAccess.getShortcutLaunchIntent("));
         assertTrue(validate < execute.indexOf("DesktopRuntimeBridge.invokeAppActionObserved("));
         final String invoke = source.substring(source.indexOf(
                 "DesktopAutomationResult invokeAppAction("), source.indexOf(
                 "DesktopAutomationResult listNotifications("));
         assertTrue(invoke.contains("AndroidIntegrationRequest.parsePresentation("));
-        assertTrue(invoke.contains("optionalDisplayId(args)"));
+        assertTrue(invoke.contains("launchTarget(args)"));
     }
 }

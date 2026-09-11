@@ -22,7 +22,8 @@ public final class AndroidFilePublicationContractTest {
             assertFalse(source.contains("ShellFileGrantStore.create("));
             final int publish = source.indexOf("grants.publish();");
             assertTrue(publish > source.indexOf("AndroidIntegrationRequest.activity("));
-            assertTrue(publish > source.indexOf("optionalDisplayId(args)"));
+            assertTrue(publish > source.indexOf("launchTarget(args)"));
+            assertTrue(publish > source.indexOf("requireLaunchTarget(placement, request.presentation)"));
             assertTrue(publish < source.indexOf("return execute("));
             assertFalse(source.contains("discardUnpublished("));
         }

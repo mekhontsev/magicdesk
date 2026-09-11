@@ -366,6 +366,16 @@ public final class MagicDeskMcpToolCatalogTest {
         assertTrue(launch.has("instance"));
         assertTrue(launch.has("preferredTaskId"));
         assertTrue(launch.has("bounds"));
+        for (final String name : new String[] {"launch_app", "launch_intent", "open_uri",
+                "open_file", "share", "invoke_android_action", "invoke_app_action", "invoke_notification"}) {
+            final JSONObject input = tool(tools, name).getJSONObject("inputSchema").getJSONObject("properties");
+            assertTrue(name, input.has("placement"));
+            assertTrue(name, input.has("displayId"));
+        }
+        final JSONObject launchResult = tool(tools, "launch_intent").getJSONObject("outputSchema")
+                .getJSONObject("properties").getJSONObject("data").getJSONObject("properties");
+        assertTrue(launchResult.has("accepted"));
+        assertTrue(launchResult.has("nextAction"));
 
         final JSONObject result = tool(tools, "get_intent_result")
                 .getJSONObject("inputSchema")

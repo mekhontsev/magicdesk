@@ -19,6 +19,8 @@ behavior, static verification and remaining device coverage.
   tools do not acquire HOME or require Desktop provisioning. Background launches
   and cross-display launches use the shell service; ordinary phone Activity
   launches use public Activity options and their own identity.
+  The Android integration gateway uses the same placement selection for
+  third-party Activities, content, shortcuts and notification actions.
 - `DisplayOperations` creates and lists display resources without starting
   Desktop. A viewer, an owned virtual display and a Desktop session have separate
   lifetimes. Removal still observes the existing session cleanup boundary.
@@ -603,6 +605,15 @@ runtime integration and are not distributed through the same release path.
   preserving `ClipData`, grants, and typed extras. Discovery and App
   Function framework calls have shell-side adapters, but desktop placement and
   task reuse still enter the production launch coordinator.
+  `ToolLaunchTarget` selects the destination independently of Intent delivery
+  and rechecks Desktop ownership before dispatch. Non-Desktop destinations use
+  `OrdinaryActivityLaunch` and `FrameworkActivityLaunchApi`, without window
+  organizers, HOME or session setup. Background placement uses Shizuku; app
+  authorization, URI grants, chooser/resolver policy and Activity-result relay
+  ownership are shared with managed launches. Ordinary dispatch returns
+  acceptance without an invented observed task; MCP clients confirm their
+  requested UI with accessibility events. Only managed placement accepts
+  relative window bounds or exact-task presentation parameters.
   `AndroidActivityResolution` distinguishes a real handler from Android's
   synthetic resolver without relying on an internal class name. Its typed
   `AndroidActivityAuthorization` independently evaluates enabled/exported

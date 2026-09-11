@@ -4,7 +4,7 @@ import org.json.JSONException;
 
 import java.io.IOException;
 
-/** Executes explicit clipboard-to-Intent actions through the desktop launcher. */
+/** Executes explicit clipboard-to-Intent actions through the shared Android gateway. */
 final class AndroidContentActionGateway {
     private static final Object DIAGNOSTICS_LOCK = new Object();
     private static long sOpenRequests;

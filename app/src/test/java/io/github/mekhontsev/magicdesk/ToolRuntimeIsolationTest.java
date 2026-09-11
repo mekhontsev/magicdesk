@@ -12,7 +12,8 @@ public final class ToolRuntimeIsolationTest {
 
     @Test public void independentServicesDoNotOwnDesktopPolicy() throws Exception {
         for (final String file : new String[]{"ConsoleTerminalSession", "ConsoleTerminalInput",
-                "DisplayOperations", "ShellVirtualDisplays", "FrameworkActivityLaunchApi"}) {
+                "DisplayOperations", "ShellVirtualDisplays", "FrameworkActivityLaunchApi",
+                "OrdinaryActivityLaunch"}) {
             final String source = source(file);
             for (final String desktop : new String[]{"DesktopRuntimeBridge", "DesktopTaskController",
                     "WindowedAppLauncher", "DesktopHomeRoleLease", "FrameworkWindowingApi"}) {

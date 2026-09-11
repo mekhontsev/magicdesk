@@ -14,6 +14,7 @@ device validation on that release is still pending.
 | Termux sessions and viewers | API 34 plus installed Termux, external-command configuration and `RUN_COMMAND` permission. The PTY and its window have separate lifetimes. |
 | APK replacement | API 34 plus authorized Shizuku and the update grant. Android's PackageInstaller and its shell callback own replacement; the update worker survives replacement and reconnect is observed by update ID. |
 | Display resources and ordinary tool placement | API 34 plus authorized Shizuku and working framework capabilities. Creating a display or placing a fullscreen tool there does not acquire HOME or initialize WMShell Desktop. |
+| Ordinary Android Activity automation | API 34 plus authorized Shizuku for background/display placement. Intent authorization, content grants and Activity results are independent of Desktop. Dispatch acceptance is verified separately through UI observation. |
 | Managed Desktop and its self-tests | API 35 plus Desktop provisioning and the required task/window/input APIs. Ordinary tool availability does not imply Desktop availability. |
 
 ## Boundary Enforcement

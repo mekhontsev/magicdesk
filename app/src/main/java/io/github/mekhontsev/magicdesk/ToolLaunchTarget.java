@@ -1,6 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Placement is independent of shell authorization and terminal session identity. */
+/** Activity placement is independent of authorization and Desktop lifetime. */
 final class ToolLaunchTarget {
     final int displayId;
     final boolean desktop;
@@ -12,6 +12,9 @@ final class ToolLaunchTarget {
 
     static ToolLaunchTarget resolve(final String placement, final int requestedDisplay,
             final int activeDesktop) {
+        if (requestedDisplay < -1 || activeDesktop < -1) {
+            throw new IllegalArgumentException("invalid display id");
+        }
         switch (placement) {
             case "auto":
                 final int display = requestedDisplay >= 0 ? requestedDisplay
@@ -42,5 +45,11 @@ final class ToolLaunchTarget {
             throw new IllegalStateException("display belongs to Desktop; use desktop placement");
         }
         return new ToolLaunchTarget(display, false);
+    }
+
+    void requireCurrent(final int activeDesktop) {
+        if (desktop != (displayId == activeDesktop)) {
+            throw new IllegalStateException("display ownership changed; select the launch destination again");
+        }
     }
 }

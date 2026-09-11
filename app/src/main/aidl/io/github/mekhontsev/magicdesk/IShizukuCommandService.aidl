@@ -453,4 +453,8 @@ interface IShizukuCommandService {
     String executeUiAutomation(IBinder ownerToken, String operation, String arguments) = 129;
 
     void releaseUiAutomation(IBinder ownerToken) = 130;
+
+    void sendActivityOnDisplay(in PendingIntent intent, int displayId) = 131;
+
+    PendingIntent getShortcutLaunchIntent(String packageName, String shortcutId) = 132;
 }

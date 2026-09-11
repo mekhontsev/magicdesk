@@ -1,6 +1,8 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.ActivityOptions;
+import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -35,5 +37,15 @@ final class FrameworkActivityLaunchApi {
                 .invoke(service, null, "com.android.shell", null, intent, null, null,
                         null, -1, 0, null, options.toBundle());
         if (result < 0) { throw new IllegalStateException("startActivity returned " + result); }
+    }
+
+    static void send(final Context context, final PendingIntent intent, final int displayId)
+            throws ReflectiveOperationException, PendingIntent.CanceledException {
+        if (intent == null || !intent.isActivity()) {
+            throw new IllegalArgumentException("an Activity PendingIntent is required");
+        }
+        final ActivityOptions options = options(displayId, true);
+        AndroidPendingIntentOptions.allowSenderStart(options, false);
+        intent.send(context, 0, null, null, null, null, options.toBundle());
     }
 }

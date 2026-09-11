@@ -343,8 +343,8 @@ surrogate pair and may therefore be one code unit shorter than the limit.
 Oversized writes are rejected, not truncated.
 `clipboard.open` accepts one clipboard URI or an HTTP(S) link, while
 `clipboard.share` sends text and bounded URI items through Android's chooser.
-Both preserve `ClipData` URI grants and enter the normal desktop Intent launch
-coordinator.
+Both preserve `ClipData` URI grants and use the shared Android launch gateway.
+They support ordinary displays without Desktop and managed Desktop placement.
 
 File commands use the separate read/write grants:
 
@@ -586,6 +586,24 @@ structured action, data, MIME type, target, categories, extras, and symbolic
 flags, or a raw `intentUri` as the base with structured fields applied on top.
 The raw form is a mode of the same gateway, not a separate launch path.
 
+Activity commands also share built-in tools' `placement` contract: `auto`
+selects the supplied `displayId`, otherwise active Desktop or phone; `phone`
+selects ordinary display 0; `display` requires a display id; `desktop` requires
+an active session. Ordinary placement cannot bypass Desktop ownership on the
+same display. This applies to application launches, Intents, URI/file/share
+and clipboard actions, published shortcuts and notification Activity actions.
+Ordinary launches use fullscreen Activity options and do not acquire HOME,
+provision Desktop, or initialize its organizer/input/session coordinators.
+They reject windowed mode, relative bounds and exact managed-task reuse before
+dispatch. Android chooses ordinary task reuse according to the Intent and
+the application's manifest; this is not a managed cross-display task transfer.
+
+An ordinary launch returns `accepted=true`, `taskObserved=false` and an
+observation hint, without inventing a task id or a reuse result. It means
+Android accepted dispatch, not that the requested page appeared. Use `ui.wait`
+on the selected display to confirm the actual interface. No additional task
+observer, polling loop, or guessed delay is started for ordinary launches.
+
 Activity presentation has four independent inputs: `mode`, relative `bounds`,
 `instance`, and optional `preferredTaskId`. Bounds use a `0..10000` scale
 within the desktop work area and require `mode=windowed`. `instance` is exactly
@@ -595,7 +613,7 @@ preferred task id addresses one existing managed task and therefore requires
 fails instead of creating another window. `bounds` cannot accompany an exact
 task id because delivery does not move or resize that task.
 
-Activity intents use the production desktop launch coordinator. Every managed
+Activity intents targeting Desktop use its production launch coordinator. Every managed
 application task is requested as `ACTIVITY_TYPE_STANDARD`; its result includes
 the exact observed task id, display, activity type, mode, bounds, and reuse
 state. Observation reuses the existing task event journal and one-shot typed
@@ -692,9 +710,9 @@ and history; it is not an automation-only execution path.
 authorized shell identity. Static manifest metadata may enrich an action's
 icon, but it is never an executable fallback. Each result identifies its
 published source. `invoke_app_action` resolves the current system
-`PendingIntent` for `package + shortcut id`; the visible MagicDesk process
-sends that token through the same desktop window pipeline as Start and
-application context menus. Shortcut task observation and reuse are
+`PendingIntent` for `package + shortcut id`. Ordinary placement sends the
+token through the shared shell Activity transport; Desktop placement uses the
+same window pipeline as Start and application context menus. Managed shortcut task observation and reuse are
 package-scoped because the optional published metadata Activity may redirect
 to another Activity in that app.
 MagicDesk never reconstructs the shortcut's private Intent. Notification tools use

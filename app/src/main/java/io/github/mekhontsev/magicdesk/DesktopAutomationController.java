@@ -163,11 +163,11 @@ final class DesktopAutomationController {
                     break;
                 case OPEN_CLIPBOARD_CONTENT:
                     result = mClipboardActions.openClipboard(
-                            optionalDisplayId(args));
+                            mAndroid.launchTarget(args).displayId);
                     break;
                 case SHARE_CLIPBOARD_CONTENT:
                     result = mClipboardActions.shareClipboard(
-                            optionalDisplayId(args));
+                            mAndroid.launchTarget(args).displayId);
                     break;
                 case CLEAR_CLIPBOARD:
                     result = mClipboard.clear();
@@ -505,19 +505,15 @@ final class DesktopAutomationController {
         final AppIdentity application = AutomationJsonArguments.requiredApplication(mContext, args);
         final String packageName = application.packageName;
         final AppLaunchTarget target = AutomationJsonArguments.applicationTarget(application, args);
-        final int activeDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final int displayId = args.has("displayId")
-                ? requiredInt(args, "displayId") : activeDisplayId;
-        if (displayId < Display.DEFAULT_DISPLAY
-                || displayId != activeDisplayId) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.DISPLAY_NOT_AVAILABLE,
-                    "the requested display has no active desktop host", true);
-        }
+        final ToolLaunchTarget placement = mAndroid.launchTarget(args);
+        final int displayId = placement.displayId;
         final DesktopLaunchPresentation presentation =
                 AndroidIntegrationRequest.parsePresentation(
                         args, DesktopTaskInstancePolicy.REUSE_EXISTING);
+        if (!placement.desktop) {
+            return mAndroid.launchApplication(application, target, presentation, placement);
+        }
+        placement.requireCurrent(DesktopRuntimeBridge.getActiveDesktopDisplayId());
         final DesktopActivityLaunchResult result =
                 DesktopRuntimeBridge.launchApplicationObserved(
                         application, target,

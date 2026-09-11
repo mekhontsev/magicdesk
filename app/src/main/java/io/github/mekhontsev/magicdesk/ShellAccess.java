@@ -324,6 +324,28 @@ public final class ShellAccess {
         }
     }
 
+    static void sendActivityOnDisplay(final android.app.PendingIntent intent, final int displayId)
+            throws IOException {
+        try {
+            requireService().sendActivityOnDisplay(intent, displayId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Android pending Activity launch failed: "
+                    + usefulMessage(error), error);
+        }
+    }
+
+    static android.app.PendingIntent getShortcutLaunchIntent(final String packageName,
+            final String shortcutId) throws IOException {
+        try {
+            return requireService().getShortcutLaunchIntent(packageName, shortcutId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("Android shortcut launch token unavailable: "
+                    + usefulMessage(error), error);
+        }
+    }
+
     static ShortcutInfo[] queryAppShortcuts(final String packageName)
             throws IOException {
         try {
