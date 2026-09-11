@@ -95,6 +95,7 @@ final class ConsoleTerminalRegistry {
     }
 
     static void detach(final String id, final Activity activity) {
+        boolean disconnectClient;
         synchronized (ENTRIES) {
             final Entry entry = ENTRIES.get(id);
             if (entry == null || entry.activity.get() != activity) { return; }
@@ -103,10 +104,38 @@ final class ConsoleTerminalRegistry {
             if (view != null) { view.attach(null, null); }
             entry.activity.clear();
             entry.view.clear();
+            // Rotation and view transfer retain the client. A closed tmux window
+            // releases its own controlling PTY; tmux retains the server session.
+            disconnectClient = activity.isFinishing() && !entry.tmuxSessionId.isEmpty();
             ENTRIES.notifyAll();
         }
+        if (disconnectClient) { close(id); return; }
         DesktopAutomationEventJournal.record("terminal", "detached", true, "terminalId=" + id);
         MagicDeskRuntime.refreshNotification();
+    }
+
+    static void bindTmux(String id, String sessionId, long createdSeconds) {
+        if (!TmuxSessionProvider.isSessionId(sessionId) || createdSeconds < 0) {
+            throw new IllegalArgumentException("invalid tmux binding");
+        }
+        final Entry entry = find(id);
+        if (entry == null) throw new IllegalArgumentException("terminal no longer exists");
+        entry.tmuxSessionId = sessionId;
+        entry.tmuxCreatedSeconds = createdSeconds;
+    }
+
+    static void rename(String id, String name) {
+        callOnMain(() -> {
+            final Entry entry = find(id);
+            if (entry == null) throw new IllegalArgumentException("terminal no longer exists");
+            final String label = name == null ? "" : name.trim();
+            if (label.length() > 64 || label.chars().anyMatch(Character::isISOControl)) {
+                throw new IllegalArgumentException("invalid terminal name");
+            }
+            entry.userTitle = label;
+            entry.onTitleChanged(entry.session.title());
+            return null;
+        });
     }
 
     static List<Snapshot> list() {
@@ -399,6 +428,7 @@ final class ConsoleTerminalRegistry {
         return callOnMain(() -> {
             final Entry entry = find(id);
             if (entry == null) { return false; }
+            if (!entry.tmuxSessionId.isEmpty()) { return close(id); }
             final Activity activity = entry.activity.get();
             if (activity == null) { return true; }
             detach(id, activity);
@@ -477,6 +507,9 @@ final class ConsoleTerminalRegistry {
         final String title;
         final String backend;
         final TerminalProcessInfo foregroundProcess;
+        final String userTitle;
+        final String tmuxSessionId;
+        final long tmuxCreatedSeconds;
 
         Snapshot(
                 final String id,
@@ -490,7 +523,8 @@ final class ConsoleTerminalRegistry {
                 final String workingDirectory,
                 final String title,
                 final String backend,
-                final TerminalProcessInfo foregroundProcess) {
+                final TerminalProcessInfo foregroundProcess,
+                final String userTitle, final String tmuxSessionId, final long tmuxCreatedSeconds) {
             this.id = id;
             this.taskId = taskId;
             this.displayId = displayId;
@@ -504,9 +538,13 @@ final class ConsoleTerminalRegistry {
             this.backend = backend;
             this.foregroundProcess = foregroundProcess == null
                     ? TerminalProcessInfo.unknown() : foregroundProcess;
+            this.userTitle = userTitle;
+            this.tmuxSessionId = tmuxSessionId;
+            this.tmuxCreatedSeconds = tmuxCreatedSeconds;
         }
 
         String taskLabel(final String fallback) {
+            if (!userTitle.isEmpty()) return userTitle;
             return TerminalTaskLabel.resolve(
                     fallback, foregroundProcess, title);
         }
@@ -518,6 +556,9 @@ final class ConsoleTerminalRegistry {
         WeakReference<ConsoleTerminalView> view = new WeakReference<>(null);
         final ConsoleTerminalSession session;
         long attachmentGeneration;
+        String userTitle = "";
+        String tmuxSessionId = "";
+        long tmuxCreatedSeconds;
         final TerminalNotificationLimiter notifications = new TerminalNotificationLimiter();
 
         Entry(final String id,
@@ -568,7 +609,7 @@ final class ConsoleTerminalRegistry {
                     terminal.workingDirectory(),
                     terminal.title(),
                     terminal.backend().wireName,
-                    terminal.foregroundProcess());
+                    terminal.foregroundProcess(), userTitle, tmuxSessionId, tmuxCreatedSeconds);
         }
     }
 }

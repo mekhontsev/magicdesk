@@ -21,11 +21,15 @@ final class AutomationToolWindows {
             final Context context = MagicDeskApplication.applicationContext();
             final CountDownLatch completed = new CountDownLatch(1);
             final Throwable[] failure = new Throwable[1];
-            ToolApplications.open(context, intent, target,
-                    args.has("uniqueId") ? args.getString("uniqueId") : null, error -> {
-                        failure[0] = error;
-                        completed.countDown();
-                    });
+            final BuiltInWindowLauncher.Callback callback = error -> {
+                failure[0] = error;
+                completed.countDown();
+            };
+            final String uniqueId = args.has("uniqueId") ? args.getString("uniqueId") : null;
+            if (intent.getComponent() != null && CommandConsoleActivity.class.getName()
+                    .equals(intent.getComponent().getClassName())) {
+                TerminalSessions.open(context, intent, target, uniqueId, callback);
+            } else ToolApplications.open(context, intent, target, uniqueId, callback);
             // Bound the launch-completion callback; there is no display/task polling here.
             if (!completed.await(20_000L, TimeUnit.MILLISECONDS)) {
                 return DesktopAutomationResult.failure(DesktopAutomationErrorCode.TIMEOUT,

@@ -774,7 +774,7 @@ final class AutomationCommandCatalog {
                         objectSchema(toolPlacementProperties().put("terminalId",
                                 stringProperty("Existing terminal session id.")), "terminalId")))
                 .put(actionTool("terminal.detach", "Detach terminal window",
-                        "Close the terminal view while retaining its PTY and transcript.", terminalSchema()))
+                        "Detach a window: ordinary PTYs and transcripts remain; a managed tmux client disconnects while its server session remains.", terminalSchema()))
                 .put(readTool(
                         "terminal.status",
                         "Get terminal status",
@@ -1651,9 +1651,12 @@ final class AutomationCommandCatalog {
                                 "Resolved Android modifier state."));
                 break;
             case "terminal.close":
-            case "terminal.detach":
                 properties.put("terminalId", stringProperty(
                         "Interactive terminal id."));
+                break;
+            case "terminal.detach":
+                properties.put("terminalId", stringProperty("Interactive terminal id."))
+                        .put("ptyRetained", booleanProperty("False for a disconnected tmux client; its tmux session remains."));
                 break;
             case "tmux.list":
                 properties.put("available", booleanProperty(
@@ -1671,16 +1674,10 @@ final class AutomationCommandCatalog {
                                 "Whether the terminal launch was accepted."))
                         .put("terminalId", stringProperty(
                                 "Reserved interactive terminal id."))
-                        .put("backend", stringProperty(
-                                "Selected terminal backend."))
                         .put("observed", booleanProperty(
                                 "Whether the terminal registered before the response."))
-                        .put("workingDirectory", stringProperty(
-                                "Requested initial directory."))
-                        .put("commandProvided", booleanProperty(
-                                "Whether an initial command was supplied."))
                         .put("tmuxSessionId", stringProperty(
-                                "Known tmux session id, empty for a new name."))
+                                "Resolved tmux session id, including newly created sessions."))
                         .put("tmuxSessionName", stringProperty(
                                 "Requested tmux session name."));
                 break;

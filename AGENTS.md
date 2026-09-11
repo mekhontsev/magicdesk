@@ -25,8 +25,9 @@ its task/input coordinators, or require a WMShell Desktop backend.
 Use `ToolApplications` and `ToolLaunchTarget` for built-in placement and
 `DisplayOperations` for display resources. A display, its viewer and a Desktop
 session have independent lifetimes. Close Desktop does not implicitly remove
-its display. Closing or detaching a terminal window does not implicitly end its
-retained PTY. MCP is an authorized adapter to these services, not their owner.
+its display. Closing or detaching an ordinary terminal window retains its PTY.
+An explicitly managed tmux window releases only its client PTY; tmux owns the
+server session and programs. MCP is an authorized adapter to these services, not their owner.
 Keep profile-scoped application identities and storage boundaries intact.
 
 Do not retain obsolete internal APIs, persisted-data formats or MCP protocols

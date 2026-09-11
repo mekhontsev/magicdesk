@@ -60,6 +60,31 @@ public final class TerminalOwnershipRegressionTest {
                 """);
     }
 
+    @Test public void tmuxCloseDisconnectsClientButRotationAndStaleWindowsDoNot() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() {
+                    ConsoleTerminalSession session = acquire("terminal-d", ignored -> new ConsoleTerminalSession());
+                    ENTRIES.get("terminal-d").tmuxSessionId = "$2";
+                    Activity old = new Activity();
+                    register(old, session, new ConsoleTerminalView(), "terminal-d");
+                    detach("terminal-d", old);
+                    check(!session.closed, "configuration destruction closed tmux client");
+                    Activity next = new Activity();
+                    register(next, session, new ConsoleTerminalView(), "terminal-d");
+                    old.finished = true;
+                    detach("terminal-d", old);
+                    check(!session.closed, "stale finishing window closed replacement client");
+                    next.finished = true;
+                    detach("terminal-d", next);
+                    check(session.closed && !ENTRIES.containsKey("terminal-d"), "caption close retained invisible tmux client");
+                    session = acquire("terminal-e", ignored -> new ConsoleTerminalSession());
+                    ENTRIES.get("terminal-e").tmuxSessionId = "$3";
+                    register(new Activity(), session, new ConsoleTerminalView(), "terminal-e");
+                    check(hide("terminal-e") && session.closed, "explicit detach retained tmux client");
+                }
+                """);
+    }
+
     private static String fixture() throws Exception {
         return """
                 static class WeakReference<T> extends java.lang.ref.WeakReference<T> { WeakReference(T v) { super(v); } }
@@ -67,12 +92,14 @@ public final class TerminalOwnershipRegressionTest {
                 static class ConsoleTerminalSession { interface Listener {} boolean closed; void close() { closed=true; } }
                 static class ConsoleTerminalView { boolean detached; void attach(Object a,Object b) { detached=true; } }
                 static class Activity { boolean finished; boolean isDestroyed() { return false; }
+                    boolean isFinishing() { return finished; }
                     int getTaskId() { return 1; } void finishAndRemoveTask() { finished=true; } }
                 static class DesktopAutomationEventJournal { static void record(String t,String o,boolean s,String d) {} }
                 static class MagicDeskRuntime { static void refreshNotification() {} }
                 static class TerminalNotifications { static void cancel(String id) {} }
                 static class Entry implements ConsoleTerminalSession.Listener {
                     final ConsoleTerminalSession session; long attachmentGeneration;
+                    String tmuxSessionId = "";
                     WeakReference<Activity> activity=new WeakReference<>(null);
                     WeakReference<ConsoleTerminalView> view=new WeakReference<>(null);
                     Entry(String id,Function<ConsoleTerminalSession.Listener,ConsoleTerminalSession> f) { session=f.apply(this); }

@@ -25,7 +25,8 @@ public final class TmuxSessionProviderTest {
                 TmuxSessionProvider.parse(
                         "__MAGICDESK_TMUX_AVAILABLE__\n"
                                 + "$0\twork\t2\t1\t1234\n"
-                                + "$3\tserver logs\t1\t0\t5678\n");
+                                + "$3\tserver logs\t1\t0\t5678\n"
+                                + "CLIENT\t42\t$0\n");
 
         assertTrue(snapshot.available);
         assertEquals(2, snapshot.sessions.size());
@@ -35,6 +36,7 @@ public final class TmuxSessionProviderTest {
         assertEquals("$3", snapshot.sessions.get(1).id);
         assertFalse(snapshot.sessions.get(1).attached());
         assertEquals(5678L, snapshot.sessions.get(1).createdSeconds);
+        assertEquals("$0", snapshot.clients.get(42L));
     }
 
     @Test
@@ -62,20 +64,29 @@ public final class TmuxSessionProviderTest {
                 "exec tmux attach-session -t '$12'",
                 TmuxSessionProvider.attachCommand("$12"));
         assertEquals(
-                "exec tmux new-session -A -s 'team'\"'\"'s work'",
-                TmuxSessionProvider.openOrCreateCommand("team's work"));
+                "tmux new-session -d -s 'team'\"'\"'s work'",
+                TmuxSessionProvider.createCommand("team's work"));
     }
 
     @Test
     public void rejectsTmuxSeparatorsAndInvalidIdentifiers() {
         assertThrows(
                 IllegalArgumentException.class,
-                () -> TmuxSessionProvider.openOrCreateCommand("work.dev"));
+                () -> TmuxSessionProvider.createCommand("work.dev"));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> TmuxSessionProvider.openOrCreateCommand("work:1"));
+                () -> TmuxSessionProvider.createCommand("work:1"));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> TmuxSessionProvider.attachCommand("work"));
+    }
+
+    @Test
+    public void sessionActionsCheckCreationIdentityBeforeUsingRecycledId() {
+        final var session = new TmuxSessionProvider.Session("$12", "work", 1, 0, 1234);
+        assertEquals("test \"$(tmux display-message -p -t '$12' '#{session_created}' 2>/dev/null)\" = '1234'"
+                        + " || { printf 'tmux session no longer exists\\n' >&2; exit 1; }\n"
+                        + "exec tmux attach-session -t '$12'",
+                TmuxSessionProvider.sessionCommand(session, TmuxSessionProvider.attachCommand(session.id)));
     }
 }

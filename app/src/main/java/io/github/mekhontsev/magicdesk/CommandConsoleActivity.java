@@ -9,14 +9,12 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
-import android.text.InputType;
 import android.view.DragEvent;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -41,6 +39,8 @@ public final class CommandConsoleActivity extends Activity
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_BACKEND";
     private static final String EXTRA_ATTACH_ONLY =
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_ATTACH_ONLY";
+    private static final String EXTRA_TMUX_SESSION = "tmux_session";
+    private static final String EXTRA_TMUX_CREATED = "tmux_created";
     private static final String STATE_WORKING_DIRECTORY = "working_directory";
     private static final String STATE_FONT_SIZE = "font_size_sp";
     private static final int COLOR_BACKGROUND = 0xFF090D14;
@@ -62,7 +62,6 @@ public final class CommandConsoleActivity extends Activity
     private ImageButton mClear;
     private ImageButton mCopy;
     private ImageButton mPaste;
-    private ImageButton mTmuxSessions;
     private LinearLayout.LayoutParams mTerminalParams;
     private ShellAccess.Snapshot mSnapshot;
     private DesktopExecBackend mBackend;
@@ -70,7 +69,6 @@ public final class CommandConsoleActivity extends Activity
     private String mTerminalRegistryId = "";
     private boolean mTerminalFailed;
     private boolean mPermissionRequested;
-    private boolean mTmuxQueryRunning;
     private boolean mToolbarVisible = true;
 
     static Intent createIntent(final Context context) {
@@ -162,6 +160,15 @@ public final class CommandConsoleActivity extends Activity
                 DesktopExecBackend.parse(session.backend)), session.id).putExtra(EXTRA_ATTACH_ONLY, true);
     }
 
+    static String terminalId(Intent intent) { return intent.getStringExtra(EXTRA_TERMINAL_ID); }
+
+    static Intent createTmuxIntent(Context context, TmuxSessionProvider.Session session) {
+        return withTerminalId(createPreparedCommandIntent(context,
+                TmuxSessionProvider.sessionCommand(session, TmuxSessionProvider.attachCommand(session.id)),
+                TermuxIntegration.homeDirectory(context), DesktopExecBackend.TERMUX), ConsoleTerminalRegistry.nextId())
+                .putExtra(EXTRA_TMUX_SESSION, session.id).putExtra(EXTRA_TMUX_CREATED, session.createdSeconds);
+    }
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -211,6 +218,11 @@ public final class CommandConsoleActivity extends Activity
             return;
         }
         MagicDeskRuntime.startTools(this);
+        if (getIntent().hasExtra(EXTRA_TMUX_SESSION)) {
+            if (mBackend != DesktopExecBackend.TERMUX) throw new IllegalArgumentException("tmux requires Termux");
+            ConsoleTerminalRegistry.bindTmux(sessionId, getIntent().getStringExtra(EXTRA_TMUX_SESSION),
+                    getIntent().getLongExtra(EXTRA_TMUX_CREATED, 0));
+        }
         mTerminalView.attach(mSession, this);
         mTerminalView.addOnLayoutChangeListener((
                 view,
@@ -369,8 +381,10 @@ public final class CommandConsoleActivity extends Activity
     public void onTitleChanged(final String title) {
         final String fallback = getString(mBackend == DesktopExecBackend.TERMUX
                 ? R.string.console_termux_title : R.string.console_title);
-        final String label = TerminalTaskLabel.resolve(fallback,
-                mSession == null ? TerminalProcessInfo.unknown() : mSession.foregroundProcess(), title);
+        final var snapshot = ConsoleTerminalRegistry.status(mTerminalRegistryId);
+        final String label = snapshot == null ? TerminalTaskLabel.resolve(fallback,
+                mSession == null ? TerminalProcessInfo.unknown() : mSession.foregroundProcess(), title)
+                : snapshot.taskLabel(fallback);
         setTitle(label);
         DesktopTaskDescription.apply(this, label, R.drawable.ic_file_console);
     }
@@ -590,6 +604,10 @@ public final class CommandConsoleActivity extends Activity
         mToolbar.addView(mShellStatus, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        final ImageButton sessions = createIconButton(
+                R.drawable.ic_file_new_window, R.string.terminal_sessions,
+                view -> TerminalSessionsDialog.show(this));
+        mToolbar.addView(sessions, buttonParams());
         mClear = createIconButton(
                 android.R.drawable.ic_menu_delete,
                 R.string.console_clear,
@@ -616,13 +634,6 @@ public final class CommandConsoleActivity extends Activity
                 R.string.console_font_size, view -> ConsoleFontSizeDialog.show(this,
                         R.string.console_font_size, mTerminalView.fontSizeSp(),
                         ConsolePreferences.fontSizeSp(this), mTerminalView::setFontSizeSp)), buttonParams());
-        if (mBackend == DesktopExecBackend.TERMUX) {
-            mTmuxSessions = createIconButton(
-                    android.R.drawable.ic_menu_recent_history,
-                    R.string.console_tmux_sessions,
-                    view -> showTmuxSessions());
-            mToolbar.addView(mTmuxSessions, buttonParams());
-        }
         final ImageButton createApplication = createIconButton(
                 android.R.drawable.ic_menu_add,
                 R.string.action_new_terminal_application,
@@ -633,14 +644,6 @@ public final class CommandConsoleActivity extends Activity
                 R.string.console_open_working_directory,
                 view -> openSelectedPathOrWorkingDirectory());
         mToolbar.addView(openFiles, buttonParams());
-        final ImageButton sessions = createIconButton(
-                R.drawable.ic_file_new_window, R.string.terminal_sessions,
-                view -> TerminalSessionsDialog.show(this));
-        mToolbar.addView(sessions, buttonParams());
-        final ImageButton endSession = createIconButton(
-                R.drawable.ic_close, R.string.terminal_end_session,
-                view -> ConsoleTerminalRegistry.close(mTerminalRegistryId));
-        mToolbar.addView(endSession, buttonParams());
         final ImageButton hideToolbar = createIconButton(
                 android.R.drawable.arrow_up_float,
                 R.string.console_hide_toolbar,
@@ -725,139 +728,6 @@ public final class CommandConsoleActivity extends Activity
                 DesktopCommandApplicationDialog.InitialValues.empty(
                         directory, mBackend),
                 null);
-    }
-
-    private void showTmuxSessions() {
-        if (mTmuxSessions == null || mTmuxQueryRunning) {
-            return;
-        }
-        mTmuxQueryRunning = true;
-        mTmuxSessions.setEnabled(false);
-        Toast.makeText(
-                this,
-                R.string.console_tmux_loading,
-                Toast.LENGTH_SHORT).show();
-        TmuxSessionProvider.list(this, (snapshot, error) -> {
-            mTmuxQueryRunning = false;
-            if (isFinishing() || isDestroyed()) {
-                return;
-            }
-            updateActions();
-            if (error != null) {
-                Toast.makeText(
-                        this,
-                        getString(
-                                R.string.console_tmux_list_failed,
-                                ShellAccess.usefulMessage(error)),
-                        Toast.LENGTH_LONG).show();
-                return;
-            }
-            if (snapshot == null || !snapshot.available) {
-                new AlertDialog.Builder(this)
-                        .setTitle(R.string.console_tmux_sessions)
-                        .setMessage(snapshot == null
-                                ? getString(R.string.console_tmux_unavailable)
-                                : snapshot.detail)
-                        .setPositiveButton(android.R.string.ok, null)
-                        .show();
-                return;
-            }
-            showTmuxSessionList(snapshot);
-        });
-    }
-
-    private void showTmuxSessionList(
-            final TmuxSessionProvider.Snapshot snapshot) {
-        final AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle(R.string.console_tmux_sessions)
-                .setPositiveButton(
-                        R.string.console_tmux_new_session,
-                        (dialog, which) -> showNewTmuxSessionDialog())
-                .setNegativeButton(android.R.string.cancel, null);
-        if (snapshot.sessions.isEmpty()) {
-            builder.setMessage(R.string.console_tmux_no_sessions);
-        } else {
-            final String[] choices = new String[snapshot.sessions.size()];
-            for (int index = 0; index < snapshot.sessions.size(); index++) {
-                final TmuxSessionProvider.Session session =
-                        snapshot.sessions.get(index);
-                choices[index] = getString(
-                        R.string.console_tmux_session_summary,
-                        session.name,
-                        getResources().getQuantityString(
-                                R.plurals.console_tmux_windows,
-                                session.windows,
-                                Integer.valueOf(session.windows)),
-                        getString(session.attached()
-                                ? R.string.console_tmux_attached
-                                : R.string.console_tmux_detached));
-            }
-            builder.setItems(choices, (dialog, which) -> {
-                final TmuxSessionProvider.Session session =
-                        snapshot.sessions.get(which);
-                launchTmuxConsole(
-                        TmuxSessionProvider.attachCommand(session.id));
-            });
-        }
-        builder.show();
-    }
-
-    private void showNewTmuxSessionDialog() {
-        final EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setHint(R.string.console_tmux_session_name);
-        input.setInputType(InputType.TYPE_CLASS_TEXT
-                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        final int horizontalPadding = dp(24);
-        final FrameLayout container = new FrameLayout(this);
-        container.setPadding(horizontalPadding, 0, horizontalPadding, 0);
-        container.addView(input, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT));
-        final AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(R.string.console_tmux_new_session)
-                .setView(container)
-                .setPositiveButton(R.string.console_tmux_open, null)
-                .setNegativeButton(android.R.string.cancel, null)
-                .create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(
-                AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-                    final String name;
-                    try {
-                        name = TmuxSessionProvider.normalizeName(
-                                input.getText().toString());
-                    } catch (IllegalArgumentException error) {
-                        input.setError(getString(
-                                R.string.console_tmux_invalid_name));
-                        return;
-                    }
-                    dialog.dismiss();
-                    launchTmuxConsole(
-                            TmuxSessionProvider.openOrCreateCommand(name));
-                }));
-        dialog.show();
-        input.requestFocus();
-    }
-
-    private void launchTmuxConsole(final String command) {
-        BuiltInWindowLauncher.launch(
-                this,
-                createPreparedCommandIntent(
-                        this,
-                        command,
-                        TermuxIntegration.homeDirectory(this),
-                        DesktopExecBackend.TERMUX),
-                launchTarget(),
-                error -> {
-                    if (error != null) {
-                        Toast.makeText(
-                                this,
-                                getString(
-                                        R.string.console_tmux_launch_failed,
-                                        ShellAccess.usefulMessage(error)),
-                                Toast.LENGTH_LONG).show();
-                    }
-                });
     }
 
     private void applyLaunchRequest(
@@ -990,11 +860,6 @@ public final class CommandConsoleActivity extends Activity
         mClear.setEnabled(ready);
         mCopy.setEnabled(mSession != null);
         mPaste.setEnabled(ready);
-        if (mTmuxSessions != null) {
-            mTmuxSessions.setEnabled(
-                    !mTmuxQueryRunning
-                            && TermuxIntegration.isAvailable(this));
-        }
     }
 
     private boolean handleFileDrop(final View view, final DragEvent event) {

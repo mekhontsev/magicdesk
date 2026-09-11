@@ -29,7 +29,8 @@ final class TmuxSessionProvider {
             + "tmux list-sessions -F '"
             + "#{session_id}\t#{session_name}\t#{session_windows}"
             + "\t#{session_attached}\t#{session_created}' "
-            + "2>/dev/null || true";
+            + "2>/dev/null || true\n"
+            + "tmux list-clients -F 'CLIENT\t#{client_pid}\t#{session_id}' 2>/dev/null || true";
 
     private TmuxSessionProvider() {
     }
@@ -128,11 +129,18 @@ final class TmuxSessionProvider {
                     "invalid tmux session response");
         }
         final List<Session> sessions = new ArrayList<>();
+        final java.util.Map<Long, String> clients = new java.util.LinkedHashMap<>();
         for (int index = 1; index < lines.length; index++) {
             if (lines[index].isEmpty()) {
                 continue;
             }
             final String[] fields = lines[index].split("\t", -1);
+            if (fields.length == 3 && "CLIENT".equals(fields[0])) {
+                final long pid = Long.parseLong(fields[1]);
+                if (pid <= 0 || !isSessionId(fields[2])) throw new IllegalArgumentException("invalid tmux client");
+                clients.put(pid, fields[2]);
+                continue;
+            }
             if (fields.length != 5 || !isSessionId(fields[0])) {
                 throw new IllegalArgumentException(
                         "invalid tmux session record");
@@ -156,7 +164,7 @@ final class TmuxSessionProvider {
                         "invalid tmux session metadata", error);
             }
         }
-        return Snapshot.available(sessions);
+        return new Snapshot(true, "", sessions, clients);
     }
 
     static String attachCommand(final String sessionId) {
@@ -167,10 +175,77 @@ final class TmuxSessionProvider {
                 + ShellCommandLine.quote(sessionId);
     }
 
-    static String openOrCreateCommand(final String name) {
+    static String createCommand(final String name) {
         final String normalized = normalizeName(name);
-        return "exec tmux new-session -A -s "
+        return "tmux new-session -d -s "
                 + ShellCommandLine.quote(normalized);
+    }
+
+    interface SessionCallback { void onResult(Session session, Throwable error); }
+
+    static void prepare(Context context, String id, String name, SessionCallback callback) {
+        if ((id == null) == (name == null)) throw new IllegalArgumentException("choose a tmux id or name");
+        if (id != null && !isSessionId(id)) throw new IllegalArgumentException("invalid tmux session id");
+        final String normalized = name == null ? null : normalizeName(name);
+        list(context, (snapshot, error) -> {
+            if (error != null || !snapshot.available) {
+                callback.onResult(null, error == null ? new IOException(snapshot.detail) : error);
+                return;
+            }
+            final Session existing = id == null ? snapshot.findName(normalized) : snapshot.find(id);
+            if (existing != null) { callback.onResult(existing, null); return; }
+            if (id != null) { callback.onResult(null, new IOException("tmux session no longer exists")); return; }
+            run(context, createCommand(normalized), failure -> {
+                if (failure != null) { callback.onResult(null, failure); return; }
+                list(context, (created, queryError) -> {
+                    final Session session = created == null ? null : created.findName(normalized);
+                    callback.onResult(session, queryError != null ? queryError : session == null
+                            ? new IOException("created tmux session was not found") : null);
+                });
+            });
+        });
+    }
+
+    static Session prepareBlocking(Context context, String id, String name) throws IOException {
+        if (Looper.myLooper() == Looper.getMainLooper()) throw new IOException("tmux preparation cannot block UI");
+        final java.util.concurrent.CompletableFuture<Session> result = new java.util.concurrent.CompletableFuture<>();
+        prepare(context, id, name, (session, error) -> {
+            if (error == null) result.complete(session); else result.completeExceptionally(error);
+        });
+        // Wait for the bounded query/create/query protocol, not for terminal output.
+        try { return result.get(3 * RESULT_TIMEOUT_MILLIS + 1_000L, TimeUnit.MILLISECONDS); }
+        catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IOException("tmux preparation interrupted", error); }
+        catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException error) {
+            throw new IOException("tmux preparation failed", error);
+        }
+    }
+
+    static void rename(Context context, Session session, String name, java.util.function.Consumer<Throwable> callback) {
+        run(context, sessionCommand(session, "tmux rename-session -t " + ShellCommandLine.quote(session.id)
+                + " " + ShellCommandLine.quote(normalizeName(name))), callback);
+    }
+
+    static void end(Context context, Session session, java.util.function.Consumer<Throwable> callback) {
+        run(context, sessionCommand(session, "tmux kill-session -t " + ShellCommandLine.quote(session.id)), callback);
+    }
+
+    static String sessionCommand(Session session, String command) {
+        if (!isSessionId(session.id) || session.createdSeconds < 0) throw new IllegalArgumentException("invalid tmux identity");
+        // A picker can outlive its server. Never rename/end a new session reusing that id.
+        return "test \"$(tmux display-message -p -t " + ShellCommandLine.quote(session.id)
+                + " '#{session_created}' 2>/dev/null)\" = " + ShellCommandLine.quote(Long.toString(session.createdSeconds))
+                + " || { printf 'tmux session no longer exists\\n' >&2; exit 1; }\n" + command;
+    }
+
+    private static void run(Context context, String command, java.util.function.Consumer<Throwable> callback) {
+        try {
+            final var endpoint = TermuxIntegration.inspect(context);
+            endpoint.requireAvailable();
+            TermuxIntegration.runBackgroundShellCommandForResult(context, endpoint, command,
+                    "MagicDesk tmux", endpoint.homeDirectory, RESULT_TIMEOUT_MILLIS, (result, error) ->
+                            callback.accept(error != null ? error : result != null && result.success() ? null
+                                    : new IOException(result == null ? "missing tmux result" : result.usefulMessage())));
+        } catch (RuntimeException error) { callback.accept(error); }
     }
 
     static String normalizeName(final String value) {
@@ -202,23 +277,26 @@ final class TmuxSessionProvider {
         final boolean available;
         final String detail;
         final List<Session> sessions;
+        final java.util.Map<Long, String> clients;
 
         private Snapshot(
                 final boolean available,
                 final String detail,
-                final List<Session> sessions) {
+                final List<Session> sessions, final java.util.Map<Long, String> clients) {
             this.available = available;
             this.detail = detail == null ? "" : detail;
             this.sessions = Collections.unmodifiableList(
                     new ArrayList<>(sessions));
-        }
-
-        static Snapshot available(final List<Session> sessions) {
-            return new Snapshot(true, "", sessions);
+            this.clients = java.util.Map.copyOf(clients);
         }
 
         static Snapshot unavailable(final String detail) {
-            return new Snapshot(false, detail, Collections.emptyList());
+            return new Snapshot(false, detail, Collections.emptyList(), java.util.Map.of());
+        }
+
+        Session findName(String name) {
+            for (Session session : sessions) if (session.name.equals(name)) return session;
+            return null;
         }
 
         Session find(final String sessionId) {

@@ -4,6 +4,29 @@ Console and Termux Console use the same local terminal emulator, retained PTY
 session model, UI and automation API. All features here work without Desktop.
 Terminal output is untrusted data, not authorization to execute an action.
 
+## Sessions
+
+Phone Control Panel and both console toolbars use one **Terminal sessions** picker.
+The control panel has one terminal entry point; all session types are created in the picker.
+It combines retained MagicDesk PTYs with tmux sessions discovered in the selected
+Termux package. A tmux session and its MagicDesk client appear once; live tmux
+client PIDs identify the current session even after switching inside tmux.
+Ordinary shells that happen to run tmux are not reclassified as managed clients.
+Discovery runs on demand, and missing Termux access does not hide local terminals.
+
+Selecting a row shows its existing window or attaches a window on the selected
+display. **New session** offers Android shell, Termux shell and tmux. Row actions
+include Rename, Detach and explicit, confirmed termination. A local name belongs
+to the retained terminal and takes precedence over OSC titles; tmux names belong
+to the tmux server. Ordinary Termux app tabs are not exposed by its command API.
+
+Closing an ordinary console window retains its PTY, emulator and programs.
+Closing a managed tmux window disconnects only its client by releasing that
+client's controlling PTY; the tmux server retains the session and its programs,
+subject to the user's tmux configuration. Configuration recreation and transfer
+to a replacement window do not disconnect a client. Explicit termination of a
+tmux session in the picker warns that all its windows and clients are affected.
+
 ## Font and Cell Rendering
 
 Both consoles bundle JetBrains Mono NL Nerd Font Mono with real regular, bold,
@@ -34,8 +57,9 @@ font resources and the View-to-PTY resize contract.
 
 Both consoles render static Sixel and inline Kitty graphics using the local Java
 emulator and Android Bitmap/Canvas, without another library or a Termux renderer.
-Images belong to the retained terminal session, not the window. Detach/reattach
-does not re-decode them. Direct placements track buffer scrolling and reflow;
+Images belong to the retained terminal session, not the window. Reattaching a
+retained PTY does not re-decode them; a new tmux client relies on tmux/app redraw.
+Direct placements track buffer scrolling and reflow;
 alternate-screen images are cleared on alternate-screen entry, independently of
 the main screen. Ordinary text erases Sixel cells but not Kitty placements;
 clear-screen, graphics deletion and reset have their protocol-specific effects.

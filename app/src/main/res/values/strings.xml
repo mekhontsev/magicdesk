@@ -13,6 +13,18 @@
     <string name="terminal_sessions">Terminal sessions</string>
     <string name="terminal_end_session">End session</string>
     <string name="terminal_no_sessions">No terminal sessions</string>
+    <string name="terminal_new">New session</string>
+    <string name="terminal_detach">Detach</string>
+    <string name="terminal_window_open">window open</string>
+    <string name="terminal_window_closed">no window</string>
+    <string name="terminal_session_actions">Actions for %1$s</string>
+    <plurals name="terminal_tmux_clients">
+        <item quantity="one">%d client</item>
+        <item quantity="other">%d clients</item>
+    </plurals>
+    <string name="terminal_end_confirm">End this terminal and its running process?</string>
+    <string name="terminal_detach_tmux_confirm">Disconnect this client? The tmux session and its programs will remain running.</string>
+    <string name="terminal_end_tmux_confirm">End tmux session %1$s and all its windows? This also affects other connected clients.</string>
     <string name="display_type">Display type</string>
     <string name="display_resolution">Resolution</string>
     <string name="desktop_shortcut_service_label">Desktop keyboard shortcuts</string>
@@ -753,23 +765,13 @@
     <string name="console_termux_unavailable">Termux is not installed</string>
     <string name="console_termux_permission_required">Run command permission required</string>
     <string name="console_termux_autolaunch_blocked">Termux was blocked by the firmware. Allow Auto-launch or background activity for Termux, then reopen this window.</string>
-    <string name="console_tmux_sessions">tmux sessions</string>
     <string name="console_tmux_loading">Loading tmux sessions&#8230;</string>
-    <string name="console_tmux_unavailable">tmux is not installed in Termux</string>
-    <string name="console_tmux_no_sessions">No tmux sessions are running.</string>
     <string name="console_tmux_new_session">New tmux session</string>
-    <string name="console_tmux_session_name">Session name</string>
-    <string name="console_tmux_invalid_name">Use 1-64 characters without controls, : or .</string>
-    <string name="console_tmux_open">Open</string>
-    <string name="console_tmux_attached">attached</string>
-    <string name="console_tmux_detached">detached</string>
     <plurals name="console_tmux_windows">
         <item quantity="one">%d window</item>
         <item quantity="other">%d windows</item>
     </plurals>
-    <string name="console_tmux_session_summary">%1$s\n%2$s | %3$s</string>
     <string name="console_tmux_list_failed">Could not list tmux sessions: %1$s</string>
-    <string name="console_tmux_launch_failed">Could not open tmux session: %1$s</string>
     <string name="console_failed">Execution failed | %1$s</string>
     <string name="console_shell_adb">Android shell (UID %1$d)</string>
     <string name="console_shell_root">Root shell (UID %1$d)</string>

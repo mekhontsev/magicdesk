@@ -290,11 +290,9 @@ final class PhoneControlPanelController {
         selected.setMinHeight(dp(44));
         parent.addView(selected);
         final GridLayout grid = actionGrid();
-        final String[] names = {"files", "console", "termux", "sessions"};
-        final int[] labels = {R.string.file_manager_title, R.string.console_title,
-                R.string.console_termux_title, R.string.terminal_sessions};
-        final int[] icons = {R.drawable.ic_desktop_folder, R.drawable.ic_file_console,
-                R.drawable.ic_file_console, R.drawable.ic_file_new_window};
+        final String[] names = {"files", "sessions"};
+        final int[] labels = {R.string.file_manager_title, R.string.terminal_sessions};
+        final int[] icons = {R.drawable.ic_desktop_folder, R.drawable.ic_file_new_window};
         for (int i = 0; i < names.length; i++) {
             final String name = names[i];
             final Button button = mUi.controlAction(labels[i], icons[i], COLOR_TEXT);

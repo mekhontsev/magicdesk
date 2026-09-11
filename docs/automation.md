@@ -462,10 +462,12 @@ MCP commands use the same selection as the UI, never an independent backend.
 An ordinary placement cannot bypass an active Desktop on that same display;
 choose `auto` or `desktop` instead. These launches never start Desktop implicitly.
 
-`terminal.detach` closes only the window; repeating it on an already detached
-session succeeds. `terminal.attach` connects a new window
-to the same PTY and emulator; its `observed` field requires a new registration,
-not a previous window. `terminal.close` ends the session and closes its window.
+`terminal.detach` retains ordinary PTYs; repeating it on an already detached
+ordinary session succeeds. For a managed tmux connection it releases the client
+PTY instead, reporting `ptyRetained=false`; reconnect through `tmux.open`.
+`terminal.attach` presents an existing window on the requested display or attaches
+a window to the same PTY and emulator. `observed` requires a registered window
+after successful presentation/launch. `terminal.close` ends the PTY and closes its window.
 Detached sessions report `attached=false`, `taskId=-1` and `displayId=-1`.
 They remain readable and writable; closing the MCP connection does not own their
 lifetime. They survive window and display closure but not application process
@@ -503,10 +505,12 @@ of an image with stale coordinate metadata. Each image edge is limited to
 result has `available=false` when tmux is not installed, so absence of the
 optional package is not reported as a transport failure. `tmux.open` accepts
 exactly one of an existing `sessionId` returned by `tmux.list` or a session
-`name` to open or create with tmux `-A`. It opens an ordinary visible Termux
+`name` to resolve or create before attaching a client. It opens an ordinary visible Termux
 Console and returns its `terminalId`; the remaining `terminal.*` tools then
 operate on that session. Ending it disconnects its tmux client while the tmux
-server session continues. Closing only the window retains the client too.
+server session continues. Closing a managed tmux window also disconnects that
+client. Reopening the same tmux session reuses an existing MagicDesk connection;
+the returned tmux id is resolved even for a newly created session.
 These tools do not expose ordinary Termux application tabs.
 
 `magicdesk.get_termux_x11_status` performs a bounded, non-destructive probe of

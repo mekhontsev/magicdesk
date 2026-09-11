@@ -2658,7 +2658,8 @@ public final class TerminalEmulator {
 
     /** Change the terminal session's title. */
     private void setTitle(String newTitle) {
-        newTitle = TerminalCommandHistory.bounded(newTitle, 1024);
+        // CSI title-stack restore may return the original, unset title.
+        if (newTitle != null) newTitle = TerminalCommandHistory.bounded(newTitle, 1024);
         String oldTitle = mTitle;
         mTitle = newTitle;
         if (!Objects.equals(oldTitle, newTitle)) {

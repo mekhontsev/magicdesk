@@ -1582,9 +1582,13 @@ third transport. An explicit toolbar or MCP request invokes one bounded
 `RUN_COMMAND` query under the Termux UID. The typed parser distinguishes an
 absent tmux executable from an empty tmux server, validates session ids and
 names, and constructs quoted attach or create commands. A selected session is
-then opened through the ordinary Termux Console path. There is no session
-poller. Ending the retained Console session closes only that tmux client;
-closing its window merely detaches the view. The public Termux
+then opened through the ordinary Termux Console path with explicit tmux identity.
+`TerminalSessions` merges local terminals and server sessions using live tmux
+client PIDs; `TerminalSessionsDialog` is shared by the control panel and both
+console toolbars. Reopening a live client presents its existing window; closing
+a managed tmux window releases only that client's controlling PTY. Ordinary
+terminals retain their PTY on window close. Recreation and stale Activity cleanup
+cannot disconnect a replacement view. There is no session poller. The public Termux
 command boundary does not transfer the PTY stream of an ordinary Termux app
 session, so those sessions remain owned by the Termux UI.
 
@@ -2641,7 +2645,7 @@ the APK through `RUN_COMMAND_STDIN`; a random per-window token authenticates
 the relay's loopback connection before any terminal bytes are accepted.
 MagicDesk does not mirror or mutate the Termux application's own PTY registry.
 When tmux is installed, its independent session registry is queried only by an
-explicit tmux picker or automation request.
+explicit session picker or automation request.
 Optional Termux:X11 integration uses the same permission boundary. MagicDesk
 intercepts the ordinary default launch of the exported Termux:X11 viewer, then
 prepares it through the same `AppTaskController` path as any other application.

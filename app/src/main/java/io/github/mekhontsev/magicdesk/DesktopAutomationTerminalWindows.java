@@ -84,22 +84,41 @@ final class DesktopAutomationTerminalWindows {
             final String id = sessionId(args);
             final var session = ConsoleTerminalRegistry.status(id);
             if (session == null) { return notFound(id); }
-            final long generation = ConsoleTerminalRegistry.attachmentGeneration(id);
             final var intent = CommandConsoleActivity.attachIntent(MagicDeskApplication.applicationContext(), session);
-            final DesktopAutomationResult launch = AutomationToolWindows.open(intent, args);
-            if (!launch.success) { return launch; }
-            return DesktopAutomationResult.success("terminal attachment requested", new JSONObject(launch.data.toString())
-                    .put("terminalId", id).put("observed", ConsoleTerminalRegistry.awaitAttachment(
-                            id, generation, OPEN_OBSERVATION_TIMEOUT_MILLIS)));
+            return openSession(intent, args);
         } catch (JSONException | RuntimeException error) { return unavailable(error); }
+    }
+
+    DesktopAutomationResult openTmux(JSONObject args, TmuxSessionProvider.Session session,
+            TmuxSessionProvider.Snapshot snapshot) throws JSONException {
+        final var intent = TerminalSessions.tmuxIntent(MagicDeskApplication.applicationContext(), session, snapshot);
+        return openSession(intent, args);
+    }
+
+    private static DesktopAutomationResult openSession(android.content.Intent intent, JSONObject args) throws JSONException {
+        final String id = CommandConsoleActivity.terminalId(intent);
+        final var previous = ConsoleTerminalRegistry.status(id);
+        final long generation = ConsoleTerminalRegistry.attachmentGeneration(id);
+        final DesktopAutomationResult launch = AutomationToolWindows.open(intent, args);
+        if (!launch.success) return launch;
+        // Raising an existing window needs no new registration; moving its view
+        // to another display must not acknowledge the old attachment.
+        final boolean reuse = previous != null && previous.taskId >= 0
+                && previous.displayId == launch.data.getInt("displayId");
+        return DesktopAutomationResult.success("terminal attachment requested", new JSONObject(launch.data.toString())
+                .put("terminalId", id).put("observed", ConsoleTerminalRegistry.awaitAttachment(id, reuse ? 0 : generation,
+                        OPEN_OBSERVATION_TIMEOUT_MILLIS)));
     }
 
     DesktopAutomationResult detach(final JSONObject args) {
         try {
             final String id = sessionId(args);
+            final var session = ConsoleTerminalRegistry.status(id);
             if (!ConsoleTerminalRegistry.hide(id)) { return notFound(id); }
-            return DesktopAutomationResult.success("terminal window detached; session retained",
-                    new JSONObject().put("terminalId", id));
+            final boolean retained = session != null && session.tmuxSessionId.isEmpty();
+            return DesktopAutomationResult.success(retained ? "terminal window detached; PTY retained"
+                            : "tmux client disconnected; tmux session retained",
+                    new JSONObject().put("terminalId", id).put("ptyRetained", retained));
         } catch (JSONException | RuntimeException error) { return unavailable(error); }
     }
 
@@ -315,6 +334,8 @@ final class DesktopAutomationTerminalWindows {
                 .put("rows", snapshot.rows)
                 .put("workingDirectory", snapshot.workingDirectory)
                 .put("title", snapshot.title)
+                .put("userTitle", snapshot.userTitle)
+                .put("tmuxSessionId", snapshot.tmuxSessionId)
                 .put("backend", snapshot.backend)
                 .put("taskLabel", snapshot.taskLabel(
                         "termux".equals(snapshot.backend)

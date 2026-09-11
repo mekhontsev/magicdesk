@@ -61,64 +61,14 @@ final class DesktopAutomationTmuxSessions {
                         endpoint.packageName + ": " + endpoint.error,
                         false);
             }
-            final TmuxSessionProvider.Snapshot snapshot =
-                    TmuxSessionProvider.listBlocking(mContext);
-            if (!snapshot.available) {
-                return DesktopAutomationResult.failure(
-                        DesktopAutomationErrorCode.HOST_UNAVAILABLE,
-                        snapshot.detail,
-                        false);
-            }
-
-            final String command;
-            final String tmuxSessionId;
-            final String tmuxSessionName;
-            if (!sessionId.isEmpty()) {
-                if (!TmuxSessionProvider.isSessionId(sessionId)) {
-                    throw new IllegalArgumentException(
-                            "invalid tmux session id");
-                }
-                final TmuxSessionProvider.Session session =
-                        snapshot.find(sessionId);
-                if (session == null) {
-                    return DesktopAutomationResult.failure(
-                            DesktopAutomationErrorCode.INVALID_ARGUMENT,
-                            "tmux session not found",
-                            false,
-                            new JSONObject().put("sessionId", sessionId));
-                }
-                command = TmuxSessionProvider.attachCommand(session.id);
-                tmuxSessionId = session.id;
-                tmuxSessionName = session.name;
-            } else {
-                tmuxSessionName = TmuxSessionProvider.normalizeName(
-                        requestedName);
-                command = TmuxSessionProvider.openOrCreateCommand(
-                        tmuxSessionName);
-                TmuxSessionProvider.Session existing = null;
-                for (final TmuxSessionProvider.Session session
-                        : snapshot.sessions) {
-                    if (session.name.equals(tmuxSessionName)) {
-                        existing = session;
-                        break;
-                    }
-                }
-                tmuxSessionId = existing == null ? "" : existing.id;
-            }
-
-            final DesktopAutomationResult terminal = mTerminals.open(
-                    new JSONObject(args.toString())
-                            .put("backend", "termux")
-                            .put("directory", TermuxIntegration.homeDirectory(mContext))
-                            .put("command", command));
-            if (!terminal.success) {
-                return terminal;
-            }
-            final JSONObject data = new JSONObject(terminal.data.toString())
-                    .put("tmuxSessionId", tmuxSessionId)
-                    .put("tmuxSessionName", tmuxSessionName);
-            return DesktopAutomationResult.success(
-                    "tmux terminal window launch accepted", data);
+            final var session = TmuxSessionProvider.prepareBlocking(mContext,
+                    sessionId.isEmpty() ? null : sessionId, requestedName.isEmpty() ? null : requestedName);
+            final var snapshot = TmuxSessionProvider.listBlocking(mContext);
+            final DesktopAutomationResult terminal = mTerminals.openTmux(args, session, snapshot);
+            if (!terminal.success) return terminal;
+            return DesktopAutomationResult.success("tmux terminal window launch accepted",
+                    new JSONObject(terminal.data.toString()).put("tmuxSessionId", session.id)
+                            .put("tmuxSessionName", session.name));
         } catch (IllegalArgumentException | JSONException error) {
             return DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.INVALID_ARGUMENT,

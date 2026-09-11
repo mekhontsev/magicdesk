@@ -144,6 +144,17 @@ public final class OscIntegrationTest extends TerminalTestCase {
         assertEquals("0:-1", progress.get(progress.size() - 1));
     }
 
+    public void testTitleStackRestoresUnsetTitleOnTmuxDetach() {
+        withTerminalSized(16, 4);
+        assertNull(mTerminal.getTitle());
+        enterString("\033[22;0t" + osc("0;tmux") + "\033[23;0t");
+        assertNull(mTerminal.getTitle());
+        enterString(osc("0;Shell") + "\033[22;0t" + osc("0;tmux") + "\033[23;0t");
+        assertEquals("Shell", mTerminal.getTitle());
+        enterString("\033[23;0t");
+        assertEquals("Shell", mTerminal.getTitle());
+    }
+
     public void testLinkOnTrailingSpacesSurvivesReflowBeforeCursor() {
         withTerminalSized(12, 4).enterString("abc" + osc("8;;https://example.com") + "    " + osc("8;;") + "\r");
         mTerminal.resize(8, 4, 0, 0);
