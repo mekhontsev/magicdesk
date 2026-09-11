@@ -59,10 +59,14 @@ public final class TmuxSessionProviderTest {
     }
 
     @Test
-    public void commandsQuoteValidatedIdentifiersAndNames() {
+    public void attachAdvertisesHyperlinksOnlyForItsClient() {
         assertEquals(
-                "exec tmux attach-session -t '$12'",
+                "exec tmux -T hyperlinks attach-session -t '$12'",
                 TmuxSessionProvider.attachCommand("$12"));
+    }
+
+    @Test
+    public void createQuotesValidatedNamesWithoutChangingTerminalFeatures() {
         assertEquals(
                 "tmux new-session -d -s 'team'\"'\"'s work'",
                 TmuxSessionProvider.createCommand("team's work"));
@@ -86,7 +90,7 @@ public final class TmuxSessionProviderTest {
         final var session = new TmuxSessionProvider.Session("$12", "work", 1, 0, 1234);
         assertEquals("test \"$(tmux display-message -p -t '$12' '#{session_created}' 2>/dev/null)\" = '1234'"
                         + " || { printf 'tmux session no longer exists\\n' >&2; exit 1; }\n"
-                        + "exec tmux attach-session -t '$12'",
+                        + "exec tmux -T hyperlinks attach-session -t '$12'",
                 TmuxSessionProvider.sessionCommand(session, TmuxSessionProvider.attachCommand(session.id)));
     }
 }

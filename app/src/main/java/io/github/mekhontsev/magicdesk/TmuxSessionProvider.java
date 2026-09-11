@@ -171,7 +171,8 @@ final class TmuxSessionProvider {
         if (!isSessionId(sessionId)) {
             throw new IllegalArgumentException("invalid tmux session id");
         }
-        return "exec tmux attach-session -t "
+        // xterm-256color does not advertise OSC 8; declare it for this client only.
+        return "exec tmux -T hyperlinks attach-session -t "
                 + ShellCommandLine.quote(sessionId);
     }
 

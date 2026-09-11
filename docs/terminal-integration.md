@@ -42,6 +42,11 @@ include Rename, Detach and explicit, confirmed termination. A local name belongs
 to the retained terminal and takes precedence over OSC titles; tmux names belong
 to the tmux server. Ordinary Termux app tabs are not exposed by its command API.
 
+Managed tmux clients attach with `tmux -T hyperlinks attach-session` so tmux
+forwards OSC 8 links to the console even though `TERM=xterm-256color` does not
+advertise them. This declares a capability of that client only; it does not
+change the user's tmux configuration or the features of other attached terminals.
+
 Closing an ordinary console window retains its PTY, emulator and programs.
 Ending the terminal releases its entire UNIX session, including foreground and
 background jobs that ignore hangup. Processes that created an independent UNIX
