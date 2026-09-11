@@ -82,8 +82,6 @@ public final class TerminalEmulator {
     private static final int ESC_CSI_EXCLAMATION = 19;
     /** Escape processing: "ESC _" or Application Program Command (APC). */
     private static final int ESC_APC = 20;
-    /** Escape processing: "ESC _" or Application Program Command (APC), followed by Escape. */
-    private static final int ESC_APC_ESCAPE = 21;
     /** Escape processing: ESC [ <parameter bytes> */
     private static final int ESC_CSI_UNSUPPORTED_PARAMETER_BYTE = 22;
     /** Escape processing: ESC [ <parameter bytes> <intermediate bytes> */
@@ -143,6 +141,13 @@ public final class TerminalEmulator {
 
     /** Size of a terminal cell in pixels. */
     private int mCellWidthPixels, mCellHeightPixels;
+    private final TerminalGraphics mGraphics = new TerminalGraphics();
+    private TerminalImage.Factory mImageFactory = TerminalImage.JAVA_RASTER;
+    private final KittyGraphicsDecoder mKitty;
+    private SixelDecoder mSixel;
+    private boolean mControlEscape, mControlDiscard;
+    private int mControlLength;
+    private boolean mSixelScrolling = true, mSixelCursorRight;
 
     /** The number of terminal transcript rows that can be scrolled back to. */
     public static final int TERMINAL_TRANSCRIPT_ROWS_MIN = 100;
@@ -327,9 +332,11 @@ public final class TerminalEmulator {
 
     public TerminalEmulator(TerminalOutput session, int columns, int rows, int cellWidthPixels, int cellHeightPixels, Integer transcriptRows, TerminalSessionClient client) {
         mSession = session;
+        mKitty = new KittyGraphicsDecoder(this, session, mGraphics);
         mScreen = mMainBuffer = new TerminalBuffer(columns, getTerminalTranscriptRows(transcriptRows), rows);
         mCommands = new TerminalCommandHistory(mMainBuffer);
         mAltBuffer = new TerminalBuffer(columns, rows, rows);
+        mMainBuffer.graphics = mAltBuffer.graphics = mGraphics;
         mClient = client;
         mRows = rows;
         mColumns = columns;
@@ -571,12 +578,9 @@ public final class TerminalEmulator {
     }
 
     public void processCodePoint(int b) {
-        // The Application Program-Control (APC) string might be arbitrary non-printable characters, so handle that early.
-        if (mEscapeState == ESC_APC) {
-            doApc(b);
-            return;
-        } else if (mEscapeState == ESC_APC_ESCAPE) {
-            doApcEscape(b);
+        // Control strings own framing and cancellation. Oversized image payloads never become text.
+        if (mEscapeState == ESC_APC || mEscapeState == ESC_P) {
+            doGraphicsControl(b);
             return;
         }
 
@@ -635,10 +639,7 @@ public final class TerminalEmulator {
                 break;
             case 27: // ESC
                 // Starts an escape sequence unless we're parsing a string
-                if (mEscapeState == ESC_P) {
-                    // XXX: Ignore escape when reading device control sequence, since it may be part of string terminator.
-                    return;
-                } else if (mEscapeState != ESC_OSC) {
+                if (mEscapeState != ESC_OSC) {
                     startEscapeSequence();
                 } else {
                     doOsc(b);
@@ -846,9 +847,6 @@ public final class TerminalEmulator {
                     case ESC_OSC_ESC:
                         doOscEsc(b);
                         break;
-                    case ESC_P:
-                        doDeviceControl(b);
-                        break;
                     case ESC_CSI_QUESTIONMARK_ARG_DOLLAR:
                         if (b == 'p') {
                             // Request DEC private mode (DECRQM).
@@ -917,151 +915,179 @@ public final class TerminalEmulator {
         }
     }
 
-    /** When in {@link #ESC_P} ("device control") sequence. */
-    private void doDeviceControl(int b) {
-        switch (b) {
-            case (byte) '\\': // End of ESC \ string Terminator
-            {
-                String dcs = mOSCOrDeviceControlArgs.toString();
-                // DCS $ q P t ST. Request Status String (DECRQSS)
-                if (dcs.startsWith("$q")) {
-                    if (dcs.equals("$q\"p")) {
-                        // DECSCL, conformance level, http://www.vt100.net/docs/vt510-rm/DECSCL:
-                        String csiString = "64;1\"p";
-                        mSession.write("\033P1$r" + csiString + "\033\\");
-                    } else {
-                        finishSequenceAndLogError("Unrecognized DECRQSS string: '" + dcs + "'");
-                    }
-                } else if (dcs.startsWith("+q")) {
-                    // Request Termcap/Terminfo String. The string following the "q" is a list of names encoded in
-                    // hexadecimal (2 digits per character) separated by ; which correspond to termcap or terminfo key
-                    // names.
-                    // Two special features are also recognized, which are not key names: Co for termcap colors (or colors
-                    // for terminfo colors), and TN for termcap name (or name for terminfo name).
-                    // xterm responds with DCS 1 + r P t ST for valid requests, adding to P t an = , and the value of the
-                    // corresponding string that xterm would send, or DCS 0 + r P t ST for invalid requests. The strings are
-                    // encoded in hexadecimal (2 digits per character).
-                    // Example:
-                    // :kr=\EOC: ks=\E[?1h\E=: ku=\EOA: le=^H:mb=\E[5m:md=\E[1m:\
-                    // where
-                    // kd=down-arrow key
-                    // kl=left-arrow key
-                    // kr=right-arrow key
-                    // ku=up-arrow key
-                    // #2=key_shome, "shifted home"
-                    // #4=key_sleft, "shift arrow left"
-                    // %i=key_sright, "shift arrow right"
-                    // *7=key_send, "shifted end"
-                    // k1=F1 function key
-
-                    // Example: Request for ku is "ESC P + q 6 b 7 5 ESC \", where 6b7d=ku in hexadecimal.
-                    // Xterm response in normal cursor mode:
-                    // "<27> P 1 + r 6 b 7 5 = 1 B 5 B 4 1" where 0x1B 0x5B 0x41 = 27 91 65 = ESC [ A
-                    // Xterm response in application cursor mode:
-                    // "<27> P 1 + r 6 b 7 5 = 1 B 5 B 4 1" where 0x1B 0x4F 0x41 = 27 91 65 = ESC 0 A
-
-                    // #4 is "shift arrow left":
-                    // *** Device Control (DCS) for '#4'- 'ESC P + q 23 34 ESC \'
-                    // Response: <27> P 1 + r 2 3 3 4 = 1 B 5 B 3 1 3 B 3 2 4 4 <27> \
-                    // where 0x1B 0x5B 0x31 0x3B 0x32 0x44 = ESC [ 1 ; 2 D
-                    // which we find in: TermKeyListener.java: KEY_MAP.put(KEYMOD_SHIFT | KEYCODE_DPAD_LEFT, "\033[1;2D");
-
-                    // See http://h30097.www3.hp.com/docs/base_doc/DOCUMENTATION/V40G_HTML/MAN/MAN4/0178____.HTM for what to
-                    // respond, as well as http://www.freebsd.org/cgi/man.cgi?query=termcap&sektion=5#CAPABILITIES for
-                    // the meaning of e.g. "ku", "kd", "kr", "kl"
-
-                    for (String part : dcs.substring(2).split(";")) {
-                        if (part.length() % 2 == 0) {
-                            StringBuilder transBuffer = new StringBuilder();
-                            char c;
-                            for (int i = 0; i < part.length(); i += 2) {
-                                try {
-                                    c = (char) Long.decode("0x" + part.charAt(i) + "" + part.charAt(i + 1)).longValue();
-                                } catch (NumberFormatException e) {
-                                    Logger.logStackTraceWithMessage(mClient, LOG_TAG, "Invalid device termcap/terminfo encoded name \"" + part + "\"", e);
-                                    continue;
-                                }
-                                transBuffer.append(c);
-                            }
-
-                            String trans = transBuffer.toString();
-                            String responseValue;
-                            switch (trans) {
-                                case "Co":
-                                case "colors":
-                                    responseValue = "256"; // Number of colors.
-                                    break;
-                                case "TN":
-                                case "name":
-                                    responseValue = "xterm";
-                                    break;
-                                default:
-                                    responseValue = KeyHandler.getCodeFromTermcap(trans, isDecsetInternalBitSet(DECSET_BIT_APPLICATION_CURSOR_KEYS),
-                                        isDecsetInternalBitSet(DECSET_BIT_APPLICATION_KEYPAD));
-                                    break;
-                            }
-                            if (responseValue == null) {
-                                switch (trans) {
-                                    case "%1": // Help key - ignore
-                                    case "&8": // Undo key - ignore.
-                                        break;
-                                    default:
-                                        Logger.logWarn(mClient, LOG_TAG, "Unhandled termcap/terminfo name: '" + trans + "'");
-                                }
-                                // Respond with invalid request:
-                                mSession.write("\033P0+r" + part + "\033\\");
-                            } else {
-                                StringBuilder hexEncoded = new StringBuilder();
-                                for (int j = 0; j < responseValue.length(); j++) {
-                                    hexEncoded.append(String.format("%02X", (int) responseValue.charAt(j)));
-                                }
-                                mSession.write("\033P1+r" + part + "=" + hexEncoded + "\033\\");
-                            }
-                        } else {
-                            Logger.logError(mClient, LOG_TAG, "Invalid device termcap/terminfo name of odd length: " + part);
-                        }
-                    }
-                } else {
-                    if (LOG_ESCAPE_SEQUENCES)
-                        Logger.logError(mClient, LOG_TAG, "Unrecognized device control string: " + dcs);
-                }
-                finishSequence();
+    /** Dispatch a complete non-graphics DCS; framing belongs to doGraphicsControl. */
+    private void handleDeviceControl(String dcs) {
+        // DCS $ q P t ST. Request Status String (DECRQSS)
+        if (dcs.startsWith("$q")) {
+            if (dcs.equals("$q\"p")) {
+                // DECSCL, conformance level, http://www.vt100.net/docs/vt510-rm/DECSCL:
+                String csiString = "64;1\"p";
+                mSession.write("\033P1$r" + csiString + "\033\\");
+            } else {
+                finishSequenceAndLogError("Unrecognized DECRQSS string: '" + dcs + "'");
             }
-            break;
-            default:
-                if (mOSCOrDeviceControlArgs.length() > MAX_OSC_STRING_LENGTH) {
-                    // Too long.
-                    mOSCOrDeviceControlArgs.setLength(0);
-                    finishSequence();
+        } else if (dcs.startsWith("+q")) {
+            // Request Termcap/Terminfo String. The string following the "q" is a list of names encoded in
+            // hexadecimal (2 digits per character) separated by ; which correspond to termcap or terminfo key
+            // names.
+            // Two special features are also recognized, which are not key names: Co for termcap colors (or colors
+            // for terminfo colors), and TN for termcap name (or name for terminfo name).
+            // xterm responds with DCS 1 + r P t ST for valid requests, adding to P t an = , and the value of the
+            // corresponding string that xterm would send, or DCS 0 + r P t ST for invalid requests. The strings are
+            // encoded in hexadecimal (2 digits per character).
+            // Example:
+            // :kr=\EOC: ks=\E[?1h\E=: ku=\EOA: le=^H:mb=\E[5m:md=\E[1m:\
+            // where
+            // kd=down-arrow key
+            // kl=left-arrow key
+            // kr=right-arrow key
+            // ku=up-arrow key
+            // #2=key_shome, "shifted home"
+            // #4=key_sleft, "shift arrow left"
+            // %i=key_sright, "shift arrow right"
+            // *7=key_send, "shifted end"
+            // k1=F1 function key
+
+            // Example: Request for ku is "ESC P + q 6 b 7 5 ESC \", where 6b7d=ku in hexadecimal.
+            // Xterm response in normal cursor mode:
+            // "<27> P 1 + r 6 b 7 5 = 1 B 5 B 4 1" where 0x1B 0x5B 0x41 = 27 91 65 = ESC [ A
+            // Xterm response in application cursor mode:
+            // "<27> P 1 + r 6 b 7 5 = 1 B 5 B 4 1" where 0x1B 0x4F 0x41 = 27 91 65 = ESC 0 A
+
+            // #4 is "shift arrow left":
+            // *** Device Control (DCS) for '#4'- 'ESC P + q 23 34 ESC \'
+            // Response: <27> P 1 + r 2 3 3 4 = 1 B 5 B 3 1 3 B 3 2 4 4 <27> \
+            // where 0x1B 0x5B 0x31 0x3B 0x32 0x44 = ESC [ 1 ; 2 D
+            // which we find in: TermKeyListener.java: KEY_MAP.put(KEYMOD_SHIFT | KEYCODE_DPAD_LEFT, "\033[1;2D");
+
+            // See http://h30097.www3.hp.com/docs/base_doc/DOCUMENTATION/V40G_HTML/MAN/MAN4/0178____.HTM for what to
+            // respond, as well as http://www.freebsd.org/cgi/man.cgi?query=termcap&sektion=5#CAPABILITIES for
+            // the meaning of e.g. "ku", "kd", "kr", "kl"
+
+            for (String part : dcs.substring(2).split(";")) {
+                if (part.length() % 2 == 0) {
+                    StringBuilder transBuffer = new StringBuilder();
+                    char c;
+                    for (int i = 0; i < part.length(); i += 2) {
+                        try {
+                            c = (char) Long.decode("0x" + part.charAt(i) + "" + part.charAt(i + 1)).longValue();
+                        } catch (NumberFormatException e) {
+                            Logger.logStackTraceWithMessage(mClient, LOG_TAG, "Invalid device termcap/terminfo encoded name \"" + part + "\"", e);
+                            continue;
+                        }
+                        transBuffer.append(c);
+                    }
+
+                    String trans = transBuffer.toString();
+                    String responseValue;
+                    switch (trans) {
+                        case "Co":
+                        case "colors":
+                            responseValue = "256"; // Number of colors.
+                            break;
+                        case "TN":
+                        case "name":
+                            responseValue = "xterm";
+                            break;
+                        default:
+                            responseValue = KeyHandler.getCodeFromTermcap(trans, isDecsetInternalBitSet(DECSET_BIT_APPLICATION_CURSOR_KEYS),
+                                isDecsetInternalBitSet(DECSET_BIT_APPLICATION_KEYPAD));
+                            break;
+                    }
+                    if (responseValue == null) {
+                        switch (trans) {
+                            case "%1": // Help key - ignore
+                            case "&8": // Undo key - ignore.
+                                break;
+                            default:
+                                Logger.logWarn(mClient, LOG_TAG, "Unhandled termcap/terminfo name: '" + trans + "'");
+                        }
+                        // Respond with invalid request:
+                        mSession.write("\033P0+r" + part + "\033\\");
+                    } else {
+                        StringBuilder hexEncoded = new StringBuilder();
+                        for (int j = 0; j < responseValue.length(); j++) {
+                            hexEncoded.append(String.format("%02X", (int) responseValue.charAt(j)));
+                        }
+                        mSession.write("\033P1+r" + part + "=" + hexEncoded + "\033\\");
+                    }
                 } else {
-                    mOSCOrDeviceControlArgs.appendCodePoint(b);
-                    continueSequence(mEscapeState);
+                    Logger.logError(mClient, LOG_TAG, "Invalid device termcap/terminfo name of odd length: " + part);
                 }
-        }
-    }
-
-    /**
-     * When in {@link #ESC_APC} (APC, Application Program Command) sequence.
-     */
-    private void doApc(int b) {
-        if (b == 27) {
-            continueSequence(ESC_APC_ESCAPE);
-        }
-        // Eat APC sequences silently for now.
-    }
-
-    /**
-     * When in {@link #ESC_APC} (APC, Application Program Command) sequence.
-     */
-    private void doApcEscape(int b) {
-        if (b == '\\') {
-            // A String Terminator (ST), ending the APC escape sequence.
-            finishSequence();
+            }
         } else {
-            // The Escape character was not the start of a String Terminator (ST),
-            // but instead just data inside of the APC escape sequence.
-            continueSequence(ESC_APC);
+            if (LOG_ESCAPE_SEQUENCES)
+                Logger.logError(mClient, LOG_TAG, "Unrecognized device control string: " + dcs);
         }
+    }
+
+    public TerminalGraphics getGraphics() { return mGraphics; }
+    public int getCellWidthPixels() { return Math.max(1, mCellWidthPixels); }
+    public int getCellHeightPixels() { return Math.max(1, mCellHeightPixels); }
+    public void setImageFactory(TerminalImage.Factory factory) { mImageFactory = java.util.Objects.requireNonNull(factory); }
+    TerminalImage.Factory getImageFactory() { return mImageFactory; }
+
+    private void beginGraphicsControl(int state) {
+        mSixel = null;
+        mControlEscape = mControlDiscard = false;
+        mControlLength = 0;
+        mOSCOrDeviceControlArgs.setLength(0);
+        continueSequence(state);
+    }
+
+    private void doGraphicsControl(int b) {
+        if (b == 24 || b == 26) {
+            mSixel = null; mKitty.reset(); mOSCOrDeviceControlArgs.setLength(0);
+            finishSequence(); return;
+        }
+        if (mControlEscape) {
+            mControlEscape = false;
+            if (b == '\\') {
+                if (!mControlDiscard) {
+                    if (mSixel != null) {
+                        TerminalImage image = mSixel.finish(mImageFactory);
+                        if (image != null) {
+                            int column = mSixelScrolling ? mCursorCol : 0;
+                            int row = mSixelScrolling ? mCursorRow : 0;
+                            float rows = (float) image.height / getCellHeightPixels();
+                            float columns = (float) image.width / getCellWidthPixels();
+                            long id = mGraphics.put(0, image);
+                            mGraphics.place(mScreen, id, 0, column, row, columns, rows,
+                                    0, 0, image.width, image.height, -1, true);
+                            if (mSixelScrolling) advanceGraphicsCursor(mSixelCursorRight ? (int) Math.ceil(columns) : 0,
+                                    (int) Math.ceil(rows), true);
+                        }
+                    } else if (mEscapeState == ESC_APC) mKitty.accept(mOSCOrDeviceControlArgs.toString());
+                    else handleDeviceControl(mOSCOrDeviceControlArgs.toString());
+                } else if (mEscapeState == ESC_APC) mKitty.reset();
+                mSixel = null; mOSCOrDeviceControlArgs.setLength(0); finishSequence();
+                return;
+            }
+            mSixel = null; mKitty.reset();
+            mOSCOrDeviceControlArgs.setLength(0);
+            mEscapeState = ESC;
+            processCodePoint(b);
+            return;
+        }
+        if (b == 27) { mControlEscape = true; return; }
+        if (b < 32 || b == 127 || mControlDiscard) return;
+        if (++mControlLength > 16 * 1024 * 1024) { mControlDiscard = true; mSixel = null; return; }
+        if (mSixel != null) { mSixel.accept(b); return; }
+        if (mEscapeState == ESC_P && b == 'q' && mOSCOrDeviceControlArgs.length() < 64
+                && mOSCOrDeviceControlArgs.toString().matches("[0-9;]*")) {
+            String[] args = mOSCOrDeviceControlArgs.toString().split(";", -1);
+            boolean transparent = args.length > 1 && args[1].equals("1");
+            mSixel = new SixelDecoder(transparent, mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND]);
+            mOSCOrDeviceControlArgs.setLength(0);
+        } else if (mOSCOrDeviceControlArgs.length() >= MAX_OSC_STRING_LENGTH) {
+            mControlDiscard = true; mOSCOrDeviceControlArgs.setLength(0);
+        } else mOSCOrDeviceControlArgs.appendCodePoint(b);
+    }
+
+    void advanceGraphicsCursor(int columns, int rows, boolean scroll) {
+        setCursorCol(Math.min(mColumns - 1, mCursorCol + columns));
+        if (scroll) for (int i = 0; i < rows; i++) doLinefeed();
+        else setCursorRow(Math.min(mRows - 1, mCursorRow + rows));
     }
 
     private int nextTabStop(int numTabs) {
@@ -1104,6 +1130,13 @@ public final class TerminalEmulator {
     /** Process byte while in the {@link #ESC_CSI_QUESTIONMARK} escape state. */
     private void doCsiQuestionMark(int b) {
         switch (b) {
+            case 'S': { // XTSMGRAPHICS: query color registers or bounded raster geometry.
+                int item = getArg0(0), action = getArg(1, 0, false);
+                if ((item == 1 || item == 2) && (action == 1 || action == 4)) {
+                    mSession.write("\033[?" + item + ";0;" + (item == 1 ? "256" : "4096;4096") + "S");
+                } else mSession.write("\033[?" + item + ";1S");
+                break;
+            }
             case 'J': // Selective erase in display (DECSED) - http://www.vt100.net/docs/vt510-rm/DECSED.
             case 'K': // Selective erase in line (DECSEL) - http://vt100.net/docs/vt510-rm/DECSEL.
                 mAboutToAutoWrap = false;
@@ -1192,6 +1225,9 @@ public final class TerminalEmulator {
             setDecsetinternalBit(internalBit, setting);
         }
         switch (externalBit) {
+            case 80: mSixelScrolling = !setting; break;
+            case 8452: mSixelCursorRight = setting; break;
+            case 1070: break; // Each Sixel image already has a private palette.
             case 1: // Application Cursor Keys (DECCKM).
                 break;
             case 3: // Set: 132 column mode (. Reset: 80 column mode. ANSI name: DECCOLM.
@@ -1272,8 +1308,10 @@ public final class TerminalEmulator {
                     // Check if buffer size needs to be updated:
                     if (resized) resizeScreen();
                     // Clear new screen if alt buffer:
-                    if (newScreen == mAltBuffer)
+                    if (newScreen == mAltBuffer) {
+                        mGraphics.clear(mAltBuffer, true);
                         newScreen.blockSet(0, 0, mColumns, mRows, ' ', getStyle());
+                    }
                 }
                 break;
             }
@@ -1465,7 +1503,7 @@ public final class TerminalEmulator {
                 // http://www.vt100.net/docs/vt100-ug/chapter3.html: "Move the active position to the same horizontal
                 // position on the preceding line. If the active position is at the top margin, a scroll down is performed".
                 if (mCursorRow <= mTopMargin) {
-                    mScreen.blockCopy(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, mBottomMargin - (mTopMargin + 1), mLeftMargin, mTopMargin + 1);
+                    mScreen.moveLines(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, mBottomMargin - (mTopMargin + 1), mTopMargin + 1);
                     blockClear(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin);
                 } else {
                     mCursorRow--;
@@ -1475,8 +1513,7 @@ public final class TerminalEmulator {
             case '0': // SS3, ignore.
                 break;
             case 'P': // Device control string
-                mOSCOrDeviceControlArgs.setLength(0);
-                continueSequence(ESC_P);
+                beginGraphicsControl(ESC_P);
                 break;
             case '[':
                 continueSequence(ESC_CSI);
@@ -1492,7 +1529,7 @@ public final class TerminalEmulator {
                 setDecsetinternalBit(DECSET_BIT_APPLICATION_KEYPAD, false);
                 break;
             case '_': // APC - Application Program Command.
-                continueSequence(ESC_APC);
+                beginGraphicsControl(ESC_APC);
                 break;
             default:
                 unknownSequence(b);
@@ -1508,6 +1545,7 @@ public final class TerminalEmulator {
         state.mSavedEffect = mEffect;
         state.mSavedForeColor = mForeColor;
         state.mSavedBackColor = mBackColor;
+        state.mSavedUnderlineColor = mUnderlineColor;
         state.mSavedDecFlags = mCurrentDecSetFlags;
         state.mUseLineDrawingG0 = mUseLineDrawingG0;
         state.mUseLineDrawingG1 = mUseLineDrawingG1;
@@ -1521,6 +1559,7 @@ public final class TerminalEmulator {
         mEffect = state.mSavedEffect;
         mForeColor = state.mSavedForeColor;
         mBackColor = state.mSavedBackColor;
+        mUnderlineColor = state.mSavedUnderlineColor;
         int mask = (DECSET_BIT_AUTOWRAP | DECSET_BIT_ORIGIN_MODE);
         mCurrentDecSetFlags = (mCurrentDecSetFlags & ~mask) | (state.mSavedDecFlags & mask);
         mUseLineDrawingG0 = state.mUseLineDrawingG0;
@@ -1598,6 +1637,7 @@ public final class TerminalEmulator {
                         break;
                     case 2: // Erase all of the display - all lines are erased, changed to single-width, and the cursor does not
                         // move..
+                        mGraphics.clear(mScreen, false);
                         blockClear(0, 0, mColumns, mRows);
                         break;
                     case 3: // Delete all lines saved in the scrollback buffer (xterm etc)
@@ -1631,7 +1671,7 @@ public final class TerminalEmulator {
                 int linesAfterCursor = mBottomMargin - mCursorRow;
                 int linesToInsert = Math.min(getArg0(1), linesAfterCursor);
                 int linesToMove = linesAfterCursor - linesToInsert;
-                mScreen.blockCopy(0, mCursorRow, mColumns, linesToMove, 0, mCursorRow + linesToInsert);
+                mScreen.moveLines(0, mCursorRow, mColumns, linesToMove, mCursorRow + linesToInsert);
                 blockClear(0, mCursorRow, mColumns, linesToInsert);
             }
             break;
@@ -1641,7 +1681,7 @@ public final class TerminalEmulator {
                 int linesAfterCursor = mBottomMargin - mCursorRow;
                 int linesToDelete = Math.min(getArg0(1), linesAfterCursor);
                 int linesToMove = linesAfterCursor - linesToDelete;
-                mScreen.blockCopy(0, mCursorRow + linesToDelete, mColumns, linesToMove, 0, mCursorRow);
+                mScreen.moveLines(0, mCursorRow + linesToDelete, mColumns, linesToMove, mCursorRow);
                 blockClear(0, mCursorRow + linesToMove, mColumns, linesToDelete);
             }
             break;
@@ -1675,7 +1715,7 @@ public final class TerminalEmulator {
                     final int linesToScrollArg = getArg0(1);
                     final int linesBetweenTopAndBottomMargins = mBottomMargin - mTopMargin;
                     final int linesToScroll = Math.min(linesBetweenTopAndBottomMargins, linesToScrollArg);
-                    mScreen.blockCopy(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, linesBetweenTopAndBottomMargins - linesToScroll, mLeftMargin, mTopMargin + linesToScroll);
+                    mScreen.moveLines(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, linesBetweenTopAndBottomMargins - linesToScroll, mTopMargin + linesToScroll);
                     blockClear(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, linesToScroll);
                 } else {
                     // "${CSI}${func};${startx};${starty};${firstrow};${lastrow}T" - initiate highlight mouse tracking.
@@ -1720,7 +1760,7 @@ public final class TerminalEmulator {
                 // The important part that may still be used by some (tmux stores this value but does not currently use it)
                 // is the first response parameter identifying the terminal service class, where we send 64 for "vt420".
                 // This is followed by a list of attributes which is probably unused by applications. Send like xterm.
-                if (getArg0(0) == 0) mSession.write("\033[?64;1;2;6;9;15;18;21;22c");
+                if (getArg0(0) == 0) mSession.write("\033[?64;1;2;4;6;9;15;18;21;22c");
                 break;
             case 'd': // ESC [ Pn d - Vert Position Absolute
                 setCursorRow(Math.min(Math.max(1, getArg0(1)), mRows) - 1);
@@ -1873,6 +1913,7 @@ public final class TerminalEmulator {
                 }
             }
             if (code == 0) { // reset
+                mUnderlineColor = TextStyle.COLOR_INDEX_FOREGROUND;
                 mForeColor = TextStyle.COLOR_INDEX_FOREGROUND;
                 mBackColor = TextStyle.COLOR_INDEX_BACKGROUND;
                 mEffect = 0;
@@ -2243,7 +2284,7 @@ public final class TerminalEmulator {
         long currentStyle = getStyle();
         if (mLeftMargin != 0 || mRightMargin != mColumns) {
             // Horizontal margin: Do not put anything into scroll history, just non-margin part of screen up.
-            mScreen.blockCopy(mLeftMargin, mTopMargin + 1, mRightMargin - mLeftMargin, mBottomMargin - mTopMargin - 1, mLeftMargin, mTopMargin);
+            mScreen.moveLines(mLeftMargin, mTopMargin + 1, mRightMargin - mLeftMargin, mBottomMargin - mTopMargin - 1, mTopMargin);
             // .. and blank bottom row between margins:
             mScreen.blockSet(mLeftMargin, mBottomMargin - 1, mRightMargin - mLeftMargin, 1, ' ', currentStyle);
         } else {
@@ -2523,6 +2564,10 @@ public final class TerminalEmulator {
         // TODO: Check if there are thread synchronization issues with mCursorCol and mCursorRow, possibly causing others bugs too.
         if (column < 0) column = 0;
         mScreen.setChar(column, mCursorRow, codePoint, getStyle(), mHyperlink);
+        if (codePoint == KittyImagePlaceholder.CODEPOINT) {
+            mScreen.allocateFullLineIfNecessary(mScreen.externalToInternalRow(mCursorRow))
+                    .setImagePlacementId(column, KittyImagePlaceholder.colorId(mUnderlineColor));
+        }
 
         if (autoWrap && displayWidth > 0)
             mAboutToAutoWrap = (mCursorCol == mRightMargin - displayWidth);
@@ -2562,6 +2607,12 @@ public final class TerminalEmulator {
 
     /** Reset terminal state so user can interact with it regardless of present state. */
     public void reset() {
+        mUnderlineColor = mSavedStateMain.mSavedUnderlineColor = mSavedStateAlt.mSavedUnderlineColor = TextStyle.COLOR_INDEX_FOREGROUND;
+        mGraphics.reset();
+        mKitty.reset();
+        mSixel = null;
+        mSixelScrolling = true;
+        mSixelCursorRight = false;
         mHyperlink = null;
         mCommands.clear();
         mSession.onProgressChanged(0, -1);
@@ -2633,7 +2684,7 @@ public final class TerminalEmulator {
     static final class SavedScreenState {
         /** Saved state of the cursor position, Used to implement the save/restore cursor position escape sequences. */
         int mSavedCursorRow, mSavedCursorCol;
-        int mSavedEffect, mSavedForeColor, mSavedBackColor;
+        int mSavedEffect, mSavedForeColor, mSavedBackColor, mSavedUnderlineColor;
         int mSavedDecFlags;
         boolean mUseLineDrawingG0, mUseLineDrawingG1, mUseLineDrawingUsesG0 = true;
     }

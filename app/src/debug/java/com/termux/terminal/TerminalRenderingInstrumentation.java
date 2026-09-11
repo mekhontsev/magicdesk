@@ -33,6 +33,7 @@ public final class TerminalRenderingInstrumentation extends Instrumentation {
                 checkGeometry(width, width * 2 + 1);
             }
             checkPresentation(family);
+            checkGraphics(family);
             final File atlas = new File(getTargetContext().getCacheDir(), "terminal-rendering.png");
             try (FileOutputStream output = new FileOutputStream(atlas)) {
                 final Bitmap bitmap = atlas(family);
@@ -206,6 +207,66 @@ public final class TerminalRenderingInstrumentation extends Instrumentation {
         final Bitmap bitmap = Bitmap.createBitmap(width * 54, height * 32, Bitmap.Config.ARGB_8888);
         renderer.draw(new Canvas(bitmap), emulator, 0, 32, Integer.MIN_VALUE, Integer.MIN_VALUE, 0, 0, false);
         return bitmap;
+    }
+
+    private void checkGraphics(final Typeface family) throws java.io.IOException {
+        final MagicDeskTerminalRenderer renderer = new MagicDeskTerminalRenderer(family, 25.5f);
+        final int cw = (int) renderer.cellWidth(), ch = (int) renderer.cellHeight();
+        final TerminalEmulator terminal = emulator(30, 18, cw, ch);
+        terminal.setImageFactory(AndroidTerminalImages.FACTORY);
+        final Bitmap bitmap = Bitmap.createBitmap(cw * 30, ch * 18, Bitmap.Config.ARGB_8888);
+        final Canvas canvas = new Canvas(bitmap);
+        final String st = "\033\\";
+        try {
+            append(terminal, "\033_Ga=T,f=24,s=1,v=1,i=1,c=4,r=2,C=1,z=-1;/wAA" + st);
+            renderer.draw(canvas, terminal, 0, 18, -1, -1, -1, -1, false);
+            require(bitmap.getPixel(cw, ch / 2) == Color.RED, "Kitty image missing");
+            append(terminal, "\033[32m\u2588\033[0m");
+            renderer.draw(canvas, terminal, 0, 18, -1, -1, -1, -1, false);
+            require(bitmap.getPixel(cw / 2, ch / 2) == terminal.mColors.mCurrentColors[2], "negative z text layering");
+            append(terminal, "\033[H\033_Ga=T,f=32,s=1,v=1,i=2,c=4,r=2,C=1;AAD/gA==" + st);
+            renderer.draw(canvas, terminal, 0, 18, -1, -1, -1, -1, false);
+            int blend = bitmap.getPixel(cw, ch / 2);
+            require(Color.red(blend) >= 126 && Color.red(blend) <= 128
+                    && Color.blue(blend) >= 127 && Color.blue(blend) <= 129, "RGBA alpha layering");
+            append(terminal, "\033[2J");
+            renderer.draw(canvas, terminal, 0, 18, -1, -1, -1, -1, false);
+            require(ink(bitmap, 0, 0, cw * 30, ch * 18) == 0, "clear screen retained images");
+
+            Bitmap input = Bitmap.createBitmap(64, 32, Bitmap.Config.ARGB_8888);
+            input.eraseColor(Color.GREEN);
+            java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+            require(input.compress(Bitmap.CompressFormat.PNG, 100, png), "PNG fixture");
+            input.recycle();
+            append(terminal, "\033_Ga=T,f=100,i=3,C=1;"
+                    + java.util.Base64.getEncoder().encodeToString(png.toByteArray()) + st);
+            renderer.draw(canvas, terminal, 0, 18, -1, -1, -1, -1, false);
+            require(bitmap.getPixel(20, 10) == Color.GREEN, "PNG decode/render");
+            TerminalImage retained = terminal.getGraphics().visible(terminal.getScreen(), 0, 18).get(0).image;
+            final MagicDeskTerminalRenderer attached = new MagicDeskTerminalRenderer(family, 25.5f);
+            attached.draw(canvas, terminal, 0, 18, -1, -1, -1, -1, false);
+            require(retained == terminal.getGraphics().visible(terminal.getScreen(), 0, 18).get(0).image,
+                    "new View replaced session raster");
+            require(bitmap.getPixel(20, 10) == Color.GREEN, "new View lost image");
+            append(terminal, "\033[4;1HSixel\r\n\033P0;1q#1;2;100;0;0!120~"
+                    + "-#2;2;0;100;0!120~-#3;2;0;0;100!120~" + st);
+            renderer.draw(canvas, terminal, 0, 18, -1, -1, -1, -1, false);
+            require(bitmap.getPixel(10, 4 * ch + 2) == Color.RED, "Sixel red band");
+            require(bitmap.getPixel(10, 4 * ch + 8) == Color.GREEN, "Sixel green band");
+            require(bitmap.getPixel(10, 4 * ch + 14) == Color.BLUE, "Sixel blue band");
+            append(terminal, "\033[9;1H\033_Ga=T,U=1,f=24,s=1,v=1,c=2,r=1,i=42;/wAA" + st
+                    + "\033[38;5;42m\udbfb\udeee\u0305\u0305\udbfb\udeee\033[0m");
+            renderer.draw(canvas, terminal, 0, 18, -1, -1, -1, -1, false);
+            require(bitmap.getPixel(cw / 2, 8 * ch + ch / 2) == Color.RED, "Unicode image first cell");
+            require(bitmap.getPixel(cw + cw / 2, 8 * ch + ch / 2) == Color.RED, "Unicode image inherited cell");
+            append(terminal, "\033[2J\033[H\033[38;5;42m\udbfb\udeee\u0305\u0305\udbfb\udeee\033[0m");
+            renderer.draw(canvas, terminal, 0, 18, -1, -1, -1, -1, false);
+            require(bitmap.getPixel(cw / 2, ch / 2) == Color.RED, "Unicode image lost on tmux redraw");
+            File file = new File(getTargetContext().getCacheDir(), "terminal-graphics.png");
+            try (FileOutputStream stream = new FileOutputStream(file)) {
+                require(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream), "graphics atlas");
+            }
+        } finally { bitmap.recycle(); }
     }
 
     private static TerminalEmulator emulator(final int columns, final int rows, final int width, final int height) {

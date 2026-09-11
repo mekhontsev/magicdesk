@@ -160,6 +160,8 @@ final class ConsoleTerminalSession {
                 cellHeight,
                 Integer.valueOf(DEFAULT_TRANSCRIPT_ROWS),
                 null);
+        mEmulator.setImageFactory(com.termux.terminal.AndroidTerminalImages.FACTORY);
+        mEmulator.getGraphics().setByteBudget(Runtime.getRuntime().maxMemory() / 4);
     }
 
     TerminalEmulator emulator() {

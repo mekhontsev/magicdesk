@@ -146,6 +146,9 @@ implemented.
 
 Console provides a real interactive PTY with ANSI colors, scrollback, selection,
 clipboard, terminal mouse reporting, resizing and alternate-screen programs.
+Both consoles include a bundled Nerd Font, clickable links, shell command history
+and static Sixel/Kitty images, including Kitty placeholders through tmux.
+See [terminal integration](docs/terminal-integration.md) for protocols and limits.
 
 - Android-shell sessions run under the connected service identity.
 - Termux sessions run under Termux's own UID, using its installed tools and

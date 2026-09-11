@@ -1492,6 +1492,14 @@ The resource font family supplies four real JetBrains Mono Nerd Font Mono faces;
 `TerminalCellGeometry` owns only geometric glyph presentation on that grid.
 Font loading and rendering are app-layer responsibilities, not emulator, transport
 or Termux configuration. Font and geometry licensing is in `THIRD_PARTY_NOTICES.md`.
+Static terminal graphics follow the same session/view boundary. `SixelDecoder`
+and `KittyGraphicsDecoder` decode bounded terminal input into `TerminalImage`;
+`TerminalGraphics` owns images and buffer-scoped placements. Buffer operations
+update placement coordinates and clips, while Kitty Unicode placeholders move
+as text cells. `AndroidTerminalImages` supplies PNG decoding and one native bitmap
+per raster, shared by attached views. Rendering never owns the session's image
+lifetime or adds a periodic redraw loop. Graphics use the same PTY on either
+backend and do not introduce a Desktop, Termux-app or file-access prerequisite.
 The native relay has a small framed control protocol for input, resize, and
 working-directory requests. The Binder transport exposes raw output from its
 owned descriptor; the loopback transport frames output and metadata so one

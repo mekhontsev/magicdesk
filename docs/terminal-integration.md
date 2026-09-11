@@ -30,6 +30,72 @@ actual Android font faces and Bitmap rendering across cell sizes, then writes
 instrumentation restarts the application process. Host tests validate the bundled
 font resources and the View-to-PTY resize contract.
 
+## Static Images
+
+Both consoles render static Sixel and inline Kitty graphics using the local Java
+emulator and Android Bitmap/Canvas, without another library or a Termux renderer.
+Images belong to the retained terminal session, not the window. Detach/reattach
+does not re-decode them. Direct placements track buffer scrolling and reflow;
+alternate-screen images are cleared on alternate-screen entry, independently of
+the main screen. Ordinary text erases Sixel cells but not Kitty placements;
+clear-screen, graphics deletion and reset have their protocol-specific effects.
+
+- **Sixel:** raster attributes, RGB/HLS palettes, repeat runs, transparent
+  backgrounds, scrolling and cursor-right modes. Raster pixels are square;
+  non-square pixel-aspect emulation and shared palettes are not implemented.
+- **Kitty:** inline RGB/RGBA/PNG, base64 chunks, optional zlib compression,
+  queries, named images/placements, source crop, cell sizing/offsets, z-order,
+  cursor policy and deletion by image/placement ID or all visible placements.
+  Unicode placeholder placements (`U=1`) support multiplexers. Animation,
+  relative placements, image-number addressing, and file/shared-memory
+  transports are not implemented. Unsupported commands return a protocol error
+  when a response is requested; payloads never execute commands or open files.
+
+The session retains one Android bitmap per image. Its raster budget is one quarter
+of the application heap limit, clamped to 64-128 MiB, with at most 128 images and
+256 placements/fragments. A raster is limited to 4096 pixels per side and 16 million
+pixels (64 MiB RGBA). Incoming Kitty transfers/decompressed data are bounded to
+64 MiB; Sixel input is bounded to 16 MiB and 32 million pixel writes. Decoding needs
+temporary buffers in addition to retained raster storage. Quota eviction prefers
+unplaced images, then the oldest image, removing its placements at the same time.
+There is no animation timer, disk cache or background image worker. Text-only
+terminals keep their single drawing pass; graphics are drawn on normal invalidation.
+
+`TERM` stays `xterm-256color`. Sixel capability/geometry queries and Kitty graphics
+queries describe support; clients may also select a format explicitly. For example,
+with `chafa` installed in Termux:
+
+```sh
+chafa --probe off --animate off -f sixels -s 40x12 image.png
+chafa --probe off --animate off -f kitty -s 40x12 image.png
+```
+
+Termux packages can produce these formats even if Termux's own terminal view
+cannot display them. The terminal receiving the PTY output is MagicDesk.
+
+### Images Inside tmux
+
+A tmux build with Sixel enabled can handle Sixel natively. For Kitty Unicode
+placeholders, enable tmux passthrough and use a client that emits placeholders:
+
+```sh
+tmux set -g allow-passthrough on
+chafa --probe off --animate off --passthrough tmux -f kitty -s 30x10 image.png
+```
+
+MagicDesk reads the unwrapped graphics protocol, while tmux moves/repaints its
+placeholder cells as text. Image prototypes survive clear-screen redraws and
+window switches. If a pane becomes narrower than an already printed image row,
+tmux can wrap its cells into strips. The producing application must redraw the
+preview for its new dimensions; MagicDesk does not guess or rearrange tmux cells.
+Native Sixel retention across pane changes depends on tmux's implementation.
+
+The rendering instrumentation also exercises decoded RGB, alpha, PNG, Sixel,
+layer order, clearing, Unicode placeholders and view-independent raster reuse,
+writing `cache/terminal-graphics.png`. Host tests cover fragmented/malformed
+streams, quotas, scrolling, reflow, buffer isolation and placement lifetimes.
+Graphics are not included in text transcript/selection output.
+
 ## Supported OSC Sequences
 
 | OSC | Meaning | MagicDesk behavior |

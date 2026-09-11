@@ -20,6 +20,8 @@ public final class TerminalBuffer {
     private int mActiveTranscriptRows = 0;
     /** The index in the circular buffer where the visible screen starts. */
     private int mScreenFirstRow = 0;
+    TerminalGraphics graphics;
+    private boolean reflowing;
 
     /**
      * Create a transcript screen.
@@ -236,7 +238,8 @@ public final class TerminalBuffer {
                 for (int i = mScreenRows - 1; i > 0; i--) {
                     if (cursor[1] >= i) break;
                     int r = externalToInternalRow(i);
-                    if (mLines[r] == null || mLines[r].isBlank()) {
+                    if ((mLines[r] == null || mLines[r].isBlank())
+                            && (graphics == null || !graphics.hasContentAtRow(this, i))) {
                         if (--shiftDownOfTopRow == 0) break;
                     }
                 }
@@ -251,12 +254,15 @@ public final class TerminalBuffer {
                 }
             }
             mScreenFirstRow += shiftDownOfTopRow;
+            if (graphics != null) graphics.shift(this, -shiftDownOfTopRow);
             mScreenFirstRow = (mScreenFirstRow < 0) ? (mScreenFirstRow + mTotalRows) : (mScreenFirstRow % mTotalRows);
             mTotalRows = newTotalRows;
             mActiveTranscriptRows = altScreen ? 0 : Math.max(0, mActiveTranscriptRows + shiftDownOfTopRow);
             cursor[1] -= shiftDownOfTopRow;
             mScreenRows = newRows;
         } else {
+            reflowing = true;
+            if (graphics != null) graphics.beginReflow(this);
             // Copy away old state and update new:
             TerminalRow[] oldLines = mLines;
             mLines = new TerminalRow[newTotalRows];
@@ -293,7 +299,8 @@ public final class TerminalBuffer {
                 TerminalRow oldLine = oldLines[internalOldRow];
                 boolean cursorAtThisRow = externalOldRow == oldCursorRow;
                 // The cursor may only be on a non-null line, which we should not skip:
-                if (oldLine == null || (!(!newCursorPlaced && cursorAtThisRow)) && oldLine.isBlank()) {
+                int graphicEnd = graphics == null ? 0 : graphics.lastColumn(this, externalOldRow);
+                if (oldLine == null || (!(!newCursorPlaced && cursorAtThisRow)) && oldLine.isBlank() && graphicEnd == 0) {
                     skippedBlankLines++;
                     continue;
                 } else if (skippedBlankLines > 0) {
@@ -325,7 +332,7 @@ public final class TerminalBuffer {
                 int currentOldCol = 0;
                 long styleAtCol = 0;
                 TerminalHyperlink linkAtCol = null;
-                int metadataEnd = oldLine.lastMetadataColumn();
+                int metadataEnd = Math.max(oldLine.lastMetadataColumn(), Math.min(oldLine.mStyle.length, graphicEnd));
                 lastNonSpaceIndex = Math.max(lastNonSpaceIndex,
                         oldLine.findStartOfColumn(metadataEnd));
                 for (int i = 0; i < lastNonSpaceIndex; i++) {
@@ -355,7 +362,11 @@ public final class TerminalBuffer {
                     int outputColumn = currentOutputExternalColumn - offsetDueToCombiningChar;
                     if (displayWidth > 0) oldLine.reflowMarkers(currentOldCol,
                             allocateFullLineIfNecessary(externalToInternalRow(currentOutputExternalRow)), outputColumn);
+                    if (displayWidth > 0 && graphics != null) graphics.reflow(this,
+                            externalOldRow, currentOldCol, currentOutputExternalRow, outputColumn);
                     setChar(outputColumn, currentOutputExternalRow, codePoint, styleAtCol, linkAtCol);
+                    if (displayWidth > 0) allocateFullLineIfNecessary(externalToInternalRow(currentOutputExternalRow))
+                            .setImagePlacementId(outputColumn, oldLine.imagePlacementId(currentOldCol));
 
                     if (displayWidth > 0) {
                         if (oldCursorRow == externalOldRow && oldCursorColumn == currentOldCol) {
@@ -387,6 +398,7 @@ public final class TerminalBuffer {
             for (TerminalRow oldLine : oldLines) {
                 if (oldLine != null) oldLine.clearMarkers(0, Integer.MAX_VALUE);
             }
+            reflowing = false;
         }
 
         // Handle cursor scrolling off screen:
@@ -424,6 +436,8 @@ public final class TerminalBuffer {
     public void scrollDownOneLine(int topMargin, int bottomMargin, long style) {
         if (topMargin > bottomMargin - 1 || topMargin < 0 || bottomMargin > mScreenRows)
             throw new IllegalArgumentException("topMargin=" + topMargin + ", bottomMargin=" + bottomMargin + ", mScreenRows=" + mScreenRows);
+        if (graphics != null) graphics.scroll(this, topMargin, bottomMargin, -1,
+                topMargin == 0 && bottomMargin == mScreenRows, reflowing);
 
         // Copy the fixed topMargin lines one line down so that they remain on screen in same position:
         blockCopyLinesDown(mScreenFirstRow, topMargin);
@@ -469,6 +483,13 @@ public final class TerminalBuffer {
         }
     }
 
+    /** A line-scroll operation, unlike DECCRA or character insertion, also moves graphics. */
+    public void moveLines(int left, int sourceTop, int width, int height, int targetTop) {
+        if (graphics != null) graphics.scrollRegion(this, left, left + width,
+                Math.min(sourceTop, targetTop), Math.max(sourceTop, targetTop) + height, targetTop - sourceTop);
+        blockCopy(left, sourceTop, width, height, left, targetTop);
+    }
+
     /**
      * Block set characters. All characters must be within the bounds of the screen, or else and
      * InvalidParemeterException will be thrown. Typically this is called with a "val" argument of 32 to clear a block
@@ -498,6 +519,8 @@ public final class TerminalBuffer {
     public void setChar(int column, int row, int codePoint, long style, TerminalHyperlink link) {
         if (row  < 0 || row >= mScreenRows || column < 0 || column >= mColumns)
             throw new IllegalArgumentException("TerminalBuffer.setChar(): row=" + row + ", column=" + column + ", mScreenRows=" + mScreenRows + ", mColumns=" + mColumns);
+        if (graphics != null && !reflowing && WcWidth.width(codePoint) > 0)
+            graphics.eraseSixel(this, column, row, column + Math.max(1, WcWidth.width(codePoint)), row + 1);
         row = externalToInternalRow(row);
         allocateFullLineIfNecessary(row).setChar(column, codePoint, style, link);
     }
@@ -532,6 +555,7 @@ public final class TerminalBuffer {
     }
 
     public void clearTranscript() {
+        if (graphics != null) graphics.clearHistory(this);
         for (int y = -mActiveTranscriptRows; y < 0; y++) {
             TerminalRow row = mLines[externalToInternalRow(y)];
             if (row != null) row.clearMarkers(0, mColumns + 1);

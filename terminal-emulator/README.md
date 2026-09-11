@@ -18,6 +18,12 @@ cell buffers with OSC 8 hyperlinks, OSC 9 notification/progress events and OSC
 reflow; bounded command records reference buffer-owned markers rather than a
 second output transcript. OSC 0/2 titles use the existing title callback.
 Unknown SGR codes use locale-independent diagnostic formatting.
+Static Sixel and inline Kitty decoders publish immutable `TerminalImage` rasters
+through a host-supplied factory. `TerminalGraphics` owns the raster quota and
+buffer-scoped placements. Unicode placeholder coordinates and placement colors
+travel with text cells through tmux repainting, copying and reflow. Android PNG
+decoding, native Bitmap storage and Canvas drawing belong to the application,
+not this module. Parser tests use a Java-array factory and require no codec library.
 The `TerminalSessionClient` callback interface excludes callbacks referencing the
 upstream process-owning `TerminalSession`. The unused `TerminalSession`, `JNI`,
 `ByteQueue`, and `ByteQueueTest` are not part of the module. Its Gradle build uses

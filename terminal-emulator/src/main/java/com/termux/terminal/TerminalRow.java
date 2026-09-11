@@ -51,6 +51,7 @@ public final class TerminalRow {
     /** The style bits of each cell in the row. See {@link TextStyle}. */
     final long[] mStyle;
     private TerminalHyperlink[] mLinks;
+    private int[] mImagePlacementIds;
     private ArrayList<TerminalMarker> mMarkers;
     /** If this row might contain chars with width != 1, used for deactivating fast path */
     boolean mHasNonOneWidthOrSurrogateChars;
@@ -71,6 +72,8 @@ public final class TerminalRow {
         boolean startingFromSecondHalfOfWideChar = (sourceX1 > 0 && line.wideDisplayCharacterStartingAt(sourceX1 - 1));
         final char[] sourceChars = (this == line) ? Arrays.copyOf(line.mText, line.mText.length) : line.mText;
         final long[] sourceStyles = this == line ? line.mStyle.clone() : line.mStyle;
+        final int[] sourceImageIds = line.mImagePlacementIds == null ? null
+                : this == line ? line.mImagePlacementIds.clone() : line.mImagePlacementIds;
         final TerminalHyperlink[] sourceLinks = line.mLinks == null ? null
                 : this == line ? line.mLinks.clone() : line.mLinks;
         final int destinationStart = destinationX;
@@ -95,6 +98,7 @@ public final class TerminalRow {
             }
             setChar(destinationX, codePoint, sourceStyles[sourceX1],
                     sourceLinks == null ? null : sourceLinks[sourceX1]);
+            if (w > 0 && sourceImageIds != null) setImagePlacementId(destinationX, sourceImageIds[sourceX1]);
         }
     }
 
@@ -158,6 +162,7 @@ public final class TerminalRow {
     public void clear(long style) {
         clearMarkers(0, mColumns + 1);
         mLinks = null;
+        mImagePlacementIds = null;
         Arrays.fill(mText, ' ');
         Arrays.fill(mStyle, style);
         mSpaceUsed = (short) mColumns;
@@ -177,6 +182,10 @@ public final class TerminalRow {
 
         final int newCodePointDisplayWidth = WcWidth.width(codePoint);
         if (newCodePointDisplayWidth > 0) {
+            if (mImagePlacementIds != null) {
+                mImagePlacementIds[columnToSet] = 0;
+                if (newCodePointDisplayWidth == 2 && columnToSet + 1 < mColumns) mImagePlacementIds[columnToSet + 1] = 0;
+            }
             if (link != null && mLinks == null) mLinks = new TerminalHyperlink[mColumns];
             if (mLinks != null) {
                 mLinks[columnToSet] = link;
@@ -324,6 +333,12 @@ public final class TerminalRow {
 
     public TerminalHyperlink getHyperlink(int column) {
         return mLinks == null ? null : mLinks[column];
+    }
+
+    public int imagePlacementId(int column) { return mImagePlacementIds == null ? 0 : mImagePlacementIds[column]; }
+    void setImagePlacementId(int column, int id) {
+        if (id != 0 && mImagePlacementIds == null) mImagePlacementIds = new int[mColumns];
+        if (mImagePlacementIds != null) mImagePlacementIds[column] = id;
     }
 
     void addMarker(TerminalMarker marker) {

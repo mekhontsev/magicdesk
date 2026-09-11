@@ -44,10 +44,10 @@ public class DeviceControlStringTest extends TerminalTestCase {
 		for (int i = 0; i < 10000; i++) {
 			enterString("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 		}
-		// The terminal should ignore the overlong DCS sequence and continue printing "aaa." and fill at least the first two lines with
-		// them:
-		assertLineIs(0, "aaa");
-		assertLineIs(1, "aaa");
+		// Discard through ST, not just to the size limit: binary payloads must never become text or commands.
+		assertLineIs(0, "   ");
+		assertLineIs(1, "   ");
+		enterString("\033\\OK").assertLineIs(0, "OK ");
 	}
 
 }
