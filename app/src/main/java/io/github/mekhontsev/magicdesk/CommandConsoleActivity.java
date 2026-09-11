@@ -6,7 +6,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.view.DragEvent;
@@ -53,6 +52,7 @@ public final class CommandConsoleActivity extends Activity
     private FrameLayout mTerminalContainer;
     private ConsoleTerminalSession mSession;
     private TextView mShellStatus;
+    private ImageButton mSessions;
     private final java.util.concurrent.ExecutorService mContentWorker =
             java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "MagicDeskTerminalContent"));
     private boolean mExportingImage;
@@ -569,6 +569,25 @@ public final class CommandConsoleActivity extends Activity
         copyText(selected.isEmpty() ? mSession.transcript() : selected);
     }
 
+    private void showCopyActions(final View anchor) {
+        if (mSession == null || mTerminalView == null) return;
+        final String selected = mTerminalView.selectedText();
+        if (selected.isEmpty()) {
+            copySelection();
+            return;
+        }
+        final android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
+        menu.getMenu().add(R.string.console_copy_exact).setOnMenuItemClickListener(item -> {
+            copyText(selected);
+            return true;
+        });
+        menu.getMenu().add(R.string.console_copy_paragraph).setOnMenuItemClickListener(item -> {
+            copyText(ConsoleCopyText.asParagraph(selected));
+            return true;
+        });
+        menu.show();
+    }
+
     @Override
     public void pasteClipboard() {
         if (mSession == null) {
@@ -587,29 +606,20 @@ public final class CommandConsoleActivity extends Activity
         final LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setPadding(dp(8), dp(6), dp(8), dp(6));
-        SystemBarInsets.addToPadding(page);
+        // Edge-to-edge windows receive IME insets instead of a resized content frame.
+        SystemBarInsets.addToPadding(page, true);
         page.setBackgroundColor(COLOR_BACKGROUND);
 
         mToolbar = new LinearLayout(this);
         mToolbar.setOrientation(LinearLayout.HORIZONTAL);
         mToolbar.setGravity(Gravity.CENTER_VERTICAL);
 
-        mShellStatus = new TextView(this);
-        mShellStatus.setTextColor(COLOR_CYAN);
-        mShellStatus.setTextSize(12);
-        mShellStatus.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        mShellStatus.setSingleLine(true);
-        mShellStatus.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        mShellStatus.setMaxWidth(dp(180));
-        mToolbar.addView(mShellStatus, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        final ImageButton sessions = createIconButton(
+        mSessions = createIconButton(
                 R.drawable.ic_file_new_window, R.string.terminal_sessions,
                 view -> TerminalSessionsDialog.show(this));
-        mToolbar.addView(sessions, buttonParams());
+        mToolbar.addView(mSessions, buttonParams());
         mClear = createIconButton(
-                android.R.drawable.ic_menu_delete,
+                R.drawable.ic_clear_output,
                 R.string.console_clear,
                 view -> {
                     mSession.clear();
@@ -619,33 +629,33 @@ public final class CommandConsoleActivity extends Activity
         mCopy = createIconButton(
                 R.drawable.ic_file_copy,
                 R.string.console_copy_output,
-                view -> copySelection());
+                this::showCopyActions);
         mToolbar.addView(mCopy, buttonParams());
         mPaste = createIconButton(
-                android.R.drawable.ic_menu_set_as,
+                R.drawable.ic_file_paste,
                 R.string.console_paste,
                 view -> pasteClipboard());
         mToolbar.addView(mPaste, buttonParams());
-        mToolbar.addView(createIconButton(android.R.drawable.ic_menu_agenda,
+        mToolbar.addView(createIconButton(R.drawable.ic_history,
                 R.string.console_commands, view -> showCommandHistory()), buttonParams());
-        mToolbar.addView(createIconButton(android.R.drawable.ic_dialog_info,
+        mToolbar.addView(createIconButton(R.drawable.ic_notifications,
                 R.string.console_notifications, view -> showNotificationSettings()), buttonParams());
-        mToolbar.addView(createIconButton(android.R.drawable.ic_menu_zoom,
+        mToolbar.addView(createIconButton(R.drawable.ic_font_size,
                 R.string.console_font_size, view -> ConsoleFontSizeDialog.show(this,
                         R.string.console_font_size, mTerminalView.fontSizeSp(),
                         ConsolePreferences.fontSizeSp(this), mTerminalView::setFontSizeSp)), buttonParams());
         final ImageButton createApplication = createIconButton(
-                android.R.drawable.ic_menu_add,
+                R.drawable.ic_add,
                 R.string.action_new_terminal_application,
                 view -> createTerminalApplication());
         mToolbar.addView(createApplication, buttonParams());
         final ImageButton openFiles = createIconButton(
-                R.drawable.ic_desktop_folder,
+                R.drawable.ic_folder_open,
                 R.string.console_open_working_directory,
                 view -> openSelectedPathOrWorkingDirectory());
         mToolbar.addView(openFiles, buttonParams());
         final ImageButton hideToolbar = createIconButton(
-                android.R.drawable.arrow_up_float,
+                R.drawable.ic_arrow_up,
                 R.string.console_hide_toolbar,
                 view -> setToolbarVisible(false));
         mToolbar.addView(hideToolbar, buttonParams());
@@ -656,6 +666,14 @@ public final class CommandConsoleActivity extends Activity
         page.addView(toolbarScroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        mShellStatus = new TextView(this);
+        mShellStatus.setTextSize(12);
+        mShellStatus.setPadding(dp(4), dp(4), dp(4), dp(4));
+        mShellStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        mShellStatus.setVisibility(View.GONE);
+        page.addView(mShellStatus, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         mProgress = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         mProgress.setMax(100);
@@ -669,7 +687,7 @@ public final class CommandConsoleActivity extends Activity
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
         mShowToolbar = createIconButton(
-                android.R.drawable.arrow_down_float,
+                R.drawable.ic_arrow_down,
                 R.string.console_show_toolbar,
                 view -> setToolbarVisible(true));
         mShowToolbar.setPadding(dp(6), dp(6), dp(6), dp(6));
@@ -808,38 +826,24 @@ public final class CommandConsoleActivity extends Activity
     }
 
     private void updateShellStatus() {
-        if (mShellStatus == null) {
-            return;
-        }
-        if (mBackend == DesktopExecBackend.TERMUX) {
-            final String termux = getString(R.string.console_shell_termux);
-            mShellStatus.setText(mTerminalStatus.isEmpty()
-                    ? termux : termux + "  |  " + mTerminalStatus);
-            mShellStatus.setTextColor(
-                    mTerminalFailed ? COLOR_AMBER : COLOR_CYAN);
-            return;
-        }
-        if (mSnapshot == null) {
-            return;
-        }
-        if (mSnapshot.isReady()) {
-            final String shell = getString(
-                    mSnapshot.uid == ShellAccess.ROOT_UID
-                            ? R.string.console_shell_root
-                            : R.string.console_shell_adb,
-                    Integer.valueOf(mSnapshot.uid));
-            mShellStatus.setText(mTerminalStatus.isEmpty()
-                    ? shell : shell + "  |  " + mTerminalStatus);
-            mShellStatus.setTextColor(
-                    mTerminalFailed ? COLOR_AMBER : COLOR_CYAN);
-            return;
-        }
-        mShellStatus.setText(getString(
-                R.string.console_shell_unavailable,
-                mSnapshot.error.isEmpty()
-                        ? getString(R.string.state_unavailable)
-                        : mSnapshot.error));
-        mShellStatus.setTextColor(COLOR_AMBER);
+        if (mShellStatus == null || mSessions == null) return;
+        final boolean termux = mBackend == DesktopExecBackend.TERMUX;
+        final boolean unavailable = !termux && (mSnapshot == null || !mSnapshot.isReady());
+        final boolean root = !termux && !unavailable && mSnapshot.uid == ShellAccess.ROOT_UID;
+        final String identity = termux ? getString(R.string.console_shell_termux)
+                : unavailable ? getString(R.string.console_title)
+                : getString(root ? R.string.console_shell_root : R.string.console_shell_android, mSnapshot.uid);
+        final String description = getString(R.string.terminal_sessions) + "\n" + identity;
+        mSessions.setTooltipText(description);
+        mSessions.setContentDescription(description);
+        mSessions.setImageTintList(ColorStateList.valueOf(root ? COLOR_AMBER : COLOR_TEXT));
+
+        final String status = unavailable ? getString(R.string.console_shell_unavailable,
+                mSnapshot == null || mSnapshot.error.isEmpty()
+                        ? getString(R.string.state_unavailable) : mSnapshot.error) : mTerminalStatus;
+        mShellStatus.setText(status);
+        mShellStatus.setTextColor(unavailable || mTerminalFailed ? COLOR_AMBER : COLOR_MUTED);
+        mShellStatus.setVisibility(status.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     private void failTerminal(final String message) {

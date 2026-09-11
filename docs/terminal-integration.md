@@ -4,6 +4,28 @@ Console and Termux Console use the same local terminal emulator, retained PTY
 session model, UI and automation API. All features here work without Desktop.
 Terminal output is untrusted data, not authorization to execute an action.
 
+The console layout reserves system-bar, cutout and visible keyboard insets.
+Showing or hiding the phone keyboard resizes the existing terminal grid and PTY,
+including a tmux client, without recreating its session. Toolbar actions use
+bundled 24dp Lucide vectors with the same stroke weight and accessible labels.
+The first button opens the session picker; its tooltip identifies the backend and
+shell UID. Root sessions tint that button amber. Only startup, access or error
+messages occupy a status row; ready sessions have no persistent backend label.
+Finger swipes continue with Android's native fling physics after release. The
+same scroll route handles local history, tmux mouse reporting and alternate-screen
+arrow-key navigation. New input, selection, zoom, resize, focus loss or detach
+stops the animation; terminal mode changes prevent stale scroll input reaching
+a different screen. Idle terminals do not schedule scroll animation frames.
+
+Touch selection has Android-themed start/end handles. Dragging either endpoint
+adjusts the same terminal-cell selection used by mouse selection and copying.
+The handles are attached application subpanels, not application overlays.
+The Copy button offers exact text or **Copy as paragraph** for a selection.
+Paragraph copying heuristically joins single line breaks and removes continuation
+indentation, retaining blank lines, list starts and obvious code/table blocks.
+It cannot recover semantic paragraphs from every TUI redraw. Keyboard copy and
+terminal clipboard protocols remain exact; no-selection Copy reads the transcript.
+
 ## Sessions
 
 Phone Control Panel and both console toolbars use one **Terminal sessions** picker.
@@ -176,7 +198,8 @@ cancels its notification; detaching its window does not terminate the session.
 
 Android `sh` (mksh) reads MagicDesk's owned `ENV` file. It publishes the current
 directory through OSC 0 and prompt/input boundaries through OSC 133 A/B. Its
-single-line prompt distinguishes `$` from `#` and retains a nonzero exit status.
+prompt includes the current path, distinguishes `$` from `#` and retains a nonzero
+exit status. Paths are inserted as text, with terminal control characters removed.
 The line editor's native nonprinting delimiters exclude OSC from prompt width.
 OSC titles update the Android task and session label, not a separate line above the terminal.
 There is no reliable pre-execution hook in this shell; MagicDesk does not infer

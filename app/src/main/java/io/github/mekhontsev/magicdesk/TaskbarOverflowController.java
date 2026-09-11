@@ -64,7 +64,7 @@ final class TaskbarOverflowController {
         button.setFocusable(true);
 
         final ImageView icon = new ImageView(mActivity);
-        icon.setImageResource(android.R.drawable.ic_menu_more);
+        icon.setImageResource(R.drawable.ic_more);
         icon.setColorFilter(DesktopUiFactory.COLOR_TEXT);
         icon.setPadding(
                 desktopDp(9, 7),

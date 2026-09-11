@@ -185,7 +185,7 @@ final class FileManagerView {
                 view -> listener.onRefresh());
         navigation.addView(mRefresh, compactButton());
         navigation.addView(iconCommand(
-                android.R.drawable.ic_menu_search,
+                R.drawable.ic_search,
                 R.string.file_manager_search,
                 view -> listener.onRecursiveSearchRequested()), compactButton());
         mRoot.addView(navigation, matchWrap());
@@ -224,7 +224,7 @@ final class FileManagerView {
         mFilterPanel.addView(mFilter, new LinearLayout.LayoutParams(
                 0, dp(42), 1f));
         mFilterPanel.addView(iconCommand(
-                android.R.drawable.ic_menu_close_clear_cancel,
+                R.drawable.ic_close,
                 R.string.file_manager_filter_clear,
                 view -> clearFilter()), compactButton());
         mRoot.addView(mFilterPanel, matchWrap());
@@ -327,7 +327,7 @@ final class FileManagerView {
         commands.addView(mViewModeSelector,
                 new LinearLayout.LayoutParams(dp(126), dp(40)));
         commands.addView(iconCommand(
-                android.R.drawable.ic_menu_search,
+                R.drawable.ic_search,
                 R.string.file_manager_filter,
                 view -> focusFilter()), compactButton());
         final HorizontalScrollView commandsScroll =

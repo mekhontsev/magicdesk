@@ -4,6 +4,22 @@ import org.junit.Test;
 
 /** Exercises the production renderer/PTY size boundary, not a second resize policy. */
 public final class ConsoleFontMetricsTest {
+    @Test public void keyboardLayoutResizesAndRestoresTheSamePty() throws Exception {
+        verify("""
+                View view=new View(); view.refreshFontMetrics(); Session original=view.mSession;
+                int rows=view.mRows, columns=view.mColumns, resizes=original.resizes;
+                view.height=220; view.onSizeChanged(view.width,view.height,view.width,400);
+                check(view.mRows<rows && view.mColumns==columns, "keyboard did not reduce terminal rows");
+                check(view.mSession==original && original.rows==view.mRows, "keyboard did not resize existing PTY");
+                view.onSizeChanged(view.width,view.height,view.width,view.height);
+                check(original.resizes==resizes+1, "unchanged layout repeated PTY resize");
+                view.height=400; view.onSizeChanged(view.width,view.height,view.width,220);
+                check(view.mRows==rows && original.rows==rows && view.mColumns==columns,
+                        "hiding keyboard did not restore the grid");
+                check(view.mSession==original && original.resizes==resizes+2, "keyboard replaced PTY");
+                """);
+    }
+
     @Test public void changingFontResizesTheExistingSessionAndPreservesScrollback() throws Exception {
         verify("""
                 View view=new View(); view.refreshFontMetrics(); Session original=view.mSession;
@@ -79,7 +95,10 @@ public final class ConsoleFontMetricsTest {
                 static class ConsolePreferences { static final int MIN_FONT_SIZE_SP=8, MAX_FONT_SIZE_SP=40;
                 """ + RuntimeSourceFixture.methods("ConsolePreferences", "clampFontSize") + """
                 }
-                static class BaseView { void onConfigurationChanged(Configuration c) {} }
+                static class BaseView {
+                    void onConfigurationChanged(Configuration c) {}
+                    void onSizeChanged(int w,int h,int oldW,int oldH) {}
+                }
                 static class View extends BaseView {
                     final Resources resources=new Resources(); Session mSession=new Session();
                     MagicDeskTerminalRenderer mRenderer;
@@ -87,10 +106,10 @@ public final class ConsoleFontMetricsTest {
                     int mAppliedCellWidth,mAppliedCellHeight,mContentPadding,mTouchSlop;
                     Resources getResources() { return resources; } Object getContext() { return this; }
                     int getWidth() { return width; } int getHeight() { return height; }
-                    void invalidate() {} void clearSelection() {}
+                    void invalidate() {} void clearSelection() {} void stopFling() {}
                     void clampTopRow() { mTopRow=Math.min(0,Math.max(-20,mTopRow)); }
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalView", "setFontSizeSp", "refreshFontMetrics",
-                        "onConfigurationChanged", "resizeTerminal", "cellWidth", "cellHeight")
+                        "onConfigurationChanged", "onSizeChanged", "resizeTerminal", "cellWidth", "cellHeight")
                 + "}\npublic static void verify() {\n" + body + "\n}");
     }
 }

@@ -1,9 +1,21 @@
+<!-- Lucide pencil; license: assets/licenses/lucide.txt -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M3,17.25V21h3.75L17.81,9.94l-3.75,-3.75zM20.71,7.04c0.39,-0.39 0.39,-1.03 0,-1.42l-2.34,-2.34c-0.39,-0.39 -1.03,-0.39 -1.42,0l-1.83,1.83 3.75,3.75z" />
+        android:fillColor="#00000000"
+        android:pathData="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"
+        android:strokeColor="#FFE5E7EB"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="m15 5 4 4"
+        android:strokeColor="#FFE5E7EB"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 </vector>

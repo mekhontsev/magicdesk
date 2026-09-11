@@ -755,7 +755,11 @@
     <string name="self_test_window_target">MagicDesk self-test window</string>
     <string name="console_title">Console</string>
     <string name="console_clear">Clear</string>
-    <string name="console_copy_output">Copy transcript</string>
+    <string name="console_copy_output">Copy</string>
+    <string name="console_selection_start">Selection start</string>
+    <string name="console_selection_end">Selection end</string>
+    <string name="console_copy_exact">Copy text</string>
+    <string name="console_copy_paragraph">Copy as paragraph</string>
     <string name="console_paste">Paste</string>
     <string name="console_hide_toolbar">Hide toolbar</string>
     <string name="console_show_toolbar">Show toolbar</string>
@@ -773,7 +777,7 @@
     </plurals>
     <string name="console_tmux_list_failed">Could not list tmux sessions: %1$s</string>
     <string name="console_failed">Execution failed | %1$s</string>
-    <string name="console_shell_adb">Android shell (UID %1$d)</string>
+    <string name="console_shell_android">Android shell (UID %1$d)</string>
     <string name="console_shell_root">Root shell (UID %1$d)</string>
     <string name="console_shell_unavailable">Shell access unavailable: %1$s</string>
     <string name="console_copied">Text copied</string>

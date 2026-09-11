@@ -66,7 +66,7 @@ final class AppPresentationSettingsView {
         clearDetailControls();
         final LinearLayout content = pageContent(
                 R.string.app_presentation_profiles_title,
-                android.R.drawable.ic_menu_manage);
+                R.drawable.ic_quick_controls);
         final Map<AppIdentity, AppPresentationProfile> profiles =
                 AppPresentationProfileStore.loadAll();
         final List<ProfileRow> rows = new ArrayList<>();
@@ -104,7 +104,7 @@ final class AppPresentationSettingsView {
                 application, AppPresentationProfileStore.load(application));
         final LinearLayout content = pageContent(
                 R.string.app_presentation_title,
-                android.R.drawable.ic_menu_manage);
+                R.drawable.ic_quick_controls);
         content.addView(createAppHeader(app), matchWrap());
         addSection(content, R.string.app_presentation_scale_section);
 

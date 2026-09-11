@@ -4,6 +4,91 @@ import org.junit.Test;
 
 /** Runs the View's input handlers with a bounded transcript and recorded terminal input. */
 public final class ConsoleTerminalScrollingTest {
+    @Test public void flingContinuesAfterReleaseAndStopsAtHistoryEdges() throws Exception {
+        verify("""
+                View view=new View(); view.mTouchScrolling=true;
+                check(view.startFling(touch(MotionEvent.ACTION_UP,50),1000), "finger fling rejected");
+                check(view.mScroller.velocity==-1000, "fling direction does not follow finger");
+                view.mScroller.y=-45; view.computeScroll();
+                check(view.mTopRow==-4 && view.mFlingEvent!=null, "release did not continue scrolling");
+                view.mScroller.y=-50; view.computeScroll();
+                check(view.mTopRow==-5, "fractional row lost between animation frames");
+                MotionEvent event=view.mFlingEvent;
+                view.mScroller.y=-1000; view.computeScroll();
+                check(view.mTopRow==-20 && view.mFlingEvent==null && event.recycled, "history edge did not stop fling");
+                int frames=view.animationFrames; view.computeScroll();
+                check(view.animationFrames==frames, "idle terminal schedules animation frames");
+                view.startFling(touch(MotionEvent.ACTION_UP,10),-1000);
+                view.mScroller.y=1000; view.computeScroll();
+                check(view.mTopRow==0 && view.mFlingEvent==null, "fling passed live output");
+                """);
+    }
+
+    @Test public void flingUsesTheSameTmuxAndAlternateScreenInputRoutesAsDragging() throws Exception {
+        verify("""
+                View view=new View(); view.mSession.emulator.tracking=true; view.mTouchScrolling=true;
+                view.startFling(touch(MotionEvent.ACTION_UP,50),1000);
+                view.mScroller.y=-30; view.computeScroll();
+                check(view.mSession.emulator.events.equals(List.of("64:true","64:true","64:true"))
+                        && view.mTopRow==0, "tmux fling did not send wheel events");
+                view.stopFling(); view.mSession.emulator.tracking=false; view.mSession.emulator.alternate=true;
+                view.startFling(touch(MotionEvent.ACTION_UP,50),-1000);
+                view.mScroller.y=20; view.computeScroll();
+                check(view.mSession.output.equals("downdown"), "alternate screen fling did not use arrow keys");
+                view.stopFling(); view.mSession.emulator.alternate=false; view.mSession.emulator.tracking=true;
+                view.mSession.emulator.events.clear(); MotionEvent shifted=touch(MotionEvent.ACTION_UP,50);
+                shifted.shift=true; view.startFling(shifted,1000); view.mScroller.y=-30; view.computeScroll();
+                check(view.mTopRow==-3 && view.mSession.emulator.events.isEmpty(), "Shift fling escaped local history");
+                """);
+    }
+
+    @Test public void touchingMovingContentStopsItWithoutClickingOrOpeningKeyboard() throws Exception {
+        verify("""
+                View view=new View(); view.mSession.emulator.tracking=true; view.mTouchScrolling=true;
+                view.startFling(touch(MotionEvent.ACTION_UP,50),1000); MotionEvent event=view.mFlingEvent;
+                view.onTouchEvent(touch(MotionEvent.ACTION_DOWN,30));
+                view.onTouchEvent(touch(MotionEvent.ACTION_UP,30));
+                check(view.mFlingEvent==null && event.recycled, "new touch retained animation");
+                check(view.mSession.emulator.events.isEmpty() && view.keyboardRequests==0, "stopping fling became click");
+                view.onTouchEvent(touch(MotionEvent.ACTION_DOWN,30));
+                view.onTouchEvent(touch(MotionEvent.ACTION_UP,30));
+                check(view.mSession.emulator.events.equals(List.of("0:true","0:false")), "stopping fling blocked next tap");
+                """);
+    }
+
+    @Test public void flingDoesNotStartForSelectionPinchMouseOrSlowRelease() throws Exception {
+        verify("""
+                View view=new View(); MotionEvent event=touch(MotionEvent.ACTION_UP,50);
+                check(!view.startFling(event,1000), "tap became fling");
+                view.mTouchScrolling=true; view.mSelecting=true;
+                check(!view.startFling(event,1000), "selection became fling");
+                view.mSelecting=false; view.mFontScaleGesture=true;
+                check(!view.startFling(event,1000), "pinch became fling");
+                view.mFontScaleGesture=false; view.mImageGesture=true;
+                check(!view.startFling(event,1000), "image action became fling");
+                view.mImageGesture=false;
+                check(!view.startFling(mouse(MotionEvent.ACTION_UP,50),1000), "hardware mouse became fling");
+                check(!view.startFling(event,10), "slow release became fling");
+                """);
+    }
+
+    @Test public void cancelledGesturesAndWindowOrBufferChangesStopFurtherInput() throws Exception {
+        verify("""
+                View view=new View(); view.mTouchScrolling=true; MotionEvent event=touch(MotionEvent.ACTION_UP,50);
+                view.startFling(event,1000); view.mSession.emulator.tracking=true;
+                view.mScroller.y=-30; view.computeScroll();
+                check(view.mFlingEvent==null && view.mSession.emulator.events.isEmpty(), "mode change received stale wheel input");
+                view.startFling(event,1000); view.onTouchEvent(touch(MotionEvent.ACTION_CANCEL,50));
+                check(view.mFlingEvent==null, "cancel retained fling");
+                view.startFling(event,1000); view.onWindowFocusChanged(false);
+                check(view.mFlingEvent==null, "background window retained fling");
+                view.startFling(event,1000); view.onDetachedFromWindow();
+                check(view.mFlingEvent==null, "detached window retained fling");
+                view.startFling(event,1000); view.mScroller.finished=true; view.computeScroll();
+                check(view.mFlingEvent==null, "completed animation retained MotionEvent");
+                """);
+    }
+
     @Test public void fingerFollowsTheContentAndStopsAtTranscriptBounds() throws Exception {
         verify("""
                 View view = new View();
@@ -246,8 +331,12 @@ public final class ConsoleTerminalScrollingTest {
                     float getY() { return y; } float getAxisValue(int axis) { return wheel; }
                     int getMetaState() { return ctrl ? KeyEvent.META_CTRL_ON : 0; }
                     int getPointerCount() { return pointers; }
-                    void setAction(int value) { action=value; } void recycle() {}
-                    static MotionEvent obtain(MotionEvent e) { return new MotionEvent(e.action,e.y); }
+                    boolean recycled;
+                    void setAction(int value) { action=value; } void recycle() { recycled=true; }
+                    static MotionEvent obtain(MotionEvent e) {
+                        MotionEvent copy=new MotionEvent(e.action,e.y); copy.x=e.x;
+                        copy.touch=e.touch; copy.shift=e.shift; copy.ctrl=e.ctrl; return copy;
+                    }
                 }
                 static MotionEvent touch(int action,float y) { return new MotionEvent(action,y); }
                 static MotionEvent mouse(int action,float y) { var e=touch(action,y); e.touch=false; return e; }
@@ -278,6 +367,19 @@ public final class ConsoleTerminalScrollingTest {
                     TerminalEmulator emulator() { return emulator; } void write(String s) { output+=s; }
                 }
                 static class Renderer { float cellHeight() { return 10; } }
+                static class OverScroller {
+                    int y,velocity; boolean finished=true;
+                    void forceFinished(boolean value) { finished=value; }
+                    void fling(int x,int y,int vx,int vy,int minX,int maxX,int minY,int maxY) {
+                        this.y=y;velocity=vy;finished=false;
+                    }
+                    boolean computeScrollOffset() { return !finished; }
+                    int getCurrY() { return y; }
+                }
+                static class ViewConfiguration {
+                    static ViewConfiguration get(Object context) { return new ViewConfiguration(); }
+                    int getScaledMinimumFlingVelocity() { return 50; }
+                }
                 static class Gestures {
                     int cancelled;
                     void onTouchEvent(MotionEvent e) { if(e.action==MotionEvent.ACTION_CANCEL) cancelled++; }
@@ -293,6 +395,7 @@ public final class ConsoleTerminalScrollingTest {
                 static class BaseView {
                     boolean onGenericMotionEvent(MotionEvent e) { return false; }
                     boolean onKeyDown(int key,KeyEvent event) { return false; }
+                    void onDetachedFromWindow() {} void onWindowFocusChanged(boolean focused) {}
                 }
                 static class Input { String key(KeyEvent e,TerminalEmulator t) { return "key"; } }
                 record TerminalHyperlink(String uri) {}
@@ -301,6 +404,8 @@ public final class ConsoleTerminalScrollingTest {
                     default void showImage(TerminalImage image) {} }
                 static class View extends BaseView {
                     Session mSession=new Session(); Renderer mRenderer=new Renderer(); Gestures mGestures=new Gestures();
+                    OverScroller mScroller=new OverScroller(); MotionEvent mFlingEvent;
+                    int mLastFlingY,animationFrames; boolean mFlingMouseTracking,mFlingAlternateBuffer;
                     ScaleGestureDetector mScaleGestures=new ScaleGestureDetector();
                     boolean mFontScaleGesture; int mFontSizeSp=14, fontRefreshes; float mPinchFontSizeSp, mFontWheelRemainder;
                     Input mInput=new Input(); ClipboardActions mClipboardActions;
@@ -312,6 +417,10 @@ public final class ConsoleTerminalScrollingTest {
                     float mDownX, mDownY, mLastTouchY, mTouchScrollRemainder, mWheelScrollRemainder;
                     boolean mTouchScrolling, mSelecting, mTerminalMousePress;
                     void requestFocus() {} void invalidate() {} void awakenScrollBars() {}
+                    void updateSelectionHandles() {}
+                    Handles mSelectionHandles; static class Handles { void hide() {} }
+                    Object getContext() { return this; }
+                    void postInvalidateOnAnimation() { animationFrames++; }
                     void refreshFontMetrics() { fontRefreshes++; }
                     void scrollToBottom() { mTopRow=0; }
                     void clearSelection() { mSelecting=false; } void beginSelection(MotionEvent e) { mSelecting=true; }
@@ -321,7 +430,8 @@ public final class ConsoleTerminalScrollingTest {
                     static int mouseButton(MotionEvent e) { return 0; }
                     Point cellAt(MotionEvent e) { return new Point(1,Math.max(0,Math.min(mRows-1,(int)e.y/10))); }
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalView", "onTouchEvent", "onGenericMotionEvent",
-                        "scrollRows", "clampTopRow", "clamp", "scrollTerminal", "scrollTouch", "onKeyDown",
+                        "scrollRows", "clampTopRow", "clamp", "scrollTerminal", "scrollTouch", "scrollPixels", "onKeyDown",
+                        "startFling", "stopFling", "computeScroll", "onDetachedFromWindow", "onWindowFocusChanged",
                         "handleFontScaleGesture", "fontSizeSp", "setFontSizeSp", "onScaleBegin", "onScale", "showImageAt",
                         "computeVerticalScrollRange", "computeVerticalScrollExtent", "computeVerticalScrollOffset")
                 + "}\npublic static void verify() {\n" + body + "\n}");

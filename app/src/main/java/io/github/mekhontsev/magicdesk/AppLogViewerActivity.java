@@ -155,12 +155,12 @@ public final class AppLogViewerActivity extends Activity
         header.addView(title, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         mToggle = iconButton(
-                android.R.drawable.ic_media_pause,
+                R.drawable.ic_pause,
                 R.string.app_logs_stop,
                 view -> toggleStream());
         header.addView(mToggle, square());
         header.addView(iconButton(
-                android.R.drawable.ic_menu_delete,
+                R.drawable.ic_clear_output,
                 R.string.console_clear,
                 view -> clearOutput()), square());
         header.addView(iconButton(
@@ -381,8 +381,8 @@ public final class AppLogViewerActivity extends Activity
         }
         final boolean running = mStream != null || mStarting;
         mToggle.setImageResource(running
-                ? android.R.drawable.ic_media_pause
-                : android.R.drawable.ic_media_play);
+                ? R.drawable.ic_pause
+                : R.drawable.ic_play);
         mToggle.setContentDescription(getString(running
                 ? R.string.app_logs_stop : R.string.app_logs_start));
         mToggle.setTooltipText(mToggle.getContentDescription());

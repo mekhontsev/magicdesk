@@ -202,7 +202,7 @@ final class TaskbarController {
         addButton(taskbar, showDesktop);
 
         final ImageButton taskOverview = taskbarButton(
-                android.R.drawable.ic_menu_recent_history,
+                R.drawable.ic_file_new_window,
                 R.string.action_open_tasks);
         taskOverview.setOnClickListener(view ->
                 mActivity.toggleTaskOverview());

@@ -112,6 +112,7 @@ public final class TerminalInputConnectionOwnershipTest {
                     Object mInputAttachment;
                     int dispatchedKeys;
                     void resizeTerminal() {} void invalidate() {} void scrollToBottom() {}
+                    void stopFling() {} void clearSelection() {}
                     boolean dispatchKeyEvent(KeyEvent event) { dispatchedKeys++; return true; }
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalView",
                         "attach", "onCheckIsTextEditor", "onCreateInputConnection") + """

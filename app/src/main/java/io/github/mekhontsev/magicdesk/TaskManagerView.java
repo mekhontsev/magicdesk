@@ -491,20 +491,20 @@ final class TaskManagerView {
             final LinearLayout actions = new LinearLayout(mActivity);
             actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
             actions.addView(iconButton(
-                    android.R.drawable.ic_menu_view,
+                    R.drawable.ic_eye,
                     R.string.task_manager_focus,
                     view -> mActions.focus(task)), square(40));
             actions.addView(iconButton(
-                    android.R.drawable.ic_menu_info_details,
+                    R.drawable.ic_logs,
                     R.string.task_manager_logs,
                     view -> mActions.openLogs(task)), square(40));
             actions.addView(iconButton(
-                    android.R.drawable.ic_menu_close_clear_cancel,
+                    R.drawable.ic_close,
                     R.string.task_manager_close,
                     view -> mActions.close(task)), square(40));
             if (!BuildConfig.APPLICATION_ID.equals(value.packageName)) {
                 actions.addView(iconButton(
-                        android.R.drawable.ic_menu_delete,
+                        R.drawable.ic_file_delete,
                         R.string.task_manager_force_stop,
                         view -> mActions.forceStop(task)), square(40));
             }

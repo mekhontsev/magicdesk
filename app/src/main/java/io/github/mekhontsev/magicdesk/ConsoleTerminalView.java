@@ -19,6 +19,7 @@ import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.OverScroller;
 
 import com.termux.terminal.KeyHandler;
 import com.termux.terminal.MagicDeskTerminalRenderer;
@@ -44,6 +45,13 @@ final class ConsoleTerminalView extends View {
     private MagicDeskTerminalRenderer mRenderer;
     private final GestureDetector mGestures;
     private final ScaleGestureDetector mScaleGestures;
+    private final OverScroller mScroller;
+    private MotionEvent mFlingEvent;
+    private int mLastFlingY;
+    private boolean mFlingMouseTracking;
+    private boolean mFlingAlternateBuffer;
+    private ConsoleSelectionHandles mSelectionHandles;
+    private boolean mTouchSelection;
     private int mContentPadding;
     private int mTouchSlop;
     private int mFontSizeSp;
@@ -78,6 +86,7 @@ final class ConsoleTerminalView extends View {
 
     ConsoleTerminalView(final Context context) {
         super(context);
+        mScroller = new OverScroller(context);
         mFontSizeSp = ConsolePreferences.fontSizeSp(context);
         refreshFontMetrics();
         mGestures = new GestureDetector(
@@ -94,6 +103,12 @@ final class ConsoleTerminalView extends View {
                             if (!showImageAt(event)) beginSelection(event);
                         }
                     }
+
+                    @Override
+                    public boolean onFling(final MotionEvent first, final MotionEvent last,
+                            final float velocityX, final float velocityY) {
+                        return startFling(last, velocityY);
+                    }
                 });
         mScaleGestures = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override public boolean onScaleBegin(final ScaleGestureDetector detector) {
@@ -109,6 +124,7 @@ final class ConsoleTerminalView extends View {
             }
         });
         mScaleGestures.setQuickScaleEnabled(false);
+        mSelectionHandles = new ConsoleSelectionHandles(this, this::moveSelectionHandle);
         setFocusable(true);
         setFocusableInTouchMode(true);
         setVerticalScrollBarEnabled(true);
@@ -117,7 +133,11 @@ final class ConsoleTerminalView extends View {
     void attach(
             final ConsoleTerminalSession session,
             final Actions clipboardActions) {
-        if (mSession != session) { mInputAttachment = session == null ? null : new Object(); }
+        stopFling();
+        if (mSession != session) {
+            clearSelection();
+            mInputAttachment = session == null ? null : new Object();
+        }
         mSession = session;
         mClipboardActions = clipboardActions;
         resizeTerminal();
@@ -141,6 +161,7 @@ final class ConsoleTerminalView extends View {
     }
 
     private void refreshFontMetrics() {
+        stopFling();
         // Android applies the current display density and nonlinear accessibility font scale.
         mRenderer = new MagicDeskTerminalRenderer(getResources().getFont(R.font.console_mono), TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_SP, mFontSizeSp, getResources().getDisplayMetrics()));
@@ -175,8 +196,15 @@ final class ConsoleTerminalView extends View {
             if (mTopRow < 0 && scrolled > 0) {
                 mTopRow -= scrolled;
             }
+            if (hasSelection() && scrolled > 0) {
+                mSelectionStartRow -= scrolled;
+                mSelectionEndRow -= scrolled;
+                final int oldest = -emulator.getScreen().getActiveTranscriptRows();
+                if (mSelectionStartRow < oldest || mSelectionEndRow < oldest) clearSelection();
+            }
         }
         clampTopRow();
+        updateSelectionHandles();
         invalidate();
     }
 
@@ -205,6 +233,8 @@ final class ConsoleTerminalView extends View {
     }
 
     void clearSelection() {
+        mTouchSelection = false;
+        if (mSelectionHandles != null) mSelectionHandles.hide();
         mSelectionStartColumn = NO_SELECTION;
         mSelectionStartRow = NO_SELECTION;
         mSelectionEndColumn = NO_SELECTION;
@@ -214,12 +244,15 @@ final class ConsoleTerminalView extends View {
     }
 
     void scrollToBottom() {
+        stopFling();
         mTopRow = 0;
+        updateSelectionHandles();
         invalidate();
     }
 
     void jumpTo(final com.termux.terminal.TerminalMarker.Position position) {
         if (position == null || mSession == null || mSession.emulator().isAlternateBufferActive()) { return; }
+        stopFling();
         clearSelection();
         mTopRow = position.row();
         clampTopRow();
@@ -235,6 +268,8 @@ final class ConsoleTerminalView extends View {
         mSelectionEndColumn = range.end().column() - 1;
         mSelectionEndRow = range.end().row();
         if (mSelectionEndColumn < 0) { mSelectionEndColumn = mColumns - 1; mSelectionEndRow--; }
+        mTouchSelection = true;
+        updateSelectionHandles();
         invalidate();
     }
 
@@ -314,7 +349,22 @@ final class ConsoleTerminalView extends View {
             final int oldWidth,
             final int oldHeight) {
         super.onSizeChanged(width, height, oldWidth, oldHeight);
+        stopFling();
         resizeTerminal();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        stopFling();
+        if (mSelectionHandles != null) mSelectionHandles.hide();
+        super.onDetachedFromWindow();
+    }
+
+    @Override
+    public void onWindowFocusChanged(final boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (!focused) stopFling();
+        updateSelectionHandles();
     }
 
     @Override
@@ -341,6 +391,7 @@ final class ConsoleTerminalView extends View {
 
     @Override
     public boolean onKeyDown(final int keyCode, final KeyEvent event) {
+        stopFling();
         if (mSession == null || keyCode == KeyEvent.KEYCODE_BACK) {
             return super.onKeyDown(keyCode, event);
         }
@@ -381,6 +432,10 @@ final class ConsoleTerminalView extends View {
         if (mSession == null) {
             return false;
         }
+        final boolean interruptedFling = event.getActionMasked() == MotionEvent.ACTION_DOWN
+                && mFlingEvent != null;
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN
+                || event.getActionMasked() == MotionEvent.ACTION_CANCEL) stopFling();
         if (handleFontScaleGesture(event)) { return true; }
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN) mImageGesture = false;
         mGestures.onTouchEvent(event);
@@ -394,7 +449,7 @@ final class ConsoleTerminalView extends View {
                 mDownY = event.getY();
                 mLastTouchY = event.getY();
                 mTouchScrollRemainder = 0;
-                mTouchScrolling = false;
+                mTouchScrolling = interruptedFling;
                 // A finger is a scroll gesture until a tap completes, not a held mouse button.
                 if (!isTouch(event) && emulator.isMouseTrackingActive()
                         && !isShiftPressed(event)
@@ -452,6 +507,7 @@ final class ConsoleTerminalView extends View {
                 } else if (mSelecting) {
                     updateSelection(cell);
                     mSelecting = false;
+                    updateSelectionHandles();
                 } else if (event.getActionMasked() == MotionEvent.ACTION_UP
                         && !mTouchScrolling) {
                     clearSelection();
@@ -491,6 +547,7 @@ final class ConsoleTerminalView extends View {
         if (amount == 0.0f) {
             return super.onGenericMotionEvent(event);
         }
+        stopFling();
         if ((event.getMetaState() & KeyEvent.META_CTRL_ON) != 0) {
             mFontWheelRemainder += amount;
             final int steps = (int) mFontWheelRemainder;
@@ -509,6 +566,7 @@ final class ConsoleTerminalView extends View {
         if (!isTouch(event)) { return false; }
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN) { mFontScaleGesture = false; }
         if (event.getPointerCount() > 1 && !mFontScaleGesture) {
+            stopFling();
             mFontScaleGesture = true;
             clearSelection();
             // Cancel the pending long press and consume until all fingers are lifted.
@@ -522,11 +580,65 @@ final class ConsoleTerminalView extends View {
     }
 
     private void scrollTouch(final MotionEvent event) {
-        mTouchScrollRemainder += (mLastTouchY - event.getY()) / mRenderer.cellHeight();
+        final float distance = mLastTouchY - event.getY();
         mLastTouchY = event.getY();
+        scrollPixels(distance, event);
+    }
+
+    private void scrollPixels(final float distance, final MotionEvent event) {
+        mTouchScrollRemainder += distance / mRenderer.cellHeight();
         final int rows = (int) mTouchScrollRemainder;
         mTouchScrollRemainder -= rows;
         scrollTerminal(rows, event);
+    }
+
+    private boolean startFling(final MotionEvent event, final float velocityY) {
+        if (mSession == null || !isTouch(event) || !mTouchScrolling
+                || mSelecting || mImageGesture || mFontScaleGesture
+                || Math.abs(velocityY) < ViewConfiguration.get(getContext()).getScaledMinimumFlingVelocity()) {
+            return false;
+        }
+        stopFling();
+        mFlingEvent = MotionEvent.obtain(event);
+        mFlingMouseTracking = mSession.emulator().isMouseTrackingActive();
+        mFlingAlternateBuffer = mSession.emulator().isAlternateBufferActive();
+        mLastFlingY = 0;
+        mScroller.fling(0, 0, 0, Math.round(-velocityY),
+                0, 0, Integer.MIN_VALUE, Integer.MAX_VALUE);
+        postInvalidateOnAnimation();
+        return true;
+    }
+
+    @Override
+    public void computeScroll() {
+        if (mFlingEvent == null) return;
+        if (mSession == null || !mScroller.computeScrollOffset()
+                || mSession.emulator().isMouseTrackingActive() != mFlingMouseTracking
+                || mSession.emulator().isAlternateBufferActive() != mFlingAlternateBuffer) {
+            stopFling();
+            return;
+        }
+        final int y = mScroller.getCurrY();
+        final int distance = y - mLastFlingY;
+        mLastFlingY = y;
+        scrollPixels(distance, mFlingEvent);
+        // TUI scroll limits belong to the application; local history has known edges.
+        if (isShiftPressed(mFlingEvent) || (!mFlingMouseTracking && !mFlingAlternateBuffer)) {
+            final int oldest = -mSession.emulator().getScreen().getActiveTranscriptRows();
+            if ((distance < 0 && mTopRow <= oldest) || (distance > 0 && mTopRow >= 0)) {
+                stopFling();
+                return;
+            }
+        }
+        postInvalidateOnAnimation();
+    }
+
+    private void stopFling() {
+        mScroller.forceFinished(true);
+        if (mFlingEvent != null) {
+            mFlingEvent.recycle();
+            mFlingEvent = null;
+        }
     }
 
     private void scrollTerminal(final int rows, final MotionEvent event) {
@@ -596,6 +708,7 @@ final class ConsoleTerminalView extends View {
         }
         mColumns = columns;
         mRows = rows;
+        clearSelection();
         mAppliedCellWidth = cellWidth();
         mAppliedCellHeight = cellHeight();
         if (mSession != null) {
@@ -608,18 +721,67 @@ final class ConsoleTerminalView extends View {
     }
 
     private void beginSelection(final MotionEvent event) {
+        stopFling();
         final Point cell = cellAt(event);
         mSelectionStartColumn = cell.x;
         mSelectionStartRow = mTopRow + cell.y;
         mSelectionEndColumn = cell.x;
         mSelectionEndRow = mTopRow + cell.y;
         mSelecting = true;
+        mTouchSelection = isTouch(event);
+        updateSelectionHandles();
         invalidate();
     }
 
     private void updateSelection(final Point cell) {
         mSelectionEndColumn = cell.x;
         mSelectionEndRow = mTopRow + cell.y;
+        updateSelectionHandles();
+        invalidate();
+    }
+
+    private void updateSelectionHandles() {
+        if (mSelectionHandles == null) return;
+        if (!hasSelection() || !mTouchSelection || mSelecting || !hasWindowFocus()) {
+            mSelectionHandles.hide();
+            return;
+        }
+        normalizeSelection();
+        mSelectionHandles.update(
+                mContentPadding + mSelectionStartColumn * mRenderer.cellWidth(),
+                mContentPadding + (mSelectionStartRow - mTopRow + 1) * mRenderer.cellHeight(),
+                mContentPadding + (mSelectionEndColumn + 1) * mRenderer.cellWidth(),
+                mContentPadding + (mSelectionEndRow - mTopRow + 1) * mRenderer.cellHeight());
+    }
+
+    private void normalizeSelection() {
+        if (position(mSelectionStartRow, mSelectionStartColumn) <= position(mSelectionEndRow, mSelectionEndColumn)) return;
+        final int column = mSelectionStartColumn, row = mSelectionStartRow;
+        mSelectionStartColumn = mSelectionEndColumn;
+        mSelectionStartRow = mSelectionEndRow;
+        mSelectionEndColumn = column;
+        mSelectionEndRow = row;
+    }
+
+    private void moveSelectionHandle(final boolean start, final float x, final float y) {
+        if (!hasSelection() || mSession == null) return;
+        stopFling();
+        normalizeSelection();
+        final float columnPosition = (x - mContentPadding) / mRenderer.cellWidth();
+        final int column = clamp(start ? (int) Math.floor(columnPosition)
+                : (int) Math.ceil(columnPosition) - 1, 0, mColumns - 1);
+        final int row = mTopRow + clamp((int) Math.ceil((y - mContentPadding) / mRenderer.cellHeight()) - 1,
+                0, mRows - 1);
+        if (start) {
+            final boolean beforeEnd = position(row, column) <= position(mSelectionEndRow, mSelectionEndColumn);
+            mSelectionStartColumn = beforeEnd ? column : mSelectionEndColumn;
+            mSelectionStartRow = beforeEnd ? row : mSelectionEndRow;
+        } else {
+            final boolean afterStart = position(row, column) >= position(mSelectionStartRow, mSelectionStartColumn);
+            mSelectionEndColumn = afterStart ? column : mSelectionStartColumn;
+            mSelectionEndRow = afterStart ? row : mSelectionStartRow;
+        }
+        updateSelectionHandles();
         invalidate();
     }
 

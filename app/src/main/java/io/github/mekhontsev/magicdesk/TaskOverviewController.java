@@ -319,7 +319,7 @@ final class TaskOverviewController {
 
         final ImageButton close = new ImageButton(mActivity);
         close.setImageResource(
-                android.R.drawable.ic_menu_close_clear_cancel);
+                R.drawable.ic_close);
         close.setColorFilter(DesktopUiFactory.COLOR_MUTED);
         close.setBackgroundColor(Color.TRANSPARENT);
         close.setPadding(dp(5), dp(5), dp(5), dp(5));

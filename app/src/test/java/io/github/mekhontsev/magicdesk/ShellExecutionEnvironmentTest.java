@@ -67,8 +67,8 @@ public final class ShellExecutionEnvironmentTest {
         final String root = ShellExecutionEnvironment.interactiveShellStartup(ShellAccess.ROOT_UID);
         assertTrue(shell.contains("local status=$?"));
         assertTrue(shell.contains("(( status )) && REPLY+=\"[exit $status] \""));
-        assertTrue(shell.contains("REPLY+='$ '"));
-        assertTrue(root.contains("REPLY+='# '"));
+        assertTrue(shell.contains("REPLY+=\"$title \"'$ '"));
+        assertTrue(root.contains("REPLY+=\"$title \"'# '"));
         assertTrue(shell.contains("\\e]0;"));
         assertTrue(shell.contains("\\e]133;B"));
         assertFalse(shell.contains("\\e]133;C"));

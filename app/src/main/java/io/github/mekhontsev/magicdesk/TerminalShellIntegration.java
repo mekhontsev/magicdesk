@@ -12,7 +12,7 @@ final class TerminalShellIntegration {
                     local status=$? title=${PWD//[[:cntrl:]]/}
                     REPLY=$'\\001\\e]0;'"${title:0:1024}"$'\\a\\e]133;A\\a\\001'
                     (( status )) && REPLY+="[exit $status] "
-                    REPLY+='PROMPT'$'\\001\\e]133;B\\a\\001'
+                    REPLY+="$title "'PROMPT'$'\\001\\e]133;B\\a\\001'
                     return "$status"
                 }
                 PS1=$'\\001\\r''${| _magicdesk_prompt; }'

@@ -181,7 +181,7 @@ public final class PhoneHomeActivity extends Activity implements StartMenuConten
         final LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setPadding(dp(14), 0, dp(14), dp(12));
-        addAction(actions, ui, android.R.drawable.ic_menu_manage,
+        addAction(actions, ui, R.drawable.ic_settings,
                 R.string.action_open_control_panel, "phone.controls",
                 () -> PhoneControlPanelLauncher.open(this));
         addAction(actions, ui, R.drawable.ic_touchpad,

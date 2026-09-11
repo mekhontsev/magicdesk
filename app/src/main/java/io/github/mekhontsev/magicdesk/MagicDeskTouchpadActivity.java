@@ -272,7 +272,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
         header.setPadding(ui.dp(18), ui.dp(8), ui.dp(8), ui.dp(8));
 
         final ImageButton close = new ImageButton(this);
-        close.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+        close.setImageResource(R.drawable.ic_close);
         close.setColorFilter(DesktopUiFactory.COLOR_TEXT);
         close.setBackgroundColor(Color.TRANSPARENT);
         close.setContentDescription(getString(R.string.action_close));
@@ -314,7 +314,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 ui.dp(48), ui.dp(48)));
 
         mHelpButton = new ImageButton(this);
-        mHelpButton.setImageResource(android.R.drawable.ic_menu_help);
+        mHelpButton.setImageResource(R.drawable.ic_help);
         mHelpButton.setColorFilter(DesktopUiFactory.COLOR_TEXT);
         mHelpButton.setBackgroundColor(Color.TRANSPARENT);
         mHelpButton.setContentDescription(

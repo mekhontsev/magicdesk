@@ -133,7 +133,7 @@ final class SettingsView {
                 });
         addAction(
                 content,
-                android.R.drawable.ic_menu_manage,
+                R.drawable.ic_quick_controls,
                 R.string.app_presentation_profiles_title,
                 mActions::openApplicationSettings);
 
@@ -141,7 +141,7 @@ final class SettingsView {
         mConsoleFontSize = new TextView(mActivity);
         mConsoleFontSize.setTextColor(DesktopUiFactory.COLOR_MUTED);
         mConsoleFontSize.setTextSize(12);
-        addAction(content, android.R.drawable.ic_menu_zoom, R.string.settings_console_font_size,
+        addAction(content, R.drawable.ic_font_size, R.string.settings_console_font_size,
                 mActions::configureConsoleFontSize, mConsoleFontSize);
 
         addSection(content, R.string.settings_section_session);
@@ -172,7 +172,7 @@ final class SettingsView {
                 });
 
         addSection(content, R.string.settings_section_compatibility);
-        mResetCompatibilityDefaults = addAction(content, android.R.drawable.ic_menu_revert,
+        mResetCompatibilityDefaults = addAction(content, R.drawable.ic_undo,
                 R.string.settings_compat_reset, mActions::resetCompatibilityDefaults);
         mResetCompatibilityDefaults.setEnabled(false);
         for (final DesktopCompatibilityPolicy.Option option
@@ -209,7 +209,7 @@ final class SettingsView {
                 mActions.setMcpEnabled(checked);
             }
         });
-        addAction(content, android.R.drawable.ic_lock_lock,
+        addAction(content, R.drawable.ic_lock,
                 R.string.settings_mcp_local_access, () -> mActions.configureMcpAccess(false));
         mMcpStatus = new TextView(mActivity);
         mMcpStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
@@ -220,12 +220,12 @@ final class SettingsView {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
         addAction(
                 content,
-                android.R.drawable.ic_menu_set_as,
+                R.drawable.ic_file_copy,
                 R.string.settings_mcp_connection,
                 mActions::copyMcpConnection);
         addAction(
                 content,
-                android.R.drawable.ic_popup_sync,
+                R.drawable.ic_file_refresh,
                 R.string.settings_mcp_regenerate_token,
                 mActions::regenerateMcpToken);
 
@@ -233,7 +233,7 @@ final class SettingsView {
         mMcpNetworkEnabled.setOnCheckedChangeListener((button, checked) -> {
             if (!mRendering) mActions.setMcpNetworkEnabled(checked);
         });
-        addAction(content, android.R.drawable.ic_lock_lock,
+        addAction(content, R.drawable.ic_lock,
                 R.string.settings_mcp_network_access, () -> mActions.configureMcpAccess(true));
         mMcpNetworkStatus = new TextView(mActivity);
         mMcpNetworkStatus.setTextColor(DesktopUiFactory.COLOR_MUTED);
@@ -241,18 +241,18 @@ final class SettingsView {
         mMcpNetworkStatus.setPadding(dp(8), dp(7), dp(8), dp(7));
         content.addView(mMcpNetworkStatus, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        addAction(content, android.R.drawable.ic_menu_preferences,
+        addAction(content, R.drawable.ic_settings,
                 R.string.settings_mcp_network_configure, mActions::configureMcpNetwork);
-        addAction(content, android.R.drawable.ic_menu_set_as,
+        addAction(content, R.drawable.ic_file_copy,
                 R.string.settings_mcp_network_copy, mActions::copyMcpNetworkConnection);
-        addAction(content, android.R.drawable.ic_popup_sync,
+        addAction(content, R.drawable.ic_file_refresh,
                 R.string.settings_mcp_network_token, mActions::regenerateMcpNetworkToken);
 
         addSection(content, R.string.settings_section_integrations);
         mShellBackend = new TextView(mActivity);
         mShellBackend.setTextColor(DesktopUiFactory.COLOR_MUTED);
         mShellBackend.setTextSize(12);
-        addAction(content, android.R.drawable.ic_menu_preferences, R.string.settings_shell_backend,
+        addAction(content, R.drawable.ic_settings, R.string.settings_shell_backend,
                 mActions::configureShellBackend, mShellBackend);
         mForceShell = addSwitch(content, R.string.settings_force_shell);
         mForceShell.setOnCheckedChangeListener((button, checked) -> {
@@ -263,27 +263,27 @@ final class SettingsView {
             value.setTextColor(DesktopUiFactory.COLOR_MUTED);
             value.setTextSize(12);
             value.setPadding(0, dp(4), 0, 0);
-            addAction(content, android.R.drawable.ic_menu_edit, integrationLabel(integration),
+            addAction(content, R.drawable.ic_file_rename, integrationLabel(integration),
                     () -> mActions.configureIntegrationPackage(integration), value);
             mIntegrationPackages.put(integration, value);
         }
         mTermuxX11Action = addAction(
                     content,
-                    android.R.drawable.ic_menu_edit,
+                    R.drawable.ic_file_rename,
                     R.string.settings_termux_x11_command,
                     mActions::configureTermuxX11);
 
         addSection(content, R.string.settings_section_support);
         addAction(content,
-                android.R.drawable.ic_menu_manage,
+                R.drawable.ic_settings,
                 R.string.action_device_setup,
                 mActions::openDeviceSetup);
         addAction(content,
-                android.R.drawable.ic_menu_info_details,
+                R.drawable.ic_file_properties,
                 R.string.action_diagnostics,
                 mActions::openDiagnostics);
         addAction(content,
-                android.R.drawable.ic_menu_help,
+                R.drawable.ic_help,
                 R.string.action_about,
                 mActions::showAbout);
 
@@ -556,7 +556,7 @@ final class SettingsView {
         row.addView(text, labelParams);
 
         final ImageView arrow = new ImageView(mActivity);
-        arrow.setImageResource(android.R.drawable.ic_media_next);
+        arrow.setImageResource(R.drawable.ic_chevron_right);
         arrow.setColorFilter(DesktopUiFactory.COLOR_MUTED);
         arrow.setContentDescription(null);
         row.addView(arrow, new LinearLayout.LayoutParams(dp(18), dp(18)));

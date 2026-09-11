@@ -1,6 +1,11 @@
 Lucide icons: sliders-horizontal, settings, volume-2, volume-x, plus, minus,
-cast, log-out, list.
+cast, log-out, list, arrow-left, arrow-right, arrow-up, pencil, copy, scissors,
+clipboard-paste, panels-top-left, trash-2, external-link, info, refresh-cw,
+arrow-down-wide-narrow, bell, x, keyboard, eraser, type, history, folder-open,
+search, ellipsis, pause, play, circle-help, lock-keyhole, undo-2, camera, video,
+eye, scroll-text, chevron-right.
 Source: https://github.com/lucide-icons/lucide/tree/main/icons
+Console and shared action icons: https://github.com/lucide-icons/lucide/tree/0.468.0/icons
 Converted from SVG to Android VectorDrawable without changing the geometry.
 
 ISC License
@@ -18,7 +23,7 @@ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-The plus, minus, cast, and log-out icons are derived from Feather:
+The set includes icons derived from Feather:
 
 The MIT License (MIT)
 

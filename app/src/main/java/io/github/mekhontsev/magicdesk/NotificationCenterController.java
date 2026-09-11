@@ -383,7 +383,7 @@ final class NotificationCenterController {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
         if (entry.clearable) {
             final ImageButton dismiss = mUi.taskbarIconButton(
-                    android.R.drawable.ic_menu_close_clear_cancel,
+                    R.drawable.ic_close,
                     R.string.action_dismiss_notification,
                     mActivity.isCompactDesktopPreview());
             dismiss.setPadding(dp(7), dp(7), dp(7), dp(7));

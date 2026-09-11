@@ -12,6 +12,42 @@ import static org.junit.Assume.assumeTrue;
 public final class TerminalShellIntegrationTest {
     @Rule public final TemporaryFolder temporary = new TemporaryFolder();
 
+    @Test public void androidPromptIncludesPathAndIdentityWithoutChangingExitStatus() throws Exception {
+        final Path directory = temporary.getRoot().toPath();
+        for (boolean root : new boolean[]{false, true}) {
+            final String result = androidPrompt(root, directory,
+                    "false\n_magicdesk_prompt\nstatus=$?\nprintf '%s\\nSTATUS:%s' \"$REPLY\" \"$status\"\n");
+            assertEquals("\u0001\u001b]0;" + directory + "\u0007\u001b]133;A\u0007\u0001"
+                    + "[exit 1] " + directory + (root ? " # " : " $ ")
+                    + "\u0001\u001b]133;B\u0007\u0001\nSTATUS:1", result);
+        }
+    }
+
+    @Test public void androidPromptTracksCdAndTreatsDirectoryNamesAsText() throws Exception {
+        assumeTrue(!System.getProperty("os.name").startsWith("Windows"));
+        final Path directory = temporary.getRoot().toPath();
+        final Path child = Files.createDirectory(directory.resolve("$(printf wrong) `printf wrong` \u001b\n"));
+        final String result = androidPrompt(false, directory,
+                "cd -- " + ShellCommandLine.quote(child.toString())
+                        + "\n_magicdesk_prompt\nprintf '%s' \"$REPLY\"\n");
+        final String visiblePath = child.toString().replace("\u001b", "").replace("\n", "");
+        assertEquals("\u0001\u001b]0;" + visiblePath + "\u0007\u001b]133;A\u0007\u0001"
+                + visiblePath + " $ \u0001\u001b]133;B\u0007\u0001", result);
+    }
+
+    private static String androidPrompt(boolean root, Path directory, String commands) throws Exception {
+        final Path mksh = java.util.stream.Stream.of("/system/bin/sh", "/bin/mksh", "/usr/bin/mksh")
+                .map(Path::of).filter(Files::isExecutable).findFirst().orElse(null);
+        assumeTrue("mksh is needed to execute Android prompt hooks", mksh != null);
+        final ProcessBuilder builder = new ProcessBuilder(mksh.toString(), "-c",
+                TerminalShellIntegration.androidPrompt(root) + commands)
+                .directory(directory.toFile()).redirectErrorStream(true);
+        builder.environment().put("PWD", directory.toString());
+        final var result = BoundedProcessRunner.run(builder.start(), 5_000, 32_768);
+        assertEquals(result.output, 0, result.exitCode);
+        return result.output;
+    }
+
     @Test public void bashPreservesUserHooksStatusAndPromptWithoutGrowingWrappers() throws Exception {
         final String prefix = System.getenv("PREFIX");
         final Path bash = prefix == null ? Path.of("/bin/bash") : Path.of(prefix, "bin/bash");

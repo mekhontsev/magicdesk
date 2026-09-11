@@ -760,15 +760,15 @@ final class StartMenuContent {
                 return R.drawable.ic_file_console;
             }
             if (BuiltInDesktopAppCatalog.taskManagerTarget().equals(target)) {
-                return android.R.drawable.ic_menu_manage;
+                return R.drawable.ic_sections;
             }
-            return android.R.drawable.ic_menu_preferences;
+            return R.drawable.ic_settings;
         }
         if (result.action == StartSearchController.Action.SCREENSHOT) {
-            return android.R.drawable.ic_menu_camera;
+            return R.drawable.ic_camera;
         }
         if (result.action == StartSearchController.Action.SCREEN_RECORDING) {
-            return android.R.drawable.presence_video_online;
+            return R.drawable.ic_video;
         }
         return R.drawable.ic_show_desktop;
     }
