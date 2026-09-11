@@ -57,6 +57,8 @@ jobs:
         run: |
           ./gradlew --no-daemon \
             :app:testDebugUnitTest \
+            :terminal-emulator:testDebugUnitTest \
+            :terminal-emulator:lintRelease \
             :app:lintRelease \
             :app:assembleRelease
 

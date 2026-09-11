@@ -1461,9 +1461,11 @@ with `TerminalRequestScope` completing every pending response when the session
 closes, even if executor teardown discards its queued work. No additional thread
 or periodic query is involved. A resize received while the transport opens is
 applied to the PTY before sending input queued during startup.
-The pinned Termux `terminal-emulator` module parses escape sequences and models
-the main screen, alternate screen, cursor, colors, and scrollback. MagicDesk
-does not use Termux app session, JNI, or rendering code. Its own
+The local [`terminal-emulator`](../terminal-emulator/README.md) module, based on
+Termux v0.118.3, parses escape sequences and models the main screen, alternate
+screen, cursor, colors, and scrollback. It owns terminal semantics and their
+upstream regression tests, independently of transport, windows, and Desktop.
+MagicDesk does not use Termux app session, JNI, or rendering code. Its own
 `ConsoleTerminalView` and `MagicDeskTerminalRenderer` provide Android input,
 mouse reporting, selection, clipboard operations, resize, and Canvas drawing.
 Each terminal `InputConnection` remains valid until Android closes it or the

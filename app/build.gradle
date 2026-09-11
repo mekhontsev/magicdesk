@@ -12,6 +12,7 @@ def versionSuffix = providers.gradleProperty(
 def sourceDigest = java.security.MessageDigest.getInstance('SHA-256')
 def sourceFiles = rootProject.fileTree('.') {
     include 'app/src/main/**', 'hidden-api-stubs/src/main/**', 'gradle/**', 'native/**'
+    include 'terminal-emulator/src/main/**', 'terminal-emulator/*.gradle'
     include '*.gradle', 'app/*.gradle', 'gradle.properties'
 }.files.sort { rootProject.relativePath(it) }
 sourceFiles.each { file ->
@@ -77,7 +78,6 @@ android {
         jniLibs {
             // Shell launches the extracted helpers from nativeLibraryDir.
             useLegacyPackaging = true
-            excludes += ['**/libtermux.so']
             keepDebugSymbols += [
                     '**/libmagicdesk_uinput_bridge.so',
                     '**/libmagicdesk_pty_bridge.so',
@@ -121,9 +121,7 @@ dependencies {
     implementation('dev.rikka.shizuku:provider:13.1.5') {
         exclude group: 'androidx.annotation', module: 'annotation'
     }
-    implementation('com.github.termux.termux-app:terminal-emulator:v0.118.3') {
-        exclude group: 'androidx.annotation', module: 'annotation'
-    }
+    implementation project(':terminal-emulator')
     compileOnly project(':hidden-api-stubs')
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'

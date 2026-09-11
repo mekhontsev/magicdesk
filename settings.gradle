@@ -15,12 +15,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven {
-            url = 'https://jitpack.io'
-            content {
-                includeGroup 'com.github.termux.termux-app'
-            }
-        }
     }
 }
 
@@ -28,3 +22,4 @@ rootProject.name = 'MagicDesk'
 include ':app'
 include ':hidden-api-stubs'
 include ':kernel-fixes'
+include ':terminal-emulator'

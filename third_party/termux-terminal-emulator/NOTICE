@@ -1,0 +1,13 @@
+Terminal emulator derived from termux/termux-app v0.118.3.
+Upstream commit: 5b657c6adf4304e5198951ce815fe0205dcac29c
+Source: https://github.com/termux/termux-app/tree/v0.118.3/terminal-emulator
+
+The upstream license identifies the terminal-emulator library as an
+Apache License 2.0 exception. See the accompanying LICENSE and:
+https://github.com/termux/termux-app/blob/v0.118.3/LICENSE.md
+
+This component includes work from the Termux contributors and Android Terminal
+Emulator contributors. Individual source files retain their copyright notices.
+MagicDesk builds the emulator locally without the upstream PTY/session and JNI
+implementation; its client interface is limited to emulator callbacks.
+Unknown SGR codes use locale-independent diagnostic formatting.
