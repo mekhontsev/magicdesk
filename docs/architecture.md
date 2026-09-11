@@ -1487,6 +1487,11 @@ Pinch and Ctrl+wheel are local presentation actions, never terminal mouse input.
 Display/font configuration changes and size adjustments recreate renderer metrics
 using Android's `TypedValue.applyDimension`. The existing session resize path
 receives changes to the grid or cell metrics, without replacing the PTY.
+The resource font family supplies four real JetBrains Mono Nerd Font Mono faces;
+`MagicDeskTerminalRenderer` derives one shared integer-pixel grid from them.
+`TerminalCellGeometry` owns only geometric glyph presentation on that grid.
+Font loading and rendering are app-layer responsibilities, not emulator, transport
+or Termux configuration. Font and geometry licensing is in `THIRD_PARTY_NOTICES.md`.
 The native relay has a small framed control protocol for input, resize, and
 working-directory requests. The Binder transport exposes raw output from its
 owned descriptor; the loopback transport frames output and metadata so one

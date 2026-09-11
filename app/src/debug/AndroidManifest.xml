@@ -21,6 +21,10 @@
         android:functionalTest="true"
         android:targetPackage="io.github.mekhontsev.magicdesk" />
     <instrumentation
+        android:name="com.termux.terminal.TerminalRenderingInstrumentation"
+        android:functionalTest="true"
+        android:targetPackage="io.github.mekhontsev.magicdesk" />
+    <instrumentation
         android:name=".platform.nubia.NubiaVendorProbeInstrumentation"
         android:functionalTest="true"
         android:targetPackage="io.github.mekhontsev.magicdesk" />

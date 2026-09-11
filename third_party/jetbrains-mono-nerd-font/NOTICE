@@ -1,0 +1,10 @@
+Source: https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.tar.xz
+Fonts are unmodified; Android resource filenames differ from upstream filenames.
+Regular: JetBrainsMonoNLNerdFontMono-Regular.ttf
+SHA-256: d9a80146bbf2ff23b187316a3e82ee2a2ceab8220267fe09ac150ca46ab2c3bd
+Bold: JetBrainsMonoNLNerdFontMono-Bold.ttf
+SHA-256: f799fc4b215c7b7254bf6cee51c0bce122ac684b53b46fd3cb83d408a0ccf385
+Italic: JetBrainsMonoNLNerdFontMono-Italic.ttf
+SHA-256: 336a3cef8770dab01c0fc9c6bb0c0473bfa82f90a4033fde2cc52d8aa410528c
+Bold italic: JetBrainsMonoNLNerdFontMono-BoldItalic.ttf
+SHA-256: 28ce03bcaf808f7fa64dcce6facb00319083bdb04cc4f61d41b9f6ad8f20c3e8

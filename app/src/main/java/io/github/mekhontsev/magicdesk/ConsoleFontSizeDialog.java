@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.graphics.Typeface;
 import android.view.Gravity;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -22,7 +21,7 @@ final class ConsoleFontSizeDialog {
         content.setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(8));
         final TextView preview = new TextView(activity);
         preview.setText(R.string.console_font_size_preview);
-        preview.setTypeface(Typeface.MONOSPACE);
+        preview.setTypeface(activity.getResources().getFont(R.font.console_mono));
         preview.setGravity(Gravity.CENTER);
         content.addView(preview, new LinearLayout.LayoutParams(-1, ui.dp(112)));
         final TextView value = new TextView(activity);

@@ -4,6 +4,32 @@ Console and Termux Console use the same local terminal emulator, retained PTY
 session model, UI and automation API. All features here work without Desktop.
 Terminal output is untrusted data, not authorization to execute an action.
 
+## Font and Cell Rendering
+
+Both consoles bundle JetBrains Mono NL Nerd Font Mono with real regular, bold,
+italic and bold-italic faces. There is no font download, picker or dependency on
+Termux settings. Font size remains a per-window sp value with a new-window default;
+pinch and Ctrl+wheel resize the existing terminal grid and PTY.
+
+The four faces share integer-pixel cell metrics. Nerd Font icons stay inside the
+cells assigned by the emulator; Android supplies fallback glyphs where needed.
+Combining text and double-width characters retain their logical terminal columns.
+Ligatures and icons spanning adjacent blank cells are not enabled.
+
+`TerminalCellGeometry` draws box lines (U+2500-257F), blocks/shades (U+2580-259F),
+Braille (U+2800-28FF) and Powerline triangle/semicircle separators (U+E0B0-E0B7)
+directly on that grid. Neighboring borders and blocks have no font-side bearings.
+Other Nerd Font symbols use the bundled font. Colors, inverse/dim text, selection,
+cursor, underlining and OSC 8 links use the same presentation path for both kinds
+of glyph. Geometry never changes parsing, text width, hit testing or PTY output.
+
+The debug-only `com.termux.terminal.TerminalRenderingInstrumentation` exercises
+actual Android font faces and Bitmap rendering across cell sizes, then writes
+`cache/terminal-rendering.png` for visual inspection. Run it with Android's
+`am instrument -w` when Desktop is closed and no terminal sessions need retaining:
+instrumentation restarts the application process. Host tests validate the bundled
+font resources and the View-to-PTY resize contract.
+
 ## Supported OSC Sequences
 
 | OSC | Meaning | MagicDesk behavior |

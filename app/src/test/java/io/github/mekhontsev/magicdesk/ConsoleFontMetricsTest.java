@@ -52,7 +52,9 @@ public final class ConsoleFontMetricsTest {
         RuntimeSourceFixture.verify("""
                 static class Configuration {}
                 static class Metrics { float density=1, fontScale=1; }
-                static class Resources { final Metrics metrics=new Metrics(); Metrics getDisplayMetrics() { return metrics; } }
+                static class R { static class font { static final int console_mono=1; } }
+                static class Resources { final Metrics metrics=new Metrics(); Metrics getDisplayMetrics() { return metrics; }
+                    Object getFont(int id) { return new Object(); } }
                 static class TypedValue {
                     static final int COMPLEX_UNIT_SP=2; static int lastUnit;
                     static float applyDimension(int unit,float sp,Metrics metrics) {
@@ -65,7 +67,7 @@ public final class ConsoleFontMetricsTest {
                 }
                 static class MagicDeskTerminalRenderer {
                     final float size;
-                    MagicDeskTerminalRenderer(float pixels) { size=pixels; }
+                    MagicDeskTerminalRenderer(Object family,float pixels) { size=pixels; }
                     float cellWidth() { return (float)Math.ceil(size*0.6f); }
                     float cellHeight() { return (float)Math.ceil(size*1.2f); }
                 }

@@ -21,3 +21,20 @@ selection, and rendering; it does not package Termux's native `libtermux.so`.
 - Copyright: The Termux Authors
 - License: Apache License 2.0; see
   [`third_party/termux-terminal-emulator/LICENSE`](third_party/termux-terminal-emulator/LICENSE)
+
+## JetBrains Mono Nerd Font Mono
+
+Console bundles the unmodified regular, bold, italic and bold-italic faces of
+JetBrains Mono NL Nerd Font Mono, from Nerd Fonts `v3.5.1` (JetBrains Mono `2.304`).
+The font is included in the APK; it does not require downloading fonts or installing Termux.
+
+- Upstream: https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1
+- Font license: SIL Open Font License 1.1. The upstream font license, Nerd Fonts
+  license and included icon-set attribution are packaged under
+  [`third_party/jetbrains-mono-nerd-font`](third_party/jetbrains-mono-nerd-font).
+
+## Unicode Character Data
+
+The terminal's box-drawing topology follows the character names in Unicode 17.0
+`UnicodeData.txt`. The applicable Unicode License v3 is included in the APK:
+[`third_party/unicode/LICENSE.txt`](third_party/unicode/LICENSE.txt).

@@ -138,7 +138,7 @@ final class ConsoleTerminalView extends View {
 
     private void refreshFontMetrics() {
         // Android applies the current display density and nonlinear accessibility font scale.
-        mRenderer = new MagicDeskTerminalRenderer(TypedValue.applyDimension(
+        mRenderer = new MagicDeskTerminalRenderer(getResources().getFont(R.font.console_mono), TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_SP, mFontSizeSp, getResources().getDisplayMetrics()));
         mContentPadding = Math.round(6.0f * getResources().getDisplayMetrics().density);
         mTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
