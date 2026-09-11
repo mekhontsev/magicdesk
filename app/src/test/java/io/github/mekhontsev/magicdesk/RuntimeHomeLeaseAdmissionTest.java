@@ -105,7 +105,7 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 static class DesktopDisplayTarget {
                     int workspaceDisplayId=7;
                     DesktopDisplayOutput output=new DesktopDisplayOutput();
-                    boolean isPhoneWorkspace() { return workspaceDisplayId==0; }
+                    boolean isDefaultWorkspace() { return workspaceDisplayId==0; }
                     boolean sameBinding(DesktopDisplayTarget other) {
                         return other!=null && workspaceDisplayId==other.workspaceDisplayId
                                 && output.kind==other.output.kind;
@@ -147,7 +147,7 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 static class DesktopHomeSurfaceRouter { enum Surface { PHONE } }
                 static class PackageNameValidator { static boolean isSafe(String p) { return true; } }
                 static Storage sStorage=new Storage(); static Backend sBackend=new Backend();
-                static DesktopHomeSurfaceRouter.Surface surfaceFor(State s) { return DesktopHomeSurfaceRouter.Surface.PHONE; }
+                static DesktopHomeSurfaceRouter.Surface surfacesFor(State s) { return DesktopHomeSurfaceRouter.Surface.PHONE; }
                 static void restorePreparedLease(State s, IOException e) { throw new AssertionError("unexpected branch"); }
                 static AndroidHomeSelection resolvePreviousHome(int user, String p) { throw new AssertionError("unexpected branch"); }
                 static void assertRejected(DesktopDisplayTarget target,DesktopSessionPolicy policy,

@@ -2,7 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 /** Selected output and its preferences, independent of task residency. */
 final class DesktopDisplayOutput {
-    enum Kind { PHONE, WIRED, WIRELESS, SIMULATED }
+    enum Kind { BUILT_IN, WIRED, WIRELESS, SIMULATED }
 
     enum ActivationSource {
         MAGICDESK_REQUESTED("magicdesk-requested"),
@@ -24,7 +24,7 @@ final class DesktopDisplayOutput {
     DesktopDisplayOutput(final Kind kind, final int displayId,
             final String profileKey, final ActivationSource activationSource) {
         if (kind == null || activationSource == null
-                || (kind == Kind.PHONE ? displayId != 0 : displayId <= 0)) {
+                || displayId < 0 || (kind != Kind.BUILT_IN && displayId == 0)) {
             throw new IllegalArgumentException("invalid desktop output");
         }
         this.kind = kind;
@@ -46,6 +46,10 @@ final class DesktopDisplayOutput {
 
     boolean hasProfile() {
         return displayId > 0 && !profileKey.isEmpty();
+    }
+
+    boolean isBuiltIn() {
+        return kind == Kind.BUILT_IN;
     }
 
     boolean sameEndpoint(final DesktopDisplayOutput other) {

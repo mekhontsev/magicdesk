@@ -26,7 +26,7 @@ final class DesktopDisplayDriverSupport {
                     "a ready secondary display target is required");
         }
         final Context context = MagicDeskApplication.applicationContext();
-        target.requireDirectBinding();
+        target.requireSupportedBinding();
         final DesktopDisplayTarget preparedTarget =
                 DisplayProfileController.prepareTarget(
                         context, target);

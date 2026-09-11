@@ -26,7 +26,7 @@ public final class DesktopSessionTransitionCoordinatorTest {
 
     @Test
     public void closeFromHomeOrOverviewParksTasksWithoutOpeningControls() {
-        assertTrue(DesktopCloseMode.HOME.parkTasks);
+        assertTrue(plan(DesktopCloseMode.HOME).returnsTasks());
         assertFalse(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
                 DesktopCloseMode.HOME, false));
         assertFalse(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
@@ -35,13 +35,18 @@ public final class DesktopSessionTransitionCoordinatorTest {
 
     @Test
     public void closeToControlsAlsoParksTasksWhenPanelIsAlreadyVisible() {
-        assertTrue(DesktopCloseMode.CONTROL_PANEL.parkTasks);
+        assertTrue(plan(DesktopCloseMode.CONTROL_PANEL).returnsTasks());
         assertFalse(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
                 DesktopCloseMode.CONTROL_PANEL, true));
     }
 
     @Test
     public void exitDoesNotRecaptureTasksReturnedByItsPreviousStep() {
-        assertFalse(DesktopCloseMode.EXIT.parkTasks);
+        assertFalse(plan(DesktopCloseMode.EXIT).returnsTasks());
+    }
+
+    private static DesktopSessionEndPlan plan(final DesktopCloseMode mode) {
+        return DesktopSessionEndPlan.create(DesktopWorkspaceSnapshot.empty(),
+                DesktopDisplayTarget.wired(7), mode, true);
     }
 }

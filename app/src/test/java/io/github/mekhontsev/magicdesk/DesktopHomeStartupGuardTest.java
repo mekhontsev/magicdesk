@@ -117,13 +117,13 @@ public final class DesktopHomeStartupGuardTest {
     }
 
     @Test
-    public void secondaryHomeSharesTheExternalSessionComponentBatch() throws Exception {
+    public void independentSecondaryHomeStateSharesTheAtomicComponentBatch() throws Exception {
         final String source = Files.readString(Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/DesktopHomeSurfaceRouter.java"));
         assertTrue(source.contains("context, DesktopActivity.class"));
-        assertTrue(source.contains("getComponentEnabledSetting(secondary) == phoneState"));
+        assertTrue(source.contains("getComponentEnabledSetting(secondary) == secondaryState"));
         assertTrue(source.matches("(?s).*new PackageManager.ComponentEnabledSetting\\("
-                + "\\s*secondary,\\s*phoneState,\\s*PackageManager.DONT_KILL_APP\\).*"));
+                + "\\s*secondary,\\s*secondaryState,\\s*PackageManager.DONT_KILL_APP\\).*"));
     }
 
     @Test

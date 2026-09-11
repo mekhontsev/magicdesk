@@ -24,9 +24,9 @@ public final class DesktopDisplayDriversTest {
     @Test
     public void targetFactoriesEnforceEachDriverEnvironment() {
         assertEquals(
-                DesktopDisplayOutput.Kind.PHONE,
+                DesktopDisplayOutput.Kind.BUILT_IN,
                 DesktopDisplayDrivers
-                        .forKind(DesktopDisplayOutput.Kind.PHONE)
+                        .forKind(DesktopDisplayOutput.Kind.BUILT_IN)
                         .target(0).output.kind);
         assertEquals(
                 DesktopDisplayOutput.Kind.WIRED,
@@ -48,7 +48,7 @@ public final class DesktopDisplayDriversTest {
     @Test
     public void featureMatrixMatchesDisplayBehavior() {
         final DesktopDisplayFeatures phone = features(
-                DesktopDisplayOutput.Kind.PHONE);
+                DesktopDisplayOutput.Kind.BUILT_IN);
         final DesktopDisplayFeatures wired = features(
                 DesktopDisplayOutput.Kind.WIRED);
         final DesktopDisplayFeatures wireless = features(

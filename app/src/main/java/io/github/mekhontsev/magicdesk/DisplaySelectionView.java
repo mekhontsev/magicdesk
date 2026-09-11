@@ -161,7 +161,7 @@ final class DisplaySelectionView {
         mStart.setEnabled(canStart(mSelected, activeId, shellReady, busy,
                 android.os.Build.VERSION.SDK_INT));
         mCreate.setEnabled(shellReady && !busy);
-        mDelete.setEnabled(shellReady && !busy && mSelected != null && mSelected.owned);
+        mDelete.setEnabled(shellReady && !busy && mSelected != null && mSelected.canRemove());
         final boolean remote = mSelected != null
                 && ("virtual".equals(mSelected.source) || "overlay".equals(mSelected.source));
         mCommand.setText(remote ? DesktopDisplayCatalog.scrcpyCommand(mSelected) : "");

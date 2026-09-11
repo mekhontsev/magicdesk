@@ -26,7 +26,7 @@ public final class DesktopDisplayTargetCodecTest {
                 public static void verify() {
                     for (DesktopDisplayOutput.Kind kind : DesktopDisplayOutput.Kind.values()) {
                         DesktopDisplayTarget target = DesktopDisplayTarget.restore(kind, 12,
-                                kind == DesktopDisplayOutput.Kind.PHONE ? 0 : 7,
+                                kind == DesktopDisplayOutput.Kind.BUILT_IN ? 0 : 7,
                                 "profile", DesktopDisplayOutput.ActivationSource.ADOPTED_EXISTING);
                         Bundle bundle = target.toBundle();
                         DesktopDisplayTarget restored = DesktopDisplayTarget.fromBundle(bundle);

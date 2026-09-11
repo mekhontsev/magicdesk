@@ -8,7 +8,7 @@ public final class DesktopDisplayTargetTest {
     @Test
     public void factoriesPreserveKindAndDisplay() {
         assertEquals(
-                DesktopDisplayOutput.Kind.PHONE,
+                DesktopDisplayOutput.Kind.BUILT_IN,
                 DesktopDisplayTarget.phone().output.kind);
         assertEquals(
                 DesktopDisplayOutput.Kind.WIRED,
@@ -59,12 +59,10 @@ public final class DesktopDisplayTargetTest {
     }
 
     @Test(expected = IllegalArgumentException.class)
-    public void phoneOutputRejectsSecondaryDisplay() {
-        DesktopDisplayTarget.restore(
-                DesktopDisplayOutput.Kind.PHONE,
-                7,
-                7,
-                "ignored",
-                DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED);
+    public void secondaryBuiltInIsRepresentableButNotAdmittedByPresenter() {
+        final DesktopDisplayTarget target = DesktopDisplayTarget.builtIn(7);
+        assertEquals(7, target.output.displayId);
+        assertEquals(DesktopDisplayOutput.Kind.BUILT_IN, target.output.kind);
+        target.requireSupportedBinding();
     }
 }

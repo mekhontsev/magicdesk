@@ -653,9 +653,9 @@ public final class DesktopHomeRoleLeaseTest {
 
         @Override
         public void selectHomeSurface(
-                final DesktopHomeSurfaceRouter.Surface surface) {
+                final DesktopHomeSurfaceRouter.Selection selection) {
             surfaceSelections++;
-            homeSurface = surface;
+            homeSurface = selection.primary;
         }
 
         @Override

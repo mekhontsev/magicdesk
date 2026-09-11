@@ -21,7 +21,7 @@ public final class DesktopDisplayBindingTest {
         for (final DesktopDisplayTarget target : new DesktopDisplayTarget[] {
                 DesktopDisplayTarget.phone(), DesktopDisplayTarget.wired(3),
                 DesktopDisplayTarget.wireless(4), DesktopDisplayTarget.simulated(5)}) {
-            target.requireDirectBinding();
+            target.requireSupportedBinding();
             assertEquals(target.workspaceDisplayId, target.output.displayId);
         }
     }
@@ -79,16 +79,16 @@ public final class DesktopDisplayBindingTest {
     @Test
     public void homeSelectionUsesWorkspaceWhileBrightnessUsesOutput() {
         final DesktopDisplayTarget target = binding(0, 7);
-        assertTrue(target.isPhoneWorkspace());
+        assertTrue(target.isDefaultWorkspace());
         assertTrue(DesktopSessionSnapshot.empty().noteTarget(target).isLocalActiveOrStarting());
         assertEquals(DesktopHomeSurfaceRouter.Surface.DESKTOP,
-                DesktopHomeSurfaceRouter.forTarget(target));
+                DesktopHomeSurfaceRouter.forWorkspaces(java.util.List.of(target)).primary);
         assertTrue(DesktopAdaptiveBrightnessController.shouldDisable(true, target));
         final DesktopDisplayTarget phoneOutput = DesktopDisplayTarget.restore(
-                DesktopDisplayOutput.Kind.PHONE, 12, 0, "",
+                DesktopDisplayOutput.Kind.BUILT_IN, 12, 0, "",
                 DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED);
         assertEquals(DesktopHomeSurfaceRouter.Surface.PHONE,
-                DesktopHomeSurfaceRouter.forTarget(phoneOutput));
+                DesktopHomeSurfaceRouter.forWorkspaces(java.util.List.of(phoneOutput)).primary);
         assertFalse(DesktopAdaptiveBrightnessController.shouldDisable(true, phoneOutput));
     }
 
@@ -105,6 +105,6 @@ public final class DesktopDisplayBindingTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void representingARouteDoesNotEnableOutputSwitching() {
-        binding(12, 7).requireDirectBinding();
+        binding(12, 7).requireSupportedBinding();
     }
 }

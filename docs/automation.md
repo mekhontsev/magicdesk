@@ -244,13 +244,17 @@ also reports `outputDisplayId` and `inputDisplayId`; all are `-1` without a
 registered host. A prepared `target` contains `workspaceDisplayId` and an
 `output` object with `displayId`, `kind`, `profileKey`, and `activationSource`.
 The current presenter uses a direct binding, so all three active IDs coincide.
+Output kinds are `built_in`, `wired`, `wireless`, and `simulated`; the `phone`
+launch/self-test target still means the system default display.
 `inputDisplayId` is the intended destination, not confirmation that input setup
 has finished; input readiness remains a separate observation.
 Launch, task, UI and injected-input commands continue to address logical Android
 displays. This state model does not expose an output-switching operation.
 
 `list_displays` publishes source, uniqueId, dimensions, densityDpi,
-canHostDesktop, owned and canRemove. These are live display identities, not
+defaultDisplay, builtIn, canHostDesktop, owned and canRemove. Default-display
+identity is separate from built-in topology; additional built-in panels remain
+ineligible for Desktop until verified. These are live display identities, not
 desktop-session records. A wireless connection may already be listed before
 MagicDesk starts on it.
 

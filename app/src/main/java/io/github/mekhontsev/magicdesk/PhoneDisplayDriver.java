@@ -12,7 +12,7 @@ final class PhoneDisplayDriver implements DesktopDisplayDriver {
 
     @Override
     public DesktopDisplayOutput.Kind kind() {
-        return DesktopDisplayOutput.Kind.PHONE;
+        return DesktopDisplayOutput.Kind.BUILT_IN;
     }
 
     @Override
@@ -34,7 +34,7 @@ final class PhoneDisplayDriver implements DesktopDisplayDriver {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         if (target == null
-                || target.output.kind != DesktopDisplayOutput.Kind.PHONE) {
+                || target.output.kind != DesktopDisplayOutput.Kind.BUILT_IN) {
             throw new IllegalArgumentException("phone target is required");
         }
         DesktopDisplayDriverSupport.showPrepared(target, policy);

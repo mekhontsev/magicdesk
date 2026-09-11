@@ -60,7 +60,7 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         requireTarget(target);
-        target.requireDirectBinding();
+        target.requireSupportedBinding();
         final android.content.Context context =
                 MagicDeskApplication.applicationContext();
         final DesktopDisplayTarget profiledTarget =

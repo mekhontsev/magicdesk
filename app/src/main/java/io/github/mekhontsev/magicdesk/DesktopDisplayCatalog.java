@@ -29,7 +29,7 @@ final class DesktopDisplayCatalog {
 
     static DesktopDisplayInfo requireOwned(final int id, final String uniqueId) throws IOException {
         final DesktopDisplayInfo display = require(id, uniqueId);
-        if (!display.owned || id <= android.view.Display.DEFAULT_DISPLAY) {
+        if (!display.canRemove()) {
             throw new IOException("display is not owned by MagicDesk: " + id);
         }
         return display;
@@ -40,7 +40,8 @@ final class DesktopDisplayCatalog {
                 .put("name", display.name).put("source", display.source)
                 .put("width", display.width).put("height", display.height)
                 .put("densityDpi", display.densityDpi).put("canHostDesktop", display.canHostDesktop)
-                .put("owned", display.owned).put("canRemove", display.owned)
+                .put("owned", display.owned).put("canRemove", display.canRemove())
+                .put("defaultDisplay", display.isDefaultDisplay()).put("builtIn", display.isBuiltIn())
                 .put("scrcpyCommand", scrcpyCommand(display));
     }
 

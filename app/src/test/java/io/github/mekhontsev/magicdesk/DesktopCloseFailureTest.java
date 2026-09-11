@@ -25,7 +25,20 @@ public final class DesktopCloseFailureTest {
                     int workspaceDisplayId = 7;
                     DesktopDisplayOutput output = new DesktopDisplayOutput();
                 }
-                static class DesktopCloseMode { boolean parkTasks = true, showControlPanel = true; }
+                enum DesktopCloseMode { CONTROL_PANEL, HOME, EXIT }
+                static class DesktopSessionEndPlan {
+                    DesktopDisplayTarget workspace;
+                    DesktopCloseMode destination;
+                    boolean recoverPhoneTasks;
+                    static DesktopSessionEndPlan create(Object current, DesktopDisplayTarget target,
+                            DesktopCloseMode mode, boolean recovery) {
+                        DesktopSessionEndPlan plan = new DesktopSessionEndPlan();
+                        plan.workspace = target; plan.destination = mode; plan.recoverPhoneTasks = recovery;
+                        return plan;
+                    }
+                    boolean returnsTasks() { return destination != DesktopCloseMode.EXIT; }
+                    boolean needsPhoneRecovery() { return returnsTasks() && workspace.workspaceDisplayId != 0; }
+                }
                 static class Log { static void i(String a, String b) {} static void w(String a, String b) {}
                     static void w(String a, String b, Throwable e) {} }
                 static class CompatibilityDiagnostics { static void record(Object... args) {} }
@@ -69,6 +82,8 @@ public final class DesktopCloseFailureTest {
                     }
                 }
                 static class DesktopRuntimeBridge {
+                    static DesktopRuntimeBridge getSessionSnapshot() { return new DesktopRuntimeBridge(); }
+                    Object workspace() { return null; }
                     static int getActiveDesktopDisplayId() { return active; }
                     static boolean isLocalDesktopActiveOrStarting() { return false; }
                 }
@@ -120,7 +135,7 @@ public final class DesktopCloseFailureTest {
                         DesktopDisplayTarget target = new DesktopDisplayTarget();
                         if (fail.equals("remove")) target.output.kind = DesktopDisplayOutput.Kind.SIMULATED;
                         boolean[] succeeded = {false};
-                        f.beginDesktopClose(target, new DesktopCloseMode(), ok -> {
+                        f.beginDesktopClose(target, DesktopCloseMode.CONTROL_PANEL, ok -> {
                             completions++; succeeded[0] = ok;
                         });
                         check(completions == 1, "close did not complete once after " + fail);
@@ -155,7 +170,7 @@ public final class DesktopCloseFailureTest {
                     }
                     failure = "none"; active = 7; events.clear();
                     selectedRecovery = expectedRecovery = false;
-                    new Fixture().beginDesktopClose(new DesktopDisplayTarget(), new DesktopCloseMode(), ok -> {
+                    new Fixture().beginDesktopClose(new DesktopDisplayTarget(), DesktopCloseMode.CONTROL_PANEL, ok -> {
                         check(ok, "disabled recovery prevented normal close");
                     });
                     check(events.contains("park") && events.contains("close") && events.contains("finished"),

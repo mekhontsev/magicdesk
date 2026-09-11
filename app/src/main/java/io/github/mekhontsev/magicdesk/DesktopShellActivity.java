@@ -816,7 +816,7 @@ public abstract class DesktopShellActivity extends Activity
     }
 
     private boolean isPhoneDesktopHomeIntent(final Intent intent) {
-        return mDisplayTarget != null && mDisplayTarget.isPhoneWorkspace()
+        return mDisplayTarget != null && mDisplayTarget.isDefaultWorkspace()
                 && Intent.ACTION_MAIN.equals(intent.getAction())
                 && intent.hasCategory(Intent.CATEGORY_HOME);
     }
@@ -827,7 +827,7 @@ public abstract class DesktopShellActivity extends Activity
         if (target == null) {
             throw new IllegalArgumentException("desktop target is required");
         }
-        final Intent intent = target.isPhoneWorkspace()
+        final Intent intent = target.isDefaultWorkspace()
                 ? PhoneDesktopHomeActivity.createLaunchIntent(context)
                 : DesktopActivity.createLaunchIntent(context);
         return intent

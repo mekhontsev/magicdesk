@@ -33,7 +33,7 @@ final class DesktopDisplayDrivers {
             throw new IllegalArgumentException("display kind is required");
         }
         switch (kind) {
-            case PHONE:
+            case BUILT_IN:
                 return PHONE;
             case WIRED:
                 return WIRED;

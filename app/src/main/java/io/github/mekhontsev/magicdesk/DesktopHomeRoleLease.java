@@ -123,7 +123,7 @@ final class DesktopHomeRoleLease {
                 int userId,
                 String packageName) throws IOException;
 
-        void selectHomeSurface(DesktopHomeSurfaceRouter.Surface surface)
+        void selectHomeSurface(DesktopHomeSurfaceRouter.Selection selection)
                 throws IOException;
 
         void disableHomeSurfaces() throws IOException;
@@ -163,13 +163,13 @@ final class DesktopHomeRoleLease {
                 }
                 final String holder = sBackend.getHomePackage(existing.userId);
                 if (MAGICDESK_PACKAGE.equals(holder)) {
-                    sBackend.selectHomeSurface(surfaceFor(existing));
+                    sBackend.selectHomeSurface(surfacesFor(existing));
                     return new AcquireResult(false, existing);
                 }
                 if (existing.phase == Phase.PREPARED
                         && existing.previousHome.packageName.equals(holder)) {
                     try {
-                        sBackend.selectHomeSurface(surfaceFor(existing));
+                        sBackend.selectHomeSurface(surfacesFor(existing));
                         return new AcquireResult(true, existing);
                     } catch (IOException error) {
                         restorePreparedLease(existing, error);
@@ -202,7 +202,7 @@ final class DesktopHomeRoleLease {
                     Phase.PREPARED);
             sStorage.write(prepared);
             try {
-                sBackend.selectHomeSurface(surfaceFor(prepared));
+                sBackend.selectHomeSurface(surfacesFor(prepared));
                 return new AcquireResult(true, prepared);
             } catch (IOException error) {
                 restorePreparedLease(prepared, error);
@@ -312,7 +312,7 @@ final class DesktopHomeRoleLease {
                     && sessionAlive
                     && MAGICDESK_PACKAGE.equals(holder)) {
                 sPhoneOverviewRoutingActive = true;
-                sBackend.selectHomeSurface(surfaceFor(state));
+                sBackend.selectHomeSurface(surfacesFor(state));
                 return false;
             }
             restoreOrAbandon(state);
@@ -372,7 +372,7 @@ final class DesktopHomeRoleLease {
             final State state = sStorage.read();
             return state != null
                     && state.phase == phase
-                    && surfaceFor(state) == surface;
+                    && surfacesFor(state).primary == surface;
         }
     }
 
@@ -430,13 +430,13 @@ final class DesktopHomeRoleLease {
     }
 
     private static boolean shouldPresentMagicDeskHome(final State state) {
-        return state.target().isPhoneWorkspace()
+        return state.target().isDefaultWorkspace()
                 || state.policy != DesktopSessionPolicy.ISOLATED_SELF_TEST;
     }
 
-    private static DesktopHomeSurfaceRouter.Surface surfaceFor(
+    private static DesktopHomeSurfaceRouter.Selection surfacesFor(
             final State state) {
-        return DesktopHomeSurfaceRouter.forTarget(state.target());
+        return DesktopHomeSurfaceRouter.forWorkspaces(java.util.Collections.singletonList(state.target()));
     }
 
     private static void restoreOrAbandon(final State state)
@@ -586,9 +586,9 @@ final class DesktopHomeRoleLease {
 
         @Override
         public void selectHomeSurface(
-                final DesktopHomeSurfaceRouter.Surface surface)
+                final DesktopHomeSurfaceRouter.Selection selection)
                 throws IOException {
-            DesktopHomeSurfaceRouter.select(surface);
+            DesktopHomeSurfaceRouter.select(selection);
         }
 
         @Override

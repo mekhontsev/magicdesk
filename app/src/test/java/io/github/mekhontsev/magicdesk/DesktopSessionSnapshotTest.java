@@ -12,6 +12,25 @@ import org.junit.Test;
 
 public final class DesktopSessionSnapshotTest {
     @Test
+    public void workspaceOwnershipDoesNotCarrySessionPolicyOrOutputIdentity() {
+        final DesktopDisplayTarget target = DesktopDisplayTarget.restore(
+                DesktopDisplayOutput.Kind.WIRED, 12, 7, "",
+                DesktopDisplayOutput.ActivationSource.ADOPTED_EXISTING);
+        final DesktopSessionSnapshot session = DesktopSessionSnapshot.empty()
+                .noteTarget(target, DesktopSessionPolicy.ISOLATED_SELF_TEST).registerHost(12, 42);
+        final DesktopWorkspaceSnapshot workspace = session.workspace();
+        assertTrue(workspace.ownsDisplay(12));
+        assertFalse(workspace.ownsDisplay(7));
+        assertFalse(workspace.ownsDisplay(-1));
+        assertSame(target, workspace.target);
+        assertEquals(42, workspace.hostTaskId);
+        final DesktopSessionSnapshot changed = session.unregisterHost(12, true);
+        assertTrue(workspace.hasHost());
+        assertFalse(changed.workspace().hasHost());
+        assertEquals(DesktopSessionPolicy.ISOLATED_SELF_TEST, changed.policy());
+    }
+
+    @Test
     public void targetCanBePublishedBeforeDesktopHostExists() {
         final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7);
         final DesktopSessionSnapshot snapshot =

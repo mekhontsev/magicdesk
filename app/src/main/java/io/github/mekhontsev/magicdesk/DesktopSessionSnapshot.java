@@ -2,32 +2,27 @@ package io.github.mekhontsev.magicdesk;
 
 import android.view.Display;
 
-/** Immutable desktop target and host identity observed as one runtime state. */
+/** Session-wide policy and its single admitted workspace, published atomically. */
 final class DesktopSessionSnapshot {
-    private final DesktopDisplayTarget mTarget;
+    private final DesktopWorkspaceSnapshot mWorkspace;
     private final DesktopSessionPolicy mPolicy;
-    private final int mHostDisplayId;
-    private final int mHostTaskId;
 
-    private DesktopSessionSnapshot(
-            final DesktopDisplayTarget target,
-            final DesktopSessionPolicy policy,
-            final int hostDisplayId,
-            final int hostTaskId) {
-        mTarget = target;
+    private DesktopSessionSnapshot(final DesktopWorkspaceSnapshot workspace,
+            final DesktopSessionPolicy policy) {
+        mWorkspace = workspace;
         mPolicy = policy == null ? DesktopSessionPolicy.USER : policy;
-        mHostDisplayId = hostDisplayId;
-        mHostTaskId = hostTaskId;
     }
 
     static DesktopSessionSnapshot empty() {
-        return new DesktopSessionSnapshot(
-                null, DesktopSessionPolicy.USER,
-                Display.INVALID_DISPLAY, -1);
+        return new DesktopSessionSnapshot(DesktopWorkspaceSnapshot.empty(), DesktopSessionPolicy.USER);
+    }
+
+    DesktopWorkspaceSnapshot workspace() {
+        return mWorkspace;
     }
 
     DesktopDisplayTarget target() {
-        return mTarget;
+        return mWorkspace.target;
     }
 
     DesktopSessionPolicy policy() {
@@ -35,16 +30,15 @@ final class DesktopSessionSnapshot {
     }
 
     DesktopDisplayTarget targetForWorkspace(final int displayId) {
-        return mTarget != null && mTarget.workspaceDisplayId == displayId
-                ? mTarget : null;
+        return target() != null && target().ownsWorkspace(displayId) ? target() : null;
     }
 
     int activeWorkspaceDisplayId() {
-        return mHostDisplayId;
+        return mWorkspace.hostDisplayId;
     }
 
     int activeOutputDisplayId() {
-        return hasHost() && mTarget != null ? mTarget.output.displayId : Display.INVALID_DISPLAY;
+        return hasHost() && target() != null ? target().output.displayId : Display.INVALID_DISPLAY;
     }
 
     int inputDisplayId() {
@@ -52,70 +46,47 @@ final class DesktopSessionSnapshot {
     }
 
     int hostTaskId() {
-        return mHostTaskId;
+        return mWorkspace.hostTaskId;
     }
 
     boolean hasHost() {
-        return mHostDisplayId >= Display.DEFAULT_DISPLAY;
+        return mWorkspace.hasHost();
     }
 
     boolean isLocalActiveOrStarting() {
-        return mHostDisplayId == Display.DEFAULT_DISPLAY
-                || (mTarget != null && mTarget.isPhoneWorkspace());
+        return mWorkspace.ownsDisplay(Display.DEFAULT_DISPLAY);
     }
 
     DesktopSessionSnapshot noteTarget(final DesktopDisplayTarget target) {
         return noteTarget(target, DesktopSessionPolicy.USER);
     }
 
-    DesktopSessionSnapshot noteTarget(
-            final DesktopDisplayTarget target,
+    DesktopSessionSnapshot noteTarget(final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
-        return target == null
-                ? this
-                : new DesktopSessionSnapshot(
-                        target, policy, mHostDisplayId, mHostTaskId);
+        return target == null ? this
+                : new DesktopSessionSnapshot(mWorkspace.withTarget(target), policy);
     }
 
     DesktopSessionSnapshot clearTarget(final DesktopDisplayTarget target) {
-        if (mTarget == null || !mTarget.sameBinding(target)) {
+        if (target() == null || !target().sameBinding(target)) {
             return this;
         }
-        return new DesktopSessionSnapshot(
-                null, DesktopSessionPolicy.USER,
-                mHostDisplayId, mHostTaskId);
+        return new DesktopSessionSnapshot(mWorkspace.withTarget(null), DesktopSessionPolicy.USER);
     }
 
-    DesktopSessionSnapshot registerHost(
-            final int displayId,
-            final int taskId) {
-        if (mTarget == null || mTarget.workspaceDisplayId != displayId) {
-            throw new IllegalStateException(
-                    "desktop host does not match the prepared target");
-        }
-        return new DesktopSessionSnapshot(
-                mTarget, mPolicy, displayId, taskId);
+    DesktopSessionSnapshot registerHost(final int displayId, final int taskId) {
+        return new DesktopSessionSnapshot(mWorkspace.registerHost(displayId, taskId), mPolicy);
     }
 
-    DesktopSessionSnapshot unregisterHost(
-            final int displayId,
+    DesktopSessionSnapshot unregisterHost(final int displayId,
             final boolean changingConfigurations) {
-        DesktopDisplayTarget target = mTarget;
-        if (!changingConfigurations
-                && target != null
-                && (displayId == target.workspaceDisplayId
-                        || target.isPhoneWorkspace())) {
-            target = null;
-        }
-        return new DesktopSessionSnapshot(
-                target,
-                target == null ? DesktopSessionPolicy.USER : mPolicy,
-                Display.INVALID_DISPLAY,
-                -1);
+        final DesktopWorkspaceSnapshot remaining =
+                mWorkspace.unregisterHost(displayId, changingConfigurations);
+        return new DesktopSessionSnapshot(remaining,
+                remaining.target == null ? DesktopSessionPolicy.USER : mPolicy);
     }
 
     DesktopSessionSnapshot close() {
         return empty();
     }
-
 }

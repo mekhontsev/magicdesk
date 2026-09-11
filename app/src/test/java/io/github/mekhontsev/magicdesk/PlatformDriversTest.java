@@ -55,7 +55,7 @@ public final class PlatformDriversTest {
         assertEquals("android", driver.selection()
                 .provider(PlatformComponent.PROJECTION).id);
         assertTrue(driver.features().supportsDisplay(
-                DesktopDisplayOutput.Kind.PHONE));
+                DesktopDisplayOutput.Kind.BUILT_IN));
         assertTrue(driver.features().supportsDisplay(
                 DesktopDisplayOutput.Kind.SIMULATED));
         assertTrue(driver.features().supportsDisplay(

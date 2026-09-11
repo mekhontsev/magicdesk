@@ -23,7 +23,7 @@ public final class PlatformFeatures {
             return false;
         }
         switch (kind) {
-            case PHONE:
+            case BUILT_IN:
             case SIMULATED:
                 return true;
             case WIRED:

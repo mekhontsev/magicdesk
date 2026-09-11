@@ -34,7 +34,8 @@ public final class DesktopDisplayInfo implements Parcelable {
             throw new IllegalArgumentException("display cannot host a desktop: " + id);
         }
         switch (source) {
-            case "phone": return DesktopDisplayTarget.phone();
+            case "phone":
+            case "internal": return DesktopDisplayTarget.builtIn(id);
             case "wired": return DesktopDisplayTarget.wired(id);
             case "wireless": return DesktopDisplayTarget.wireless(id);
             case "virtual":
@@ -44,6 +45,26 @@ public final class DesktopDisplayInfo implements Parcelable {
                         : DesktopDisplayOutput.ActivationSource.ADOPTED_EXISTING);
             default: throw new IllegalArgumentException("unsupported display source: " + source);
         }
+    }
+
+    public boolean isDefaultDisplay() {
+        return id == android.view.Display.DEFAULT_DISPLAY;
+    }
+
+    public boolean isBuiltIn() {
+        return "phone".equals(source) || "internal".equals(source);
+    }
+
+    public boolean canRemove() {
+        return owned && !isDefaultDisplay() && !isBuiltIn();
+    }
+
+    static boolean supportsDesktop(final int id, final String source,
+            final boolean publicDisplay, final boolean trusted) {
+        // Additional built-in panels are catalogued, not admitted through the
+        // external-display path before their HOME/input lifecycle is verified.
+        return !"unknown".equals(source) && !"internal".equals(source)
+                && (id == android.view.Display.DEFAULT_DISPLAY || (publicDisplay && trusted));
     }
 
     private DesktopDisplayInfo(final Parcel in) {

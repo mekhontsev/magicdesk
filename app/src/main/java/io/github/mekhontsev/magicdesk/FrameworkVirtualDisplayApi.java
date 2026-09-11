@@ -97,10 +97,9 @@ final class FrameworkVirtualDisplayApi {
                 : type == mInternal ? "internal" : "unknown";
         final DisplayMetrics metrics = new DisplayMetrics();
         display.getRealMetrics(metrics);
-        final boolean supported = !"unknown".equals(source) && !"internal".equals(source)
-                && (id == Display.DEFAULT_DISPLAY
-                    || ((display.getFlags() & Display.FLAG_PRIVATE) == 0
-                        && (display.getFlags() & mTrusted) != 0));
+        final boolean supported = DesktopDisplayInfo.supportsDesktop(id, source,
+                (display.getFlags() & Display.FLAG_PRIVATE) == 0,
+                (display.getFlags() & mTrusted) != 0);
         return new DesktopDisplayInfo(id, (String) mUniqueId.invoke(display), display.getName(),
                 source, metrics.widthPixels, metrics.heightPixels, metrics.densityDpi,
                 supported, owned);

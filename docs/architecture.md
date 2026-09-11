@@ -1586,7 +1586,10 @@ the production presenter currently requires a direct binding: workspace and
 output are the same Android display. Representing a different binding does not
 enable output switching; startup rejects it before display setup or HOME changes.
 
-`DesktopSessionSnapshot` publishes the binding and registered host atomically.
+`DesktopWorkspaceSnapshot` owns the display-local binding and registered host.
+`DesktopSessionSnapshot` publishes that workspace together with session-wide
+policy atomically. The session still admits exactly one workspace; introducing
+an explicit local state does not enable concurrent hosts or another coordinator.
 Host registration, task placement, window geometry, task density, capture and
 input routing address the workspace. Output mode preparation, transport caption
 policy and monitor-profile selection address the output. A profile still stores
@@ -1618,7 +1621,13 @@ target. Android may have a working HOME surface while the role has no explicit
 holder; that empty state is valid and is restored by removing MagicDesk rather
 than selecting a launcher on the user's behalf.
 `DesktopHomeSurfaceRouter` atomically exposes exactly one primary HOME Activity
-before the role is claimed. External targets use `PhoneHomeActivity` on display
+before the role is claimed. Its immutable selection derives primary and
+secondary component admission independently from workspace residency. A default
+workspace selects Desktop on the primary display; only secondary workspaces
+select the phone launcher there. The policy can describe both together, but
+production supplies its single admitted target. An unassigned secondary display
+does not acquire a MagicDesk host, and an empty selection enables no HOME surfaces.
+External targets use `PhoneHomeActivity` on display
 0 and launch `DesktopActivity` through the typed privileged task API as the
 HOME task on the selected display. A phone target exposes
 the dedicated `PhoneDesktopHomeActivity` as primary HOME, so Android creates
@@ -1676,6 +1685,12 @@ close operation; transport-specific code stops at target preparation.
   selects a live `DesktopDisplayInfo` from `DesktopDisplayCatalog`, with source,
   unique identity, dimensions, support, and removal ownership. Secondary built-in
   screens remain explicitly unsupported until their HOME/input path is verified.
+- Built-in topology and the system default-display role are distinct. The output
+  model uses `BUILT_IN`, not a transport inferred from `displayId > 0`.
+  `DesktopDisplayInfo` publishes both identity properties, while catalog and
+  presenter admission separately reject secondary built-in hosting. Such a target
+  can be represented by policy tests without starting an unsupported session.
+  Removal eligibility excludes every built-in screen independently of ownership.
 - `ShellVirtualDisplays` owns headless Android virtual-display tokens independently
   of HOME/tasks. Several displays may coexist, but only one desktop session runs
   at a time. Creation size and density are configurable; scrcpy captures an
@@ -2726,7 +2741,18 @@ query it. An explicit **Exit MagicDesk** clears this record and closes built-in
 MagicDesk windows instead.
 
 `DesktopCloseMode` distinguishes Close to the control panel, Close to the
-restored HOME (including the phone HOME surface), and full Exit.
+restored HOME (including the phone HOME surface), and full Exit. It names a UI
+destination, not a collection of cleanup flags. Before side effects,
+`DesktopSessionEndPlan` validates the requested workspace against the current
+target/host and captures the task disposition and phone-recovery policy once.
+A stale close cannot release a different workspace's HOME or input. A retained
+target may still finish cleanup after its host or display disappeared.
+The plan explicitly ends the whole session and restores ordinary system input:
+it is not an output detach or a transfer to another active workspace. The existing
+task-return path either returns tasks to the default display and remembers their
+layout, or skips that step because Exit has already returned them. No destination
+display is removed by this plan. Multiple-workspace close and parking without
+returning applications to the phone remain unimplemented.
 Both Close destinations park tasks before releasing the desktop host; showing
 the phone control panel is only a presentation choice. Exit skips parking
 because its preceding return-tasks step has already moved applications home

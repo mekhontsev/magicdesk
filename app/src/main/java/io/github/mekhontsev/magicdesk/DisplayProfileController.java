@@ -124,7 +124,7 @@ public final class DisplayProfileController {
             final Context context,
             final DesktopDisplayTarget target) {
         if (target == null
-                || target.output.kind == DesktopDisplayOutput.Kind.PHONE
+                || target.output.kind == DesktopDisplayOutput.Kind.BUILT_IN
                 || target.output.hasProfile()) {
             return target;
         }

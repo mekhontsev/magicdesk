@@ -58,7 +58,7 @@ final class MagicDeskSessionController {
         if (!success) {
             return R.string.status_desktop_present_failed;
         }
-        return target.isPhoneWorkspace()
+        return target.isDefaultWorkspace()
                 ? R.string.control_status_ready
                 : R.string.control_status_desktop_active;
     }

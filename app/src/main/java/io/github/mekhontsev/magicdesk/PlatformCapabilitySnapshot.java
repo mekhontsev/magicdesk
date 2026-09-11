@@ -67,7 +67,7 @@ public final class PlatformCapabilitySnapshot {
         final List<Entry> entries = new ArrayList<>();
         final PlatformFeatures features = platform.features();
         add(entries, platform, PlatformCapabilityId.DESKTOP_PHONE,
-                features.supportsDisplay(DesktopDisplayOutput.Kind.PHONE),
+                features.supportsDisplay(DesktopDisplayOutput.Kind.BUILT_IN),
                 InternalDisplayDesktopConfig.capture(context).detail);
         add(entries, platform, PlatformCapabilityId.DESKTOP_SIMULATED,
                 features.supportsDisplay(

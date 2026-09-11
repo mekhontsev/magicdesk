@@ -14,7 +14,7 @@ enum DesktopSelfTestTarget {
         if (this == PHONE) {
             return displayId == Display.DEFAULT_DISPLAY
                     && displayTarget != null
-                    && displayTarget.output.kind == DesktopDisplayOutput.Kind.PHONE;
+                    && displayTarget.output.kind == DesktopDisplayOutput.Kind.BUILT_IN;
         }
         if (displayId <= Display.DEFAULT_DISPLAY
                 || displayTarget == null

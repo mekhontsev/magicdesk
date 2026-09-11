@@ -207,8 +207,16 @@ final class DesktopSessionTransitionCoordinator {
             final DesktopDisplayTarget target,
             final DesktopCloseMode mode,
             final CompletionCallback callback) {
-        final boolean recoverPhoneTasks = DesktopCompatibilitySettings.current().enabled(
-                DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY);
+        final DesktopSessionEndPlan plan;
+        try {
+            plan = DesktopSessionEndPlan.create(DesktopRuntimeBridge.getSessionSnapshot().workspace(),
+                    target, mode, DesktopCompatibilitySettings.current().enabled(
+                            DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY));
+        } catch (RuntimeException error) {
+            recordCloseFailure("Could not prepare session close", error);
+            finishDesktopClose(callback, false);
+            return;
+        }
         // HOME ownership is the outer session lease. Release it before any
         // task, input, or display teardown so a partial close cannot trap the
         // user in a launcher that Android keeps restarting.
@@ -239,48 +247,45 @@ final class DesktopSessionTransitionCoordinator {
             recordCloseFailure("Could not restore phone screen", error);
         }
         final boolean prepared = homeReleased && phoneRestored;
-        MagicDeskRuntime.releaseDesktopInput(target.workspaceDisplayId,
+        MagicDeskRuntime.releaseDesktopInput(plan.workspace.workspaceDisplayId,
                 () -> mOperations.execute(() -> parkAndClose(
-                        target, mode, prepared, recoverPhoneTasks, callback)));
+                        plan, prepared, callback)));
     }
 
     private void parkAndClose(
-            final DesktopDisplayTarget target,
-            final DesktopCloseMode mode,
+            final DesktopSessionEndPlan plan,
             final boolean prepared,
-            final boolean recoverPhoneTasks,
             final CompletionCallback callback) {
         try {
             MagicDeskRuntime.disableExternalTaskMigrationProtection();
         } catch (RuntimeException error) {
             recordCloseFailure("Could not release desktop task protection", error);
         }
-        if (!mode.parkTasks) {
+        if (!plan.returnsTasks()) {
             finishDesktopSessionClose(
-                    target, mode, prepared, recoverPhoneTasks, callback);
+                    plan, prepared, callback);
             return;
         }
         try {
-            MagicDeskRuntime.parkDesktopTasks(target, parked -> {
+            MagicDeskRuntime.parkDesktopTasks(plan.workspace, parked -> {
                 if (!parked) {
                     Log.w(TAG, "Desktop close continues after partial task parking");
                 }
                 mOperations.execute(() -> finishDesktopSessionClose(
-                        target, mode, prepared, recoverPhoneTasks, callback));
+                        plan, prepared, callback));
             });
         } catch (RuntimeException error) {
             recordCloseFailure("Could not park desktop tasks", error);
             finishDesktopSessionClose(
-                    target, mode, prepared, recoverPhoneTasks, callback);
+                    plan, prepared, callback);
         }
     }
 
     private void finishDesktopSessionClose(
-            final DesktopDisplayTarget target,
-            final DesktopCloseMode mode,
+            final DesktopSessionEndPlan plan,
             final boolean prepared,
-            final boolean recoverPhoneTasks,
             final CompletionCallback callback) {
+        final DesktopDisplayTarget target = plan.workspace;
         boolean success = prepared;
         try {
             success &= closeDesktopSessionAndWait(target.workspaceDisplayId);
@@ -288,15 +293,14 @@ final class DesktopSessionTransitionCoordinator {
             success = false;
             recordCloseFailure("Desktop close failed", error);
         }
-        if (mode.parkTasks
-                && target.workspaceDisplayId > Display.DEFAULT_DISPLAY) {
+        if (plan.needsPhoneRecovery()) {
             // Close owns recovery through its terminal result. If the display
             // disappeared, include tasks still retained there by SystemUI;
             // the recovery's bounded waits cover their late migration too.
             try {
                 final PhoneDesktopTaskRecovery.Result recovery =
                         PhoneDesktopTaskRecovery.recoverBlocking(
-                                recoverPhoneTasks,
+                                plan.recoverPhoneTasks,
                                 ExternalDisplayController.displayExists(target.workspaceDisplayId)
                                         ? Display.INVALID_DISPLAY : target.workspaceDisplayId,
                                 () -> !DesktopRuntimeBridge
@@ -336,7 +340,7 @@ final class DesktopSessionTransitionCoordinator {
         }
         try {
             if (shouldOpenPhonePanel(
-                    mode, ControlActivity.isControlPanelVisible())) {
+                    plan.destination, ControlActivity.isControlPanelVisible())) {
                 PhoneControlPanelLauncher.openOnPhoneWithShell();
             }
         } catch (RuntimeException error) {
@@ -376,7 +380,7 @@ final class DesktopSessionTransitionCoordinator {
     static boolean shouldOpenPhonePanel(
             final DesktopCloseMode mode,
             final boolean panelVisible) {
-        return mode.showControlPanel && !panelVisible;
+        return mode == DesktopCloseMode.CONTROL_PANEL && !panelVisible;
     }
 
     private void showPreferredDesktopNow() {

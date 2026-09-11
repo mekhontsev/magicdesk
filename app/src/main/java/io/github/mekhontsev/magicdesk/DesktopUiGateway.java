@@ -95,7 +95,7 @@ final class DesktopUiGateway {
         final DesktopDisplayTarget activeTarget = sessionSnapshot().target();
         if (displayId == Display.DEFAULT_DISPLAY
                 && activeTarget != null
-                && activeTarget.isPhoneWorkspace()
+                && activeTarget.isDefaultWorkspace()
                 && ShellAccess.isReady()) {
             LocalDesktopSessionState.markCleanupPending(activity);
         }

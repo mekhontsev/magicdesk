@@ -14,7 +14,11 @@ final class DesktopDisplayTarget {
     }
 
     static DesktopDisplayTarget phone() {
-        return direct(DesktopDisplayOutput.Kind.PHONE, 0,
+        return builtIn(0);
+    }
+
+    static DesktopDisplayTarget builtIn(final int displayId) {
+        return direct(DesktopDisplayOutput.Kind.BUILT_IN, displayId,
                 DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED);
     }
 
@@ -54,7 +58,7 @@ final class DesktopDisplayTarget {
         return new DesktopDisplayTarget(workspaceDisplayId, output.withActivationSource(source));
     }
 
-    boolean isPhoneWorkspace() {
+    boolean isDefaultWorkspace() {
         return workspaceDisplayId == 0;
     }
 
@@ -95,11 +99,14 @@ final class DesktopDisplayTarget {
         }
     }
 
-    void requireDirectBinding() {
+    void requireSupportedBinding() {
         // The production presenter still uses Android's normal display binding.
         // Representing another binding must not silently enable an unverified backend.
         if (workspaceDisplayId != output.displayId) {
             throw new IllegalArgumentException("only direct desktop output is implemented");
+        }
+        if (output.isBuiltIn() && !isDefaultWorkspace()) {
+            throw new IllegalArgumentException("secondary built-in desktop hosting is not implemented");
         }
     }
 }

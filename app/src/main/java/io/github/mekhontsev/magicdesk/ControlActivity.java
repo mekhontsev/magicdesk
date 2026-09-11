@@ -279,7 +279,7 @@ public final class ControlActivity extends Activity
 
     @Override
     public void removeDisplay(final DesktopDisplayInfo display) {
-        if (display == null || !display.owned || mDisplayOperation) { return; }
+        if (display == null || !display.canRemove() || mDisplayOperation) { return; }
         mDisplayOperation = true;
         mStatus = getString(R.string.display_removing);
         refresh();
@@ -510,7 +510,7 @@ public final class ControlActivity extends Activity
         final boolean desktopSessionActive = homeLease != null
                 && homeLease.phase == DesktopHomeRoleLease.Phase.ACTIVE;
         final boolean externalRuntimeDesktop = activeTarget != null
-                && !activeTarget.isPhoneWorkspace();
+                && !activeTarget.isDefaultWorkspace();
         final boolean externalDesktopActive =
                 externalRuntimeDesktop;
         mPanel.render(new PhoneControlPanelController.State(

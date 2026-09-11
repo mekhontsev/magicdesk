@@ -41,7 +41,7 @@ final class DesktopSessionController {
             throw new IllegalArgumentException("display target is required");
         }
         RuntimeCapabilities.requireDesktop();
-        target.requireDirectBinding();
+        target.requireSupportedBinding();
         final DesktopDisplayTarget preparedTarget =
                 DisplayProfileController.prepareTarget(
                         MagicDeskApplication.applicationContext(), target);
@@ -73,7 +73,7 @@ final class DesktopSessionController {
                     && visibleTaskSnapshot != null
                     && !visibleTaskSnapshot.booleanValue();
             final int desktopTaskId = findDesktopTask(preparedTarget.workspaceDisplayId);
-            if (preparedTarget.isPhoneWorkspace()) {
+            if (preparedTarget.isDefaultWorkspace()) {
                 return showPrimaryHome(
                         preparedTarget,
                         resolvedPolicy,
