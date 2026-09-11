@@ -11,6 +11,8 @@ import org.junit.Test;
 
 public final class MagicDeskRuntimeTest {
     private FakeBackend mAttached;
+    private final DesktopWorkspaceRuntime workspace =
+            new DesktopWorkspaceRuntime(DesktopDisplayTarget.wired(7));
 
     @After
     public void detachBackend() {
@@ -25,22 +27,22 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.parkDesktopTasks(
                 DesktopDisplayTarget.wired(7),
                 success -> parkingResult[0] = success);
-        MagicDeskRuntime.releaseDesktopTaskSession(
+        MagicDeskRuntime.releaseDesktopWorkspace(workspace,
                 () -> desktopReleaseCompleted[0] = true);
 
         assertFalse(MagicDeskRuntime.isSessionWakeLockHeld());
         assertFalse(MagicDeskRuntime.isDesktopMouseBridgeReady());
         assertFalse(MagicDeskRuntime.isFullKeyboardShortcutMode());
-        assertFalse(MagicDeskRuntime.showStart());
-        assertFalse(MagicDeskRuntime.toggleDesktopWorkspace());
-        assertFalse(MagicDeskRuntime.restoreLastVisibleWindows());
-        assertFalse(MagicDeskRuntime.advanceAltTab(false));
-        assertFalse(MagicDeskRuntime.finishAltTab());
-        assertFalse(MagicDeskRuntime.cancelAltTab());
-        assertFalse(MagicDeskRuntime.toggleShortcutHelp());
-        assertFalse(MagicDeskRuntime.toggleNotificationCenter());
-        assertFalse(MagicDeskRuntime.toggleSystemPanel());
-        assertFalse(MagicDeskRuntime.openSettings());
+        assertFalse(MagicDeskRuntime.showStart(7));
+        assertFalse(MagicDeskRuntime.toggleDesktopWorkspace(7));
+        assertFalse(MagicDeskRuntime.restoreLastVisibleWindows(7));
+        assertFalse(MagicDeskRuntime.advanceAltTab(7, false));
+        assertFalse(MagicDeskRuntime.finishAltTab(7));
+        assertFalse(MagicDeskRuntime.cancelAltTab(7));
+        assertFalse(MagicDeskRuntime.toggleShortcutHelp(7));
+        assertFalse(MagicDeskRuntime.toggleNotificationCenter(7));
+        assertFalse(MagicDeskRuntime.toggleSystemPanel(7));
+        assertFalse(MagicDeskRuntime.openSettings(7));
         assertFalse(parkingResult[0]);
         assertTrue(desktopReleaseCompleted[0]);
     }
@@ -54,7 +56,7 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.refreshPlatformState();
         MagicDeskRuntime.refreshSettings(
                 () -> mAttached.settingsRefreshCompleted = true);
-        MagicDeskRuntime.releaseDesktopTaskSession(
+        MagicDeskRuntime.releaseDesktopWorkspace(workspace,
                 () -> mAttached.desktopReleaseCompleted = true);
         MagicDeskRuntime.releaseDesktopInput(7,
                 () -> mAttached.inputReleaseCompleted = true);
@@ -62,16 +64,16 @@ public final class MagicDeskRuntimeTest {
         MagicDeskRuntime.clearParkedDesktopTasks();
 
         assertTrue(MagicDeskRuntime.isFullKeyboardShortcutMode());
-        assertTrue(MagicDeskRuntime.showStart());
-        assertTrue(MagicDeskRuntime.toggleDesktopWorkspace());
-        assertTrue(MagicDeskRuntime.restoreLastVisibleWindows());
-        assertTrue(MagicDeskRuntime.advanceAltTab(true));
-        assertTrue(MagicDeskRuntime.finishAltTab());
-        assertTrue(MagicDeskRuntime.cancelAltTab());
-        assertTrue(MagicDeskRuntime.toggleShortcutHelp());
-        assertTrue(MagicDeskRuntime.toggleNotificationCenter());
-        assertTrue(MagicDeskRuntime.toggleSystemPanel());
-        assertTrue(MagicDeskRuntime.openSettings());
+        assertTrue(MagicDeskRuntime.showStart(7));
+        assertTrue(MagicDeskRuntime.toggleDesktopWorkspace(7));
+        assertTrue(MagicDeskRuntime.restoreLastVisibleWindows(7));
+        assertTrue(MagicDeskRuntime.advanceAltTab(7, true));
+        assertTrue(MagicDeskRuntime.finishAltTab(7));
+        assertTrue(MagicDeskRuntime.cancelAltTab(7));
+        assertTrue(MagicDeskRuntime.toggleShortcutHelp(7));
+        assertTrue(MagicDeskRuntime.toggleNotificationCenter(7));
+        assertTrue(MagicDeskRuntime.toggleSystemPanel(7));
+        assertTrue(MagicDeskRuntime.openSettings(7));
         assertTrue(mAttached.desktopTasksRefreshed);
         assertTrue(mAttached.platformStateRefreshed);
         assertTrue(mAttached.settingsRefreshed);
@@ -93,7 +95,7 @@ public final class MagicDeskRuntimeTest {
 
         MagicDeskRuntime.refreshDesktopTasks();
 
-        assertFalse(MagicDeskRuntime.showStart());
+        assertFalse(MagicDeskRuntime.showStart(7));
         assertFalse(mAttached.desktopTasksRefreshed);
         assertFalse(mAttached.startShown);
     }
@@ -127,13 +129,14 @@ public final class MagicDeskRuntimeTest {
 
         MagicDeskRuntime.detach(stale);
 
-        assertTrue(MagicDeskRuntime.showStart());
+        assertTrue(MagicDeskRuntime.showStart(7));
         assertTrue(mAttached.startShown);
         assertFalse(stale.startShown);
     }
 
     private static final class FakeBackend
             implements MagicDeskRuntimeBackend {
+        private static final int workspaceDisplayId = 7;
         private final boolean mAvailable;
         private boolean desktopTasksRefreshed;
         private boolean platformStateRefreshed;
@@ -200,7 +203,8 @@ public final class MagicDeskRuntimeTest {
         @Override public void releaseDesktopRuntime() { desktopSessionReleased = true; }
 
         @Override
-        public void releaseDesktopTaskSession(final Runnable completion) {
+        public void releaseDesktopWorkspace(final DesktopWorkspaceRuntime owner, final Runnable completion) {
+            assertEquals(workspaceDisplayId, owner.displayId);
             desktopSessionReleased = true;
             completion.run();
         }
@@ -304,19 +308,22 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public boolean showStart() {
+        public boolean showStart(final int displayId) {
+            assertEquals(7, displayId);
             startShown = true;
             return true;
         }
 
         @Override
-        public boolean toggleDesktopWorkspace() {
+        public boolean toggleDesktopWorkspace(final int displayId) {
+            assertEquals(7, displayId);
             uiCommands |= 1;
             return true;
         }
 
         @Override
         public boolean toggleDesktopWorkspace(
+                final int displayId,
                 final TaskRepository.ActionCallback callback) {
             uiCommands |= 1;
             if (callback != null) {
@@ -327,13 +334,15 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public boolean restoreLastVisibleWindows() {
+        public boolean restoreLastVisibleWindows(final int displayId) {
+            assertEquals(7, displayId);
             uiCommands |= 256;
             return true;
         }
 
         @Override
-        public boolean advanceAltTab(final boolean reverse) {
+        public boolean advanceAltTab(final int displayId, final boolean reverse) {
+            assertEquals(7, displayId);
             if (reverse) {
                 uiCommands |= 2;
             }
@@ -341,37 +350,43 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public boolean finishAltTab() {
+        public boolean finishAltTab(final int displayId) {
+            assertEquals(7, displayId);
             uiCommands |= 4;
             return true;
         }
 
         @Override
-        public boolean cancelAltTab() {
+        public boolean cancelAltTab(final int displayId) {
+            assertEquals(7, displayId);
             uiCommands |= 8;
             return true;
         }
 
         @Override
-        public boolean toggleShortcutHelp() {
+        public boolean toggleShortcutHelp(final int displayId) {
+            assertEquals(7, displayId);
             uiCommands |= 16;
             return true;
         }
 
         @Override
-        public boolean toggleNotificationCenter() {
+        public boolean toggleNotificationCenter(final int displayId) {
+            assertEquals(7, displayId);
             uiCommands |= 32;
             return true;
         }
 
         @Override
-        public boolean toggleSystemPanel() {
+        public boolean toggleSystemPanel(final int displayId) {
+            assertEquals(7, displayId);
             uiCommands |= 64;
             return true;
         }
 
         @Override
-        public boolean openSettings() {
+        public boolean openSettings(final int displayId) {
+            assertEquals(7, displayId);
             uiCommands |= 128;
             return true;
         }

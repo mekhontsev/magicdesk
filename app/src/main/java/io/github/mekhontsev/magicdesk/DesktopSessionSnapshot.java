@@ -17,6 +17,11 @@ final class DesktopSessionSnapshot {
         return new DesktopSessionSnapshot(DesktopWorkspaceSnapshot.empty(), DesktopSessionPolicy.USER);
     }
 
+    static DesktopSessionSnapshot of(final DesktopWorkspaceSnapshot workspace,
+            final DesktopSessionPolicy policy) {
+        return new DesktopSessionSnapshot(workspace, policy);
+    }
+
     DesktopWorkspaceSnapshot workspace() {
         return mWorkspace;
     }

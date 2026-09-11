@@ -195,7 +195,7 @@ final class DesktopAutomationController {
                     break;
                 case SHOW_START:
                     result = simpleRuntimeAction(
-                            MagicDeskRuntime.showStart(), "Start menu shown");
+                            MagicDeskRuntime.showStart(DesktopRuntimeBridge.getActiveDesktopDisplayId()), "Start menu shown");
                     break;
                 case SHOW_DESKTOP:
                     result = toggleDesktopWorkspace();
@@ -712,8 +712,9 @@ final class DesktopAutomationController {
 
     private DesktopAutomationResult toggleDesktopWorkspace()
             throws InterruptedException {
+        final int displayId = DesktopRuntimeBridge.getActiveDesktopDisplayId();
         final DesktopAutomationResult result = awaitTaskAction(callback -> {
-            if (!MagicDeskRuntime.toggleDesktopWorkspace(callback)) {
+            if (!MagicDeskRuntime.toggleDesktopWorkspace(displayId, callback)) {
                 callback.onComplete(new TaskRepository.ActionResult(
                         false, "desktop UI is unavailable"));
             }

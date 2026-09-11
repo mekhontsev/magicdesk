@@ -1,25 +1,51 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Owns the process-local immutable desktop session snapshot. */
+/** Admits one workspace runtime; session policy remains outside its local lifetime. */
 final class DesktopSessionRegistry {
-    private DesktopSessionSnapshot mSnapshot = DesktopSessionSnapshot.empty();
+    private DesktopWorkspaceRuntime mWorkspace;
+    private DesktopSessionPolicy mPolicy = DesktopSessionPolicy.USER;
 
     DesktopSessionSnapshot snapshot() {
-        return mSnapshot;
+        return mWorkspace == null ? DesktopSessionSnapshot.empty()
+                : DesktopSessionSnapshot.of(mWorkspace.snapshot(), mPolicy);
+    }
+
+    DesktopWorkspaceRuntime workspace() {
+        return mWorkspace;
+    }
+
+    DesktopWorkspaceRuntime workspace(final int displayId) {
+        return mWorkspace != null && !mWorkspace.isClosed() && mWorkspace.displayId == displayId
+                ? mWorkspace : null;
     }
 
     void noteTarget(final DesktopDisplayTarget target) {
-        mSnapshot = mSnapshot.noteTarget(target);
+        noteTarget(target, DesktopSessionPolicy.USER);
     }
 
     void noteTarget(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
-        mSnapshot = mSnapshot.noteTarget(target, policy);
+        if (target == null) { return; }
+        if (mWorkspace == null || mWorkspace.isClosed()
+                || mWorkspace.snapshot().target == null && !mWorkspace.snapshot().hasHost()) {
+            replaceWorkspace(target);
+        } else if (mWorkspace.displayId != target.workspaceDisplayId
+                || mWorkspace.snapshot().target != null
+                    && !mWorkspace.snapshot().target.sameBinding(target)) {
+            if (mWorkspace.snapshot().hasHost()) {
+                throw new IllegalStateException("another desktop workspace is active");
+            }
+            replaceWorkspace(target);
+        }
+        mWorkspace.update(mWorkspace.snapshot().withTarget(target));
+        mPolicy = policy == null ? DesktopSessionPolicy.USER : policy;
     }
 
     void clearTarget(final DesktopDisplayTarget target) {
-        mSnapshot = mSnapshot.clearTarget(target);
+        final DesktopSessionSnapshot next = snapshot().clearTarget(target);
+        if (mWorkspace != null && !mWorkspace.isClosed()) { mWorkspace.update(next.workspace()); }
+        mPolicy = next.policy();
     }
 
     boolean registerHost(
@@ -27,39 +53,54 @@ final class DesktopSessionRegistry {
             final int taskId,
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
-        if (mSnapshot.hasHost()
-                && (mSnapshot.activeWorkspaceDisplayId() != displayId
-                        || mSnapshot.hostTaskId() != taskId)) {
+        final DesktopSessionSnapshot current = snapshot();
+        if (current.hasHost()
+                && (current.activeWorkspaceDisplayId() != displayId
+                        || current.hostTaskId() != taskId)) {
             return false;
         }
-        if (mSnapshot.hasHost()) {
+        if (current.hasHost()) {
             return target != null
-                    && target.sameBinding(mSnapshot.target())
-                    && mSnapshot.policy() == (policy == null
+                    && target.sameBinding(current.target())
+                    && current.policy() == (policy == null
                             ? DesktopSessionPolicy.USER : policy);
         }
         final DesktopDisplayTarget registeredTarget = target == null
-                ? mSnapshot.targetForWorkspace(displayId) : target;
+                ? current.targetForWorkspace(displayId) : target;
         if (registeredTarget == null
                 || registeredTarget.workspaceDisplayId != displayId
-                || (mSnapshot.target() != null
-                        && !registeredTarget.sameBinding(mSnapshot.target()))) {
+                || (current.target() != null
+                        && !registeredTarget.sameBinding(current.target()))) {
             return false;
         }
-        mSnapshot = mSnapshot.noteTarget(registeredTarget, policy);
-        mSnapshot = mSnapshot.registerHost(displayId, taskId);
+        noteTarget(registeredTarget, policy);
+        mWorkspace.update(mWorkspace.snapshot().registerHost(displayId, taskId));
         return true;
     }
 
     void unregisterHost(
             final int displayId,
             final boolean changingConfigurations) {
-        mSnapshot = mSnapshot.unregisterHost(
-                displayId, changingConfigurations);
+        if (mWorkspace == null || mWorkspace.isClosed()
+                || mWorkspace.snapshot().hostDisplayId != displayId) {
+            return;
+        }
+        final DesktopSessionSnapshot next = snapshot().unregisterHost(displayId, changingConfigurations);
+        mWorkspace.update(next.workspace());
+        mWorkspace.detachHost();
+        mPolicy = next.policy();
+        if (!changingConfigurations) { mWorkspace.close(); }
     }
 
     void close() {
-        mSnapshot = mSnapshot.close();
+        if (mWorkspace != null) { mWorkspace.close(); }
+        mWorkspace = null;
+        mPolicy = DesktopSessionPolicy.USER;
+    }
+
+    private void replaceWorkspace(final DesktopDisplayTarget target) {
+        if (mWorkspace != null) { mWorkspace.close(); }
+        mWorkspace = new DesktopWorkspaceRuntime(target);
     }
 
 }

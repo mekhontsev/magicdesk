@@ -26,7 +26,8 @@ final class WorkspaceIsolationLease implements AutoCloseable {
         DesktopRuntimeBridge.noteDesktopTarget(
                 target, DesktopSessionPolicy.ISOLATED_SELF_TEST);
         AppWindowStateStore.beginSession(
-                DesktopSessionPolicy.ISOLATED_SELF_TEST, false);
+                DesktopRuntimeBridge.getWorkspaceRuntime(displayId),
+                DesktopSessionPolicy.ISOLATED_SELF_TEST);
     }
 
     void showReady(

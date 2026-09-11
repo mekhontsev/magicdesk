@@ -240,61 +240,63 @@ public final class MagicDeskRuntimeService extends Service
 
 
     @Override
-    public boolean showStart() {
-        return postIfAlive(this::showStartOnDesktop);
+    public boolean showStart(final int displayId) {
+        final DesktopWorkspaceRuntime workspace = DesktopRuntimeBridge.getWorkspaceRuntime(displayId);
+        return workspace != null && postIfAlive(() -> showStartOnDesktop(workspace));
     }
 
     @Override
-    public boolean toggleDesktopWorkspace() {
-        return !mDestroyed && DesktopRuntimeBridge.toggleDesktopWorkspace();
+    public boolean toggleDesktopWorkspace(final int displayId) {
+        return !mDestroyed && DesktopRuntimeBridge.toggleDesktopWorkspace(displayId);
     }
 
     @Override
     public boolean toggleDesktopWorkspace(
+            final int displayId,
             final TaskRepository.ActionCallback callback) {
         return !mDestroyed
-                && DesktopRuntimeBridge.toggleDesktopWorkspace(callback);
+                && DesktopRuntimeBridge.toggleDesktopWorkspace(displayId, callback);
     }
 
     @Override
-    public boolean restoreLastVisibleWindows() {
-        return !mDestroyed && DesktopRuntimeBridge.restoreLastVisibleWindows();
+    public boolean restoreLastVisibleWindows(final int displayId) {
+        return !mDestroyed && DesktopRuntimeBridge.restoreLastVisibleWindows(displayId);
     }
 
     @Override
-    public boolean advanceAltTab(final boolean reverse) {
-        return !mDestroyed && DesktopRuntimeBridge.advanceAltTab(reverse);
+    public boolean advanceAltTab(final int displayId, final boolean reverse) {
+        return !mDestroyed && DesktopRuntimeBridge.advanceAltTab(displayId, reverse);
     }
 
     @Override
-    public boolean finishAltTab() {
-        return !mDestroyed && DesktopRuntimeBridge.finishAltTab();
+    public boolean finishAltTab(final int displayId) {
+        return !mDestroyed && DesktopRuntimeBridge.finishAltTab(displayId);
     }
 
     @Override
-    public boolean cancelAltTab() {
-        return !mDestroyed && DesktopRuntimeBridge.cancelAltTab();
+    public boolean cancelAltTab(final int displayId) {
+        return !mDestroyed && DesktopRuntimeBridge.cancelAltTab(displayId);
     }
 
     @Override
-    public boolean toggleShortcutHelp() {
-        return !mDestroyed && DesktopRuntimeBridge.toggleShortcutHelp();
+    public boolean toggleShortcutHelp(final int displayId) {
+        return !mDestroyed && DesktopRuntimeBridge.toggleShortcutHelp(displayId);
     }
 
     @Override
-    public boolean toggleNotificationCenter() {
+    public boolean toggleNotificationCenter(final int displayId) {
         return !mDestroyed
-                && DesktopRuntimeBridge.toggleNotificationCenter();
+                && DesktopRuntimeBridge.toggleNotificationCenter(displayId);
     }
 
     @Override
-    public boolean toggleSystemPanel() {
-        return !mDestroyed && DesktopRuntimeBridge.toggleSystemPanel();
+    public boolean toggleSystemPanel(final int displayId) {
+        return !mDestroyed && DesktopRuntimeBridge.toggleSystemPanel(displayId);
     }
 
     @Override
-    public boolean openSettings() {
-        return !mDestroyed && DesktopRuntimeBridge.openSettings();
+    public boolean openSettings(final int displayId) {
+        return !mDestroyed && DesktopRuntimeBridge.openSettings(displayId);
     }
 
     @Override
@@ -319,8 +321,22 @@ public final class MagicDeskRuntimeService extends Service
         }));
     }
 
+    private void releaseDesktopTaskSession(final Runnable completion) {
+        releaseTaskRuntime(null, completion);
+    }
+
     @Override
-    public void releaseDesktopTaskSession(final Runnable completion) {
+    public void releaseDesktopWorkspace(final DesktopWorkspaceRuntime workspace,
+            final Runnable completion) {
+        if (workspace == null) {
+            if (completion != null) { completion.run(); }
+            return;
+        }
+        releaseTaskRuntime(workspace, completion);
+    }
+
+    private void releaseTaskRuntime(final DesktopWorkspaceRuntime workspace,
+            final Runnable completion) {
         final Runnable finish = completion == null ? () -> { } : completion;
         final Handler handler = mHandler;
         if (mDestroyed || handler == null) {
@@ -329,7 +345,11 @@ public final class MagicDeskRuntimeService extends Service
         }
         final Runnable release = () -> {
             if (!mDestroyed && mDesktopTaskRuntime != null) {
-                mDesktopTaskRuntime.releaseSession(finish);
+                if (workspace == null) {
+                    mDesktopTaskRuntime.releaseSession(finish);
+                } else {
+                    mDesktopTaskRuntime.releaseWorkspace(workspace, finish);
+                }
             } else {
                 finish.run();
             }
@@ -453,12 +473,16 @@ public final class MagicDeskRuntimeService extends Service
         }
     }
 
-    private void showStartOnDesktop() {
-        if (DesktopRuntimeBridge.showStart()) {
+    private void showStartOnDesktop(final DesktopWorkspaceRuntime workspace) {
+        final int displayId = workspace.displayId;
+        if (workspace.isClosed() || DesktopRuntimeBridge.getWorkspaceRuntime(displayId) != workspace) {
+            return;
+        }
+        if (DesktopRuntimeBridge.showStart(displayId)) {
             return;
         }
         final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getActiveDesktopTarget();
+                workspace.snapshot().target;
         if (target == null) {
             return;
         }

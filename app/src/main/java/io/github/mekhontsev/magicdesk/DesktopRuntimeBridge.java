@@ -42,14 +42,14 @@ public final class DesktopRuntimeBridge {
         UI.unregisterPhoneHome(activity);
     }
 
-    static void closeDesktopSession(final int displayId) {
-        UI.closeDesktopSession(displayId, null);
+    static void closeDesktopWorkspace(final int displayId) {
+        UI.closeDesktopWorkspace(displayId, null);
     }
 
-    static void closeDesktopSession(
+    static void closeDesktopWorkspace(
             final int displayId,
             final Runnable completion) {
-        UI.closeDesktopSession(displayId, completion);
+        UI.closeDesktopWorkspace(displayId, completion);
     }
 
     public static int getActiveDesktopDisplayId() {
@@ -58,6 +58,10 @@ public final class DesktopRuntimeBridge {
 
     static DesktopSessionSnapshot getSessionSnapshot() {
         return UI.sessionSnapshot();
+    }
+
+    static DesktopWorkspaceRuntime getWorkspaceRuntime(final int displayId) {
+        return UI.workspace(displayId);
     }
 
     static void noteDesktopTarget(final DesktopDisplayTarget target) {
@@ -98,8 +102,8 @@ public final class DesktopRuntimeBridge {
         return UI.getDesktopTaskbarBounds(displayId);
     }
 
-    static boolean showStart() {
-        return UI.showStart();
+    static boolean showStart(final int displayId) {
+        return UI.showStart(displayId);
     }
 
     static boolean launchDesktopShortcut(
@@ -213,65 +217,67 @@ public final class DesktopRuntimeBridge {
         UI.setSystemDialogVisible(displayId, visible);
     }
 
-    static boolean restoreLastVisibleWindows() {
-        return UI.restoreLastVisibleWindows();
+    static boolean restoreLastVisibleWindows(final int displayId) {
+        return UI.restoreLastVisibleWindows(displayId);
     }
 
-    static boolean toggleDesktopWorkspace() {
-        return UI.toggleDesktopWorkspace();
+    static boolean toggleDesktopWorkspace(final int displayId) {
+        return UI.toggleDesktopWorkspace(displayId);
     }
 
     static boolean toggleDesktopWorkspace(
+            final int displayId,
             final TaskRepository.ActionCallback callback) {
-        return UI.toggleDesktopWorkspace(callback);
+        return UI.toggleDesktopWorkspace(displayId, callback);
     }
 
     static boolean recreateShellOnDisplay(final int displayId) {
         return UI.recreateShellOnDisplay(displayId);
     }
 
-    static boolean advanceAltTab(final boolean reverse) {
-        return UI.advanceAltTab(reverse);
+    static boolean advanceAltTab(final int displayId, final boolean reverse) {
+        return UI.advanceAltTab(displayId, reverse);
     }
 
-    static boolean finishAltTab() {
-        return UI.finishAltTab();
+    static boolean finishAltTab(final int displayId) {
+        return UI.finishAltTab(displayId);
     }
 
-    static boolean cancelAltTab() {
-        return UI.cancelAltTab();
+    static boolean cancelAltTab(final int displayId) {
+        return UI.cancelAltTab(displayId);
     }
 
-    static boolean toggleShortcutHelp() {
-        return UI.toggleShortcutHelp();
+    static boolean toggleShortcutHelp(final int displayId) {
+        return UI.toggleShortcutHelp(displayId);
     }
 
-    static boolean toggleNotificationCenter() {
-        return UI.toggleNotificationCenter();
+    static boolean toggleNotificationCenter(final int displayId) {
+        return UI.toggleNotificationCenter(displayId);
     }
 
-    static boolean toggleSystemPanel() {
-        return UI.toggleSystemPanel();
+    static boolean toggleSystemPanel(final int displayId) {
+        return UI.toggleSystemPanel(displayId);
     }
 
-    static boolean openSettings() {
-        return UI.openSettings();
+    static boolean openSettings(final int displayId) {
+        return UI.openSettings(displayId);
     }
 
-    static boolean openApplicationSettings(final AppIdentity application) {
-        return UI.openApplicationSettings(application);
+    static boolean openApplicationSettings(final int displayId, final AppIdentity application) {
+        return UI.openApplicationSettings(displayId, application);
     }
 
-    static boolean openBuiltin(final String builtin) {
-        return UI.openBuiltin(builtin);
+    static boolean openBuiltin(final int displayId, final String builtin) {
+        return UI.openBuiltin(displayId, builtin);
     }
 
     static boolean openConsole(
+            final int displayId,
             final String directory,
             final String command,
             final String terminalId,
             final DesktopExecBackend backend) {
-        return UI.openConsole(directory, command, terminalId, backend);
+        return UI.openConsole(displayId, directory, command, terminalId, backend);
     }
 
     static void refreshSettings() {

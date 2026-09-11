@@ -398,7 +398,7 @@ public final class SettingsActivity extends Activity
                 ? android.view.Display.DEFAULT_DISPLAY
                 : display.getDisplayId();
         if (displayId == DesktopRuntimeBridge.getActiveDesktopDisplayId()
-                && DesktopRuntimeBridge.openApplicationSettings(null)) {
+                && DesktopRuntimeBridge.openApplicationSettings(displayId, null)) {
             return;
         }
         startActivityOnCurrentDisplay(
@@ -412,7 +412,7 @@ public final class SettingsActivity extends Activity
                 ? android.view.Display.DEFAULT_DISPLAY
                 : display.getDisplayId();
         if (displayId == DesktopRuntimeBridge.getActiveDesktopDisplayId()
-                && DesktopRuntimeBridge.openBuiltin("diagnostics")) {
+                && DesktopRuntimeBridge.openBuiltin(displayId, "diagnostics")) {
             return;
         }
         startActivityOnCurrentDisplay(

@@ -361,7 +361,7 @@ final class DesktopSessionTransitionCoordinator {
     private static boolean closeDesktopSessionAndWait(
             final int displayId) {
         final CountDownLatch closed = new CountDownLatch(1);
-        DesktopRuntimeBridge.closeDesktopSession(displayId, closed::countDown);
+        DesktopRuntimeBridge.closeDesktopWorkspace(displayId, closed::countDown);
         try {
             if (closed.await(
                     SESSION_CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {

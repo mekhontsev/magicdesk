@@ -1,10 +1,30 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
 public final class RuntimeDesktopTaskCoordinatorTest {
+    @Test
+    public void oldWorkspaceCannotReleaseActiveOrPreparedReplacement() {
+        final DesktopWorkspaceRuntime old =
+                new DesktopWorkspaceRuntime(DesktopDisplayTarget.wired(7));
+        for (DesktopDisplayTarget target : new DesktopDisplayTarget[] {
+                DesktopDisplayTarget.wired(7), DesktopDisplayTarget.phone()}) {
+            final DesktopWorkspaceRuntime next = new DesktopWorkspaceRuntime(target);
+            assertFalse(RuntimeDesktopTaskCoordinator.canReleaseWorkspace(old, next, next));
+            assertFalse(RuntimeDesktopTaskCoordinator.canReleaseWorkspace(old, old, next));
+            assertFalse(RuntimeDesktopTaskCoordinator.canReleaseWorkspace(old, null, next));
+        }
+        assertTrue(RuntimeDesktopTaskCoordinator.canReleaseWorkspace(old, old, old));
+        old.close();
+        assertTrue(RuntimeDesktopTaskCoordinator.canReleaseWorkspace(old, old, null));
+        assertTrue(RuntimeDesktopTaskCoordinator.canReleaseWorkspace(old, null, null));
+        assertFalse(RuntimeDesktopTaskCoordinator.canReleaseWorkspace(null, null, null));
+    }
+
     @Test
     public void disablesTaskRuntimeWithoutShell() {
         final DesktopSessionSnapshot session = DesktopSessionSnapshot.empty()

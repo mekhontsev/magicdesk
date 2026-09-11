@@ -89,7 +89,7 @@ final class DesktopSessionController {
                     Log.i(TAG, "isolated desktop reuses host without restoring"
                             + " display=" + preparedTarget.workspaceDisplayId);
                 } else if (restoreWindows) {
-                    MagicDeskRuntime.restoreLastVisibleWindows();
+                    MagicDeskRuntime.restoreLastVisibleWindows(preparedTarget.workspaceDisplayId);
                 } else {
                     MagicDeskRuntime.restoreDesktopWorkspace(
                             preparedTarget.workspaceDisplayId,
@@ -208,7 +208,7 @@ final class DesktopSessionController {
         }
         if (policy.restoreWorkspace) {
             if (restoreWindows) {
-                MagicDeskRuntime.restoreLastVisibleWindows();
+                MagicDeskRuntime.restoreLastVisibleWindows(target.workspaceDisplayId);
             } else if (!homeAcquisition.created) {
                 MagicDeskRuntime.restoreDesktopWorkspace(
                         target.workspaceDisplayId,

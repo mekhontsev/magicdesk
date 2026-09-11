@@ -1893,10 +1893,10 @@ final class DesktopSelfTestInputSuite {
         DesktopSelfTestFixtureState.clearText(context);
         final int panelGeneration =
                 DesktopSelfTestHostObserver.altTabPanelGeneration();
-        if (!DesktopRuntimeBridge.advanceAltTab(false)) {
+        if (!DesktopRuntimeBridge.advanceAltTab(displayId, false)) {
             throw new IOException("desktop Alt+Tab is unavailable");
         }
-        waitForAltTabPanel(panelGeneration);
+        waitForAltTabPanel(displayId, panelGeneration);
         final String panel;
         try {
             // A created panel can still be behind the fullscreen application.
@@ -1905,11 +1905,11 @@ final class DesktopSelfTestInputSuite {
             inspectFullscreenModes(
                     displayId, targetTaskId, otherTaskId, "while Alt+Tab is open");
         } catch (IOException error) {
-            DesktopRuntimeBridge.cancelAltTab();
+            DesktopRuntimeBridge.cancelAltTab(displayId);
             throw error;
         }
-        if (!DesktopRuntimeBridge.finishAltTab()) {
-            DesktopRuntimeBridge.cancelAltTab();
+        if (!DesktopRuntimeBridge.finishAltTab(displayId)) {
+            DesktopRuntimeBridge.cancelAltTab(displayId);
             throw new IOException("desktop Alt+Tab completion is unavailable");
         }
         final String focus;
@@ -1919,7 +1919,7 @@ final class DesktopSelfTestInputSuite {
                     context, displayId, targetTaskId, targetToken, digit);
             focus = "task=" + targetTaskId + ", token=" + targetToken;
         } catch (IOException error) {
-            DesktopRuntimeBridge.cancelAltTab();
+            DesktopRuntimeBridge.cancelAltTab(displayId);
             throw error;
         }
         return panel + ", " + focus + ", " + inspectFullscreenPair(
@@ -1947,6 +1947,7 @@ final class DesktopSelfTestInputSuite {
     }
 
     private static void waitForAltTabPanel(
+            final int displayId,
             final int previousGeneration) throws IOException {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
@@ -1958,7 +1959,7 @@ final class DesktopSelfTestInputSuite {
             BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
                     POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
-        DesktopRuntimeBridge.cancelAltTab();
+        DesktopRuntimeBridge.cancelAltTab(displayId);
         throw new IOException("Alt+Tab panel did not become visible");
     }
 
@@ -2358,11 +2359,11 @@ final class DesktopSelfTestInputSuite {
             final String token,
             final String digit) throws IOException {
         DesktopSelfTestFixtureState.clearText(context);
-        if (!DesktopRuntimeBridge.advanceAltTab(false)) {
+        if (!DesktopRuntimeBridge.advanceAltTab(displayId, false)) {
             throw new IOException("desktop Alt+Tab is unavailable");
         }
-        if (!DesktopRuntimeBridge.finishAltTab()) {
-            DesktopRuntimeBridge.cancelAltTab();
+        if (!DesktopRuntimeBridge.finishAltTab(displayId)) {
+            DesktopRuntimeBridge.cancelAltTab(displayId);
             throw new IOException("desktop Alt+Tab completion is unavailable");
         }
         try {
@@ -2370,7 +2371,7 @@ final class DesktopSelfTestInputSuite {
             typeAndVerifyText(context, displayId, taskId, token, digit);
             return "task=" + taskId + ", token=" + token;
         } catch (IOException error) {
-            DesktopRuntimeBridge.cancelAltTab();
+            DesktopRuntimeBridge.cancelAltTab(displayId);
             throw error;
         }
     }
@@ -2384,27 +2385,27 @@ final class DesktopSelfTestInputSuite {
         DesktopSelfTestFixtureState.clearText(context);
         final int panelGeneration =
                 DesktopSelfTestHostObserver.altTabPanelGeneration();
-        if (!DesktopRuntimeBridge.advanceAltTab(false)) {
+        if (!DesktopRuntimeBridge.advanceAltTab(displayId, false)) {
             throw new IOException("desktop Alt+Tab is unavailable");
         }
-        waitForAltTabPanel(panelGeneration);
+        waitForAltTabPanel(displayId, panelGeneration);
         int steps = 1;
         while (DesktopSelfTestHostObserver.altTabSelectedTaskId() != taskId) {
             if (steps >= 64) {
-                DesktopRuntimeBridge.cancelAltTab();
+                DesktopRuntimeBridge.cancelAltTab(displayId);
                 throw new IOException("Alt+Tab did not expose task " + taskId);
             }
             final int selectionGeneration =
                     DesktopSelfTestHostObserver.altTabSelectionGeneration();
-            if (!DesktopRuntimeBridge.advanceAltTab(false)) {
-                DesktopRuntimeBridge.cancelAltTab();
+            if (!DesktopRuntimeBridge.advanceAltTab(displayId, false)) {
+                DesktopRuntimeBridge.cancelAltTab(displayId);
                 throw new IOException("desktop Alt+Tab is unavailable");
             }
-            waitForAltTabSelection(selectionGeneration);
+            waitForAltTabSelection(displayId, selectionGeneration);
             steps++;
         }
-        if (!DesktopRuntimeBridge.finishAltTab()) {
-            DesktopRuntimeBridge.cancelAltTab();
+        if (!DesktopRuntimeBridge.finishAltTab(displayId)) {
+            DesktopRuntimeBridge.cancelAltTab(displayId);
             throw new IOException("desktop Alt+Tab completion is unavailable");
         }
         try {
@@ -2413,12 +2414,13 @@ final class DesktopSelfTestInputSuite {
             return "task=" + taskId + ", token=" + token
                     + ", steps=" + steps;
         } catch (IOException error) {
-            DesktopRuntimeBridge.cancelAltTab();
+            DesktopRuntimeBridge.cancelAltTab(displayId);
             throw error;
         }
     }
 
     private static void waitForAltTabSelection(
+            final int displayId,
             final int previousGeneration) throws IOException {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
@@ -2430,7 +2432,7 @@ final class DesktopSelfTestInputSuite {
             BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.INPUT_FOCUS,
                     POLL_MILLIS);
         } while (SystemClock.uptimeMillis() < deadline);
-        DesktopRuntimeBridge.cancelAltTab();
+        DesktopRuntimeBridge.cancelAltTab(displayId);
         throw new IOException("Alt+Tab selection did not advance");
     }
 

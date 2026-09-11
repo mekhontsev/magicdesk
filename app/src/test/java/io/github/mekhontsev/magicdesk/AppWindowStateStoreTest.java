@@ -9,6 +9,8 @@ import org.junit.Test;
 import java.util.Collections;
 
 public final class AppWindowStateStoreTest {
+    private static final DesktopWorkspaceRuntime WORKSPACE =
+            new DesktopWorkspaceRuntime(DesktopDisplayTarget.wired(7));
     private static final AppReference APP = new AppProfile(0, 0)
             .reference(AppLaunchTarget.packageDefault("example.application"));
 
@@ -16,6 +18,34 @@ public final class AppWindowStateStoreTest {
     public void restoreStorage() {
         AppWindowStateStore.clearPendingModeUpdatesForTests();
         DesktopStateStore.useStorageForTests(null);
+    }
+
+    @Test
+    public void lateCloseDoesNotFlushReplacementSession() {
+        final RecordingStorage storage = new RecordingStorage();
+        DesktopStateStore.useStorageForTests(storage);
+        AppWindowStateStore.beginSession(WORKSPACE, DesktopSessionPolicy.USER);
+        final DesktopWorkspaceRuntime next =
+                new DesktopWorkspaceRuntime(DesktopDisplayTarget.wired(7));
+        AppWindowStateStore.beginSession(next, DesktopSessionPolicy.USER);
+        AppWindowStateStore.rememberMode(APP, AppWindowState.Mode.FULLSCREEN);
+        assertTrue(AppWindowStateStore.endSession(WORKSPACE));
+        assertEquals(0, storage.writeCount);
+        assertTrue(AppWindowStateStore.endSession(next));
+        assertEquals(1, storage.writeCount);
+    }
+
+    @Test
+    public void hostRecreationDoesNotResetIsolatedSessionBoundary() {
+        final RecordingStorage storage = new RecordingStorage();
+        DesktopStateStore.useStorageForTests(storage);
+        AppWindowStateStore.rememberMode(APP, AppWindowState.Mode.WINDOWED);
+        AppWindowStateStore.beginSession(WORKSPACE, DesktopSessionPolicy.ISOLATED_SELF_TEST);
+        AppWindowStateStore.rememberMode(APP, AppWindowState.Mode.FULLSCREEN);
+        AppWindowStateStore.beginSession(WORKSPACE, DesktopSessionPolicy.ISOLATED_SELF_TEST);
+        assertTrue(AppWindowStateStore.endSession(WORKSPACE));
+        assertEquals(AppWindowState.Mode.WINDOWED, AppWindowStateStore.load(APP).mode);
+        assertEquals(1, storage.writeCount);
     }
 
     @Test
@@ -73,7 +103,7 @@ public final class AppWindowStateStoreTest {
         final RecordingStorage storage = new RecordingStorage();
         DesktopStateStore.useStorageForTests(storage);
         if (session) {
-            AppWindowStateStore.beginSession();
+            AppWindowStateStore.beginSession(WORKSPACE, DesktopSessionPolicy.USER);
         }
         final AppReference key = APP;
         final AppWindowStateStore.PendingModeUpdate older =
@@ -87,7 +117,7 @@ public final class AppWindowStateStoreTest {
         assertTrue(AppWindowStateStore.commitModeUpdate(older));
         assertEquals(AppWindowState.Mode.WINDOWED,
                 AppWindowStateStore.load(key).mode);
-        assertTrue(AppWindowStateStore.endSession());
+        assertTrue(AppWindowStateStore.endSession(WORKSPACE));
         DesktopStateStore.useStorageForTests(storage);
         assertEquals(AppWindowState.Mode.WINDOWED,
                 AppWindowStateStore.load(key).mode);
@@ -118,7 +148,7 @@ public final class AppWindowStateStoreTest {
         final AppReference stateKey = APP;
         final RelativeWindowBounds bounds =
                 new RelativeWindowBounds(2000, 1500, 6000, 7000);
-        AppWindowStateStore.beginSession();
+        AppWindowStateStore.beginSession(WORKSPACE, DesktopSessionPolicy.USER);
 
         assertTrue(AppWindowStateStore.rememberWindowed(stateKey, bounds));
         assertTrue(AppWindowStateStore.rememberMode(
@@ -128,7 +158,7 @@ public final class AppWindowStateStoreTest {
         assertEquals(
                 new AppWindowState(AppWindowState.Mode.FULLSCREEN, bounds),
                 AppWindowStateStore.load(stateKey));
-        assertTrue(AppWindowStateStore.endSession());
+        assertTrue(AppWindowStateStore.endSession(WORKSPACE));
         assertEquals(1, storage.writeCount);
 
         DesktopStateStore.useStorageForTests(storage);
@@ -141,9 +171,9 @@ public final class AppWindowStateStoreTest {
     public void emptyDesktopSessionDoesNotWriteState() {
         final RecordingStorage storage = new RecordingStorage();
         DesktopStateStore.useStorageForTests(storage);
-        AppWindowStateStore.beginSession();
+        AppWindowStateStore.beginSession(WORKSPACE, DesktopSessionPolicy.USER);
 
-        assertTrue(AppWindowStateStore.endSession());
+        assertTrue(AppWindowStateStore.endSession(WORKSPACE));
 
         assertEquals(0, storage.writeCount);
     }
@@ -158,14 +188,14 @@ public final class AppWindowStateStoreTest {
         final int writesBeforeTest = storage.writeCount;
 
         AppWindowStateStore.beginSession(
-                DesktopSessionPolicy.ISOLATED_SELF_TEST, false);
+                WORKSPACE, DesktopSessionPolicy.ISOLATED_SELF_TEST);
         assertTrue(AppWindowStateStore.rememberMode(
                 stateKey, AppWindowState.Mode.FULLSCREEN));
         assertEquals(
                 AppWindowState.Mode.FULLSCREEN,
                 AppWindowStateStore.load(stateKey).mode);
 
-        assertTrue(AppWindowStateStore.endSession());
+        assertTrue(AppWindowStateStore.endSession(WORKSPACE));
         assertEquals(writesBeforeTest, storage.writeCount);
         assertEquals(
                 AppWindowState.Mode.WINDOWED,

@@ -21,6 +21,7 @@ final class RuntimeDesktopTaskCoordinator {
     private Mode mMode = Mode.DISABLED;
     private boolean mDestroyed;
     private int mPreparedHostTaskId = -1;
+    private DesktopWorkspaceRuntime mWorkspace;
 
     RuntimeDesktopTaskCoordinator(
             final Context context,
@@ -38,6 +39,8 @@ final class RuntimeDesktopTaskCoordinator {
                             DesktopRuntimeBridge.getSessionSnapshot();
                     final int hostTaskId = session.hostTaskId();
                     if (hostTaskId >= 0 && hostTaskId != mPreparedHostTaskId
+                            && mWorkspace != null && !mWorkspace.isClosed()
+                            && mWorkspace == DesktopRuntimeBridge.getWorkspaceRuntime(displayId)
                             && session.activeWorkspaceDisplayId() == displayId
                             && ownershipReady
                             && DesktopRuntimeBridge.isDesktopReadyOnDisplay(displayId)
@@ -59,6 +62,15 @@ final class RuntimeDesktopTaskCoordinator {
                 ? session.activeWorkspaceDisplayId() : Display.INVALID_DISPLAY;
 
         if (mode == Mode.ACTIVE) {
+            final DesktopWorkspaceRuntime workspace =
+                    DesktopRuntimeBridge.getWorkspaceRuntime(displayId);
+            if (workspace == null || workspace.isClosed()) {
+                return;
+            }
+            if (mWorkspace != workspace) {
+                mPreparedHostTaskId = -1;
+                mWorkspace = workspace;
+            }
             mTasks.setTaskWatcherEnabled(true);
             // start() refreshes the current display when it is already active.
             mTasks.start(displayId);
@@ -77,6 +89,7 @@ final class RuntimeDesktopTaskCoordinator {
             return;
         }
         mDestroyed = true;
+        mWorkspace = null;
         mMode = Mode.DISABLED;
         mPreparedHostTaskId = -1;
         mParking.clear();
@@ -84,6 +97,7 @@ final class RuntimeDesktopTaskCoordinator {
     }
 
     void releaseSession(final Runnable completion) {
+        mWorkspace = null;
         mPreparedHostTaskId = -1;
         if (mDestroyed || mMode == Mode.DISABLED) {
             completion.run();
@@ -92,6 +106,25 @@ final class RuntimeDesktopTaskCoordinator {
         mMode = Mode.DISABLED;
         mTasks.stop();
         mTasks.setTaskWatcherEnabled(false, completion);
+    }
+
+    void releaseWorkspace(final DesktopWorkspaceRuntime workspace, final Runnable completion) {
+        // Admission can precede task-controller activation. Protect both owners
+        // when an old host finishes after another workspace has been prepared.
+        final DesktopDisplayTarget target = DesktopRuntimeBridge.getActiveDesktopTarget();
+        final DesktopWorkspaceRuntime admitted = target == null ? null
+                : DesktopRuntimeBridge.getWorkspaceRuntime(target.workspaceDisplayId);
+        if (!canReleaseWorkspace(workspace, mWorkspace, admitted)) {
+            completion.run();
+            return;
+        }
+        releaseSession(completion);
+    }
+
+    static boolean canReleaseWorkspace(final DesktopWorkspaceRuntime requested,
+            final DesktopWorkspaceRuntime active, final DesktopWorkspaceRuntime admitted) {
+        return requested != null && (active == null || active == requested)
+                && (admitted == null || admitted == requested);
     }
 
     DesktopTaskRuntime operations() {

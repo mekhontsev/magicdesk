@@ -10,6 +10,51 @@ import org.junit.Test;
 
 public final class DesktopSessionRegistryTest {
     @Test
+    public void recreationRetainsRuntimeButCloseAndRestartDoesNot() {
+        final DesktopSessionRegistry registry = new DesktopSessionRegistry();
+        final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7);
+        registry.noteTarget(target);
+        final DesktopWorkspaceRuntime first = registry.workspace(7);
+        assertTrue(registry.registerHost(7, 42, target, DesktopSessionPolicy.USER));
+        registry.unregisterHost(7, true);
+        assertSame(first, registry.workspace(7));
+        assertFalse(first.isClosed());
+        assertTrue(registry.registerHost(7, 42, target, DesktopSessionPolicy.USER));
+        registry.close();
+        assertTrue(first.isClosed());
+        registry.noteTarget(target);
+        assertTrue(first != registry.workspace(7));
+        assertFalse(registry.workspace(7).isClosed());
+    }
+
+    @Test
+    public void wrongDisplayOrRepeatedUnregisterCannotCloseAnotherWorkspace() {
+        final DesktopSessionRegistry registry = new DesktopSessionRegistry();
+        final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7);
+        registry.noteTarget(target);
+        final DesktopWorkspaceRuntime first = registry.workspace(7);
+        assertTrue(registry.registerHost(7, 42, target, DesktopSessionPolicy.USER));
+        registry.unregisterHost(0, false);
+        assertSame(first, registry.workspace(7));
+        assertTrue(registry.snapshot().hasHost());
+        registry.unregisterHost(7, false);
+        registry.unregisterHost(7, false);
+        assertNull(registry.workspace(7));
+        assertTrue(first.isClosed());
+    }
+
+    @Test
+    public void replacingPreparedTargetClosesOnlyItsOldRuntime() {
+        final DesktopSessionRegistry registry = new DesktopSessionRegistry();
+        registry.noteTarget(DesktopDisplayTarget.wired(7));
+        final DesktopWorkspaceRuntime first = registry.workspace(7);
+        registry.noteTarget(DesktopDisplayTarget.phone());
+        assertTrue(first.isClosed());
+        assertNull(registry.workspace(7));
+        assertEquals(0, registry.workspace(0).displayId);
+    }
+
+    @Test
     public void registryOwnsOneAtomicSessionSnapshot() {
         final DesktopSessionRegistry registry = new DesktopSessionRegistry();
         final DesktopDisplayTarget target = DesktopDisplayTarget.wired(7);

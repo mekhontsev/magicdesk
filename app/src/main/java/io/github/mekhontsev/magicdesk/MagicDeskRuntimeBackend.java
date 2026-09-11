@@ -11,7 +11,7 @@ interface MagicDeskRuntimeBackend {
 
     void releaseDesktopRuntime();
 
-    void releaseDesktopTaskSession(Runnable completion);
+    void releaseDesktopWorkspace(DesktopWorkspaceRuntime workspace, Runnable completion);
 
     void refreshNotification();
 
@@ -49,27 +49,27 @@ interface MagicDeskRuntimeBackend {
     boolean scrollDesktopPointer(int displayId, float amount);
 
 
-    boolean showStart();
+    boolean showStart(final int displayId);
 
-    boolean toggleDesktopWorkspace();
+    boolean toggleDesktopWorkspace(final int displayId);
 
-    boolean toggleDesktopWorkspace(TaskRepository.ActionCallback callback);
+    boolean toggleDesktopWorkspace(int displayId, TaskRepository.ActionCallback callback);
 
-    boolean restoreLastVisibleWindows();
+    boolean restoreLastVisibleWindows(final int displayId);
 
-    boolean advanceAltTab(boolean reverse);
+    boolean advanceAltTab(int displayId, boolean reverse);
 
-    boolean finishAltTab();
+    boolean finishAltTab(final int displayId);
 
-    boolean cancelAltTab();
+    boolean cancelAltTab(final int displayId);
 
-    boolean toggleShortcutHelp();
+    boolean toggleShortcutHelp(final int displayId);
 
-    boolean toggleNotificationCenter();
+    boolean toggleNotificationCenter(final int displayId);
 
-    boolean toggleSystemPanel();
+    boolean toggleSystemPanel(final int displayId);
 
-    boolean openSettings();
+    boolean openSettings(final int displayId);
 
     DesktopTaskRuntime desktopTasks();
 

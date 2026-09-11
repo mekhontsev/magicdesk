@@ -24,7 +24,7 @@ public final class RuntimeDesktopSessionCoordinatorTest {
                 static class DesktopRuntimeBridge {
                     static int closes;
                     static DesktopSessionSnapshot getSessionSnapshot() { return new DesktopSessionSnapshot(); }
-                    static void closeDesktopSession(int id) { closes++; }
+                    static void closeDesktopWorkspace(int id) { closes++; }
                 }
                 static class PhoneTouchpadController { static void release(int id) {} }
                 static class SimulatedDesktopDisplayController { static void release(int id) {} }

@@ -136,7 +136,8 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static void releaseDesktopTaskSession(final Runnable completion) {
+    static void releaseDesktopWorkspace(final DesktopWorkspaceRuntime workspace,
+            final Runnable completion) {
         final AtomicBoolean finished = new AtomicBoolean();
         final Runnable finish = () -> {
             if (finished.compareAndSet(false, true) && completion != null) {
@@ -149,7 +150,7 @@ public final class MagicDeskRuntime {
             return;
         }
         try {
-            backend.releaseDesktopTaskSession(finish);
+            backend.releaseDesktopWorkspace(workspace, finish);
         } catch (RuntimeException error) {
             finish.run();
             throw error;
@@ -329,60 +330,61 @@ public final class MagicDeskRuntime {
     }
 
 
-    static boolean showStart() {
+    static boolean showStart(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.showStart();
+        return backend != null && backend.showStart(displayId);
     }
 
-    static boolean toggleDesktopWorkspace() {
+    static boolean toggleDesktopWorkspace(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.toggleDesktopWorkspace();
+        return backend != null && backend.toggleDesktopWorkspace(displayId);
     }
 
     static boolean toggleDesktopWorkspace(
+            final int displayId,
             final TaskRepository.ActionCallback callback) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.toggleDesktopWorkspace(callback);
+        return backend != null && backend.toggleDesktopWorkspace(displayId, callback);
     }
 
-    static boolean restoreLastVisibleWindows() {
+    static boolean restoreLastVisibleWindows(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.restoreLastVisibleWindows();
+        return backend != null && backend.restoreLastVisibleWindows(displayId);
     }
 
-    static boolean advanceAltTab(final boolean reverse) {
+    static boolean advanceAltTab(final int displayId, final boolean reverse) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.advanceAltTab(reverse);
+        return backend != null && backend.advanceAltTab(displayId, reverse);
     }
 
-    static boolean finishAltTab() {
+    static boolean finishAltTab(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.finishAltTab();
+        return backend != null && backend.finishAltTab(displayId);
     }
 
-    static boolean cancelAltTab() {
+    static boolean cancelAltTab(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.cancelAltTab();
+        return backend != null && backend.cancelAltTab(displayId);
     }
 
-    static boolean toggleShortcutHelp() {
+    static boolean toggleShortcutHelp(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.toggleShortcutHelp();
+        return backend != null && backend.toggleShortcutHelp(displayId);
     }
 
-    static boolean toggleNotificationCenter() {
+    static boolean toggleNotificationCenter(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.toggleNotificationCenter();
+        return backend != null && backend.toggleNotificationCenter(displayId);
     }
 
-    static boolean toggleSystemPanel() {
+    static boolean toggleSystemPanel(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.toggleSystemPanel();
+        return backend != null && backend.toggleSystemPanel(displayId);
     }
 
-    static boolean openSettings() {
+    static boolean openSettings(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.openSettings();
+        return backend != null && backend.openSettings(displayId);
     }
 
     static void parkDesktopTasks(

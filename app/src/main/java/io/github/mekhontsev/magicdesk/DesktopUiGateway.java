@@ -22,10 +22,6 @@ final class DesktopUiGateway {
     private final Object mHostLock = new Object();
     private final DesktopSessionRegistry mSession;
 
-    private WeakReference<DesktopShellActivity> mShell =
-            new WeakReference<>(null);
-    private WeakReference<DesktopShellActivity> mDesktop =
-            new WeakReference<>(null);
     private WeakReference<PhoneHomeActivity> mPhoneHome = new WeakReference<>(null);
 
     DesktopUiGateway(final DesktopSessionRegistry session) {
@@ -56,7 +52,7 @@ final class DesktopUiGateway {
                 && phone.isAutomationAvailable()) {
             return phone.automation();
         }
-        final DesktopShellActivity desktop = usableDesktop(false);
+        final DesktopShellActivity desktop = usableDesktop(displayId, false);
         return desktop != null && desktop.getCurrentDisplayId() == displayId
                 ? desktop.automationUi() : null;
     }
@@ -66,16 +62,12 @@ final class DesktopUiGateway {
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         final DesktopShellActivity previous;
-        final boolean replacingSameTask;
         final int displayId = activity.getCurrentDisplayId();
         synchronized (mHostLock) {
             previous = reconcileSessionHostLocked();
             if (previous == activity) {
                 return true;
             }
-            replacingSameTask = previous != null
-                    && previous.getTaskId() == activity.getTaskId()
-                    && previous.getCurrentDisplayId() == displayId;
             if (!mSession.registerHost(
                     displayId,
                     activity.getTaskId(),
@@ -87,11 +79,9 @@ final class DesktopUiGateway {
                         activity.getTaskId());
                 return false;
             }
-            mShell = new WeakReference<>(activity);
-            mDesktop = new WeakReference<>(activity);
+            mSession.workspace().attachHost(activity);
+            AppWindowStateStore.beginSession(mSession.workspace(), mSession.snapshot().policy());
         }
-        AppWindowStateStore.beginSession(
-                sessionSnapshot().policy(), replacingSameTask);
         final DesktopDisplayTarget activeTarget = sessionSnapshot().target();
         if (displayId == Display.DEFAULT_DISPLAY
                 && activeTarget != null
@@ -130,14 +120,12 @@ final class DesktopUiGateway {
         final int displayId = activity.getCurrentDisplayId();
         final boolean desktopRemoved;
         final DesktopSessionPolicy policy;
+        final DesktopWorkspaceRuntime workspace;
         synchronized (mHostLock) {
-            if (mShell.get() == activity) {
-                mShell.clear();
-            }
-            desktopRemoved = mDesktop.get() == activity;
+            workspace = mSession.workspace();
+            desktopRemoved = workspace != null && workspace.host() == activity;
             policy = mSession.snapshot().policy();
             if (desktopRemoved) {
-                mDesktop.clear();
                 mSession.unregisterHost(displayId, changingConfigurations);
             }
         }
@@ -149,22 +137,23 @@ final class DesktopUiGateway {
             MagicDeskRuntime.preserveDesktopTasks(displayId);
         }
         MagicDeskRuntime.refreshDesktopTasks();
-        MagicDeskRuntime.releaseDesktopTaskSession(() ->
+        MagicDeskRuntime.releaseDesktopWorkspace(workspace, () ->
                 TaskCommandQueue.execute(
-                        DesktopUiGateway::flushWindowSessionState));
+                        () -> flushWindowSessionState(workspace)));
         recordSession("host_unregistered", displayId, activity.getTaskId());
         if (displayId == Display.DEFAULT_DISPLAY) {
             MagicDeskRuntime.scheduleLocalDesktopCleanup();
         }
     }
 
-    void closeDesktopSession(
+    void closeDesktopWorkspace(
             final int displayId,
             final Runnable completion) {
         final DesktopShellActivity activity;
         final DesktopSessionPolicy policy;
+        final DesktopWorkspaceRuntime workspace;
         synchronized (mHostLock) {
-            activity = usableDesktopLocked(false);
+            activity = usableDesktopLocked(displayId, false);
             final DesktopDisplayTarget target = mSession.snapshot().target();
             if (displayId < Display.DEFAULT_DISPLAY
                     || target == null
@@ -175,10 +164,7 @@ final class DesktopUiGateway {
                 return;
             }
             policy = mSession.snapshot().policy();
-            mDesktop.clear();
-            if (mShell.get() == activity) {
-                mShell.clear();
-            }
+            workspace = mSession.workspace();
             mSession.close();
         }
         DesktopSelfTestRunState.noteDesktopSessionClosed(policy, displayId);
@@ -211,10 +197,10 @@ final class DesktopUiGateway {
                 closePartFinished.run();
             }
         };
-        MagicDeskRuntime.releaseDesktopTaskSession(() -> {
+        MagicDeskRuntime.releaseDesktopWorkspace(workspace, () -> {
             TaskCommandQueue.execute(() -> {
                 try {
-                    flushWindowSessionState();
+                    flushWindowSessionState(workspace);
                 } finally {
                     closePartFinished.run();
                 }
@@ -227,8 +213,8 @@ final class DesktopUiGateway {
         });
     }
 
-    private static void flushWindowSessionState() {
-        if (!AppWindowStateStore.endSession()) {
+    private static void flushWindowSessionState(final DesktopWorkspaceRuntime workspace) {
+        if (!AppWindowStateStore.endSession(workspace)) {
             Log.w(TAG, "Could not flush desktop window session state");
         }
     }
@@ -237,6 +223,12 @@ final class DesktopUiGateway {
         synchronized (mHostLock) {
             reconcileSessionHostLocked();
             return mSession.snapshot();
+        }
+    }
+
+    DesktopWorkspaceRuntime workspace(final int displayId) {
+        synchronized (mHostLock) {
+            return mSession.workspace(displayId);
         }
     }
 
@@ -266,7 +258,7 @@ final class DesktopUiGateway {
     }
 
     DesktopViewport getDesktopViewport(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null || activity.getCurrentDisplayId() != displayId) {
             return null;
         }
@@ -274,7 +266,7 @@ final class DesktopUiGateway {
     }
 
     Rect getDesktopWorkAreaBounds(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null || activity.getCurrentDisplayId() != displayId) {
             return null;
         }
@@ -288,7 +280,7 @@ final class DesktopUiGateway {
     }
 
     Rect getDesktopTaskbarBounds(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null || activity.getCurrentDisplayId() != displayId) {
             return null;
         }
@@ -297,12 +289,12 @@ final class DesktopUiGateway {
                 ? activity.getTaskbarBounds() : taskbarHost.appliedBounds();
     }
 
-    boolean showStart() {
-        final DesktopShellActivity activity = usableDesktop(true);
+    boolean showStart(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(displayId, true);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(activity::showStartFromRuntime);
+        postToHost(activity, activity::showStartFromRuntime);
         return true;
     }
 
@@ -311,7 +303,7 @@ final class DesktopUiGateway {
             final DesktopLaunchArguments arguments,
             final String desktopFilePath,
             final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         return activity != null
                 && activity.getCurrentDisplayId() == displayId
                 && activity.launchDesktopShortcut(
@@ -321,7 +313,7 @@ final class DesktopUiGateway {
     boolean launchDesktopWebShortcut(
             final DesktopWebShortcut shortcut,
             final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         return activity != null
                 && activity.getCurrentDisplayId() == displayId
                 && activity.launchDesktopWebShortcut(shortcut);
@@ -330,7 +322,7 @@ final class DesktopUiGateway {
     boolean launchAutomationRequest(
             final DesktopLaunchRequest request,
             final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null || request == null
                 || activity.getCurrentDisplayId() != displayId) {
             return false;
@@ -338,7 +330,7 @@ final class DesktopUiGateway {
         final boolean[] launched = new boolean[1];
         final CountDownLatch ready = new CountDownLatch(1);
         mMainHandler.post(() -> {
-            if (isUsable(activity)) {
+            if (isCurrentHost(activity)) {
                 launched[0] = activity.launchAutomationRequest(request);
             }
             ready.countDown();
@@ -350,7 +342,7 @@ final class DesktopUiGateway {
             final DesktopLaunchRequest request,
             final int displayId,
             final long timeoutMillis) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null || request == null
                 || activity.getCurrentDisplayId() != displayId) {
             return DesktopActivityLaunchResult.failed(
@@ -363,7 +355,7 @@ final class DesktopUiGateway {
         final DesktopActivityLaunchResult.Awaiter completion =
                 new DesktopActivityLaunchResult.Awaiter();
         mMainHandler.post(() -> {
-            if (!isUsable(activity)
+            if (!isCurrentHost(activity)
                     || activity.getCurrentDisplayId() != displayId) {
                 completion.onComplete(DesktopActivityLaunchResult.failed(
                         "desktop host became unavailable"));
@@ -375,12 +367,12 @@ final class DesktopUiGateway {
     }
 
     boolean openFilesAt(final String path, final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null || path == null
                 || activity.getCurrentDisplayId() != displayId) {
             return false;
         }
-        activity.runOnUiThread(() -> activity.openFilesAt(path));
+        postToHost(activity, () -> activity.openFilesAt(path));
         return true;
     }
 
@@ -389,7 +381,7 @@ final class DesktopUiGateway {
             final AppLaunchTarget target,
             final DesktopLaunchPresentation presentation,
             final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null
                 || application == null
                 || application.profileSerialNumber != activity.appProfile().serialNumber
@@ -402,7 +394,7 @@ final class DesktopUiGateway {
         final boolean[] launched = new boolean[1];
         final CountDownLatch ready = new CountDownLatch(1);
         mMainHandler.post(() -> {
-            if (isUsable(activity) && !activity.isActivityUnavailable()) {
+            if (isCurrentHost(activity) && !activity.isActivityUnavailable()) {
                 final AppItem app = activity.findOrLoadApp(
                         activity.getLauncherApps(), application, target);
                 if (app != null) {
@@ -422,7 +414,7 @@ final class DesktopUiGateway {
             final DesktopLaunchPresentation presentation,
             final int displayId,
             final long timeoutMillis) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null
                 || application == null
                 || application.profileSerialNumber != activity.appProfile().serialNumber
@@ -440,7 +432,7 @@ final class DesktopUiGateway {
         final DesktopActivityLaunchResult.Awaiter completion =
                 new DesktopActivityLaunchResult.Awaiter();
         mMainHandler.post(() -> {
-            if (!isUsable(activity)
+            if (!isCurrentHost(activity)
                     || activity.getCurrentDisplayId() != displayId) {
                 completion.onComplete(DesktopActivityLaunchResult.failed(
                         "desktop host became unavailable"));
@@ -474,7 +466,7 @@ final class DesktopUiGateway {
         } catch (IllegalArgumentException error) {
             return DesktopActivityLaunchResult.failed(error.getMessage());
         }
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null || application == null
                 || application.profileSerialNumber != activity.appProfile().serialNumber
                 || target == null
@@ -498,7 +490,7 @@ final class DesktopUiGateway {
         final DesktopActivityLaunchResult.Awaiter completion =
                 new DesktopActivityLaunchResult.Awaiter();
         mMainHandler.post(() -> {
-            if (!isUsable(activity)
+            if (!isCurrentHost(activity)
                     || activity.getCurrentDisplayId() != displayId) {
                 completion.onComplete(DesktopActivityLaunchResult.failed(
                         "desktop host became unavailable"));
@@ -531,11 +523,11 @@ final class DesktopUiGateway {
     void showTransientStatus(
             final String message,
             final boolean longDuration) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(sessionSnapshot().activeWorkspaceDisplayId(), false);
         if (activity == null) {
             return;
         }
-        activity.runOnUiThread(() -> {
+        postToHost(activity, () -> {
             activity.setStatus(message);
             Toast.makeText(
                     activity,
@@ -546,9 +538,9 @@ final class DesktopUiGateway {
     }
 
     void refreshDesktopControls() {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(sessionSnapshot().activeWorkspaceDisplayId(), false);
         if (activity != null) {
-            activity.runOnUiThread(activity::updateDesktopControls);
+            postToHost(activity, activity::updateDesktopControls);
         }
     }
 
@@ -562,7 +554,7 @@ final class DesktopUiGateway {
             final int displayId,
             final int focusedTaskId,
             final Runnable completion) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null
                 || activity.getCurrentDisplayId() != displayId) {
             if (completion != null) {
@@ -571,6 +563,10 @@ final class DesktopUiGateway {
             return false;
         }
         activity.runOnUiThread(() -> {
+            if (!isCurrentHost(activity)) {
+                if (completion != null) { completion.run(); }
+                return;
+            }
             activity.setDesktopWindowFocusable(
                     focusedTaskId == activity.getTaskId());
             activity.refreshDesktopInputFocus(completion);
@@ -578,28 +574,28 @@ final class DesktopUiGateway {
         return true;
     }
 
-    boolean restoreLastVisibleWindows() {
-        final DesktopShellActivity activity = usableDesktop(false);
+    boolean restoreLastVisibleWindows(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(activity::restoreLastVisibleWindows);
+        postToHost(activity, activity::restoreLastVisibleWindows);
         return true;
     }
 
-    boolean toggleDesktopWorkspace() {
-        return toggleDesktopWorkspace(null);
+    boolean toggleDesktopWorkspace(final int displayId) {
+        return toggleDesktopWorkspace(displayId, null);
     }
 
     boolean toggleDesktopWorkspace(
+            final int displayId,
             final TaskRepository.ActionCallback callback) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null) {
             return false;
         }
-        final int displayId = activity.getCurrentDisplayId();
         activity.runOnUiThread(() -> {
-            if (!isUsable(activity)) {
+            if (!isCurrentHost(activity)) {
                 completeTaskAction(
                         callback, false, "desktop UI is unavailable");
                 return;
@@ -614,14 +610,15 @@ final class DesktopUiGateway {
     boolean recreateShellOnDisplay(final int displayId) {
         final DesktopShellActivity activity;
         synchronized (mHostLock) {
-            activity = mShell.get();
+            final DesktopWorkspaceRuntime workspace = mSession.workspace(displayId);
+            activity = workspace == null ? null : workspace.host();
         }
-        if (!isUsable(activity)
+        if (!isCurrentHost(activity)
                 || activity.getCurrentDisplayId() != displayId) {
             return false;
         }
         mMainHandler.post(() -> {
-            if (!activity.isActivityUnavailable()) {
+            if (isCurrentHost(activity) && !activity.isActivityUnavailable()) {
                 activity.recreate();
             }
         });
@@ -631,94 +628,94 @@ final class DesktopUiGateway {
     void setSystemDialogVisible(
             final int displayId,
             final boolean visible) {
-        final DesktopShellActivity activity = usableDesktop(false);
-        if (!isUsable(activity)
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
+        if (!isCurrentHost(activity)
                 || activity.getCurrentDisplayId() != displayId) {
             return;
         }
         mMainHandler.post(() -> {
-            if (isUsable(activity)
+            if (isCurrentHost(activity)
                     && activity.getCurrentDisplayId() == displayId) {
                 activity.setSystemDialogVisible(visible);
             }
         });
     }
 
-    boolean advanceAltTab(final boolean reverse) {
-        final DesktopShellActivity activity = usableDesktop(true);
+    boolean advanceAltTab(final int displayId, final boolean reverse) {
+        final DesktopShellActivity activity = usableDesktop(displayId, true);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(() -> activity.advanceAltTab(reverse));
+        postToHost(activity, () -> activity.advanceAltTab(reverse));
         return true;
     }
 
-    boolean finishAltTab() {
-        final DesktopShellActivity activity = usableDesktop(false);
+    boolean finishAltTab(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(activity::finishAltTab);
+        postToHost(activity, activity::finishAltTab);
         return true;
     }
 
-    boolean cancelAltTab() {
-        final DesktopShellActivity activity = usableDesktop(false);
+    boolean cancelAltTab(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(activity::cancelAltTabFromRuntime);
+        postToHost(activity, activity::cancelAltTabFromRuntime);
         return true;
     }
 
-    boolean toggleShortcutHelp() {
-        final DesktopShellActivity activity = usableDesktop(true);
+    boolean toggleShortcutHelp(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(displayId, true);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(activity::toggleShortcutHelp);
+        postToHost(activity, activity::toggleShortcutHelp);
         return true;
     }
 
-    boolean toggleNotificationCenter() {
-        final DesktopShellActivity activity = usableDesktop(true);
+    boolean toggleNotificationCenter(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(displayId, true);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(activity.notifications()::toggle);
+        postToHost(activity, activity.notifications()::toggle);
         return true;
     }
 
-    boolean toggleSystemPanel() {
-        final DesktopShellActivity activity = usableDesktop(true);
+    boolean toggleSystemPanel(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(displayId, true);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(activity::toggleSystemPanel);
+        postToHost(activity, activity::toggleSystemPanel);
         return true;
     }
 
-    boolean openSettings() {
-        final DesktopShellActivity activity = usableDesktop(true);
+    boolean openSettings(final int displayId) {
+        final DesktopShellActivity activity = usableDesktop(displayId, true);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(activity::openSettings);
+        postToHost(activity, activity::openSettings);
         return true;
     }
 
-    boolean openApplicationSettings(final AppIdentity application) {
-        final DesktopShellActivity activity = usableDesktop(true);
+    boolean openApplicationSettings(final int displayId, final AppIdentity application) {
+        final DesktopShellActivity activity = usableDesktop(displayId, true);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(() ->
+        postToHost(activity, () ->
                 activity.openApplicationSettings(application));
         return true;
     }
 
-    boolean openBuiltin(final String builtin) {
-        final DesktopShellActivity activity = usableDesktop(true);
+    boolean openBuiltin(final int displayId, final String builtin) {
+        final DesktopShellActivity activity = usableDesktop(displayId, true);
         if (activity == null || builtin == null) {
             return false;
         }
@@ -748,75 +745,76 @@ final class DesktopUiGateway {
             default:
                 return false;
         }
-        activity.runOnUiThread(action);
+        postToHost(activity, action);
         return true;
     }
 
     boolean openConsole(
+            final int displayId,
             final String directory,
             final String command,
             final String terminalId,
             final DesktopExecBackend backend) {
-        final DesktopShellActivity activity = usableDesktop(true);
+        final DesktopShellActivity activity = usableDesktop(displayId, true);
         if (activity == null) {
             return false;
         }
-        activity.runOnUiThread(() -> activity.openConsole(
+        postToHost(activity, () -> activity.openConsole(
                 directory, command, terminalId, backend));
         return true;
     }
 
     void refreshSettings() {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(sessionSnapshot().activeWorkspaceDisplayId(), false);
         if (activity != null) {
-            activity.runOnUiThread(activity::refreshSettings);
+            postToHost(activity, activity::refreshSettings);
         }
     }
 
     boolean isDesktopReadyOnDisplay(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         return activity != null
                 && activity.getCurrentDisplayId() == displayId
                 && activity.isDesktopHostReady();
     }
 
     boolean isDesktopWallpaperRendered(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         return activity != null
                 && activity.getCurrentDisplayId() == displayId
                 && activity.isDesktopWallpaperRendered();
     }
 
     boolean isUsingFallbackDesktopWallpaper(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         return activity != null
                 && activity.getCurrentDisplayId() == displayId
                 && activity.isUsingFallbackDesktopWallpaper();
     }
 
     int getDesktopHostIdentity(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         return activity != null
                         && activity.getCurrentDisplayId() == displayId
                 ? System.identityHashCode(activity) : 0;
     }
 
     boolean isDesktopWindowFocused(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         return activity != null
                 && activity.getCurrentDisplayId() == displayId
                 && activity.hasWindowFocus();
     }
 
     boolean isTaskbarVisibleOnDisplay(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         return activity != null
                 && activity.getCurrentDisplayId() == displayId
                 && activity.isTaskbarVisible();
     }
 
     DesktopUiSnapshot getAutomationUiSnapshot(final int displayId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null
                 || activity.getCurrentDisplayId() != displayId) {
             return DesktopUiSnapshot.UNAVAILABLE;
@@ -827,7 +825,7 @@ final class DesktopUiGateway {
         final DesktopUiSnapshot[] result = new DesktopUiSnapshot[1];
         final CountDownLatch ready = new CountDownLatch(1);
         mMainHandler.post(() -> {
-            if (isUsable(activity)
+            if (isCurrentHost(activity)
                     && activity.getCurrentDisplayId() == displayId) {
                 result[0] = activity.getAutomationUiSnapshot();
             }
@@ -899,7 +897,7 @@ final class DesktopUiGateway {
     private boolean toggleShowDesktopWorkspaceOnDisplay(
             final int displayId,
             final TaskRepository.ActionCallback callback) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null
                 || activity.getCurrentDisplayId() != displayId) {
             completeTaskAction(callback, false, "desktop UI is unavailable");
@@ -932,7 +930,7 @@ final class DesktopUiGateway {
     }
 
     void prepareTaskFocus(final int displayId, final int taskId) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity != null
                 && activity.getCurrentDisplayId() == displayId) {
             activity.setDesktopWindowFocusable(
@@ -943,25 +941,26 @@ final class DesktopUiGateway {
     void syncTaskbarWithSnapshot(
             final int displayId,
             final TaskRepository.Snapshot snapshot) {
-        final DesktopShellActivity activity = usableDesktop(false);
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         if (activity == null || snapshot == null || !snapshot.available
                 || activity.getCurrentDisplayId() != displayId) {
             return;
         }
-        activity.runOnUiThread(
+        postToHost(activity,
                 () -> activity.syncTaskbarWithSnapshot(snapshot));
     }
 
-    private DesktopShellActivity usableDesktop(final boolean requirePanels) {
+    private DesktopShellActivity usableDesktop(final int displayId, final boolean requirePanels) {
         synchronized (mHostLock) {
-            return usableDesktopLocked(requirePanels);
+            return usableDesktopLocked(displayId, requirePanels);
         }
     }
 
     private DesktopShellActivity usableDesktopLocked(
-            final boolean requirePanels) {
+            final int displayId, final boolean requirePanels) {
         final DesktopShellActivity activity = reconcileSessionHostLocked();
-        if (!isUsable(activity) || !activity.isDesktopShell()
+        if (!isUsable(activity) || activity.getCurrentDisplayId() != displayId
+                || !activity.isDesktopShell()
                 || (requirePanels && activity.panels() == null)) {
             return null;
         }
@@ -969,7 +968,8 @@ final class DesktopUiGateway {
     }
 
     private DesktopShellActivity reconcileSessionHostLocked() {
-        final DesktopShellActivity activity = mDesktop.get();
+        final DesktopWorkspaceRuntime workspace = mSession.workspace();
+        final DesktopShellActivity activity = workspace == null ? null : workspace.host();
         if (!isUsable(activity) || !activity.isDesktopShell()) {
             final DesktopSessionSnapshot snapshot = mSession.snapshot();
             if (snapshot.hasHost()) {
@@ -988,6 +988,20 @@ final class DesktopUiGateway {
             return null;
         }
         return activity;
+    }
+
+    private boolean isCurrentHost(final DesktopShellActivity activity) {
+        if (!isUsable(activity)) { return false; }
+        synchronized (mHostLock) {
+            final DesktopWorkspaceRuntime workspace = mSession.workspace(activity.getCurrentDisplayId());
+            return workspace != null && workspace.host() == activity;
+        }
+    }
+
+    private void postToHost(final DesktopShellActivity activity, final Runnable action) {
+        activity.runOnUiThread(() -> {
+            if (isCurrentHost(activity)) { action.run(); }
+        });
     }
 
     private static boolean isUsable(final DesktopShellActivity activity) {

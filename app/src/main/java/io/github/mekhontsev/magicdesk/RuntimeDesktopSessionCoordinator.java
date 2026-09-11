@@ -119,7 +119,7 @@ final class RuntimeDesktopSessionCoordinator {
                 releaseHomeLeaseAfterSessionLoss(displayId);
             }
             PhoneTouchpadController.release(displayId);
-            DesktopRuntimeBridge.closeDesktopSession(displayId);
+            DesktopRuntimeBridge.closeDesktopWorkspace(displayId);
             if (externalDesktopRemoved && !expectedDesktopRemoval) {
                 // Explicit Close already returns and reconciles phone tasks
                 // before completing. Only unexpected loss needs event recovery.

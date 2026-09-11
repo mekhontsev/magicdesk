@@ -1296,10 +1296,12 @@ isolated behind these boundaries.
   No extra observer, poller or worker is introduced. Input commit verification,
   owned-task parking and ordinary session cleanup remain unconditional.
 - `DesktopRuntimeBridge` is only the stable process-local facade.
-  `DesktopSessionRegistry` owns the immutable target/host snapshot, while
-  `DesktopUiGateway` alone owns weak references to the live desktop Activity
-  and dispatches UI commands. Session state therefore does not acquire UI
-  behavior, and UI liveness cannot become a second session-state authority.
+  `DesktopSessionRegistry` admits one `DesktopWorkspaceRuntime` and owns
+  session-wide policy. The workspace runtime retains its immutable local
+  snapshot and weak host reference. `DesktopUiGateway` serializes admission
+  and host attachment and dispatches explicitly display-addressed UI commands;
+  it has no duplicate desktop host reference. A queued UI action validates the
+  captured host before execution instead of following a replacement Activity.
 - `DesktopDisplayDriver` has four implementations: phone, wired, wireless,
   and simulated. A driver owns environment-specific activation, launch-area
   policy, phone-screen and touchpad availability, capture support, and display
@@ -1586,10 +1588,24 @@ the production presenter currently requires a direct binding: workspace and
 output are the same Android display. Representing a different binding does not
 enable output switching; startup rejects it before display setup or HOME changes.
 
-`DesktopWorkspaceSnapshot` owns the display-local binding and registered host.
-`DesktopSessionSnapshot` publishes that workspace together with session-wide
-policy atomically. The session still admits exactly one workspace; introducing
-an explicit local state does not enable concurrent hosts or another coordinator.
+`DesktopWorkspaceSnapshot` describes the display-local binding and registered
+host. `DesktopWorkspaceRuntime` owns one residency of that workspace: Activity
+recreation retains the same runtime, while Close invalidates it and a subsequent
+start creates a new one, even on the same Android display. Its object identity
+is process-local, not a persisted workspace identifier. `DesktopSessionSnapshot`
+publishes local state together with session-wide policy atomically. Admission
+still allows exactly one workspace; this does not enable concurrent desktops.
+
+Start, Alt+Tab, settings and workspace presentation carry a display address from
+their command boundary through the runtime facade to the UI gateway. Global
+shortcuts resolve the current workspace at that boundary. Deferred host actions
+remain bound to their original Activity. Task observation and input coordination
+remain shared services with no additional observer, polling loop or worker.
+`RuntimeDesktopTaskCoordinator` holds the active workspace owner separately from
+its shared task controller. Workspace release validates that owner and any newly
+prepared workspace before releasing task observation; process shutdown has an
+explicit unconditional release path. Window-state finalization uses the same
+workspace identity, so a delayed Close cannot end a replacement's state session.
 Host registration, task placement, window geometry, task density, capture and
 input routing address the workspace. Output mode preparation, transport caption
 policy and monitor-profile selection address the output. A profile still stores
@@ -1613,6 +1629,10 @@ unplugging the output also removes that workspace and retains the normal close
 behavior. There is one active Desktop session, no automatic parking on a virtual
 display, no output-exchange backend and no new framework capability prerequisite.
 The independent display resource, viewer and session lifetimes remain unchanged.
+Workspace-local release is not the whole Close operation: the outer session
+coordinator still owns HOME handoff, input release, task return and final HOME
+surface cleanup in their existing order. Closing the only workspace leaves
+independent automation, file and terminal services available.
 
 Starting any desktop first acquires one
 persisted `DesktopHomeRoleLease`: MagicDesk temporarily becomes the package-wide
