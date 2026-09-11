@@ -21,7 +21,7 @@ final class DeviceSetupView {
     private LinearLayout mSecondaryRow;
     private TextView mDisplayTargetValue;
     private TextView mDeviceValue;
-    private TextView mShizukuValue;
+    private TextView mShellValue;
     private TextView mRestrictionsValue;
     private TextView mCornersValue;
     private TextView mRebootValue;
@@ -87,7 +87,7 @@ final class DeviceSetupView {
                 mDisplayTargetValue,
                 mActivity::showDisplayTargetChooser);
         mDeviceValue = addStatusRow(mDetails, R.string.setup_item_device);
-        mShizukuValue = addStatusRow(mDetails, R.string.setup_item_shizuku);
+        mShellValue = addStatusRow(mDetails, R.string.setup_item_shell);
         mRestrictionsValue = addStatusRow(
                 mDetails, R.string.setup_item_desktop_eligibility);
         mCornersValue =
@@ -236,8 +236,8 @@ final class DeviceSetupView {
         return mDeviceValue;
     }
 
-    TextView shizukuValue() {
-        return mShizukuValue;
+    TextView shellValue() {
+        return mShellValue;
     }
 
     TextView restrictionsValue() {

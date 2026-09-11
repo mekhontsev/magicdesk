@@ -15,14 +15,14 @@ public final class ShellStreamHandle implements Closeable {
     // The remote UserService owns the stream only while this Binder is alive.
     @SuppressWarnings("unused")
     private final IBinder mOwnerToken;
-    private final IShizukuCommandService mService;
+    private final IShellCommandService mService;
     private final AtomicBoolean mClosed = new AtomicBoolean();
 
     ShellStreamHandle(
             final long requestId,
             final ParcelFileDescriptor descriptor,
             final IBinder ownerToken,
-            final IShizukuCommandService service) {
+            final IShellCommandService service) {
         mRequestId = requestId;
         mInput = new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
         mOwnerToken = ownerToken;
@@ -35,13 +35,13 @@ public final class ShellStreamHandle implements Closeable {
 
     public void writeLine(final String line) throws IOException {
         if (mClosed.get()) {
-            throw new IOException("Shizuku stream is closed");
+            throw new IOException("Shell stream is closed");
         }
         try {
             mService.writeStream(mRequestId, line);
         } catch (RemoteException | RuntimeException error) {
             throw new IOException(
-                    "Shizuku stream write failed: "
+                    "Shell stream write failed: "
                             + ShellAccess.usefulMessage(error),
                     error);
         }

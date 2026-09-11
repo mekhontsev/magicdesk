@@ -75,23 +75,29 @@ arguments. Non-loopback HTTP requires `--allow-plaintext-network` explicitly.
 ### Starting After a Phone Reboot
 
 When the MCP server is enabled, opening MagicDesk from its normal launcher icon
-starts the server before the Shizuku compatibility audit. This intentionally
+starts the server before the privileged-service compatibility audit. This intentionally
 does not start desktop, input, task-observer, or vendor runtime components.
-An automation client can therefore connect first; after Shizuku starts, the
+An automation client can therefore connect first; after the privileged service connects, the
 same process exposes newly available shell services without replacing the MCP
 connection. Desktop still requires an explicit session start and its own setup.
+
+`get_state.shell` reports the active and configured startup backend, the
+independent force-shell-UID policy, and whether an app restart is needed.
+Its `uid` is the verified command service identity, not the Shizuku server's
+identity; an unconnected service reports an unknown UID. Backend selection does
+not alter MCP grants or the tool catalog.
 
 For Codex on the phone, open MagicDesk once after a reboot. A client with live
 MCP reloading can then use `/mcp reload`; otherwise restart or resume the client
 once so it discovers the server. No automatic boot receiver is installed.
 
-For updates initiated through `app.update`, a short-lived Shizuku worker waits
+For updates initiated through `app.update`, a short-lived privileged worker waits
 for Android's installation result independently of the old application process.
 It writes a bounded durable receipt, invokes the installer-only process entry
 after success, and exits. That entry is a `Theme.NoDisplay` Activity with no
 window or Recents entry; it starts enabled automation and immediately finishes.
 This does not rely on delivery of the package-replaced
-broadcast and adds no continuously running updater. The normal Shizuku command
+broadcast and adds no continuously running updater. The normal privileged command
 service retains its original lifetime. Neither the worker nor the new runtime
 opens desktop or takes HOME, and disabled automation remains disabled.
 
@@ -455,7 +461,7 @@ require Termux, Termux:X11, the Termux external-command setting, and the
 ## Android UI Automation
 
 These commands work without Desktop on Android 14+. UI access and injected
-input require ready Shizuku, not a root device or a new accessibility service.
+input require a ready privileged service, not a root device or a new accessibility service.
 Every UI observation and gesture specifies an Android `displayId`, including 0.
 Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
 
@@ -468,7 +474,7 @@ Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
 | `ui.release` | Release the Android automation connection and cancel its pending UI waits. |
 | `input.gesture` | Explicit-display touch tap, long press, swipe or drag through bounded point lists. |
 | `input.key_chord` | Press ordered Android key names, release them in reverse order, including on failure. |
-| `device.keep_awake` | Acquire or renew a bounded screen-awake lease; no Shizuku or Desktop needed. |
+| `device.keep_awake` | Acquire or renew a bounded screen-awake lease; no privileged service or Desktop needed. |
 | `device.release_awake` | Release the exact lease token. |
 
 `ui.inspect`, `ui.wait` and `ui.read_text` require the `content` permission. They can read text
@@ -572,7 +578,7 @@ APK of an equal or greater version code. It requires a closed desktop and no
 active self-test. It neither uninstalls the package nor clears application data.
 The `update` permission is separate from upload permissions. Android's
 `PackageInstaller` owns the committed installation and reports its result to the
-independent Shizuku worker, which writes a durable receipt before starting the
+independent privileged worker, which writes a durable receipt before starting the
 new automation runtime. `app.update_status(updateId)` returns that exact operation's
 state; a lost response during replacement is not evidence of installation
 failure and must not cause a new update request.
@@ -662,7 +668,7 @@ application task is requested as `ACTIVITY_TYPE_STANDARD`; its result includes
 the exact observed task id, display, activity type, mode, bounds, and reuse
 state. Observation reuses the existing task event journal and one-shot typed
 task snapshots, so Android integration adds no periodic task query. Public
-direct intents retain their full Parcelable form through the Shizuku boundary,
+direct intents retain their full Parcelable form through the privileged-service boundary,
 which preserves `ClipData` and typed extras. Intents carrying read/write URI
 grants, choosers, required system resolvers, and allowed targets requiring the MagicDesk app identity use
 an immutable one-shot `PendingIntent` created by the app. Shell sends that
@@ -850,7 +856,7 @@ Read-only resources are available at `magicdesk://state`,
   event history, shell sessions, and Terminal reads are bounded.
 - ADB forwarding is an optional transport, not authorization. Any client that
   can reach a listener must still provide its token. Treat it as a password.
-- MCP permissions do not elevate the shell identity. With root-backed Shizuku,
+- MCP permissions do not elevate the service identity. With an unrestricted root service,
   shell-gated operations consequently have root privileges by the user's
   explicit choice.
 - Android handler discovery reports the selected visibility scope, exported
@@ -892,7 +898,7 @@ keep Diagnostics above the workspace under test. Cancellation still runs cleanup
 and preserves the previous saved result.
 
 Interactive self-tests require an awake, unlocked device and a visible target.
-`get_state.readiness` reports awake, lock, and Shizuku prerequisites and explicit
+`get_state.readiness` reports awake, lock, and privileged-service prerequisites and explicit
 required actions; unknown lock observations never mean ready. `get_state.app`
 includes a source build identity, process instance id, and installation time,
 so builds sharing a version number and restarted processes can be distinguished.

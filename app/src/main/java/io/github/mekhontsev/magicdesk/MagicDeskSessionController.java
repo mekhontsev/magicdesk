@@ -264,7 +264,7 @@ final class MagicDeskSessionController {
     private void finishRuntimeExit() {
         runExitFinalizer(
                 "EXIT-009",
-                "Could not disconnect the Shizuku service",
+                "Could not disconnect the privileged service",
                 ShellAccess::disconnect);
         mActivity.runOnUiThread(this::openHomeAndFinishTasks);
     }

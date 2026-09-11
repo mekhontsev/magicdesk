@@ -238,7 +238,7 @@ public final class RuntimeAuditRegressionTest {
                         throw new AssertionError("vanished PTY reported cwd=" + result);
                     } catch (IOException expected) {}
                 }
-                """ + RuntimeSourceFixture.methods("ShizukuCommandService", "workingDirectory"));
+                """ + RuntimeSourceFixture.methods("ShellCommandService", "workingDirectory"));
     }
 
     @Test
@@ -252,6 +252,6 @@ public final class RuntimeAuditRegressionTest {
                     check(f.workingDirectory().equals(Path.of(".").toRealPath().toString()),
                             "live PTY directory did not resolve");
                 }
-                """ + RuntimeSourceFixture.methods("ShizukuCommandService", "workingDirectory"));
+                """ + RuntimeSourceFixture.methods("ShellCommandService", "workingDirectory"));
     }
 }

@@ -7,7 +7,7 @@ import java.io.Closeable;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class ShellDirectoryObserverHandle implements Closeable {
-    private final IShizukuCommandService mService;
+    private final IShellCommandService mService;
     private final IBinder mServiceBinder;
     private final String mAbsolutePath;
     private final IShellDirectoryObserverCallback mCallback;
@@ -19,7 +19,7 @@ final class ShellDirectoryObserverHandle implements Closeable {
     private boolean mServiceLinked;
 
     ShellDirectoryObserverHandle(
-            final IShizukuCommandService service,
+            final IShellCommandService service,
             final String absolutePath,
             final IShellDirectoryObserverCallback callback,
             final Runnable disconnected) {

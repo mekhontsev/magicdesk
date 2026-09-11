@@ -522,7 +522,7 @@ final class MagicDeskMcpToolCatalog {
         addShellTools(tools);
         addTransferTools(tools);
         tools.put(destructiveTool("app.update", "Update MagicDesk",
-                "Install a same-package, same-signer APK with no downgrade or data reset. Requires an inactive desktop. A one-operation Shizuku worker restores enabled MCP after installation. Reconnect and query app.update_status with the same updateId; do not retry using a new id after a lost response.",
+                "Install a same-package, same-signer APK with no downgrade or data reset. Requires an inactive desktop. A one-operation privileged worker restores enabled MCP after installation. Reconnect and query app.update_status with the same updateId; do not retry using a new id after a lost response.",
                 objectSchema(new JSONObject().put("updateId", stringProperty("Unique client operation id, 16-64 letters, digits, underscores or hyphens."))
                         .put("path", stringProperty("Absolute shell-readable APK path, typically from files.upload_commit."))
                         .put("sha256", stringProperty("Expected APK SHA-256 digest.")), "updateId", "path", "sha256")))
@@ -581,7 +581,7 @@ final class MagicDeskMcpToolCatalog {
                                 .put("keys", arrayProperty("Modifiers first, then the key; KEYCODE_ prefix is optional.", stringProperty("Android key name."))),
                                 "displayId", "keys")))
                 .put(actionTool("device.keep_awake", "Keep phone awake temporarily",
-                        "Keep an already awake, unlocked phone's display on for 1 second to 30 minutes. No Desktop or Shizuku required. Does not change screen timeout or bypass the lock screen. Returns a leaseId; pass it to renew an active lease. Expires automatically and is released when MCP stops.",
+                        "Keep an already awake, unlocked phone's display on for 1 second to 30 minutes. No Desktop or privileged service required. Does not change screen timeout or bypass the lock screen. Returns a leaseId; pass it to renew an active lease. Expires automatically and is released when MCP stops.",
                         objectSchema(new JSONObject().put("durationMillis", integerProperty("1000-1800000 ms, default 300000."))
                                 .put("leaseId", stringProperty("Required only to renew the currently held lease.")))))
                 .put(actionTool("device.release_awake", "Release awake lease",

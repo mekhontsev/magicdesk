@@ -10,7 +10,7 @@ import android.util.Log;
 
 import org.json.JSONObject;
 
-/** A one-operation Shizuku daemon. It never owns desktop or the general command service. */
+/** A one-operation privileged worker. It never owns desktop or the general command service. */
 public final class ShellAppUpdateService extends IAppUpdateWorker.Stub {
     private static final String TAG = "MagicDeskUpdate";
     private static final long HANDOFF_TIMEOUT_MS = 30_000;
@@ -28,6 +28,9 @@ public final class ShellAppUpdateService extends IAppUpdateWorker.Stub {
         mContext = context;
         new Thread(this::run, "MagicDeskAppUpdate").start();
     }
+
+    @Override public int uid() { return android.os.Process.myUid(); }
+    @Override public String sourceId() { return BuildConfig.SOURCE_ID; }
 
     @Override public void begin(int sessionId, int userId, String updateId,
             ParcelFileDescriptor receipt) {

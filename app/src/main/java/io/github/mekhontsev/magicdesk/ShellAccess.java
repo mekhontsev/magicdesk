@@ -1,14 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ShortcutInfo;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
 import android.graphics.Point;
 import android.graphics.Rect;
-import android.net.Uri;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
@@ -20,13 +16,9 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.atomic.AtomicLong;
 
-import rikka.shizuku.Shizuku;
-
 public final class ShellAccess {
-    static final int REQUEST_PERMISSION_CODE = 7104;
     static final int ROOT_UID = 0;
     static final int SHELL_UID = 2000;
-    private static final String DOWNLOAD_URL = "https://shizuku.rikka.app/download/";
     private static final AtomicLong NEXT_STREAM_ID =
             new AtomicLong();
     private static final Set<StateListener> STATE_LISTENERS =
@@ -34,35 +26,16 @@ public final class ShellAccess {
 
     private static final ShellServiceConnection SERVICE_CONNECTION =
             new ShellServiceConnection(() -> {
-                // The Shizuku manager may stay ready while its per-app
-                // command service is recreated. Runtime reconciliation must
-                // still run after that second connection becomes usable.
+                // A new command process requires reconciliation even when its launcher stayed ready.
                 publish(inspectNow(), true);
             });
     private static boolean sInitialized;
     private static volatile Snapshot sSnapshot = Snapshot.unavailable(
-            false, "Shizuku access is not initialized");
+            ShellBackend.SHIZUKU, false, "Privileged service is not initialized");
 
     interface StateListener {
         void onShellStateChanged(Snapshot snapshot);
     }
-
-    private static final Shizuku.OnBinderReceivedListener BINDER_RECEIVED = () -> {
-        clearService();
-        refresh();
-    };
-    private static final Shizuku.OnBinderDeadListener BINDER_DEAD = () -> {
-        clearService();
-        publish(Snapshot.unavailable(
-                sSnapshot.installed,
-                "Shizuku server is not running"));
-    };
-    private static final Shizuku.OnRequestPermissionResultListener
-            PERMISSION_RESULT = (requestCode, grantResult) -> {
-                if (requestCode == REQUEST_PERMISSION_CODE) {
-                    refresh();
-                }
-            };
 
     private ShellAccess() {
     }
@@ -74,9 +47,10 @@ public final class ShellAccess {
             }
             sInitialized = true;
         }
-        Shizuku.addBinderReceivedListenerSticky(BINDER_RECEIVED);
-        Shizuku.addBinderDeadListener(BINDER_DEAD);
-        Shizuku.addRequestPermissionResultListener(PERMISSION_RESULT);
+        ShellServiceLauncher.current().initialize(ShellAccess::refresh, () -> {
+            clearService();
+            refresh();
+        });
         refresh();
     }
 
@@ -105,50 +79,12 @@ public final class ShellAccess {
     }
 
     static Snapshot refresh() {
-        final Snapshot snapshot = publish(inspectNow());
-        SERVICE_CONNECTION.connect(snapshot, ShellAccess::userServiceArgs);
-        return snapshot;
+        SERVICE_CONNECTION.connect();
+        return publish(inspectNow());
     }
 
     private static Snapshot inspectNow() {
-        final Context context = MagicDeskApplication.applicationContext();
-        if (context == null) {
-            return Snapshot.unavailable(false, "Shizuku access is not initialized");
-        }
-        final boolean installed = isManagerInstalled(context);
-        try {
-            if (!Shizuku.pingBinder()) {
-                return Snapshot.unavailable(installed,
-                        installed
-                                ? "Shizuku API unavailable; selected manager: "
-                                        + IntegrationPackage.SHIZUKU.selected()
-                                : "Shizuku API unavailable; manager not installed: "
-                                        + IntegrationPackage.SHIZUKU.selected());
-            }
-            final int version = Shizuku.getVersion();
-            if (version < 11) {
-                return new Snapshot(
-                        installed, true, false, -1, version,
-                        "Shizuku API 11 or newer is required");
-            }
-            final int uid = Shizuku.getUid();
-            final boolean permissionGranted =
-                    Shizuku.checkSelfPermission()
-                            == PackageManager.PERMISSION_GRANTED;
-            final String error;
-            if (!permissionGranted) {
-                error = "Shizuku permission is not granted";
-            } else if (!isSupportedServiceUid(uid)) {
-                error = "Shizuku service UID is unsupported: " + uid;
-            } else {
-                error = "";
-            }
-            return new Snapshot(
-                    installed, true, permissionGranted, uid, version,
-                    error);
-        } catch (RuntimeException error) {
-            return Snapshot.unavailable(installed, usefulMessage(error));
-        }
+        return SERVICE_CONNECTION.snapshot(ShellServiceLauncher.current().inspect());
     }
 
     static int connectAndGetUid() throws IOException {
@@ -156,7 +92,7 @@ public final class ShellAccess {
             return requireService().uid();
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
-            throw new IOException("Shizuku command service failed: "
+            throw new IOException("Shell command service failed: "
                     + usefulMessage(error), error);
         }
     }
@@ -168,7 +104,7 @@ public final class ShellAccess {
     public static String run(final String command) throws IOException {
         final CommandResult result = executeCommand(command);
         if (result.exitCode != 0) {
-            throw new IOException("Shizuku command failed " + result.exitCode + ": "
+            throw new IOException("Shell command failed " + result.exitCode + ": "
                     + result.output.trim());
         }
         return result.output;
@@ -218,7 +154,7 @@ public final class ShellAccess {
             encoded = requireService().execute(command);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
-            throw new IOException("Shizuku command service failed: "
+            throw new IOException("Shell command service failed: "
                     + usefulMessage(error), error);
         }
         return parseCommandResult(encoded);
@@ -228,13 +164,13 @@ public final class ShellAccess {
             throws IOException {
         final int separator = encoded == null ? -1 : encoded.indexOf('\n');
         if (separator <= 0) {
-            throw new IOException("invalid response from Shizuku command service");
+            throw new IOException("invalid response from Shell command service");
         }
         final int exitCode;
         try {
             exitCode = Integer.parseInt(encoded.substring(0, separator));
         } catch (NumberFormatException error) {
-            throw new IOException("invalid Shizuku command exit code", error);
+            throw new IOException("invalid Shell command exit code", error);
         }
         final String output = encoded.substring(separator + 1);
         return new CommandResult(exitCode, output);
@@ -244,12 +180,12 @@ public final class ShellAccess {
         try {
             final String report = requireService().probeCapabilities();
             if (report == null || report.isEmpty()) {
-                throw new IOException("Shizuku capability probe returned no report");
+                throw new IOException("Shell capability probe returned no report");
             }
             return report;
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
-            throw new IOException("Shizuku capability probe failed: "
+            throw new IOException("Shell capability probe failed: "
                     + usefulMessage(error), error);
         }
     }
@@ -441,13 +377,13 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku keyboard layout update failed: "
+                    "Shell keyboard layout update failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku keyboard layout update failed: "
+                    "Shell keyboard layout update failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -460,7 +396,7 @@ public final class ShellAccess {
         if (!isReady() || displayId < 0) {
             return false;
         }
-        final IShizukuCommandService service = connectedServiceOrConnect();
+        final IShellCommandService service = connectedServiceOrConnect();
         if (service == null) {
             return false;
         }
@@ -480,7 +416,7 @@ public final class ShellAccess {
         if (!isReady() || displayId < 0) {
             return false;
         }
-        final IShizukuCommandService service = connectedServiceOrConnect();
+        final IShellCommandService service = connectedServiceOrConnect();
         if (service == null) {
             return false;
         }
@@ -497,7 +433,7 @@ public final class ShellAccess {
         if (!isReady()) {
             return null;
         }
-        final IShizukuCommandService service = connectedServiceOrConnect();
+        final IShellCommandService service = connectedServiceOrConnect();
         if (service == null) {
             return null;
         }
@@ -519,12 +455,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop directory read failed: "
+                    "Shell desktop directory read failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop directory read failed: "
+                    "Shell desktop directory read failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -542,18 +478,18 @@ public final class ShellAccess {
                     requireService().openDesktopFile(relativePath, mode);
             if (descriptor == null) {
                 throw new IOException(
-                        "Shizuku command service returned no desktop file");
+                        "Shell command service returned no desktop file");
             }
             return descriptor;
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop file open failed: "
+                    "Shell desktop file open failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop file open failed: "
+                    "Shell desktop file open failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -566,18 +502,18 @@ public final class ShellAccess {
                     .getDesktopFileInfo(relativePath);
             if (file == null) {
                 throw new IOException(
-                        "Shizuku command service returned no desktop entry");
+                        "Shell command service returned no desktop entry");
             }
             return file;
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop entry read failed: "
+                    "Shell desktop entry read failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop entry read failed: "
+                    "Shell desktop entry read failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -590,18 +526,18 @@ public final class ShellAccess {
                     .createDesktopEntry(name, directory);
             if (file == null) {
                 throw new IOException(
-                        "Shizuku command service returned no desktop entry");
+                        "Shell command service returned no desktop entry");
             }
             return file;
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop entry creation failed: "
+                    "Shell desktop entry creation failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop entry creation failed: "
+                    "Shell desktop entry creation failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -615,18 +551,18 @@ public final class ShellAccess {
                     .renameDesktopEntry(relativePath, newName);
             if (file == null) {
                 throw new IOException(
-                        "Shizuku command service returned no desktop entry");
+                        "Shell command service returned no desktop entry");
             }
             return file;
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop entry rename failed: "
+                    "Shell desktop entry rename failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop entry rename failed: "
+                    "Shell desktop entry rename failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -639,12 +575,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop entry deletion failed: "
+                    "Shell desktop entry deletion failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop entry deletion failed: "
+                    "Shell desktop entry deletion failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -667,7 +603,7 @@ public final class ShellAccess {
                     ascending);
             if (page == null) {
                 throw new IOException(
-                        "Shizuku command service returned no file page");
+                        "Shell command service returned no file page");
             }
             return page;
         } catch (RemoteException error) {
@@ -685,7 +621,7 @@ public final class ShellAccess {
                     .getShellFileInfo(absolutePath);
             if (info == null) {
                 throw new IOException(
-                        "Shizuku command service returned no file info");
+                        "Shell command service returned no file info");
             }
             return info;
         } catch (RemoteException error) {
@@ -703,7 +639,7 @@ public final class ShellAccess {
                     .openShellFile(absolutePath, mode);
             if (descriptor == null) {
                 throw new IOException(
-                        "Shizuku command service returned no file");
+                        "Shell command service returned no file");
             }
             return descriptor;
         } catch (RemoteException error) {
@@ -728,7 +664,7 @@ public final class ShellAccess {
                             info.inode);
             if (descriptor == null) {
                 throw new IOException(
-                        "Shizuku command service returned no verified file");
+                        "Shell command service returned no verified file");
             }
             return descriptor;
         } catch (RemoteException error) {
@@ -748,7 +684,7 @@ public final class ShellAccess {
                     parentPath, name, directory);
             if (info == null) {
                 throw new IOException(
-                        "Shizuku command service returned no created entry");
+                        "Shell command service returned no created entry");
             }
             return info;
         } catch (RemoteException error) {
@@ -818,7 +754,7 @@ public final class ShellAccess {
                     absolutePath, newName);
             if (info == null) {
                 throw new IOException(
-                        "Shizuku command service returned no renamed entry");
+                        "Shell command service returned no renamed entry");
             }
             return info;
         } catch (RemoteException error) {
@@ -836,7 +772,7 @@ public final class ShellAccess {
             final IFileOperationCallback callback,
             final IBinder ownerToken) throws IOException {
         try {
-            final IShizukuCommandService service = requireService();
+            final IShellCommandService service = requireService();
             return new ShellFileOperationHandle(service.startShellFileOperation(
                     operation,
                     sourcePaths,
@@ -858,7 +794,7 @@ public final class ShellAccess {
         if (callback == null) {
             throw new IOException("missing directory observer callback");
         }
-        final IShizukuCommandService service = requireService();
+        final IShellCommandService service = requireService();
         final ShellDirectoryObserverHandle handle =
                 new ShellDirectoryObserverHandle(
                         service, absolutePath, callback, disconnected);
@@ -883,7 +819,7 @@ public final class ShellAccess {
             final IFileSearchCallback callback,
             final IBinder ownerToken) throws IOException {
         try {
-            final IShizukuCommandService service = requireService();
+            final IShellCommandService service = requireService();
             return new ShellFileSearchHandle(service.startShellFileSearch(
                     rootPath,
                     query,
@@ -913,7 +849,7 @@ public final class ShellAccess {
         if (callback == null) {
             throw new IOException("missing desktop folder callback");
         }
-        final IShizukuCommandService service = requireService();
+        final IShellCommandService service = requireService();
         final ShellDesktopFolderHandle handle =
                 new ShellDesktopFolderHandle(
                         service, callback, disconnected);
@@ -924,13 +860,13 @@ public final class ShellAccess {
             handle.closeAfterStartFailure();
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop folder observer failed: "
+                    "Shell desktop folder observer failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             handle.closeAfterStartFailure();
             throw new IOException(
-                    "Shizuku desktop folder observer failed: "
+                    "Shell desktop folder observer failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -942,12 +878,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop state read failed: "
+                    "Shell desktop state read failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop state read failed: "
+                    "Shell desktop state read failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -964,12 +900,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku task snapshot read failed: "
+                    "Shell task snapshot read failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku task snapshot read failed: "
+                    "Shell task snapshot read failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -987,12 +923,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku diagnostic task snapshot read failed: "
+                    "Shell diagnostic task snapshot read failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku diagnostic task snapshot read failed: "
+                    "Shell diagnostic task snapshot read failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1022,12 +958,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop state write failed: "
+                    "Shell desktop state write failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop state write failed: "
+                    "Shell desktop state write failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1039,12 +975,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop wallpaper read failed: "
+                    "Shell desktop wallpaper read failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop wallpaper read failed: "
+                    "Shell desktop wallpaper read failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1057,12 +993,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop wallpaper write failed: "
+                    "Shell desktop wallpaper write failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop wallpaper write failed: "
+                    "Shell desktop wallpaper write failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1074,12 +1010,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku desktop wallpaper deletion failed: "
+                    "Shell desktop wallpaper deletion failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku desktop wallpaper deletion failed: "
+                    "Shell desktop wallpaper deletion failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1099,12 +1035,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku preferred-handler update failed: "
+                    "Shell preferred-handler update failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku preferred-handler update failed: "
+                    "Shell preferred-handler update failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1118,12 +1054,12 @@ public final class ShellAccess {
         } catch (RemoteException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku selected-handler lookup failed: "
+                    "Shell selected-handler lookup failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             throw new IOException(
-                    "Shizuku selected-handler lookup failed: "
+                    "Shell selected-handler lookup failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1147,7 +1083,7 @@ public final class ShellAccess {
         final long requestId = NEXT_STREAM_ID.incrementAndGet();
         final IBinder ownerToken = new Binder();
         try {
-            final IShizukuCommandService service = requireService();
+            final IShellCommandService service = requireService();
             final ParcelFileDescriptor descriptor = service.openPtyStream(
                     workingDirectory,
                     rows,
@@ -1156,13 +1092,13 @@ public final class ShellAccess {
                     ownerToken);
             if (descriptor == null) {
                 throw new IOException(
-                        "Shizuku command service returned no PTY");
+                        "Shell command service returned no PTY");
             }
             return new ShellPtyHandle(
                     requestId, descriptor, ownerToken, service);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
-            throw new IOException("Shizuku PTY failed: "
+            throw new IOException("Shell PTY failed: "
                     + usefulMessage(error), error);
         }
     }
@@ -1179,7 +1115,7 @@ public final class ShellAccess {
         if (callback == null || activityLauncher == null) {
             throw new IOException("missing task observer callbacks");
         }
-        final IShizukuCommandService service = requireService();
+        final IShellCommandService service = requireService();
         final ShellTaskObserverHandle handle = new ShellTaskObserverHandle(
                 service, callback, activityLauncher, disconnected);
         try {
@@ -1189,13 +1125,13 @@ public final class ShellAccess {
             handle.closeAfterStartFailure();
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku task observer failed: "
+                    "Shell task observer failed: "
                             + usefulMessage(error),
                     error);
         } catch (RuntimeException error) {
             handle.closeAfterStartFailure();
             throw new IOException(
-                    "Shizuku task observer failed: "
+                    "Shell task observer failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1237,7 +1173,7 @@ public final class ShellAccess {
             throw new IOException(
                     "input routing requires an active display");
         }
-        final IShizukuCommandService service = requireService();
+        final IShellCommandService service = requireService();
         final IBinder ownerToken = new Binder();
         try {
             final int[] state = service.startInputRouting(
@@ -1256,7 +1192,7 @@ public final class ShellAccess {
             }
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku input routing failed: "
+                    "Shell input routing failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1268,7 +1204,7 @@ public final class ShellAccess {
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku input routing cleanup failed: "
+                    "Shell input routing cleanup failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1314,7 +1250,7 @@ public final class ShellAccess {
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku display recording start failed: "
+                    "Shell display recording start failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1327,7 +1263,7 @@ public final class ShellAccess {
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException(
-                    "Shizuku display recording finalization failed: "
+                    "Shell display recording finalization failed: "
                             + usefulMessage(error),
                     error);
         }
@@ -1337,12 +1273,12 @@ public final class ShellAccess {
             final String command,
             final boolean heartbeatEnabled) throws IOException {
         if (command == null || command.isEmpty()) {
-            throw new IOException("empty Shizuku stream command");
+            throw new IOException("empty Shell stream command");
         }
         final long requestId = NEXT_STREAM_ID.incrementAndGet();
         final IBinder ownerToken = new Binder();
         try {
-            final IShizukuCommandService service = requireService();
+            final IShellCommandService service = requireService();
             final ParcelFileDescriptor descriptor;
             if (heartbeatEnabled) {
                 descriptor = service.openHeartbeatStream(
@@ -1353,7 +1289,7 @@ public final class ShellAccess {
             }
             if (descriptor == null) {
                 throw new IOException(
-                        "Shizuku command service returned no stream");
+                        "Shell command service returned no stream");
             }
             return new ShellStreamHandle(
                     requestId,
@@ -1362,66 +1298,36 @@ public final class ShellAccess {
                     service);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
-            throw new IOException("Shizuku command stream failed: "
+            throw new IOException("Shell command stream failed: "
                     + usefulMessage(error), error);
         }
     }
 
     static void requestPermission() {
-        final Snapshot snapshot = refresh();
-        if (!snapshot.running) {
-            throw new IllegalStateException(snapshot.error);
-        }
-        Shizuku.requestPermission(REQUEST_PERMISSION_CODE);
+        clearService();
+        ShellServiceLauncher.current().requestPermission();
     }
 
     static void openManagerOrWebsite(final Context context) {
-        final Intent manager =
-                context.getPackageManager().getLaunchIntentForPackage(
-                        IntegrationPackage.SHIZUKU.selected());
-        if (manager != null) {
-            context.startActivity(manager.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            return;
-        }
-        if (IntegrationPackage.SHIZUKU.defaultPackage.equals(IntegrationPackage.SHIZUKU.selected())) {
-            context.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(DOWNLOAD_URL)));
-        } else {
-            android.widget.Toast.makeText(context,
-                    context.getString(R.string.settings_integration_missing_manager,
-                            IntegrationPackage.SHIZUKU.selected()), android.widget.Toast.LENGTH_LONG).show();
-        }
+        ShellServiceLauncher.current().openManager(context);
     }
 
     static void disconnect() {
-        SERVICE_CONNECTION.disconnect(ShellAccess::userServiceArgs);
+        SERVICE_CONNECTION.disconnect();
     }
 
-    private static IShizukuCommandService requireService() throws IOException {
-        return SERVICE_CONNECTION.require(sSnapshot, ShellAccess::userServiceArgs);
+    private static IShellCommandService requireService() throws IOException {
+        return SERVICE_CONNECTION.require(sSnapshot);
     }
 
-    private static IShizukuCommandService connectedServiceOrConnect() {
-        final IShizukuCommandService service =
+    private static IShellCommandService connectedServiceOrConnect() {
+        final IShellCommandService service =
                 SERVICE_CONNECTION.connectedService();
         if (service != null) {
             return service;
         }
-        SERVICE_CONNECTION.connect(sSnapshot, ShellAccess::userServiceArgs);
+        SERVICE_CONNECTION.connect();
         return null;
-    }
-
-    private static Shizuku.UserServiceArgs userServiceArgs() {
-        final Context context = MagicDeskApplication.applicationContext();
-        if (context == null) {
-            throw new IllegalStateException("Shizuku access is not initialized");
-        }
-        return new Shizuku.UserServiceArgs(new ComponentName(
-                context.getPackageName(), ShizukuCommandService.class.getName()))
-                .daemon(false)
-                .processNameSuffix("shizuku")
-                .debuggable((context.getApplicationInfo().flags
-                        & ApplicationInfo.FLAG_DEBUGGABLE) != 0)
-                .version(appVersionCode(context));
     }
 
     private static void clearService() {
@@ -1471,29 +1377,6 @@ public final class ShellAccess {
                 || !previous.sameState(current);
     }
 
-    private static boolean isManagerInstalled(final Context context) {
-        try {
-            context.getPackageManager().getPackageInfo(
-                    IntegrationPackage.SHIZUKU.selected(), PackageManager.PackageInfoFlags.of(0));
-            return true;
-        } catch (PackageManager.NameNotFoundException error) {
-            return false;
-        }
-    }
-
-    private static int appVersionCode(final Context context) {
-        try {
-            final long versionCode = context.getPackageManager()
-                    .getPackageInfo(
-                            context.getPackageName(),
-                            PackageManager.PackageInfoFlags.of(0))
-                    .getLongVersionCode();
-            return (int) Math.min(Integer.MAX_VALUE, versionCode);
-        } catch (PackageManager.NameNotFoundException error) {
-            return 1;
-        }
-    }
-
     public static String usefulMessage(final Throwable error) {
         final String message = error.getMessage();
         return message == null || message.isEmpty()
@@ -1511,6 +1394,7 @@ public final class ShellAccess {
     }
 
     static final class Snapshot {
+        final ShellBackend backend;
         final boolean installed;
         final boolean running;
         final boolean permissionGranted;
@@ -1519,12 +1403,14 @@ public final class ShellAccess {
         final String error;
 
         Snapshot(
+                final ShellBackend backend,
                 final boolean installed,
                 final boolean running,
                 final boolean permissionGranted,
                 final int uid,
                 final int version,
                 final String error) {
+            this.backend = backend;
             this.installed = installed;
             this.running = running;
             this.permissionGranted = permissionGranted;
@@ -1534,19 +1420,20 @@ public final class ShellAccess {
         }
 
         static Snapshot unavailable(
-                final boolean installed, final String error) {
-            return new Snapshot(installed, false, false, -1, -1, error);
+                final ShellBackend backend, final boolean installed, final String error) {
+            return new Snapshot(backend, installed, false, false, -1, -1, error);
         }
 
         boolean isReady() {
             return running
                     && permissionGranted
                     && isSupportedServiceUid(uid)
-                    && version >= 11;
+                    && error.isEmpty();
         }
 
         private boolean sameState(final Snapshot other) {
             return other != null
+                    && backend == other.backend
                     && installed == other.installed
                     && running == other.running
                     && permissionGranted == other.permissionGranted

@@ -9,172 +9,168 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.IOException;
-import java.util.function.Supplier;
 
-import rikka.shizuku.Shizuku;
-
+/** Owns one binding attempt; a cancelled or failed attempt cannot publish a service. */
 final class ShellServiceConnection {
-    private static final long BIND_TIMEOUT_MILLIS = 10_000;
-
     private final Object mLock = new Object();
     private final Runnable mConnectedCallback;
-    private IShizukuCommandService mService;
-    private boolean mBinding;
+    private IShellCommandService mService;
+    private int mUid = -1;
+    private Attempt mAttempt;
 
-    private final ServiceConnection mConnection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(
-                final ComponentName componentName,
-                final IBinder binder) {
-            synchronized (mLock) {
-                final IShizukuCommandService service = binder != null && binder.pingBinder()
-                        ? IShizukuCommandService.Stub.asInterface(binder) : null;
-                mService = null;
-                if (service != null) {
-                    try {
-                        initializeFramework(service);
-                        mService = service;
-                    } catch (RemoteException | RuntimeException error) {
-                        Log.w("MagicDeskShizuku", "Could not initialize shell runtime", error);
-                    }
-                }
-                mBinding = false;
-                mLock.notifyAll();
-            }
-            mConnectedCallback.run();
-        }
-
-        @Override
-        public void onServiceDisconnected(final ComponentName componentName) {
-            clear();
-        }
-    };
-
-    ShellServiceConnection(final Runnable connectedCallback) {
+    ShellServiceConnection(Runnable connectedCallback) {
         mConnectedCallback = connectedCallback;
     }
 
-    private static void initializeFramework(final IShizukuCommandService service)
-            throws RemoteException {
+    private static void initializeFramework(IShellCommandService service) throws RemoteException {
+        if (!BuildConfig.SOURCE_ID.equals(service.sourceId())) {
+            throw new SecurityException("command service APK build does not match");
+        }
+        ShellPrivilegePolicy.verifyServiceUid(service.uid());
         int desktopToggle = -1;
         String settingError = "";
         try {
-            desktopToggle = FrameworkWindowingCompat.readDesktopToggle(
-                    MagicDeskApplication.applicationContext());
+            desktopToggle = FrameworkWindowingCompat.readDesktopToggle(MagicDeskApplication.applicationContext());
         } catch (RuntimeException error) {
-            // Unknown Settings must not disable the rest of the shell service.
+            // Unknown Settings must not disable the rest of the privileged service.
             settingError = "desktop developer setting unavailable: " + ShellAccess.usefulMessage(error);
         }
         service.initializeFramework(desktopToggle, settingError);
     }
 
-    IShizukuCommandService require(
-            final ShellAccess.Snapshot snapshot,
-            final Supplier<Shizuku.UserServiceArgs> argsSupplier)
-            throws IOException {
-        if (!snapshot.isReady()) {
-            throw new IOException(snapshot.error.isEmpty()
-                    ? "Shizuku shell access is unavailable" : snapshot.error);
-        }
+    ShellAccess.Snapshot snapshot(ShellAccess.Snapshot source) {
         synchronized (mLock) {
-            if (mService != null) {
-                return mService;
-            }
-            bindLocked(argsSupplier);
-            if (Looper.myLooper() == Looper.getMainLooper()) {
-                throw new IOException("Shizuku command service is connecting");
-            }
-            final long deadline = SystemClock.uptimeMillis() + BIND_TIMEOUT_MILLIS;
-            while (mService == null) {
-                if (!mBinding) {
-                    // A disconnect wakes waiters and clears mBinding. Rebind
-                    // here instead of sleeping until the original timeout.
-                    bindLocked(argsSupplier);
-                }
-                final long remaining = deadline - SystemClock.uptimeMillis();
-                if (remaining <= 0) {
-                    throw new IOException("timed out binding Shizuku command service");
-                }
+            final String error = mService != null ? "" : mAttempt != null
+                    ? mAttempt.error : source.error.isEmpty() ? "Privileged service is not connected" : source.error;
+            return new ShellAccess.Snapshot(source.backend, source.installed, source.running,
+                    source.permissionGranted, mUid, source.version, error);
+        }
+    }
+
+    IShellCommandService require(ShellAccess.Snapshot snapshot) throws IOException {
+        connect();
+        synchronized (mLock) {
+            if (mService != null) return mService;
+            final Attempt attempt = mAttempt;
+            if (attempt == null) throw new IOException(snapshot.error.isEmpty()
+                    ? "Privileged service is unavailable" : snapshot.error);
+            if (Looper.myLooper() == Looper.getMainLooper()) throw new IOException(attempt.error);
+            while (mService == null && mAttempt == attempt && !attempt.finished) {
+                final long remaining = attempt.deadline - SystemClock.uptimeMillis();
+                if (remaining <= 0) throw new IOException("Timed out waiting for privileged service binding");
                 try {
-                    EventDrivenWaits.await(
-                            mLock,
-                            EventDrivenWaits.Reason.SERVICE_BINDING,
-                            remaining);
+                    EventDrivenWaits.await(mLock, EventDrivenWaits.Reason.SERVICE_BINDING, remaining);
                 } catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
-                    throw new IOException(
-                            "interrupted while binding Shizuku command service",
-                            error);
+                    throw new IOException("Interrupted while waiting for privileged service binding", error);
                 }
             }
-            return mService;
+            if (mService != null) return mService;
+            throw new IOException(mAttempt == attempt ? attempt.error : "Privileged service binding was cancelled");
         }
     }
 
-    void connect(
-            final ShellAccess.Snapshot snapshot,
-            final Supplier<Shizuku.UserServiceArgs> argsSupplier) {
-        if (!snapshot.isReady()) {
-            return;
-        }
+    void connect() {
+        final ShellServiceLauncher launcher = ShellServiceLauncher.current();
+        final Attempt attempt;
         synchronized (mLock) {
-            if (mService != null || mBinding) {
-                return;
-            }
-            try {
-                bindLocked(argsSupplier);
-            } catch (IOException error) {
-                // A later background operation can retry and report the failure.
-            }
+            if (mService != null || mAttempt != null || !launcher.canBind()) return;
+            attempt = new Attempt(launcher.bindTimeoutMillis());
+            mAttempt = attempt;
         }
-    }
-
-    IShizukuCommandService connectedService() {
-        synchronized (mLock) {
-            return mService;
-        }
-    }
-
-    private void bindLocked(
-            final Supplier<Shizuku.UserServiceArgs> argsSupplier)
-            throws IOException {
-        if (mService != null || mBinding) {
-            return;
-        }
-        mBinding = true;
         try {
-            Shizuku.bindUserService(argsSupplier.get(), mConnection);
+            final ShellServiceLauncher.Binding owner = launcher.bind(ShellServiceLauncher.Service.COMMAND, "command", attempt);
+            synchronized (mLock) {
+                if (mAttempt == attempt && (!attempt.finished || mService != null)) {
+                    attempt.owner = owner;
+                    return;
+                }
+            }
+            owner.close(true);
         } catch (RuntimeException error) {
-            mBinding = false;
-            throw new IOException(
-                    "could not bind Shizuku command service: "
-                            + ShellAccess.usefulMessage(error),
-                    error);
+            synchronized (mLock) {
+                if (mAttempt != attempt) return;
+                attempt.finished = true;
+                attempt.error = "Could not bind privileged service: " + ShellAccess.usefulMessage(error);
+                mLock.notifyAll();
+            }
         }
     }
 
-    void disconnect(final Supplier<Shizuku.UserServiceArgs> argsSupplier) {
-        synchronized (mLock) {
-            if (!mBinding && mService == null) {
-                return;
-            }
-        }
-        try {
-            if (Shizuku.pingBinder()) {
-                Shizuku.unbindUserService(argsSupplier.get(), mConnection, true);
-            }
-        } catch (RuntimeException ignored) {
-            // The Shizuku server may already be gone.
-        } finally {
-            clear();
-        }
+    IShellCommandService connectedService() {
+        synchronized (mLock) { return mService; }
     }
+
+    void disconnect() { clear(); }
 
     void clear() {
+        final Attempt attempt;
         synchronized (mLock) {
+            attempt = mAttempt;
+            mAttempt = null;
             mService = null;
-            mBinding = false;
+            mUid = -1;
             mLock.notifyAll();
+        }
+        if (attempt != null) attempt.close();
+    }
+
+    private final class Attempt implements ServiceConnection {
+        final long deadline;
+        ShellServiceLauncher.Binding owner;
+        boolean finished;
+        String error = "Privileged service is connecting";
+
+        Attempt(long timeout) { deadline = SystemClock.uptimeMillis() + timeout; }
+
+        @Override public void onServiceConnected(ComponentName name, IBinder binder) {
+            synchronized (mLock) { if (mAttempt != this || finished) return; }
+            IShellCommandService service = null;
+            int uid = -1;
+            String failure = "Privileged service disconnected during binding";
+            try {
+                if (binder != null && binder.pingBinder()) {
+                    service = IShellCommandService.Stub.asInterface(binder);
+                    initializeFramework(service);
+                    uid = service.uid();
+                    failure = "";
+                }
+            } catch (RemoteException | RuntimeException exception) {
+                service = null;
+                failure = "Could not initialize privileged service: " + ShellAccess.usefulMessage(exception);
+                Log.w("MagicDeskShell", failure, exception);
+            }
+            synchronized (mLock) {
+                if (mAttempt != this || finished) return;
+                mService = service;
+                mUid = service == null ? -1 : uid;
+                finished = true;
+                error = failure;
+                mLock.notifyAll();
+            }
+            if (service == null) close();
+            mConnectedCallback.run();
+        }
+
+        @Override public void onServiceDisconnected(ComponentName name) {
+            synchronized (mLock) {
+                if (mAttempt != this || (finished && mService == null)) return;
+                mService = null;
+                mUid = -1;
+                finished = true;
+                final String launchError = ShellServiceLauncher.current().inspect().error;
+                error = launchError.isEmpty() ? "Privileged service disconnected" : launchError;
+                mLock.notifyAll();
+            }
+            close();
+            mConnectedCallback.run();
+        }
+
+        void close() {
+            final ShellServiceLauncher.Binding binding;
+            synchronized (mLock) { binding = owner; owner = null; }
+            try { if (binding != null) binding.close(true); }
+            catch (RuntimeException ignored) { /* The launcher or service may already be gone. */ }
         }
     }
 }

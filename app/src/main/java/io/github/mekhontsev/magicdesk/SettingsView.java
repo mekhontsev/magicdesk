@@ -53,6 +53,10 @@ final class SettingsView {
 
         void configureIntegrationPackage(IntegrationPackage integration);
 
+        void configureShellBackend();
+
+        void setForceShell(boolean enabled);
+
         void configureConsoleFontSize();
 
         void openDeviceSetup();
@@ -88,6 +92,8 @@ final class SettingsView {
             new java.util.EnumMap<>(IntegrationPackage.class);
     private View mTermuxX11Action;
     private TextView mConsoleFontSize;
+    private TextView mShellBackend;
+    private Switch mForceShell;
     private final java.util.Map<Integer, View> mSections = new java.util.LinkedHashMap<>();
     private ScrollView mScroll;
 
@@ -243,6 +249,15 @@ final class SettingsView {
                 R.string.settings_mcp_network_token, mActions::regenerateMcpNetworkToken);
 
         addSection(content, R.string.settings_section_integrations);
+        mShellBackend = new TextView(mActivity);
+        mShellBackend.setTextColor(DesktopUiFactory.COLOR_MUTED);
+        mShellBackend.setTextSize(12);
+        addAction(content, android.R.drawable.ic_menu_preferences, R.string.settings_shell_backend,
+                mActions::configureShellBackend, mShellBackend);
+        mForceShell = addSwitch(content, R.string.settings_force_shell);
+        mForceShell.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setForceShell(checked);
+        });
         for (final IntegrationPackage integration : IntegrationPackage.values()) {
             final TextView value = new TextView(mActivity);
             value.setTextColor(DesktopUiFactory.COLOR_MUTED);
@@ -314,6 +329,10 @@ final class SettingsView {
             return;
         }
         mRendering = true;
+        final ShellBackend configuredBackend = ShellBackend.configured(mActivity);
+        mForceShell.setChecked(ShellPrivilegePolicy.configured(mActivity));
+        mShellBackend.setText(configuredBackend == ShellBackend.active() ? configuredBackend.label
+                : mActivity.getString(R.string.settings_integration_restart_pending, configuredBackend.label));
         mConsoleFontSize.setText(mActivity.getString(R.string.console_font_size_value,
                 ConsolePreferences.fontSizeSp(mActivity)));
         for (final IntegrationPackage integration : IntegrationPackage.values()) {

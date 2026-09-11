@@ -24,7 +24,8 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Locale;
 
-public final class ShizukuCapabilityProbe {
+/** Observes actual service privileges independently of its bootstrap transport. */
+public final class ShellCapabilityProbe {
     private static final String[] PERMISSIONS = {
             "android.permission.INJECT_EVENTS",
             "android.permission.MONITOR_INPUT",
@@ -46,7 +47,7 @@ public final class ShizukuCapabilityProbe {
             "android.permission.EXECUTE_APP_FUNCTIONS"
     };
 
-    private ShizukuCapabilityProbe() {
+    private ShellCapabilityProbe() {
     }
 
     static String run(final Context context) {
@@ -446,7 +447,7 @@ public final class ShizukuCapabilityProbe {
                 .invoke(null, serviceName);
     }
 
-    private static String readStatusValue(final String name) {
+    static String readStatusValue(final String name) {
         final String prefix = name + ':';
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 new FileInputStream("/proc/self/status"),
@@ -463,7 +464,7 @@ public final class ShizukuCapabilityProbe {
         return "unknown";
     }
 
-    private static String readFirstLine(final String path) {
+    static String readFirstLine(final String path) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 new FileInputStream(path),
                 StandardCharsets.UTF_8))) {

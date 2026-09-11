@@ -7,7 +7,7 @@ import java.io.Closeable;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class ShellDesktopFolderHandle implements Closeable {
-    private final IShizukuCommandService mService;
+    private final IShellCommandService mService;
     private final IBinder mServiceBinder;
     private final IDesktopFolderObserverCallback mCallback;
     private final Runnable mDisconnected;
@@ -18,7 +18,7 @@ final class ShellDesktopFolderHandle implements Closeable {
     private boolean mServiceLinked;
 
     ShellDesktopFolderHandle(
-            final IShizukuCommandService service,
+            final IShellCommandService service,
             final IDesktopFolderObserverCallback callback,
             final Runnable disconnected) {
         mService = service;

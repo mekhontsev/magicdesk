@@ -54,7 +54,7 @@ final class MagicDeskAppUpdates {
             try (ParcelFileDescriptor output = ParcelFileDescriptor.open(resultFile(context, id),
                     ParcelFileDescriptor.MODE_CREATE | ParcelFileDescriptor.MODE_TRUNCATE
                             | ParcelFileDescriptor.MODE_WRITE_ONLY)) {
-                AppUpdateWorkerConnection.begin(context, sessionId, userId, id, output);
+                AppUpdateWorkerConnection.begin(sessionId, userId, id, output);
                 handedOff = true;
             }
         } catch (IOException | RuntimeException error) {

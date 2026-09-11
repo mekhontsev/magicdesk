@@ -15,7 +15,7 @@ final class DesktopTaskConfigurationReport {
     static void append(final StringBuilder report) {
         report.append("## Live task configuration\n");
         if (!ShellAccess.isReady()) {
-            report.append("Unavailable: Shizuku runtime unavailable\n\n");
+            report.append("Unavailable: Privileged runtime unavailable\n\n");
             return;
         }
         final FrameworkTaskSnapshot[] tasks;

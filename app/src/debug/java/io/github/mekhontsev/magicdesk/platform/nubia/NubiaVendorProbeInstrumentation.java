@@ -132,7 +132,7 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
                 selinux = value.trim();
             }
         } catch (IOException ignored) {
-            // UID still distinguishes this process from the Shizuku service.
+            // UID still distinguishes this process from the privileged service.
         }
         return "uid=" + Os.getuid() + " gid=" + Os.getgid()
                 + " selinux=" + selinux;

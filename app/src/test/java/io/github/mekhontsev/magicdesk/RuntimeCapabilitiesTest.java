@@ -23,7 +23,7 @@ public final class RuntimeCapabilitiesTest {
         assertEquals("", caps.missing(RuntimeCapabilities.Service.TERMUX));
         assertEquals("", caps.missing(RuntimeCapabilities.Service.BUILTIN_UI));
         assertEquals("", caps.missing(RuntimeCapabilities.Service.AUTOMATION));
-        assertEquals("shizuku", caps.missing(RuntimeCapabilities.Service.SHELL));
+        assertEquals("privileged_service", caps.missing(RuntimeCapabilities.Service.SHELL));
     }
 
     @Test public void requirementsAreNotClientPermissions() {

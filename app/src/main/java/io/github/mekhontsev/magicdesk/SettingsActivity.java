@@ -325,6 +325,27 @@ public final class SettingsActivity extends Activity
     }
 
     @Override
+    public void configureShellBackend() {
+        final ShellBackend[] backends = ShellBackend.values();
+        final String[] labels = java.util.Arrays.stream(backends).map(value -> value.label).toArray(String[]::new);
+        new AlertDialog.Builder(this).setTitle(R.string.settings_shell_backend)
+                .setSingleChoiceItems(labels, ShellBackend.configured(this).ordinal(), (dialog, which) -> {
+                    saveStartupSetting(backends[which].save(this));
+                    dialog.dismiss();
+                }).setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    @Override
+    public void setForceShell(boolean enabled) {
+        saveStartupSetting(ShellPrivilegePolicy.save(this, enabled));
+    }
+
+    private void saveStartupSetting(boolean saved) {
+        if (!saved) Toast.makeText(this, R.string.settings_save_failed, Toast.LENGTH_SHORT).show();
+        render();
+    }
+
+    @Override
     public void configureIntegrationPackage(final IntegrationPackage integration) {
         final EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);

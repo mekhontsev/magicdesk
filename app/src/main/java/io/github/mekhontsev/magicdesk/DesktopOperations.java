@@ -67,7 +67,7 @@ public final class DesktopOperations {
                         CompatibilityDiagnostics.record(
                                 "PHONE-SCREEN-002",
                                 "Could not change the phone screen state",
-                                "shizuku=" + ShellAccess.statusLabel()
+                                "shell=" + ShellAccess.statusLabel()
                                         + " screenOff=" + screenOff);
                     }
                 } finally {
@@ -254,7 +254,7 @@ public final class DesktopOperations {
 
     static void lockDevice() {
         if (!ShellAccess.isReady()) {
-            Log.w(TAG, "device lock unavailable; shizuku="
+            Log.w(TAG, "device lock unavailable; shell="
                     + ShellAccess.statusLabel());
             return;
         }
@@ -304,11 +304,11 @@ public final class DesktopOperations {
 
     static void captureScreenshot() {
         if (!ShellAccess.isReady()) {
-            Log.w(TAG, "screenshot unavailable; shizuku="
+            Log.w(TAG, "screenshot unavailable; shell="
                     + ShellAccess.statusLabel());
             CaptureDiagnostics.recordScreenshot(
                     false,
-                    "Shizuku unavailable: " + ShellAccess.statusLabel());
+                    "Privileged service unavailable: " + ShellAccess.statusLabel());
             return;
         }
         OPERATIONS.execute(new Runnable() {

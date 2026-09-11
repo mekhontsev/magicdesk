@@ -9,10 +9,10 @@ import org.json.JSONObject;
 
 /** App lifetime token: shell also releases the connection if the APK process disappears. */
 final class ShellUiAutomationHandle implements AutoCloseable {
-    private final IShizukuCommandService mService;
+    private final IShellCommandService mService;
     private final IBinder mOwner = new Binder();
 
-    ShellUiAutomationHandle(final IShizukuCommandService service) { mService = service; }
+    ShellUiAutomationHandle(final IShellCommandService service) { mService = service; }
 
     boolean isAlive() { return mService.asBinder().isBinderAlive(); }
 

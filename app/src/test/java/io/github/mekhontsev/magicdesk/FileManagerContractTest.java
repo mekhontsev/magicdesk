@@ -186,7 +186,7 @@ public final class FileManagerContractTest {
     public void fileServiceExposesTypedOperationsWithExplicitOwnership() throws IOException {
         final String aidl = Files.readString(
                 Path.of("src/main/aidl/io/github/mekhontsev/magicdesk/"
-                        + "IShizukuCommandService.aidl"),
+                        + "IShellCommandService.aidl"),
                 StandardCharsets.UTF_8);
         assertTrue(aidl.contains("listShellDirectory("));
         assertTrue(aidl.contains(") = 49;"));

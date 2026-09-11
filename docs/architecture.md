@@ -46,8 +46,8 @@ MagicDesk follows these constraints:
 1. Android applications remain real Android tasks.
 2. The firmware's `ShellTaskOrganizer` and native window decorations remain in
    control of move, resize, snap, maximize, minimize, and close.
-3. Runtime system access requires an authorized Android shell UserService,
-   currently bound through the official Shizuku API.
+3. Runtime system access uses one authorized command service. Shizuku and
+   optional direct root differ only at its startup/connection boundary.
 4. Device-specific operations are narrow, reversible, and checked before use.
 5. Background work is event-driven where Android exposes an event source.
 6. Optional kernel code stays outside the main APK.
@@ -59,7 +59,7 @@ MagicDesk follows these constraints:
    automation gateway instead of duplicating task or session policy.
 
 MagicDesk does not register a competing task organizer, host applications in
-surrogate activities, draw replacement captions, patch SystemUI, invoke `su`,
+surrogate activities, draw replacement captions, patch SystemUI,
 or require a Magisk module.
 
 Dependencies point in one direction:
@@ -103,7 +103,7 @@ own task transitions or package-specific launch policy.
 
 `DesktopInputSession` serializes ownership on one worker. Physical keyboards
 and mice remain Android InputReader devices; MagicDesk does not read or forward
-their event streams. `DesktopInputRoutingSession`, hosted by Shizuku, binds
+their event streams. `DesktopInputRoutingSession`, hosted by the privileged service, binds
 their input locations to the desktop's stable display unique ID through
 `FrameworkInputRoutingApi`. The API boundary supports Android 15 and newer.
 
@@ -375,7 +375,7 @@ component.
 | Mouse helper | `native/magicdesk_uinput_bridge.c` | Binder-owned relative phone pointer |
 | Kernel Fixes add-on | `io.github.mekhontsev.magicdesk.kernel` | Independent, manually launched, firmware-specific root fixes |
 
-The main APK contains no `.ko`, kernel loader, root command path, or reference
+The main APK contains no `.ko`, kernel loader, or reference
 to the add-on package. The two applications share a repository but have no
 runtime integration and are not distributed through the same release path.
 
@@ -535,10 +535,10 @@ runtime integration and are not distributed through the same release path.
   Stopping the runtime closes both listeners, client sockets, workers and backend.
   A closed transport cannot be restarted; enabling it again creates a new one.
   A user launch may first create the service in automation-only mode so an MCP
-  client can connect before Shizuku is available. That mode owns only the
+  client can connect before the privileged service is available. That mode owns only the
   foreground service and MCP transport. The same service is promoted in place
   as requested services become available; Desktop coordinators initialize only
-  for an explicit Desktop session, not merely because Shizuku connected.
+  for an explicit Desktop session, not merely because the privileged service connected.
   `MagicDeskMcpBackend` only maps MCP tools and resources to the shared action
   and state boundary. `McpAuthorizedBackend` checks a live, listener-specific
   `McpAccessPolicy` before every command. The complete catalog and permission
@@ -567,7 +567,7 @@ runtime integration and are not distributed through the same release path.
   Android `PackageInstaller`; framework profile context belongs to
   `FrameworkUserApi`. The app persists the session identity before commit and
   hands the staged operation to `ShellAppUpdateService`, a separate,
-  one-operation Shizuku daemon. The ordinary command service stays non-daemon.
+  one-operation privileged worker. The ordinary command service stays non-daemon.
   `FrameworkPackageInstallerApi` explicitly requests package replacement for
   shell sessions and receives Android's installer result through a
   typed Binder callback in the surviving worker. A descriptor grants access
@@ -607,14 +607,14 @@ runtime integration and are not distributed through the same release path.
   ordering; no additional worker or polling loop is created.
   `AndroidIntegrationRequest` owns Intent parsing and validation;
   raw Intent URIs are an input form rather than a parallel executor. Direct
-  launches cross the Shizuku task-launch boundary as full Parcelable Intents,
+  launches cross the privileged task-launch boundary as full Parcelable Intents,
   preserving `ClipData`, grants, and typed extras. Discovery and App
   Function framework calls have shell-side adapters, but desktop placement and
   task reuse still enter the production launch coordinator.
   `ToolLaunchTarget` selects the destination independently of Intent delivery
   and rechecks Desktop ownership before dispatch. Non-Desktop destinations use
   `OrdinaryActivityLaunch` and `FrameworkActivityLaunchApi`, without window
-  organizers, HOME or session setup. Background placement uses Shizuku; app
+  organizers, HOME or session setup. Background placement uses the privileged service; app
   authorization, URI grants, chooser/resolver policy and Activity-result relay
   ownership are shared with managed launches. Ordinary dispatch returns
   acceptance without an invented observed task; MCP clients confirm their
@@ -1211,7 +1211,7 @@ isolated behind these boundaries.
   present projection, pointer, internal-audio, diagnostics,
   and hardware-control components; all others remain on the Standard Android
   baseline. The probes run under the ordinary application UID, do not require
-  Shizuku, and do not invoke the detected operations. In particular, absence
+  privileged access, and do not invoke the detected operations. In particular, absence
   of `redmagic.app.manager` keeps the vendor property writer out of Device
   Setup without suppressing unrelated APIs retained by a hybrid ROM.
   `PlatformDriver` exposes only existing variation points.
@@ -1341,12 +1341,12 @@ Repositories perform package, task, and document queries. View controllers do
 not construct arbitrary shell commands. Platform controllers do not construct
 desktop panels. Keep this split when adding vendor-specific behavior.
 
-## Shell UserService Runtime
+## Privileged Service Runtime
 
 `IntegrationPackage` captures the configured Shizuku manager and Termux package
 names once at application startup. Settings can save new names or reset to the
 original packages. These bootstrap preferences live in app-private storage and
-are readable before Shizuku connects, independently of shell-backed Desktop state.
+are readable before the privileged service connects, independently of shell-backed Desktop state.
 Changes take effect in the next process, without reconciling active services or
 terminals. UI, automation and command providers share this selection. Diagnostics
 exposes both active and configured values. There is no catalog of forks or
@@ -1356,15 +1356,31 @@ The Shizuku manager package selects discovery and manager UI, not the Binder
 endpoint. A compatible authorized server can be ready without that manager
 installed. The normal API/UserService and UID checks remain authoritative.
 
-Shizuku is the current Binder transport, while Android shell UID 2000 or root
-UID 0 is the capability identity. `DeviceSetupManager` accepts the connection
-after the bound
-`ShizukuCommandService` reports Android shell UID 2000 or root UID 0. Both use
-the same service, commands, and feature set; there is no separate root, basic,
-automatic, or fallback runtime branch.
+`ShellBackend` selects the process-start transport, independently from the
+`ShellPrivilegePolicy` setting that limits either transport to UID 2000.
+`ShellServiceLauncher` owns process creation, permission UI and Binder delivery.
+`ShizukuServiceLauncher` is the only production caller of the Shizuku API.
+`ShellProcessLauncher` starts the same `ShellCommandService` through `su`, or
+through a one-shot `ShellServiceBootstrap` when Shizuku supplies UID 0 and the
+user requested UID 2000. Normal Shizuku UID 2000 binding stays direct.
 
-`ShellAccess` owns the official UserService connection and an immutable
-runtime snapshot. Shizuku Binder and permission events update the snapshot;
+The native `magicdesk_service_launcher` establishes the selected identity
+before starting ART; it never changes credentials of an existing multithreaded
+service. `FrameworkPrivilegedProcessApi` creates an Application context without
+running `MagicDeskApplication` or HOME recovery. It acquires the app's provider
+as an external process, not as an AMS-registered Activity. The one-use handoff
+verifies the expected PID, UID, nonce and APK build. `ShellServiceProcess` links
+the command service to the app's Binder lifetime; only an update worker can
+survive replacement. No root broker remains to execute application operations
+in a restricted session. See [Privilege boundaries](privilege-modes.md).
+
+`ShellServiceConnection` owns a single binding attempt and publishes its actual
+verified UID, not the launcher's UID. An initialization failure cannot publish
+readiness or create an automatic retry loop. Cancelling a binding releases its
+owner and prevents late callbacks from replacing the next service.
+
+`ShellAccess` owns this connection and an immutable runtime snapshot.
+Binder and permission events update the snapshot;
 finite operations read it without repeating package, permission, version, and
 UID probes. Explicit setup/diagnostic audits and command failures refresh it.
 Finite operations use typed AIDL calls or bounded shell commands. Task events,
@@ -1545,7 +1561,7 @@ transports add `xterm-256color` and
 true-color metadata; non-interactive commands use `TERM=dumb`. This shared
 profile is the only insertion point for future Android-native command bundles.
 Shell and root identities use independent top-level runtime directories so a
-root-backed Shizuku session cannot leave ownership that breaks a later
+root-backed service session cannot leave ownership that breaks a later
 shell-backed session.
 
 `TaskStackListener` does not reliably report changes to app-requested system-bar
@@ -1572,7 +1588,7 @@ holder; that empty state is valid and is restored by removing MagicDesk rather
 than selecting a launcher on the user's behalf.
 `DesktopHomeSurfaceRouter` atomically exposes exactly one primary HOME Activity
 before the role is claimed. External targets use `PhoneHomeActivity` on display
-0 and launch `DesktopActivity` through the typed Shizuku task API as the
+0 and launch `DesktopActivity` through the typed privileged task API as the
 HOME task on the selected display. A phone target exposes
 the dedicated `PhoneDesktopHomeActivity` as primary HOME, so Android creates
 the desktop host directly in its standard task area without conflating it with
@@ -1599,7 +1615,7 @@ Unexpected display loss releases a live lease through the same role boundary,
 and a user-selected third-party HOME is never overwritten. If a new MagicDesk
 process starts while still holding HOME, the startup guard disables its HOME
 surfaces, discards the stale lease, and opens system HOME immediately without
-waiting for Shizuku. Subsequent HOME admission checks the current active lease,
+waiting for the privileged service. Subsequent HOME admission checks the current active lease,
 not a process-lifetime recovery flag, so a new explicit session can start in
 that same process. One event-driven reconciliation clears a release record
 left after HOME was already transferred before process loss. This recovery does
@@ -2069,7 +2085,7 @@ Close, rollback, and session loss leave all three disabled;
 neither primary nor secondary launcher choices may offer inactive MagicDesk.
 A missing role holder
 therefore reaches Android's launcher resolver without selecting inactive
-MagicDesk again. Process-start recovery disables the surfaces before Shizuku
+MagicDesk again. Process-start recovery disables the surfaces before privilege acquisition
 is needed, and detects both a stale lease and HOME resolution to MagicDesk,
 not just `RoleManager.isRoleHeld`.
 An isolated self-test closes its own fixtures through the production task
@@ -2601,7 +2617,7 @@ no retry, wait or task polling to a successful startup or an active session.
 
 Secondary sessions share one display-default policy on every platform:
 `SecondaryDisplayWindowing` prepares freeform before HOME activation through
-`FrameworkRuntime.displayWindowing()` and the existing Shizuku Binder service.
+`FrameworkRuntime.displayWindowing()` and the shared privileged Binder service.
 Display 0 is untouched; explicit fullscreen task modes remain independent.
 An unavailable or rejected display-default request fails preparation.
 
@@ -2695,7 +2711,7 @@ unavailable Activity does not block HOME ownership or restoration, which
 continues to use the role-holder package as its authoritative identity.
 The lease enters `RELEASING` before that handoff so startup recovery can finish
 an interrupted release without treating it as an active desktop. If MagicDesk
-still owns HOME after process loss, the pre-Shizuku startup guard instead
+still owns HOME after process loss, the pre-privilege startup guard instead
 disables its HOME surfaces and discards the lease immediately. During normal
 close the role handoff does not disable Activity components: the `RELEASING`
 record retains ownership of the remaining surface cleanup until the close
@@ -2954,7 +2970,7 @@ audio` never constructs an audio recorder. Native resolution omits
 aspect ratio and uses even dimensions for encoder compatibility. The defaults
 remain `Auto`, native resolution, and `20 Mbps`.
 
-A Shizuku UserService is an `app_process` with an Application context but no
+A privileged service is an `app_process` with an Application context but no
 bound `ActivityThread.AppBindData`. Android 16's `MediaRecorder(Context)` passes
 `ActivityThread.currentPackageName()` into JNI, where a null value aborts the
 entire process. `MediaRecorderAudioRecorder` temporarily supplies the matching
@@ -3051,8 +3067,8 @@ Diagnostics preserves the raw values and does not equate an empty value with
 `false` or with unavailable window support. The desktop self-test verifies
 actual window behavior.
 
-Normal first-run UI exposes only the next required user action: start Shizuku,
-grant MagicDesk through Shizuku, prepare the device, restart, or start
+Normal first-run UI exposes only the next required user action: connect and
+authorize the selected privilege backend, prepare the device, restart, or start
 MagicDesk. Display selection, individual setting values, firmware identity,
 Diagnostics, and restoration remain in the manually opened **Device setup**
 screen.
@@ -3083,7 +3099,7 @@ repetitions, including interleaved events. An evicted signature can be recorded
 again. Exact
 duplicates left by earlier process runs are also collapsed when the report is
 built. The issue report includes firmware identity, displays, external input,
-desktop settings, Shizuku UID/domain/capability probes, and MagicDesk-only
+desktop settings, service UID/domain/capability probes, and MagicDesk-only
 logcat. It excludes user files, accounts, notification content, clipboard, and
 the installed-app catalog.
 
@@ -3216,8 +3232,8 @@ The Gradle project has three modules:
 - `hidden-api-stubs`: compile-only framework signatures;
 - `kernel-fixes`: independent optional APK.
 
-Every main-app build compiles two native helpers from source: the virtual mouse
-and PTY transport. CI verifies that the main APK contains both
+Every main-app build compiles three native helpers from source: the virtual mouse,
+PTY transport and one-shot privileged service launcher. CI verifies that the main APK contains them
 and no `.ko`, and that the Kernel Fixes APK contains exactly the reviewed module
 and no main-app native helper.
 

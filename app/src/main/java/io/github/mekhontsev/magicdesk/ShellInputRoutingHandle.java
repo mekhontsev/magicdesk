@@ -7,13 +7,13 @@ import java.io.Closeable;
 import java.io.IOException;
 
 final class ShellInputRoutingHandle implements Closeable {
-    private final IShizukuCommandService mService;
+    private final IShellCommandService mService;
     private final IBinder mOwnerToken;
     private final int[] mInitialState;
     private boolean mClosed;
 
     ShellInputRoutingHandle(
-            final IShizukuCommandService service,
+            final IShellCommandService service,
             final IBinder ownerToken,
             final int[] initialState) {
         mService = service;

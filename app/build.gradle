@@ -11,7 +11,7 @@ def versionSuffix = providers.gradleProperty(
 // Stable source identity distinguishes local APKs sharing a version number.
 def sourceDigest = java.security.MessageDigest.getInstance('SHA-256')
 def sourceFiles = rootProject.fileTree('.') {
-    include 'app/src/main/**', 'hidden-api-stubs/src/main/**', 'gradle/**'
+    include 'app/src/main/**', 'hidden-api-stubs/src/main/**', 'gradle/**', 'native/**'
     include '*.gradle', 'app/*.gradle', 'gradle.properties'
 }.files.sort { rootProject.relativePath(it) }
 sourceFiles.each { file ->
@@ -80,7 +80,8 @@ android {
             excludes += ['**/libtermux.so']
             keepDebugSymbols += [
                     '**/libmagicdesk_uinput_bridge.so',
-                    '**/libmagicdesk_pty_bridge.so'
+                    '**/libmagicdesk_pty_bridge.so',
+                    '**/libmagicdesk_service_launcher.so'
             ]
         }
     }

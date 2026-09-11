@@ -204,7 +204,7 @@ public final class DeviceSetupActivity extends Activity {
                                 audit.manufacturer, audit.model),
                 audit.compatibleDevice);
         setStatusValue(
-                mSetupView.shizukuValue(),
+                mSetupView.shellValue(),
                 getString(audit.shellReady
                         ? R.string.setup_value_available
                         : R.string.setup_value_unavailable),
@@ -232,6 +232,14 @@ public final class DeviceSetupActivity extends Activity {
         mSetupView.restoreAction().setEnabled(audit.shellReady);
         mSetupView.restoreAction().setOnClickListener(view -> confirmRestore());
 
+        if (audit.shellState.backend.usesRoot() && !audit.shellReady) {
+            mSetupView.summary().setText(audit.shellState.error);
+            mSetupView.summary().setTextColor(COLOR_AMBER);
+            mSetupView.primaryAction().setText(R.string.setup_action_allow_root);
+            mSetupView.primaryAction().setOnClickListener(view -> requestShellPermission());
+            setCloseAction();
+            return;
+        }
         if (!audit.shellState.running) {
             mSetupView.summary().setText(audit.shellState.installed
                     ? R.string.setup_status_shizuku_stopped
@@ -250,17 +258,17 @@ public final class DeviceSetupActivity extends Activity {
             mSetupView.summary().setTextColor(COLOR_AMBER);
             mSetupView.primaryAction().setText(R.string.setup_action_allow_shizuku);
             mSetupView.primaryAction().setOnClickListener(
-                    view -> requestShizukuPermission());
+                    view -> requestShellPermission());
             setCloseAction();
             return;
         }
         if (!audit.shellReady) {
             mSetupView.summary().setText(getString(
-                    R.string.setup_status_shizuku_failed,
+                    R.string.setup_status_shell_failed,
                     audit.runtimeError));
             mSetupView.summary().setTextColor(COLOR_RED);
             mSetupView.primaryAction().setText(R.string.setup_action_recheck);
-            mSetupView.primaryAction().setOnClickListener(view -> runAudit());
+            mSetupView.primaryAction().setOnClickListener(view -> requestShellPermission());
             setCloseAction();
             return;
         }
@@ -372,15 +380,15 @@ public final class DeviceSetupActivity extends Activity {
         }
     }
 
-    private void requestShizukuPermission() {
+    private void requestShellPermission() {
         try {
             ShellAccess.requestPermission();
         } catch (RuntimeException error) {
-            Log.w(TAG, "could not request Shizuku permission", error);
+            Log.w(TAG, "could not request privileged service access", error);
             Toast.makeText(
                     this,
                     getString(
-                            R.string.setup_status_shizuku_failed,
+                            R.string.setup_status_shell_failed,
                             error.getMessage()),
                     Toast.LENGTH_LONG).show();
         }

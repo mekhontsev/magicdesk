@@ -69,7 +69,7 @@ final class SystemDesktopModeSetting {
             return false;
         }
         if (!access.canChange()) {
-            throw new IOException("close Desktop and connect Shizuku before changing Android desktop mode");
+            throw new IOException("close Desktop and connect the privileged service before changing Android desktop mode");
         }
         // Android owns the value. Do not save a second preference or mark the
         // required setup incomplete for an optional, user-requested change.
@@ -82,7 +82,7 @@ final class SystemDesktopModeSetting {
 
     static boolean reset(final Access access) throws IOException {
         if (!access.canChange()) {
-            throw new IOException("close Desktop and connect Shizuku before resetting Android desktop mode");
+            throw new IOException("close Desktop and connect the privileged service before resetting Android desktop mode");
         }
         final boolean wasEnabled = access.read();
         // Remove even an explicit false override; Android remains the only

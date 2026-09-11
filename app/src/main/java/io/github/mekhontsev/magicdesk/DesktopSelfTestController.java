@@ -127,7 +127,7 @@ final class DesktopSelfTestController {
                     "SELFTEST-TARGET-001",
                     "Selected test display",
                     target.name());
-            require(result, "API-SHELL-001", "Shizuku command service", () -> {
+            require(result, "API-SHELL-001", "Privileged command service", () -> {
                 final int uid = ShellAccess.connectAndGetUid();
                 if (!ShellAccess.isSupportedServiceUid(uid)) {
                     throw new IOException("unsupported service uid=" + uid);
@@ -159,7 +159,7 @@ final class DesktopSelfTestController {
                             "DISPLAY-001",
                             "Create simulated display lease",
                             () -> SimulatedDisplayLease.open(),
-                            "owned Shizuku stream with automatic restoration");
+                            "owned shell stream with automatic restoration");
                 } else {
                     result.add(DesktopSelfTestResult.State.NOT_TESTED,
                             "DISPLAY-001",

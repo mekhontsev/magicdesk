@@ -1,7 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.content.ComponentName;
-import android.content.Context;
 import android.content.ServiceConnection;
 import android.os.IBinder;
 import android.os.Looper;
@@ -9,8 +8,6 @@ import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 
 import java.io.IOException;
-
-import rikka.shizuku.Shizuku;
 
 /** The daemon owns accepted work; the app owns only its bounded binding attempt. */
 final class AppUpdateWorkerConnection implements ServiceConnection {
@@ -26,20 +23,19 @@ final class AppUpdateWorkerConnection implements ServiceConnection {
     private IAppUpdateWorker mWorker;
     private boolean mDisconnected;
 
-    static void begin(Context context, int sessionId, int userId, String updateId,
+    static void begin(int sessionId, int userId, String updateId,
             ParcelFileDescriptor receipt) throws IOException {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             throw new HandoffException("update handoff must not block the UI thread", null, false);
         }
         final var connection = new AppUpdateWorkerConnection();
-        final var args = new Shizuku.UserServiceArgs(new ComponentName(context, ShellAppUpdateService.class))
-                .daemon(true).processNameSuffix("app_update").tag("app-update-" + updateId)
-                .version(BuildConfig.SOURCE_ID.hashCode() & Integer.MAX_VALUE);
+        ShellServiceLauncher.Binding binding = null;
         boolean submitted = false;
         try {
-            Shizuku.bindUserService(args, connection);
+            binding = ShellServiceLauncher.current().bind(
+                    ShellServiceLauncher.Service.UPDATE, "app-update-" + updateId, connection);
             synchronized (connection.mLock) {
-                final long deadline = SystemClock.uptimeMillis() + 10_000;
+                final long deadline = SystemClock.uptimeMillis() + ShellServiceLauncher.current().bindTimeoutMillis();
                 while (connection.mWorker == null) {
                     final long remaining = deadline - SystemClock.uptimeMillis();
                     if (remaining <= 0 || connection.mDisconnected) {
@@ -61,14 +57,24 @@ final class AppUpdateWorkerConnection implements ServiceConnection {
             submitted = false;
             throw new HandoffException("update handoff failed", error, false);
         } finally {
-            try { Shizuku.unbindUserService(args, connection, !submitted); }
+            try { if (binding != null) binding.close(!submitted); }
             catch (RuntimeException ignored) { }
         }
     }
 
     @Override public void onServiceConnected(ComponentName name, IBinder binder) {
         synchronized (mLock) {
-            mWorker = IAppUpdateWorker.Stub.asInterface(binder);
+            try {
+                final IAppUpdateWorker worker = IAppUpdateWorker.Stub.asInterface(binder);
+                if (!BuildConfig.SOURCE_ID.equals(worker.sourceId())) {
+                    throw new SecurityException("update worker APK build does not match");
+                }
+                ShellPrivilegePolicy.verifyServiceUid(worker.uid());
+                mWorker = worker;
+            } catch (android.os.RemoteException | RuntimeException error) {
+                mDisconnected = true;
+                android.util.Log.w("MagicDeskUpdate", "Rejected update worker", error);
+            }
             mLock.notifyAll();
         }
     }

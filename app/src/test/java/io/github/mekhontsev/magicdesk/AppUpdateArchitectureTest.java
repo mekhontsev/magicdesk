@@ -12,9 +12,13 @@ public final class AppUpdateArchitectureTest {
     }
 
     @Test public void onlyTheUpdaterSurvivesTheApplication() throws Exception {
-        assertTrue(source("ShellAccess").contains(".daemon(false)"));
-        assertTrue(source("AppUpdateWorkerConnection").contains(".daemon(true)"));
-        assertFalse(source("ShizukuCommandService").contains("ShellAppUpdate.commit("));
+        final String launch = source("ShellServiceLauncher");
+        assertTrue(launch.contains("COMMAND(ShellCommandService.class, \"command\", false)"));
+        assertTrue(launch.contains("UPDATE(ShellAppUpdateService.class, \"app_update\", true)"));
+        assertTrue(source("ShizukuServiceLauncher").contains(".daemon(service.independent)"));
+        assertTrue(source("ShellServiceProcess").contains("if (!kind.independent)"));
+        assertTrue(source("ShellServiceProcess").contains("owner.linkToDeath(destroy::run, 0)"));
+        assertFalse(source("ShellCommandService").contains("ShellAppUpdate.commit("));
         final String worker = source("ShellAppUpdateService");
         assertTrue(worker.contains("FrameworkPackageInstallerApi.resultCallback("));
         assertTrue(worker.contains("AppUpdateResumeActivity.class.getName()"));

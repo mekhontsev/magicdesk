@@ -90,7 +90,7 @@ public final class ShellFileCreationTest {
         assertEquals(0, service.deletes);
     }
 
-    private static final class Service extends IShizukuCommandService.Default {
+    private static final class Service extends IShellCommandService.Default {
         ShellFileInfo file = new ShellFileInfo("/tmp/file", "file", "text/plain", "",
                 0, 0, 3, 17, 2000, 2000, 0100600,
                 false, false, true, true, false, false);

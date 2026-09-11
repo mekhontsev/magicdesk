@@ -1,7 +1,7 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
 import io.github.mekhontsev.magicdesk.BoundedProcessRunner;
-import io.github.mekhontsev.magicdesk.ShizukuCapabilityProbe;
+import io.github.mekhontsev.magicdesk.ShellCapabilityProbe;
 
 import android.content.Context;
 import android.system.OsConstants;
@@ -27,27 +27,27 @@ final class NubiaCapabilityProbe {
     static void appendTo(
             final StringBuilder report,
             final Context context) {
-        ShizukuCapabilityProbe.appendMethodPresence(
+        ShellCapabilityProbe.appendMethodPresence(
                 report,
                 "vendor.caption_visibility",
                 "android.view.SurfaceControl",
                 "setSFOption",
                 int.class,
                 int.class);
-        ShizukuCapabilityProbe.appendOpenResult(
+        ShellCapabilityProbe.appendOpenResult(
                 report,
                 "vendor.hdmi_modes.read",
                 new File(NubiaHdmiModeController.EDID_MODES),
                 OsConstants.O_RDONLY);
         NubiaCpuFreezerWorkingState.appendCapabilityProbe(report);
         appendMousePositionApi(report);
-        ShizukuCapabilityProbe.appendService(
+        ShellCapabilityProbe.appendService(
                 report,
                 "vendor.redmagic_app_manager",
                 "redmagic.app.manager");
-        ShizukuCapabilityProbe.appendService(
+        ShellCapabilityProbe.appendService(
                 report, "vendor.color_light", "ColorfulLightService");
-        ShizukuCapabilityProbe.appendService(
+        ShellCapabilityProbe.appendService(
                 report, "vendor.power", "VendorPowerManagerService");
         appendHardwareSettings(report);
         appendHardwareNodes(report);
@@ -63,7 +63,7 @@ final class NubiaCapabilityProbe {
             RedmagicHardwareSettings.appendDiagnostics(
                     report,
                     null,
-                    ShizukuCapabilityProbe.usefulMessage(error));
+                    ShellCapabilityProbe.usefulMessage(error));
             return;
         }
         RedmagicHardwareSettings.appendDiagnostics(report, settings, null);
@@ -106,15 +106,15 @@ final class NubiaCapabilityProbe {
                     "android.hardware.input.IInputManager");
             inputManager.getMethod(
                     "getMousePosition", android.graphics.Point.class);
-            ShizukuCapabilityProbe.append(
+            ShellCapabilityProbe.append(
                     report, "vendor.mouse_position", "present",
                     "read-only global position; display identity unavailable");
         } catch (ReflectiveOperationException | RuntimeException error) {
-            ShizukuCapabilityProbe.append(
+            ShellCapabilityProbe.append(
                     report,
                     "vendor.mouse_position",
                     "missing",
-                    ShizukuCapabilityProbe.usefulMessage(error));
+                    ShellCapabilityProbe.usefulMessage(error));
         }
     }
 
@@ -131,17 +131,17 @@ final class NubiaCapabilityProbe {
             readable |= file.canRead();
             writable |= file.canWrite();
         }
-        ShizukuCapabilityProbe.append(
+        ShellCapabilityProbe.append(
                 report,
                 "hardware.nodes.present",
                 Integer.toString(present),
                 "expected=" + NubiaHardwareNodes.PATHS.length);
-        ShizukuCapabilityProbe.append(
+        ShellCapabilityProbe.append(
                 report,
                 "hardware.nodes.read",
                 readable ? "granted" : "denied",
                 "");
-        ShizukuCapabilityProbe.append(
+        ShellCapabilityProbe.append(
                 report,
                 "hardware.nodes.write",
                 writable ? "granted" : "denied",
@@ -153,7 +153,7 @@ final class NubiaCapabilityProbe {
         final File[] zones = directory.listFiles(
                 (parent, name) -> name.startsWith("thermal_zone"));
         if (zones == null || zones.length == 0) {
-            ShizukuCapabilityProbe.append(
+            ShellCapabilityProbe.append(
                     report, "hardware.thermal_zones", "unavailable", "");
             return;
         }
@@ -178,7 +178,7 @@ final class NubiaCapabilityProbe {
             }
             readable++;
         }
-        ShizukuCapabilityProbe.append(
+        ShellCapabilityProbe.append(
                 report,
                 "hardware.thermal_zones",
                 Integer.toString(readable),
@@ -188,7 +188,7 @@ final class NubiaCapabilityProbe {
     private static String readFirstLine(final File file) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 new FileInputStream(file), StandardCharsets.UTF_8))) {
-            return ShizukuCapabilityProbe.clean(reader.readLine());
+            return ShellCapabilityProbe.clean(reader.readLine());
         } catch (IOException | RuntimeException error) {
             return null;
         }

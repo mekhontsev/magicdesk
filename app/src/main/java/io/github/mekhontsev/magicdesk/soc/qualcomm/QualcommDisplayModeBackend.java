@@ -1,6 +1,6 @@
 package io.github.mekhontsev.magicdesk.soc.qualcomm;
 
-import io.github.mekhontsev.magicdesk.ShizukuCapabilityProbe;
+import io.github.mekhontsev.magicdesk.ShellCapabilityProbe;
 import io.github.mekhontsev.magicdesk.SocDisplayModeBackend;
 
 import android.os.RemoteException;
@@ -47,12 +47,12 @@ public final class QualcommDisplayModeBackend
             final QualcommDisplayConfigBridge.Snapshot snapshot =
                     QualcommDisplayConfigBridge.queryDirect();
             if (!snapshot.available) {
-                ShizukuCapabilityProbe.append(
+                ShellCapabilityProbe.append(
                         report, "vendor.qti_display_config", "missing", "");
                 return;
             }
             if (!snapshot.connected) {
-                ShizukuCapabilityProbe.append(
+                ShellCapabilityProbe.append(
                         report,
                         "vendor.qti_display_config",
                         "available",
@@ -64,7 +64,7 @@ public final class QualcommDisplayModeBackend
                     : snapshot.configs) {
                 modes.add(config.label());
             }
-            ShizukuCapabilityProbe.append(
+            ShellCapabilityProbe.append(
                     report,
                     "vendor.qti_display_config",
                     "available",
@@ -73,7 +73,7 @@ public final class QualcommDisplayModeBackend
                             + " modes=" + modes);
         } catch (ReflectiveOperationException | RemoteException
                 | RuntimeException error) {
-            ShizukuCapabilityProbe.append(
+            ShellCapabilityProbe.append(
                     report,
                     "vendor.qti_display_config",
                     "error",

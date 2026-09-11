@@ -43,21 +43,22 @@ public final class DeviceSetupManager {
         Map<String, String> values = readUnprivilegedValues(
                 context, platform.windowing());
         boolean shellReady = false;
-        int shizukuUid = -1;
+        int connectedUid = -1;
         ShellAccess.Snapshot shellState = ShellAccess.refresh();
         String runtimeError = shellState.error;
         if (shellState.isReady()) {
             try {
                 final int serviceUid = ShellAccess.connectAndGetUid();
-                shizukuUid = serviceUid;
+                connectedUid = serviceUid;
                 if (!ShellAccess.isSupportedServiceUid(serviceUid)) {
                     throw new IOException(
-                            "Shizuku service UID is unsupported: " + serviceUid);
+                            "Privileged service UID is unsupported: " + serviceUid);
                 }
                 values = parseValues(ShellAccess.run(
                         buildAuditCommand(platform.windowing())));
                 shellReady = true;
                 shellState = new ShellAccess.Snapshot(
+                        shellState.backend,
                         shellState.installed,
                         true,
                         true,
@@ -68,10 +69,11 @@ public final class DeviceSetupManager {
             } catch (IOException error) {
                 runtimeError = usefulMessage(error);
                 shellState = new ShellAccess.Snapshot(
+                        shellState.backend,
                         shellState.installed,
                         true,
                         true,
-                        shizukuUid,
+                        connectedUid,
                         shellState.version,
                         runtimeError);
             }
@@ -129,7 +131,7 @@ public final class DeviceSetupManager {
         final Audit before = audit(context, sessionProfile);
         if (!before.shellReady) {
             throw new IOException(
-                    "running Shizuku shell access is required");
+                    "privileged service access is required");
         }
         if (!before.compatibleDevice) {
             throw new IOException(
@@ -154,7 +156,7 @@ public final class DeviceSetupManager {
         final Audit after = audit(context, sessionProfile);
         if (!after.configurationReady) {
             throw new IOException(
-                    "Shizuku setup could not fully provision desktop windowing");
+                    "Desktop setup could not fully provision desktop windowing");
         }
         return after;
     }
@@ -165,7 +167,7 @@ public final class DeviceSetupManager {
         final Audit before = audit(context, sessionProfile);
         if (!before.shellReady) {
             throw new IOException(
-                    "running Shizuku shell access is required");
+                    "privileged service access is required");
         }
         if (!before.compatibleDevice) {
             throw new IOException(

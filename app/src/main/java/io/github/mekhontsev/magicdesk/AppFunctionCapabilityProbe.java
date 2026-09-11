@@ -30,7 +30,7 @@ final class AppFunctionCapabilityProbe {
             final StringBuilder report,
             final Context context) {
         if (Build.VERSION.SDK_INT < 36) {
-            ShizukuCapabilityProbe.append(
+            ShellCapabilityProbe.append(
                     report,
                     "app_functions.execute",
                     "unavailable",
@@ -119,7 +119,7 @@ final class AppFunctionCapabilityProbe {
                 return;
             } catch (RuntimeException error) {
                 append(report, "denied",
-                        ShizukuCapabilityProbe.usefulMessage(error));
+                        ShellCapabilityProbe.usefulMessage(error));
                 return;
             }
 
@@ -147,7 +147,7 @@ final class AppFunctionCapabilityProbe {
                 final StringBuilder report,
                 final String state,
                 final String detail) {
-            ShizukuCapabilityProbe.append(
+            ShellCapabilityProbe.append(
                     report, "app_functions.execute", state, detail);
         }
     }

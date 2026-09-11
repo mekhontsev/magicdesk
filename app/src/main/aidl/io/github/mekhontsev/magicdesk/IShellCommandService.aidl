@@ -27,10 +27,12 @@ import io.github.mekhontsev.magicdesk.ShellFilePage;
 import io.github.mekhontsev.magicdesk.SystemMonitorSnapshot;
 import io.github.mekhontsev.magicdesk.TaskWindowSnapshot;
 
-interface IShizukuCommandService {
+interface IShellCommandService {
     void destroy() = 16777114;
 
     int uid() = 1;
+
+    String sourceId() = 4;
 
     String execute(String command) = 2;
 

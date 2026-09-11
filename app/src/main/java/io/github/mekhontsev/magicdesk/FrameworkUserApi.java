@@ -37,7 +37,7 @@ final class FrameworkUserApi {
     static void startShellActivity(final Intent intent, final int userId) {
         if (userId < 0) throw new IllegalArgumentException("user id is required");
         try {
-            // A Shizuku worker is not an AMS-registered application process. Context.startActivity
+            // A privileged worker is not an AMS-registered application process. Context.startActivity
             // carries its synthetic app identity; use the real shell caller and an explicit user.
             final Object service = HiddenTaskApi.getService();
             final int result = (Integer) service.getClass().getMethod("startActivityAsUser",

@@ -17,7 +17,7 @@ fi
 
 core_contents=$(unzip -Z1 "$core_apk")
 
-for helper in uinput_bridge pty_bridge; do
+for helper in uinput_bridge pty_bridge service_launcher; do
     printf '%s\n' "$core_contents" \
         | grep -Fxq "lib/arm64-v8a/libmagicdesk_$helper.so" \
         || {

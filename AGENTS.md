@@ -38,8 +38,12 @@ Android release boundaries.
 grants. Keep the full MCP tool catalog discoverable; unavailable operations
 must fail explicitly without disabling independent services or changing system
 state. On API 34, reject Desktop and its self-tests before display preparation
-or HOME changes. Prefer ordinary app APIs when sufficient; use the existing
-Shizuku service for privileged work, without making root a product requirement.
+or HOME changes. Prefer ordinary app APIs when sufficient; use the shared
+privileged service otherwise. UID 2000 remains the baseline. Shizuku and direct
+`su` are startup transports, not alternative feature implementations. Keep
+backend selection and the independent force-UID-2000 policy at startup; never
+silently elevate or switch identity for an individual operation. Root is not
+a product requirement. Read `docs/privilege-modes.md` before changing that boundary.
 
 ## Platform Changes
 

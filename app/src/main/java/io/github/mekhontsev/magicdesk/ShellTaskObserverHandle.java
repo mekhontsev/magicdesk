@@ -13,7 +13,7 @@ import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class ShellTaskObserverHandle implements Closeable {
-    private final IShizukuCommandService mService;
+    private final IShellCommandService mService;
     private final IBinder mServiceBinder;
     private final ITaskObserverCallback mCallback;
     private final IActivityLaunchCallback mActivityLauncher;
@@ -25,7 +25,7 @@ final class ShellTaskObserverHandle implements Closeable {
     private boolean mServiceLinked;
 
     ShellTaskObserverHandle(
-            final IShizukuCommandService service,
+            final IShellCommandService service,
             final ITaskObserverCallback callback,
             final IActivityLaunchCallback activityLauncher,
             final Runnable disconnected) {

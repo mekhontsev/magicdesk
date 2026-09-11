@@ -98,7 +98,11 @@ def ptyTask = registerNativeHelper(
         'buildMagicDeskPtyBridge',
         'magicdesk_pty_bridge.c',
         'libmagicdesk_pty_bridge.so')
+def serviceTask = registerNativeHelper(
+        'buildMagicDeskServiceLauncher',
+        'magicdesk_service_launcher.c',
+        'libmagicdesk_service_launcher.so')
 
 tasks.named('preBuild').configure {
-    dependsOn uinputTask, ptyTask
+    dependsOn uinputTask, ptyTask, serviceTask
 }

@@ -38,7 +38,7 @@ public final class DesktopPointerInjectionBoundaryTest {
                     check(!f.injectPointerHoverAt(133, 500, 400), "hover failure reported success");
                     check(!f.injectPointerClickAt(133, 500, 400, 1), "click failure reported success");
                 }
-                """ + RuntimeSourceFixture.methods("ShizukuCommandService",
+                """ + RuntimeSourceFixture.methods("ShellCommandService",
                         "injectPointerHoverAt", "injectPointerClickAt"));
     }
 }

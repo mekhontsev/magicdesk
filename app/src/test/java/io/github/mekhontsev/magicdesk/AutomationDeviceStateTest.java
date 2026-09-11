@@ -9,7 +9,7 @@ public final class AutomationDeviceStateTest {
         assertNull(ready.phoneUiUnavailableReason());
         assertTrue(ready.toJson(true).getBoolean("selfTestReady"));
         assertFalse(ready.toJson(false).getBoolean("selfTestReady"));
-        assertEquals("check_shizuku", ready.toJson(false)
+        assertEquals("check_privileged_service", ready.toJson(false)
                 .getJSONArray("requiredActions").getString(0));
         assertNotNull(new AutomationDeviceState(false, false, false, 35).phoneUiUnavailableReason());
         assertNotNull(new AutomationDeviceState(true, true, false, 35).phoneUiUnavailableReason());

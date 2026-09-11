@@ -15,14 +15,15 @@ public final class ShellAccessSnapshotTest {
 
     @Test
     public void compatibleBinderDoesNotRequireTheSelectedManagerToBeInstalled() {
-        assertTrue(new ShellAccess.Snapshot(false, true, true, 2000, 13, "").isReady());
+        assertTrue(new ShellAccess.Snapshot(ShellBackend.SHIZUKU, false, true, true, 2000, 13, "").isReady());
     }
 
     @Test
     public void unavailableOrOutdatedServerIsNotReady() {
         assertFalse(snapshot(false, true, 2000, 11).isReady());
         assertFalse(snapshot(true, false, 2000, 11).isReady());
-        assertFalse(snapshot(true, true, 2000, 10).isReady());
+        assertFalse(new ShellAccess.Snapshot(ShellBackend.SHIZUKU, true, true, false, -1, 10,
+                "Shizuku API 11 or newer is required").isReady());
     }
 
     @Test
@@ -51,6 +52,7 @@ public final class ShellAccessSnapshotTest {
             final int uid,
             final int version) {
         return new ShellAccess.Snapshot(
+                ShellBackend.SHIZUKU,
                 true,
                 running,
                 permissionGranted,

@@ -169,7 +169,7 @@ public final class CompatibilityDiagnostics {
         appendCompatibility(
                 report, appContext, audit, inputSnapshot);
         snapshot.appendSelection(report);
-        appendShizukuProbe(report, audit);
+        appendShellProbe(report, audit);
         CaptureDiagnostics.appendReport(report, appContext);
         DesktopSelfTestResult.appendLastResult(report, appContext);
         CompatibilityOnboardingStore.appendReport(report, appContext);
@@ -257,8 +257,12 @@ public final class CompatibilityDiagnostics {
                 .append(FrameworkWindowingCompat.overrideDetail()).append('\n')
                 .append("Framework runtime: ")
                 .append(frameworkRuntimeDetail()).append('\n')
-                .append("Shizuku runtime: ")
+                .append("Privileged runtime: ")
                 .append(ShellAccess.statusLabel()).append('\n')
+                .append("Privilege startup: backend=").append(ShellBackend.active())
+                .append(", configuredBackend=").append(ShellBackend.configured(context))
+                .append(", forceShellUid=").append(ShellPrivilegePolicy.forceShell())
+                .append(", configuredForceShellUid=").append(ShellPrivilegePolicy.configured(context)).append('\n')
                 .append("Display target: ").append(profile.displayWireName()).append('\n')
                 .append("Desktop session: ")
                 .append(desktopTarget == null
@@ -305,11 +309,12 @@ public final class CompatibilityDiagnostics {
                         ? "unverified exact firmware; capability probing is required"
                         : audit.firmwareProfile.supportDetail());
         final boolean shellReady = audit.shellReady;
-        appendCheck(report, "SHIZUKU-001",
+        appendCheck(report, "SHELL-001",
                 shellReady,
-                "Shizuku command service",
+                "Privileged command service",
                 shellReady
-                        ? "API " + audit.shellState.version
+                        ? "backend=" + audit.shellState.backend
+                                + (audit.shellState.version >= 0 ? ", launcherApi=" + audit.shellState.version : "")
                                 + ", service uid=" + audit.shellState.uid
                         : audit.runtimeError);
         appendCheck(report, "WM-FREEFORM-001", audit.freeformEnabled,
@@ -371,7 +376,7 @@ public final class CompatibilityDiagnostics {
                                 ? "direct WindowContainerTransaction fallback"
                         : taskControl
                                 ? "privileged transaction backend unavailable"
-                                : "Shizuku runtime unavailable");
+                                : "Privileged runtime unavailable");
         final RoleManager roleManager = context.getSystemService(
                 RoleManager.class);
         final boolean homeRoleAvailable = roleManager != null
@@ -494,7 +499,7 @@ public final class CompatibilityDiagnostics {
         final String mouseBridgeDetail;
         if (!shellPointer) {
             mouseBridgeDetail =
-                    "Shizuku runtime unavailable";
+                    "Privileged runtime unavailable";
         } else if (!mouseBridgeExpected) {
             mouseBridgeDetail =
                     "idle; an external desktop is required";
@@ -644,13 +649,13 @@ public final class CompatibilityDiagnostics {
         report.append('\n');
     }
 
-    private static void appendShizukuProbe(
+    private static void appendShellProbe(
             final StringBuilder report,
             final DeviceSetupManager.Audit audit) {
         if (!audit.shellReady) {
             return;
         }
-        report.append("## Shizuku capability probe\n");
+        report.append("## Privileged service capability probe\n");
         try {
             report.append(ShellAccess.probeCapabilities());
         } catch (IOException | RuntimeException error) {

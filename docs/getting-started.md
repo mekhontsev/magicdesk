@@ -20,6 +20,12 @@ For shell-backed operations:
    [Shizuku setup guide](https://shizuku.rikka.app/guide/setup/).
 3. Authorize MagicDesk when it requests Shizuku access.
 
+Alternatively, on a rooted phone, choose **Settings > Integrations > Privileged
+service > Root (su)** and restart MagicDesk. Approve its request in the root
+manager. **Limit service to shell UID 2000** is a separate next-start setting
+for either direct root or root-backed Shizuku. No root is required for the
+normal Shizuku path. See [Privilege boundaries](privilege-modes.md).
+
 MagicDesk does not start Shizuku itself or require root. After a reboot,
 Shizuku may need restarting, depending on its startup method. Missing shell
 access does not prevent ordinary UI or independently authorized Termux
@@ -35,7 +41,7 @@ Outside Desktop these are ordinary fullscreen Activities. If the destination
 already has a MagicDesk Desktop session, the tools use its managed window path.
 Neither action starts a session implicitly or requires Desktop provisioning.
 
-Files and Android-shell Console need authorized Shizuku. Termux Console needs
+Files and Android-shell Console need the authorized privileged service. Termux Console needs
 Termux, external app commands enabled in its configuration, and MagicDesk's
 Termux `RUN_COMMAND` permission. Termux and Android-shell sessions use different
 UIDs and filesystem access.
@@ -60,7 +66,7 @@ virtual display. Availability is checked again when an action runs.
 - **Display with phone preview:** Android's preview surface on the phone.
   Its shared overlay configuration cannot replace an existing overlay set.
 
-Choose dimensions and scale. Creation requires Shizuku but does not acquire
+Choose dimensions and scale. Creation requires the privileged service but does not acquire
 HOME or start Desktop. **Copy scrcpy command** copies a command for viewing
 that existing display from a computer; MagicDesk does not bundle or start the
 computer-side viewer.

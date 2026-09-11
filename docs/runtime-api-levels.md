@@ -10,11 +10,11 @@ device validation on that release is still pending.
 | Subsystem | Baseline and prerequisites |
 | --- | --- |
 | MCP and ordinary built-in UI | API 34; explicit client grants for automation. UI startup does not require Desktop provisioning. |
-| Files, shell commands and transfers | API 34 plus authorized Shizuku for shell-backed operations. |
+| Files, shell commands and transfers | API 34 plus authorized privileged service for shell-backed operations. |
 | Termux sessions and viewers | API 34 plus installed Termux, external-command configuration and `RUN_COMMAND` permission. The PTY and its window have separate lifetimes. |
-| APK replacement | API 34 plus authorized Shizuku and the update grant. Android's PackageInstaller and its shell callback own replacement; the update worker survives replacement and reconnect is observed by update ID. |
-| Display resources and ordinary tool placement | API 34 plus authorized Shizuku and working framework capabilities. Creating a display or placing a fullscreen tool there does not acquire HOME or initialize WMShell Desktop. |
-| Ordinary Android Activity automation | API 34 plus authorized Shizuku for background/display placement. Intent authorization, content grants and Activity results are independent of Desktop. Dispatch acceptance is verified separately through UI observation. |
+| APK replacement | API 34 plus authorized privileged service and the update grant. Android's PackageInstaller and its shell callback own replacement; the update worker survives replacement and reconnect is observed by update ID. |
+| Display resources and ordinary tool placement | API 34 plus authorized privileged service and working framework capabilities. Creating a display or placing a fullscreen tool there does not acquire HOME or initialize WMShell Desktop. |
+| Ordinary Android Activity automation | API 34 plus authorized privileged service for background/display placement. Intent authorization, content grants and Activity results are independent of Desktop. Dispatch acceptance is verified separately through UI observation. |
 | Managed Desktop and its self-tests | API 35 plus Desktop provisioning and the required task/window/input APIs. Ordinary tool availability does not imply Desktop availability. |
 
 ## Boundary Enforcement
@@ -23,7 +23,7 @@ device validation on that release is still pending.
 display-profile preparation, and runtime launch checks before starting the
 service. MCP rejects Desktop requests before resolving or creating a target.
 A direct service Intent on an unsupported SDK retains only requested independent
-services. Reconnecting Shizuku cannot promote Desktop on that SDK.
+services. Reconnecting the privileged service cannot promote Desktop on that SDK.
 
 Shell binding passes the app's public Settings snapshot without resolving
 optional windowing APIs. Their profile is detected once, on first use, in
@@ -64,7 +64,7 @@ separate from these feature requirements.
 
 ### Native Build Boundary
 
-The two native helpers are currently packaged only for `arm64-v8a`.
+The native helpers are currently packaged only for `arm64-v8a`.
 The desktop-host NDK path in `gradle/native-helpers.gradle` still compiles with
 `--target=aarch64-linux-android35`; the Termux path uses its installed compiler.
 Neither establishes API 34 native compatibility merely because the manifest's
@@ -91,7 +91,7 @@ does not change the supported baseline. Public static analysis does not prove
 hidden Binder ABI compatibility, reflective members, dependency/native behavior,
 SELinux grants or firmware policy.
 
-The remaining API 34 device matrix is: cold app/MCP startup, Shizuku reconnect,
+The remaining API 34 device matrix is: cold app/MCP startup, privileged-service reconnect,
 file operations and transfers, retained shell/Termux sessions, private/shared
 drag boundaries, APK replacement with reconnect, virtual-display creation,
 fullscreen tool launch/capture/removal, and Desktop rejection without HOME or

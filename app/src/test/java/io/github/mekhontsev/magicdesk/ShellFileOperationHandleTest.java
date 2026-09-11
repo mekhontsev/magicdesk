@@ -27,7 +27,7 @@ public final class ShellFileOperationHandleTest {
         new ShellFileOperationHandle(-1L, new Service());
     }
 
-    private static final class Service extends IShizukuCommandService.Default {
+    private static final class Service extends IShellCommandService.Default {
         long cancelledId;
 
         @Override

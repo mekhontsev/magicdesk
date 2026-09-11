@@ -23,9 +23,9 @@ final class NativeDesktopController {
         return ShellAccess.isReady() && isAvailable();
     }
 
-    static boolean shouldUse(final boolean shizukuCommands,
+    static boolean shouldUse(final boolean privilegedCommands,
             final boolean available) {
-        return shizukuCommands && available;
+        return privilegedCommands && available;
     }
 
     static synchronized boolean isAvailable() {

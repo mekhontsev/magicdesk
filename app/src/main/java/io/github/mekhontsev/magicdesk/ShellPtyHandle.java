@@ -16,14 +16,14 @@ final class ShellPtyHandle implements TerminalTransport {
     private final InputStream mInput;
     @SuppressWarnings("unused")
     private final IBinder mOwnerToken;
-    private final IShizukuCommandService mService;
+    private final IShellCommandService mService;
     private final AtomicBoolean mClosed = new AtomicBoolean();
 
     ShellPtyHandle(
             final long requestId,
             final ParcelFileDescriptor descriptor,
             final IBinder ownerToken,
-            final IShizukuCommandService service) {
+            final IShellCommandService service) {
         mRequestId = requestId;
         mInput = new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
         mOwnerToken = ownerToken;
@@ -38,7 +38,7 @@ final class ShellPtyHandle implements TerminalTransport {
     @Override
     public void write(final byte[] data) throws IOException {
         if (mClosed.get()) {
-            throw new IOException("Shizuku PTY is closed");
+            throw new IOException("Shell PTY is closed");
         }
         try {
             for (int offset = 0; offset < data.length;
@@ -56,7 +56,7 @@ final class ShellPtyHandle implements TerminalTransport {
             }
         } catch (RemoteException | RuntimeException error) {
             throw new IOException(
-                    "Shizuku PTY write failed: "
+                    "Shell PTY write failed: "
                             + ShellAccess.usefulMessage(error),
                     error);
         }
@@ -65,13 +65,13 @@ final class ShellPtyHandle implements TerminalTransport {
     @Override
     public void resize(final int rows, final int columns) throws IOException {
         if (mClosed.get()) {
-            throw new IOException("Shizuku PTY is closed");
+            throw new IOException("Shell PTY is closed");
         }
         try {
             mService.resizePtyStream(mRequestId, rows, columns);
         } catch (RemoteException | RuntimeException error) {
             throw new IOException(
-                    "Shizuku PTY resize failed: "
+                    "Shell PTY resize failed: "
                             + ShellAccess.usefulMessage(error),
                     error);
         }
@@ -80,13 +80,13 @@ final class ShellPtyHandle implements TerminalTransport {
     @Override
     public String workingDirectory() throws IOException {
         if (mClosed.get()) {
-            throw new IOException("Shizuku PTY is closed");
+            throw new IOException("Shell PTY is closed");
         }
         try {
             return mService.getPtyWorkingDirectory(mRequestId);
         } catch (RemoteException | RuntimeException error) {
             throw new IOException(
-                    "Shizuku PTY directory lookup failed: "
+                    "Shell PTY directory lookup failed: "
                             + ShellAccess.usefulMessage(error),
                     error);
         }
@@ -95,13 +95,13 @@ final class ShellPtyHandle implements TerminalTransport {
     @Override
     public long processId() throws IOException {
         if (mClosed.get()) {
-            throw new IOException("Shizuku PTY is closed");
+            throw new IOException("Shell PTY is closed");
         }
         try {
             return mService.getPtyProcessId(mRequestId);
         } catch (RemoteException | RuntimeException error) {
             throw new IOException(
-                    "Shizuku PTY process lookup failed: "
+                    "Shell PTY process lookup failed: "
                             + ShellAccess.usefulMessage(error),
                     error);
         }

@@ -71,7 +71,7 @@ public final class DesktopContentReceiverActivity extends Activity {
         if (!ShellAccess.isReady()) {
             Toast.makeText(
                     this,
-                    R.string.desktop_share_shizuku_required,
+                    R.string.desktop_share_privileged_required,
                     Toast.LENGTH_LONG).show();
             recordFailure();
             startActivity(ControlActivity.createLaunchIntent(this));

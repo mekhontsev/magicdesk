@@ -13,8 +13,8 @@ services you use interactively. Desktop is one way to work with these tools,
 not a requirement for using them.
 
 The APK requires **Android 14+**. Managed **Desktop requires Android 15+**.
-Privileged operations use [Shizuku](https://github.com/RikkaApps/Shizuku);
-root is not required.
+Privileged operations use [Shizuku](https://github.com/RikkaApps/Shizuku) or
+optional direct root. Android shell UID 2000 remains the baseline; root is not required.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -63,7 +63,7 @@ Applications remain real Android tasks, with native captions, input, rendering
 and application lifecycle owned by Android and WMShell.
 
 The core is vendor-independent: windows, input, displays, files and automation
-use shared Android mechanisms, including hidden framework APIs through Shizuku.
+use shared Android mechanisms, including hidden framework APIs through the privileged service.
 Optional firmware and SoC adapters add focused capabilities to the same
 implementation. You keep your Android applications, system keyboard and Termux
 environment.
@@ -147,7 +147,7 @@ implemented.
 Console provides a real interactive PTY with ANSI colors, scrollback, selection,
 clipboard, terminal mouse reporting, resizing and alternate-screen programs.
 
-- Android-shell sessions run under the authorized Shizuku identity.
+- Android-shell sessions run under the connected service identity.
 - Termux sessions run under Termux's own UID, using its installed tools and
   documented external-command permission.
 - Each retained session owns its shell and terminal state. Closing a window
@@ -218,7 +218,7 @@ The optional MCP server exposes the same services used by the UI:
   that survives replacement and allows the client to reconnect.
 - Desktop self-tests with exact run IDs, live stages, results and cleanup state.
 
-MCP can start before Shizuku is ready. Each command checks its own service
+MCP can start before the privileged service is ready. Each command checks its own service
 prerequisites; a reachable server is not proof that Desktop or shell operations
 are available. Desktop commands still require Desktop where applicable.
 
@@ -256,10 +256,10 @@ and the [API-level contract](docs/runtime-api-levels.md).
 | Use | Requirements beyond installing the APK |
 | --- | --- |
 | Control panel, Settings, MCP observation | Ordinary app access; explicitly enable MCP for clients |
-| Files, Android shell, privileged capture and device actions | Running, authorized Shizuku and the operation's actual capabilities |
+| Files, Android shell, privileged capture and device actions | An authorized privileged service and the operation's actual capabilities |
 | Termux terminals | Termux, external commands enabled, MagicDesk's `RUN_COMMAND` permission |
-| Owned virtual displays | Authorized Shizuku and working framework display APIs |
-| Managed Desktop | Android 15+, authorized Shizuku, Desktop setup, working framework windowing |
+| Owned virtual displays | An authorized privileged service and working framework display APIs |
+| Managed Desktop | Android 15+, an authorized privileged service, Desktop setup, working framework windowing |
 | Wired/wireless output | Hardware and firmware that expose a usable Android secondary display |
 
 1. Install MagicDesk and open Phone Control Panel.
@@ -327,9 +327,14 @@ Shared compatibility policies can be selected in Settings on every vendor.
 Found a potential vulnerability? Use [private security reporting](https://github.com/mekhontsev/magicdesk/security/advisories/new),
 not public issues or the support bot. See the [security policy](SECURITY.md).
 
-Shizuku authorizes privileged shell operations, not every UI action. Files and
-Android-shell terminals use its connected identity; Termux uses its own.
-The main APK does not acquire root, patch SystemUI or load a kernel module.
+Authorization through Shizuku or root applies to privileged operations, not
+every UI action. Files and Android-shell terminals use the connected service's
+identity; Termux uses its own.
+Root users can select **Root (su)** in **Settings > Integrations** instead of
+running Shizuku. The independent **Limit service to shell UID 2000** option
+also applies to root-backed Shizuku. Both settings take effect on the next app
+start. This limits the working service, not the app's root-manager grant.
+MagicDesk does not patch SystemUI or load a kernel module.
 
 MCP is disabled by default and requires a bearer token. Each listener has
 independent permissions for control, input/tests, content, file reads, file

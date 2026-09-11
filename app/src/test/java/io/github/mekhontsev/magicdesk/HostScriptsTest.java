@@ -47,7 +47,7 @@ public final class HostScriptsTest {
 
     @Test
     public void coreApkRequiresEveryShellHelper() throws Exception {
-        final var helpers = List.of("uinput_bridge", "pty_bridge");
+        final var helpers = List.of("uinput_bridge", "pty_bridge", "service_launcher");
         for (final String omitted : helpers) {
             final Path apk = coreApk(helpers.stream()
                     .filter(helper -> !helper.equals(omitted)).toList());
@@ -71,7 +71,7 @@ public final class HostScriptsTest {
             zip.closeEntry();
         }
         final var result = run("verify-apks.sh", Map.of(),
-                coreApk(List.of("uinput_bridge", "pty_bridge"))
+                coreApk(List.of("uinput_bridge", "pty_bridge", "service_launcher"))
                         .toString(), addon.toString());
         assertEquals(result.output, 1, result.exitCode);
         assertTrue(result.output.contains("must not contain a shell helper"));

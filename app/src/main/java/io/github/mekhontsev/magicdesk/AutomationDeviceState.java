@@ -61,7 +61,7 @@ final class AutomationDeviceState {
         if (interactive == null || deviceLocked == null || keyguardLocked == null) {
             actions.put("check_device_state");
         }
-        if (!shellReady) actions.put("check_shizuku");
+        if (!shellReady) actions.put("check_privileged_service");
         return new JSONObject().put("interactive", nullable(interactive))
                 .put("deviceLocked", nullable(deviceLocked))
                 .put("keyguardLocked", nullable(keyguardLocked))

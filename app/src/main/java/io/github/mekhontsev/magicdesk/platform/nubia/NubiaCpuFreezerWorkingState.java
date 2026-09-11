@@ -1,6 +1,6 @@
 package io.github.mekhontsev.magicdesk.platform.nubia;
 
-import io.github.mekhontsev.magicdesk.ShizukuCapabilityProbe;
+import io.github.mekhontsev.magicdesk.ShellCapabilityProbe;
 
 import android.os.IBinder;
 
@@ -30,15 +30,15 @@ final class NubiaCpuFreezerWorkingState {
     static void appendCapabilityProbe(final StringBuilder report) {
         try {
             requireAvailable();
-            ShizukuCapabilityProbe.append(report, "vendor.cpu_freezer", "present",
+            ShellCapabilityProbe.append(report, "vendor.cpu_freezer", "present",
                     SERVICE_NAME + " / " + INTERFACE_NAME
                             + "#noteCpuFreezerUidWorking; no UID state changed");
         } catch (ClassNotFoundException | NoSuchMethodException | IllegalStateException error) {
-            ShizukuCapabilityProbe.append(report, "vendor.cpu_freezer", "unavailable",
-                    ShizukuCapabilityProbe.usefulMessage(error));
+            ShellCapabilityProbe.append(report, "vendor.cpu_freezer", "unavailable",
+                    ShellCapabilityProbe.usefulMessage(error));
         } catch (ReflectiveOperationException | RuntimeException | LinkageError error) {
-            ShizukuCapabilityProbe.append(report, "vendor.cpu_freezer", "error",
-                    ShizukuCapabilityProbe.usefulMessage(error));
+            ShellCapabilityProbe.append(report, "vendor.cpu_freezer", "error",
+                    ShellCapabilityProbe.usefulMessage(error));
         }
     }
 

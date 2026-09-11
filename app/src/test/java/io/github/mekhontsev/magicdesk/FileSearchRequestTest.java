@@ -89,7 +89,7 @@ public final class FileSearchRequestTest {
         return new ShellFileSearchHandle(id, new Service());
     }
 
-    private static final class Service extends IShizukuCommandService.Default {
+    private static final class Service extends IShellCommandService.Default {
         long cancelled;
 
         @Override

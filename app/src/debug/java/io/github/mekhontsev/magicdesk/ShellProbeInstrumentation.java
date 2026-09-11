@@ -2,7 +2,6 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
 import android.app.Instrumentation;
-import android.content.Context;
 import android.os.Bundle;
 
 import java.io.IOException;
@@ -10,10 +9,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import rikka.shizuku.Shizuku;
-
-public final class ShizukuProbeInstrumentation extends Instrumentation {
-    private static final long BINDER_TIMEOUT_SECONDS = 5;
+public final class ShellProbeInstrumentation extends Instrumentation {
+    private static final long SERVICE_TIMEOUT_MILLIS = 60_000;
     private static final long OPERATION_TIMEOUT_SECONDS = 10;
     private boolean mProbePhoneScreen;
 
@@ -30,10 +27,9 @@ public final class ShizukuProbeInstrumentation extends Instrumentation {
         final Thread thread = new Thread(() -> {
             final Bundle result = new Bundle();
             try {
-                final Context context = getTargetContext().getApplicationContext();
                 ShellAccess.initialize();
-                awaitShizukuBinder();
-                result.putString("shizuku_probe", ShellAccess.probeCapabilities());
+                awaitShellService();
+                result.putString("shell_probe", ShellAccess.probeCapabilities());
                 if (mProbePhoneScreen) {
                     result.putString(
                             "phone_screen_probe",
@@ -46,25 +42,31 @@ public final class ShizukuProbeInstrumentation extends Instrumentation {
                 }
                 final String message = error.getMessage() == null
                         ? error.getClass().getSimpleName() : error.getMessage();
-                result.putString("shizuku_probe", "probe=failed | " + message);
+                result.putString("shell_probe", "probe=failed | " + message);
                 finish(Activity.RESULT_CANCELED, result);
             }
-        }, "MagicDeskShizukuProbe");
+        }, "MagicDeskShellProbe");
         thread.setDaemon(true);
         thread.start();
     }
 
-    private static void awaitShizukuBinder() throws InterruptedException {
-        if (Shizuku.pingBinder()) {
-            return;
-        }
-        final CountDownLatch received = new CountDownLatch(1);
-        final Shizuku.OnBinderReceivedListener listener = received::countDown;
-        Shizuku.addBinderReceivedListenerSticky(listener);
+    private static void awaitShellService() throws InterruptedException, IOException {
+        final Object lock = new Object();
+        final ShellAccess.StateListener listener = snapshot -> {
+            synchronized (lock) { lock.notifyAll(); }
+        };
+        ShellAccess.addStateListener(listener);
         try {
-            received.await(BINDER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            synchronized (lock) {
+                final long deadline = android.os.SystemClock.uptimeMillis() + SERVICE_TIMEOUT_MILLIS;
+                while (!ShellAccess.isReady()) {
+                    final long remaining = deadline - android.os.SystemClock.uptimeMillis();
+                    if (remaining <= 0) throw new IOException(ShellAccess.currentSnapshot().error);
+                    EventDrivenWaits.await(lock, EventDrivenWaits.Reason.SERVICE_BINDING, remaining);
+                }
+            }
         } finally {
-            Shizuku.removeBinderReceivedListener(listener);
+            ShellAccess.removeStateListener(listener);
         }
     }
 
@@ -73,7 +75,7 @@ public final class ShizukuProbeInstrumentation extends Instrumentation {
         final int serviceUid = ShellAccess.connectAndGetUid();
         if (serviceUid != ShellAccess.SHELL_UID) {
             throw new IOException(
-                    "Shizuku must run as shell UID 2000; found UID "
+                    "The service must run as shell UID 2000; found UID "
                             + serviceUid);
         }
 

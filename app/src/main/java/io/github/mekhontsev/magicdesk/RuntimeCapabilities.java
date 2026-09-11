@@ -44,10 +44,10 @@ final class RuntimeCapabilities {
     String missing(final Service service) {
         return switch (service) {
             case AUTOMATION, BUILTIN_UI -> "";
-            case SHELL, VIRTUAL_DISPLAY -> mShell ? "" : "shizuku";
+            case SHELL, VIRTUAL_DISPLAY -> mShell ? "" : "privileged_service";
             case TERMUX -> !mTermuxInstalled ? "termux" : !mTermuxAuthorized ? "termux_run_command" : "";
             case DESKTOP -> !supportsDesktop(mSdk) ? "android_15"
-                    : !mShell ? "shizuku" : !mDesktopPrepared ? "desktop_setup" : "";
+                    : !mShell ? "privileged_service" : !mDesktopPrepared ? "desktop_setup" : "";
         };
     }
 

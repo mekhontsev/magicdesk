@@ -73,7 +73,7 @@ through Close and display-loss cleanup; edits affect the next session.
 
 **Reset to platform defaults** in this section removes all seven user overrides
 and the optional Android external desktop-mode override (default: off).
-It requires Shizuku access and a closed Desktop. The selected platform supplies
+It requires privileged service access and a closed Desktop. The selected platform supplies
 the compatibility defaults again; application DPI profiles and other settings
 are unchanged. This is separate from Device Setup's provisioning reset.
 
@@ -235,7 +235,7 @@ The report includes:
 
 - MagicDesk version and Android build fingerprint;
 - manufacturer, model, API level, security patch, and supported ABIs;
-- Shizuku installation, permission, UserService UID, and required
+- selected privilege backend, active/configured UID restriction, actual service UID, and required
   desktop-windowing values;
 - for active shell access, a non-destructive UserService capability
   probe covering its actual UID, SELinux domain, relevant Binder permissions,

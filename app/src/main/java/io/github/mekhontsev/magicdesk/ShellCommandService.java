@@ -30,8 +30,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-public final class ShizukuCommandService extends IShizukuCommandService.Stub {
-    private static final String TAG = "MagicDeskShizuku";
+public final class ShellCommandService extends IShellCommandService.Stub {
+    private static final String TAG = "MagicDeskShell";
     private static final long HEARTBEAT_INTERVAL_MILLIS = 1_000L;
     private static final long STREAM_STOP_GRACE_MILLIS = 1_000L;
     private static final String PTY_HELPER_NAME =
@@ -51,11 +51,11 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     private IBinder mInputRoutingOwner;
     private IBinder.DeathRecipient mInputRoutingOwnerDeath;
 
-    public ShizukuCommandService() {
+    public ShellCommandService() {
         this(null);
     }
 
-    public ShizukuCommandService(final Context context) {
+    public ShellCommandService(final Context context) {
         mContext = context;
         final PlatformDriver platform = PlatformDrivers.current();
         mPointerDriver = platform.pointer();
@@ -72,6 +72,8 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
     public int uid() {
         return Os.getuid();
     }
+
+    @Override public String sourceId() { return BuildConfig.SOURCE_ID; }
 
     @Override public String executeUiAutomation(final IBinder ownerToken,
             final String operation, final String arguments) {
@@ -157,7 +159,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
 
     @Override
     public String probeCapabilities() {
-        return ShizukuCapabilityProbe.run(mContext);
+        return ShellCapabilityProbe.run(mContext);
     }
 
     @Override
@@ -1350,13 +1352,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 mStreams.get(Long.valueOf(requestId));
         if (session == null) {
             throw new IllegalStateException(
-                    "Shizuku stream is not active: " + requestId);
+                    "Shell stream is not active: " + requestId);
         }
         try {
             session.writeLine(line);
         } catch (IOException error) {
             throw new IllegalStateException(
-                    "cannot write Shizuku stream: "
+                    "cannot write Shell stream: "
                             + usefulMessage(error),
                     error);
         }
@@ -1368,13 +1370,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 mStreams.get(Long.valueOf(requestId));
         if (!(session instanceof PtyStreamSession)) {
             throw new IllegalStateException(
-                    "Shizuku PTY is not active: " + requestId);
+                    "Shell PTY is not active: " + requestId);
         }
         try {
             ((PtyStreamSession) session).writeBytes(data);
         } catch (IOException error) {
             throw new IllegalStateException(
-                    "cannot write Shizuku PTY: " + usefulMessage(error),
+                    "cannot write Shell PTY: " + usefulMessage(error),
                     error);
         }
     }
@@ -1386,13 +1388,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 mStreams.get(Long.valueOf(requestId));
         if (!(session instanceof PtyStreamSession)) {
             throw new IllegalStateException(
-                    "Shizuku PTY is not active: " + requestId);
+                    "Shell PTY is not active: " + requestId);
         }
         try {
             ((PtyStreamSession) session).resize(rows, columns);
         } catch (IOException error) {
             throw new IllegalStateException(
-                    "cannot resize Shizuku PTY: " + usefulMessage(error),
+                    "cannot resize Shell PTY: " + usefulMessage(error),
                     error);
         }
     }
@@ -1404,7 +1406,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             return session.workingDirectory();
         } catch (IOException error) {
             throw new IllegalStateException(
-                    "cannot read Shizuku PTY directory: "
+                    "cannot read Shell PTY directory: "
                             + usefulMessage(error),
                     error);
         }
@@ -1417,7 +1419,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
             return session.processId();
         } catch (IOException error) {
             throw new IllegalStateException(
-                    "cannot read Shizuku PTY process: "
+                    "cannot read Shell PTY process: "
                             + usefulMessage(error),
                     error);
         }
@@ -1428,7 +1430,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 mStreams.get(Long.valueOf(requestId));
         if (!(session instanceof PtyStreamSession)) {
             throw new IllegalStateException(
-                    "Shizuku PTY is not active: " + requestId);
+                    "Shell PTY is not active: " + requestId);
         }
         return (PtyStreamSession) session;
     }
@@ -1618,13 +1620,13 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 final IBinder ownerToken,
                 final boolean heartbeatEnabled) {
             super(requestId, process, writeSide, ownerToken,
-                    "MagicDeskShizukuStream-");
+                    "MagicDeskShellStream-");
             commandWriter = new BufferedWriter(new OutputStreamWriter(
                     process.getOutputStream(), StandardCharsets.UTF_8));
             if (heartbeatEnabled) {
                 heartbeatThread = new Thread(
                         this::runHeartbeat,
-                        "MagicDeskShizukuHeartbeat-" + requestId);
+                        "MagicDeskShellHeartbeat-" + requestId);
                 heartbeatThread.setDaemon(true);
             } else {
                 heartbeatThread = null;
@@ -1694,7 +1696,7 @@ public final class ShizukuCommandService extends IShizukuCommandService.Stub {
                 final ParcelFileDescriptor writeSide,
                 final IBinder ownerToken) {
             super(requestId, process, writeSide, ownerToken,
-                    "MagicDeskShizukuPty-");
+                    "MagicDeskShellPty-");
             commandWriter = new DataOutputStream(process.getOutputStream());
         }
 

@@ -9,28 +9,57 @@ boundaries. A missing Desktop capability does not disable an independent tool.
 | Boundary | Identity and authority |
 | --- | --- |
 | Ordinary UI and Android content integration | MagicDesk app UID and its Android permissions |
-| Privileged files, shell, display, task and input operations | Authorized Shizuku UserService, normally shell UID 2000 |
+| Privileged files, shell, display, task and input operations | One authorized command service, normally shell UID 2000; started through Shizuku or optional `su` |
 | Termux commands and PTYs | Termux UID, with its external-command configuration and MagicDesk's `RUN_COMMAND` grant |
 | MCP request | Listener token and grants, followed by the operation's service and Android permission checks |
 | Optional Kernel Fixes APK | Separate application with an explicit root workflow; never a main-APK dependency |
 
 `RuntimeCapabilities` reports prerequisites; it does not grant permissions
-or certify a firmware API. MCP and built-in UI can start before Shizuku. Files
-and shell-backed operations require it. Termux's own terminal transport has
+or certify a firmware API. MCP and built-in UI can start before the privileged
+service. Files and shell-backed operations require it. Termux's terminal transport has
 separate authorization. Creating a virtual display requires shell access, not
 HOME or WMShell Desktop.
 
 ## Shell Service
 
-MagicDesk uses the official Shizuku API and one bound command UserService.
-The user starts Shizuku and grants access. The service must report UID 2000
-or UID 0; both use the same implementation with their actual observed
-permissions. MagicDesk does not invoke `su`, acquire root, or substitute an
-app-UID shell when access fails.
+**Settings > Integrations > Privileged service** selects Shizuku (the default)
+or **Root (su)**. Shizuku uses its official authorization and UserService API;
+direct root asks the installed root manager to start the same service. There
+is no libsu dependency, automatic backend fallback, or root requirement.
 
-`ShellAccess` caches immutable connection state updated by Binder and
-permission events. Explicit audits and command failures refresh it. Ordinary
-commands do not repeat the manager/UID probe.
+The separate **Limit service to shell UID 2000** switch applies to either
+backend. With it disabled, the service retains the selected launcher's UID
+(2000 or 0). With it enabled, an initial UID 0 is reduced before the working
+Java process starts. A Shizuku server already running under UID 2000 needs no
+additional bootstrap. Both settings are app-private and captured at process
+startup; changing them never changes a live service's identity. They do not
+change the UID of Shizuku itself.
+
+The native bootstrap establishes real/effective/saved UID and GID 2000,
+shell supplementary groups, zero Linux capabilities and the shell SELinux
+domain before `exec app_process`. Java verifies the resulting identity before
+exposing its Binder. An unsupported identity transition fails explicitly; it
+does not continue with root privileges. Reducing only the calling Java thread
+would not restrict existing ART/Binder threads and is not used.
+
+This limits the working service, not the application's permanent root-manager
+authorization. Root authorization is still used during startup, and a trusted
+client with arbitrary shell/input access is not confined by an application
+sandbox. Root does not grant SystemUI identity, ownership of other apps' window
+tokens, or a guarantee that a firmware operation works.
+
+Both transports expose `IShellCommandService` and the same operations. The app
+checks the connected service's UID and APK build before publishing readiness.
+The standalone process hands its Binder to a permission-protected provider;
+the app checks a one-use startup nonce, independently reported child PID,
+calling UID and build. Its command endpoint accepts only the exact app UID.
+The temporary root bootstrap exposes no file, input or Desktop operations.
+
+`ShellAccess` caches immutable connection state updated by binding and
+permission events. Launcher readiness is not service readiness. Failed binding
+attempts report an error without repeated root prompts; an explicit connection
+request or a new launcher-availability event can retry. Cancelled callbacks
+cannot replace a later binding. Ordinary commands do not repeat startup probes.
 
 Finite operations use typed AIDL or bounded shell commands. Long-lived resources
 have explicit Binder/descriptor owners. Process or service death releases those
@@ -88,7 +117,7 @@ Managed Desktop temporarily holds HOME. Close restores the previous role state
 before tearing down its remaining task surfaces. Disabling HOME components is
 a later cleanup phase, so Android cannot remove a live host during task parking.
 Inactive MagicDesk HOME components are disabled. Startup recovery relinquishes
-stale HOME ownership without waiting for Shizuku.
+stale HOME ownership before either privilege backend starts.
 
 ## MCP Access
 

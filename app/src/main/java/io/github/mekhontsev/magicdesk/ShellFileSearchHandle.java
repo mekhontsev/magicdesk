@@ -7,9 +7,9 @@ import java.io.IOException;
 /** Search cancellation stays with the UserService that allocated the id. */
 final class ShellFileSearchHandle {
     final long id;
-    private final IShizukuCommandService mService;
+    private final IShellCommandService mService;
 
-    ShellFileSearchHandle(final long id, final IShizukuCommandService service)
+    ShellFileSearchHandle(final long id, final IShellCommandService service)
             throws IOException {
         if (id <= 0L) {
             throw new IOException("invalid shell file search id");

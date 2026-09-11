@@ -172,8 +172,8 @@ capture loops and persistent telemetry.
 - Preserve cleanup and restoration ownership for every changed system setting,
   task state, input route, and long-lived shell helper.
 
-Do not add a product flavor, separate APK, model-specific fork, root command in
-MagicDesk, competing task observer, polling loop, fixed-coordinate runtime
+Do not add a product flavor, separate APK, model-specific fork, per-operation
+root escalation, competing task observer, polling loop, fixed-coordinate runtime
 action, or package-specific window exception unless the architecture document
 explicitly defines that boundary.
 

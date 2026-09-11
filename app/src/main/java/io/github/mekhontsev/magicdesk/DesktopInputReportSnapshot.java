@@ -70,7 +70,7 @@ final class DesktopInputReportSnapshot {
         Set<String> unexpectedAssociations = new LinkedHashSet<>();
         String inputStateError = "";
         if (!ShellAccess.isReady()) {
-            inputStateError = "Shizuku runtime unavailable";
+            inputStateError = "Privileged runtime unavailable";
         } else {
             try {
                 final String inputDump =

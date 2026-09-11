@@ -8,11 +8,11 @@ import java.io.IOException;
 /** One worker owns creation, verified writes, and rollback on the same service. */
 final class ShellFileCreation implements AutoCloseable {
     final ShellFileInfo file;
-    private final IShizukuCommandService mService;
+    private final IShellCommandService mService;
     private boolean mFinished;
 
     ShellFileCreation(
-            final IShizukuCommandService service, final String parent,
+            final IShellCommandService service, final String parent,
             final String name) throws IOException {
         mService = service;
         try {

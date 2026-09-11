@@ -388,7 +388,7 @@ final class FrameworkWindowingCompat {
             return (Boolean) invoke(desktopFlags.getMethod("isTrue"), flag);
         } catch (SecurityException error) {
             // The wrapper reads ActivityThread.currentApplication(), whose
-            // package is not the Shizuku UID. Polyfill only its Settings-based
+            // package is not the service UID. Polyfill only its Settings-based
             // developer override, using the public setting read by the app.
             // Property-based overrides and non-overridable flags stay native.
             final Field overridable = findDeclaredField(desktopFlags, "mShouldOverrideByDevOption");

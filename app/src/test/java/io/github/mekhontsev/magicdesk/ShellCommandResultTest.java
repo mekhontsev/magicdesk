@@ -33,7 +33,7 @@ public final class ShellCommandResultTest {
             fail("Expected IOException");
         } catch (IOException expected) {
             assertEquals(
-                    "invalid response from Shizuku command service",
+                    "invalid response from Shell command service",
                     expected.getMessage());
         }
     }
