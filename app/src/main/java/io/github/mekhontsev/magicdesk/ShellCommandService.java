@@ -75,6 +75,11 @@ public final class ShellCommandService extends IShellCommandService.Stub {
 
     @Override public String sourceId() { return BuildConfig.SOURCE_ID; }
 
+    @Override public void configureCommandEnvironment(String endpoint, String apk) {
+        try { CommandShellEnvironment.configure(endpoint, apk); }
+        catch (IOException error) { throw new IllegalStateException("Cannot prepare shell commands", error); }
+    }
+
     @Override public String executeUiAutomation(final IBinder ownerToken,
             final String operation, final String arguments) {
         return mUiAutomation.execute(ownerToken, operation, arguments);

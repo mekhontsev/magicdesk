@@ -151,7 +151,7 @@ public final class ShellAccess {
     public static CommandResult executeCommand(final String command) throws IOException {
         final String encoded;
         try {
-            encoded = requireService().execute(command);
+            encoded = requireCommandService().execute(command);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("Shell command service failed: "
@@ -1083,7 +1083,7 @@ public final class ShellAccess {
         final long requestId = NEXT_STREAM_ID.incrementAndGet();
         final IBinder ownerToken = new Binder();
         try {
-            final IShellCommandService service = requireService();
+            final IShellCommandService service = requireCommandService();
             final ParcelFileDescriptor descriptor = service.openPtyStream(
                     workingDirectory,
                     rows,
@@ -1278,7 +1278,7 @@ public final class ShellAccess {
         final long requestId = NEXT_STREAM_ID.incrementAndGet();
         final IBinder ownerToken = new Binder();
         try {
-            final IShellCommandService service = requireService();
+            final IShellCommandService service = requireCommandService();
             final ParcelFileDescriptor descriptor;
             if (heartbeatEnabled) {
                 descriptor = service.openHeartbeatStream(
@@ -1318,6 +1318,12 @@ public final class ShellAccess {
 
     private static IShellCommandService requireService() throws IOException {
         return SERVICE_CONNECTION.require(sSnapshot);
+    }
+
+    private static IShellCommandService requireCommandService() throws IOException, RemoteException {
+        final IShellCommandService service = requireService();
+        AutomationCommandRuntime.get(MagicDeskApplication.applicationContext()).prepareShell(service);
+        return service;
     }
 
     private static IShellCommandService connectedServiceOrConnect() {

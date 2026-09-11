@@ -47,7 +47,7 @@ public final class McpAccessPolicyTest {
 
     @Test public void everyToolHasAnExplicitPermissionAndUnknownToolsAreDenied() throws Exception {
         final McpAccessPolicy observe = new McpAccessPolicy(Set.of());
-        final var all = MagicDeskMcpToolCatalog.create();
+        final var all = MagicDeskMcpBackend.describeTools();
         for (int i = 0; i < all.length(); i++) {
             final var tool = all.getJSONObject(i);
             final String name = tool.getString("name");
@@ -68,7 +68,7 @@ public final class McpAccessPolicyTest {
         final AtomicReference<McpAccessPolicy> access = new AtomicReference<>(new McpAccessPolicy(Set.of()));
         final McpBackend raw = new McpBackend() {
             @Override public JSONArray listTools() throws org.json.JSONException {
-                return MagicDeskMcpToolCatalog.create();
+                return AutomationCommandCatalog.create();
             }
             @Override public JSONObject callTool(String name, JSONObject args) throws org.json.JSONException {
                 return MagicDeskMcpBackend.actionResult(DesktopAutomationResult.success("executed", new JSONObject()));

@@ -4,9 +4,9 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Declarative MCP tool schemas kept separate from action execution. */
-final class MagicDeskMcpToolCatalog {
-    private MagicDeskMcpToolCatalog() {
+/** Command schemas shared by the local CLI and the MCP adapter. */
+final class AutomationCommandCatalog {
+    private AutomationCommandCatalog() {
     }
 
     static JSONArray create() throws JSONException {
@@ -581,7 +581,7 @@ final class MagicDeskMcpToolCatalog {
                                 .put("keys", arrayProperty("Modifiers first, then the key; KEYCODE_ prefix is optional.", stringProperty("Android key name."))),
                                 "displayId", "keys")))
                 .put(actionTool("device.keep_awake", "Keep phone awake temporarily",
-                        "Keep an already awake, unlocked phone's display on for 1 second to 30 minutes. No Desktop or privileged service required. Does not change screen timeout or bypass the lock screen. Returns a leaseId; pass it to renew an active lease. Expires automatically and is released when MCP stops.",
+                        "Keep an already awake, unlocked phone's display on for 1 second to 30 minutes. No Desktop or privileged service required. Does not change screen timeout or bypass the lock screen. Returns a leaseId; pass it to renew an active lease. Expires automatically and is released when the runtime stops.",
                         objectSchema(new JSONObject().put("durationMillis", integerProperty("1000-1800000 ms, default 300000."))
                                 .put("leaseId", stringProperty("Required only to renew the currently held lease.")))))
                 .put(actionTool("device.release_awake", "Release awake lease",
@@ -750,7 +750,7 @@ final class MagicDeskMcpToolCatalog {
                 .put(destructiveTool(
                         "console.close",
                         "Close console session",
-                        "Close one persistent MCP console session.",
+                        "Close one persistent automation console session.",
                         sessionSchema()))
                 .put(actionTool(
                         "terminal.open",
@@ -1162,8 +1162,7 @@ final class MagicDeskMcpToolCatalog {
         return new JSONObject()
                 .put("name", name)
                 .put("title", title)
-                .put("description", description + " Required permission: "
-                        + McpAccessPolicy.permissionName(name) + ".")
+                .put("description", description)
                 .put("inputSchema", schema)
                 .put("outputSchema", resultSchema(name))
                 .put("annotations", new JSONObject()

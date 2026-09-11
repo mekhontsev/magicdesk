@@ -4,7 +4,13 @@ import android.system.ErrnoException;
 import android.system.Os;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -28,10 +34,38 @@ final class ShellExecutionEnvironment {
 
     static ProcessBuilder processBuilder(
             final boolean interactive,
-            final String... command) {
+            final String... command) throws IOException {
         final ProcessBuilder builder = new ProcessBuilder(command);
-        apply(builder.environment(), android.system.Os.getuid(), interactive);
+        final int uid = android.system.Os.getuid();
+        apply(builder.environment(), uid, interactive);
+        if (interactive) {
+            prepareInteractiveShell(Path.of(builder.environment().get("ENV")), uid);
+        }
         return builder;
+    }
+
+    static String interactiveShellStartup(final int uid) {
+        // Android mksh reads ENV after its system rc. Keep the editable line short
+        // and preserve $? while computing the preceding line's optional status.
+        return "PS1='${PWD}${| local status=$?; "
+                + "(( status )) && REPLY=\" [exit $status]\"; return $status; }\n"
+                + (uid == ShellAccess.ROOT_UID ? "# " : "$ ") + "'\n";
+    }
+
+    static void prepareInteractiveShell(final Path target, final int uid) throws IOException {
+        final byte[] contents = interactiveShellStartup(uid).getBytes(StandardCharsets.UTF_8);
+        if (Files.isRegularFile(target) && Files.size(target) == contents.length
+                && Arrays.equals(Files.readAllBytes(target), contents)) {
+            return;
+        }
+        final Path temporary = Files.createTempFile(target.getParent(), ".shellrc-", ".tmp");
+        try {
+            Files.write(temporary, contents);
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     static void apply(
@@ -78,9 +112,16 @@ final class ShellExecutionEnvironment {
         environment.put("TERM", interactive ? "xterm-256color" : "dumb");
         if (interactive) {
             environment.put("COLORTERM", "truecolor");
+            environment.put("ENV", paths.config + "/shellrc");
         } else {
             environment.remove("COLORTERM");
+            environment.remove("ENV");
         }
+        CommandShellEnvironment.apply(environment);
+    }
+
+    static String prepareToolsDirectory() {
+        return prepareRuntime(android.system.Os.getuid()).bin;
     }
 
     static String diagnostics(final int uid) {

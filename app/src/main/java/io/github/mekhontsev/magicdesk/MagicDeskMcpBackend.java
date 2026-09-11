@@ -9,35 +9,25 @@ import org.json.JSONObject;
 /** Maps MCP tools and resources onto the shared desktop automation gateway. */
 final class MagicDeskMcpBackend implements McpBackend {
     private final Context mContext;
-    private final DesktopAutomationController mAutomation;
-    private final DesktopAutomationFileTools mFiles =
-            new DesktopAutomationFileTools();
-    private final DesktopAutomationConsoleSessions mConsole =
-            new DesktopAutomationConsoleSessions();
-    private final DesktopAutomationTerminalWindows mTerminals =
-            new DesktopAutomationTerminalWindows();
-    private final DesktopAutomationTmuxSessions mTmux;
-    private final AutomationFileTransfers mTransfers;
-    private final AndroidUiAutomation mAndroidUi;
+    private final AutomationCommands mCommands;
 
     MagicDeskMcpBackend(final Context context) {
         mContext = context.getApplicationContext();
-        mAutomation = new DesktopAutomationController(mContext);
-        mAndroidUi = new AndroidUiAutomation(mContext);
-        mTmux = new DesktopAutomationTmuxSessions(mContext, mTerminals);
-        mTransfers = new AutomationFileTransfers(mContext.getFilesDir().toPath().resolve("mcp-transfers"),
-                new ShellAutomationTransferStorage());
+        mCommands = AutomationCommandRuntime.get(mContext).commands;
     }
 
-    @Override
-    public void close() {
-        mAndroidUi.close();
-        mConsole.closeAll();
+    @Override public JSONArray listTools() throws JSONException {
+        return describeTools();
     }
 
-    @Override
-    public JSONArray listTools() throws JSONException {
-        return MagicDeskMcpToolCatalog.create();
+    static JSONArray describeTools() throws JSONException {
+        final JSONArray tools = AutomationCommandCatalog.create();
+        for (int i = 0; i < tools.length(); i++) {
+            final JSONObject tool = tools.getJSONObject(i);
+            tool.put("description", tool.getString("description") + " Required permission: "
+                    + McpAccessPolicy.permissionName(tool.getString("name")) + ".");
+        }
+        return tools;
     }
 
     McpBackend scoped(final boolean network) {
@@ -47,153 +37,8 @@ final class MagicDeskMcpBackend implements McpBackend {
         });
     }
 
-    @Override
-    public JSONObject callTool(
-            final String name,
-            final JSONObject arguments) throws JSONException {
-        try {
-            return callToolChecked(name, arguments);
-        } catch (IllegalArgumentException error) {
-            return actionResult(DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.INVALID_ARGUMENT,
-                    ShellAccess.usefulMessage(error), false));
-        } catch (RuntimeException error) {
-            return actionResult(DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.ACTION_FAILED,
-                    ShellAccess.usefulMessage(error), false));
-        }
-    }
-
-    private JSONObject callToolChecked(
-            final String name,
-            final JSONObject arguments) throws JSONException {
-        final JSONObject args = arguments == null
-                ? new JSONObject() : arguments;
-        final JSONObject data;
-        if (name.startsWith("ui.") || name.startsWith("input.") || name.startsWith("device.")) {
-            try {
-                final JSONObject result = mAndroidUi.execute(name, args);
-                if (result.has("accepted") && !result.getBoolean("accepted")) {
-                    return actionResult(DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,
-                            "Android declined the UI action", false, result));
-                }
-                return successResult(result);
-            } catch (java.io.IOException error) {
-                return actionResult(DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,
-                        ShellAccess.usefulMessage(error), false));
-            }
-        }
-        if (name.equals("app.update") || name.equals("app.update_status")) {
-            try {
-                return successResult(name.equals("app.update") ? MagicDeskAppUpdates.start(mContext, args)
-                        : MagicDeskAppUpdates.status(mContext, args.getString("updateId")));
-            } catch (java.io.IOException error) {
-                return actionResult(DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,
-                        ShellAccess.usefulMessage(error), true));
-            }
-        }
-        if (name.startsWith("files.upload_") || name.startsWith("files.download_")) {
-            try {
-                return successResult(mTransfers.execute(name, args));
-            } catch (java.io.IOException error) {
-                return actionResult(DesktopAutomationResult.failure(DesktopAutomationErrorCode.FILE_ACCESS_FAILED,
-                        ShellAccess.usefulMessage(error), true));
-            }
-        }
-        switch (name) {
-            case "get_state":
-                data = mAutomation.stateReader().state();
-                data.put("automationAwake", mAndroidUi.awakeState());
-                return successResult(data);
-            case "get_pointer_state":
-                data = mAutomation.stateReader().pointerState(args);
-                return successResult(data);
-            case "list_displays":
-                data = mAutomation.stateReader().displays();
-                return successResult(data);
-            case "list_tasks":
-                data = mAutomation.stateReader().tasks(args);
-                return successResult(data);
-            case "list_apps":
-                data = mAutomation.stateReader().apps(args);
-                return successResult(data);
-            case "get_app_presentation":
-                data = mAutomation.stateReader().appPresentation(args);
-                return successResult(data);
-            case "list_ui_elements":
-                data = mAutomation.stateReader().uiElements(args);
-                return successResult(data);
-            case "get_events":
-                data = mAutomation.stateReader().events(
-                        Math.max(0L, args.optLong("afterId", 0L)),
-                        Math.max(1, args.optInt("limit", 100)));
-                return successResult(data);
-            case "get_diagnostics":
-                data = mAutomation.stateReader().diagnostics();
-                return successResult(data);
-            case "get_self_test":
-                data = mAutomation.stateReader().selfTest(args.optBoolean("includeReport", false));
-                return successResult(data);
-            case "get_termux_x11_status":
-                data = mAutomation.stateReader().termuxX11Status();
-                return successResult(data);
-            case "wait_for_state":
-                return actionResult(mAutomation.waitFor(args));
-            default:
-                break;
-        }
-        if (name.startsWith("files.")
-                || name.startsWith("console.")
-                || name.startsWith("terminal.")
-                || name.startsWith("tmux.")) {
-            switch (name) {
-                case "files.list":
-                    return actionResult(mFiles.list(args));
-                case "files.stat":
-                    return actionResult(mFiles.stat(args));
-                case "files.create":
-                    return actionResult(mFiles.create(args));
-                case "files.rename":
-                    return actionResult(mFiles.rename(args));
-                case "console.open":
-                    return actionResult(mConsole.open(args));
-                case "console.execute":
-                    return actionResult(mConsole.execute(args));
-                case "console.status":
-                    return actionResult(mConsole.status(args));
-                case "console.close":
-                    return actionResult(mConsole.close(args));
-                case "terminal.open":
-                    return actionResult(mTerminals.open(args));
-                case "terminal.attach":
-                    return actionResult(mTerminals.attach(args));
-                case "terminal.detach":
-                    return actionResult(mTerminals.detach(args));
-                case "terminal.list":
-                    return actionResult(mTerminals.list());
-                case "terminal.status":
-                    return actionResult(mTerminals.status(args));
-                case "terminal.read":
-                    return actionResult(mTerminals.read(args));
-                case "terminal.write":
-                    return actionResult(mTerminals.write(args));
-                case "terminal.send_key":
-                    return actionResult(mTerminals.sendKey(args));
-                case "terminal.close":
-                    return actionResult(mTerminals.close(args));
-                case "tmux.list":
-                    return actionResult(mTmux.list());
-                case "tmux.open":
-                    return actionResult(mTmux.open(args));
-                default:
-                    return errorResult("unknown gated tool");
-            }
-        }
-        final DesktopAutomationResult result = mAutomation.execute(
-                name,
-                args,
-                true); // The listener-scoped policy already authorized this exact action.
-        return actionResult(result);
+    @Override public JSONObject callTool(String name, JSONObject arguments) throws JSONException {
+        return actionResult(mCommands.execute(name, arguments));
     }
 
     @Override
@@ -233,33 +78,23 @@ final class MagicDeskMcpBackend implements McpBackend {
     public String readResource(final String uri) throws JSONException {
         switch (uri) {
             case "magicdesk://state":
-                return mAutomation.stateReader().state().toString(2);
+                return mCommands.stateReader().state().toString(2);
             case "magicdesk://displays":
-                return mAutomation.stateReader().displays().toString(2);
+                return mCommands.stateReader().displays().toString(2);
             case "magicdesk://tasks":
-                return mAutomation.stateReader()
+                return mCommands.stateReader()
                         .tasks((Integer) null).toString(2);
             case "magicdesk://apps":
-                return mAutomation.stateReader().apps().toString(2);
+                return mCommands.stateReader().apps().toString(2);
             case "magicdesk://events":
-                return mAutomation.stateReader().events(0L, 256).toString(2);
+                return mCommands.stateReader().events(0L, 256).toString(2);
             case "magicdesk://diagnostics":
-                return mAutomation.stateReader().diagnostics().toString(2);
+                return mCommands.stateReader().diagnostics().toString(2);
             case "magicdesk://self-test":
-                return mAutomation.stateReader().selfTest().toString(2);
+                return mCommands.stateReader().selfTest().toString(2);
             default:
                 throw new IllegalArgumentException("unknown resource uri");
         }
-    }
-
-    private static JSONObject successResult(final JSONObject data)
-            throws JSONException {
-        return actionResult(DesktopAutomationResult.success("ok", data));
-    }
-
-    private static JSONObject errorResult(final String message)
-            throws JSONException {
-        return actionResult(DesktopAutomationResult.failure(message));
     }
 
     static JSONObject actionResult(

@@ -532,15 +532,19 @@ runtime integration and are not distributed through the same release path.
   to one selected private IPv4 interface and port. Network callbacks reconcile
   address changes only while network access is enabled; there is no poller.
   Network listener failure does not stop loopback or close the shared backend.
-  Stopping the runtime closes both listeners, client sockets, workers and backend.
+  Stopping MCP closes its listeners, client sockets and HTTP workers.
   A closed transport cannot be restarted; enabling it again creates a new one.
   A user launch may first create the service in automation-only mode so an MCP
   client can connect before the privileged service is available. That mode owns only the
   foreground service and MCP transport. The same service is promoted in place
   as requested services become available; Desktop coordinators initialize only
   for an explicit Desktop session, not merely because the privileged service connected.
-  `MagicDeskMcpBackend` only maps MCP tools and resources to the shared action
-  and state boundary. `McpAuthorizedBackend` checks a live, listener-specific
+  `AutomationCommandRuntime` owns `AutomationCommands`, including retained
+  headless shells, UI automation and transfers, independently of MCP enablement.
+  `AutomationCommandCatalog` describes the commands for both MCP and the built-in
+  CLI. `AutomationCommandArguments` checks basic argument shape; individual
+  services own semantic validation. `MagicDeskMcpBackend` adapts results and
+  adds MCP permission descriptions. `McpAuthorizedBackend` checks a live, listener-specific
   `McpAccessPolicy` before every command. The complete catalog and permission
   descriptions remain stable when grants change; unknown tools fail closed.
   Local and network tokens and permission sets are independent. The optional
@@ -548,6 +552,18 @@ runtime integration and are not distributed through the same release path.
   External UI inspection/waits require `content`; UI actions, injected gestures
   and awake leases require `input_tests`. Content authorization is checked again
   before returning a result that may have outlived a permission change.
+- `MagicDeskCli` runs from the APK through Android `app_process`. Its parser
+  derives options/help directly from the shared catalog and calls the same
+  executor through a lazily created loopback socket. No HTTP or MCP settings
+  are involved. MagicDesk-launched shells inherit an ephemeral endpoint and
+  secret through `CommandShellEnvironment`; the listener checks this capability
+  before dispatching any command. The generic entry script contains
+  no secret. Shell binding is configured once per command-runtime/service pair,
+  separately from framework/Desktop setup. Termux launch preparation installs
+  the same entry script in its own environment, without making Termux a
+  prerequisite for shell execution. The channel has bounded messages/workers,
+  no polling, and closes with the runtime. Process restart invalidates old
+  channels. The CLI never retries an indeterminate action.
 - `AutomationDeviceState` shares on-demand awake/lock prerequisites between MCP
   and the self-test launcher. Build, process and installation identities are
   separate observations. `DesktopSelfTestResult` persists an atomic JSON result
@@ -717,9 +733,9 @@ runtime integration and are not distributed through the same release path.
   `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
   service as built-in Files. `DesktopAutomationConsoleSessions` owns a bounded
   set of lifecycle-scoped `PersistentAutomationShellSession` instances and
-  closes them with the MCP backend. These marker-delimited non-terminal shells
+  closes them with the shared command runtime. These marker-delimited non-terminal shells
   exist only to return structured command output, exit status, and current
-  directory to MCP; they are not a second user-facing Console implementation.
+  directory to command adapters; they are not a second user-facing Console implementation.
 - `ConsoleTerminalRegistry` owns up to 32 process-local terminal sessions and weak
   references to their optional windows. It exposes immutable task, display, PTY,
   dimensions, foreground-process, title, directory, viewport, and transcript
@@ -730,8 +746,8 @@ runtime integration and are not distributed through the same release path.
   `DesktopAutomationTerminalWindows` maps the gated MCP
   `terminal.*` tools onto that registry and the normal built-in-window launch
   path. Terminal input therefore reaches the real PTY directly instead of
-  synthesizing pointer coordinates. Closing the MCP server closes only its
-  marker-delimited headless sessions, never a user-owned Terminal window.
+  synthesizing pointer coordinates. Closing the MCP server does not terminate
+  headless or user-owned terminal sessions.
 - `DisplayCaptureRequest` describes a display and an optional immutable pixel
   rectangle. `DisplayCaptureService` resolves geometry, validates selection,
   and asks the existing shell capture backend for one cropped PNG pipe or one
@@ -1560,7 +1576,11 @@ provides stable `HOME`, `TMPDIR`, XDG directories, Android-system `PATH`,
 locale, and shell identity values under UID-specific
 `/data/local/tmp/magicdesk-{shell,root}` runtime directories. Interactive
 transports add `xterm-256color` and
-true-color metadata; non-interactive commands use `TERM=dumb`. This shared
+true-color metadata and an owned Android-shell `ENV` startup file. Its two-line
+prompt puts the current path and nonzero exit status above the short `$`/`#`
+input line; prompt evaluation preserves the command's exit status. Termux's
+shell configuration is independent and unchanged. Non-interactive commands use
+`TERM=dumb` without that startup file. This shared
 profile is the only insertion point for future Android-native command bundles.
 Shell and root identities use independent top-level runtime directories so a
 root-backed service session cannot leave ownership that breaks a later

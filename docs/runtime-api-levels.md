@@ -10,6 +10,7 @@ device validation on that release is still pending.
 | Subsystem | Baseline and prerequisites |
 | --- | --- |
 | MCP and ordinary built-in UI | API 34; explicit client grants for automation. UI startup does not require Desktop provisioning. |
+| Built-in CLI | API 34; an inherited MagicDesk shell channel. Each command retains its own prerequisites; MCP enablement and installed Termux are not required. |
 | Files, shell commands and transfers | API 34 plus authorized privileged service for shell-backed operations. |
 | Termux sessions and viewers | API 34 plus installed Termux, external-command configuration and `RUN_COMMAND` permission. The PTY and its window have separate lifetimes. |
 | APK replacement | API 34 plus authorized privileged service and the update grant. Android's PackageInstaller and its shell callback own replacement; the update worker survives replacement and reconnect is observed by update ID. |
@@ -21,7 +22,7 @@ device validation on that release is still pending.
 
 `RuntimeCapabilities` owns the Desktop SDK floor. Session launch checks it before
 display-profile preparation, and runtime launch checks before starting the
-service. MCP rejects Desktop requests before resolving or creating a target.
+service. The shared command executor rejects Desktop requests before resolving or creating a target.
 A direct service Intent on an unsupported SDK retains only requested independent
 services. Reconnecting the privileged service cannot promote Desktop on that SDK.
 
@@ -92,7 +93,8 @@ hidden Binder ABI compatibility, reflective members, dependency/native behavior,
 SELinux grants or firmware policy.
 
 The remaining API 34 device matrix is: cold app/MCP startup, privileged-service reconnect,
-file operations and transfers, retained shell/Termux sessions, private/shared
+file operations and transfers, retained shell/Termux sessions, CLI commands with
+MCP disabled, private/shared
 drag boundaries, APK replacement with reconnect, virtual-display creation,
 fullscreen tool launch/capture/removal, and Desktop rejection without HOME or
 display-policy changes. Run Desktop regression tests on API 35+ separately.

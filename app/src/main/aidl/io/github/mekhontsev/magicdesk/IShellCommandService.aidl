@@ -459,4 +459,6 @@ interface IShellCommandService {
     void sendActivityOnDisplay(in PendingIntent intent, int displayId) = 131;
 
     PendingIntent getShortcutLaunchIntent(String packageName, String shortcutId) = 132;
+
+    void configureCommandEnvironment(String endpoint, String apk) = 133;
 }

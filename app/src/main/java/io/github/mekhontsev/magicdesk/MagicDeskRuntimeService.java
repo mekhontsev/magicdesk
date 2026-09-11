@@ -508,6 +508,7 @@ public final class MagicDeskRuntimeService extends Service
             mMcpRuntime.close();
             mMcpRuntime = null;
         }
+        AutomationCommandRuntime.closeCurrent();
         if (mHandler != null) {
             mHandler.removeCallbacksAndMessages(null);
         }

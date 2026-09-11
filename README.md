@@ -227,6 +227,12 @@ The complete tool catalog stays visible when permissions change, so an AI client
 does not need to reload its catalog merely because a grant was enabled.
 Android 16+ App Functions expose a smaller system-agent action surface.
 
+The built-in `magicdesk` CLI brings the same commands to shell scripts in
+MagicDesk Console and Termux Console. Its options and help come from the shared
+command catalog, and execution uses the same services as MCP. It works without
+Desktop, an enabled MCP server, Python, or an installed Termux app when using
+the ordinary Console.
+
 See [Automation and MCP](docs/automation.md) for configuration, permissions,
 transfer/update protocols and test control.
 

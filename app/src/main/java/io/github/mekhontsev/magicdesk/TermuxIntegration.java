@@ -234,7 +234,7 @@ final class TermuxIntegration {
                         "$PREFIX/bin/bash")
                 .putExtra(EXTRA_ARGUMENTS, new String[]{
                         "-lc",
-                        PTY_BOOTSTRAP,
+                        AutomationCommandRuntime.get(context).prepareTermux(endpoint) + PTY_BOOTSTRAP,
                         "magicdesk-termux-pty",
                         Integer.toString(port),
                         token,
@@ -269,7 +269,9 @@ final class TermuxIntegration {
                 .putExtra(
                         EXTRA_COMMAND_PATH,
                         "$PREFIX/bin/bash")
-                .putExtra(EXTRA_ARGUMENTS, new String[]{"-lc", command})
+                .putExtra(EXTRA_ARGUMENTS, new String[]{"-lc",
+                        AutomationCommandRuntime.get(MagicDeskApplication.applicationContext())
+                                .prepareTermux(endpoint) + command})
                 .putExtra(
                         EXTRA_WORKDIR,
                         directory)

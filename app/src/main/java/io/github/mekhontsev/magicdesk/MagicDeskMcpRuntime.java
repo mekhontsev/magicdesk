@@ -11,7 +11,7 @@ import org.json.JSONObject;
 import java.io.Closeable;
 import java.io.IOException;
 
-/** One automation backend with independently owned local and opt-in network listeners. */
+/** Independently owned local and opt-in network adapters to the shared command runtime. */
 final class MagicDeskMcpRuntime implements Closeable {
     private static volatile MagicDeskMcpRuntime sActive;
     private static volatile Snapshot sLast = Snapshot.inactive();
@@ -134,8 +134,7 @@ final class MagicDeskMcpRuntime implements Closeable {
         stopNetwork();
         if (mLocal != null) mLocal.close();
         mLocal = null;
-        // Closing/rebinding the network socket must not close local shell sessions.
-        if (mBackend != null) mBackend.close();
+        // Listener lifetime does not own command sessions, CLI, or shared UI observations.
         mBackend = null;
         mHandler = null;
         mNetworkHandler = null;

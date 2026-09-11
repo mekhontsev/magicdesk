@@ -1,12 +1,13 @@
 # MagicDesk Automation
 
 MagicDesk exposes shared services and managed Desktop through one typed action
-boundary with two adapters:
+boundary with three adapters:
 
 - a Model Context Protocol (MCP) server with loopback and optional network access;
+- the built-in `magicdesk` CLI for MagicDesk-launched shells and scripts;
 - Android App Functions for authorized system agents on Android 16 and newer.
 
-Both adapters use production services and controllers. Automation does not
+All adapters use production services and controllers. Automation does not
 implement a second desktop policy or a parallel task observer. The APK baseline
 is Android 14; managed Desktop and its self-tests require Android 15. Server
 availability, service prerequisites and client grants are independent checks.
@@ -139,9 +140,51 @@ Each listener independently grants:
 These are command capabilities, not isolated sandboxes: shell, input, UI control,
 and code replacement can have broad effects or reach other application features.
 Grant them only to trusted clients. Revocation applies to subsequent calls;
-already accepted operations may finish. Disabling MCP resets permissions,
-disables network access, and closes MCP-owned headless shells. User-opened
-Terminal windows keep their normal lifecycle. Tokens remain private and stable.
+already accepted operations may finish. Disabling MCP resets permissions and
+disables its network access. Command sessions belong to the shared runtime,
+not a listener; explicit session close or runtime exit releases them.
+Tokens remain private and stable.
+
+## Built-In CLI
+
+New MagicDesk Console and Termux Console shells provide `magicdesk` in `PATH`.
+It also works in child shell scripts and MagicDesk-launched background commands.
+The ordinary Console uses Android's shell; Termux is optional. The CLI needs
+neither Python nor an enabled MCP server, network connection, or MCP token setup.
+
+```sh
+magicdesk --help
+magicdesk list_tasks --help
+magicdesk list_tasks --displayId 0 --limit 20
+magicdesk terminal.list
+magicdesk terminal.open --backend shell --placement display --displayId 0
+magicdesk wait_for_state --condition desktop_inactive --timeoutMillis 1000
+magicdesk list_tasks --args '{"displayId":0,"limit":20}'
+magicdesk list_tasks --args @request.json
+magicdesk close_desktop --dry-run
+```
+
+Command names and argument names match the shared catalog exactly. Boolean
+options accept `--includeReport`, `--includeReport=true` or
+`--includeReport false`. Objects and arrays use JSON. `--args -` reads one JSON
+object from stdin; it cannot be mixed with named arguments. `COMMAND --schema`
+prints the command descriptor. `--dry-run` validates and prints a request without
+executing it. Help and schema inspection do not need a running app connection.
+
+Stdout contains the shared `success`, `message`, `data`, `error` JSON result;
+captures additionally carry an `image` object with `mimeType` and base64 `data`.
+CLI diagnostics go to stderr. Exit status is 0 for a successful operation, 1
+for an operation failure, 2 for invalid arguments and 3 for a transport failure.
+A successful observation can still have `matched=false`. Acceptance is not
+completion; use the ordinary observation commands and exact operation/run IDs.
+There are no automatic command retries after a lost response.
+
+The entry script invokes the Java CLI from the same APK using Android
+`app_process`. It inherits a private local command channel from the shell launch,
+not privileges from the APK. Existing shells must be reopened after upgrading
+or restarting the runtime. The entry script contains no secret, and running it
+from an unrelated app does not grant access. Shell descendants are trusted as
+part of the user's command environment; do not pass it to untrusted code.
 
 ## Result Contract
 

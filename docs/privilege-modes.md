@@ -12,6 +12,7 @@ boundaries. A missing Desktop capability does not disable an independent tool.
 | Privileged files, shell, display, task and input operations | One authorized command service, normally shell UID 2000; started through Shizuku or optional `su` |
 | Termux commands and PTYs | Termux UID, with its external-command configuration and MagicDesk's `RUN_COMMAND` grant |
 | MCP request | Listener token and grants, followed by the operation's service and Android permission checks |
+| Built-in CLI | Private channel inherited by a MagicDesk-launched shell; the same service prerequisites and operation implementation as MCP |
 | Optional Kernel Fixes APK | Separate application with an explicit root workflow; never a main-APK dependency |
 
 `RuntimeCapabilities` reports prerequisites; it does not grant permissions
@@ -120,6 +121,13 @@ Inactive MagicDesk HOME components are disabled. Startup recovery relinquishes
 stale HOME ownership before either privilege backend starts.
 
 ## MCP Access
+
+The built-in CLI is a separate local adapter, not an unauthenticated HTTP path.
+Its ephemeral channel is supplied automatically to explicitly launched shell
+and optional Termux processes. It binds only to loopback and requires the inherited
+256-bit secret for every request. Loading CLI code from the public APK is not authority.
+Child scripts inherit the user's access; this is not a sandbox for untrusted
+scripts. The CLI neither starts `su` nor changes the selected service identity.
 
 MCP is disabled by default. Loopback binds to `127.0.0.1:8765`; optional network
 access binds to one selected private IPv4 interface and configured port.
