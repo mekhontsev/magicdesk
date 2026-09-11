@@ -66,7 +66,7 @@ final class McpAccessPolicy {
                     "clipboard.read_text", "clipboard.write_text", "clipboard.clear",
                     "clipboard.open", "clipboard.share", "list_notifications",
                     "get_intent_result", "get_activity_history" -> Permission.CONTENT;
-            case "ui.inspect", "ui.wait" -> Permission.CONTENT;
+            case "ui.inspect", "ui.wait", "ui.read_text" -> Permission.CONTENT;
             case "start_desktop", "close_desktop", "create_display", "remove_display",
                     "launch_app", "set_app_presentation", "reset_app_presentation",
                     "launch_intent", "open_uri", "open_file", "share", "invoke_android_action",

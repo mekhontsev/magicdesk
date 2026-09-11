@@ -12,7 +12,7 @@ public final class McpAccessPolicyTest {
         final McpAccessPolicy observe = new McpAccessPolicy(Set.of());
         final McpAccessPolicy input = new McpAccessPolicy(Set.of("input_tests"));
         final McpAccessPolicy content = new McpAccessPolicy(Set.of("content"));
-        for (String name : Set.of("ui.inspect", "ui.wait")) {
+        for (String name : Set.of("ui.inspect", "ui.wait", "ui.read_text")) {
             assertFalse(observe.allows(name));
             assertFalse(input.allows(name));
             assertTrue(content.allows(name));
@@ -36,10 +36,13 @@ public final class McpAccessPolicyTest {
                         new JSONObject().put("text", "private-test-value")));
             }
         };
-        final JSONObject result = new McpAuthorizedBackend(raw, "network", access::get)
-                .callTool("ui.wait", new JSONObject());
-        assertFalse(result.getJSONObject("structuredContent").getBoolean("success"));
-        assertFalse(result.toString().contains("private-test-value"));
+        for (String name : Set.of("ui.inspect", "ui.wait", "ui.read_text")) {
+            access.set(new McpAccessPolicy(Set.of("content")));
+            final JSONObject result = new McpAuthorizedBackend(raw, "network", access::get)
+                    .callTool(name, new JSONObject());
+            assertFalse(result.getJSONObject("structuredContent").getBoolean("success"));
+            assertFalse(result.toString().contains("private-test-value"));
+        }
     }
 
     @Test public void everyToolHasAnExplicitPermissionAndUnknownToolsAreDenied() throws Exception {

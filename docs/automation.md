@@ -443,7 +443,8 @@ Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
 
 | Tool | Contract |
 | --- | --- |
-| `ui.inspect` | Read accessibility windows, parent/child nodes, resource ids, text, bounds, state and supported actions. |
+| `ui.inspect` | Read accessibility windows/nodes, optionally scoped to a window or subtree and filtered by an exact selector. |
+| `ui.read_text` | Read full text/description in bounded pages from a retained node's snapshot. |
 | `ui.perform` | Click, long-click, focus, set/select text, scroll or reveal a node using an advertised action. |
 | `ui.wait` | Wait for exact selector presence/absence, including expected text and state flags. |
 | `ui.release` | Release the Android automation connection and cancel its pending UI waits. |
@@ -452,7 +453,7 @@ Prefer the existing semantic MagicDesk controls for Start, taskbar and menus.
 | `device.keep_awake` | Acquire or renew a bounded screen-awake lease; no Shizuku or Desktop needed. |
 | `device.release_awake` | Release the exact lease token. |
 
-`ui.inspect` and `ui.wait` require the `content` permission. They can read text
+`ui.inspect`, `ui.wait` and `ui.read_text` require the `content` permission. They can read text
 from other apps; password text and descriptions are redacted. The other commands
 require `input_tests`. These grants are independent for local and network
 clients. UI strings and entered text are not logged or added to diagnostics.
@@ -469,13 +470,38 @@ Example sequence after locating the intended editor:
 Selectors are exact conjunctions, not regexes or first-match heuristics. To wait
 for focus/check/selection changes, include that boolean in the selector.
 `ui.wait` returns `matched` and `timedOut`; a successful observation request does
-not imply its condition matched. `complete=false` means unavailable roots or
-bounded traversal/text truncation; it never proves absence. Canvas-only apps,
+not imply its condition matched. Each capture clears Android's accessibility
+cache through the public API 34 `UiAutomation.clearCache`. `stable` means this
+succeeded and no accessibility event was observed during capture; it is not a
+guarantee that application rendering finished. `generationStart`/`generationEnd`
+expose concurrent changes. An unstable observation cannot satisfy either wait
+condition. `complete=false` means unstable or incomplete traversal, or redacted
+values that could match the selector; it never proves absence. Canvas-only apps,
 protected surfaces and missing accessibility events remain platform limitations.
 Use screenshots or explicit gestures when semantic elements are unavailable.
 
-Snapshots are limited to 256 nodes, depth 40 and 64 KiB of text. Handles expire
-after 60 seconds and only four snapshots are retained. A changed/stale element
+Both inspect and wait accept `windowId` or `rootElementId` (mutually exclusive)
+within their explicit `displayId`. A subtree handle is refreshed and identity
+checked, never treated as a coordinate. `selector` in inspect returns matching
+nodes only; wait uses the same traversal. A filter can therefore find a node
+beyond the first 256 unrelated nodes. Search is bounded to 4096 visited/queued
+nodes, depth 40 and a three-second traversal budget; `maxNodes` limits returned
+nodes/matches to 1-256, not the number of candidates searched. `visitedNodes`
+and `hierarchyComplete` describe traversal. Filtered results have `parentId`
+only when their immediate parent was also retained.
+
+Node text/description previews are limited to 512 UTF-16 units per field and
+64 KiB in total. `textLength`, `textTruncated`, `descriptionLength` and
+`descriptionTruncated` identify shortened fields; top-level `textTruncated`
+reports any shortened preview. Preview truncation does not invalidate traversal
+or exact matching: selectors compare full values, up to 32768 UTF-16 units.
+`ui.read_text` takes `elementId`, `field` (`text` or `description`), `offset`
+and `limit` (1-32768). Follow `nextOffset` until null. Page boundaries do not
+split surrogate pairs; a limit of one may return a two-unit character. Password
+values and lengths remain null. Pages belong to the same retained revision,
+even if an action changes the live field. Inspect/wait again for current text.
+
+Handles expire after 60 seconds and only four snapshots are retained. A changed/stale element
 fails explicitly, never falling back to its old coordinates. `accepted=true`
 means Android accepted the action, not that navigation or rendering finished.
 Inspect/wait again to verify. Unicode and line breaks go directly through
@@ -498,8 +524,8 @@ release it when finished. `get_state.automationAwake` reports the current token
 and remaining lifetime. The system screen-timeout setting is never modified;
 the lock expires automatically and is released when the MCP runtime stops.
 
-The debug-only `DebugUiAutomationActivity` supplies a harmless editor, password,
-mutable button identity and scrollable list for end-to-end verification through
+The debug-only `DebugUiAutomationActivity` supplies a harmless editor, long-text
+action, password, mutable button identity and 320-row list for verification through
 these same APIs. It does not register elements in MagicDesk's UI registry and
 is not included in release APKs.
 

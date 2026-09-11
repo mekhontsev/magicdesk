@@ -30,7 +30,7 @@ final class AndroidIntentHandlerQuery {
         switch (request.kind) {
             case ACTIVITY:
                 resolved = packageManager.queryIntentActivities(
-                        request.intent, PackageManager.MATCH_DEFAULT_ONLY);
+                        request.intent, AndroidActivityResolution.queryFlags(request.intent));
                 break;
             case BROADCAST:
                 resolved = packageManager.queryBroadcastReceivers(

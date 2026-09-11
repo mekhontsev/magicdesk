@@ -36,7 +36,7 @@ final class ShellUiAutomation implements AutoCloseable {
                 release(owner);
                 return new JSONObject().put("released", true).toString();
             }
-            if (!java.util.Set.of("ui.inspect", "ui.perform", "ui.wait", "input.gesture", "input.key_chord")
+            if (!java.util.Set.of("ui.inspect", "ui.read_text", "ui.perform", "ui.wait", "input.gesture", "input.key_chord")
                     .contains(operation)) throw new IllegalArgumentException("unknown UI automation operation");
             final Session session = begin(owner);
             try {
@@ -137,17 +137,14 @@ final class ShellUiAutomation implements AutoCloseable {
                 prune();
                 switch (operation) {
                     case "ui.inspect": {
-                        final int display = display(args);
-                        return retain(AndroidUiSnapshot.capture(mAutomation, display,
-                                AndroidUiSelector.integer(args, "maxNodes", 200, 1, 256))).toJson(display);
+                        return retain(capture(AndroidUiScope.parse(args))).toJson();
                     }
-                    case "ui.perform": {
+                    case "ui.perform":
+                    case "ui.read_text": {
                         final String elementId = args.getString("elementId");
-                        final int separator = elementId.indexOf(':');
-                        final AndroidUiSnapshot snapshot = separator < 0 ? null
-                                : mSnapshots.get(elementId.substring(0, separator));
-                        if (snapshot == null) throw new IllegalArgumentException("expired UI handle; inspect again");
-                        return snapshot.perform(elementId, args);
+                        final AndroidUiSnapshot snapshot = snapshotFor(elementId);
+                        return operation.equals("ui.read_text") ? snapshot.readText(elementId, args)
+                                : snapshot.perform(elementId, args);
                     }
                     case "input.gesture": return AndroidAutomationInput.gesture(mAutomation, args);
                     case "input.key_chord": return AndroidAutomationInput.keyChord(mAutomation, args);
@@ -157,13 +154,12 @@ final class ShellUiAutomation implements AutoCloseable {
         }
 
         private JSONObject await(final JSONObject args) throws JSONException {
-            final AndroidUiSelector selector = new AndroidUiSelector(args.getJSONObject("selector"));
+            final AndroidUiScope scope = AndroidUiScope.parse(args);
+            if (scope.selector() == null) throw new IllegalArgumentException("selector is required");
             final String condition = args.optString("condition", "present");
             if (!condition.equals("present") && !condition.equals("absent")) {
                 throw new IllegalArgumentException("condition must be present or absent");
             }
-            final int display = display(args);
-            final int maxNodes = AndroidUiSelector.integer(args, "maxNodes", 256, 1, 256);
             final long deadline = SystemClock.uptimeMillis()
                     + AndroidUiSelector.integer(args, "timeoutMillis", 5000, 0, 60000);
             for (;;) {
@@ -171,16 +167,14 @@ final class ShellUiAutomation implements AutoCloseable {
                 synchronized (mEvents) { generation = mGeneration; }
                 synchronized (mOperations) {
                     checkOpen();
-                    final AndroidUiSnapshot snapshot = AndroidUiSnapshot.capture(mAutomation, display, maxNodes);
-                    final JSONArray matches = snapshot.matches(selector);
-                    final boolean complete = snapshot.completeFor(selector);
+                    final AndroidUiSnapshot snapshot = capture(scope);
+                    final JSONArray matches = snapshot.nodes;
                     final boolean satisfied = AndroidUiSelector.satisfied(condition.equals("present"),
-                            matches.length(), complete);
+                            matches.length(), snapshot.complete(), snapshot.stable());
                     if (satisfied || SystemClock.uptimeMillis() >= deadline) {
                         retain(snapshot);
-                        return new JSONObject().put("matched", satisfied).put("timedOut", !satisfied)
-                                .put("complete", complete).put("matches", matches)
-                                .put("snapshotId", snapshot.id).put("displayId", display);
+                        return snapshot.metadata().put("matched", satisfied).put("timedOut", !satisfied)
+                                .put("matches", matches);
                     }
                     snapshot.close();
                 }
@@ -201,6 +195,29 @@ final class ShellUiAutomation implements AutoCloseable {
             }
         }
 
+        private AndroidUiSnapshot snapshotFor(final String elementId) {
+            prune();
+            final int separator = elementId.indexOf(':');
+            final AndroidUiSnapshot snapshot = separator < 0 ? null
+                    : mSnapshots.get(elementId.substring(0, separator));
+            if (snapshot == null) throw new IllegalArgumentException("expired UI handle; inspect again");
+            return snapshot;
+        }
+
+        private AndroidUiSnapshot capture(final AndroidUiScope scope) throws JSONException {
+            final long start;
+            synchronized (mEvents) { start = mGeneration; }
+            final android.view.accessibility.AccessibilityNodeInfo subtree = scope.rootElementId() == null
+                    ? null : snapshotFor(scope.rootElementId()).refreshedNode(scope.rootElementId(), scope.displayId());
+            try {
+                final AndroidUiSnapshot snapshot = AndroidUiSnapshot.capture(mAutomation, scope, subtree);
+                synchronized (mEvents) { snapshot.observedBetween(start, mGeneration); }
+                return snapshot;
+            } finally {
+                if (subtree != null) subtree.recycle();
+            }
+        }
+
         private AndroidUiSnapshot retain(final AndroidUiSnapshot snapshot) {
             prune();
             if (mSnapshots.size() == 4) mSnapshots.remove(mSnapshots.keySet().iterator().next()).close();
@@ -217,12 +234,6 @@ final class ShellUiAutomation implements AutoCloseable {
                     snapshot.close();
                 }
             }
-        }
-
-        private static int display(final JSONObject args) {
-            final int display = AndroidUiSelector.integer(args, "displayId", -1, 0, Integer.MAX_VALUE);
-            if (display < 0) throw new IllegalArgumentException("displayId is required");
-            return display;
         }
 
         private void signal() { synchronized (mEvents) { mGeneration++; mEvents.notifyAll(); } }

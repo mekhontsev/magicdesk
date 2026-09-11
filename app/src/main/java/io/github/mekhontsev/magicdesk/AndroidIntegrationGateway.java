@@ -880,7 +880,8 @@ final class AndroidIntegrationGateway {
                                 && resolution.authorization
                                         .requiresAppIdentity(),
                         target.getFlags());
-        if (!launchPolicy.selectionSurface) {
+        if (!launchPolicy.selectionSurface || resolvedComponent != null
+                && AndroidActivityResolution.isLauncherEntry(target)) {
             target.setComponent(resolvedComponent);
         }
         final String resultRequestId = request.expectResult

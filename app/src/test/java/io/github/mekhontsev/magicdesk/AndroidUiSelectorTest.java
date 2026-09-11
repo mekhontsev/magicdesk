@@ -26,11 +26,22 @@ public final class AndroidUiSelectorTest {
     }
 
     @Test public void incompleteTreeCanProvePresenceButNeverAbsence() {
-        assertTrue(AndroidUiSelector.satisfied(true, 1, false));
-        assertFalse(AndroidUiSelector.satisfied(true, 0, true));
-        assertFalse(AndroidUiSelector.satisfied(false, 0, false));
-        assertFalse(AndroidUiSelector.satisfied(false, 1, true));
-        assertTrue(AndroidUiSelector.satisfied(false, 0, true));
+        assertTrue(AndroidUiSelector.satisfied(true, 1, false, true));
+        assertFalse(AndroidUiSelector.satisfied(true, 0, true, true));
+        assertFalse(AndroidUiSelector.satisfied(false, 0, false, true));
+        assertFalse(AndroidUiSelector.satisfied(false, 1, true, true));
+        assertTrue(AndroidUiSelector.satisfied(false, 0, true, true));
+        assertFalse(AndroidUiSelector.satisfied(true, 1, true, false));
+        assertFalse(AndroidUiSelector.satisfied(false, 0, true, false));
+    }
+
+    @Test public void fullTextMatchCannotMistakePreviewForValue() throws Exception {
+        final String text = "x".repeat(512) + "\n" + "y".repeat(4000);
+        final JSONObject node = new JSONObject().put("text", text);
+        assertFalse(new AndroidUiSelector(new JSONObject().put("text", text.substring(0, 512))).matches(node));
+        assertTrue(new AndroidUiSelector(new JSONObject().put("text", text)).matches(node));
+        assertThrows(IllegalArgumentException.class, () ->
+                new AndroidUiSelector(new JSONObject().put("text", "x".repeat(32769))));
     }
 
     @Test public void redactedTextCannotProveAbsenceButDoesNotHideUnrelatedNodes() throws Exception {

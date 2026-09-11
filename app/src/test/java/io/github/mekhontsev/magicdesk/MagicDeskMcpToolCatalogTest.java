@@ -12,6 +12,29 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class MagicDeskMcpToolCatalogTest {
+    @Test public void uiScopeAndFullTextAreDiscoverableWithoutDesktop() throws Exception {
+        final JSONArray tools = MagicDeskMcpToolCatalog.create();
+        for (final String name : Set.of("ui.inspect", "ui.wait")) {
+            final var schema = tool(tools, name).getJSONObject("inputSchema");
+            final var properties = schema.getJSONObject("properties");
+            assertTrue(properties.has("windowId"));
+            assertTrue(properties.has("rootElementId"));
+            assertTrue(properties.has("selector"));
+            assertTrue(schema.getJSONArray("required").toString().contains("displayId"));
+        }
+        final var read = tool(tools, "ui.read_text");
+        assertTrue(read.getJSONObject("annotations").getBoolean("readOnlyHint"));
+        final var input = read.getJSONObject("inputSchema");
+        assertEquals("[\"elementId\"]", input.getJSONArray("required").toString());
+        assertTrue(input.getJSONObject("properties").has("offset"));
+        assertTrue(input.getJSONObject("properties").has("limit"));
+        final var output = read.getJSONObject("outputSchema").getJSONObject("properties")
+                .getJSONObject("data").getJSONObject("properties");
+        assertTrue(output.has("text"));
+        assertTrue(output.has("nextOffset"));
+        assertTrue(output.has("totalLength"));
+    }
+
     @Test
     public void displayLifecycleIsSeparateFromDesktopSession() throws Exception {
         final JSONArray tools = MagicDeskMcpToolCatalog.create();

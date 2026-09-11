@@ -527,17 +527,22 @@ final class MagicDeskMcpToolCatalog {
 
     private static void addAndroidUiTools(final JSONArray tools) throws JSONException {
         final JSONObject display = integerProperty("Exact Android display id from list_displays, including 0. No Desktop required.");
-        final JSONObject maxNodes = integerProperty("Maximum nodes, 1-256. Truncated or inaccessible trees have complete=false.");
         final JSONObject selector = new JSONObject();
         for (final String key : java.util.List.of("package", "resourceId", "className", "text", "description")) {
-            selector.put(key, stringProperty("Exact " + key + " match; all supplied criteria must match the same node."));
+            selector.put(key, stringProperty("Exact full " + key + " match, up to 32768 UTF-16 units; all criteria must match the same node."));
         }
         for (final String key : java.util.List.of("enabled", "visible", "focused", "selected", "checked", "editable", "scrollable")) {
             selector.put(key, booleanProperty("Expected " + key + " state."));
         }
         tools.put(readTool("ui.inspect", "Inspect Android UI",
-                "Read Android accessibility windows and nodes on one display, including other apps. Password text is redacted. Handles expire after 60 seconds or four newer snapshots. Canvas-only or protected UI may not expose nodes. Prefer MagicDesk's semantic list_ui_elements for its own controls.",
-                objectSchema(new JSONObject().put("displayId", display).put("maxNodes", maxNodes), "displayId")))
+                "Read fresh Android accessibility windows/nodes, optionally scoped to windowId or rootElementId. Optional selector searches up to 4096 nodes and returns only exact matches. Previews are bounded; use ui.read_text for full text. complete describes stable traversal, not rendering; stable=false means events changed during capture or cache invalidation failed. Password text is redacted. Handles expire after 60 seconds or four newer snapshots. Prefer MagicDesk semantic controls for its own UI.",
+                objectSchema(androidUiScopeProperties().put("selector", objectSchema(selector).put("minProperties", 1)), "displayId")))
+                .put(readTool("ui.read_text", "Read Android UI text",
+                        "Read text or description from one retained snapshot element without preview truncation. Pages use UTF-16 offsets in that same immutable revision; nextOffset=null ends it. No live refresh: inspect/wait again for current text. Password values and lengths stay redacted. Handles have the same expiry as ui.inspect.",
+                        objectSchema(new JSONObject().put("elementId", stringProperty("Handle from ui.inspect/ui.wait."))
+                                .put("field", enumProperty("Default text.", "text", "description"))
+                                .put("offset", integerProperty("UTF-16 offset, default 0."))
+                                .put("limit", integerProperty("Page length 1-32768 UTF-16 units, default 32768. Unicode-safe boundaries; limit=1 may return a two-unit character.")), "elementId")))
                 .put(actionTool("ui.perform", "Act on Android UI element",
                         "Perform an advertised accessibility action on an elementId from ui.inspect/ui.wait. Rejects expired or changed identities, with no coordinate fallback. set_text preserves Unicode and line breaks. accepted is not proof of visual completion; verify using ui.wait.",
                         objectSchema(new JSONObject().put("elementId", stringProperty("Short-lived opaque node handle."))
@@ -548,8 +553,8 @@ final class MagicDeskMcpToolCatalog {
                                 .put("start", integerProperty("Selection start for select_text."))
                                 .put("end", integerProperty("Selection end for select_text.")), "elementId", "action")))
                 .put(readTool("ui.wait", "Wait for Android UI",
-                        "Wait on accessibility events for a selector to be present or absent. Match expected text or flags to wait for state changes. Returns matched/timedOut, not a claimed action result. Incomplete observations never prove absence. No periodic UI polling.",
-                        objectSchema(new JSONObject().put("displayId", display).put("maxNodes", maxNodes)
+                        "Wait on accessibility events for exact full-text/state matches in a display, window or subtree. Searches up to 4096 nodes per observation. Returns matched/timedOut, not a claimed action result. Unstable observations never satisfy a wait; incomplete or redacted observations never prove absence. No periodic UI polling.",
+                        objectSchema(androidUiScopeProperties()
                                 .put("selector", objectSchema(selector).put("minProperties", 1))
                                 .put("condition", enumProperty("Default present.", "present", "absent"))
                                 .put("timeoutMillis", integerProperty("0-60000 ms, default 5000.")), "displayId", "selector")))
@@ -576,6 +581,13 @@ final class MagicDeskMcpToolCatalog {
                 .put(actionTool("device.release_awake", "Release awake lease",
                         "Release the exact awake lease; a stale leaseId cannot release a newer lease.",
                         objectSchema(new JSONObject().put("leaseId", stringProperty("Id returned by device.keep_awake.")), "leaseId")));
+    }
+
+    private static JSONObject androidUiScopeProperties() throws JSONException {
+        return new JSONObject().put("displayId", integerProperty("Exact Android display id, including 0. No Desktop required."))
+                .put("windowId", integerProperty("Optional Android accessibility window id from ui.inspect. Excludes rootElementId."))
+                .put("rootElementId", stringProperty("Optional retained handle: refresh and inspect only its subtree. Excludes windowId; must belong to displayId."))
+                .put("maxNodes", integerProperty("Maximum returned nodes/matches, 1-256, default 200. Traversal is separately bounded to 4096 nodes, depth 40, 3 seconds."));
     }
 
     private static void addTransferTools(JSONArray tools) throws JSONException {
@@ -1182,7 +1194,9 @@ final class MagicDeskMcpToolCatalog {
         switch (toolName) {
             case "ui.inspect":
                 properties.put("snapshotId", stringProperty("Short-lived snapshot identity."))
-                        .put("complete", booleanProperty("False for inaccessible or truncated observations."))
+                        .put("complete", booleanProperty("Stable, accessible, complete traversal; separate from text preview truncation."))
+                        .put("stable", booleanProperty("Cache invalidated and no accessibility event observed during capture; not a rendering guarantee."))
+                        .put("textTruncated", booleanProperty("Preview text was shortened; use ui.read_text."))
                         .put("nodes", arrayProperty("Nodes with opaque handles, parent ids and advertised actions.", openObjectProperty("UI node.")))
                         .put("windows", arrayProperty("Accessibility windows.", openObjectProperty("Window.")));
                 break;
@@ -1190,7 +1204,18 @@ final class MagicDeskMcpToolCatalog {
                 properties.put("matched", booleanProperty("The requested condition was observed."))
                         .put("timedOut", booleanProperty("Wait ended without observing the condition."))
                         .put("complete", booleanProperty("Completeness of the final observation."))
+                        .put("stable", booleanProperty("Final observation had no concurrent accessibility events and its cache was cleared."))
                         .put("matches", arrayProperty("Matching nodes with action handles.", openObjectProperty("UI node.")));
+                break;
+            case "ui.read_text":
+                properties.put("snapshotId", stringProperty("Source snapshot identity."))
+                        .put("elementId", stringProperty("Retained element handle."))
+                        .put("field", enumProperty("Selected field.", "text", "description"))
+                        .put("text", nullableStringProperty("Snapshot text page; null for passwords."))
+                        .put("totalLength", nullableIntegerProperty("Full UTF-16 length; null for passwords."))
+                        .put("offset", integerProperty("Returned page's UTF-16 start offset."))
+                        .put("nextOffset", nullableIntegerProperty("Next page offset, or null when complete/redacted."))
+                        .put("redacted", booleanProperty("Password text cannot be returned."));
                 break;
             case "device.keep_awake":
                 properties.put("held", booleanProperty("The wake lock is currently held."))

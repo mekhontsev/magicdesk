@@ -21,7 +21,7 @@ final class AndroidUiSelector {
             final String key = keys.next();
             final Object value = criteria.get(key);
             if (TEXT.contains(key)) {
-                if (!(value instanceof String) || ((String) value).length() > 2048) {
+                if (!(value instanceof String) || ((String) value).length() > 32768) {
                     throw new IllegalArgumentException("invalid selector string: " + key);
                 }
             } else if (FLAGS.contains(key)) {
@@ -55,8 +55,9 @@ final class AndroidUiSelector {
         return true;
     }
 
-    static boolean satisfied(final boolean present, final int matches, final boolean complete) {
-        return present ? matches > 0 : complete && matches == 0;
+    static boolean satisfied(final boolean present, final int matches, final boolean complete,
+            final boolean stable) {
+        return stable && (present ? matches > 0 : complete && matches == 0);
     }
 
     static int integer(final JSONObject args, final String key, final int fallback,

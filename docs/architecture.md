@@ -506,7 +506,13 @@ runtime integration and are not distributed through the same release path.
   closure and Binder death release the connection and its bounded node cache.
   Four snapshots of at most 256 nodes retain 60-second handles. Identity evidence
   is immutable; recycled list rows cannot silently become another action target.
-  Missing or truncated observations do not prove an element absent.
+  Actions refresh separate node copies, preserving snapshot text revisions.
+  `AndroidUiScope` narrows observations to a display, window or node subtree.
+  Exact selectors search up to 4096 candidates before projecting bounded text
+  previews; `AndroidUiText` pages full retained text independently of traversal.
+  Password values and lengths remain redacted. Public API 34 cache invalidation
+  precedes each capture; event generations distinguish concurrent changes from
+  stable traversal. Missing, unstable or truncated traversal cannot prove absence.
   Accessibility events wake UI waits without another task observer or a periodic
   UI poller. Waits release the action lock, so concurrent actions can satisfy them.
   Raw UI text never enters the desktop event journal or compatibility report.
@@ -615,7 +621,10 @@ runtime integration and are not distributed through the same release path.
   requested UI with accessibility events. Only managed placement accepts
   relative window bounds or exact-task presentation parameters.
   `AndroidActivityResolution` distinguishes a real handler from Android's
-  synthetic resolver without relying on an internal class name. Its typed
+  synthetic resolver without relying on an internal class name. Shared query
+  flags include MAIN+LAUNCHER/LEANBACK_LAUNCHER entries without requiring DEFAULT;
+  concrete launcher targets are pinned before dispatch. Other implicit Activity
+  queries retain Android's default-handler filtering. Its typed
   `AndroidActivityAuthorization` independently evaluates enabled/exported
   state, same-package access, and permissions granted to the MagicDesk app.
   Shell is only a placement authority: denied app-identity access never crosses

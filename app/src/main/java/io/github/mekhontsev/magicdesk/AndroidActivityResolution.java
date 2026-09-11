@@ -92,14 +92,13 @@ public final class AndroidActivityResolution implements Parcelable {
                         NONE, null, 0, null, -1);
             }
         }
-        final List<ResolveInfo> handlers = packageManager.queryIntentActivities(
-                intent, PackageManager.MATCH_DEFAULT_ONLY);
+        final int flags = queryFlags(intent);
+        final List<ResolveInfo> handlers = packageManager.queryIntentActivities(intent, flags);
         final int handlerCount = handlers == null ? 0 : handlers.size();
         if (handlerCount == 0) {
             return new AndroidActivityResolution(NONE, null, 0, null, -1);
         }
-        final ResolveInfo resolved = packageManager.resolveActivity(
-                intent, PackageManager.MATCH_DEFAULT_ONLY);
+        final ResolveInfo resolved = packageManager.resolveActivity(intent, flags);
         final ComponentName resolvedComponent = componentOf(resolved);
         if (resolvedComponent != null && contains(handlers, resolvedComponent)) {
             return new AndroidActivityResolution(
@@ -123,6 +122,19 @@ public final class AndroidActivityResolution implements Parcelable {
 
     boolean requiresResolver() {
         return state == RESOLVER;
+    }
+
+    static int queryFlags(final Intent intent) {
+        // Launcher entries need not advertise DEFAULT. Resolve their public
+        // component before dispatch; other implicit Intents keep Android's
+        // default-handler semantics.
+        return isLauncherEntry(intent) ? 0 : PackageManager.MATCH_DEFAULT_ONLY;
+    }
+
+    static boolean isLauncherEntry(final Intent intent) {
+        return Intent.ACTION_MAIN.equals(intent.getAction())
+                && (intent.hasCategory(Intent.CATEGORY_LAUNCHER)
+                || intent.hasCategory(Intent.CATEGORY_LEANBACK_LAUNCHER));
     }
 
     boolean hasHandlers() {

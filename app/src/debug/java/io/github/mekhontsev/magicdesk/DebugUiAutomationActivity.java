@@ -31,6 +31,10 @@ public final class DebugUiAutomationActivity extends Activity {
         editor.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         editor.setContentDescription("Automation editor");
         body.addView(editor);
+        final Button longText = new Button(this);
+        longText.setText("Load long text");
+        longText.setOnClickListener(view -> editor.setText(("Automation line\n\u0442\u0435\u043a\u0441\u0442 \ud83d\ude00\n").repeat(240)));
+        body.addView(longText);
         final EditText password = new EditText(this);
         password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         password.setText("fixture-secret");
@@ -45,12 +49,16 @@ public final class DebugUiAutomationActivity extends Activity {
         reuse.setText("Original identity");
         reuse.setOnClickListener(view -> reuse.setText("Changed identity"));
         body.addView(reuse);
-        for (int i = 0; i < 30; i++) {
+        final LinearLayout rows = new LinearLayout(this);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        rows.setContentDescription("Automation rows");
+        body.addView(rows);
+        for (int i = 0; i < 320; i++) {
             final TextView row = new TextView(this);
             row.setText("Automation row " + i);
             row.setTextColor(Color.BLACK);
             row.setMinHeight(72);
-            body.addView(row);
+            rows.addView(row);
         }
         final Button close = new Button(this);
         close.setText("Close fixture");

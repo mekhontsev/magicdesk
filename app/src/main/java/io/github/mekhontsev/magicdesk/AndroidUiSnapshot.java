@@ -4,7 +4,6 @@ import android.app.UiAutomation;
 import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
-import android.util.SparseArray;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
 import org.json.JSONArray;
@@ -37,21 +36,32 @@ final class AndroidUiSnapshot implements AutoCloseable {
     final JSONArray windows = new JSONArray();
     final JSONArray nodes = new JSONArray();
     private final Map<String, Handle> mHandles = new LinkedHashMap<>();
-    private final Map<String, JSONObject> mObserved = new LinkedHashMap<>();
-    boolean complete = true;
+    private final AndroidUiScope mScope;
+    private boolean mHierarchyComplete = true;
+    private boolean mRedactedMatch;
+    private boolean mTextTruncated;
+    private boolean mCacheCleared;
+    private long mGenerationStart;
+    private long mGenerationEnd;
+    private int mVisited;
     private int mTextRemaining = 64 * 1024;
 
-    static AndroidUiSnapshot capture(final UiAutomation automation, final int displayId,
-            final int maxNodes) throws JSONException {
-        final AndroidUiSnapshot snapshot = new AndroidUiSnapshot();
+    private AndroidUiSnapshot(final AndroidUiScope scope) { mScope = scope; }
+
+    static AndroidUiSnapshot capture(final UiAutomation automation, final AndroidUiScope scope,
+            final AccessibilityNodeInfo subtree) throws JSONException {
+        final AndroidUiSnapshot snapshot = new AndroidUiSnapshot(scope);
         try {
-            final SparseArray<List<AccessibilityWindowInfo>> all = automation.getWindowsOnAllDisplays();
-            final List<AccessibilityWindowInfo> windows = all.get(displayId);
-            if (windows == null || windows.isEmpty()) snapshot.complete = false;
+            // API 34: invalidate cached nodes AND windows before each observation.
+            snapshot.mCacheCleared = automation.clearCache();
+            final List<AccessibilityWindowInfo> windows = automation.getWindowsOnAllDisplays().get(scope.displayId());
+            if (windows == null || windows.isEmpty()) snapshot.mHierarchyComplete = false;
+            final int windowId = subtree == null ? scope.windowId() : subtree.getWindowId();
             if (windows != null) {
                 for (final AccessibilityWindowInfo window : windows) {
-                    if (snapshot.windows.length() >= 32) { snapshot.complete = false; break; }
-                    snapshot.captureWindow(window, maxNodes);
+                    if (windowId >= 0 && window.getId() != windowId) continue;
+                    if (snapshot.windows.length() >= 32) { snapshot.mHierarchyComplete = false; break; }
+                    snapshot.captureWindow(window, subtree);
                 }
             }
             return snapshot;
@@ -61,48 +71,69 @@ final class AndroidUiSnapshot implements AutoCloseable {
         }
     }
 
-    private void captureWindow(final AccessibilityWindowInfo window, final int maxNodes)
+    private boolean exhausted() {
+        return nodes.length() >= mScope.maxNodes() || mVisited >= scanLimit()
+                || SystemClock.uptimeMillis() - createdAt > 3000L;
+    }
+
+    private int scanLimit() { return mScope.selector() == null ? mScope.maxNodes() : 4096; }
+
+    private void captureWindow(final AccessibilityWindowInfo window, final AccessibilityNodeInfo subtree)
             throws JSONException {
         final Rect bounds = new Rect();
         window.getBoundsInScreen(bounds);
         final JSONObject data = new JSONObject().put("windowId", window.getId())
                 .put("type", window.getType()).put("layer", window.getLayer())
                 .put("active", window.isActive()).put("focused", window.isFocused())
-                .put("bounds", bounds(bounds)).put("title", text(window.getTitle()));
+                .put("bounds", bounds(bounds)).put("title", preview(window.getTitle()));
         windows.put(data);
-        if (nodes.length() >= maxNodes || SystemClock.uptimeMillis() - createdAt > 3000L) {
-            complete = false;
+        if (exhausted()) {
+            mHierarchyComplete = false;
             data.put("rootAvailable", false);
             return;
         }
-        final AccessibilityNodeInfo root = window.getRoot(0);
+        final AccessibilityNodeInfo root = subtree == null ? window.getRoot(0) : new AccessibilityNodeInfo(subtree);
         data.put("rootAvailable", root != null);
-        if (root == null) { complete = false; return; }
+        if (root == null) { mHierarchyComplete = false; return; }
         final ArrayDeque<Pending> pending = new ArrayDeque<>();
         pending.add(new Pending(root, null, 0));
         try {
             while (!pending.isEmpty()) {
-                if (nodes.length() >= maxNodes || SystemClock.uptimeMillis() - createdAt > 3000L) {
-                    complete = false;
+                if (exhausted()) {
+                    mHierarchyComplete = false;
                     break;
                 }
                 final Pending next = pending.removeFirst();
                 final AccessibilityNodeInfo node = next.node;
-                final String elementId = id + ":" + nodes.length();
-                mHandles.put(elementId, new Handle(node, identity(node)));
-                final JSONObject observed = describe(node).put("elementId", elementId)
-                        .put("parentId", next.parent == null ? JSONObject.NULL : next.parent);
-                nodes.put(observed);
-                mObserved.put(elementId, observed);
-                if (next.depth >= 40) {
-                    if (node.getChildCount() > 0) complete = false;
-                    continue;
-                }
-                for (int i = 0; i < node.getChildCount(); i++) {
-                    if (nodes.length() + pending.size() >= maxNodes) { complete = false; break; }
-                    final AccessibilityNodeInfo child = node.getChild(i, 0);
-                    if (child == null) complete = false;
-                    else pending.addLast(new Pending(child, elementId, next.depth + 1));
+                mVisited++;
+                boolean retained = false;
+                try {
+                    final JSONObject observed = describe(node);
+                    final AndroidUiSelector selector = mScope.selector();
+                    if (selector != null && selector.couldMatchRedacted(observed)) mRedactedMatch = true;
+                    String elementId = null;
+                    // Match the complete accessibility value, not its shortened wire preview.
+                    if (selector == null || selector.matches(observed)) {
+                        elementId = id + ":" + nodes.length();
+                        mHandles.put(elementId, new Handle(node, identity(node)));
+                        retained = true;
+                        previewField(observed, "text");
+                        previewField(observed, "description");
+                        nodes.put(observed.put("elementId", elementId).put("depth", next.depth)
+                                .put("parentId", next.parent == null ? JSONObject.NULL : next.parent));
+                    }
+                    if (next.depth >= 40) {
+                        if (node.getChildCount() > 0) mHierarchyComplete = false;
+                        continue;
+                    }
+                    for (int i = 0; i < node.getChildCount(); i++) {
+                        if (exhausted() || mVisited + pending.size() >= scanLimit()) { mHierarchyComplete = false; break; }
+                        final AccessibilityNodeInfo child = node.getChild(i, 0);
+                        if (child == null) mHierarchyComplete = false;
+                        else pending.addLast(new Pending(child, elementId, next.depth + 1));
+                    }
+                } finally {
+                    if (!retained) node.recycle();
                 }
             }
         } finally {
@@ -118,10 +149,11 @@ final class AndroidUiSnapshot implements AutoCloseable {
             if (supports(node, entry.getValue())) actions.put(entry.getKey());
         }
         return new JSONObject().put("windowId", node.getWindowId())
-                .put("package", text(node.getPackageName())).put("className", text(node.getClassName()))
-                .put("resourceId", text(node.getViewIdResourceName())).put("uniqueId", text(node.getUniqueId()))
-                .put("text", node.isPassword() ? JSONObject.NULL : text(node.getText()))
-                .put("description", node.isPassword() ? JSONObject.NULL : text(node.getContentDescription()))
+                .put("package", raw(node.getPackageName())).put("className", raw(node.getClassName()))
+                .put("resourceId", raw(node.getViewIdResourceName())).put("uniqueId", raw(node.getUniqueId()))
+                .put("text", node.isPassword() ? JSONObject.NULL : raw(node.getText()))
+                .put("description", node.isPassword() ? JSONObject.NULL : raw(node.getContentDescription()))
+                .put("childCount", node.getChildCount())
                 .put("password", node.isPassword()).put("bounds", bounds(bounds))
                 .put("enabled", node.isEnabled()).put("visible", node.isVisibleToUser())
                 .put("focused", node.isFocused()).put("selected", node.isSelected())
@@ -129,38 +161,74 @@ final class AndroidUiSnapshot implements AutoCloseable {
                 .put("scrollable", node.isScrollable()).put("actions", actions);
     }
 
-    JSONObject toJson(final int displayId) throws JSONException {
-        return new JSONObject().put("snapshotId", id).put("displayId", displayId)
-                .put("complete", complete).put("windows", windows).put("nodes", nodes)
-                .put("handleLifetimeMillis", 60000).put("capturedAtUptimeMillis", createdAt);
+    void observedBetween(final long start, final long end) {
+        mGenerationStart = start;
+        mGenerationEnd = end;
     }
 
-    JSONArray matches(final AndroidUiSelector selector) {
-        final JSONArray result = new JSONArray();
-        for (final JSONObject node : mObserved.values()) {
-            if (selector.matches(node)) result.put(node);
+    boolean stable() { return mCacheCleared && mGenerationStart == mGenerationEnd; }
+
+    boolean complete() { return stable() && mHierarchyComplete && !mRedactedMatch; }
+
+    JSONObject metadata() throws JSONException {
+        return new JSONObject().put("snapshotId", id).put("displayId", mScope.displayId())
+                .put("windowId", mScope.windowId() < 0 ? JSONObject.NULL : mScope.windowId())
+                .put("rootElementId", mScope.rootElementId() == null ? JSONObject.NULL : mScope.rootElementId())
+                .put("complete", complete()).put("hierarchyComplete", mHierarchyComplete)
+                .put("stable", stable()).put("cacheCleared", mCacheCleared)
+                .put("generationStart", mGenerationStart).put("generationEnd", mGenerationEnd)
+                .put("textTruncated", mTextTruncated).put("redactedMatchPossible", mRedactedMatch)
+                .put("visitedNodes", mVisited).put("handleLifetimeMillis", 60000)
+                .put("capturedAtUptimeMillis", createdAt);
+    }
+
+    JSONObject toJson() throws JSONException {
+        return metadata().put("windows", windows).put("nodes", nodes);
+    }
+
+    private Handle handle(final String elementId) {
+        final Handle handle = mHandles.get(elementId);
+        if (handle == null) throw new IllegalArgumentException("stale UI element; inspect the current UI again");
+        return handle;
+    }
+
+    AccessibilityNodeInfo refreshedNode(final String elementId, final int displayId) {
+        if (displayId != mScope.displayId()) throw new IllegalArgumentException("UI handle belongs to another display");
+        final Handle handle = handle(elementId);
+        // Actions and subtree refreshes must not mutate the retained text revision.
+        final AccessibilityNodeInfo node = new AccessibilityNodeInfo(handle.node);
+        // Virtualized lists may reuse a node id for different content. Never silently click that row.
+        try {
+            if (!node.refresh() || !handle.identity.matches(identity(node))) throw stale();
+            return node;
+        } catch (RuntimeException error) {
+            node.recycle();
+            throw error;
         }
-        return result;
     }
 
-    boolean completeFor(final AndroidUiSelector selector) {
-        if (!complete) return false;
-        for (final JSONObject node : mObserved.values()) if (selector.couldMatchRedacted(node)) return false;
-        return true;
+    JSONObject readText(final String elementId, final JSONObject args) throws JSONException {
+        final AccessibilityNodeInfo node = handle(elementId).node;
+        final String field = args.optString("field", "text");
+        if (!field.equals("text") && !field.equals("description")) {
+            throw new IllegalArgumentException("field must be text or description");
+        }
+        return AndroidUiText.page(field.equals("text") ? node.getText() : node.getContentDescription(),
+                node.isPassword(), args).put("elementId", elementId).put("snapshotId", id)
+                .put("field", field).put("capturedAtUptimeMillis", createdAt);
     }
 
     JSONObject perform(final String elementId, final JSONObject args) throws JSONException {
-        final Handle handle = mHandles.get(elementId);
-        if (handle == null) {
-            throw new IllegalArgumentException("stale UI element; inspect the current UI again");
-        }
-        final AccessibilityNodeInfo node = handle.node;
-        // Virtualized lists may reuse a node id for different content. Never silently click that row.
-        if (!node.refresh() || !handle.identity.matches(identity(node))) {
-            mHandles.remove(elementId);
+        final AccessibilityNodeInfo node = refreshedNode(elementId, mScope.displayId());
+        try {
+            return perform(node, elementId, args);
+        } finally {
             node.recycle();
-            throw stale();
         }
+    }
+
+    private JSONObject perform(final AccessibilityNodeInfo node, final String elementId,
+            final JSONObject args) throws JSONException {
         final String action = args.getString("action");
         final Integer code = ACTIONS.get(action);
         if (code == null) throw new IllegalArgumentException("unsupported UI action: " + action);
@@ -196,10 +264,23 @@ final class AndroidUiSnapshot implements AutoCloseable {
         return false;
     }
 
-    private String text(final CharSequence value) {
+    private void previewField(final JSONObject data, final String key) throws JSONException {
+        if (data.isNull(key)) {
+            data.put(key + "Length", JSONObject.NULL).put(key + "Truncated", false);
+            return;
+        }
+        final String value = data.getString(key);
+        final String shortValue = preview(value);
+        data.put(key, shortValue).put(key + "Length", value.length())
+                .put(key + "Truncated", shortValue.length() < value.length());
+    }
+
+    private String preview(final CharSequence value) {
         if (value == null) return "";
-        final int length = Math.min(value.length(), Math.min(512, mTextRemaining));
-        if (length < value.length()) complete = false;
+        int length = Math.min(value.length(), Math.min(512, mTextRemaining));
+        if (length > 0 && length < value.length() && Character.isHighSurrogate(value.charAt(length - 1))
+                && Character.isLowSurrogate(value.charAt(length))) length--;
+        if (length < value.length()) mTextTruncated = true;
         mTextRemaining -= length;
         return value.subSequence(0, length).toString();
     }
@@ -220,7 +301,6 @@ final class AndroidUiSnapshot implements AutoCloseable {
     @Override public void close() {
         for (final Handle handle : mHandles.values()) handle.node.recycle();
         mHandles.clear();
-        mObserved.clear();
     }
 
     private record Pending(AccessibilityNodeInfo node, String parent, int depth) { }
