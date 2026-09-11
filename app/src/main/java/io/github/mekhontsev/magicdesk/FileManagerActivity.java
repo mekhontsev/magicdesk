@@ -41,6 +41,9 @@ public final class FileManagerActivity extends Activity
             "io.github.mekhontsev.magicdesk.extra.FILE_MANAGER_PATH";
     private static final String EXTRA_REVEAL_PATH =
             "io.github.mekhontsev.magicdesk.extra.FILE_MANAGER_REVEAL_PATH";
+    private static final String EXTRA_SAVE_CONTENT =
+            "io.github.mekhontsev.magicdesk.extra.FILE_MANAGER_SAVE_CONTENT";
+    private static final String STATE_SAVE_PENDING = "save_pending";
     static final String DEFAULT_PATH = "/storage/emulated/0";
 
     private static final String PREFERENCES = "file_manager";
@@ -91,6 +94,16 @@ public final class FileManagerActivity extends Activity
     private String mSearchQuery = "";
     private boolean mDirectoryRefreshScheduled;
     private volatile boolean mDestroyed;
+    private AndroidContentPayload mPendingSave;
+    private boolean mSavingContent;
+    private boolean mDirectoryLoaded;
+
+    static Intent createSaveIntent(final Context context, final AndroidContentPayload content) {
+        if (content.uriItems.size() != 1) throw new IllegalArgumentException("save requires one content URI");
+        return AndroidContentIntentAdapter.share(content).setComponent(
+                new android.content.ComponentName(context, FileManagerActivity.class))
+                .putExtra(EXTRA_SAVE_CONTENT, true);
+    }
 
     static Intent createIntent(final Context context, final String path) {
         return createIntent(context)
@@ -160,6 +173,10 @@ public final class FileManagerActivity extends Activity
                         return;
                     }
                     final int copied = result == null ? 0 : result.copied;
+                    if (mSavingContent) {
+                        mSavingContent = false;
+                        if (copied > 0) clearPendingSave();
+                    }
                     if (result != null && result.cancelled) {
                         mView.setStatus(getResources().getQuantityString(
                                 R.plurals.file_import_cancelled, result.total, copied, result.total)
@@ -231,6 +248,9 @@ public final class FileManagerActivity extends Activity
             mCurrentPath = requested == null ? stored : requested;
         }
         mPendingRevealPath = getIntent().getStringExtra(EXTRA_REVEAL_PATH);
+        if (savedInstanceState == null || savedInstanceState.getBoolean(STATE_SAVE_PENDING, true)) {
+            readPendingSave(getIntent());
+        }
         mBackCallback = this::onBack;
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -242,6 +262,7 @@ public final class FileManagerActivity extends Activity
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        readPendingSave(intent);
         final String requested = intent.getStringExtra(EXTRA_PATH);
         mPendingRevealPath = intent.getStringExtra(EXTRA_REVEAL_PATH);
         if (requested != null) {
@@ -284,6 +305,7 @@ public final class FileManagerActivity extends Activity
 
     @Override
     protected void onSaveInstanceState(final Bundle state) {
+        state.putBoolean(STATE_SAVE_PENDING, mPendingSave != null);
         state.putString(STATE_CURRENT_PATH, mCurrentPath);
         state.putStringArrayList(STATE_HISTORY, new ArrayList<>(mHistory));
         state.putInt(STATE_HISTORY_INDEX, mHistoryIndex);
@@ -1321,6 +1343,7 @@ public final class FileManagerActivity extends Activity
                     }
                     final String canonicalPath = listing.path;
                     mCurrentPath = canonicalPath;
+                    mDirectoryLoaded = true;
                     mFiles.clear();
                     mFiles.addAll(listing.files);
                     mDesktopEntries.clear();
@@ -1373,6 +1396,7 @@ public final class FileManagerActivity extends Activity
     }
 
     private void clearFileListing() {
+        mDirectoryLoaded = false;
         mFiles.clear();
         mDesktopEntries.clear();
         mSelected.clear();
@@ -1381,6 +1405,7 @@ public final class FileManagerActivity extends Activity
     }
 
     private void renderFiles() {
+        updateSaveAction();
         final List<ShellFileInfo> visible = visibleFiles();
         mView.setPath(mCurrentPath);
         mView.setFiles(
@@ -1390,6 +1415,33 @@ public final class FileManagerActivity extends Activity
                 !mSearchMode && mHistoryIndex + 1 < mHistory.size(),
                 !mSearchMode && !"/".equals(mCurrentPath));
         updateSelectionSummary(visible);
+    }
+
+    private void readPendingSave(final Intent intent) {
+        mPendingSave = null;
+        if (intent.getBooleanExtra(EXTRA_SAVE_CONTENT, false)) {
+            final AndroidContentPayload content = AndroidContentPayload.fromSendIntent(intent);
+            if (content.uriItems.size() == 1 && !content.truncated) mPendingSave = content;
+            else Toast.makeText(this, R.string.desktop_share_unsupported, Toast.LENGTH_LONG).show();
+        }
+        updateSaveAction();
+    }
+
+    private void clearPendingSave() {
+        mPendingSave = null;
+        getIntent().removeExtra(EXTRA_SAVE_CONTENT);
+        updateSaveAction();
+    }
+
+    private void updateSaveAction() {
+        mView.setSaveAction(mPendingSave == null ? null : mPendingSave.label,
+                mDirectoryLoaded && !mSearchMode && !mSavingContent && ShellAccess.isReady(),
+                () -> {
+                    if (mPendingSave == null || !mDirectoryLoaded || mSearchMode || mOperations.isBusy()) return;
+                    mSavingContent = true;
+                    updateSaveAction();
+                    mImporter.importContent(mCurrentPath, mPendingSave, null);
+                }, this::clearPendingSave);
     }
 
     private void renderSelection() {

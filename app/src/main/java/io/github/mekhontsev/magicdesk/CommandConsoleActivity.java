@@ -53,7 +53,9 @@ public final class CommandConsoleActivity extends Activity
     private FrameLayout mTerminalContainer;
     private ConsoleTerminalSession mSession;
     private TextView mShellStatus;
-    private TextView mTerminalTitle;
+    private final java.util.concurrent.ExecutorService mContentWorker =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "MagicDeskTerminalContent"));
+    private boolean mExportingImage;
     private android.widget.ProgressBar mProgress;
     private LinearLayout mToolbar;
     private ImageButton mShowToolbar;
@@ -302,6 +304,7 @@ public final class CommandConsoleActivity extends Activity
         BuiltInWindowRegistry.unregister(this);
         ConsoleTerminalRegistry.detach(mTerminalRegistryId, this);
         if (mTerminalView != null) { mTerminalView.attach(null, null); }
+        mContentWorker.shutdownNow();
         super.onDestroy();
     }
 
@@ -369,10 +372,6 @@ public final class CommandConsoleActivity extends Activity
         final String label = TerminalTaskLabel.resolve(fallback,
                 mSession == null ? TerminalProcessInfo.unknown() : mSession.foregroundProcess(), title);
         setTitle(label);
-        if (mTerminalTitle != null) {
-            mTerminalTitle.setText(label);
-            mTerminalTitle.setTooltipText(label);
-        }
         DesktopTaskDescription.apply(this, label, R.drawable.ic_file_console);
     }
 
@@ -399,7 +398,7 @@ public final class CommandConsoleActivity extends Activity
                 .setNegativeButton(android.R.string.cancel, null);
         if (target.canOpen()) { dialog.setPositiveButton(R.string.action_open, (which, button) -> {
             final int display = getDisplay() == null ? 0 : getDisplay().getDisplayId();
-            new Thread(() -> {
+            mContentWorker.execute(() -> {
                 if (target.localPath() != null) { loadAndOpenPath(target.localPath()); return; }
                 try {
                     final var result = new AndroidIntegrationGateway(this).openContent(
@@ -409,9 +408,61 @@ public final class CommandConsoleActivity extends Activity
                 } catch (Exception error) {
                     runOnUiThread(() -> Toast.makeText(this, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show());
                 }
-            }, "MagicDeskTerminalLink").start();
+            });
         }); }
         dialog.show();
+    }
+
+    @Override public void showImage(final com.termux.terminal.TerminalImage image) {
+        if (mExportingImage || isFinishing() || isDestroyed()) return;
+        new AlertDialog.Builder(this)
+                .setTitle(getString(R.string.console_image_title, image.width, image.height))
+                .setItems(new String[]{getString(R.string.console_image_save),
+                        getString(R.string.action_open), getString(R.string.file_manager_share)},
+                        (dialog, action) -> exportImage(image, action))
+                .setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    private void exportImage(final com.termux.terminal.TerminalImage image, final int action) {
+        if (mExportingImage) return;
+        mExportingImage = true;
+        final int display = getDisplay() == null ? 0 : getDisplay().getDisplayId();
+        Toast.makeText(this, R.string.console_image_preparing, Toast.LENGTH_SHORT).show();
+        // The immutable raster stays alive even if the program clears or replaces its placement.
+        mContentWorker.execute(() -> {
+            try {
+                final var uri = GeneratedContentProvider.publish(this, "Terminal image.png",
+                        output -> com.termux.terminal.AndroidTerminalImages.writePng(image, output));
+                final var content = AndroidContentPayload.uris(getString(R.string.console_image),
+                        java.util.List.of(new AndroidContentPayload.UriItem(uri, "image/png")),
+                        java.util.List.of(), AndroidContentPayload.Origin.APPLICATION);
+                if (isFinishing() || isDestroyed()) return;
+                if (action == 0) {
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        try {
+                            ToolApplications.open(this, FileManagerActivity.createSaveIntent(this, content),
+                                    ToolLaunchTarget.resolve("auto", display, MagicDeskRuntime.activeDesktopDisplayId()),
+                                    null, this::imageActionFinished);
+                        } catch (RuntimeException error) { imageActionFinished(error); }
+                    });
+                } else {
+                    final var gateway = new AndroidIntegrationGateway(this);
+                    final var result = action == 1 ? gateway.openContent(content, display) : gateway.shareContent(content, display);
+                    if (!result.success) throw new IOException(result.message);
+                }
+            } catch (Exception error) {
+                runOnUiThread(() -> imageActionFinished(error));
+            } finally {
+                runOnUiThread(() -> mExportingImage = false);
+            }
+        });
+    }
+
+    private void imageActionFinished(final Throwable error) {
+        if (error != null && !isFinishing() && !isDestroyed()) {
+            Toast.makeText(this, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
+        }
     }
 
     private void showCommandHistory() {
@@ -524,15 +575,6 @@ public final class CommandConsoleActivity extends Activity
         page.setPadding(dp(8), dp(6), dp(8), dp(6));
         SystemBarInsets.addToPadding(page);
         page.setBackgroundColor(COLOR_BACKGROUND);
-
-        // Ordinary fullscreen tools have no native caption; keep the OSC title visible there too.
-        mTerminalTitle = new TextView(this);
-        mTerminalTitle.setTextColor(COLOR_TEXT);
-        mTerminalTitle.setTextSize(13);
-        mTerminalTitle.setSingleLine(true);
-        mTerminalTitle.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
-        mTerminalTitle.setGravity(Gravity.CENTER_VERTICAL);
-        page.addView(mTerminalTitle, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(24)));
 
         mToolbar = new LinearLayout(this);
         mToolbar.setOrientation(LinearLayout.HORIZONTAL);

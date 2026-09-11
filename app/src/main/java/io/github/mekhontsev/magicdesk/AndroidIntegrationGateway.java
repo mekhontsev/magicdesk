@@ -374,7 +374,7 @@ final class AndroidIntegrationGateway {
         final Intent intent = AndroidContentIntentAdapter.open(content);
         if (intent == null) {
             return DesktopAutomationResult.failure(
-                    "clipboard content cannot be opened");
+                    "content cannot be opened");
         }
         return execute(
                 AndroidDesktopAction.request(
@@ -383,7 +383,7 @@ final class AndroidIntegrationGateway {
                         AndroidIntegrationRequest.activity(
                         intent,
                         content.label.isEmpty()
-                                ? "Clipboard content" : content.label,
+                                ? "Content" : content.label,
                         DesktopLaunchPresentation.automatic(),
                         false,
                         "",
@@ -397,7 +397,7 @@ final class AndroidIntegrationGateway {
         final Intent intent = AndroidContentIntentAdapter.share(content);
         if (intent == null) {
             return DesktopAutomationResult.failure(
-                    "clipboard content cannot be shared");
+                    "content cannot be shared");
         }
         return execute(
                 AndroidDesktopAction.request(
@@ -405,7 +405,7 @@ final class AndroidIntegrationGateway {
                         content.origin.name().toLowerCase(Locale.ROOT),
                         AndroidIntegrationRequest.activity(
                         intent,
-                        "Share clipboard content",
+                        content.label.isEmpty() ? "Share content" : content.label,
                         DesktopLaunchPresentation.automatic()
                                 .withInstancePolicy(
                                         DesktopTaskInstancePolicy.CREATE_NEW),

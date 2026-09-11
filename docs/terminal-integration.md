@@ -58,8 +58,26 @@ pixels (64 MiB RGBA). Incoming Kitty transfers/decompressed data are bounded to
 64 MiB; Sixel input is bounded to 16 MiB and 32 million pixel writes. Decoding needs
 temporary buffers in addition to retained raster storage. Quota eviction prefers
 unplaced images, then the oldest image, removing its placements at the same time.
-There is no animation timer, disk cache or background image worker. Text-only
+Rendering has no animation timer, disk cache or background image worker. Text-only
 terminals keep their single drawing pass; graphics are drawn on normal invalidation.
+
+Tap/click an image or long-press it with a finger to open **Save in Files**, **Open**
+or **Share**. When a terminal application owns mouse reporting, ordinary clicks
+remain terminal input; Ctrl+click or touch long-press opens the image actions.
+Hit testing follows buffer clips, scrollback and Kitty placeholder cells, including
+tmux redraws. The selected immutable raster remains valid if its program subsequently
+clears the screen. Exports contain the original PNG pixels, not a screenshot or a
+scaled/cropped placement.
+
+PNG encoding runs only after an explicit action, off the UI thread.
+`GeneratedContentProvider` exposes app-private temporary exports through read-only
+URI grants. Files expire after 24 hours; publication cleans expired entries and
+limits storage to 256 MiB/128 files, without evicting a still-valid export. Android
+may reclaim the cache earlier. **Open** and **Share** use the shared Android content
+gateway. **Save in Files** opens a new Files window; navigate to the destination
+and choose **Save here**. Files uses its existing transactional import and collision
+naming, with no overwrite and no Desktop prerequisite. Sharing/opening the PNG
+does not require privileged file access; saving through Files uses its usual backend.
 
 `TERM` stays `xterm-256color`. Sixel capability/geometry queries and Kitty graphics
 queries describe support; clients may also select a format explicitly. For example,
@@ -133,6 +151,7 @@ Android `sh` (mksh) reads MagicDesk's owned `ENV` file. It publishes the current
 directory through OSC 0 and prompt/input boundaries through OSC 133 A/B. Its
 single-line prompt distinguishes `$` from `#` and retains a nonzero exit status.
 The line editor's native nonprinting delimiters exclude OSC from prompt width.
+OSC titles update the Android task and session label, not a separate line above the terminal.
 There is no reliable pre-execution hook in this shell; MagicDesk does not infer
 execution from Enter, output timing or process polling.
 

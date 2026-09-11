@@ -9,6 +9,8 @@ import android.graphics.RectF;
 
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.io.IOException;
+import java.io.OutputStream;
 
 /** Android codecs retain a single Bitmap per raster, shared by all attached terminal views. */
 public final class AndroidTerminalImages {
@@ -48,6 +50,26 @@ public final class AndroidTerminalImages {
         return new BitmapImage(bitmap);
     }
 
+    /** Exports the original raster, not the scaled or clipped terminal placement. */
+    public static void writePng(TerminalImage image, OutputStream output) throws IOException {
+        Bitmap bitmap;
+        boolean temporary = !(image instanceof BitmapImage);
+        if (image instanceof BitmapImage nativeImage) bitmap = nativeImage.bitmap;
+        else {
+            bitmap = Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888);
+            int[] row = new int[image.width];
+            for (int y = 0; y < image.height; y++) {
+                for (int x = 0; x < image.width; x++) row[x] = image.pixelAt(x, y);
+                bitmap.setPixels(row, 0, image.width, 0, y, image.width, 1);
+            }
+        }
+        try {
+            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) throw new IOException("PNG encoding failed");
+        } finally {
+            if (temporary) bitmap.recycle();
+        }
+    }
+
     void retain(List<TerminalGraphics.Placement> placements) {
         bitmaps.keySet().removeIf(image -> placements.stream().noneMatch(p -> p.image == image));
         // Dropped bitmaps are left to Android, which may still reference them in a hardware display list.
@@ -83,7 +105,7 @@ public final class AndroidTerminalImages {
         if (p == null || cell.column >= p.columns || cell.row >= p.rows) return;
         // Application sessions store Android-native rasters; no per-cell bitmap copies or caches.
         if (!(p.image instanceof BitmapImage image)) return;
-        float scale = Math.min(p.columns * cw / p.sourceWidth, p.rows * ch / p.sourceHeight);
+        float scale = p.virtualScale(cw, ch);
         float width = p.sourceWidth * scale, height = p.sourceHeight * scale;
         float left = (column - cell.column) * cw + (p.columns * cw - width) / 2;
         float top = (row - cell.row) * ch + (p.rows * ch - height) / 2;

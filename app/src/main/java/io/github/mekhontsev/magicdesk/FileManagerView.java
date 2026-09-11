@@ -110,6 +110,10 @@ final class FileManagerView {
     private FileManagerLayoutMode mLayoutMode;
     private boolean mSortAscending = true;
     private boolean mItemsAvailable;
+    private LinearLayout mSaveBar;
+    private TextView mSaveName;
+    private Button mSaveHere;
+    private ImageButton mCancelSave;
 
     FileManagerView(
             final Context context,
@@ -513,6 +517,31 @@ final class FileManagerView {
         mBack.setEnabled(back);
         mForward.setEnabled(forward);
         mUp.setEnabled(up);
+    }
+
+    void setSaveAction(final String label, final boolean enabled, final Runnable save, final Runnable cancel) {
+        if (mSaveBar == null && label == null) return;
+        if (mSaveBar == null) {
+            mSaveBar = horizontal();
+            mSaveName = new TextView(mContext);
+            mSaveName.setTextColor(COLOR_TEXT);
+            mSaveName.setSingleLine(true);
+            mSaveName.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            mSaveBar.addView(mSaveName, new LinearLayout.LayoutParams(0, dp(42), 1));
+            mSaveName.setGravity(Gravity.CENTER_VERTICAL);
+            mSaveHere = new Button(mContext);
+            mSaveHere.setText(R.string.file_manager_save_here);
+            mSaveBar.addView(mSaveHere, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            mCancelSave = iconCommand(R.drawable.ic_close, android.R.string.cancel, view -> { });
+            mSaveBar.addView(mCancelSave, compactButton());
+            mRoot.addView(mSaveBar, 1, matchWrap());
+        }
+        mSaveBar.setVisibility(label == null ? View.GONE : View.VISIBLE);
+        mSaveName.setText(label);
+        mSaveHere.setEnabled(enabled);
+        mSaveHere.setOnClickListener(view -> save.run());
+        mCancelSave.setOnClickListener(view -> cancel.run());
     }
 
     void updateSelection(final int count, final boolean hasClipboard) {

@@ -120,6 +120,12 @@
             android:exported="false"
             android:grantUriPermissions="true" />
 
+        <provider
+            android:name=".GeneratedContentProvider"
+            android:authorities="${applicationId}.generated-content"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <activity
             android:name=".FileManagerActivity"
             android:exported="true"

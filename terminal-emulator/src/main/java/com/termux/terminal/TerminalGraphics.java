@@ -45,6 +45,10 @@ public final class TerminalGraphics {
             clipBottom = rows;
             clipRight = columns;
         }
+
+        public float virtualScale(float cellWidth, float cellHeight) {
+            return Math.min(columns * cellWidth / sourceWidth, rows * cellHeight / sourceHeight);
+        }
     }
 
     long put(long id, TerminalImage image) {
@@ -103,6 +107,44 @@ public final class TerminalGraphics {
         for (Placement p : placements) if (p.virtual && p.buffer == buffer && p.imageId == id
                 && (placementId == 0 || p.placementId == placementId)) return p;
         return null;
+    }
+
+    /** Hit testing uses buffer coordinates, including negative scrollback rows. */
+    public TerminalImage imageAt(TerminalBuffer buffer, float column, float row, float cw, float ch) {
+        if (placements.isEmpty() || !Float.isFinite(column) || !Float.isFinite(row)
+                || column < 0 || column >= buffer.mColumns || row < -buffer.getActiveTranscriptRows()
+                || row >= buffer.mScreenRows || cw <= 0 || ch <= 0) return null;
+        Placement hit = null;
+        for (Placement p : placements) {
+            if (p.virtual || p.buffer != buffer || column < p.column + p.clipLeft
+                    || column >= p.column + p.clipRight || row < p.row + p.clipTop
+                    || row >= p.row + p.clipBottom) continue;
+            if (hit == null || p.z > hit.z || p.z == hit.z && p.imageId >= hit.imageId) hit = p;
+        }
+        // Placeholders are painted with text, before the nonnegative-z image layer.
+        if (hit != null && hit.z >= 0) return hit.image;
+        int cellColumn = (int) column, cellRow = (int) Math.floor(row);
+        TerminalRow line = buffer.mLines[buffer.externalToInternalRow(cellRow)];
+        if (line != null) {
+            KittyImagePlaceholder cell = new KittyImagePlaceholder();
+            int previous = -1;
+            for (int c = 0; c <= cellColumn; c++) {
+                int start = line.findStartOfColumn(c);
+                if (start == previous) continue;
+                previous = start;
+                int width = Math.max(1, WcWidth.width(Character.codePointAt(line.mText, start, line.getSpaceUsed())));
+                int end = line.findStartOfColumn(Math.min(buffer.mColumns, c + width));
+                if (!cell.read(line, c, start, end) || c != cellColumn) continue;
+                Placement p = virtualPlacement(buffer, cell.imageId, cell.placementId);
+                if (p == null || cell.column >= p.columns || cell.row >= p.rows) continue;
+                float scale = p.virtualScale(cw, ch);
+                float w = p.sourceWidth * scale / cw, h = p.sourceHeight * scale / ch;
+                float x = column - c + cell.column, y = row - cellRow + cell.row;
+                if (x >= (p.columns - w) / 2 && x < (p.columns + w) / 2
+                        && y >= (p.rows - h) / 2 && y < (p.rows + h) / 2) return p.image;
+            }
+        }
+        return hit == null ? null : hit.image;
     }
 
     void eraseSixel(TerminalBuffer buffer, int left, int top, int right, int bottom) {

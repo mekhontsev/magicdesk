@@ -34,6 +34,7 @@ public final class TerminalRenderingInstrumentation extends Instrumentation {
             }
             checkPresentation(family);
             checkGraphics(family);
+            io.github.mekhontsev.magicdesk.GeneratedContentInstrumentationChecks.verify(getTargetContext());
             final File atlas = new File(getTargetContext().getCacheDir(), "terminal-rendering.png");
             try (FileOutputStream output = new FileOutputStream(atlas)) {
                 final Bitmap bitmap = atlas(family);
@@ -43,7 +44,7 @@ public final class TerminalRenderingInstrumentation extends Instrumentation {
                     bitmap.recycle();
                 }
             }
-            result.putString("terminal_rendering", "PASS checks=" + checks + " atlas=" + atlas);
+            result.putString("terminal_rendering", "PASS checks=" + checks + " generatedContent=PASS atlas=" + atlas);
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError error) {
             result.putString("terminal_rendering", "FAIL checks=" + checks + " " + error);

@@ -1500,6 +1500,11 @@ as text cells. `AndroidTerminalImages` supplies PNG decoding and one native bitm
 per raster, shared by attached views. Rendering never owns the session's image
 lifetime or adds a periodic redraw loop. Graphics use the same PTY on either
 backend and do not introduce a Desktop, Termux-app or file-access prerequisite.
+Explicit image actions encode the selected raster once on a worker;
+`GeneratedContentProvider` grants read-only access to finite-lived app-cache files.
+The shared Android content gateway owns Open/Share placement. Files accepts a
+single incoming content item for destination selection and its existing transactional
+import, rather than giving the terminal a second file-save implementation.
 The native relay has a small framed control protocol for input, resize, and
 working-directory requests. The Binder transport exposes raw output from its
 owned descriptor; the loopback transport frames output and metadata so one

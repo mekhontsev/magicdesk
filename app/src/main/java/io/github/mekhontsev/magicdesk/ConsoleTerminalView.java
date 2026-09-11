@@ -24,6 +24,7 @@ import com.termux.terminal.KeyHandler;
 import com.termux.terminal.MagicDeskTerminalRenderer;
 import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalHyperlink;
+import com.termux.terminal.TerminalImage;
 
 /** Interactive MagicDesk terminal surface with its own renderer. */
 final class ConsoleTerminalView extends View {
@@ -33,6 +34,8 @@ final class ConsoleTerminalView extends View {
         void pasteClipboard();
 
         void showLink(com.termux.terminal.TerminalHyperlink link);
+
+        void showImage(TerminalImage image);
     }
 
     private static final int NO_SELECTION = Integer.MIN_VALUE;
@@ -71,6 +74,7 @@ final class ConsoleTerminalView extends View {
     private boolean mTouchScrolling;
     private boolean mTerminalMousePress;
     private int mTerminalMouseButton;
+    private boolean mImageGesture;
 
     ConsoleTerminalView(final Context context) {
         super(context);
@@ -87,7 +91,7 @@ final class ConsoleTerminalView extends View {
                     @Override
                     public void onLongPress(final MotionEvent event) {
                         if (isTouch(event) && !mTouchScrolling) {
-                            beginSelection(event);
+                            if (!showImageAt(event)) beginSelection(event);
                         }
                     }
                 });
@@ -243,6 +247,25 @@ final class ConsoleTerminalView extends View {
         return mSession.emulator().getScreen().getHyperlink(cell.x, mTopRow + cell.y);
     }
 
+    private TerminalImage imageAt(final MotionEvent event) {
+        if (mSession == null) return null;
+        final float column = (event.getX() - mContentPadding) / mRenderer.cellWidth();
+        final float row = (event.getY() - mContentPadding) / mRenderer.cellHeight();
+        if (column < 0 || column >= mColumns || row < 0 || row >= mRows) return null;
+        final TerminalEmulator emulator = mSession.emulator();
+        return emulator.getGraphics().imageAt(emulator.getScreen(), column, mTopRow + row,
+                mRenderer.cellWidth(), mRenderer.cellHeight());
+    }
+
+    private boolean showImageAt(final MotionEvent event) {
+        final TerminalImage image = imageAt(event);
+        if (image == null || mClipboardActions == null) return false;
+        clearSelection();
+        mImageGesture = true;
+        mClipboardActions.showImage(image);
+        return true;
+    }
+
     @Override public android.view.PointerIcon onResolvePointerIcon(final MotionEvent event, final int index) {
         return android.view.PointerIcon.getSystemIcon(getContext(), linkAt(event) == null
                 ? android.view.PointerIcon.TYPE_TEXT : android.view.PointerIcon.TYPE_HAND);
@@ -359,7 +382,9 @@ final class ConsoleTerminalView extends View {
             return false;
         }
         if (handleFontScaleGesture(event)) { return true; }
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) mImageGesture = false;
         mGestures.onTouchEvent(event);
+        if (mImageGesture) return true;
         final TerminalEmulator emulator = mSession.emulator();
         final Point cell = cellAt(event);
         switch (event.getActionMasked()) {
@@ -373,7 +398,8 @@ final class ConsoleTerminalView extends View {
                 // A finger is a scroll gesture until a tap completes, not a held mouse button.
                 if (!isTouch(event) && emulator.isMouseTrackingActive()
                         && !isShiftPressed(event)
-                        && !((event.getMetaState() & KeyEvent.META_CTRL_ON) != 0 && linkAt(event) != null)) {
+                        && !((event.getMetaState() & KeyEvent.META_CTRL_ON) != 0
+                                && (linkAt(event) != null || imageAt(event) != null))) {
                     mTerminalMouseButton = mouseButton(event);
                     emulator.sendMouseEvent(
                             mTerminalMouseButton,
@@ -429,6 +455,9 @@ final class ConsoleTerminalView extends View {
                 } else if (event.getActionMasked() == MotionEvent.ACTION_UP
                         && !mTouchScrolling) {
                     clearSelection();
+                    if (!isShiftPressed(event) && (!emulator.isMouseTrackingActive()
+                            || (event.getMetaState() & KeyEvent.META_CTRL_ON) != 0)
+                            && showImageAt(event)) return true;
                     final TerminalHyperlink link = linkAt(event);
                     if (link != null && mClipboardActions != null && !isShiftPressed(event)
                             && (!emulator.isMouseTrackingActive() || (event.getMetaState() & KeyEvent.META_CTRL_ON) != 0)) {

@@ -214,6 +214,11 @@
     </plurals>
     <string name="file_manager_import_files">Import files</string>
     <string name="file_manager_share">Share</string>
+    <string name="file_manager_save_here">Save here</string>
+    <string name="console_image">Terminal image</string>
+    <string name="console_image_title">Image (%1$d x %2$d)</string>
+    <string name="console_image_save">Save in Files</string>
+    <string name="console_image_preparing">Preparing image...</string>
     <string name="activity_explorer_title">Activity Explorer</string>
     <string name="activity_explorer_action">Intent action</string>
     <string name="activity_explorer_data">Data URI</string>

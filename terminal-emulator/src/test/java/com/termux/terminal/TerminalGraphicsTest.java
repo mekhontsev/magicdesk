@@ -14,6 +14,47 @@ public class TerminalGraphicsTest extends TerminalTestCase {
     }
     private void red(int id) { kitty("a=T,f=24,s=1,v=1,C=1,i=" + id + ";" + RED); }
 
+    private TerminalImage hit(float column, float row) {
+        return mTerminal.getGraphics().imageAt(mTerminal.getScreen(), column, row, 10, 20);
+    }
+
+    public void testHitTestingClipsLayeringScrollbackAndBuffers() {
+        withTerminalSized(20, 10);
+        kitty("a=T,f=24,s=1,v=1,C=1,c=4,r=2,z=-1,i=1;" + RED);
+        TerminalGraphics.Placement first = visible().get(0);
+        assertSame(first.image, hit(0.5f, 0.5f));
+        assertNull(hit(4, 0));
+        first.clipLeft = 1;
+        assertNull(hit(0.5f, 0.5f));
+        assertSame(first.image, hit(1.5f, 0.5f));
+        kitty("a=T,f=24,s=1,v=1,C=1,c=4,r=2,z=0,i=2;AAAA");
+        assertSame(visible().get(1).image, hit(1.5f, 0.5f));
+        enterString("\033[10;1H\n");
+        assertSame(visible().get(1).image, hit(1.5f, -0.5f));
+        enterString("\033[?1049h");
+        assertNull(hit(1.5f, 0.5f));
+        enterString("\033[?1049l");
+        assertNotNull(hit(1.5f, -0.5f));
+        assertNull(hit(Float.NaN, 0));
+        assertNull(hit(-1, 0));
+        assertNull(hit(1, -100));
+    }
+
+    public void testHitTestingVirtualPlaceholdersAndLetterboxing() {
+        withTerminalSized(20, 10);
+        kitty("a=T,U=1,f=24,s=1,v=1,c=4,r=1,i=42;" + RED);
+        enterString("\033[38;5;42m\udbfb\udeee\u0305\u0305\udbfb\udeee\udbfb\udeee\udbfb\udeee\033[0m");
+        assertNull(hit(0.5f, 0.5f)); // Square raster centered inside a 40x20 cell rectangle.
+        TerminalImage image = mTerminal.getGraphics().virtualPlacement(mTerminal.getScreen(), 42, 0).image;
+        assertSame(image, hit(1.5f, 0.5f));
+        assertSame(image, hit(2.5f, 0.5f)); // Inherits the previous placeholder's address.
+        assertNull(hit(3.5f, 0.5f));
+        enterString("\033[H ");
+        assertNull(hit(0.5f, 0.5f));
+        enterString("\033[2J\033[H\033[38;5;42m\udbfb\udeee\u0305\u030d\033[0m");
+        assertSame(image, hit(0.5f, 0.5f)); // Moved by tmux, not by the image prototype's origin.
+    }
+
     public void testInlineRgbAndChunkedRgba() {
         withTerminalSized(20, 10);
         red(1);

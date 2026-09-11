@@ -194,6 +194,45 @@ public final class ConsoleTerminalScrollingTest {
                 """);
     }
 
+    @Test public void imageActionsPreserveScrollingSelectionAndApplicationMouseInput() throws Exception {
+        verify("""
+                View view=new View(); view.image=new TerminalImage();
+                int[] opened={0};
+                view.mClipboardActions=new ClipboardActions() {
+                    public void copySelection() {} public void pasteClipboard() {}
+                    public void showLink(TerminalHyperlink link) {}
+                    public void showImage(TerminalImage image) { opened[0]++; }
+                };
+                view.onTouchEvent(touch(MotionEvent.ACTION_DOWN,10));
+                view.onTouchEvent(touch(MotionEvent.ACTION_UP,10));
+                check(opened[0]==1 && view.keyboardRequests==0, "image tap opened IME");
+                view.onTouchEvent(touch(MotionEvent.ACTION_DOWN,10));
+                view.onTouchEvent(touch(MotionEvent.ACTION_MOVE,50));
+                view.onTouchEvent(touch(MotionEvent.ACTION_UP,50));
+                check(opened[0]==1, "image intercepted scrolling");
+                view.mSession.emulator.tracking=true;
+                view.onTouchEvent(mouse(MotionEvent.ACTION_DOWN,10));
+                view.onTouchEvent(mouse(MotionEvent.ACTION_UP,10));
+                check(opened[0]==1 && view.mSession.emulator.events.size()==2, "image stole TUI click");
+                MotionEvent down=mouse(MotionEvent.ACTION_DOWN,10); down.ctrl=true;
+                MotionEvent up=mouse(MotionEvent.ACTION_UP,10); up.ctrl=true;
+                view.onTouchEvent(down); view.onTouchEvent(up);
+                check(opened[0]==2 && view.mSession.emulator.events.size()==2, "Ctrl image sent TUI input");
+                view.onTouchEvent(touch(MotionEvent.ACTION_DOWN,10));
+                view.showImageAt(touch(MotionEvent.ACTION_DOWN,10));
+                view.onTouchEvent(touch(MotionEvent.ACTION_UP,10));
+                check(opened[0]==3 && view.mSession.emulator.events.size()==2 && !view.mSelecting,
+                        "long-press release became a second action");
+                view.onTouchEvent(touch(MotionEvent.ACTION_DOWN,10));
+                view.onTouchEvent(touch(MotionEvent.ACTION_CANCEL,10));
+                check(opened[0]==3, "cancel exported image");
+                down=mouse(MotionEvent.ACTION_DOWN,10); down.shift=true;
+                up=mouse(MotionEvent.ACTION_UP,10); up.shift=true;
+                view.onTouchEvent(down); view.onTouchEvent(up);
+                check(opened[0]==3, "Shift selection opened image");
+                """);
+    }
+
     private static void verify(final String body) throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Point { int x,y; Point(int x,int y) { this.x=x; this.y=y; } }
@@ -257,13 +296,17 @@ public final class ConsoleTerminalScrollingTest {
                 }
                 static class Input { String key(KeyEvent e,TerminalEmulator t) { return "key"; } }
                 record TerminalHyperlink(String uri) {}
-                interface ClipboardActions { void copySelection(); void pasteClipboard(); void showLink(TerminalHyperlink link); }
+                static class TerminalImage {}
+                interface ClipboardActions { void copySelection(); void pasteClipboard(); void showLink(TerminalHyperlink link);
+                    default void showImage(TerminalImage image) {} }
                 static class View extends BaseView {
                     Session mSession=new Session(); Renderer mRenderer=new Renderer(); Gestures mGestures=new Gestures();
                     ScaleGestureDetector mScaleGestures=new ScaleGestureDetector();
                     boolean mFontScaleGesture; int mFontSizeSp=14, fontRefreshes; float mPinchFontSizeSp, mFontWheelRemainder;
                     Input mInput=new Input(); ClipboardActions mClipboardActions;
                     TerminalHyperlink link; TerminalHyperlink linkAt(MotionEvent event) { return link; }
+                    TerminalImage image; TerminalImage imageAt(MotionEvent event) { return image; }
+                    boolean mImageGesture;
                     static final int SCROLL_ROWS=3;
                     int mRows=10, mTopRow, mTouchSlop=2, mTerminalMouseButton, keyboardRequests;
                     float mDownX, mDownY, mLastTouchY, mTouchScrollRemainder, mWheelScrollRemainder;
@@ -279,7 +322,7 @@ public final class ConsoleTerminalScrollingTest {
                     Point cellAt(MotionEvent e) { return new Point(1,Math.max(0,Math.min(mRows-1,(int)e.y/10))); }
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalView", "onTouchEvent", "onGenericMotionEvent",
                         "scrollRows", "clampTopRow", "clamp", "scrollTerminal", "scrollTouch", "onKeyDown",
-                        "handleFontScaleGesture", "fontSizeSp", "setFontSizeSp", "onScaleBegin", "onScale",
+                        "handleFontScaleGesture", "fontSizeSp", "setFontSizeSp", "onScaleBegin", "onScale", "showImageAt",
                         "computeVerticalScrollRange", "computeVerticalScrollExtent", "computeVerticalScrollOffset")
                 + "}\npublic static void verify() {\n" + body + "\n}");
     }
