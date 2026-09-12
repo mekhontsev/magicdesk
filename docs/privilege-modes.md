@@ -36,6 +36,14 @@ additional bootstrap. Both settings are app-private and captured at process
 startup; changing them never changes a live service's identity. They do not
 change the UID of Shizuku itself.
 
+The control panel exposes the same authorization request independently of
+Desktop setup. **Access: shell / root / none** describes the connected service's
+effective UID, not the selected launcher or its installation status. It updates
+on service events. A pending startup-policy change asks the user to Exit and
+reopen MagicDesk. Full Exit performs normal cleanup first, suppresses rebinding,
+and ends the cached app process when those startup settings changed. Reopening
+an unchanged runtime resumes its original backend; a Desktop Close does neither.
+
 The native bootstrap establishes real/effective/saved UID and GID 2000,
 shell supplementary groups, zero Linux capabilities and the shell SELinux
 domain before `exec app_process`. Java verifies the resulting identity before

@@ -73,8 +73,8 @@ final class DesktopAutomationStateReader {
                         .put("configuredBackend", ShellBackend.configured(mContext).name().toLowerCase(java.util.Locale.ROOT))
                         .put("forceShellUid", ShellPrivilegePolicy.forceShell())
                         .put("configuredForceShellUid", ShellPrivilegePolicy.configured(mContext))
-                        .put("restartRequired", ShellBackend.active() != ShellBackend.configured(mContext)
-                                || ShellPrivilegePolicy.forceShell() != ShellPrivilegePolicy.configured(mContext))
+                        .put("restartRequired", ShellPrivilegePolicy.restartRequired(mContext))
+                        .put("access", shell.accessLabel())
                         .put("managerPackage", shell.backend == ShellBackend.SHIZUKU
                                 ? IntegrationPackage.SHIZUKU.selected() : JSONObject.NULL)
                         .put("ready", shell.isReady())

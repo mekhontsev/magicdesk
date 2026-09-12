@@ -62,6 +62,13 @@ public final class ShellAccess {
         return isReady() ? "ready" : "unavailable";
     }
 
+    static void resume() {
+        if (SERVICE_CONNECTION.resume()) {
+            ShellServiceLauncher.current().requestPermission();
+            refresh();
+        }
+    }
+
     static Snapshot currentSnapshot() {
         return sSnapshot;
     }
@@ -1343,7 +1350,13 @@ public final class ShellAccess {
     }
 
     static void requestPermission() {
+        if (ShellPrivilegePolicy.restartRequired(MagicDeskApplication.applicationContext())) {
+            throw new IllegalStateException(MagicDeskApplication.applicationContext()
+                    .getString(R.string.access_restart_required));
+        }
+        if (isReady() || SERVICE_CONNECTION.isConnecting()) return;
         clearService();
+        SERVICE_CONNECTION.resume();
         ShellServiceLauncher.current().requestPermission();
     }
 
@@ -1353,6 +1366,7 @@ public final class ShellAccess {
 
     static void disconnect() {
         SERVICE_CONNECTION.disconnect();
+        publish(inspectNow());
     }
 
     private static IShellCommandService requireService() throws IOException {
@@ -1474,6 +1488,10 @@ public final class ShellAccess {
                     && permissionGranted
                     && isSupportedServiceUid(uid)
                     && error.isEmpty();
+        }
+
+        String accessLabel() {
+            return !isReady() ? "none" : uid == ROOT_UID ? "root" : "shell";
         }
 
         private boolean sameState(final Snapshot other) {

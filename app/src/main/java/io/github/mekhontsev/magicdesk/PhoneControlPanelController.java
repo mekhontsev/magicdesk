@@ -31,6 +31,8 @@ final class PhoneControlPanelController {
 
         void openSettings();
 
+        void requestAccess();
+
         void openApplications();
 
         void controlSelectedDisplay();
@@ -100,7 +102,7 @@ final class PhoneControlPanelController {
     private final Actions mActions;
 
     private TextView mStatus;
-    private TextView mRuntime;
+    private Button mRuntime;
     private Button mConnectWirelessDisplay;
     private DisplaySelectionView mDisplaySelection;
     private Button mCloseDesktop;
@@ -167,6 +169,7 @@ final class PhoneControlPanelController {
         final boolean canOpenTouchpad = MagicDeskRuntime.inputDisplayId() > 0
                 && MagicDeskRuntime.isPointerTransportReady() && state.shellReady;
         final boolean busy = state.sessionOperationInProgress || state.displayOperation;
+        mRuntime.setEnabled(!busy && (!state.shellReady || ShellPrivilegePolicy.restartRequired(mActivity)));
         final int inputDisplay = MagicDeskRuntime.inputDisplayId();
         int selectedId = -1;
         for (var display : state.displays) {
@@ -245,11 +248,12 @@ final class PhoneControlPanelController {
         mStatus = statusText(COLOR_TEXT, 14, true);
         status.addView(mStatus);
 
-        mRuntime = statusText(COLOR_MUTED, 12, false);
+        mRuntime = mUi.controlAction(R.string.control_runtime_status, R.drawable.ic_lock, COLOR_MUTED);
+        mRuntime.setOnClickListener(view -> mActions.requestAccess());
         final LinearLayout.LayoutParams runtimeParams =
                 new LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                        dp(48));
         runtimeParams.setMargins(0, dp(7), 0, 0);
         status.addView(mRuntime, runtimeParams);
         row.addView(status, new LinearLayout.LayoutParams(

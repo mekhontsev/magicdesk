@@ -6,6 +6,10 @@ import android.content.Context;
 final class ShellPrivilegePolicy {
     private ShellPrivilegePolicy() { }
     static boolean forceShell() { return Active.FORCE_SHELL; }
+    static boolean restartRequired(Context context) {
+        return ShellBackend.active() != ShellBackend.configured(context)
+                || forceShell() != configured(context);
+    }
     static boolean configured(Context context) {
         return context.getSharedPreferences("privileged_service", Context.MODE_PRIVATE)
                 .getBoolean("force_shell", false);

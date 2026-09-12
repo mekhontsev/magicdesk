@@ -2,12 +2,22 @@ package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
 
 import android.os.RemoteException;
 
 import org.junit.Test;
 
 public final class ShellAccessSnapshotTest {
+    @Test public void accessDescribesConnectedUidNotStartupTransport() {
+        for (ShellBackend backend : ShellBackend.values()) {
+            assertEquals("root", new ShellAccess.Snapshot(backend, false, true, true, 0, 13, "").accessLabel());
+            assertEquals("shell", new ShellAccess.Snapshot(backend, false, true, true, 2000, 13, "").accessLabel());
+            assertEquals("none", new ShellAccess.Snapshot(backend, true, true, true, -1, 13, "disconnected").accessLabel());
+            assertEquals("none", new ShellAccess.Snapshot(backend, true, true, false, 0, 13, "denied").accessLabel());
+        }
+    }
+
     @Test
     public void shellServerWithPermissionIsReady() {
         assertTrue(snapshot(true, true, 2000, 11).isReady());

@@ -252,9 +252,7 @@ final class MagicDeskSessionController {
                     mActivity.getSystemService(ActivityManager.class);
             if (activityManager == null) {
                 mActivity.finishAndRemoveTask();
-                return;
-            }
-            for (final ActivityManager.AppTask task
+            } else for (final ActivityManager.AppTask task
                     : activityManager.getAppTasks()) {
                 try {
                     task.finishAndRemoveTask();
@@ -275,6 +273,11 @@ final class MagicDeskSessionController {
             } catch (RuntimeException finishError) {
                 Log.w(TAG, "final activity finish failed", finishError);
             }
+        }
+        // Android retains a cached process after Activity.finish(). Startup-only
+        // identity settings need a fresh process, after all privileged cleanup.
+        if (ShellPrivilegePolicy.restartRequired(mActivity)) {
+            android.os.Process.killProcess(android.os.Process.myPid());
         }
     }
 

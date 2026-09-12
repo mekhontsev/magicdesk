@@ -75,6 +75,7 @@ public final class MagicDeskRuntime {
     }
 
     static void startTools(final Context context) {
+        ShellAccess.resume();
         context.startForegroundService(new Intent(context, MagicDeskRuntimeService.class)
                 .setAction(ACTION_START_TOOLS));
     }

@@ -17,6 +17,7 @@ final class ShellServiceConnection {
     private IShellCommandService mService;
     private int mUid = -1;
     private Attempt mAttempt;
+    private boolean mEnabled = true;
 
     ShellServiceConnection(Runnable connectedCallback) {
         mConnectedCallback = connectedCallback;
@@ -74,7 +75,7 @@ final class ShellServiceConnection {
         final ShellServiceLauncher launcher = ShellServiceLauncher.current();
         final Attempt attempt;
         synchronized (mLock) {
-            if (mService != null || mAttempt != null || !launcher.canBind()) return;
+            if (!mEnabled || mService != null || mAttempt != null || !launcher.canBind()) return;
             attempt = new Attempt(launcher.bindTimeoutMillis());
             mAttempt = attempt;
         }
@@ -101,7 +102,25 @@ final class ShellServiceConnection {
         synchronized (mLock) { return mService; }
     }
 
-    void disconnect() { clear(); }
+    boolean isConnecting() {
+        synchronized (mLock) {
+            return mEnabled && mAttempt != null && !mAttempt.finished
+                    && SystemClock.uptimeMillis() < mAttempt.deadline;
+        }
+    }
+
+    void disconnect() {
+        synchronized (mLock) { mEnabled = false; }
+        clear();
+    }
+
+    boolean resume() {
+        synchronized (mLock) {
+            if (mEnabled) return false;
+            mEnabled = true;
+            return true;
+        }
+    }
 
     void clear() {
         final Attempt attempt;

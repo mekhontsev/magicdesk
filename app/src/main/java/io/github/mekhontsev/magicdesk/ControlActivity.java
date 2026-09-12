@@ -43,6 +43,12 @@ public final class ControlActivity extends Activity
     private String mSelectedDisplayUniqueId = "";
     private boolean mDisplayOperation;
     private int mCatalogGeneration;
+    private final ShellAccess.StateListener mAccessListener = state -> runOnUiThread(() -> {
+        if (!isActivityUnavailable() && mPanel != null) {
+            refreshCatalog();
+            refresh();
+        }
+    });
 
     static Intent createLaunchIntent(final android.content.Context context) {
         return new Intent(context, ControlActivity.class)
@@ -60,6 +66,7 @@ public final class ControlActivity extends Activity
         }
         mSessionProfile = SessionProfile.fromLaunchIntent(this, getIntent());
         initializeControlPanel();
+        ShellAccess.addStateListener(mAccessListener);
     }
 
     @Override
@@ -193,6 +200,7 @@ public final class ControlActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        ShellAccess.removeStateListener(mAccessListener);
         synchronized (ControlActivity.class) {
             if (sActive.get() == this) {
                 sActive.clear();
@@ -500,6 +508,29 @@ public final class ControlActivity extends Activity
         refresh();
     }
 
+    @Override
+    public void requestAccess() {
+        if (ShellPrivilegePolicy.restartRequired(this)) {
+            new android.app.AlertDialog.Builder(this)
+                    .setMessage(R.string.access_restart_required)
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(R.string.action_exit, (dialog, which) -> exitMagicDesk())
+                    .show();
+            return;
+        }
+        try {
+            final ShellAccess.Snapshot access = ShellAccess.currentSnapshot();
+            if (!access.backend.usesRoot() && !access.running) {
+                ShellAccess.openManagerOrWebsite(this);
+            } else {
+                ShellAccess.requestPermission();
+            }
+        } catch (RuntimeException error) {
+            mStatus = ShellAccess.usefulMessage(error);
+        }
+        refresh();
+    }
+
     private void refresh() {
         if (mPanel == null) {
             return;
@@ -517,8 +548,9 @@ public final class ControlActivity extends Activity
                 mExternalModeSelection,
                 mWirelessConnectionUiAvailable,
                 wirelessConnected(),
-                mStatus,
-                ShellAccess.statusLabel()));
+                ShellPrivilegePolicy.restartRequired(this) ? getString(R.string.access_restart_required)
+                        : !ShellAccess.isReady() ? ShellAccess.currentSnapshot().error : mStatus,
+                ShellAccess.currentSnapshot().accessLabel()));
     }
 
     private void registerDisplayListener() {
