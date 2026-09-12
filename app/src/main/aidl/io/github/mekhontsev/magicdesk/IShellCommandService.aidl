@@ -72,6 +72,7 @@ interface IShellCommandService {
 
     int[] startInputRouting(
         int displayId,
+        boolean desktopShortcuts,
         IBinder ownerToken) = 18;
 
     void refreshInputRouting(IBinder ownerToken) = 19;
@@ -461,4 +462,5 @@ interface IShellCommandService {
     PendingIntent getShortcutLaunchIntent(String packageName, String shortcutId) = 132;
 
     void configureCommandEnvironment(String endpoint, String apk) = 133;
+    void moveOrdinaryTask(int taskId, int sourceDisplayId, int targetDisplayId, int userId) = 134;
 }

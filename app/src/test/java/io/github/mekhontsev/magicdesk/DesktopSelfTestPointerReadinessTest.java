@@ -20,7 +20,7 @@ public final class DesktopSelfTestPointerReadinessTest {
                     }
                     static class MagicDeskRuntime {
                         static boolean ready;
-                        static boolean isDesktopMouseBridgeReady() { return ready; }
+                        static boolean isPointerTransportReady() { return ready; }
                     }
                     static class DesktopAutomationEventJournal {
                         static int waits;

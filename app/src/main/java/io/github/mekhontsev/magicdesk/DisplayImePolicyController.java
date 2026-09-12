@@ -4,7 +4,7 @@ import android.os.IBinder;
 
 import java.lang.reflect.Method;
 
-/** Owns one desktop's temporary Android IME fallback, including restoration. */
+/** Owns one controlled display's temporary Android IME fallback and restoration. */
 final class DisplayImePolicyController implements AutoCloseable {
     private static final int FALLBACK_TO_DEFAULT_DISPLAY = 1;
 

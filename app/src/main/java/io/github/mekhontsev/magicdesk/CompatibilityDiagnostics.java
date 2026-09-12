@@ -495,7 +495,7 @@ public final class CompatibilityDiagnostics {
                         .getActiveDesktopDisplayId() > 0;
         final boolean mouseBridgeReady =
                 MagicDeskRuntime
-                        .isDesktopMouseBridgeReady();
+                        .isPointerTransportReady();
         final String mouseBridgeDetail;
         if (!shellPointer) {
             mouseBridgeDetail =

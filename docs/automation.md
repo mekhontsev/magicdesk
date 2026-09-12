@@ -289,8 +289,10 @@ registered host. A prepared `target` contains `workspaceDisplayId` and an
 The current presenter uses a direct binding, so all three active IDs coincide.
 Output kinds are `built_in`, `wired`, `wireless`, and `simulated`; the `phone`
 launch/self-test target still means the system default display.
-`inputDisplayId` is the intended destination, not confirmation that input setup
-has finished; input readiness remains a separate observation.
+Session `inputDisplayId` is the workspace's intended input destination, not
+confirmation of routing. `get_state.inputControl` independently reports
+`requestedDisplayId`, `readyDisplayId`, `transitioning` and `error`, including
+manual control without Desktop or on a different display.
 Launch, task, UI and injected-input commands continue to address logical Android
 displays. This state model does not expose an output-switching operation.
 
@@ -311,8 +313,21 @@ MagicDesk starts on it.
   command acceptance does not mean the host has appeared.
 - `close_desktop` leaves the display connected and reusable.
 - `remove_display(displayId, uniqueId)` only removes a MagicDesk-owned display.
-  It first closes any session on that display and waits for window transitions.
+  It first closes any session on that display, releases its selected input and
+  waits for window transitions.
   Then wait for `display_absent`; a removal request is not a display-loss event.
+- `control_display(displayId)` explicitly routes phone-attached physical mice
+  and keyboards and enables the phone touchpad for an external display. Use
+  `-1` to release input and restore prior routing. Wait for `input_ready` with
+  the same display ID (including `-1`); `pointer_ready` separately verifies the
+  phone mouse transport. No HOME or Desktop is acquired. Desktop shortcuts are
+  enabled only when the selected display hosts its prepared workspace.
+- `move_task(taskId, displayId)` transfers an existing current-profile app task.
+  Ordinary destinations use fullscreen, Desktop destinations use its existing
+  freeform path. Same-display requests only focus the task. Task identity and
+  its source are revalidated; launch acceptance must be followed by task/UI
+  observation. This action never claims input. Built-ins retain `open_builtin`
+  and terminal-session commands, using the same destination policy.
 
 The panel copies an existing-display command such as
 `scrcpy --display-id=3 --mouse-bind=++++ --shortcut-mod=rctrl`.

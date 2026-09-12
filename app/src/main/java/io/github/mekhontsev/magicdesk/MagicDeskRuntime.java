@@ -263,9 +263,9 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static boolean isDesktopMouseBridgeReady() {
+    static boolean isPointerTransportReady() {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.isDesktopMouseBridgeReady();
+        return backend != null && backend.isPointerTransportReady();
     }
 
     static boolean isFullKeyboardShortcutMode() {
@@ -273,10 +273,10 @@ public final class MagicDeskRuntime {
         return backend != null && backend.isFullKeyboardShortcutMode();
     }
 
-    static DesktopPointerState getDesktopPointerState(final int displayId) {
+    static DesktopPointerState getPointerState(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
         return backend == null
-                ? null : backend.getDesktopPointerState(displayId);
+                ? null : backend.getPointerState(displayId);
     }
 
     static DesktopInputDiagnostics.Snapshot
@@ -287,46 +287,72 @@ public final class MagicDeskRuntime {
                 : backend.captureInputDiagnostics();
     }
 
-    static void releaseDesktopInput(
+    static void releaseDisplayInput(
             final int displayId, final Runnable completion) {
         final MagicDeskRuntimeBackend backend = backend();
         if (backend != null) {
-            backend.releaseDesktopInput(displayId, completion);
+            backend.releaseDisplayInput(displayId, completion);
         } else {
             completion.run();
         }
     }
 
-    static boolean moveDesktopPointer(
+    static int inputDisplayId() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend == null ? -1 : backend.inputDisplayId();
+    }
+
+    static int readyInputDisplayId() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend == null ? -1 : backend.readyInputDisplayId();
+    }
+
+    static boolean inputTransitioning() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend != null && backend.inputTransitioning();
+    }
+
+    static String inputError() {
+        final MagicDeskRuntimeBackend backend = backend();
+        return backend == null ? "" : backend.inputError();
+    }
+
+    static void selectInputDisplay(final int displayId, final TaskRepository.ActionCallback callback) {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend == null) { completeTaskAction(callback, false, "input runtime is unavailable"); }
+        else { backend.selectInputDisplay(displayId, callback); }
+    }
+
+    static boolean movePointer(
             final int displayId,
             final float deltaX,
             final float deltaY) {
         final MagicDeskRuntimeBackend backend = backend();
         return backend != null
-                && backend.moveDesktopPointer(displayId, deltaX, deltaY);
+                && backend.movePointer(displayId, deltaX, deltaY);
     }
 
-    static boolean setDesktopPointerButtonPressed(
+    static boolean setPointerButtonPressed(
             final int displayId,
             final int button,
             final boolean pressed) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend != null && backend.setDesktopPointerButtonPressed(
+        return backend != null && backend.setPointerButtonPressed(
                 displayId, button, pressed);
     }
 
-    static boolean clickDesktopPointer(
+    static boolean clickPointer(
             final int displayId, final int button) {
         final MagicDeskRuntimeBackend backend = backend();
         return backend != null
-                && backend.clickDesktopPointer(displayId, button);
+                && backend.clickPointer(displayId, button);
     }
 
-    static boolean scrollDesktopPointer(
+    static boolean scrollPointer(
             final int displayId, final float amount) {
         final MagicDeskRuntimeBackend backend = backend();
         return backend != null
-                && backend.scrollDesktopPointer(displayId, amount);
+                && backend.scrollPointer(displayId, amount);
     }
 
 

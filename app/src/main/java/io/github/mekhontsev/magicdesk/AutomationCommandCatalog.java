@@ -130,6 +130,14 @@ final class AutomationCommandCatalog {
                                 .put("displayId", integerProperty("Owned display ID."))
                                 .put("uniqueId", stringProperty("Exact identity returned by list_displays.")),
                                 "displayId", "uniqueId")))
+                .put(actionTool("control_display", "Control display",
+                        "Route phone-attached mice and keyboards to a display without starting Desktop. Use -1 to restore prior routes. Acceptance is separate from input readiness.",
+                        objectSchema(new JSONObject().put("displayId", integerProperty(
+                                "Destination display ID, or -1 to release input.")), "displayId")))
+                .put(actionTool("move_task", "Move task",
+                        "Move an existing task to a display: ordinary fullscreen or managed Desktop window. Same-display selection only activates the task. Does not route input.",
+                        objectSchema(new JSONObject().put("taskId", integerProperty("Existing task ID."))
+                                .put("displayId", integerProperty("Destination display ID.")), "taskId", "displayId")))
                 .put(actionTool(
                         "close_desktop",
                         "Close desktop",
@@ -634,7 +642,7 @@ final class AutomationCommandCatalog {
                                 "task_bounds", "app_ready", "app_crashed",
                                 "app_not_responding",
                                 "system_dialog_visible",
-                                "pointer_ready", "ui_visible",
+                                "input_ready", "pointer_ready", "ui_visible",
                                 "ui_element_state", "popup_state",
                                 "taskbar_visible",
                                 "wallpaper_rendered", "self_test_finished"))
@@ -1235,6 +1243,7 @@ final class AutomationCommandCatalog {
                         .put("readiness", openObjectProperty("Awake/lock state and required prerequisite actions."))
                         .put("connection", openObjectProperty("Listener scope and current granted permissions."))
                         .put("session", openObjectProperty("Desktop session."))
+                        .put("inputControl", openObjectProperty("Independent input target: requestedDisplayId, readyDisplayId, transitioning and error."))
                         .put("services", openObjectProperty("Service prerequisites, independent of MCP grants."))
                         .put("ui", openObjectProperty("Desktop UI state."))
                         .put("runtime", openObjectProperty("Runtime state."));

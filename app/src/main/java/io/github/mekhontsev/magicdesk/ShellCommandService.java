@@ -47,7 +47,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     private final ShellVirtualDisplays mVirtualDisplays;
     private final ShellUiAutomation mUiAutomation;
     private final Object mInputRoutingLock = new Object();
-    private DesktopInputRoutingSession mInputRoutingSession;
+    private DisplayInputRoutingSession mInputRoutingSession;
     private IBinder mInputRoutingOwner;
     private IBinder.DeathRecipient mInputRoutingOwnerDeath;
 
@@ -226,6 +226,16 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             FrameworkActivityLaunchApi.send(mContext, intent, displayId);
         } catch (ReflectiveOperationException | android.app.PendingIntent.CanceledException error) {
             throw new IllegalStateException("shell pending Activity launch failed", error);
+        }
+    }
+
+    @Override public void moveOrdinaryTask(final int taskId, final int sourceDisplayId,
+            final int targetDisplayId, final int userId) {
+        try {
+            FrameworkActivityLaunchApi.moveTask(HiddenTaskApi.getService(), taskId,
+                    sourceDisplayId, targetDisplayId, userId);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IllegalStateException("ordinary task transfer failed", error);
         }
     }
 
@@ -930,6 +940,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     @Override
     public int[] startInputRouting(
             final int displayId,
+            final boolean desktopShortcuts,
             final IBinder ownerToken) {
         if (ownerToken == null) {
             throw new IllegalArgumentException(
@@ -937,11 +948,11 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         }
         synchronized (mInputRoutingLock) {
             stopInputRoutingLocked(null);
-            DesktopInputRoutingSession session = null;
+            DisplayInputRoutingSession session = null;
             IBinder.DeathRecipient ownerDeath = null;
             boolean ownerLinked = false;
             try {
-                session = DesktopInputRoutingSession.open(displayId);
+                session = DisplayInputRoutingSession.open(displayId, desktopShortcuts);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);
                 ownerLinked = true;
@@ -1000,7 +1011,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                 return 0;
             }
             try {
-                return DesktopInputRoutingSession
+                return DisplayInputRoutingSession
                         .cleanupStaleAssociations();
             } catch (Exception error) {
                 throw new IllegalStateException(
@@ -1473,7 +1484,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                         || !mInputRoutingOwner.equals(expectedOwner))) {
             return;
         }
-        final DesktopInputRoutingSession session = mInputRoutingSession;
+        final DisplayInputRoutingSession session = mInputRoutingSession;
         final IBinder owner = mInputRoutingOwner;
         final IBinder.DeathRecipient ownerDeath =
                 mInputRoutingOwnerDeath;

@@ -35,7 +35,7 @@ final class RuntimeDisplayCoordinator implements DisplayManager.DisplayListener 
     }
 
     boolean hasDisplay(final int displayId) {
-        return displayId > 0
+        return displayId >= 0
                 && mDisplayManager != null
                 && mDisplayManager.getDisplay(displayId) != null;
     }

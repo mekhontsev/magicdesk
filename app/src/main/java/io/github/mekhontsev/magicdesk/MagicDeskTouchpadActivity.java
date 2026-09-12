@@ -51,6 +51,21 @@ public final class MagicDeskTouchpadActivity extends Activity {
     private OnBackInvokedCallback mBackCallback;
     private PopupWindow mTouchSurface;
     private boolean mStarted;
+    private final java.util.List<View> mDesktopActions = new java.util.ArrayList<>();
+
+    static void refreshInputControls() {
+        final MagicDeskTouchpadActivity activity;
+        synchronized (STATE_LOCK) { activity = sVisibleActivity.get(); }
+        if (activity != null) { activity.runOnUiThread(activity::updateDesktopActions); }
+    }
+
+    private void updateDesktopActions() {
+        final boolean desktop = DesktopRuntimeBridge.getDesktopTarget(mTargetDisplayId) != null;
+        for (final View view : mDesktopActions) {
+            view.setEnabled(desktop);
+            view.setAlpha(desktop ? 1f : 0.4f);
+        }
+    }
 
     static void open(final Context context, final int displayId) {
         if (context == null || displayId <= Display.DEFAULT_DISPLAY) {
@@ -289,6 +304,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 R.string.touchpad_fullscreen_current_window,
                 view -> manageActiveWindow(
                         DesktopTaskController.SHORTCUT_FULLSCREEN));
+        mDesktopActions.add(fullscreen);
         header.addView(fullscreen, headerButtonParams(ui));
 
         final ImageButton restore = headerButton(
@@ -296,10 +312,13 @@ public final class MagicDeskTouchpadActivity extends Activity {
                 R.string.touchpad_restore_current_window,
                 view -> manageActiveWindow(
                         DesktopTaskController.SHORTCUT_RESTORE));
+        mDesktopActions.add(restore);
         header.addView(restore, headerButtonParams(ui));
 
         final ImageButton desktop = new ImageButton(this);
         desktop.setImageResource(R.drawable.ic_show_desktop);
+        mDesktopActions.add(desktop);
+        updateDesktopActions();
         desktop.setColorFilter(DesktopUiFactory.COLOR_TEXT);
         desktop.setBackgroundColor(Color.TRANSPARENT);
         desktop.setContentDescription(
@@ -374,6 +393,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
     }
 
     private void manageActiveWindow(final int shortcut) {
+        if (DesktopRuntimeBridge.getDesktopTarget(mTargetDisplayId) == null) { return; }
         hideHelp();
         DesktopOperations.manageActiveWindow(shortcut);
     }
@@ -430,7 +450,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
             return;
         }
         mPointerDragActive = false;
-        MagicDeskRuntime.setDesktopPointerButtonPressed(
+        MagicDeskRuntime.setPointerButtonPressed(
                 mTargetDisplayId,
                 MotionEvent.BUTTON_PRIMARY,
                 false);
@@ -660,7 +680,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     reportInputResult(
                             "scroll",
                             MagicDeskRuntime
-                                    .scrollDesktopPointer(
+                                    .scrollPointer(
                                             mTargetDisplayId,
                                             mPendingScroll / scrollStep));
                     mPendingScroll = 0.0f;
@@ -687,7 +707,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
                     return;
                 }
                 mPointerDragActive = MagicDeskRuntime
-                        .setDesktopPointerButtonPressed(
+                        .setPointerButtonPressed(
                                 mTargetDisplayId,
                                 MotionEvent.BUTTON_PRIMARY,
                                 true);
@@ -710,7 +730,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
             if (!mPointerMotion.move(currentX, currentY)) {
                 return;
             }
-            final boolean accepted = MagicDeskRuntime.moveDesktopPointer(
+            final boolean accepted = MagicDeskRuntime.movePointer(
                             mTargetDisplayId,
                             mPointerMotion.deltaX(),
                             mPointerMotion.deltaY());
@@ -731,7 +751,7 @@ public final class MagicDeskTouchpadActivity extends Activity {
             performHapticFeedback(HapticFeedbackConstants.CONFIRM);
             reportInputResult(
                     "click",
-                    MagicDeskRuntime.clickDesktopPointer(
+                    MagicDeskRuntime.clickPointer(
                             mTargetDisplayId, button));
         }
 

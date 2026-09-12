@@ -16,6 +16,7 @@ device validation on that release is still pending.
 | APK replacement | API 34 plus authorized privileged service and the update grant. Android's PackageInstaller and its shell callback own replacement; the update worker survives replacement and reconnect is observed by update ID. |
 | Display resources and ordinary tool placement | API 34 plus authorized privileged service and working framework capabilities. Creating a display or placing a fullscreen tool there does not acquire HOME or initialize WMShell Desktop. |
 | Ordinary Android Activity automation | API 34 plus authorized privileged service for background/display placement. Intent authorization, content grants and Activity results are independent of Desktop. Dispatch acceptance is verified separately through UI observation. |
+| Display input control and task transfer | API 34 plus working privileged framework capabilities. Explicit input control and ordinary fullscreen transfers do not start Desktop. Desktop shortcuts remain API 35+ and require its prepared workspace. |
 | Managed Desktop and its self-tests | API 35 plus Desktop provisioning and the required task/window/input APIs. Ordinary tool availability does not imply Desktop availability. |
 
 ## Boundary Enforcement
@@ -41,6 +42,10 @@ separate from these feature requirements.
 
 ## Release-Specific Behavior
 
+- `FrameworkInputRoutingApi` uses Android 14's unique-ID association methods;
+  API 35+ uses their port-specific names. Physical input stays in InputReader.
+  The virtual phone mouse additionally requires a working native helper and
+  permitted uinput access. These are runtime prerequisites, not vendor checks.
 - On API 34, private file drags remain within their source window. API 35 adds
   same-UID cross-window drag. Neither path exposes private payloads through an
   unrestricted global drag. Explicitly shareable content retains read-only URI
@@ -96,5 +101,6 @@ The remaining API 34 device matrix is: cold app/MCP startup, privileged-service 
 file operations and transfers, retained shell/Termux sessions, CLI commands with
 MCP disabled, private/shared
 drag boundaries, APK replacement with reconnect, virtual-display creation,
-fullscreen tool launch/capture/removal, and Desktop rejection without HOME or
+fullscreen tool launch/capture/removal, ordinary task transfer, independent
+input acquisition/hotplug/release, and Desktop rejection without HOME or
 display-policy changes. Run Desktop regression tests on API 35+ separately.

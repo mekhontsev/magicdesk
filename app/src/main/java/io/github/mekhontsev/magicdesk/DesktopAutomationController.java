@@ -92,6 +92,22 @@ final class DesktopAutomationController {
                 case REMOVE_DISPLAY:
                     result = removeDisplay(args);
                     break;
+                case CONTROL_DISPLAY:
+                    final int inputDisplay = requiredInt(args, "displayId");
+                    if (inputDisplay < -1) { throw new IllegalArgumentException("invalid input display"); }
+                    result = awaitTaskAction(callback -> MagicDeskRuntime.selectInputDisplay(inputDisplay, callback));
+                    if (result.success) { result.data.put("accepted", true).put("displayId", inputDisplay); }
+                    break;
+                case MOVE_TASK:
+                    final TaskRepository.TaskEntry moving = findTask(requiredInt(args, "taskId"));
+                    result = moving == null ? taskNotFound(requiredInt(args, "taskId"))
+                            : awaitTaskAction(callback -> TaskRepository.moveTaskToDisplay(moving,
+                                    requiredInt(args, "displayId"), null, callback));
+                    if (result.success) {
+                        result.data.put("accepted", true).put("taskId", moving.taskId)
+                                .put("displayId", requiredInt(args, "displayId"));
+                    }
+                    break;
                 case CLOSE_DESKTOP:
                     result = closeDesktop();
                     break;
@@ -1106,7 +1122,7 @@ final class DesktopAutomationController {
                     "pointer clicked");
         }
         return simpleRuntimeAction(
-                MagicDeskRuntime.clickDesktopPointer(displayId, button),
+                MagicDeskRuntime.clickPointer(displayId, button),
                 "pointer clicked");
     }
 
@@ -1141,6 +1157,15 @@ final class DesktopAutomationController {
         final JSONObject observation = new JSONObject()
                 .put("condition", condition);
         switch (condition) {
+            case "input_ready": {
+                final int expected = requiredInt(args, "displayId");
+                final int ready = MagicDeskRuntime.readyInputDisplayId();
+                return observation.put("displayId", ready)
+                        .put("transitioning", MagicDeskRuntime.inputTransitioning())
+                        .put("error", MagicDeskRuntime.inputError())
+                        .put("matched", ready == expected && !MagicDeskRuntime.inputTransitioning()
+                                && MagicDeskRuntime.inputError().isEmpty());
+            }
             case "display_present":
             case "display_absent": {
                 final int displayId = requiredInt(args, "displayId");
@@ -1237,12 +1262,21 @@ final class DesktopAutomationController {
                         .put("displayId", displayId)
                         .put("windowState", windows.toJson());
             }
-            case "pointer_ready":
-                return observation.put(
-                        "matched", MagicDeskRuntime.isDesktopMouseBridgeReady());
+            case "pointer_ready": {
+                final int displayId = args.optInt("displayId", MagicDeskRuntime.inputDisplayId());
+                return observation.put("displayId", displayId).put("matched",
+                        displayId >= 0 && displayId == MagicDeskRuntime.inputDisplayId()
+                                && MagicDeskRuntime.isPointerTransportReady());
+            }
             case "ui_visible": {
                 final String element = requiredString(args, "element")
                         .toLowerCase(Locale.ROOT);
+                if ("touchpad".equals(element) || "control_panel".equals(element)) {
+                    final boolean visible = "touchpad".equals(element)
+                            ? PhoneTouchpadController.isVisible() : ControlActivity.isControlPanelVisible();
+                    return observation.put("matched", visible == args.optBoolean("visible", true))
+                            .put("displayId", Display.DEFAULT_DISPLAY).put("element", element);
+                }
                 final int displayId = optionalDisplayId(args);
                 final DesktopUiSnapshot ui = DesktopRuntimeBridge
                         .getAutomationUiSnapshot(displayId);
@@ -1260,17 +1294,11 @@ final class DesktopAutomationController {
                     case "wallpaper":
                         visible = ui.wallpaperRendered;
                         break;
-                    case "touchpad":
-                        visible = DesktopOperations.isTouchpadVisible();
-                        break;
-                    case "control_panel":
-                        visible = ControlActivity.isControlPanelVisible();
-                        break;
                     default:
                         throw new IllegalArgumentException(
                                 "unknown UI element");
                 }
-                return observation.put("matched", visible)
+                return observation.put("matched", visible == args.optBoolean("visible", true))
                         .put("displayId", displayId)
                         .put("element", element)
                         .put("uiAvailable", ui.available);

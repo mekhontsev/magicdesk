@@ -11,12 +11,12 @@ final class PhoneTouchpadController {
     }
 
     static void open() {
-        final int displayId = activeWorkspaceDisplayId();
+        final int displayId = MagicDeskRuntime.inputDisplayId();
         if (displayId > Display.DEFAULT_DISPLAY) {
             open(displayId);
             return;
         }
-        Log.w(TAG, "cannot open touchpad: no external desktop is active");
+        Log.w(TAG, "cannot open touchpad: no external input target");
     }
 
     static void open(final int displayId) {
@@ -29,7 +29,7 @@ final class PhoneTouchpadController {
     }
 
     static boolean isVisible() {
-        final int displayId = activeWorkspaceDisplayId();
+        final int displayId = MagicDeskRuntime.inputDisplayId();
         return isSupported(displayId)
                 && MagicDeskTouchpadActivity.isVisible(displayId);
     }
@@ -41,7 +41,7 @@ final class PhoneTouchpadController {
 
     static void restoreIfMissing(
             final DesktopOperations.TouchpadRestoreCallback callback) {
-        final int displayId = activeWorkspaceDisplayId();
+        final int displayId = MagicDeskRuntime.inputDisplayId();
         final boolean missing = isSupported(displayId)
                 && MagicDeskTouchpadActivity.isRequested(displayId)
                 && !MagicDeskTouchpadActivity.isVisible(displayId);
@@ -83,14 +83,7 @@ final class PhoneTouchpadController {
         if (displayId <= Display.DEFAULT_DISPLAY) {
             return false;
         }
-        final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getDesktopTarget(displayId);
-        return target != null
-                && DesktopDisplayDrivers.forTarget(target)
-                        .features().phoneTouchpad;
+        return MagicDeskRuntime.inputDisplayId() == displayId;
     }
 
-    private static int activeWorkspaceDisplayId() {
-        return DesktopRuntimeBridge.getActiveDesktopDisplayId();
-    }
 }

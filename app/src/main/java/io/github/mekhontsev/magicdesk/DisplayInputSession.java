@@ -10,7 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Serializes route ownership; physical input never passes through this process. */
-final class DesktopInputSession {
+final class DisplayInputSession {
     private final Handler mHandler;
     private final Runnable mChanged;
     private final DesktopMouseBridge mMouse;
@@ -25,28 +25,35 @@ final class DesktopInputSession {
     private volatile long mGeneration;
     private ShellInputRoutingHandle mRouting;
     private boolean mDestroyed;
+    private boolean mDesktopShortcuts;
+    private volatile boolean mTransitioning;
+    private volatile String mError = "";
 
-    DesktopInputSession(final Context context, final Handler handler, final Runnable changed) {
+    DisplayInputSession(final Context context, final Handler handler, final Runnable changed) {
         mHandler = handler;
         mChanged = changed;
         mMouse = new DesktopMouseBridge(context, () -> mHandler.post(changed));
     }
 
-    void reconcile(final int displayId) {
-        if (mDestroyed || mRequestedDisplay == displayId) {
+    void reconcile(final int displayId, final boolean desktopShortcuts) {
+        if (mDestroyed || mRequestedDisplay == displayId
+                && mDesktopShortcuts == desktopShortcuts) {
             return;
         }
         mRequestedDisplay = displayId;
+        mDesktopShortcuts = desktopShortcuts;
         final long generation = ++mGeneration;
+        mTransitioning = true;
+        mError = "";
         mReadyDisplay = Display.INVALID_DISPLAY;
         DesktopShortcutService.setTargetDisplay(Display.INVALID_DISPLAY);
         mWorker.execute(() -> {
-            if (!release() || mGeneration != generation || displayId < 0) {
-                return;
-            }
             try {
+                if (!release() || mGeneration != generation || displayId < 0) {
+                    return;
+                }
                 InputSessionDiagnostics.noteAttempt(displayId);
-                mRouting = ShellAccess.openInputRouting(displayId);
+                mRouting = ShellAccess.openInputRouting(displayId, desktopShortcuts);
                 if (mGeneration != generation) {
                     release();
                     return;
@@ -58,13 +65,18 @@ final class DesktopInputSession {
                 }
                 mHandler.post(() -> {
                     if (mGeneration == generation && mReadyDisplay == displayId) {
-                        DesktopShortcutService.setTargetDisplay(displayId);
+                        DesktopShortcutService.setTargetDisplay(desktopShortcuts ? displayId : -1);
                         mChanged.run();
                     }
                 });
             } catch (IOException error) {
-                report("INPUT-ROUTING-001", "Could not establish desktop input", error);
+                report("INPUT-ROUTING-001", "Could not establish display input", error);
                 release();
+            } finally {
+                if (mGeneration == generation) {
+                    mTransitioning = false;
+                    mHandler.post(mChanged);
+                }
             }
         });
     }
@@ -82,15 +94,16 @@ final class DesktopInputSession {
             final long generation = mGeneration;
             try {
                 mRouting.refresh();
+                mError = "";
                 if (mGeneration == generation) mReadyDisplay = mRouting.displayId();
             } catch (IOException error) {
                 if (mGeneration == generation) mReadyDisplay = Display.INVALID_DISPLAY;
                 InputSessionDiagnostics.noteSourceRefreshFailure(error);
-                report("INPUT-ROUTING-002", "Could not refresh desktop input routes", error);
+                report("INPUT-ROUTING-002", "Could not refresh display input routes", error);
             }
             mHandler.post(() -> {
                 if (mGeneration == generation) {
-                    DesktopShortcutService.setTargetDisplay(mReadyDisplay);
+                    DesktopShortcutService.setTargetDisplay(mDesktopShortcuts ? mReadyDisplay : -1);
                     mChanged.run();
                 }
             });
@@ -98,8 +111,10 @@ final class DesktopInputSession {
     }
 
     void stop(final Runnable completion) {
+        mError = "";
         mRequestedDisplay = Display.INVALID_DISPLAY;
-        ++mGeneration;
+        final long generation = ++mGeneration;
+        mTransitioning = true;
         mReadyDisplay = Display.INVALID_DISPLAY;
         DesktopShortcutService.setTargetDisplay(Display.INVALID_DISPLAY);
         // Queue behind an in-flight acquisition. Never block the Activity thread,
@@ -108,7 +123,9 @@ final class DesktopInputSession {
             try {
                 release();
             } finally {
+                if (mGeneration == generation) { mTransitioning = false; }
                 mHandler.post(completion);
+                mHandler.post(mChanged);
             }
         });
     }
@@ -128,6 +145,10 @@ final class DesktopInputSession {
     boolean isPointerReady(final int displayId) {
         return displayId > Display.DEFAULT_DISPLAY && isRoutingReady(displayId) && mMouse.isReady();
     }
+
+    int readyDisplay() { return mReadyDisplay; }
+    boolean transitioning() { return mTransitioning; }
+    String error() { return mError; }
 
     boolean movePointer(final float x, final float y) { return mMouse.movePointer(x, y); }
     boolean clickPointer(final int button) { return mMouse.clickPointer(button); }
@@ -160,7 +181,8 @@ final class DesktopInputSession {
         return released;
     }
 
-    private static void report(final String code, final String title, final IOException error) {
+    private void report(final String code, final String title, final IOException error) {
+        mError = ShellAccess.usefulMessage(error);
         InputSessionDiagnostics.noteFailure(error);
         CompatibilityDiagnostics.record(code, title, error.getMessage(), error);
     }

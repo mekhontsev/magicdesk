@@ -29,24 +29,32 @@ interface MagicDeskRuntimeBackend {
 
     void scheduleLocalDesktopCleanup();
 
-    boolean isDesktopMouseBridgeReady();
+    boolean isPointerTransportReady();
 
     boolean isFullKeyboardShortcutMode();
 
-    DesktopPointerState getDesktopPointerState(int displayId);
+    DesktopPointerState getPointerState(int displayId);
 
     DesktopInputDiagnostics.Snapshot captureInputDiagnostics();
 
-    void releaseDesktopInput(int displayId, Runnable completion);
+    int inputDisplayId();
 
-    boolean moveDesktopPointer(int displayId, float deltaX, float deltaY);
+    int readyInputDisplayId();
+    boolean inputTransitioning();
+    String inputError();
 
-    boolean setDesktopPointerButtonPressed(
+    void selectInputDisplay(int displayId, TaskRepository.ActionCallback callback);
+
+    void releaseDisplayInput(int displayId, Runnable completion);
+
+    boolean movePointer(int displayId, float deltaX, float deltaY);
+
+    boolean setPointerButtonPressed(
             int displayId, int button, boolean pressed);
 
-    boolean clickDesktopPointer(int displayId, int button);
+    boolean clickPointer(int displayId, int button);
 
-    boolean scrollDesktopPointer(int displayId, float amount);
+    boolean scrollPointer(int displayId, float amount);
 
 
     boolean showStart(final int displayId);

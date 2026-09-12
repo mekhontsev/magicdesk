@@ -25,7 +25,9 @@ behavior, static verification and remaining device coverage.
   Desktop. A viewer, an owned virtual display and a Desktop session have separate
   lifetimes. Removal still observes the existing session cleanup boundary.
 - `MagicDeskRuntimeService` hosts tools and automation independently. Its Desktop
-  input, task observer and session coordinators initialize only for Desktop.
+  task observer and session coordinators initialize only for Desktop.
+  Display input initializes on explicit control or Desktop preparation. Merely
+  opening an application or creating a display does not claim input.
   Ordinary Activity launch primitives live in `FrameworkActivityLaunchApi`;
   virtual display access does not eagerly initialize the window organizer.
 - `RuntimeCapabilities` publishes service prerequisites separately from MCP
@@ -34,10 +36,16 @@ behavior, static verification and remaining device coverage.
   service promotion. A direct service Intent cannot promote Desktop or crash
   independent tools and automation on an unsupported SDK.
 
-The control panel can open Files, shell/Termux terminals and retained terminal
-sessions on the phone or selected display. No session is started implicitly to
-open a tool. Selecting a display already owned by Desktop uses the managed path;
-an explicit ordinary-display request cannot bypass that ownership.
+The control panel's selected display has separate application, input and Desktop
+actions. Its application picker combines Files, Settings, retained shell/Termux
+and tmux sessions with current-profile application tasks. `TaskRepository`
+revalidates exact task identity before transfer. An ordinary destination uses
+fullscreen; a Desktop destination uses managed freeform. Leaving Desktop goes
+through its existing topology owner. Ordinary-to-ordinary transfer uses
+`FrameworkActivityLaunchApi` without initializing an organizer. Selecting a task
+already on the destination only activates it. An explicit ordinary-display
+request cannot bypass Desktop ownership. Input selection is independent of all
+these launch and transfer actions.
 
 ## Design Principles
 
@@ -101,11 +109,20 @@ own task transitions or package-specific launch policy.
 
 ### Route devices through Android
 
-`DesktopInputSession` serializes ownership on one worker. Physical keyboards
+`DisplayInputSession` serializes ownership on one worker. Physical keyboards
 and mice remain Android InputReader devices; MagicDesk does not read or forward
-their event streams. `DesktopInputRoutingSession`, hosted by the privileged service, binds
-their input locations to the desktop's stable display unique ID through
-`FrameworkInputRoutingApi`. The API boundary supports Android 15 and newer.
+their event streams. `DisplayInputRoutingSession`, hosted by the privileged service, binds
+their input locations to the selected display's stable unique ID through
+`FrameworkInputRoutingApi`. It selects the Android 14 association signatures or
+the Android 15+ port-specific names; API 34 device validation remains pending.
+
+`DisplayInputTarget` separates Desktop preparation from manual input selection.
+Desktop claims input only after preparation. Manual control can select an
+ordinary display or release input without closing applications or Desktop.
+Closing Desktop releases its own selected input, not a later manual selection
+on another display. Removing a controlled display releases input first. Runtime
+state publishes requested and ready display IDs, transition state and errors;
+request acceptance does not imply readiness.
 
 A composite keyboard/mouse sharing one location receives one association.
 `InputRoutingLease` journals previous runtime port and unique-ID associations
@@ -116,7 +133,8 @@ survive reboot. Binder owner death releases routes; interrupted cleanup remains
 retryable. Unknown or incomplete input inventory is an error, not an empty list.
 
 Existing input-device callbacks reconcile hot-plugged locations. There is no
-periodic input inventory query. A key-only Accessibility service receives only
+periodic input inventory query. Only when the selected display owns a prepared
+Desktop does a key-only Accessibility service receive
 confirmed desktop keyboard IDs, observed through device-generation callbacks.
 It consumes MagicDesk combinations and dispatches them through the same
 `DesktopOperations` and task-controller gateways as the UI. Ordinary key
@@ -127,7 +145,9 @@ Host registration alone does not start input. Preparation is published after
 HOME draws, workspace ownership is configured and parked-task restoration
 finishes. Routes are acquired first; the phone pointer's location can be
 associated before its virtual device exists. `DesktopMouseBridge` then creates
-one virtual relative mouse for the phone touchpad on external desktops.
+one virtual relative mouse for the phone touchpad on external displays.
+Ordinary display control uses the same route acquisition and pointer lifecycle,
+without enabling Desktop shortcuts or acquiring HOME.
 The native helper queries `UI_GET_VERSION`: protocol 5 uses `UI_DEV_SETUP`,
 while protocol 4 writes a `uinput_user_dev` descriptor. Both create the same
 relative mouse and use the same event stream. Selection depends on the kernel
@@ -154,11 +174,11 @@ secondary click. Two-finger movement scrolls, while a stationary two-finger
 tap also becomes a secondary click. These decisions stay in the phone UI;
 display-targeted event injection stays inside the shell UserService.
 
-The user's Android IME connects directly to the focused desktop editor through
+The user's Android IME connects directly to the focused display editor through
 its normal `InputConnection`. `DisplayImePolicyController` temporarily applies
-Android's fallback-to-default-display policy on external desktops. The shell
-task-observer session owns this policy alongside the display configuration:
-clear, close, and owner Binder death restore the previous policy if it still
+Android's fallback-to-default-display policy on controlled external displays.
+`DisplayInputRoutingSession` owns the policy together with device routes:
+release, close, and owner Binder death restore the previous policy if it still
 has our value. Repeated configuration of the same display does not query or
 write the policy. Phone desktop leaves display-0 policy unchanged.
 
@@ -190,10 +210,10 @@ No editor text is captured or relayed by MagicDesk. Composing text, selection,
 deletion, editor actions, and Back-to-dismiss remain Android IME operations.
 There is no extra keyboard, polling loop, or software-keyboard selection.
 
-While an external desktop is owned, the runtime temporarily enables Android's
+While an external input display is selected, the runtime temporarily enables Android's
 `show_ime_with_hard_keyboard` setting so the user can explicitly open the
 phone keyboard even when a physical keyboard is connected. It remembers the
-previous value and restores it on normal desktop teardown; no persistent
+previous value and restores it when external input is released; no persistent
 keyboard preference is imposed during setup.
 
 ### Keep vendor input APIs behind a capability boundary
@@ -439,7 +459,7 @@ runtime integration and are not distributed through the same release path.
   reconciliation. It consumes one immutable
   `DesktopSessionSnapshot` per decision, so the host display and the prepared
   display target cannot come from different lifecycle transitions.
-  `RuntimeDesktopInputCoordinator` composes
+  `RuntimeDisplayInputCoordinator` composes
   input-device routing, the phone pointer and shortcut filter, desktop text routing,
   and software-keyboard policy. `RuntimeDesktopTaskCoordinator` owns the
   process-level `DesktopTaskController`, initializes Desktop observation for
@@ -454,7 +474,7 @@ runtime integration and are not distributed through the same release path.
   point to Phone Control Panel; its separate touchpad action opens the
   phone-side input panel. Both use direct, immutable Activity PendingIntents
   with display-0 launch options, never service or broadcast trampolines.
-  The touchpad action is offered only for a supported active external desktop;
+  The touchpad action is offered for the selected external input display;
   the Activity validates its target again before requesting phone input.
   Any visible phone application suspends automatic touchpad restoration using
   the existing task snapshot. Opening an app or Control Panel from the
@@ -1344,7 +1364,7 @@ isolated behind these boundaries.
   `DesktopRuntimeBridge` and publish state changes through the runtime rather
   than reaching a desktop Activity.
 - `ExternalDisplayController` discovers dynamic display IDs and fixes geometry.
-- `DesktopInputSession` owns input routing and the virtual phone pointer;
+- `DisplayInputSession` owns input routing and the virtual phone pointer;
   `DesktopShortcutService` filters desktop shortcuts, and
   `HardwareKeyboardLayoutController` owns layout selection.
 - `PhoneTouchpadController` starts and repairs the phone touchpad for an owned

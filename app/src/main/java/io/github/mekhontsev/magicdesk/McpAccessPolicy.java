@@ -68,6 +68,7 @@ final class McpAccessPolicy {
                     "get_intent_result", "get_activity_history" -> Permission.CONTENT;
             case "ui.inspect", "ui.wait", "ui.read_text" -> Permission.CONTENT;
             case "start_desktop", "close_desktop", "create_display", "remove_display",
+                    "control_display", "move_task",
                     "launch_app", "set_app_presentation", "reset_app_presentation",
                     "launch_intent", "open_uri", "open_file", "share", "invoke_android_action",
                     "invoke_app_action", "invoke_notification", "execute_app_function", "focus_task",

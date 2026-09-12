@@ -271,6 +271,16 @@ public final class ShellAccess {
         }
     }
 
+    static void moveOrdinaryTask(final TaskRepository.TaskEntry task, final int displayId)
+            throws IOException {
+        try {
+            requireService().moveOrdinaryTask(task.taskId, task.displayId, displayId, task.userId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("task transfer failed: " + usefulMessage(error), error);
+        }
+    }
+
     static android.app.PendingIntent getShortcutLaunchIntent(final String packageName,
             final String shortcutId) throws IOException {
         try {
@@ -1168,7 +1178,7 @@ public final class ShellAccess {
     }
 
     static ShellInputRoutingHandle openInputRouting(
-            final int displayId) throws IOException {
+            final int displayId, final boolean desktopShortcuts) throws IOException {
         if (displayId < 0) {
             throw new IOException(
                     "input routing requires an active display");
@@ -1178,6 +1188,7 @@ public final class ShellAccess {
         try {
             final int[] state = service.startInputRouting(
                     displayId,
+                    desktopShortcuts,
                     ownerToken);
             if (state == null || state.length != 2 || state[0] != displayId) {
                 service.stopInputRouting(ownerToken);

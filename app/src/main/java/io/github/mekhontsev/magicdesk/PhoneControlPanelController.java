@@ -31,7 +31,11 @@ final class PhoneControlPanelController {
 
         void openSettings();
 
-        void openTool(String name, boolean selectedScreen);
+        void openApplications();
+
+        void controlSelectedDisplay();
+
+        void releaseInput();
 
         void exitMagicDesk();
     }
@@ -106,6 +110,9 @@ final class PhoneControlPanelController {
     private Button mCloseDesktop;
     private Button mTouchpad;
     private Button mPhoneScreen;
+    private Button mControlDisplay;
+    private Button mReleaseInput;
+    private Button mApplications;
 
     PhoneControlPanelController(
             final Activity activity,
@@ -138,7 +145,6 @@ final class PhoneControlPanelController {
         content.setOrientation(LinearLayout.VERTICAL);
         addStatus(content);
         addDesktopActions(content);
-        addToolActions(content);
         addSystemActions(content);
         scroll.addView(centered(content), new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
@@ -152,6 +158,7 @@ final class PhoneControlPanelController {
 
     void render(final State state) {
         mStatus.setText(state.status);
+        if (!MagicDeskRuntime.inputError().isEmpty()) { mStatus.setText(MagicDeskRuntime.inputError()); }
         mRuntime.setText(mActivity.getString(
                 R.string.control_runtime_status, state.runtime));
         final String desktopDisplay = state.activeDisplayId >= 0
@@ -170,8 +177,21 @@ final class PhoneControlPanelController {
                 state.desktopSessionActive,
                 state.shellReady,
                 state.sessionOperationInProgress);
-        final boolean canOpenTouchpad = state.externalDesktopActive
-                && state.shellReady;
+        final boolean canOpenTouchpad = MagicDeskRuntime.inputDisplayId() > 0
+                && MagicDeskRuntime.isPointerTransportReady() && state.shellReady;
+        final boolean busy = state.sessionOperationInProgress || state.displayOperation;
+        final int inputDisplay = MagicDeskRuntime.inputDisplayId();
+        int selectedId = -1;
+        for (var display : state.displays) {
+            if (display.uniqueId.equals(state.selectedDisplayUniqueId)) selectedId = display.id;
+        }
+        mControlDisplay.setEnabled(state.shellReady && !busy && selectedId >= 0 && selectedId != inputDisplay);
+        mReleaseInput.setEnabled(state.shellReady && !busy && inputDisplay >= 0);
+        mApplications.setEnabled(state.shellReady && !busy && selectedId >= 0);
+        mControlDisplay.setText(inputDisplay == selectedId && selectedId >= 0
+                ? MagicDeskRuntime.readyInputDisplayId() == selectedId
+                    ? R.string.display_input_active : R.string.display_input_starting
+                : R.string.display_control);
         final boolean canControlPhoneScreen = state.externalDesktopActive
                 && state.phoneScreenControlAvailable;
         mCloseDesktop.setEnabled(canCloseDesktop);
@@ -259,6 +279,17 @@ final class PhoneControlPanelController {
         displayParams.setMargins(0, 0, 0, dp(8));
         parent.addView(mDisplay, displayParams);
         mDisplaySelection = new DisplaySelectionView(mActivity, mUi, mActions, parent);
+        final GridLayout displayActions = actionGrid();
+        mApplications = mUi.controlAction(R.string.display_open_application, R.drawable.ic_file_new_window, COLOR_TEXT);
+        mApplications.setOnClickListener(view -> mActions.openApplications());
+        addGridAction(displayActions, mApplications);
+        mControlDisplay = mUi.controlAction(R.string.display_control, R.drawable.ic_touchpad, COLOR_TEXT);
+        mControlDisplay.setOnClickListener(view -> mActions.controlSelectedDisplay());
+        addGridAction(displayActions, mControlDisplay);
+        mReleaseInput = mUi.controlAction(R.string.display_release_input, R.drawable.ic_close, COLOR_TEXT);
+        mReleaseInput.setOnClickListener(view -> mActions.releaseInput());
+        addGridAction(displayActions, mReleaseInput);
+        parent.addView(displayActions, fullWidthWrapParams(dp(4)));
         final GridLayout sessionActions = actionGrid();
         mTouchpad = mUi.controlAction(
                 R.string.action_open_touchpad, R.drawable.ic_touchpad, COLOR_TEXT);
@@ -280,28 +311,6 @@ final class PhoneControlPanelController {
         addGridAction(sessionActions, mConnectWirelessDisplay);
         parent.addView(sessionActions, fullWidthWrapParams(dp(4)));
     }
-
-    private void addToolActions(final LinearLayout parent) {
-        mUi.addControlSection(parent, R.string.control_section_tools, dp(16));
-        final android.widget.CheckBox selected = new android.widget.CheckBox(mActivity);
-        selected.setText(R.string.tools_selected_display);
-        selected.setTextColor(COLOR_TEXT);
-        selected.setTextSize(13);
-        selected.setMinHeight(dp(44));
-        parent.addView(selected);
-        final GridLayout grid = actionGrid();
-        final String[] names = {"files", "sessions"};
-        final int[] labels = {R.string.file_manager_title, R.string.terminal_sessions};
-        final int[] icons = {R.drawable.ic_desktop_folder, R.drawable.ic_file_new_window};
-        for (int i = 0; i < names.length; i++) {
-            final String name = names[i];
-            final Button button = mUi.controlAction(labels[i], icons[i], COLOR_TEXT);
-            button.setOnClickListener(view -> mActions.openTool(name, selected.isChecked()));
-            addGridAction(grid, button);
-        }
-        parent.addView(grid, fullWidthWrapParams(dp(6)));
-    }
-
 
     private void addSystemActions(final LinearLayout parent) {
         final Button exit = mUi.controlAction(R.string.action_exit, R.drawable.ic_exit, COLOR_RED);

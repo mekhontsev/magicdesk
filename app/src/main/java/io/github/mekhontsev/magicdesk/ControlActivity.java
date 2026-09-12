@@ -218,6 +218,14 @@ public final class ControlActivity extends Activity
                 && activity.hasWindowFocus();
     }
 
+    static void refreshInputState() {
+        final ControlActivity activity;
+        synchronized (ControlActivity.class) { activity = sActive.get(); }
+        if (activity != null && !activity.isActivityUnavailable()) {
+            activity.runOnUiThread(activity::refresh);
+        }
+    }
+
     @Override
     public void selectDisplay(final DesktopDisplayInfo display) {
         if (mDisplayOperation || DesktopOperations.isSessionTransitionInProgress()) { return; }
@@ -406,7 +414,7 @@ public final class ControlActivity extends Activity
     public void openTouchpad() {
         mStatus = getString(R.string.status_touchpad_opening);
         refresh();
-        DesktopOperations.openTouchpad();
+        PhoneTouchpadController.open();
     }
 
     @Override
@@ -452,23 +460,23 @@ public final class ControlActivity extends Activity
     }
 
     @Override
-    public void openTool(final String name, final boolean selectedScreen) {
-        final DesktopDisplayInfo selected = selectedScreen ? selectedDisplay() : null;
-        if (selectedScreen && selected == null) { return; }
-        final int displayId = selected == null ? Display.DEFAULT_DISPLAY : selected.id;
-        final ToolLaunchTarget target = ToolLaunchTarget.resolve("auto", displayId,
-                MagicDeskRuntime.activeDesktopDisplayId());
-        if ("sessions".equals(name)) {
-            TerminalSessionsDialog.show(this, target, selected == null ? null : selected.uniqueId);
-            return;
-        }
-        ToolApplications.open(this, ToolApplications.intent(this, name), target,
-                selected == null ? null : selected.uniqueId, error -> {
-                    if (error != null) {
-                        mStatus = ShellAccess.usefulMessage(error);
-                        refresh();
-                    }
-                });
+    public void openApplications() {
+        final DesktopDisplayInfo selected = selectedDisplay();
+        if (selected != null) { DisplayApplicationsDialog.show(this, selected); }
+    }
+
+    @Override public void controlSelectedDisplay() {
+        final DesktopDisplayInfo selected = selectedDisplay();
+        if (selected != null) { selectInput(selected.id); }
+    }
+
+    @Override public void releaseInput() { selectInput(-1); }
+
+    private void selectInput(final int displayId) {
+        MagicDeskRuntime.selectInputDisplay(displayId, result -> runOnUiThread(() -> {
+            if (!result.success) { mStatus = result.message; }
+            refresh();
+        }));
     }
 
     @Override

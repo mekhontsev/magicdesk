@@ -43,7 +43,7 @@ public final class RuntimeLayerSdkTest {
                 static class SessionSnapshot { int inputDisplayId() { return -1; } }
                 static class Session { void schedulePhoneTaskRecovery() {} }
                 Mcp mMcpRuntime = new Mcp();
-                Input mDesktopInput;
+                Input mDisplayInput;
                 Session mDesktopSession;
                 boolean mToolsRequested, mInitialized, stopped;
                 void startForeground(int id, Object notification) {}
@@ -52,7 +52,7 @@ public final class RuntimeLayerSdkTest {
                 void stopSelf() { stopped = true; }
                 void initialize() {
                     RuntimeCapabilities.requireDesktop();
-                    mInitialized = true; mDesktopInput = new Input(); mDesktopSession = new Session();
+                    mInitialized = true; mDisplayInput = new Input(); mDesktopSession = new Session();
                 }
                 int desktopDisplayId() { return -1; }
                 void updateDesktopTasks() {}

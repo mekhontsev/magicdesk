@@ -138,34 +138,51 @@ final class DesktopSessionTransitionCoordinator {
             return;
         }
         mOperations.execute(() -> {
-            boolean success = false;
             try {
                 final DesktopDisplayInfo display = DesktopDisplayCatalog.requireOwned(displayId, uniqueId);
                 if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId) {
                     throw new IllegalStateException("display still has an active desktop");
                 }
-                final WindowTransitionHealthDiagnostics.IdleResult idle =
-                        WindowTransitionHealthDiagnostics.awaitDisplayIdle(
-                                MagicDeskApplication.applicationContext(), displayId, 5_000L);
-                if (!idle.idle) {
-                    throw new IllegalStateException("display transitions are not idle: " + idle.detail);
-                }
-                if ("overlay".equals(display.source)) {
-                    success = SimulatedDesktopDisplayController.release(displayId);
-                } else {
-                    ShellAccess.removeVirtualDisplay(display);
-                    success = true;
-                }
+                final boolean controlsInput = MagicDeskRuntime.inputDisplayId() == displayId;
+                MagicDeskRuntime.releaseDisplayInput(displayId, () -> mOperations.execute(
+                        () -> removePreparedDisplay(display, controlsInput, callback)));
             } catch (java.io.IOException | RuntimeException error) {
                 CompatibilityDiagnostics.record("DISPLAY-VIRTUAL-002",
                         "Could not remove virtual display", error.getMessage(), error);
-            } finally {
                 mGate.finish(DesktopTransitionGate.Operation.DISPLAY);
-                complete(callback, success);
+                complete(callback, false);
             }
         });
     }
 
+    private void removePreparedDisplay(final DesktopDisplayInfo display, final boolean releasedInput,
+            final CompletionCallback callback) {
+        boolean success = false;
+        try {
+            DesktopDisplayCatalog.requireOwned(display.id, display.uniqueId);
+            if (releasedInput && !MagicDeskRuntime.inputError().isEmpty()) {
+                throw new IllegalStateException(MagicDeskRuntime.inputError());
+            }
+            final WindowTransitionHealthDiagnostics.IdleResult idle =
+                    WindowTransitionHealthDiagnostics.awaitDisplayIdle(
+                            MagicDeskApplication.applicationContext(), display.id, 5_000L);
+            if (!idle.idle) {
+                throw new IllegalStateException("display transitions are not idle: " + idle.detail);
+            }
+            if ("overlay".equals(display.source)) {
+                success = SimulatedDesktopDisplayController.release(display.id);
+            } else {
+                ShellAccess.removeVirtualDisplay(display);
+                success = true;
+            }
+        } catch (java.io.IOException | RuntimeException error) {
+            CompatibilityDiagnostics.record("DISPLAY-VIRTUAL-002",
+                    "Could not remove virtual display", error.getMessage(), error);
+        } finally {
+            mGate.finish(DesktopTransitionGate.Operation.DISPLAY);
+            complete(callback, success);
+        }
+    }
     private void finishDesktopClose(
             final CompletionCallback callback,
             final boolean success) {
@@ -247,7 +264,7 @@ final class DesktopSessionTransitionCoordinator {
             recordCloseFailure("Could not restore phone screen", error);
         }
         final boolean prepared = homeReleased && phoneRestored;
-        MagicDeskRuntime.releaseDesktopInput(plan.workspace.workspaceDisplayId,
+        MagicDeskRuntime.releaseDisplayInput(plan.workspace.workspaceDisplayId,
                 () -> mOperations.execute(() -> parkAndClose(
                         plan, prepared, callback)));
     }

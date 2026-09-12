@@ -60,6 +60,11 @@ final class DesktopAutomationStateReader {
                 .put("app", AutomationDeviceState.appJson(mContext))
                 .put("device", AutomationDeviceState.deviceJson())
                 .put("services", RuntimeCapabilities.current(mContext).toJson())
+                .put("inputControl", new JSONObject()
+                        .put("requestedDisplayId", MagicDeskRuntime.inputDisplayId())
+                        .put("readyDisplayId", MagicDeskRuntime.readyInputDisplayId())
+                        .put("transitioning", MagicDeskRuntime.inputTransitioning())
+                        .put("error", MagicDeskRuntime.inputError()))
                 .put("readiness", AutomationDeviceState.capture(mContext)
                         .toJson(shell.isReady()))
                 .put("shell", new JSONObject()
@@ -88,7 +93,7 @@ final class DesktopAutomationStateReader {
                 .put("ui", uiJson(ui))
                 .put("runtime", new JSONObject()
                         .put("mouseBridgeReady",
-                                MagicDeskRuntime.isDesktopMouseBridgeReady())
+                                MagicDeskRuntime.isPointerTransportReady())
                         .put("touchpadVisible",
                                 DesktopOperations.isTouchpadVisible())
                         .put("controlPanelVisible",
@@ -120,24 +125,21 @@ final class DesktopAutomationStateReader {
     }
 
     JSONObject pointerState(final JSONObject arguments) throws JSONException {
-        final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
         final Integer requestedDisplayId = optionalInteger(
                 arguments == null ? new JSONObject() : arguments,
                 "displayId");
         final int displayId = requestedDisplayId == null
-                ? session.activeWorkspaceDisplayId() : requestedDisplayId.intValue();
+                ? MagicDeskRuntime.inputDisplayId() : requestedDisplayId.intValue();
         final PlatformSelection.Provider provider = PlatformDrivers.current()
                 .selection().provider(PlatformComponent.POINTER);
         final DesktopPointerState state = displayId >= Display.DEFAULT_DISPLAY
-                ? MagicDeskRuntime.getDesktopPointerState(displayId) : null;
+                ? MagicDeskRuntime.getPointerState(displayId) : null;
         final PointerPosition position = state == null ? null : state.positionOnDisplay();
         final PointerPosition observation = state == null ? null : state.observation;
         return new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())
                 .put("displayId", displayId)
-                .put("active", session.hasHost()
-                        && displayId == session.activeWorkspaceDisplayId())
+                .put("active", displayId >= 0 && displayId == MagicDeskRuntime.inputDisplayId())
                 .put("provider", state != null
                         ? state.provider
                         : provider == null ? "android" : provider.id)

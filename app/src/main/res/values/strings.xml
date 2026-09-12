@@ -9,7 +9,16 @@
     <string name="settings_integration_missing_manager">Cannot open selected Shizuku manager: %1$s</string>
     <string name="notification_tools_ready">Tools available</string>
     <string name="control_section_tools">Applications</string>
-    <string name="tools_selected_display">Open on selected display</string>
+    <string name="display_open_application">Open application</string>
+    <string name="display_open_on">Open on %1$s</string>
+    <string name="display_running_apps">Running applications</string>
+    <string name="display_show_task">Show on display %1$d (task %2$d)</string>
+    <string name="display_move_task">Move from display %1$d (task %2$d)</string>
+    <string name="display_no_tasks">No running applications</string>
+    <string name="display_control">Control this display</string>
+    <string name="display_release_input">Release input</string>
+    <string name="display_input_active">Input connected</string>
+    <string name="display_input_starting">Connecting input...</string>
     <string name="terminal_sessions">Terminal sessions</string>
     <string name="terminal_end_session">End session</string>
     <string name="terminal_no_sessions">No terminal sessions</string>
@@ -34,7 +43,7 @@
     <string name="section_tools">Tools</string>
     <string name="section_quick_controls">Quick controls</string>
     <string name="section_capture">Capture</string>
-    <string name="control_section_desktop">Desktop session</string>
+    <string name="control_section_desktop">Display</string>
     <string name="section_recent">Recent</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_start">Start</string>

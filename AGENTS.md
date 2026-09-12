@@ -20,7 +20,10 @@ Layers section of `docs/architecture.md` and `docs/runtime-api-levels.md`.
 MCP, files, content, profiles, shell execution and Termux sessions are shared
 services, not Desktop-owned features. Ordinary built-in Activity placement and
 virtual-display creation must not acquire HOME, provision Desktop, initialize
-its task/input coordinators, or require a WMShell Desktop backend.
+its task/session coordinators, or require a WMShell Desktop backend.
+Display input is a shared, explicitly acquired service. Opening an application
+does not claim input. Desktop acquires it after preparation; manual selection
+can control another display without Desktop or its shortcut filter.
 
 Use `ToolApplications` and `ToolLaunchTarget` for built-in placement and
 `DisplayOperations` for display resources. A display, its viewer and a Desktop

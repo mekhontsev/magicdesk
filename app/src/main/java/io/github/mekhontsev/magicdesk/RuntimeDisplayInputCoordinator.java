@@ -8,8 +8,8 @@ import android.view.MotionEvent;
 
 import java.io.IOException;
 
-/** Owns desktop routing, virtual pointer, shortcuts, and software-keyboard policy. */
-final class RuntimeDesktopInputCoordinator {
+/** Shared display input; Desktop preparation is one explicit acquisition source. */
+final class RuntimeDisplayInputCoordinator {
     private static final String TAG = "MagicDeskInputRuntime";
     private static final String SETTINGS = "/system/bin/settings";
     private static final String SHOW_IME_WITH_HARD_KEYBOARD =
@@ -17,27 +17,26 @@ final class RuntimeDesktopInputCoordinator {
 
     private final Runnable mHardwareKeyboardChanged;
     private final RuntimeInputCoordinator mInputDevices;
-    private final DesktopInputSession mInputSession;
+    private final DisplayInputSession mInputSession;
 
     private boolean mHasHardwareKeyboard;
     private boolean mHasExternalMouse;
-    private int mInputDisplayId = Display.INVALID_DISPLAY;
-    private boolean mDesktopPrepared;
-    private int mClosingInputDisplayId = Display.INVALID_DISPLAY;
+    private volatile int mInputDisplayId = Display.INVALID_DISPLAY;
+    private final DisplayInputTarget mTarget = new DisplayInputTarget();
     private boolean mShowImeOverrideActive;
     private boolean mLastReportedPointerReady;
     private boolean mPointerReleaseExpected;
     private String mPreviousShowImeWithHardKeyboard;
     private boolean mDestroyed;
 
-    RuntimeDesktopInputCoordinator(
+    RuntimeDisplayInputCoordinator(
             final Context context,
             final Handler handler,
             final Runnable hardwareKeyboardChanged) {
         mHardwareKeyboardChanged = hardwareKeyboardChanged;
         mInputDevices = new RuntimeInputCoordinator(
                 context, handler, this::handleInputStateChanged);
-        mInputSession = new DesktopInputSession(context, handler, this::handleInputSessionStateChanged);
+        mInputSession = new DisplayInputSession(context, handler, this::handleInputSessionStateChanged);
     }
 
     void start() {
@@ -65,40 +64,34 @@ final class RuntimeDesktopInputCoordinator {
         mInputDevices.scheduleRefresh();
     }
 
-    void setInputTarget(
-            final int displayId,
-            final boolean ownershipChanged) {
+    void setInputTarget(final int displayId) {
         if (mDestroyed) {
             return;
         }
-        final int previousDisplayId = mInputDisplayId;
-        if (displayId != previousDisplayId) {
-            mDesktopPrepared = false;
-        }
-        mInputDisplayId = displayId;
-        clearCompletedInputClose(displayId);
-        if (!ownershipChanged) {
-            return;
-        }
-        updateShowImeOverride();
+        mTarget.desktop(displayId);
         updateInputBridges();
-        if (ownsExternalDesktop()) {
-            refreshDesktopInputSources();
-        }
+        updateShowImeOverride();
     }
 
     void reconcileRuntime(final int displayId) {
-        if (mDestroyed) {
-            return;
-        }
-        if (displayId != mInputDisplayId || !ShellAccess.isReady()) {
-            mDesktopPrepared = false;
-        }
-        mInputDisplayId = displayId;
-        clearCompletedInputClose(displayId);
-        updateShowImeOverride();
+        if (mDestroyed) { return; }
+        mTarget.desktop(displayId);
+        if (!ShellAccess.isReady()) { mTarget.release(mTarget.requestedDisplay()); }
         updateInputBridges();
+        updateShowImeOverride();
     }
+
+    void selectDisplay(final int displayId) {
+        if (mDestroyed) { throw new IllegalStateException("input runtime is closed"); }
+        mTarget.select(displayId);
+        updateInputBridges();
+        updateShowImeOverride();
+    }
+
+    int requestedDisplay() { return mInputDisplayId; }
+    int readyDisplay() { return mInputSession.readyDisplay(); }
+    boolean transitioning() { return mInputSession.transitioning(); }
+    String error() { return mInputSession.error(); }
 
     void reconcileSoftwareKeyboardPolicy() {
         if (!mDestroyed) {
@@ -118,8 +111,8 @@ final class RuntimeDesktopInputCoordinator {
     DesktopPointerState pointerState(
             final int displayId,
             final String provider) {
-        final boolean active = isActiveDesktopDisplay(displayId);
-        final boolean relayRequired = active && ownsExternalDesktop();
+        final boolean active = isInputDisplay(displayId);
+        final boolean relayRequired = active && controlsExternalDisplay();
         final boolean relayReady = active
                 && mInputSession.isPointerReady(displayId);
         final boolean routingReady = active
@@ -150,22 +143,20 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     void onDesktopPrepared(final int displayId) {
-        if (!isActiveDesktopDisplay(displayId) || mDesktopPrepared
-                || mClosingInputDisplayId == displayId) {
-            return;
-        }
-        mDesktopPrepared = true;
+        if (mDestroyed || displayId < 0) { return; }
+        mTarget.prepared(displayId);
         updateInputBridges();
     }
 
     void releaseForSessionClose(final int displayId, final Runnable completion) {
-        if (!isActiveDesktopDisplay(displayId)) {
+        if (!mTarget.release(displayId)) {
             completion.run();
             return;
         }
-        mClosingInputDisplayId = displayId;
-        mDesktopPrepared = false;
+        mInputDisplayId = Display.INVALID_DISPLAY;
         mPointerReleaseExpected = true;
+        PhoneTouchpadController.release(displayId);
+        updateShowImeOverride();
         mInputSession.stop(completion);
     }
 
@@ -173,7 +164,7 @@ final class RuntimeDesktopInputCoordinator {
             final int displayId,
             final float deltaX,
             final float deltaY) {
-        return isActiveDesktopDisplay(displayId)
+        return isInputDisplay(displayId)
                 && mInputSession.isPointerReady(displayId)
                 && mInputSession.movePointer(deltaX, deltaY);
     }
@@ -182,14 +173,14 @@ final class RuntimeDesktopInputCoordinator {
             final int displayId,
             final int button,
             final boolean pressed) {
-        return isActiveDesktopDisplay(displayId)
+        return isInputDisplay(displayId)
                 && button == MotionEvent.BUTTON_PRIMARY
                 && mInputSession.isPointerReady(displayId)
                 && mInputSession.setPrimaryButtonPressed(pressed);
     }
 
     boolean clickPointer(final int displayId, final int button) {
-        if (!isActiveDesktopDisplay(displayId)) {
+        if (!isInputDisplay(displayId)) {
             return false;
         }
         if (!mInputSession.isPointerReady(displayId)) {
@@ -199,13 +190,13 @@ final class RuntimeDesktopInputCoordinator {
     }
 
     boolean scrollPointer(final int displayId, final float amount) {
-        return isActiveDesktopDisplay(displayId)
+        return isInputDisplay(displayId)
                 && mInputSession.isPointerReady(displayId)
                 && mInputSession.scrollPointer(amount);
     }
 
 
-    private boolean isActiveDesktopDisplay(final int displayId) {
+    private boolean isInputDisplay(final int displayId) {
         return !mDestroyed && displayId >= Display.DEFAULT_DISPLAY
                 && displayId == mInputDisplayId;
     }
@@ -228,11 +219,13 @@ final class RuntimeDesktopInputCoordinator {
             mHardwareKeyboardChanged.run();
         }
         updateInputBridges();
-        refreshDesktopInputSources();
+        refreshInputSources();
     }
 
     private void handleInputSessionStateChanged() {
         if (!mDestroyed) {
+            DesktopAutomationEventJournal.record("input", "routing_changed", mInputSession.error().isEmpty(),
+                    "requested=" + mInputDisplayId + " ready=" + mInputSession.readyDisplay());
             final boolean ready = mInputSession.isPointerReady(
                     mInputDisplayId);
             if (ready != mLastReportedPointerReady) {
@@ -260,41 +253,33 @@ final class RuntimeDesktopInputCoordinator {
                             "display=" + mInputDisplayId);
                 }
             }
-            updateInputBridges();
+            mHardwareKeyboardChanged.run();
         }
     }
 
     private void updateInputBridges() {
-        final int inputDisplayId = mDesktopPrepared && ShellAccess.isReady()
-                && mClosingInputDisplayId != mInputDisplayId
-                ? mInputDisplayId : Display.INVALID_DISPLAY;
-        if (mInputSession.isPointerReady(mInputDisplayId) && inputDisplayId < 0) {
+        final int previous = mInputDisplayId;
+        mInputDisplayId = mTarget.requestedDisplay();
+        final int target = ShellAccess.isReady() ? mTarget.readyTarget() : Display.INVALID_DISPLAY;
+        if (previous != mInputDisplayId) {
             mPointerReleaseExpected = true;
+            PhoneTouchpadController.release(previous);
         }
-        mInputSession.reconcile(inputDisplayId);
+        mInputSession.reconcile(target, target >= 0 && mTarget.desktopShortcuts());
     }
 
-    private void clearCompletedInputClose(
-            final int displayId) {
-        if (mClosingInputDisplayId != Display.INVALID_DISPLAY
-                && mClosingInputDisplayId != displayId) {
-            mClosingInputDisplayId = Display.INVALID_DISPLAY;
-        }
-    }
-
-    private void refreshDesktopInputSources() {
-        if (!mDestroyed && mDesktopPrepared && ShellAccess.isReady()
-                && mClosingInputDisplayId != mInputDisplayId) {
+    private void refreshInputSources() {
+        if (!mDestroyed && mTarget.readyTarget() >= 0 && ShellAccess.isReady()) {
             mInputSession.refreshDevices();
         }
     }
 
-    private boolean ownsExternalDesktop() {
+    private boolean controlsExternalDisplay() {
         return mInputDisplayId > Display.DEFAULT_DISPLAY;
     }
 
     private void updateShowImeOverride() {
-        final boolean shouldBeActive = ownsExternalDesktop()
+        final boolean shouldBeActive = controlsExternalDisplay()
                 && ShellAccess.isReady();
         if (shouldBeActive == mShowImeOverrideActive) {
             return;
@@ -315,7 +300,7 @@ final class RuntimeDesktopInputCoordinator {
                             ? previous : null;
             mShowImeOverrideActive = true;
             Log.i(TAG,
-                    "software keyboard enabled for external desktop");
+                    "software keyboard enabled for external display");
         } catch (IOException error) {
             Log.w(TAG,
                     "could not enable phone keyboard policy", error);

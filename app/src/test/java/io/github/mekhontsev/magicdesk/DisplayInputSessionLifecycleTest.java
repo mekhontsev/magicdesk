@@ -3,12 +3,12 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 /** The queued production methods run against deterministic Binder and pointer doubles. */
-public final class DesktopInputSessionLifecycleTest {
+public final class DisplayInputSessionLifecycleTest {
     @Test public void closeCompletesAfterInFlightAcquisitionAndRestoration() throws Exception {
         RuntimeSourceFixture.verify(fixture() + """
                 public static void verify() throws Exception {
                     Fixture f = new Fixture();
-                    f.reconcile(7);
+                    f.reconcile(7, true);
                     check(ShellAccess.entered.await(2, TimeUnit.SECONDS), "acquisition not reached");
                     CountDownLatch complete = new CountDownLatch(1);
                     f.stop(complete::countDown);
@@ -28,10 +28,10 @@ public final class DesktopInputSessionLifecycleTest {
         RuntimeSourceFixture.verify(fixture() + """
                 public static void verify() throws Exception {
                     Fixture f = new Fixture();
-                    f.reconcile(7);
+                    f.reconcile(7, true);
                     check(ShellAccess.entered.await(2, TimeUnit.SECONDS), "acquisition not reached");
                     f.stop(() -> {});
-                    f.reconcile(7);
+                    f.reconcile(7, true);
                     ShellAccess.proceed.countDown();
                     f.mWorker.submit(() -> {}).get(2, TimeUnit.SECONDS);
                     check(f.isRoutingReady(7) && f.mMouse.starts == 1,
@@ -52,7 +52,7 @@ public final class DesktopInputSessionLifecycleTest {
                     f.mRouting = new ShellInputRoutingHandle(7);
                     f.mRouting.fail = true;
                     ShellAccess.proceed.countDown();
-                    f.reconcile(8);
+                    f.reconcile(8, false);
                     f.mWorker.submit(() -> {}).get(2, TimeUnit.SECONDS);
                     check(ShellAccess.opens == 0 && !f.isRoutingReady(8),
                             "new lease overwrote failed cleanup");
@@ -76,7 +76,8 @@ public final class DesktopInputSessionLifecycleTest {
                 final ExecutorService mWorker = Executors.newSingleThreadExecutor();
                 volatile int mRequestedDisplay = -1, mReadyDisplay = -1;
                 volatile long mGeneration;
-                boolean mDestroyed;
+                boolean mDestroyed, mDesktopShortcuts, mTransitioning;
+                String mError = "";
                 ShellInputRoutingHandle mRouting;
                 static class Mouse {
                     volatile boolean active;
@@ -104,7 +105,7 @@ public final class DesktopInputSessionLifecycleTest {
                     static final CountDownLatch proceed = new CountDownLatch(1);
                     static ShellInputRoutingHandle route;
                     static int opens;
-                    static ShellInputRoutingHandle openInputRouting(int id) throws IOException {
+                    static ShellInputRoutingHandle openInputRouting(int id, boolean shortcuts) throws IOException {
                         opens++;
                         entered.countDown();
                         try { check(proceed.await(2, TimeUnit.SECONDS), "fixture gate timed out"); }
@@ -116,7 +117,7 @@ public final class DesktopInputSessionLifecycleTest {
                     static boolean isReady() { return true; }
                 }
                 static void report(String code, String title, IOException error) {}
-                """ + RuntimeSourceFixture.methods("DesktopInputSession",
+                """ + RuntimeSourceFixture.methods("DisplayInputSession",
                         "reconcile", "stop", "release", "isRoutingReady");
     }
 }

@@ -31,7 +31,7 @@ public final class MagicDeskRuntimeTest {
                 () -> desktopReleaseCompleted[0] = true);
 
         assertFalse(MagicDeskRuntime.isSessionWakeLockHeld());
-        assertFalse(MagicDeskRuntime.isDesktopMouseBridgeReady());
+        assertFalse(MagicDeskRuntime.isPointerTransportReady());
         assertFalse(MagicDeskRuntime.isFullKeyboardShortcutMode());
         assertFalse(MagicDeskRuntime.showStart(7));
         assertFalse(MagicDeskRuntime.toggleDesktopWorkspace(7));
@@ -58,7 +58,7 @@ public final class MagicDeskRuntimeTest {
                 () -> mAttached.settingsRefreshCompleted = true);
         MagicDeskRuntime.releaseDesktopWorkspace(workspace,
                 () -> mAttached.desktopReleaseCompleted = true);
-        MagicDeskRuntime.releaseDesktopInput(7,
+        MagicDeskRuntime.releaseDisplayInput(7,
                 () -> mAttached.inputReleaseCompleted = true);
         MagicDeskRuntime.preserveDesktopTasks(7);
         MagicDeskRuntime.clearParkedDesktopTasks();
@@ -249,7 +249,7 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public boolean isDesktopMouseBridgeReady() {
+        public boolean isPointerTransportReady() {
             return true;
         }
 
@@ -259,7 +259,7 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public DesktopPointerState getDesktopPointerState(
+        public DesktopPointerState getPointerState(
                 final int displayId) {
             return new DesktopPointerState(
                     displayId, "test", true, true, true,
@@ -272,15 +272,23 @@ public final class MagicDeskRuntimeTest {
             return DesktopInputDiagnostics.Snapshot.unavailable();
         }
 
+        @Override public int inputDisplayId() { return -1; }
+        @Override public int readyInputDisplayId() { return -1; }
+        @Override public boolean inputTransitioning() { return false; }
+        @Override public String inputError() { return ""; }
+        @Override public void selectInputDisplay(int id, TaskRepository.ActionCallback callback) {
+            callback.onComplete(new TaskRepository.ActionResult(true, "requested"));
+        }
+
         @Override
-        public void releaseDesktopInput(
+        public void releaseDisplayInput(
                 final int displayId, final Runnable completion) {
             inputReleaseDisplayId = displayId;
             completion.run();
         }
 
         @Override
-        public boolean moveDesktopPointer(
+        public boolean movePointer(
                 final int displayId,
                 final float deltaX,
                 final float deltaY) {
@@ -288,7 +296,7 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public boolean setDesktopPointerButtonPressed(
+        public boolean setPointerButtonPressed(
                 final int displayId,
                 final int button,
                 final boolean pressed) {
@@ -296,13 +304,13 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public boolean clickDesktopPointer(
+        public boolean clickPointer(
                 final int displayId, final int button) {
             return true;
         }
 
         @Override
-        public boolean scrollDesktopPointer(
+        public boolean scrollPointer(
                 final int displayId, final float amount) {
             return true;
         }

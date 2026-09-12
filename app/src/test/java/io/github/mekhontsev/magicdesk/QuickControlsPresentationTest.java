@@ -73,12 +73,14 @@ public final class QuickControlsPresentationTest {
         assertFalse(render.contains("removeView"));
         assertTrue(render.contains("mCloseDesktop.setEnabled(canCloseDesktop)"));
         final String create = RuntimeSourceFixture.methods("PhoneControlPanelController", "createView");
-        assertTrue(create.indexOf("addDesktopActions(content)") < create.indexOf("addToolActions(content)"));
+        assertTrue(create.indexOf("addDesktopActions(content)") < create.indexOf("addSystemActions(content)"));
         final String controller = source("PhoneControlPanelController");
         assertTrue(controller.contains("mActions.openSettings()"));
         assertTrue(controller.contains("mActions.closeDesktop()"));
         assertTrue(controller.contains("mActions.exitMagicDesk()"));
-        assertTrue(controller.contains("mActions.openTool(name, selected.isChecked())"));
+        assertTrue(controller.contains("mActions.openApplications()"));
+        assertTrue(controller.contains("mActions.controlSelectedDisplay()"));
+        assertTrue(controller.contains("mActions.releaseInput()"));
     }
 
     @Test

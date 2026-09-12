@@ -54,8 +54,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellFullscreenTaskArea mFullscreenTaskArea;
     private final ShellDesktopHostLauncher mDesktopHostLauncher;
     private final ShellDesktopChromeHost mDesktopChromeHost;
-    private final DisplayImePolicyController mImePolicy =
-            new DisplayImePolicyController();
     private final ShellDesktopSurfaceOrder mSurfaceOrder =
             new ShellDesktopSurfaceOrder();
     private final ShellSelfTestTaskStackGuard mSelfTestTaskStackGuard;
@@ -356,7 +354,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             // observation alive between sessions, but never retain launch
             // interception after the desktop configuration is cleared.
             mPhoneOverviewRouter.stop();
-            configureImePolicy(Display.INVALID_DISPLAY);
             mPhoneWallpaperPolicy.configure(Display.INVALID_DISPLAY);
             mActivityStartController.close();
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
@@ -399,7 +396,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mFullscreenTaskArea.configure(displayId);
         mDesktopChromeHost.configure(displayId);
         mConfiguredDisplayId = displayId;
-        configureImePolicy(displayId);
         mPhoneWallpaperPolicy.configure(displayId);
         clearPendingPostRemovalFocus();
         mFocusController.configure(displayId);
@@ -421,14 +417,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         reportDesktopTaskOwnership();
     }
 
-    private void configureImePolicy(final int displayId) {
-        try {
-            mImePolicy.configure(displayId);
-        } catch (ReflectiveOperationException | RuntimeException error) {
-            callCallback(() -> mCallback.onObserverError(
-                    "cannot configure desktop IME policy: " + usefulMessage(error)));
-        }
-    }
 
     boolean clearConfiguration(final int expectedDisplayId) {
         if (expectedDisplayId < 0
@@ -1387,7 +1375,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             return;
         }
         mClosed = true;
-        closeSafely("display IME policy", mImePolicy::close);
         final boolean registered = mRegistered;
         mRegistered = false;
         synchronized (this) {

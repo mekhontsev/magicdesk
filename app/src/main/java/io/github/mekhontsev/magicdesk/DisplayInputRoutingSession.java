@@ -5,29 +5,34 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 /** Shell-owned direct routes for physical input and the phone's virtual mouse. */
-public final class DesktopInputRoutingSession implements AutoCloseable {
+public final class DisplayInputRoutingSession implements AutoCloseable {
     static final String VIRTUAL_MOUSE_LOCATION = "magicdesk-mouse";
     private final FrameworkInputRoutingApi mApi;
     private final InputRoutingLease mLease;
     private final DesktopShortcutFilterLease mShortcuts;
+    private final DisplayImePolicyController mImePolicy;
     private final int mDisplayId;
     private final String mDisplayUniqueId;
     private boolean mClosed;
 
-    private DesktopInputRoutingSession(final int displayId) throws Exception {
+    private DisplayInputRoutingSession(final int displayId, final boolean desktop) throws Exception {
         mApi = FrameworkRuntime.current().inputRouting();
         mDisplayId = displayId;
         mDisplayUniqueId = mApi.displayUniqueId(displayId);
         mLease = new InputRoutingLease(mApi, new DesktopInputRoutingOwnership());
-        mShortcuts = new DesktopShortcutFilterLease();
+        mShortcuts = desktop ? new DesktopShortcutFilterLease() : null;
+        // One owner for both ordinary and Desktop input, including promotion
+        // on the same display: no overlapping saved IME policies.
+        mImePolicy = new DisplayImePolicyController();
     }
 
-    static DesktopInputRoutingSession open(final int displayId) throws Exception {
-        final DesktopInputRoutingSession session = new DesktopInputRoutingSession(displayId);
+    static DisplayInputRoutingSession open(final int displayId, final boolean desktop) throws Exception {
+        final DisplayInputRoutingSession session = new DisplayInputRoutingSession(displayId, desktop);
         try {
             session.mLease.recover();
             session.refresh();
-            session.mShortcuts.acquire();
+            if (session.mShortcuts != null) { session.mShortcuts.acquire(); }
+            session.mImePolicy.configure(displayId);
             return session;
         } catch (Exception error) {
             try {
@@ -108,9 +113,15 @@ public final class DesktopInputRoutingSession implements AutoCloseable {
         // Release remains retryable when a Binder or journal write failed.
         IOException failure = null;
         try {
-            mShortcuts.release();
+            if (mShortcuts != null) { mShortcuts.release(); }
         } catch (IOException error) {
             failure = error;
+        }
+        try {
+            mImePolicy.close();
+        } catch (RuntimeException error) {
+            if (failure == null) { failure = new IOException("cannot restore display IME policy", error); }
+            else { failure.addSuppressed(error); }
         }
         try {
             mLease.release();

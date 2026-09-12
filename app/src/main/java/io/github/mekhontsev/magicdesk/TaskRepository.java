@@ -229,51 +229,58 @@ public final class TaskRepository {
             final int targetDisplayId,
             final RelativeWindowBounds preferredBounds,
             final ActionCallback callback) {
-        if (!isUsableTask(task) || targetDisplayId < 0
-                || targetDisplayId == task.displayId) {
-            complete(callback, false, "invalid target display");
+        if (!isTransferable(task) || targetDisplayId < 0) {
+            complete(callback, false, "invalid task or target display");
             return;
         }
         TaskCommandQueue.execute(() -> {
             try {
-                final boolean targetPhoneWithoutDesktop =
-                        targetDisplayId == Display.DEFAULT_DISPLAY
-                                && !DesktopDisplayDrivers
-                                        .hasActiveWorkspace(targetDisplayId);
-                final int densityDpi = targetPhoneWithoutDesktop
-                        ? DesktopTaskDensity.INHERIT
-                        : DesktopTaskPresentationPolicy.resolveDensityDpi(
-                                AppProfile.current(MagicDeskApplication.applicationContext()).application(task), targetDisplayId);
+                if (DesktopOperations.isSessionTransitionInProgress()) {
+                    throw new IllegalStateException("desktop transition is in progress");
+                }
+                DesktopDisplayCatalog.require(targetDisplayId, null);
+                final Snapshot snapshot = loadAllNow();
+                if (!snapshot.available) { throw new IOException(snapshot.error); }
+                final TaskEntry live = findMatchingTask(snapshot.tasks, task);
+                if (live == null || live.displayId != task.displayId) {
+                    throw new IOException("task moved or closed before transfer");
+                }
+                final AppIdentity application = AppProfile.current(
+                        MagicDeskApplication.applicationContext()).application(live);
+                if (application == null) { throw new IOException("task belongs to another profile"); }
+                if (live.displayId == targetDisplayId) {
+                    // Selection is not a mode change, including on a Desktop.
+                    MagicDeskRuntime.focusDesktopTask(targetDisplayId, live.taskId, callback);
+                    return;
+                }
+                final boolean targetDesktop = DesktopDisplayDrivers.hasActiveWorkspace(targetDisplayId);
+                final boolean sourceDesktop = DesktopDisplayDrivers.hasActiveWorkspace(live.displayId);
                 final String output;
-                if (targetPhoneWithoutDesktop) {
-                    output = DesktopTaskTransfer.moveFullscreen(
-                            task.taskId,
-                            task.displayId,
-                            targetDisplayId,
-                            densityDpi);
+                if (targetDesktop) {
+                    output = DesktopTaskTransfer.moveFreeform(live.taskId, live.displayId,
+                            targetDisplayId, FloatingWindowController.getWindowBounds(
+                                    targetDisplayId, preferredBounds),
+                            DesktopTaskPresentationPolicy.resolveDensityDpi(application, targetDisplayId));
+                } else if (sourceDesktop) {
+                    // Exit through the established topology owner, resetting
+                    // presentation overrides before returning to ordinary Android.
+                    output = DesktopTaskTransfer.moveFullscreen(live.taskId, live.displayId,
+                            targetDisplayId, DesktopTaskDensity.INHERIT);
                 } else {
-                    final Rect bounds = FloatingWindowController
-                            .getWindowBounds(
-                                    targetDisplayId, preferredBounds);
-                    output = DesktopTaskTransfer.moveFreeform(
-                            task.taskId,
-                            task.displayId,
-                            targetDisplayId,
-                            bounds,
-                            densityDpi);
+                    ShellAccess.moveOrdinaryTask(live, targetDisplayId);
+                    output = "task transfer accepted";
                 }
-                if (callback != null) {
-                    callback.onComplete(new ActionResult(true, output.trim()));
-                }
+                complete(callback, true, output.trim());
             } catch (IOException | RuntimeException error) {
-                complete(
-                        callback,
-                        false,
-                        error.getMessage() == null
-                                ? error.getClass().getSimpleName()
-                                : error.getMessage());
+                complete(callback, false, usefulMessage(error));
             }
         });
+    }
+
+    static boolean isTransferable(final TaskEntry task) {
+        return isUsableTask(task) && task.activityType == FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD
+                && DesktopManagedTaskPolicy.isControllableApplicationTask(task)
+                && AppProfile.current(MagicDeskApplication.applicationContext()).owns(task.userId);
     }
 
     static void forceStop(final AppIdentity application, final ActionCallback callback) {

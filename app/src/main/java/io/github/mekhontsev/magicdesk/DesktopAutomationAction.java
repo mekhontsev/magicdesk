@@ -6,6 +6,8 @@ enum DesktopAutomationAction {
     CLOSE_DESKTOP("close_desktop", false),
     CREATE_DISPLAY("create_display", false),
     REMOVE_DISPLAY("remove_display", false),
+    CONTROL_DISPLAY("control_display", false),
+    MOVE_TASK("move_task", false),
     LAUNCH_APP("launch_app", false),
     SET_APP_PRESENTATION("set_app_presentation", false),
     RESET_APP_PRESENTATION("reset_app_presentation", false),

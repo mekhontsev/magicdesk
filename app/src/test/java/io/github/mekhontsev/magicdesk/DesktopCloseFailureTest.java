@@ -73,7 +73,7 @@ public final class DesktopCloseFailureTest {
                     static void releaseAfterSessionLoss(int display) throws IOException { step("release-lost"); }
                 }
                 static class MagicDeskRuntime {
-                    static void releaseDesktopInput(int id, Runnable completion) {
+                    static void releaseDisplayInput(int id, Runnable completion) {
                         step("input"); completion.run();
                     }
                     static void disableExternalTaskMigrationProtection() { step("protection"); }

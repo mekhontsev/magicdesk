@@ -55,7 +55,7 @@ final class DesktopSelfTestInputSuite {
         while (true) {
             DesktopSelfTestRunState.checkpoint();
             if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId
-                    && MagicDeskRuntime.isDesktopMouseBridgeReady()) {
+                    && MagicDeskRuntime.isPointerTransportReady()) {
                 return "display=" + displayId + ", virtual mouse and routing ready";
             }
             final long remaining = deadline - SystemClock.uptimeMillis();

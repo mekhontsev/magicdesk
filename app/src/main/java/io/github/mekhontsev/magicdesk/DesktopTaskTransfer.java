@@ -51,7 +51,7 @@ final class DesktopTaskTransfer {
             final int targetDisplayId,
             final int densityDpi) throws IOException {
         requireTransfer(taskId, sourceDisplayId, targetDisplayId);
-        requireDesktopTarget(targetDisplayId);
+        DesktopDisplayCatalog.require(targetDisplayId, null);
         return ShellAccess.run(TaskFullscreenMoveCommand.createMoveCommand(
                 taskId,
                 sourceDisplayId,

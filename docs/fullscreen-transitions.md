@@ -367,7 +367,7 @@ events when diagnosing residue; a longer pre-removal wait does not resolve that
 ownership gap. Keyboard-associated removal and pointer-only removal require
 separate coverage.
 
-`DesktopInputSession` releases input-location associations before production
+`DisplayInputSession` releases input-location associations before production
 display removal. Physical composite devices retain their identities and regain
 their previous routes while the desktop viewport still exists. This ordering
 avoids a MagicDesk-created removal trigger, not the underlying framework

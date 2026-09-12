@@ -48,4 +48,20 @@ final class FrameworkActivityLaunchApi {
         AndroidPendingIntentOptions.allowSenderStart(options, false);
         intent.send(context, 0, null, null, null, null, options.toBundle());
     }
+
+    static void moveTask(final Object service, final int taskId, final int sourceDisplayId,
+            final int targetDisplayId, final int userId) throws ReflectiveOperationException {
+        final Object task = HiddenTaskApi.requireTask(service, sourceDisplayId, taskId);
+        if (HiddenTaskApi.getTaskUserId(task) != userId) {
+            throw new IllegalArgumentException("task profile changed");
+        }
+        if (HiddenTaskApi.getTaskActivityType(task) != FrameworkTaskSnapshot.ACTIVITY_TYPE_STANDARD) {
+            throw new IllegalArgumentException("only application tasks can be transferred");
+        }
+        // Existing-task launch preserves the Activity instance and lets WM own
+        // the display transition. It does not acquire a Desktop organizer.
+        final int result = (Integer) service.getClass().getMethod("startActivityFromRecents",
+                int.class, Bundle.class).invoke(service, taskId, options(targetDisplayId, true).toBundle());
+        if (result < 0) { throw new IllegalStateException("startActivityFromRecents returned " + result); }
+    }
 }

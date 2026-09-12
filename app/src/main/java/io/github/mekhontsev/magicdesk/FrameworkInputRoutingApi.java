@@ -7,7 +7,7 @@ import android.os.IBinder;
 import java.io.IOException;
 import java.lang.reflect.Method;
 
-/** Android 15+ input-location/display-identity association primitives. Shell only. */
+/** Android 14+ input-location/display-identity association primitives. Shell only. */
 final class FrameworkInputRoutingApi implements InputRoutingLease.Api {
     private final Object mInputManager;
     private final Method mAddUniqueId;
@@ -23,8 +23,13 @@ final class FrameworkInputRoutingApi implements InputRoutingLease.Api {
         mInputManager = Class.forName("android.hardware.input.IInputManager$Stub")
                 .getMethod("asInterface", IBinder.class).invoke(null, binder);
         final Class<?> input = Class.forName("android.hardware.input.IInputManager");
-        mAddUniqueId = input.getMethod("addUniqueIdAssociationByPort", String.class, String.class);
-        mRemoveUniqueId = input.getMethod("removeUniqueIdAssociationByPort", String.class);
+        // Android 15 distinguishes port and descriptor associations. API 34's
+        // unqualified methods have the same port-to-display semantics.
+        final boolean byPort = android.os.Build.VERSION.SDK_INT >= 35;
+        mAddUniqueId = input.getMethod(byPort ? "addUniqueIdAssociationByPort"
+                : "addUniqueIdAssociation", String.class, String.class);
+        mRemoveUniqueId = input.getMethod(byPort ? "removeUniqueIdAssociationByPort"
+                : "removeUniqueIdAssociation", String.class);
         mAddPort = input.getMethod("addPortAssociation", String.class, int.class);
         mRemovePort = input.getMethod("removePortAssociation", String.class);
         final Class<?> displays = Class.forName("android.hardware.display.DisplayManagerGlobal");
