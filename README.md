@@ -169,6 +169,11 @@ editors, file managers, terminal dashboards and CLI agents with ANSI colors,
 scrollback, terminal mouse reporting and alternate-screen support. Android-shell
 and Termux sessions share the same renderer, controls and automation API.
 
+![MagicDesk terminal displaying Sixel graphics and Nerd Font alongside a root console using the shared CLI](docs/images/magicdesk-terminal.png)
+
+*A gnuplot chart rendered through Sixel in a Termux-backed terminal, beside an
+optional root console running the built-in `magicdesk` CLI.*
+
 - **Bundled Nerd Font:** JetBrains Mono with regular, bold and italic faces,
   aligned box drawing and Powerline symbols. Adjust font size per window with
   settings, pinch or Ctrl+wheel.
