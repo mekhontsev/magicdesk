@@ -60,7 +60,10 @@ final class DesktopAutomationTerminalWindows {
                             MagicDeskApplication.applicationContext(), command, resolvedDirectory, backend),
                     terminalId);
             final DesktopAutomationResult launch = AutomationToolWindows.open(intent, args);
-            if (!launch.success) { return launch; }
+            if (!launch.success) {
+                launch.observation.put("terminalId", terminalId);
+                return launch;
+            }
             final boolean observed = ConsoleTerminalRegistry.awaitRegistration(
                     terminalId, OPEN_OBSERVATION_TIMEOUT_MILLIS);
             return DesktopAutomationResult.success(
@@ -100,7 +103,10 @@ final class DesktopAutomationTerminalWindows {
         final var previous = ConsoleTerminalRegistry.status(id);
         final long generation = ConsoleTerminalRegistry.attachmentGeneration(id);
         final DesktopAutomationResult launch = AutomationToolWindows.open(intent, args);
-        if (!launch.success) return launch;
+        if (!launch.success) {
+            launch.observation.put("terminalId", id);
+            return launch;
+        }
         // Raising an existing window needs no new registration; moving its view
         // to another display must not acknowledge the old attachment.
         final boolean reuse = previous != null && previous.taskId >= 0

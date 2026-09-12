@@ -8,6 +8,11 @@ import org.json.JSONObject;
 import org.junit.Test;
 
 public final class DesktopAutomationResultTest {
+    @Test public void unconfirmedUiActionIsDistinctFromARejectedAction() {
+        assertFalse(DesktopAutomationUiRegistry.ActionResult.unconfirmed().completionKnown);
+        assertTrue(new DesktopAutomationUiRegistry.ActionResult(false, "disabled", null).completionKnown);
+    }
+
     @Test
     public void failureContainsStableMachineReadableError() throws Exception {
         final DesktopAutomationResult result = DesktopAutomationResult.failure(

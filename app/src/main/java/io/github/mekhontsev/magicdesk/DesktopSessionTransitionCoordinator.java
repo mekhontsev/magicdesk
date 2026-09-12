@@ -20,6 +20,7 @@ final class DesktopSessionTransitionCoordinator {
     private final PlatformProjectionDriver mProjection;
     private final PlatformPhoneUiDriver mPhoneUi;
     private final DesktopTransitionGate mGate = new DesktopTransitionGate();
+    private final DisplayRemovalRequests mRemovals = new DisplayRemovalRequests();
 
     DesktopSessionTransitionCoordinator(
             final SerializedDesktopOperationQueue operations,
@@ -113,16 +114,35 @@ final class DesktopSessionTransitionCoordinator {
 
     void removeVirtualDisplay(final int displayId, final String uniqueId,
             final CompletionCallback callback) {
+        DisplayRemovalRequests.validate(displayId, uniqueId);
+        mOperations.execute(() -> {
+            try {
+                mRemovals.submit(displayId, uniqueId, DesktopDisplayCatalog.read(),
+                        completion -> beginDisplayRemoval(displayId, uniqueId, completion::accept))
+                        .thenAccept(success -> complete(callback, success));
+            } catch (java.io.IOException | RuntimeException error) {
+                CompatibilityDiagnostics.record("DISPLAY-VIRTUAL-002",
+                        "Could not remove virtual display", error.getMessage(), error);
+                complete(callback, false);
+            }
+        });
+    }
+
+    private void beginDisplayRemoval(final int displayId, final String uniqueId,
+            final CompletionCallback callback) {
         final DesktopDisplayTarget active = DesktopRuntimeBridge.getDesktopTarget(displayId);
         if (active != null && active.workspaceDisplayId == displayId) {
             // Revalidate ownership before changing a session. The second call
             // takes the gate again; a competing Start rejects deletion safely.
             mOperations.execute(() -> {
                 try {
-                    DesktopDisplayCatalog.requireOwned(displayId, uniqueId);
+                    if (DesktopDisplayCatalog.findForRemoval(displayId, uniqueId) == null) {
+                        complete(callback, true);
+                        return;
+                    }
                     closeDesktop(active, DesktopCloseMode.CONTROL_PANEL, success -> {
                         if (success) {
-                            removeVirtualDisplay(displayId, uniqueId, callback);
+                            beginDisplayRemoval(displayId, uniqueId, callback);
                         } else {
                             complete(callback, false);
                         }
@@ -139,7 +159,12 @@ final class DesktopSessionTransitionCoordinator {
         }
         mOperations.execute(() -> {
             try {
-                final DesktopDisplayInfo display = DesktopDisplayCatalog.requireOwned(displayId, uniqueId);
+                final DesktopDisplayInfo display = DesktopDisplayCatalog.findForRemoval(displayId, uniqueId);
+                if (display == null) {
+                    finishOperation(DesktopTransitionGate.Operation.DISPLAY);
+                    complete(callback, true);
+                    return;
+                }
                 if (DesktopRuntimeBridge.hasWorkspace(displayId)) {
                     throw new IllegalStateException("display still has an active desktop");
                 }
@@ -159,7 +184,10 @@ final class DesktopSessionTransitionCoordinator {
             final CompletionCallback callback) {
         boolean success = false;
         try {
-            DesktopDisplayCatalog.requireOwned(display.id, display.uniqueId);
+            if (DesktopDisplayCatalog.findForRemoval(display.id, display.uniqueId) == null) {
+                success = true;
+                return;
+            }
             if (releasedInput && !MagicDeskRuntime.inputError().isEmpty()) {
                 throw new IllegalStateException(MagicDeskRuntime.inputError());
             }

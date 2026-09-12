@@ -53,6 +53,23 @@ final class DesktopAutomationResult {
                 null);
     }
 
+    static DesktopAutomationResult outcomeUnknown(final String message,
+            final boolean safeToRetry, final JSONObject observation) {
+        try {
+            final JSONObject state = observation == null ? new JSONObject()
+                    : new JSONObject(observation.toString());
+            state.put("completionConfirmed", false).put("operationMayContinue", true)
+                    .put("safeToRetry", safeToRetry);
+            return failure(DesktopAutomationErrorCode.OUTCOME_UNKNOWN,
+                    message + "; completion is unconfirmed and the operation was not cancelled. "
+                            + (safeToRetry ? "Retry only the identical request."
+                                    : "Observe the resulting state before issuing another action."),
+                    safeToRetry, state);
+        } catch (JSONException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
     static DesktopAutomationResult failure(
             final String message, final JSONObject data) {
         return new DesktopAutomationResult(

@@ -116,7 +116,7 @@ final class AutomationCommandCatalog {
                                         "wired", "wireless")))))
                 .put(actionTool(
                         "create_display", "Create display",
-                        "Create an owned display without starting a desktop or acquiring HOME.",
+                        "Create an owned display without starting a desktop or acquiring HOME. OUTCOME_UNKNOWN does not cancel creation; inspect list_displays before creating another display.",
                         objectSchema(new JSONObject()
                                 .put("type", enumProperty("Display creation mechanism.", "virtual", "overlay"))
                                 .put("width", integerProperty("Display width in pixels."))
@@ -125,7 +125,7 @@ final class AutomationCommandCatalog {
                                 "width", "height")))
                 .put(actionTool(
                         "remove_display", "Remove display",
-                        "Close any desktop on this display, then remove only the selected MagicDesk-owned display.",
+                        "Close any desktop on this display, then remove only the selected MagicDesk-owned display. Safe to repeat with the same displayId and uniqueId: retries join pending removal and absence succeeds. OUTCOME_UNKNOWN does not cancel removal. Observe display_absent for Android publication.",
                         objectSchema(new JSONObject()
                                 .put("displayId", integerProperty("Owned display ID."))
                                 .put("uniqueId", stringProperty("Exact identity returned by list_displays.")),
@@ -1194,7 +1194,7 @@ final class AutomationCommandCatalog {
                         .put("code", stringProperty(
                                 "Stable machine-readable error code."))
                         .put("retryable", booleanProperty(
-                                "Whether retrying after state changes can help."))
+                                "Whether retrying after state changes can help; not a general replay guarantee. OUTCOME_UNKNOWN permits replay only when observation.safeToRetry is true."))
                         .put("observation", new JSONObject()
                                 .put("type", "object")
                                 .put("additionalProperties", true)));

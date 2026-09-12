@@ -24,6 +24,11 @@ behavior, static verification and remaining device coverage.
 - `DisplayOperations` creates and lists display resources without starting
   Desktop. A viewer, an owned virtual display and a Desktop session have separate
   lifetimes. Removal still observes the existing session cleanup boundary.
+  `DisplayRemovalRequests` joins identical in-flight removal requests and keeps
+  successful release receipts only while their exact displays remain visible
+  in the next catalog snapshot. Missing displays need no cleanup; reused IDs
+  cannot select replacements. Completion reconciles Desktop ownership only if
+  that optional runtime has already been initialized.
 - `MagicDeskRuntimeService` hosts tools and automation independently. Its Desktop
   task observer and session coordinators initialize only for Desktop.
   Display input initializes on explicit control or Desktop preparation. Merely

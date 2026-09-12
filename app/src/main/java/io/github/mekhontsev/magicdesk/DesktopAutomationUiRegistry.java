@@ -42,6 +42,7 @@ final class DesktopAutomationUiRegistry {
 
     static final class ActionResult {
         final boolean accepted;
+        final boolean completionKnown;
         final String message;
         final JSONObject element;
 
@@ -49,9 +50,18 @@ final class DesktopAutomationUiRegistry {
                 final boolean accepted,
                 final String message,
                 final JSONObject element) {
+            this(accepted, message, element, true);
+        }
+
+        private ActionResult(boolean accepted, String message, JSONObject element, boolean completionKnown) {
             this.accepted = accepted;
+            this.completionKnown = completionKnown;
             this.message = message == null ? "" : message;
             this.element = element == null ? new JSONObject() : element;
+        }
+
+        static ActionResult unconfirmed() {
+            return new ActionResult(false, "UI action acknowledgement unavailable", null, false);
         }
     }
 

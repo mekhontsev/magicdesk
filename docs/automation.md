@@ -204,6 +204,26 @@ Failures retain the same shape. `error.code` is stable and machine-readable,
 `error.observation` contains the last relevant state. Invalid filters and
 cursors are tool failures rather than transport-level JSON-RPC exceptions.
 
+`OUTCOME_UNKNOWN` means a dispatched action has no confirmed completion, for
+example because its callback wait expired or was interrupted. This is not
+cancellation or proof of failure. Its observation contains
+`completionConfirmed=false`, `operationMayContinue=true`, and `safeToRetry`.
+Do not automatically replay creation, launch, Close Desktop, task toggles or UI
+actions: inspect their state first. Repeating Close Desktop can target a newly
+started workspace. Terminal-launch uncertainty retains `terminalId` for
+`terminal.status`/`terminal.list`; application observations retain known task
+or display identity. A transport disconnect is likewise not cancellation.
+
+`remove_display` is safe to repeat with the **same** `displayId` and `uniqueId`.
+Concurrent requests join the original cleanup; an absent display succeeds
+without doing anything. A live display with a different identity is rejected,
+as are live displays not owned by MagicDesk and built-in displays. Successful
+release may precede Android's display-removal publication; use
+`wait_for_state(condition="display_absent", displayId=...)` to observe it.
+The 20-second callback deadline does not cancel removal, and its
+`OUTCOME_UNKNOWN` explicitly permits an identical retry. Do not substitute a
+new display's identity when retrying an old operation.
+
 ## State and Observation
 
 The MCP catalog exposes unqualified tool names such as `get_state`; clients

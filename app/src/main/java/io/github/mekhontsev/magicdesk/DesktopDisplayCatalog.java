@@ -27,12 +27,19 @@ final class DesktopDisplayCatalog {
         throw new IOException("display is no longer available: " + id);
     }
 
-    static DesktopDisplayInfo requireOwned(final int id, final String uniqueId) throws IOException {
-        final DesktopDisplayInfo display = require(id, uniqueId);
-        if (!display.canRemove()) {
-            throw new IOException("display is not owned by MagicDesk: " + id);
+    static DesktopDisplayInfo findForRemoval(final int id, final String uniqueId) throws IOException {
+        DisplayRemovalRequests.validate(id, uniqueId);
+        for (final DesktopDisplayInfo display : read()) {
+            if (display.id != id) continue;
+            if (!uniqueId.equals(display.uniqueId)) {
+                throw new IOException("display identity changed: " + id);
+            }
+            if (!display.canRemove()) {
+                throw new IOException("display is not owned by MagicDesk: " + id);
+            }
+            return display;
         }
-        return display;
+        return null;
     }
 
     static org.json.JSONObject json(final DesktopDisplayInfo display) throws org.json.JSONException {

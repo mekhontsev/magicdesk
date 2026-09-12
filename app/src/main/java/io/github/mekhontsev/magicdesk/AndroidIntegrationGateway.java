@@ -709,14 +709,13 @@ final class AndroidIntegrationGateway {
                         displayId,
                         LAUNCH_OBSERVE_TIMEOUT_MILLIS);
         if (!launch.succeeded() || !launch.hasObservedTask()) {
-            return DesktopAutomationResult.failure(
-                    launch.isDefinitiveFailure()
-                            ? DesktopAutomationErrorCode.ACTION_FAILED
-                            : DesktopAutomationErrorCode.TIMEOUT,
+            if (launch.isDefinitiveFailure()) return DesktopAutomationResult.failure(launch.error);
+            return DesktopAutomationResult.outcomeUnknown(
                     launch.error.isEmpty()
                             ? "Pending Activity task was not observed"
                             : launch.error,
-                    !launch.isDefinitiveFailure());
+                    false, new JSONObject().put("displayId", displayId)
+                            .put("creatorPackage", creatorPackage));
         }
         final DesktopTaskLaunchObservation observation;
         try {
@@ -727,16 +726,14 @@ final class AndroidIntegrationGateway {
                     LAUNCH_OBSERVE_TIMEOUT_MILLIS);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.TIMEOUT,
+            return DesktopAutomationResult.outcomeUnknown(
                     "Pending Activity observation was interrupted",
-                    true);
+                    false, new JSONObject().put("displayId", displayId).put("taskId", launch.taskId));
         }
         if (observation.task == null) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.ACTION_FAILED,
+            return DesktopAutomationResult.outcomeUnknown(
                     observation.error,
-                    true);
+                    false, new JSONObject().put("displayId", displayId).put("taskId", launch.taskId));
         }
         final JSONObject data = new JSONObject()
                 .put("creatorPackage", creatorPackage)
@@ -782,14 +779,12 @@ final class AndroidIntegrationGateway {
                 .put("mode", action.presentation.mode.wireName)
                 .put("instance", action.presentation.instancePolicy.wireName);
         if (!launch.succeeded() || !launch.hasObservedTask()) {
-            return DesktopAutomationResult.failure(
-                    launch.isDefinitiveFailure()
-                            ? DesktopAutomationErrorCode.ACTION_FAILED
-                            : DesktopAutomationErrorCode.TIMEOUT,
+            if (launch.isDefinitiveFailure()) return DesktopAutomationResult.failure(launch.error, base);
+            return DesktopAutomationResult.outcomeUnknown(
                     launch.error.isEmpty()
                             ? "application shortcut task was not observed"
                             : launch.error,
-                    !launch.isDefinitiveFailure(),
+                    false,
                     base);
         }
         final DesktopTaskLaunchObservation observation;
@@ -804,17 +799,15 @@ final class AndroidIntegrationGateway {
                     LAUNCH_OBSERVE_TIMEOUT_MILLIS);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.TIMEOUT,
+            return DesktopAutomationResult.outcomeUnknown(
                     "application shortcut observation was interrupted",
-                    true,
+                    false,
                     base);
         }
         if (observation.task == null) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.ACTION_FAILED,
+            return DesktopAutomationResult.outcomeUnknown(
                     observation.error,
-                    true,
+                    false,
                     base.put("taskId", launch.taskId));
         }
         base.put("taskObserved", true)
@@ -1009,20 +1002,16 @@ final class AndroidIntegrationGateway {
                             new IllegalStateException(result.error));
                 }
             }
-            return DesktopAutomationResult.failure(
-                    result.isDefinitiveFailure()
-                            ? DesktopAutomationErrorCode.ACTION_FAILED
-                            : DesktopAutomationErrorCode.TIMEOUT,
-                    result.error,
-                    !result.isDefinitiveFailure(),
-                    describeExecution(target, request.kind));
+            return result.isDefinitiveFailure()
+                    ? DesktopAutomationResult.failure(result.error, describeExecution(target, request.kind))
+                    : DesktopAutomationResult.outcomeUnknown(result.error, false,
+                            describeExecution(target, request.kind).put("displayId", displayId));
         }
         if (!result.hasObservedTask()) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.ACTION_FAILED,
+            return DesktopAutomationResult.outcomeUnknown(
                     "desktop launch was accepted but no task was observed",
-                    true,
-                    describeExecution(target, request.kind));
+                    false,
+                    describeExecution(target, request.kind).put("displayId", displayId));
         }
         final DesktopTaskLaunchObservation observation;
         try {
@@ -1045,18 +1034,17 @@ final class AndroidIntegrationGateway {
             }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.TIMEOUT,
+            return DesktopAutomationResult.outcomeUnknown(
                     "Activity launch observation was interrupted",
-                    true,
-                    describeExecution(target, request.kind));
+                    false,
+                    describeExecution(target, request.kind).put("displayId", displayId)
+                            .put("taskId", result.taskId));
         }
         if (observation.task == null) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.ACTION_FAILED,
+            return DesktopAutomationResult.outcomeUnknown(
                     observation.error,
-                    true,
-                    describeExecution(target, request.kind)
+                    false,
+                    describeExecution(target, request.kind).put("displayId", displayId)
                             .put("taskId", result.taskId));
         }
         final JSONObject data = describeActivityLaunch(request, target, resolution, launchPolicy)

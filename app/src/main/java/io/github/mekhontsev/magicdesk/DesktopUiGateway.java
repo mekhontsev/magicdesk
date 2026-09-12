@@ -871,8 +871,7 @@ final class DesktopUiGateway {
             final int displayId, final String elementId, final String action) {
         return readAutomationUi(displayId,
                 registry -> registry.invoke(elementId, action),
-                new DesktopAutomationUiRegistry.ActionResult(
-                        false, "UI surface unavailable or action timed out", null));
+                DesktopAutomationUiRegistry.ActionResult.unconfirmed());
     }
 
     private interface AutomationUiCall<T> {

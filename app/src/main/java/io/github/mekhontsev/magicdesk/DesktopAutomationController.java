@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 /** Shared typed command boundary for UI-independent desktop automation. */
 final class DesktopAutomationController {
@@ -279,9 +278,8 @@ final class DesktopAutomationController {
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             return record(action.wireName,
-                    DesktopAutomationResult.failure(
-                            DesktopAutomationErrorCode.ACTION_FAILED,
-                            "automation action was interrupted", true));
+                    DesktopAutomationResult.outcomeUnknown(
+                            "automation action observation was interrupted", false, null));
         } catch (IOException | JSONException | RuntimeException error) {
             return record(action.wireName,
                     DesktopAutomationResult.failure(
@@ -456,10 +454,9 @@ final class DesktopAutomationController {
             failure[0] = error;
             completed.countDown();
         });
-        if (!completed.await(ACTION_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-            return DesktopAutomationResult.failure(DesktopAutomationErrorCode.TIMEOUT,
-                    "display creation did not complete in time", true);
-        }
+        final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
+                ACTION_TIMEOUT_MILLIS, "display creation", false, null);
+        if (pending != null) return pending;
         return display[0] == null ? DesktopAutomationResult.failure(failure[0])
                 : DesktopAutomationResult.success("display created; desktop not started",
                         DesktopDisplayCatalog.json(display[0]));
@@ -467,20 +464,22 @@ final class DesktopAutomationController {
 
     private DesktopAutomationResult removeDisplay(final JSONObject args)
             throws IOException, JSONException, InterruptedException {
-        final DesktopDisplayInfo display = DesktopDisplayCatalog.requireOwned(
-                requiredInt(args, "displayId"), args.getString("uniqueId"));
+        final int displayId = requiredInt(args, "displayId");
+        final String uniqueId = args.getString("uniqueId");
+        DisplayRemovalRequests.validate(displayId, uniqueId);
+        final JSONObject identity = new JSONObject().put("id", displayId).put("uniqueId", uniqueId);
         final CountDownLatch completed = new CountDownLatch(1);
         final boolean[] success = new boolean[1];
-        DesktopOperations.removeVirtualDisplay(display.id, display.uniqueId, value -> {
+        DesktopOperations.removeVirtualDisplay(displayId, uniqueId, value -> {
             success[0] = value;
             completed.countDown();
         });
-        if (!completed.await(ACTION_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-            return DesktopAutomationResult.failure(DesktopAutomationErrorCode.TIMEOUT,
-                    "display removal did not complete in time", true);
-        }
-        return success[0] ? DesktopAutomationResult.success("display removal requested",
-                DesktopDisplayCatalog.json(display))
+        final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
+                ACTION_TIMEOUT_MILLIS, "display removal", true,
+                new JSONObject().put("displayId", displayId).put("uniqueId", uniqueId));
+        if (pending != null) return pending;
+        return success[0] ? DesktopAutomationResult.success("display released or already absent",
+                identity.put("accepted", true))
                 : DesktopAutomationResult.failure("could not remove display");
     }
 
@@ -499,11 +498,9 @@ final class DesktopAutomationController {
             success[0] = value;
             completed.countDown();
         });
-        if (!completed.await(ACTION_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.TIMEOUT,
-                    "desktop close timed out", true);
-        }
+        final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
+                ACTION_TIMEOUT_MILLIS, "desktop close", false, null);
+        if (pending != null) return pending;
         return success[0]
                 ? DesktopAutomationResult.success(
                         "desktop closed", new JSONObject())
@@ -533,18 +530,14 @@ final class DesktopAutomationController {
                         displayId,
                         LAUNCH_OBSERVE_TIMEOUT_MILLIS);
         if (!result.succeeded()) {
-            return DesktopAutomationResult.failure(
-                    result.isDefinitiveFailure()
-                            ? DesktopAutomationErrorCode.ACTION_FAILED
-                            : DesktopAutomationErrorCode.TIMEOUT,
-                    result.error,
-                    true);
+            return result.isDefinitiveFailure() ? DesktopAutomationResult.failure(result.error)
+                    : DesktopAutomationResult.outcomeUnknown(result.error, false,
+                            new JSONObject().put("displayId", displayId).put("package", packageName));
         }
         if (!result.hasObservedTask()) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.ACTION_FAILED,
+            return DesktopAutomationResult.outcomeUnknown(
                     "application launch completed without an observed task",
-                    true);
+                    false, new JSONObject().put("displayId", displayId).put("package", packageName));
         }
         final DesktopTaskLaunchObservation observation =
                 DesktopTaskLaunchObservation.await(
@@ -556,10 +549,9 @@ final class DesktopAutomationController {
                         result.taskId,
                         LAUNCH_OBSERVE_TIMEOUT_MILLIS);
         if (observation.task == null) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.ACTION_FAILED,
+            return DesktopAutomationResult.outcomeUnknown(
                     observation.error,
-                    true,
+                    false,
                     new JSONObject()
                             .put("package", packageName)
                 .put("appIdentity", application.persistentKey())
@@ -1135,11 +1127,15 @@ final class DesktopAutomationController {
                 .put("displayId", displayId)
                 .put("elementId", elementId)
                 .put("action", action)
-                .put("accepted", result.accepted)
+                .put("accepted", result.completionKnown ? result.accepted : JSONObject.NULL)
+                .put("completionKnown", result.completionKnown)
                 .put("element", result.element);
         DesktopAutomationEventJournal.record(
                 "ui", "element_invoked", result.accepted,
                 result.message, data);
+        if (!result.completionKnown) {
+            return DesktopAutomationResult.outcomeUnknown(result.message, false, data);
+        }
         return result.accepted
                 ? DesktopAutomationResult.success(result.message, data)
                 : DesktopAutomationResult.failure(
@@ -1602,11 +1598,9 @@ final class DesktopAutomationController {
             result[0] = value;
             completed.countDown();
         });
-        if (!completed.await(ACTION_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.TIMEOUT,
-                    "task action timed out", true);
-        }
+        final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
+                ACTION_TIMEOUT_MILLIS, "task action", false, null);
+        if (pending != null) return pending;
         if (result[0] == null) {
             return DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.ACTION_FAILED,

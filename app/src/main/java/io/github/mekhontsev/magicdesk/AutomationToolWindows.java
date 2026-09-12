@@ -7,7 +7,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 /** JSON adapter for the same typed placement service used by the phone UI. */
 final class AutomationToolWindows {
@@ -31,10 +30,10 @@ final class AutomationToolWindows {
                 TerminalSessions.open(context, intent, target, uniqueId, callback);
             } else ToolApplications.open(context, intent, target, uniqueId, callback);
             // Bound the launch-completion callback; there is no display/task polling here.
-            if (!completed.await(20_000L, TimeUnit.MILLISECONDS)) {
-                return DesktopAutomationResult.failure(DesktopAutomationErrorCode.TIMEOUT,
-                        "application launch acknowledgement timed out", true);
-            }
+            final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
+                    20_000L, "application launch", false,
+                    new JSONObject().put("displayId", target.displayId));
+            if (pending != null) return pending;
             if (failure[0] != null) {
                 return DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,
                         ShellAccess.usefulMessage(failure[0]), true);
@@ -42,10 +41,6 @@ final class AutomationToolWindows {
             return DesktopAutomationResult.success("application launch accepted", new JSONObject()
                     .put("accepted", true).put("displayId", target.displayId)
                     .put("placement", target.desktop ? "desktop" : "display"));
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            return DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,
-                    "application launch interrupted", true);
         } catch (IllegalArgumentException | JSONException error) {
             return DesktopAutomationResult.failure(DesktopAutomationErrorCode.INVALID_ARGUMENT,
                     ShellAccess.usefulMessage(error), false);
