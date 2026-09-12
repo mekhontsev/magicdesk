@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -121,6 +120,11 @@ final class DesktopTaskSnapshotController {
                     || DesktopInfrastructureTasks.isTask(task)) {
                 continue;
             }
+            // A freeform window shares the visible desktop even when its task
+            // is not ours to control. Ownership only gates fullscreen escape.
+            if (task.isFreeform()) {
+                return true;
+            }
             if (desktopTasks == null) {
                 return false;
             }
@@ -143,7 +147,8 @@ final class DesktopTaskSnapshotController {
         }
         // Running tasks are top-first. Independent task-display areas may
         // report a freeform task as visible even while an opaque fullscreen
-        // plane covers it, so only inspect applications above that plane.
+        // plane covers it, so only inspect windows above that plane. Scene
+        // visibility is independent of permission to operate on those tasks.
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task == null || task.taskId == excludedTaskId
                     || !task.visible
@@ -152,10 +157,6 @@ final class DesktopTaskSnapshotController {
             }
             if (DesktopTaskController.isDesktopHostTask(task)) {
                 return false;
-            }
-            if (!DesktopManagedTaskPolicy
-                    .isControllableApplicationTask(task)) {
-                continue;
             }
             if (task.isFreeform()) {
                 return true;
@@ -179,10 +180,6 @@ final class DesktopTaskSnapshotController {
             }
             if (DesktopTaskController.isDesktopHostTask(task)) {
                 return false;
-            }
-            if (!DesktopManagedTaskPolicy
-                    .isControllableApplicationTask(task)) {
-                continue;
             }
             if (task.isFreeform()) {
                 return false;

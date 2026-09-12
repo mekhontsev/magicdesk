@@ -26,6 +26,22 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
     }
 
     @Test
+    public void foreignFreeformKeepsChromeWithoutEnteringManagedTaskList() throws Exception {
+        verify("""
+                MagicDeskRuntime.excludeTasks = true;
+                f.refresh();
+                check(f.mActivity.visible && f.mActivity.chromeAvailable,
+                        "foreign freeform disabled taskbar or its reveal edge");
+                check(f.mSnapshot.tasks.isEmpty(), "chrome policy acquired foreign task ownership");
+                check(TaskRepository.loads == 0, "chrome policy issued another query");
+                MagicDeskRuntime.observed = TaskRepository.raw;
+                f.refresh();
+                check(!f.mActivity.visible && !f.mActivity.chromeAvailable,
+                        "foreign fullscreen stopped disabling desktop chrome");
+                """);
+    }
+
+    @Test
     public void unknownActiveObservationDoesNotFallBackToRawOrEmptySuccess() throws Exception {
         verify("""
                 MagicDeskRuntime.observed = null;
@@ -103,15 +119,18 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                     static DesktopSessionSnapshot getSessionSnapshot(int displayId) { return new DesktopSessionSnapshot(); }
                 }
                 static class MagicDeskRuntime {
+                    static boolean excludeTasks;
                     static TaskRepository.Snapshot observed = new TaskRepository.Snapshot(
                             List.of(new TaskRepository.TaskEntry("freeform")), true, "");
                     static TaskRepository.Snapshot observedTaskSnapshot(int display) {
                         check(display == 66, "provider read escaped host display scope"); return observed;
                     }
-                    static TaskRepository.Snapshot selectDesktopTaskSnapshot(int display, TaskRepository.Snapshot snapshot) { return snapshot; }
+                    static TaskRepository.Snapshot selectDesktopTaskSnapshot(int display, TaskRepository.Snapshot snapshot) {
+                        return excludeTasks ? new TaskRepository.Snapshot(Collections.emptyList(), true, "") : snapshot;
+                    }
                 }
                 static class Activity {
-                    int displayId = 66, hidden, updates; boolean visible = true, unavailable;
+                    int displayId = 66, hidden, updates; boolean visible = true, unavailable, chromeAvailable;
                     int getCurrentDisplayId() { return displayId; }
                     boolean isActivityUnavailable() { return unavailable; }
                     void runOnUiThread(Runnable action) { action.run(); }
@@ -121,12 +140,11 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                     void renderTaskbarPins(Object apps) {}
                     boolean isTaskbarVisible() { return visible; }
                     void setTaskbarVisible(boolean value) { if (visible && !value) hidden++; visible = value; }
-                    void setTaskbarAvailable(boolean value) {}
+                    void setTaskbarAvailable(boolean value) { chromeAvailable = value; }
                     void setDesktopWindowFocusable(boolean value) {}
                 }
                 static class DesktopTaskController { static boolean isDesktopHostTask(TaskRepository.TaskEntry task) { return false; } }
                 static class DesktopInfrastructureTasks { static boolean isTask(TaskRepository.TaskEntry task) { return false; } }
-                static class DesktopManagedTaskPolicy { static boolean isControllableApplicationTask(TaskRepository.TaskEntry task) { return true; } }
                 static class DesktopPreferences { static void recordRecentApp(Activity activity, AppReference key) {} }
                 record AppReference(String key) {}
                 static class AppProfile { AppReference reference(Object task) { return new AppReference("0|fixture"); } }

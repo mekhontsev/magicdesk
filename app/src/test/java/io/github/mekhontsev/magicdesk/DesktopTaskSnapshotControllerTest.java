@@ -143,6 +143,80 @@ public final class DesktopTaskSnapshotControllerTest {
                 displayTasks, displayTasks));
     }
 
+    @Test
+    public void unmanageableFreeformStillKeepsTaskbarVisibleAndAvailable() {
+        final TaskRepository.TaskEntry window = unmanageable("freeform", true);
+        final TaskRepository.TaskEntry host = desktopHost(true);
+        final java.util.List<TaskRepository.TaskEntry> displayTasks =
+                Arrays.asList(taskbar(true), window, host);
+
+        assertFalse(DesktopManagedTaskPolicy.isManagedApplicationTask(window));
+        assertTrue(DesktopTaskSnapshotController.hasVisibleFreeformTask(displayTasks));
+        assertFalse(DesktopTaskSnapshotController.hasVisibleFullscreenTask(displayTasks));
+        assertTrue(DesktopTaskSnapshotController.isDesktopChromeAvailable(
+                displayTasks, Arrays.asList(taskbar(true), host)));
+    }
+
+    @Test
+    public void unmanageableFullscreenOccludesFreeformWithoutAcquiringOwnership() {
+        final TaskRepository.TaskEntry window = unmanageable("fullscreen", true);
+        final java.util.List<TaskRepository.TaskEntry> desktopTasks =
+                Arrays.asList(freeform(true), desktopHost(true));
+        final java.util.List<TaskRepository.TaskEntry> displayTasks =
+                Arrays.asList(window, freeform(true), desktopHost(true));
+
+        assertFalse(DesktopManagedTaskPolicy.isManagedApplicationTask(window));
+        assertFalse(DesktopTaskSnapshotController.hasVisibleFreeformTask(displayTasks));
+        assertTrue(DesktopTaskSnapshotController.hasVisibleFullscreenTask(displayTasks));
+        assertFalse(DesktopTaskSnapshotController.isDesktopChromeAvailable(
+                displayTasks, desktopTasks));
+    }
+
+    @Test
+    public void unmanageableFreeformAboveForeignFullscreenKeepsChromeAvailable() {
+        final java.util.List<TaskRepository.TaskEntry> displayTasks = Arrays.asList(
+                unmanageable("freeform", true), app(true), desktopHost(false));
+        assertTrue(DesktopTaskSnapshotController.isDesktopChromeAvailable(
+                displayTasks, Arrays.asList(desktopHost(false))));
+        assertTrue(DesktopTaskSnapshotController.hasVisibleFreeformTask(displayTasks));
+        assertFalse(DesktopTaskSnapshotController.hasVisibleFullscreenTask(displayTasks));
+    }
+
+    @Test
+    public void coveredUnmanageableFreeformCannotEnableChrome() {
+        final java.util.List<TaskRepository.TaskEntry> displayTasks = Arrays.asList(
+                app(true), unmanageable("freeform", true), desktopHost(false));
+        assertFalse(DesktopTaskSnapshotController.isDesktopChromeAvailable(
+                displayTasks, Arrays.asList(desktopHost(false))));
+        assertFalse(DesktopTaskSnapshotController.hasVisibleFreeformTask(displayTasks));
+        assertTrue(DesktopTaskSnapshotController.hasVisibleFullscreenTask(displayTasks));
+    }
+
+    @Test
+    public void hiddenUnmanageableWindowDoesNotAffectChrome() {
+        final java.util.List<TaskRepository.TaskEntry> displayTasks = Arrays.asList(
+                unmanageable("fullscreen", false), freeform(true), desktopHost(true));
+        assertTrue(DesktopTaskSnapshotController.hasVisibleFreeformTask(displayTasks));
+        assertFalse(DesktopTaskSnapshotController.hasVisibleFullscreenTask(displayTasks));
+        assertTrue(DesktopTaskSnapshotController.isDesktopChromeAvailable(
+                displayTasks, Arrays.asList(freeform(true), desktopHost(true))));
+    }
+
+    @Test
+    public void excludedUnmanageableFreeformDoesNotMaskFullscreen() {
+        final TaskRepository.TaskEntry window = unmanageable("freeform", true);
+        assertFalse(DesktopTaskSnapshotController.hasVisibleFreeformTask(
+                Arrays.asList(window, app(true), desktopHost(true)), window.taskId));
+    }
+
+    private static TaskRepository.TaskEntry unmanageable(
+            final String mode, final boolean visible) {
+        final String component = BuildConfig.APPLICATION_ID + "/.ControlActivity";
+        return new TaskRepository.TaskEntry(40, 40, 2, BuildConfig.APPLICATION_ID,
+                component, component, mode, new Rect(100, 100, 900, 700),
+                false, visible, true);
+    }
+
     private static TaskRepository.TaskEntry desktopHost(
             final boolean visible) {
         return new TaskRepository.TaskEntry(

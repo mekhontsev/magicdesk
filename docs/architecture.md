@@ -2071,7 +2071,7 @@ the bounded panel collapses to its transparent reveal edge. Only its background
 and taskbar content stop drawing; its window opacity and input region are
 unchanged, so hover and touch can still reveal the taskbar. The expanded panel
 restores its background, including the reserved navigation inset. An unrelated
-foreground task removes the panel entirely. The transparent, non-input chrome host remains
+foreground fullscreen task removes the panel entirely. The transparent, non-input chrome host remains
 structurally stable without leaving the taskbar backdrop over fullscreen content.
 There is no separate phone implementation of the desktop.
 IME visibility may keep an
@@ -2129,8 +2129,12 @@ same application token rather than creating another infrastructure task.
 The taskbar hides for an unrelated true-fullscreen task and returns for the
 desktop. Chrome policy reads the complete physical display snapshot before
 workspace ownership filtering, while task lists and window operations remain
-limited to session-owned tasks. A foreign foreground task disables both the
-panel and its reveal edge; managed fullscreen tasks retain edge reveal. Its
+limited to session-owned tasks. Visible freeform windows keep the taskbar and
+its reveal edge available independently of permission to control their tasks.
+A foreign foreground fullscreen task disables both the panel and its reveal
+edge; managed fullscreen tasks retain edge reveal. Window visibility scans
+stop at the first opaque fullscreen plane or desktop HOME, so a covered
+freeform window cannot reopen chrome. Its
 shared controller measures the actual task viewport on every display and
 reserves one slot for an overflow menu when task or pin icons no longer fit.
 Overflow entries retain the same exact-task actions and context targets as
