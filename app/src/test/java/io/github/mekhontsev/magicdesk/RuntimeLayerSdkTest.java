@@ -3,6 +3,44 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class RuntimeLayerSdkTest {
+    @Test public void displayRemovalCompletionDoesNotRequireDesktop() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Session {
+                    int refreshes, reconciles;
+                    void refreshOwnership() { refreshes++; }
+                    void reconcileHomeLease() { reconciles++; }
+                }
+                Session mDesktopSession;
+                List<Runnable> posted = new ArrayList<>();
+                int taskUpdates;
+                void postIfAlive(Runnable action) { posted.add(action); }
+                void updateDesktopTasks() { taskUpdates++; }
+                void drain() { for (Runnable action : posted) action.run(); posted.clear(); }
+                """ + RuntimeSourceFixture.methods("MagicDeskRuntimeService",
+                        "desktopTransitionFinished", "refreshDesktopTasks") + """
+                public static void verify() {
+                    Fixture runtime = new Fixture();
+                    runtime.desktopTransitionFinished();
+                    runtime.refreshDesktopTasks();
+                    runtime.drain();
+                    check(runtime.mDesktopSession == null && runtime.taskUpdates == 0,
+                            "independent display completion promoted Desktop");
+                    Session session = new Session();
+                    runtime.mDesktopSession = session;
+                    runtime.desktopTransitionFinished();
+                    runtime.refreshDesktopTasks();
+                    runtime.drain();
+                    check(session.refreshes == 2 && session.reconciles == 1 && runtime.taskUpdates == 2,
+                            "active Desktop no longer reconciles transitions");
+                    runtime.desktopTransitionFinished();
+                    runtime.refreshDesktopTasks();
+                    runtime.mDesktopSession = null;
+                    runtime.drain();
+                    check(runtime.taskUpdates == 2, "queued callback used a destroyed coordinator");
+                }
+                """);
+    }
+
     @Test public void desktopRequestFailsBeforeStartingServiceOnUnsupportedSdk() throws Exception {
         RuntimeSourceFixture.verify(capabilities() + """
                 static class Intent { Intent(Object context, Class<?> type) {} }

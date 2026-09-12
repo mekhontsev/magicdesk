@@ -82,10 +82,8 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void refreshDesktopTasks() {
-        if (mDesktopSession == null) {
-            return;
-        }
         postIfAlive(() -> {
+            if (mDesktopSession == null) return;
             mDesktopSession.refreshOwnership();
             updateDesktopTasks();
         });
@@ -94,6 +92,9 @@ public final class MagicDeskRuntimeService extends Service
     @Override
     public void desktopTransitionFinished() {
         postIfAlive(() -> {
+            // Removing an independent display also finishes a transition, but
+            // must neither require nor initialize the optional Desktop runtime.
+            if (mDesktopSession == null) return;
             mDesktopSession.refreshOwnership();
             mDesktopSession.reconcileHomeLease();
             updateDesktopTasks();
