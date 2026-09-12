@@ -16,7 +16,7 @@ public final class DesktopSelfTestPointerReadinessTest {
                     }
                     static class DesktopRuntimeBridge {
                         static int display = 4;
-                        static int getActiveDesktopDisplayId() { return display; }
+                        static boolean hasWorkspace(int id) { return display == id; }
                     }
                     static class MagicDeskRuntime {
                         static boolean ready;

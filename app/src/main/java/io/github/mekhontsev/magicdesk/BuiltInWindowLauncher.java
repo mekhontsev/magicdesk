@@ -27,7 +27,7 @@ final class BuiltInWindowLauncher {
         final int displayId = activity.getDisplay() == null
                 ? 0 : activity.getDisplay().getDisplayId();
         launch(activity, intent, target, ToolLaunchTarget.resolve("auto", displayId,
-                MagicDeskRuntime.activeDesktopDisplayId()), null, callback);
+                DesktopRuntimeBridge.workspaceDisplayIds()), null, callback);
     }
 
     static void launch(final Context context, final Intent source,
@@ -39,7 +39,7 @@ final class BuiltInWindowLauncher {
             try {
                 // Check again on the command queue: a session or display may have
                 // changed between a UI selection and execution.
-                if (placement.desktop != (displayId == MagicDeskRuntime.activeDesktopDisplayId())) {
+                if (placement.desktop != DesktopRuntimeBridge.hasWorkspace(displayId)) {
                     throw new IOException("display ownership changed; select the launch destination again");
                 }
                 if (displayId != 0 || uniqueId != null) {

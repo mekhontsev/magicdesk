@@ -41,7 +41,7 @@ final class AndroidIntegrationGateway {
             final AndroidDesktopAction action,
             final int displayId) throws IOException, JSONException {
         return execute(action, ToolLaunchTarget.resolve("auto", displayId,
-                DesktopRuntimeBridge.getActiveDesktopDisplayId()));
+                DesktopRuntimeBridge.workspaceDisplayIds()));
     }
 
     private DesktopAutomationResult execute(
@@ -1111,12 +1111,12 @@ final class AndroidIntegrationGateway {
     ToolLaunchTarget launchTarget(final JSONObject args) {
         return ToolLaunchTarget.resolve(optionalString(args, "placement", "auto"),
                 args != null && args.has("displayId") ? requiredInt(args, "displayId") : -1,
-                DesktopRuntimeBridge.getActiveDesktopDisplayId());
+                DesktopRuntimeBridge.workspaceDisplayIds());
     }
 
     private void requireLaunchTarget(final ToolLaunchTarget placement,
             final DesktopLaunchPresentation presentation) throws IOException {
-        placement.requireCurrent(DesktopRuntimeBridge.getActiveDesktopDisplayId());
+        placement.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
         if (!placement.desktop) {
             OrdinaryActivityLaunch.requirePresentation(presentation);
         }

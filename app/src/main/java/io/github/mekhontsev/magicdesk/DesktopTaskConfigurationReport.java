@@ -27,15 +27,14 @@ final class DesktopTaskConfigurationReport {
                     .append("\n\n");
             return;
         }
-        final int activeDesktopDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final java.util.Set<Integer> desktopDisplays = DesktopRuntimeBridge.workspaceDisplayIds();
         int reported = 0;
         for (final FrameworkTaskSnapshot task : tasks) {
             if (task == null || task.isHome()
                     || task.packageName.isEmpty()) {
                 continue;
             }
-            appendTask(report, task, activeDesktopDisplayId);
+            appendTask(report, task, desktopDisplays.contains(task.displayId) ? task.displayId : -1);
             reported++;
         }
         if (reported == 0) {

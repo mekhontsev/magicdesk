@@ -9,6 +9,69 @@ import org.junit.Test;
 
 public final class PhoneControlPanelControllerTest {
     @Test
+    public void contentWidthFollowsParentMeasurementAfterResize() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Gravity { static int TOP = 1, CENTER_HORIZONTAL = 2; }
+                static class View {
+                    FrameLayout.LayoutParams params;
+                    FrameLayout.LayoutParams getLayoutParams() { return params; }
+                    static class MeasureSpec {
+                        static final int UNSPECIFIED = 0, EXACTLY = 1, AT_MOST = 2;
+                        static int makeMeasureSpec(int size, int mode) { return (size << 2) | mode; }
+                        static int getMode(int spec) { return spec & 3; }
+                        static int getSize(int spec) { return spec >>> 2; }
+                    }
+                }
+                static class FrameLayout extends View {
+                    View child;
+                    int measuredChildWidth;
+                    FrameLayout(Object activity) { }
+                    static class LayoutParams {
+                        static final int MATCH_PARENT = -1, WRAP_CONTENT = -2;
+                        int width, height, gravity;
+                        LayoutParams(int w, int h, int g) { width = w; height = h; gravity = g; }
+                    }
+                    void addView(View view, LayoutParams params) { child = view; view.params = params; }
+                    protected void onMeasure(int width, int height) { measuredChildWidth = child.params.width; }
+                }
+                Object mActivity = new Object();
+                float density = 3.25f;
+                int dp(int value) { return Math.round(value * density); }
+                public static void verify() {
+                    Fixture f = new Fixture();
+                    View content = new View();
+                    FrameLayout host = (FrameLayout) f.centered(content);
+                    host.onMeasure(View.MeasureSpec.makeMeasureSpec(796, View.MeasureSpec.EXACTLY), 0);
+                    check(host.measuredChildWidth == 796, "initial narrow window");
+                    host.onMeasure(View.MeasureSpec.makeMeasureSpec(1098, View.MeasureSpec.EXACTLY), 0);
+                    check(host.measuredChildWidth == 1098, "fullscreen retained narrow content");
+                    host.onMeasure(View.MeasureSpec.makeMeasureSpec(3000, View.MeasureSpec.EXACTLY), 0);
+                    check(host.measuredChildWidth == f.dp(540), "large window lost maximum width");
+                    host.onMeasure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.AT_MOST), 0);
+                    check(host.measuredChildWidth == 600, "shrinking window exceeds parent");
+                    f.density = 1;
+                    host.onMeasure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY), 0);
+                    check(host.measuredChildWidth == 540, "density change retained old cap");
+                    host.onMeasure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), 0);
+                    check(host.measuredChildWidth == 540, "unbounded measurement collapsed content");
+                    check(content.params.gravity == (Gravity.TOP | Gravity.CENTER_HORIZONTAL), "not centered");
+                }
+                """ + RuntimeSourceFixture.methods("PhoneControlPanelController", "centered"));
+    }
+
+    @Test
+    public void appsSharesTheStatusRowInsteadOfTakingADisplayActionRow() throws Exception {
+        final String status = RuntimeSourceFixture.methods("PhoneControlPanelController", "addStatus");
+        assertTrue(status.contains("row.setOrientation(LinearLayout.HORIZONTAL)"));
+        assertTrue(status.contains("status.addView(mStatus)"));
+        assertTrue(status.contains("status.addView(mRuntime, runtimeParams)"));
+        assertTrue(status.contains("row.addView(mApplications, appsParams)"));
+        assertTrue(status.contains("mActions.openApplications()"));
+        assertFalse(RuntimeSourceFixture.methods("PhoneControlPanelController", "addDesktopActions")
+                .contains("mApplications"));
+    }
+
+    @Test
     public void displayChoicesUseDescendingIdsWithoutChangingTheSharedCatalog() {
         final DesktopDisplayInfo phone = display(0, "phone", true, false);
         final DesktopDisplayInfo wired = display(3, "wired", true, false);
@@ -34,22 +97,53 @@ public final class PhoneControlPanelControllerTest {
     }
 
     @Test
-    public void outputControlsRemainVisibleButReadOnlyDuringAnyDesktopSession() {
+    public void outputButtonHasAStableSlotInTheDisplayActionGrid() throws Exception {
+        final String source = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/io/github/mekhontsev/magicdesk/DisplaySelectionView.java"));
+        assertFalse(source.contains("mOutput.setVisibility"));
+        assertFalse(source.contains("mOutputOptions"));
+        final String actions = RuntimeSourceFixture.methods("PhoneControlPanelController", "addDesktopActions");
+        assertTrue(actions.contains("addGridAction(sessionActions, mDisplaySelection.outputControl())"));
+        assertFalse(actions.contains("addControlSection"));
+        final String dialog = RuntimeSourceFixture.methods("DisplaySelectionView", "showOutputModeDialog");
+        assertTrue(dialog.contains("selection.current.displayLabel"));
+        assertTrue(dialog.contains("mode.setEnabled(mCanConfigureOutput)"));
+        assertFalse(dialog.contains("setOnItemSelectedListener"));
+    }
+
+    @Test
+    public void outputDialogSelectsThePreferenceWithoutMistakingItForTheCurrentMode() {
+        final var current = new PlatformProjectionDriver.Mode("1920x1080@60", "1080p 60 Hz");
+        final var preferred = new PlatformProjectionDriver.Mode("1920x1080@120", "1080p 120 Hz");
+        final var modes = java.util.List.of(new PlatformProjectionDriver.Mode("", "System / native"),
+                current, preferred);
+        final var selection = new PlatformProjectionDriver.ModeSelection(current, preferred, current,
+                modes.subList(1, 3), true, true, false);
+        assertEquals(2, DisplaySelectionView.outputModeIndex(selection, modes));
+        assertEquals(0, DisplaySelectionView.outputModeIndex(selection.withPreferredTiming(null), modes));
+        assertEquals(-1, DisplaySelectionView.outputModeIndex(selection, java.util.List.of(current)));
+        assertEquals(-1, DisplaySelectionView.outputModeIndex(selection, java.util.List.of()));
+        assertEquals(-1, DisplaySelectionView.outputModeIndex(new PlatformProjectionDriver.ModeSelection(
+                current, null, null, java.util.List.of(current), false), modes));
+    }
+
+    @Test
+    public void outputControlsLockOnlyTheSelectedDesktop() {
         final DesktopDisplayInfo wired = display(3, "wired", true, false);
         final PlatformProjectionDriver.Mode mode = new PlatformProjectionDriver.Mode("1920x1080@60", "1080p 60 Hz");
         final PlatformProjectionDriver.ModeSelection selection = new PlatformProjectionDriver.ModeSelection(
                 mode, mode, mode, java.util.List.of(mode), true);
         assertTrue(DisplaySelectionView.hasOutputControls(wired, true));
-        assertTrue(DisplaySelectionView.canConfigureOutput(wired, true, selection, -1, true, false));
+        assertTrue(DisplaySelectionView.canConfigureOutput(wired, true, selection, java.util.Set.of(), true, false));
         for (final int activeId : new int[] {0, 3, 8}) {
-            assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, selection, activeId, true, false));
+            assertEquals(activeId != 3, DisplaySelectionView.canConfigureOutput(wired, true, selection, java.util.Set.of(activeId), true, false));
         }
-        assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, selection, -1, true, true));
-        assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, selection, -1, false, false));
-        assertFalse(DisplaySelectionView.canConfigureOutput(wired, false, selection, -1, true, false));
-        assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, null, -1, true, false));
+        assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, selection, java.util.Set.of(), true, true));
+        assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, selection, java.util.Set.of(), false, false));
+        assertFalse(DisplaySelectionView.canConfigureOutput(wired, false, selection, java.util.Set.of(), true, false));
+        assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, null, java.util.Set.of(), true, false));
         assertFalse(DisplaySelectionView.canConfigureOutput(display(0, "phone", true, false),
-                true, selection, -1, true, false));
+                true, selection, java.util.Set.of(), true, false));
     }
 
     @Test
@@ -57,21 +151,13 @@ public final class PhoneControlPanelControllerTest {
         final DesktopDisplayInfo wired = display(3, "wired", true, false);
         final PlatformProjectionDriver.ModeSelection empty = new PlatformProjectionDriver.ModeSelection(
                 null, null, null, java.util.List.of(), true);
-        assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, empty, -1, true, false));
+        assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, empty, java.util.Set.of(), true, false));
         final PlatformProjectionDriver.ModeSelection systemDefault = new PlatformProjectionDriver.ModeSelection(
                 null, null, null, java.util.List.of(), true, true, true);
-        assertTrue(DisplaySelectionView.canConfigureOutput(wired, true, systemDefault, -1, true, false));
+        assertTrue(DisplaySelectionView.canConfigureOutput(wired, true, systemDefault, java.util.Set.of(), true, false));
         final PlatformProjectionDriver.ModeSelection readOnly = new PlatformProjectionDriver.ModeSelection(
                 null, null, null, java.util.List.of(), false, true, true);
-        assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, readOnly, -1, true, false));
-    }
-
-    @Test
-    public void desktopStatusNamesTheActiveScreenIncludingPhone() {
-        final DesktopDisplayInfo[] displays = {display(0, "phone", true, false), display(5, "virtual", true, true)};
-        assertEquals("Display [0]", PhoneControlPanelController.desktopDisplayLabel(displays, 0));
-        assertEquals("Display [5]", PhoneControlPanelController.desktopDisplayLabel(displays, 5));
-        assertEquals("8", PhoneControlPanelController.desktopDisplayLabel(displays, 8));
+        assertFalse(DisplaySelectionView.canConfigureOutput(wired, true, readOnly, java.util.Set.of(), true, false));
     }
 
     @Test
@@ -87,22 +173,22 @@ public final class PhoneControlPanelControllerTest {
     }
 
     @Test
-    public void displaySelectionAllowsOnlyOneSession() {
+    public void displaySelectionDoesNotDependOnOtherWorkspaces() {
         final DesktopDisplayInfo phone = display(0, "phone", true, false);
         final DesktopDisplayInfo external = display(5, "virtual", true, true);
-        assertTrue(DisplaySelectionView.canStart(phone, -1, true, false, 35));
-        assertTrue(DisplaySelectionView.canStart(phone, 0, true, false, 35));
-        assertFalse(DisplaySelectionView.canStart(phone, 5, true, false, 35));
-        assertTrue(DisplaySelectionView.canStart(external, -1, true, false, 35));
-        assertTrue(DisplaySelectionView.canStart(external, 5, true, false, 35));
-        assertFalse(DisplaySelectionView.canStart(external, 0, true, false, 35));
-        assertFalse(DisplaySelectionView.canStart(external, -1, false, false, 35));
-        assertFalse(DisplaySelectionView.canStart(external, -1, true, true, 35));
-        assertFalse(DisplaySelectionView.canStart(null, -1, true, false, 35));
+        assertTrue(DisplaySelectionView.canStart(phone, true, false, 35));
+        assertTrue(DisplaySelectionView.canStart(phone, true, false, 35));
+        assertTrue(DisplaySelectionView.canStart(phone, true, false, 35));
+        assertTrue(DisplaySelectionView.canStart(external, true, false, 35));
+        assertTrue(DisplaySelectionView.canStart(external, true, false, 35));
+        assertTrue(DisplaySelectionView.canStart(external, true, false, 35));
+        assertFalse(DisplaySelectionView.canStart(external, false, false, 35));
+        assertFalse(DisplaySelectionView.canStart(external, true, true, 35));
+        assertFalse(DisplaySelectionView.canStart(null, true, false, 35));
         assertFalse(DisplaySelectionView.canStart(
-                display(6, "internal", false, false), -1, true, false, 35));
-        assertFalse(DisplaySelectionView.canStart(phone, -1, true, false, 34));
-        assertFalse(DisplaySelectionView.canStart(external, -1, true, false, 34));
+                display(6, "internal", false, false), true, false, 35));
+        assertFalse(DisplaySelectionView.canStart(phone, true, false, 34));
+        assertFalse(DisplaySelectionView.canStart(external, true, false, 34));
     }
 
     static DesktopDisplayInfo display(final int id, final String source,

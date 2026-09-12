@@ -44,15 +44,16 @@ final class DesktopAutomationStateReader {
     }
 
     JSONObject state() throws JSONException {
-        final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
-        final DesktopDisplayTarget target = session.target();
         final ShellAccess.Snapshot shell = ShellAccess.currentSnapshot();
         final PlatformDriver platform = PlatformDrivers.current();
-        final int activeDisplayId = session.activeWorkspaceDisplayId();
-        final DesktopUiSnapshot ui = activeDisplayId >= Display.DEFAULT_DISPLAY
-                ? DesktopRuntimeBridge.getAutomationUiSnapshot(activeDisplayId)
-                : DesktopUiSnapshot.UNAVAILABLE;
+        final JSONArray workspaces = new JSONArray();
+        for (final DesktopSessionSnapshot session : DesktopRuntimeBridge.getWorkspaces()) {
+            final DesktopDisplayTarget target = session.target();
+            if (target == null) { continue; }
+            workspaces.put(sessionJson(session, target)
+                    .put("id", session.workspace().id)
+                    .put("ui", uiJson(DesktopRuntimeBridge.getAutomationUiSnapshot(target.workspaceDisplayId))));
+        }
         final DesktopWindowObservation windows =
                 DesktopWindowObservation.capture();
         final JSONObject result = new JSONObject()
@@ -89,8 +90,8 @@ final class DesktopAutomationStateReader {
                         .put("id", platform.id())
                         .put("name", platform.name())
                         .put("selection", PlatformDrivers.selectionDetail()))
-                .put("session", sessionJson(session, target))
-                .put("ui", uiJson(ui))
+                .put("workspaces", workspaces)
+                .put("homeLease", homeLeaseJson())
                 .put("runtime", new JSONObject()
                         .put("mouseBridgeReady",
                                 MagicDeskRuntime.isPointerTransportReady())
@@ -355,32 +356,21 @@ final class DesktopAutomationStateReader {
         AppPresentationProfileManager.requireUserApplication(application);
         final AppPresentationProfile profile =
                 AppPresentationProfileStore.load(application);
-        final int displayId = DesktopRuntimeBridge
-                .getActiveDesktopDisplayId();
         final JSONObject result = new JSONObject()
                 .put("package", application.packageName)
                 .put("appIdentity", application.persistentKey())
                 .put("mode", profile == null ? "system" : "custom")
-                .put("scalePercent", profile == null
-                        ? JSONObject.NULL : profile.scalePercent)
-                .put("activeDisplayId", displayId >= Display.DEFAULT_DISPLAY
-                        ? displayId : JSONObject.NULL)
-                .put("overrideDensityDpi", JSONObject.NULL);
-        if (displayId >= Display.DEFAULT_DISPLAY) {
-            final int displayDensity =
-                    DesktopTaskPresentationPolicy.displayDensityDpi(displayId);
-            result.put("displayDensityDpi", displayDensity)
-                    .put("expectedDensityDpi",
-                            DesktopTaskPresentationPolicy.expectedDensityDpi(
-                                    profile, displayDensity))
-                    .put("overrideDensityDpi", profile == null
-                            ? DesktopTaskDensity.INHERIT
-                            : DesktopTaskPresentationPolicy.resolveDensityDpi(
-                                    profile, displayDensity));
-        } else {
-            result.put("displayDensityDpi", JSONObject.NULL)
-                    .put("expectedDensityDpi", JSONObject.NULL);
+                .put("scalePercent", profile == null ? JSONObject.NULL : profile.scalePercent);
+        final JSONArray displays = new JSONArray();
+        for (final int displayId : DesktopRuntimeBridge.workspaceDisplayIds()) {
+            final int density = DesktopTaskPresentationPolicy.displayDensityDpi(displayId);
+            displays.put(new JSONObject().put("displayId", displayId)
+                    .put("displayDensityDpi", density)
+                    .put("expectedDensityDpi", DesktopTaskPresentationPolicy.expectedDensityDpi(profile, density))
+                    .put("overrideDensityDpi", profile == null ? DesktopTaskDensity.INHERIT
+                            : DesktopTaskPresentationPolicy.resolveDensityDpi(profile, density)));
         }
+        result.put("displays", displays);
         return result;
     }
 
@@ -396,10 +386,11 @@ final class DesktopAutomationStateReader {
     JSONObject uiElements(final JSONObject arguments) throws JSONException {
         final JSONObject args = arguments == null
                 ? new JSONObject() : arguments;
-        final int active = DesktopRuntimeBridge.getActiveDesktopDisplayId();
         final Integer requested = optionalInteger(args, "displayId");
         final int displayId = requested == null
-                ? active : requested.intValue();
+                ? DesktopRuntimeBridge.hasWorkspaces()
+                    ? DesktopRuntimeBridge.requireSingleDesktopDisplay() : Display.DEFAULT_DISPLAY
+                : requested.intValue();
         if (displayId < Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException("no active desktop display");
         }
@@ -443,16 +434,25 @@ final class DesktopAutomationStateReader {
                 .put("lastCompletedResult", saved == null ? JSONObject.NULL : saved);
     }
 
+    private static Object homeLeaseJson() throws JSONException {
+        final DesktopHomeRoleLease.State lease = DesktopHomeRoleLease.snapshot();
+        return lease == null ? JSONObject.NULL : new JSONObject()
+                .put("phase", lease.phase.name().toLowerCase(Locale.ROOT))
+                .put("closingDisplayId", lease.closingDisplayId)
+                .put("workspaceDisplays", new JSONArray(lease.targets.stream()
+                        .map(target -> target.workspaceDisplayId).toList()));
+    }
+
     private JSONObject sessionJson(
             final DesktopSessionSnapshot session,
             final DesktopDisplayTarget target) throws JSONException {
-        final int displayId = session.activeWorkspaceDisplayId();
+        final int displayId = target == null ? Display.INVALID_DISPLAY : target.workspaceDisplayId;
         final JSONObject result = new JSONObject()
                 .put("active", session.hasHost())
                 .put("starting", target != null && !session.hasHost())
                 .put("displayId", displayId)
-                .put("outputDisplayId", session.activeOutputDisplayId())
-                .put("inputDisplayId", session.inputDisplayId())
+                .put("outputDisplayId", target == null ? Display.INVALID_DISPLAY : target.output.displayId)
+                .put("controlsInput", displayId == MagicDeskRuntime.inputDisplayId())
                 .put("hostTaskId", session.hostTaskId());
         if (target == null) {
             return result.put("target", JSONObject.NULL);

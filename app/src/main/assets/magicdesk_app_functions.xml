@@ -3,7 +3,7 @@
     <appfunction>
         <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#getDesktopState</id>
         <enabledByDefault>true</enabledByDefault>
-        <description>Read the current MagicDesk runtime, desktop session, display and shell state.</description>
+        <description>Read the current MagicDesk runtime, desktop workspaces, displays and shell state.</description>
         <response>
             <id>unused</id>
             <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
@@ -20,6 +20,11 @@
             <id>unused</id><isRequired>false</isRequired><name>target</name>
             <description>Optional target: auto, phone, simulated, wired or wireless.</description>
         </parameters>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>true</isNullable><type>7</type></dataTypeMetadata>
+            <id>unused</id><isRequired>false</isRequired><name>displayId</name>
+            <description>Exact display ID. Required when the destination would be ambiguous.</description>
+        </parameters>
         <response>
             <id>unused</id>
             <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
@@ -30,7 +35,12 @@
     <appfunction>
         <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#closeDesktop</id>
         <enabledByDefault>true</enabledByDefault>
-        <description>Close the active MagicDesk session through its normal cleanup procedure.</description>
+        <description>Close the selected MagicDesk workspace through its normal cleanup procedure.</description>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>true</isNullable><type>7</type></dataTypeMetadata>
+            <id>unused</id><isRequired>false</isRequired><name>displayId</name>
+            <description>Exact display ID. Required when the destination would be ambiguous.</description>
+        </parameters>
         <response>
             <id>unused</id>
             <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>
@@ -45,12 +55,17 @@
         <parameters>
             <dataTypeMetadata><id>unused</id><isNullable>false</isNullable><type>8</type></dataTypeMetadata>
             <id>unused</id><isRequired>true</isRequired><name>appIdentity</name>
-            <description>Android application package name.</description>
+            <description>Profile-scoped application identity returned by the MagicDesk catalog.</description>
         </parameters>
         <parameters>
             <dataTypeMetadata><id>unused</id><isNullable>true</isNullable><type>8</type></dataTypeMetadata>
             <id>unused</id><isRequired>false</isRequired><name>mode</name>
             <description>Optional launch mode: auto, windowed or fullscreen.</description>
+        </parameters>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>true</isNullable><type>7</type></dataTypeMetadata>
+            <id>unused</id><isRequired>false</isRequired><name>displayId</name>
+            <description>Exact display ID. Required when the destination would be ambiguous.</description>
         </parameters>
         <response>
             <id>unused</id>
@@ -63,6 +78,11 @@
         <id>io.github.mekhontsev.magicdesk.MagicDeskAppFunctionService#openSettings</id>
         <enabledByDefault>true</enabledByDefault>
         <description>Open MagicDesk settings on the current desktop or phone display.</description>
+        <parameters>
+            <dataTypeMetadata><id>unused</id><isNullable>true</isNullable><type>7</type></dataTypeMetadata>
+            <id>unused</id><isRequired>false</isRequired><name>displayId</name>
+            <description>Exact display ID. Required when the destination would be ambiguous.</description>
+        </parameters>
         <response>
             <id>unused</id>
             <valueType><id>unused</id><isNullable>false</isNullable><type>8</type></valueType>

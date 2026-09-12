@@ -69,7 +69,8 @@ implementation. You keep your Android applications, system keyboard and Termux
 environment.
 
 - Use Desktop on the phone, a wired monitor, an Android wireless display, or a
-  MagicDesk-created virtual display.
+  MagicDesk-created virtual display. Several displays can run their own Desktop
+  at the same time, with independent windows and Start menus.
 - Resize, snap, maximize, restore and move tasks between displays. True
   fullscreen is separate from a maximized freeform window.
 - Switch exact tasks with the taskbar, overview and Alt+Tab through one window
@@ -82,15 +83,17 @@ environment.
 - Keep a real Desktop folder with files, folders and editable `.desktop`
   launchers, plus bundled or custom wallpaper.
 
-MagicDesk temporarily holds Android's HOME role during a desktop session and
-returns the previous role state on Close. During an external session the phone
-has its own Start surface: it launches phone apps in fullscreen and lists phone
-recent tasks. Desktop Start remains separate and can be open at the same time.
+MagicDesk acquires Android's HOME role when the first Desktop starts and returns
+the previous role state after the last one closes. A phone without its own
+Desktop has an ordinary Start surface: it launches phone apps in fullscreen and
+lists phone recent tasks. Each Desktop Start remains independent and can be
+open at the same time. Every Start has a display selector beside search:
+**Current** launches on its own screen; another selection sends apps there.
 
-Close records the managed workspace and returns surviving application tasks
-to phone fullscreen. A later session restores the same still-live tasks, not
-applications that Android or the user has closed. Only one managed Desktop
-session is active at a time.
+Close records the selected workspace and returns its surviving application
+tasks to phone fullscreen, leaving other Desktops running. A later session
+restores the same still-live tasks, not applications that Android or the user
+has closed. Closing Desktop does not remove its display.
 
 ![MagicDesk with overlapping Termux and Firefox windows](docs/images/magicdesk-multitasking.png)
 
@@ -121,8 +124,8 @@ app outside MagicDesk's session.
 
 ## Tools Without Desktop
 
-Open Files or a terminal directly from Phone Control Panel, on the phone or a
-selected display. No Desktop setup is needed: tools use ordinary fullscreen
+Open **Apps** from Phone Control Panel to launch Files, other applications or a
+terminal on the phone or a selected display. No Desktop setup is needed: tools use ordinary fullscreen
 Activities outside a managed session and the existing window controller inside
 one. Opening a tool does not acquire HOME.
 
@@ -281,9 +284,13 @@ and the [API-level contract](docs/runtime-api-levels.md).
 5. Select the phone, a connected display, or a display created through
    **Create display**, then press **Start desktop**.
 
-**Show desktop** returns to the active workspace without starting another
-session. **Close desktop** releases its temporary ownership while keeping the
-tools runtime and owned display available. **Exit MagicDesk** also ends retained
+**Apps** opens fullscreen Start to launch an app or move a running task to its
+selected display, without requiring Desktop. **Control input**
+selects where phone-attached mice and keyboards operate independently.
+
+**Show desktop** returns to the selected workspace without starting another
+session. **Close desktop** closes only that workspace while keeping other
+Desktops, the tools runtime and owned displays available. **Exit MagicDesk** also ends retained
 terminals, closes built-in windows and stops the runtime. Neither action deletes
 the Desktop folder.
 

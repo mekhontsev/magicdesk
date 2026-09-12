@@ -16,132 +16,6 @@ import java.util.concurrent.Executors;
 
 /** Owns the asynchronous, shell-backed part of Start search. */
 final class StartSearchController implements AutoCloseable {
-    enum Kind {
-        APP,
-        DESKTOP_APPLICATION,
-        BUILT_IN,
-        ACTION,
-        FILE
-    }
-
-    enum Action {
-        SHOW_DESKTOP,
-        SCREENSHOT,
-        SCREEN_RECORDING
-    }
-
-    static final class Result {
-        final Kind kind;
-        final String label;
-        final String detail;
-        final AppItem app;
-        final DesktopApplicationRepository.Entry desktopApplication;
-        final BuiltInDesktopAppCatalog.Entry builtIn;
-        final Action action;
-        final ShellFileInfo file;
-
-        private Result(
-                final Kind kind,
-                final String label,
-                final String detail,
-                final AppItem app,
-                final DesktopApplicationRepository.Entry desktopApplication,
-                final BuiltInDesktopAppCatalog.Entry builtIn,
-                final Action action,
-                final ShellFileInfo file) {
-            this.kind = kind;
-            this.label = label;
-            this.detail = detail;
-            this.app = app;
-            this.desktopApplication = desktopApplication;
-            this.builtIn = builtIn;
-            this.action = action;
-            this.file = file;
-        }
-
-        static Result app(final AppItem app) {
-            return new Result(
-                    Kind.APP,
-                    app.label,
-                    app.packageName,
-                    app,
-                    null,
-                    null,
-                    null,
-                    null);
-        }
-
-        static Result desktopApplication(
-                final DesktopApplicationRepository.Entry application) {
-            final DesktopApplicationShortcut shortcut = application.shortcut;
-            return new Result(
-                    Kind.DESKTOP_APPLICATION,
-                    shortcut.name,
-                    shortcut.execBackend.wireName + ": " + shortcut.exec,
-                    null,
-                    application,
-                    null,
-                    null,
-                    null);
-        }
-
-        static Result builtIn(
-                final String label,
-                final BuiltInDesktopAppCatalog.Entry entry) {
-            return new Result(
-                    Kind.BUILT_IN,
-                    label,
-                    "MagicDesk",
-                    null,
-                    null,
-                    entry,
-                    null,
-                    null);
-        }
-
-        static Result action(
-                final String label,
-                final Action action) {
-            return new Result(
-                    Kind.ACTION,
-                    label,
-                    "Action",
-                    null,
-                    null,
-                    null,
-                    action,
-                    null);
-        }
-
-        static Result file(final ShellFileInfo file) {
-            return new Result(
-                    Kind.FILE,
-                    file.name,
-                    file.absolutePath,
-                    null,
-                    null,
-                    null,
-                    null,
-                    file);
-        }
-
-        String stableKey() {
-            if (app != null) {
-                return "app|" + app.launchTarget.stableKey();
-            }
-            if (desktopApplication != null) {
-                return "command|" + desktopApplication.desktopFilePath;
-            }
-            if (builtIn != null) {
-                return "builtin|" + builtIn.launchTarget.stableKey();
-            }
-            if (action != null) {
-                return "action|" + action.name();
-            }
-            return "file|" + file.absolutePath;
-        }
-    }
-
     interface Listener {
         void onResultsChanged();
     }
@@ -155,8 +29,8 @@ final class StartSearchController implements AutoCloseable {
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService mWorker;
     private final FileManagerSearchController mFileSearch;
-    private final List<Result> mLocalResults = new ArrayList<>();
-    private final List<Result> mFileResults = new ArrayList<>();
+    private final List<StartMenuEntry> mLocalResults = new ArrayList<>();
+    private final List<StartMenuEntry> mFileResults = new ArrayList<>();
     private final Set<String> mDesktopApplicationPaths =
             new LinkedHashSet<>();
     private final Runnable mStartFileSearch = this::startFileSearch;
@@ -171,7 +45,7 @@ final class StartSearchController implements AutoCloseable {
         mContext = context;
         mScope = scope;
         mListener = listener;
-        if (scope == StartMenuScope.PHONE) {
+        if (scope == StartMenuScope.APPLICATIONS) {
             mWorker = null;
             mFileSearch = null;
             return;
@@ -196,7 +70,7 @@ final class StartSearchController implements AutoCloseable {
                         for (final ShellFileInfo match : matches) {
                             if (!mDesktopApplicationPaths.contains(
                                     match.absolutePath)) {
-                                mFileResults.add(Result.file(match));
+                                mFileResults.add(StartMenuEntry.file(match));
                             }
                         }
                         sortFileResults();
@@ -225,8 +99,7 @@ final class StartSearchController implements AutoCloseable {
 
     void update(
             final String query,
-            final List<AppItem> apps,
-            final List<DesktopApplicationRepository.Entry> applications) {
+            final List<StartMenuEntry> entries) {
         if (mClosed) {
             return;
         }
@@ -242,9 +115,8 @@ final class StartSearchController implements AutoCloseable {
             mListener.onResultsChanged();
             return;
         }
-        collectApps(apps);
+        collectEntries(entries);
         if (mScope == StartMenuScope.DESKTOP) {
-            collectDesktopApplications(applications);
             collectActions();
         }
         sortLocalResults();
@@ -256,19 +128,19 @@ final class StartSearchController implements AutoCloseable {
         }
     }
 
-    List<Result> results(final int limit) {
+    List<StartMenuEntry> results(final int limit) {
         if (limit <= 0) {
             return Collections.emptyList();
         }
-        final List<Result> result = new ArrayList<>(Math.min(
+        final List<StartMenuEntry> result = new ArrayList<>(Math.min(
                 limit, mLocalResults.size() + mFileResults.size()));
-        for (final Result local : mLocalResults) {
+        for (final StartMenuEntry local : mLocalResults) {
             if (result.size() >= limit) {
                 return result;
             }
             result.add(local);
         }
-        for (final Result file : mFileResults) {
+        for (final StartMenuEntry file : mFileResults) {
             if (result.size() >= limit) {
                 break;
             }
@@ -297,17 +169,18 @@ final class StartSearchController implements AutoCloseable {
         }
     }
 
-    private void collectApps(final List<AppItem> apps) {
+    private void collectEntries(final List<StartMenuEntry> entries) {
         final Set<AppLaunchTarget> targets = new LinkedHashSet<>();
-        if (apps != null) {
-            for (final AppItem app : apps) {
-                if (matches(app.label, app.packageName)) {
-                    mLocalResults.add(Result.app(app));
-                    targets.add(app.launchTarget);
-                }
+        for (final StartMenuEntry entry : entries) {
+            if (matches(entry.label, entry.detail)) {
+                mLocalResults.add(entry);
+            }
+            if (entry.app != null) { targets.add(entry.app.launchTarget); }
+            if (entry.desktopApplication != null) {
+                mDesktopApplicationPaths.add(entry.desktopApplication.desktopFilePath);
             }
         }
-        if (mScope == StartMenuScope.PHONE) {
+        if (mScope == StartMenuScope.APPLICATIONS) {
             return;
         }
         for (final BuiltInDesktopAppCatalog.Entry entry
@@ -317,43 +190,27 @@ final class StartSearchController implements AutoCloseable {
             }
             final String label = mContext.getString(entry.fallbackLabelResId);
             if (matches(label, "magicdesk")) {
-                mLocalResults.add(Result.builtIn(label, entry));
-            }
-        }
-    }
-
-    private void collectDesktopApplications(
-            final List<DesktopApplicationRepository.Entry> applications) {
-        if (applications == null) {
-            return;
-        }
-        for (final DesktopApplicationRepository.Entry application
-                : applications) {
-            mDesktopApplicationPaths.add(application.desktopFilePath);
-            final DesktopApplicationShortcut shortcut = application.shortcut;
-            if (shortcut.hasExecLaunch()
-                    && matches(shortcut.name, shortcut.exec)) {
-                mLocalResults.add(Result.desktopApplication(application));
+                mLocalResults.add(StartMenuEntry.builtIn(label, entry));
             }
         }
     }
 
     private void collectActions() {
-        addAction(R.string.action_show_desktop, Action.SHOW_DESKTOP, "windows home");
-        addAction(R.string.action_screenshot, Action.SCREENSHOT, "capture print screen");
+        addAction(R.string.action_show_desktop, StartMenuEntry.Action.SHOW_DESKTOP, "windows home");
+        addAction(R.string.action_screenshot, StartMenuEntry.Action.SCREENSHOT, "capture print screen");
         addAction(
                 R.string.action_record_screen,
-                Action.SCREEN_RECORDING,
+                StartMenuEntry.Action.SCREEN_RECORDING,
                 "capture video stop recording");
     }
 
     private void addAction(
             final int labelResId,
-            final Action action,
+            final StartMenuEntry.Action action,
             final String keywords) {
         final String label = mContext.getString(labelResId);
         if (matches(label, keywords)) {
-            mLocalResults.add(Result.action(label, action));
+            mLocalResults.add(StartMenuEntry.action(label, action));
         }
     }
 
@@ -364,14 +221,14 @@ final class StartSearchController implements AutoCloseable {
 
     private void sortLocalResults() {
         mLocalResults.sort(Comparator
-                .comparingInt((Result result) -> rank(result.label))
+                .comparingInt((StartMenuEntry result) -> rank(result.label))
                 .thenComparingInt(result -> result.kind.ordinal())
                 .thenComparing(result -> result.label, String.CASE_INSENSITIVE_ORDER));
     }
 
     private void sortFileResults() {
         mFileResults.sort(Comparator
-                .comparingInt((Result result) -> rank(result.label))
+                .comparingInt((StartMenuEntry result) -> rank(result.label))
                 .thenComparing(result -> result.label, String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(result -> result.detail));
     }

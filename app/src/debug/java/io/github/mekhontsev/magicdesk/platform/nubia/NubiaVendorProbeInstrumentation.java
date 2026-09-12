@@ -204,27 +204,26 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
 
     private static String probeCaptionVisibilityMutation()
             throws IOException {
-        final NubiaCaptionVisibilityManager.Transport original =
-                NubiaCaptionVisibilityManager.ownedTransportForDiagnostics();
+        final java.util.Set<NubiaCaptionVisibilityManager.Transport> original =
+                NubiaCaptionVisibilityManager.ownedTransportsForDiagnostics();
         IOException failure = null;
         try {
-            if (!NubiaCaptionVisibilityManager.setTransport(
-                    NubiaCaptionVisibilityManager.Transport.WIRELESS)) {
+            if (!NubiaCaptionVisibilityManager.setTransports(java.util.Set.of(
+                    NubiaCaptionVisibilityManager.Transport.WIRELESS))) {
                 throw new IOException("could not enable wireless captions");
             }
-            if (!NubiaCaptionVisibilityManager.setTransport(
-                    NubiaCaptionVisibilityManager.Transport.WIRED)) {
+            if (!NubiaCaptionVisibilityManager.setTransports(java.util.Set.of(
+                    NubiaCaptionVisibilityManager.Transport.WIRED))) {
                 throw new IOException(
                         "could not restore wireless privacy or enable wired captions");
             }
-            if (!NubiaCaptionVisibilityManager.setTransport(
-                    NubiaCaptionVisibilityManager.Transport.NONE)) {
+            if (!NubiaCaptionVisibilityManager.setTransports(java.util.Set.of())) {
                 throw new IOException("could not restore wired privacy");
             }
         } catch (IOException error) {
             failure = error;
         } finally {
-            if (!NubiaCaptionVisibilityManager.setTransport(original)) {
+            if (!NubiaCaptionVisibilityManager.setTransports(original)) {
                 final IOException restoreError = new IOException(
                         "could not restore original caption transport " + original);
                 if (failure != null) {
@@ -237,7 +236,7 @@ public final class NubiaVendorProbeInstrumentation extends Instrumentation {
             throw failure;
         }
         return "changed=wireless,wired restored="
-                + original.name().toLowerCase(java.util.Locale.ROOT);
+                + original.toString().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String probeSceneState()

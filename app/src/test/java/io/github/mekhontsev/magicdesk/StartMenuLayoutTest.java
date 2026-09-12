@@ -8,7 +8,7 @@ public final class StartMenuLayoutTest {
     @Test
     public void narrowPhoneAndDesktopHaveIndependentGridCapacity() {
         assertEquals(3, StartMenuLayout.columns(332));
-        assertEquals(4, StartMenuLayout.columns(532));
+        assertEquals(5, StartMenuLayout.columns(532));
         assertEquals(3, StartMenuLayout.columns(332));
     }
 
@@ -20,8 +20,8 @@ public final class StartMenuLayoutTest {
     }
 
     @Test
-    public void largeViewportHasBoundedCapacity() {
-        assertEquals(4, StartMenuLayout.columns(2000));
+    public void largeViewportUsesAvailableWidthWhileRowsRemainBounded() {
+        assertEquals(20, StartMenuLayout.columns(2000));
         assertEquals(6, StartMenuLayout.rows(2000));
     }
 

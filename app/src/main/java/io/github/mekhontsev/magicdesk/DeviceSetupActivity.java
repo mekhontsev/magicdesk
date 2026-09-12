@@ -616,7 +616,7 @@ public final class DeviceSetupActivity extends Activity {
             case AUTO:
             default: {
                 final int desktopDisplayId =
-                        DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                        MagicDeskRuntime.inputDisplayId();
                 return desktopDisplayId > Display.DEFAULT_DISPLAY
                         ? desktopDisplayId : currentDisplayId;
             }
@@ -625,7 +625,7 @@ public final class DeviceSetupActivity extends Activity {
 
     private int activeExternalDisplayId() {
         final int desktopDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                MagicDeskRuntime.inputDisplayId();
         if (desktopDisplayId > Display.DEFAULT_DISPLAY) {
             return desktopDisplayId;
         }

@@ -12,6 +12,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /** Single process-local source of truth for the current self-test lifecycle. */
 final class DesktopSelfTestRunState {
+    static int preparedDisplayId() {
+        final java.util.List<DesktopSessionSnapshot> sessions = DesktopRuntimeBridge.getWorkspaces();
+        if (sessions.size() != 1) { return android.view.Display.INVALID_DISPLAY; }
+        final DesktopSessionSnapshot session = sessions.get(0);
+        return session.target() != null && session.policy() == DesktopSessionPolicy.ISOLATED_SELF_TEST
+                ? session.target().workspaceDisplayId : android.view.Display.INVALID_DISPLAY;
+    }
+
     enum State {
         IDLE,
         STARTING,

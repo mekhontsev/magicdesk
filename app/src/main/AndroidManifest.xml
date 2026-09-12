@@ -220,28 +220,14 @@
         </activity>
 
         <activity
-            android:name=".PhoneHomeActivity"
-            android:banner="@mipmap/ic_launcher"
-            android:clearTaskOnLaunch="true"
-            android:enabled="false"
-            android:excludeFromRecents="true"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher"
-            android:launchMode="singleTask"
-            android:logo="@mipmap/ic_launcher"
-            android:roundIcon="@mipmap/ic_launcher"
-            android:stateNotNeeded="true"
-            android:taskAffinity="${applicationId}.phone_home"
-            android:theme="@style/PhoneHomeTheme">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.HOME" />
-            </intent-filter>
-        </activity>
+            android:name=".StartActivity"
+            android:exported="false"
+            android:label="@string/section_apps"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
-            android:name=".PhoneDesktopHomeActivity"
+            android:name=".PhoneHomeActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
             android:enabled="false"
             android:exported="true"
@@ -252,7 +238,7 @@
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:roundIcon="@mipmap/ic_launcher"
             android:resizeableActivity="true"
-            android:taskAffinity="${applicationId}.phone_desktop_home">
+            android:taskAffinity="${applicationId}.phone_home">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />

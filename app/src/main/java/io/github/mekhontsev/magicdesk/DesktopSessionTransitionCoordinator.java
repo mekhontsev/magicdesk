@@ -113,7 +113,7 @@ final class DesktopSessionTransitionCoordinator {
 
     void removeVirtualDisplay(final int displayId, final String uniqueId,
             final CompletionCallback callback) {
-        final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
+        final DesktopDisplayTarget active = DesktopRuntimeBridge.getDesktopTarget(displayId);
         if (active != null && active.workspaceDisplayId == displayId) {
             // Revalidate ownership before changing a session. The second call
             // takes the gate again; a competing Start rejects deletion safely.
@@ -140,7 +140,7 @@ final class DesktopSessionTransitionCoordinator {
         mOperations.execute(() -> {
             try {
                 final DesktopDisplayInfo display = DesktopDisplayCatalog.requireOwned(displayId, uniqueId);
-                if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId) {
+                if (DesktopRuntimeBridge.hasWorkspace(displayId)) {
                     throw new IllegalStateException("display still has an active desktop");
                 }
                 final boolean controlsInput = MagicDeskRuntime.inputDisplayId() == displayId;
@@ -149,7 +149,7 @@ final class DesktopSessionTransitionCoordinator {
             } catch (java.io.IOException | RuntimeException error) {
                 CompatibilityDiagnostics.record("DISPLAY-VIRTUAL-002",
                         "Could not remove virtual display", error.getMessage(), error);
-                mGate.finish(DesktopTransitionGate.Operation.DISPLAY);
+                finishOperation(DesktopTransitionGate.Operation.DISPLAY);
                 complete(callback, false);
             }
         });
@@ -179,14 +179,14 @@ final class DesktopSessionTransitionCoordinator {
             CompatibilityDiagnostics.record("DISPLAY-VIRTUAL-002",
                     "Could not remove virtual display", error.getMessage(), error);
         } finally {
-            mGate.finish(DesktopTransitionGate.Operation.DISPLAY);
+            finishOperation(DesktopTransitionGate.Operation.DISPLAY);
             complete(callback, success);
         }
     }
     private void finishDesktopClose(
             final CompletionCallback callback,
             final boolean success) {
-        mGate.finish(DesktopTransitionGate.Operation.CLOSE);
+        finishOperation(DesktopTransitionGate.Operation.CLOSE);
         complete(callback, success);
     }
 
@@ -199,8 +199,7 @@ final class DesktopSessionTransitionCoordinator {
     void restorePhoneAfterExternalDesktop() {
         mOperations.execute(() -> {
             // A new Start may have been queued after the removal callback.
-            final DesktopSessionSnapshot session = DesktopRuntimeBridge.getSessionSnapshot();
-            if (isSessionTransitionInProgress() || session.target() != null || session.hasHost()) {
+            if (isSessionTransitionInProgress() || DesktopRuntimeBridge.hasWorkspaces()) {
                 return;
             }
             mPhoneUi.setPhoneScreenOff(false, Display.INVALID_DISPLAY);
@@ -208,15 +207,14 @@ final class DesktopSessionTransitionCoordinator {
         });
     }
 
-    void updateCaptionTransport(final DesktopDisplayTarget target) {
+    void updateCaptionTransport(final java.util.List<DesktopDisplayTarget> targets) {
         mOperations.execute(() -> {
-            final PlatformProjectionDriver.Transport transport =
-                    target == null
-                                    || target.output.displayId
-                                            <= Display.DEFAULT_DISPLAY
-                            ? PlatformProjectionDriver.Transport.NONE
-                            : transportFor(target.output.kind);
-            mProjection.setCaptionTransport(transport);
+            final java.util.Set<PlatformProjectionDriver.Transport> transports = targets.stream()
+                    .filter(target -> target.output.displayId > Display.DEFAULT_DISPLAY)
+                    .map(target -> transportFor(target.output.kind))
+                    .filter(value -> value != PlatformProjectionDriver.Transport.NONE)
+                    .collect(java.util.stream.Collectors.toSet());
+            mProjection.setCaptionTransports(transports);
         });
     }
 
@@ -226,7 +224,7 @@ final class DesktopSessionTransitionCoordinator {
             final CompletionCallback callback) {
         final DesktopSessionEndPlan plan;
         try {
-            plan = DesktopSessionEndPlan.create(DesktopRuntimeBridge.getSessionSnapshot().workspace(),
+            plan = DesktopSessionEndPlan.create(DesktopRuntimeBridge.getSessionSnapshot(target.workspaceDisplayId).workspace(),
                     target, mode, DesktopCompatibilitySettings.current().enabled(
                             DesktopCompatibilityPolicy.Option.PHONE_TASK_RECOVERY));
         } catch (RuntimeException error) {
@@ -253,7 +251,9 @@ final class DesktopSessionTransitionCoordinator {
         // power override too; neither runtime shutdown nor display loss follows.
         boolean phoneRestored = true;
         try {
-            phoneRestored = !mPhoneUi.isPhoneScreenControlActive()
+            phoneRestored = DesktopRuntimeBridge.workspaceDisplayIds().stream()
+                            .anyMatch(id -> id != target.workspaceDisplayId && id > 0)
+                    || !mPhoneUi.isPhoneScreenControlActive()
                     || mPhoneUi.setPhoneScreenOff(false, Display.INVALID_DISPLAY);
             if (!phoneRestored) {
                 recordCloseFailure("Could not restore phone screen",
@@ -274,17 +274,13 @@ final class DesktopSessionTransitionCoordinator {
             final boolean prepared,
             final CompletionCallback callback) {
         try {
-            MagicDeskRuntime.disableExternalTaskMigrationProtection();
+            MagicDeskRuntime.disableExternalTaskMigrationProtection(plan.workspace.workspaceDisplayId);
         } catch (RuntimeException error) {
             recordCloseFailure("Could not release desktop task protection", error);
         }
-        if (!plan.returnsTasks()) {
-            finishDesktopSessionClose(
-                    plan, prepared, callback);
-            return;
-        }
         try {
-            MagicDeskRuntime.parkDesktopTasks(plan.workspace, parked -> {
+            MagicDeskRuntime.parkDesktopTasks(plan.workspace,
+                    plan.tasks == DesktopSessionEndPlan.Tasks.RETURN_TO_DEFAULT_AND_REMEMBER, parked -> {
                 if (!parked) {
                     Log.w(TAG, "Desktop close continues after partial task parking");
                 }
@@ -310,7 +306,7 @@ final class DesktopSessionTransitionCoordinator {
             success = false;
             recordCloseFailure("Desktop close failed", error);
         }
-        if (plan.needsPhoneRecovery()) {
+        if (plan.needsPhoneRecovery() && !DesktopRuntimeBridge.isLocalDesktopActiveOrStarting()) {
             // Close owns recovery through its terminal result. If the display
             // disappeared, include tasks still retained there by SystemUI;
             // the recovery's bounded waits cover their late migration too.
@@ -356,7 +352,7 @@ final class DesktopSessionTransitionCoordinator {
                     error);
         }
         try {
-            if (shouldOpenPhonePanel(
+            if (!DesktopRuntimeBridge.hasWorkspaces() && shouldOpenPhonePanel(
                     plan.destination, ControlActivity.isControlPanelVisible())) {
                 PhoneControlPanelLauncher.openOnPhoneWithShell();
             }
@@ -405,15 +401,6 @@ final class DesktopSessionTransitionCoordinator {
                 DesktopDisplayOutput.Kind.WIRED);
         final boolean wirelessSupported = mFeatures.supportsDisplay(
                 DesktopDisplayOutput.Kind.WIRELESS);
-        final DesktopDisplayTarget activeTarget =
-                DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (activeTarget != null
-                && activeTarget.workspaceDisplayId > Display.DEFAULT_DISPLAY
-                && mFeatures.supportsDisplay(activeTarget.output.kind)) {
-            DesktopDisplayDrivers.forTarget(activeTarget)
-                    .showReady(null, activeTarget, DesktopSessionPolicy.USER);
-            return;
-        }
         if (wiredSupported
                 && ExternalDisplayController.findExternalDisplayId()
                         > Display.DEFAULT_DISPLAY) {
@@ -453,7 +440,7 @@ final class DesktopSessionTransitionCoordinator {
             try {
                 action.run();
             } finally {
-                mGate.finish(DesktopTransitionGate.Operation.START);
+                finishOperation(DesktopTransitionGate.Operation.START);
             }
         });
     }
@@ -467,6 +454,14 @@ final class DesktopSessionTransitionCoordinator {
             return PlatformProjectionDriver.Transport.WIRELESS;
         }
         return PlatformProjectionDriver.Transport.NONE;
+    }
+
+    private void finishOperation(final DesktopTransitionGate.Operation operation) {
+        if (mGate.finish(operation)) {
+            DesktopAutomationEventJournal.record("desktop", "transition_finished", true,
+                    operation.name());
+            MagicDeskRuntime.desktopTransitionFinished();
+        }
     }
 
     private static void complete(

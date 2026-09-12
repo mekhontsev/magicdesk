@@ -61,7 +61,7 @@ final class TerminalSessions {
         if (session != null && session.taskId >= 0 && session.displayId == target.displayId) {
             try {
                 if (uniqueId != null) DesktopDisplayCatalog.require(target.displayId, uniqueId);
-                if (target.desktop != (target.displayId == MagicDeskRuntime.activeDesktopDisplayId())) {
+                if (target.desktop != DesktopRuntimeBridge.hasWorkspace(target.displayId)) {
                     throw new IOException("display ownership changed");
                 }
                 if (target.desktop) {

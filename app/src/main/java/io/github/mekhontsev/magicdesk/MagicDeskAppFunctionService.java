@@ -96,24 +96,21 @@ public final class MagicDeskAppFunctionService
                             "ok", automation.stateReader().state());
                     break;
                 case MagicDeskAppFunctionCatalog.START_DESKTOP:
+                    final JSONObject startArguments = displayArguments(parameters);
+                    if (!startArguments.has("displayId")) {
+                        startArguments.put("target", optionalString(parameters, "target", "auto"));
+                    }
                     result = automation.execute(
-                            "start_desktop",
-                            new JSONObject().put(
-                                    "target",
-                                    optionalString(
-                                            parameters,
-                                            "target",
-                                            "auto")),
-                            false);
+                            "start_desktop", startArguments, false);
                     break;
                 case MagicDeskAppFunctionCatalog.CLOSE_DESKTOP:
                     result = automation.execute(
-                            "close_desktop", new JSONObject(), false);
+                            "close_desktop", displayArguments(parameters), false);
                     break;
                 case MagicDeskAppFunctionCatalog.LAUNCH_APP:
                     result = automation.execute(
                             "launch_app",
-                            new JSONObject()
+                            displayArguments(parameters)
                                     .put("appIdentity", requiredString(
                                             parameters, "appIdentity"))
                                     .put("mode", optionalString(
@@ -122,7 +119,7 @@ public final class MagicDeskAppFunctionService
                     break;
                 case MagicDeskAppFunctionCatalog.OPEN_SETTINGS:
                     result = automation.execute(
-                            "open_settings", new JSONObject(), false);
+                            "open_settings", displayArguments(parameters), false);
                     break;
                 case MagicDeskAppFunctionCatalog.INVOKE_ANDROID_ACTION:
                     final JSONObject actionParameters = new JSONObject(
@@ -190,6 +187,19 @@ public final class MagicDeskAppFunctionService
                     AppFunctionException.ERROR_APP_UNKNOWN_ERROR,
                     usefulMessage(error));
         }
+    }
+
+    private static JSONObject displayArguments(final GenericDocument parameters)
+            throws org.json.JSONException {
+        final JSONObject result = new JSONObject();
+        final long[] values = parameters == null ? null : parameters.getPropertyLongArray("displayId");
+        if (values != null) {
+            if (values.length != 1 || values[0] < 0 || values[0] > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("displayId must be a nonnegative integer");
+            }
+            result.put("displayId", (int) values[0]);
+        }
+        return result;
     }
 
     private static String requiredString(

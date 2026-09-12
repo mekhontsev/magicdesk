@@ -1589,7 +1589,7 @@ final class AppTaskController {
             return Display.DEFAULT_DISPLAY;
         }
         final int externalDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                mActivity.getCurrentDisplayId();
         return externalDisplayId > 0 ? externalDisplayId : -1;
     }
 
@@ -1609,6 +1609,7 @@ final class AppTaskController {
         TaskRepository.moveTaskToDisplay(
                 task,
                 targetDisplayId,
+                null,
                 savedWindowBounds(app),
                 result -> mActivity.runOnUiThread(() -> {
                     if (mActivity.isActivityUnavailable()) {

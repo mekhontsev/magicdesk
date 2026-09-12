@@ -26,7 +26,7 @@ public final class DesktopSessionTransitionCoordinatorTest {
 
     @Test
     public void closeFromHomeOrOverviewParksTasksWithoutOpeningControls() {
-        assertTrue(plan(DesktopCloseMode.HOME).returnsTasks());
+        org.junit.Assert.assertEquals(DesktopSessionEndPlan.Tasks.RETURN_TO_DEFAULT_AND_REMEMBER, plan(DesktopCloseMode.HOME).tasks);
         assertFalse(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
                 DesktopCloseMode.HOME, false));
         assertFalse(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
@@ -35,14 +35,14 @@ public final class DesktopSessionTransitionCoordinatorTest {
 
     @Test
     public void closeToControlsAlsoParksTasksWhenPanelIsAlreadyVisible() {
-        assertTrue(plan(DesktopCloseMode.CONTROL_PANEL).returnsTasks());
+        org.junit.Assert.assertEquals(DesktopSessionEndPlan.Tasks.RETURN_TO_DEFAULT_AND_REMEMBER, plan(DesktopCloseMode.CONTROL_PANEL).tasks);
         assertFalse(DesktopSessionTransitionCoordinator.shouldOpenPhonePanel(
                 DesktopCloseMode.CONTROL_PANEL, true));
     }
 
     @Test
-    public void exitDoesNotRecaptureTasksReturnedByItsPreviousStep() {
-        assertFalse(plan(DesktopCloseMode.EXIT).returnsTasks());
+    public void exitReturnsTasksWithoutRetainingThem() {
+        org.junit.Assert.assertEquals(DesktopSessionEndPlan.Tasks.RETURN_TO_DEFAULT, plan(DesktopCloseMode.EXIT).tasks);
     }
 
     private static DesktopSessionEndPlan plan(final DesktopCloseMode mode) {

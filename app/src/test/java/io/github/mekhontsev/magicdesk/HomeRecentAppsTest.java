@@ -9,7 +9,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-public final class PhoneRecentAppsTest {
+public final class HomeRecentAppsTest {
     private static final String PREVIOUS_HOME = "com.example.launcher";
 
     @Test
@@ -17,30 +17,30 @@ public final class PhoneRecentAppsTest {
         final List<AppItem> apps = Arrays.asList(app("com.example.phone"),
                 app("com.example.notification"), app("com.example.external"));
         assertEquals(Arrays.asList(app("com.example.phone").reference, app("com.example.notification").reference),
-                PhoneRecentApps.select(Arrays.asList(
+                HomeRecentApps.select(Arrays.asList(
                         task(1, 1, 0, "com.example.phone", "fullscreen", false),
                         task(2, 2, 0, "com.example.notification", "fullscreen", false),
                         task(3, 3, 4, "com.example.external", "fullscreen", false)),
-                        apps, PREVIOUS_HOME));
+                        apps, PREVIOUS_HOME, 0));
     }
 
     @Test
     public void excludesHomeAndNonLaunchableTasks() {
         final List<AppItem> apps = Arrays.asList(app("com.example.home"),
                 app(PREVIOUS_HOME));
-        assertTrue(PhoneRecentApps.select(Arrays.asList(
+        assertTrue(HomeRecentApps.select(Arrays.asList(
                 task(1, 1, 0, "com.example.home", "fullscreen", true),
                 task(2, 2, 0, PREVIOUS_HOME, "fullscreen", false),
                 task(4, 4, 0, "com.example.unlisted", "fullscreen", false),
-                null), apps, PREVIOUS_HOME).isEmpty());
+                null), apps, PREVIOUS_HOME, 0).isEmpty());
     }
 
     @Test
     public void phoneApplicationModeDoesNotMakeItAnExternalTask() {
         assertEquals(Collections.singletonList(app("com.example.floating").reference),
-                PhoneRecentApps.select(Collections.singletonList(
+                HomeRecentApps.select(Collections.singletonList(
                         task(1, 1, 0, "com.example.floating", "freeform", false)),
-                        Collections.singletonList(app("com.example.floating")), PREVIOUS_HOME));
+                        Collections.singletonList(app("com.example.floating")), PREVIOUS_HOME, 0));
     }
 
     @Test
@@ -48,36 +48,36 @@ public final class PhoneRecentAppsTest {
         final List<AppItem> apps = Arrays.asList(app("com.example.first"),
                 app("com.example.second"), app("com.example.child"));
         assertEquals(Arrays.asList(app("com.example.second").reference, app("com.example.first").reference),
-                PhoneRecentApps.select(Arrays.asList(
+                HomeRecentApps.select(Arrays.asList(
                         task(2, 2, 0, "com.example.second", "fullscreen", false),
                         task(1, 1, 0, "com.example.first", "fullscreen", false),
                         task(1, 5, 0, "com.example.child", "fullscreen", false),
                         task(3, 3, 0, "com.example.second", "fullscreen", false)),
-                        apps, PREVIOUS_HOME));
+                        apps, PREVIOUS_HOME, 0));
     }
 
     @Test
     public void externalInstanceOfSameApplicationDoesNotMakeItPhoneRecent() {
         final AppItem app = app("com.example.shared");
-        assertTrue(PhoneRecentApps.select(Collections.singletonList(
+        assertTrue(HomeRecentApps.select(Collections.singletonList(
                 task(1, 1, 4, app.packageName, "freeform", false)),
-                Collections.singletonList(app), PREVIOUS_HOME).isEmpty());
+                Collections.singletonList(app), PREVIOUS_HOME, 0).isEmpty());
         assertEquals(Collections.singletonList(app.reference),
-                PhoneRecentApps.select(Arrays.asList(
+                HomeRecentApps.select(Arrays.asList(
                         task(1, 1, 4, app.packageName, "freeform", false),
                         task(2, 2, 0, app.packageName, "fullscreen", false)),
-                        Collections.singletonList(app), PREVIOUS_HOME));
+                        Collections.singletonList(app), PREVIOUS_HOME, 0));
     }
 
     @Test
     public void keepsDistinctBuiltInPhoneAppsButNotDesktopShellSurfaces() {
         final AppItem files = app(BuiltInDesktopAppCatalog.filesTarget());
         final AppItem settings = app(BuiltInDesktopAppCatalog.settingsTarget());
-        final List<AppReference> selected = PhoneRecentApps.select(Arrays.asList(
+        final List<AppReference> selected = HomeRecentApps.select(Arrays.asList(
                 task(1, files.launchTarget), task(2, settings.launchTarget),
                 task(3, 3, 0, BuildConfig.APPLICATION_ID, "fullscreen", true),
                 task(4, 4, 0, BuildConfig.APPLICATION_ID, "multi-window", false)),
-                Arrays.asList(files, settings), PREVIOUS_HOME);
+                Arrays.asList(files, settings), PREVIOUS_HOME, 0);
         assertEquals(Arrays.asList(
                 files.reference,
                 settings.reference), selected);
@@ -85,8 +85,16 @@ public final class PhoneRecentAppsTest {
 
     @Test
     public void emptyPhoneSnapshotDoesNotFallBackToApplicationCatalog() {
-        assertTrue(PhoneRecentApps.select(Collections.emptyList(),
-                Collections.singletonList(app("com.example.app")), PREVIOUS_HOME).isEmpty());
+        assertTrue(HomeRecentApps.select(Collections.emptyList(),
+                Collections.singletonList(app("com.example.app")), PREVIOUS_HOME, 0).isEmpty());
+    }
+
+    @Test public void unassignedSecondaryHomeUsesOnlyItsLocalTasks() {
+        final AppItem app = app("com.example.shared");
+        assertEquals(List.of(app.reference), HomeRecentApps.select(List.of(
+                task(1, 1, 7, app.packageName, "fullscreen", false),
+                task(2, 2, 0, "com.example.phone", "fullscreen", false)),
+                List.of(app, app("com.example.phone")), PREVIOUS_HOME, 7));
     }
 
     private static AppItem app(final String packageName) {

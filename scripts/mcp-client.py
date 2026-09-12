@@ -165,8 +165,12 @@ def update(client, apk, update_id=None):
     previous = client.call("app.update_status", {"updateId": update_id}, retry=True)
     sha = digest(apk)
     if previous["state"] == "unknown":
-        if before["session"].get("active") or before["session"].get("starting"):
-            client.call("close_desktop")
+        for workspace in sorted(before["workspaces"], key=lambda item: item["displayId"]):
+            client.call("close_desktop", {"displayId": workspace["displayId"]})
+            closed = client.call("wait_for_state", {"condition": "desktop_inactive",
+                                 "displayId": workspace["displayId"], "timeoutMillis": 30000})
+            if not closed.get("matched"):
+                raise ToolError("Desktop cleanup has not completed; update was not started")
         closed = client.call("wait_for_state", {"condition": "desktop_inactive", "timeoutMillis": 30000})
         if not closed.get("matched"):
             raise ToolError("Desktop cleanup has not completed; update was not started")

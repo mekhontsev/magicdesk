@@ -60,9 +60,9 @@ final class GenericAndroidProjectionDriver
     }
 
     @Override
-    public boolean setCaptionTransport(final Transport transport) {
-        if (transport == null) {
-            throw new IllegalArgumentException("transport is required");
+    public boolean setCaptionTransports(final java.util.Set<Transport> transports) {
+        if (transports == null) {
+            throw new IllegalArgumentException("transports are required");
         }
         // Standard Android captions do not require transport-specific setup.
         return true;

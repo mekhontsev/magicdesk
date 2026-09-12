@@ -6,11 +6,9 @@ interface DesktopTaskParkingRuntime {
         void onComplete(boolean success);
     }
 
-    void park(DesktopDisplayTarget source, ResultCallback callback);
+    void park(DesktopDisplayTarget source, boolean remember, ResultCallback callback);
 
     void preserve(int displayId);
-
-    void restoreWhenReady(DesktopDisplayTarget target);
 
     void onDesktopHostReady(int displayId);
 

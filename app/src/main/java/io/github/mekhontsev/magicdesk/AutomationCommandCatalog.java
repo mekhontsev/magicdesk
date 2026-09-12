@@ -137,12 +137,14 @@ final class AutomationCommandCatalog {
                 .put(actionTool("move_task", "Move task",
                         "Move an existing task to a display: ordinary fullscreen or managed Desktop window. Same-display selection only activates the task. Does not route input.",
                         objectSchema(new JSONObject().put("taskId", integerProperty("Existing task ID."))
+                                .put("uniqueId", stringProperty("Optional exact destination display identity."))
                                 .put("displayId", integerProperty("Destination display ID.")), "taskId", "displayId")))
                 .put(actionTool(
                         "close_desktop",
                         "Close desktop",
-                        "Close the active desktop session without removing or disconnecting its display.",
-                        emptySchema()))
+                        "Close the selected desktop session without removing or disconnecting its display.",
+                        objectSchema(new JSONObject().put("displayId", integerProperty(
+                                "Desktop display ID. Required when multiple workspaces are active.")))))
                 .put(actionTool(
                         "launch_app",
                         "Launch application",
@@ -221,13 +223,15 @@ final class AutomationCommandCatalog {
                 .put(actionTool(
                         "show_start",
                         "Show Start",
-                        "Open the MagicDesk Start menu on the active desktop.",
-                        emptySchema()))
+                        "Open the MagicDesk Start menu on the selected desktop.",
+                        objectSchema(new JSONObject().put("displayId", integerProperty(
+                                "Desktop display ID. Required when multiple workspaces are active.")))))
                 .put(actionTool(
                         "show_desktop",
                         "Toggle desktop",
                         "Toggle between the desktop and the current application workspace, waiting for the managed workspace command to complete.",
-                        emptySchema()))
+                        objectSchema(new JSONObject().put("displayId", integerProperty(
+                                "Desktop display ID. Required when multiple workspaces are active.")))))
                 .put(actionTool(
                         "invoke_ui_action",
                         "Invoke desktop UI action",
@@ -415,8 +419,9 @@ final class AutomationCommandCatalog {
                 .put(actionTool(
                         "start_recording",
                         "Start screen recording",
-                        "Start recording the active desktop with the configured audio mode.",
-                        emptySchema()))
+                        "Start recording the selected display with the configured audio mode.",
+                        objectSchema(new JSONObject().put("displayId", integerProperty(
+                                "Display ID. Required when multiple workspaces are active.")))))
                 .put(actionTool(
                         "stop_recording",
                         "Stop screen recording",

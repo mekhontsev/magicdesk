@@ -44,8 +44,8 @@ final class DesktopAdaptiveBrightnessController {
 
     void reconcile(
             final boolean enabled,
-            final DesktopDisplayTarget target) {
-        final boolean shouldDisable = shouldDisable(enabled, target);
+            final java.util.List<DesktopDisplayTarget> targets) {
+        final boolean shouldDisable = targets.stream().anyMatch(target -> shouldDisable(enabled, target));
         final LatestOperationSerializer.Ticket ticket =
                 mOperations.supersede();
         mExecutor.execute(() -> {
@@ -65,7 +65,7 @@ final class DesktopAdaptiveBrightnessController {
     }
 
     void release() {
-        reconcile(false, null);
+        reconcile(false, java.util.List.of());
     }
 
     static boolean shouldDisable(

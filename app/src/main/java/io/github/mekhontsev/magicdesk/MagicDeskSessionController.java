@@ -76,11 +76,7 @@ final class MagicDeskSessionController {
     }
 
     private void startExit() {
-        final DesktopDisplayTarget desktopTarget = resolveDesktopTarget();
-        // Only external targets can own Console tasks that must move home;
-        // the shared Close Desktop step still receives phone targets.
-        final DesktopDisplayTarget externalDesktopTarget =
-                externalTarget(desktopTarget);
+        final java.util.List<DesktopDisplayTarget> targets = resolveDesktopTargets();
         new MagicDeskExitCoordinator(
                 new MagicDeskExitCoordinator.Operations() {
                     @Override
@@ -107,17 +103,9 @@ final class MagicDeskSessionController {
                     }
 
                     @Override
-                    public void returnDesktopTasks(
-                            final MagicDeskExitCoordinator.Callback callback) {
-                        DesktopOperations.returnDesktopTasksToPhone(
-                                externalDesktopTarget, callback::onComplete);
-                    }
-
-                    @Override
                     public void closeDesktop(
                             final MagicDeskExitCoordinator.Callback callback) {
-                        closeDesktopBeforeExit(
-                                desktopTarget, callback);
+                        closeDesktopsBeforeExit(targets, 0, true, callback);
                     }
 
                     @Override
@@ -176,50 +164,26 @@ final class MagicDeskSessionController {
                 });
     }
 
-    private void closeDesktopBeforeExit(
-            final DesktopDisplayTarget target,
-            final MagicDeskExitCoordinator.Callback callback) {
-        if (target == null) {
-            callback.onComplete(true);
-            return;
-        }
-        DesktopOperations.closeDesktop(
-                target,
-                DesktopCloseMode.EXIT,
-                callback::onComplete);
+    private void closeDesktopsBeforeExit(final java.util.List<DesktopDisplayTarget> targets,
+            final int index, final boolean success, final MagicDeskExitCoordinator.Callback callback) {
+        if (index == targets.size()) { callback.onComplete(success); return; }
+        DesktopOperations.closeDesktop(targets.get(index), DesktopCloseMode.EXIT,
+                closed -> closeDesktopsBeforeExit(targets, index + 1, success && closed, callback));
     }
 
-    private DesktopDisplayTarget resolveDesktopTarget() {
-        final DesktopDisplayTarget activeTarget =
-                DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (activeTarget != null) {
-            return activeTarget;
-        }
-        final DesktopHomeRoleLease.State lease =
-                DesktopHomeRoleLease.snapshot();
+    private java.util.List<DesktopDisplayTarget> resolveDesktopTargets() {
+        final java.util.Map<Integer, DesktopDisplayTarget> targets = new java.util.TreeMap<>();
+        final DesktopHomeRoleLease.State lease = DesktopHomeRoleLease.snapshot();
         if (lease != null) {
-            return lease.target();
+            for (final DesktopDisplayTarget target : lease.targets) {
+                targets.put(target.workspaceDisplayId, target);
+            }
         }
-        final Display display = mActivity.getDisplay();
-        if (display == null) {
-            return null;
+        for (final DesktopDisplayTarget target : DesktopRuntimeBridge.workspaceTargets()) {
+            targets.put(target.workspaceDisplayId, target);
         }
-        if (display.getDisplayId() == Display.DEFAULT_DISPLAY
-                && mActivity instanceof DesktopShellActivity) {
-            return DesktopDisplayTarget.phone();
-        }
-        if (display.getDisplayId() > Display.DEFAULT_DISPLAY) {
-            return DesktopRuntimeBridge.getDesktopTarget(
-                    display.getDisplayId());
-        }
-        return null;
-    }
-
-    private static DesktopDisplayTarget externalTarget(
-            final DesktopDisplayTarget target) {
-        return target != null
-                        && target.workspaceDisplayId > Display.DEFAULT_DISPLAY
-                ? target : null;
+        // Close phone Desktop first so returning external tasks meets ordinary phone policy.
+        return java.util.List.copyOf(targets.values());
     }
 
     private String closeFailureCode(
@@ -358,12 +322,6 @@ final class MagicDeskSessionController {
                 reportExitFailure(
                         "EXIT-001",
                         "Could not restore the phone screen",
-                        error);
-                break;
-            case RETURN_DESKTOP_TASKS:
-                reportExitFailure(
-                        "EXIT-002",
-                        "Could not return Console tasks to the phone",
                         error);
                 break;
             case CLOSE_DESKTOP:

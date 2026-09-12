@@ -2,7 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.view.Display;
 
-/** Session-wide policy and its single admitted workspace, published atomically. */
+/** Immutable state of one admitted workspace and its policy. */
 final class DesktopSessionSnapshot {
     private final DesktopWorkspaceSnapshot mWorkspace;
     private final DesktopSessionPolicy mPolicy;
@@ -44,10 +44,6 @@ final class DesktopSessionSnapshot {
 
     int activeOutputDisplayId() {
         return hasHost() && target() != null ? target().output.displayId : Display.INVALID_DISPLAY;
-    }
-
-    int inputDisplayId() {
-        return activeWorkspaceDisplayId();
     }
 
     int hostTaskId() {

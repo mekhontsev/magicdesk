@@ -31,8 +31,7 @@ final class SystemDesktopModeSetting {
     }
 
     static boolean canChange() {
-        final DesktopSessionSnapshot session = DesktopRuntimeBridge.getSessionSnapshot();
-        return ShellAccess.isReady() && !session.hasHost() && session.target() == null
+        return ShellAccess.isReady() && !DesktopRuntimeBridge.hasWorkspaces()
                 && DesktopHomeRoleLease.snapshot() == null;
     }
 

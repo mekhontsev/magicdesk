@@ -115,14 +115,14 @@ public final class FrameworkObservationPublicationTest {
         assertTrue(clear.contains("mPublications.invalidate()"));
         final String request = body(source, "void requestSample()", "public void close()");
         assertFalse(request.contains("mPublications"));
-        assertTrue(body(source, "public void close()", "private void run()")
+        assertTrue(body(source, "public void close()", "private void sample()")
                 .contains("mPublications.invalidate()"));
-        final String run = body(source, "private void run()", "private void publishTaskStackChanges(");
+        final String run = body(source, "private void sample()", "private void publishTaskStackChanges(");
         assertTrue(run.contains("configuration = mConfiguration"));
         assertTrue(run.indexOf("mPublications.executeIfCurrent(configuration")
                 > run.indexOf("FrameworkTaskSnapshotSource.read("));
-        assertTrue(run.contains("publishWindowChanges(configuration, displayId, taskSnapshots)"));
-        assertTrue(run.contains("publishImmersiveChanges(configuration, displayId, taskSnapshots)"));
+        assertTrue(run.contains("publishWindowChanges(configuration, displayId, sample.snapshots)"));
+        assertTrue(run.contains("publishImmersiveChanges(configuration, displayId, sample.snapshots)"));
         assertTrue(source.contains("configuration == mConfiguration && displayId == mDisplayId"));
         assertTrue(source.contains("mPublications.executeIfCurrent(configuration, mListener::onTaskStackChanged)"));
         for (final String event : List.of("onImmersiveRequest", "onFreeformBoundsChanged",

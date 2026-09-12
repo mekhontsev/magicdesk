@@ -50,20 +50,20 @@ public final class TaskControlCommandTest {
         assertTrue(DesktopHostComponents.isHostClassName(
                 "io.github.mekhontsev.magicdesk.DesktopActivity"));
         assertTrue(DesktopHostComponents.isHostClassName(
-                "io.github.mekhontsev.magicdesk.PhoneDesktopHomeActivity"));
-        assertFalse(DesktopHostComponents.isHostClassName(
                 "io.github.mekhontsev.magicdesk.PhoneHomeActivity"));
+        assertFalse(DesktopHostComponents.isHostClassName(
+                "io.github.mekhontsev.magicdesk.ControlActivity"));
     }
 
     @Test
     public void flattenedHostNamesRequireTheMagicDeskPackage() {
         assertTrue(DesktopHostComponents.isHostComponentName(
-                "io.github.mekhontsev.magicdesk/.PhoneDesktopHomeActivity"));
+                "io.github.mekhontsev.magicdesk/.PhoneHomeActivity"));
         assertTrue(DesktopHostComponents.isHostComponentName(
                 "io.github.mekhontsev.magicdesk/"
                         + "io.github.mekhontsev.magicdesk.DesktopActivity"));
         assertFalse(DesktopHostComponents.isHostComponentName(
-                "com.example/.PhoneDesktopHomeActivity"));
+                "com.example/.PhoneHomeActivity"));
     }
 
     public static final class SupportedOverloads {

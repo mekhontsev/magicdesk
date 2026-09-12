@@ -70,7 +70,7 @@ final class DesktopSelfTestWindowSuite {
                         DesktopDisplayTarget.simulated(targetDisplayId));
             }
             final DesktopSessionSnapshot session =
-                    DesktopRuntimeBridge.getSessionSnapshot();
+                    DesktopRuntimeBridge.getSessionSnapshot(targetDisplayId);
             if (session.activeWorkspaceDisplayId() != targetDisplayId
                     || session.hostTaskId() < 0) {
                 throw new IOException(
@@ -1906,7 +1906,7 @@ final class DesktopSelfTestWindowSuite {
                     final int expectedMode,
                     final Rect expectedBounds,
                     final Integer expectedFeatureId) throws IOException {
-        if (!MagicDeskRuntime.arrangeTask(taskId, shortcut)) {
+        if (!MagicDeskRuntime.arrangeTask(displayId, taskId, shortcut)) {
             throw new IOException("desktop task transition is unavailable");
         }
         waitForTask(

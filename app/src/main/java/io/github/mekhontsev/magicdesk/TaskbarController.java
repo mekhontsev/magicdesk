@@ -361,7 +361,6 @@ final class TaskbarController {
         if (mPins == null) {
             return;
         }
-        mOverflow.clear();
         mPins.removeAllViews();
         final List<TaskbarOverflowController.Entry> items =
                 collectTaskbarItems(apps);
@@ -370,11 +369,12 @@ final class TaskbarController {
                 ? 0 : mTaskViewport.getWidth();
         final int visibleCount = TaskbarOverflowPolicy.visibleItemCount(
                 items.size(), availableWidth, itemWidth);
+        mOverflow.setItems(items.subList(visibleCount, items.size()));
         for (int index = 0; index < visibleCount; index++) {
             addPin(items.get(index));
         }
         if (visibleCount < items.size()) {
-            addOverflowButton(items.subList(visibleCount, items.size()));
+            addOverflowButton();
         }
     }
 
@@ -783,9 +783,8 @@ final class TaskbarController {
                 });
     }
 
-    private void addOverflowButton(
-            final List<TaskbarOverflowController.Entry> hiddenItems) {
-        mPins.addView(mOverflow.createButton(hiddenItems),
+    private void addOverflowButton() {
+        mPins.addView(mOverflow.createButton(),
                 new LinearLayout.LayoutParams(
                 desktopDp(48, 36),
                 LinearLayout.LayoutParams.MATCH_PARENT));

@@ -43,7 +43,7 @@ public final class PhoneDesktopTaskRecoveryPolicyTest {
                 false));
         assertFalse(PhoneDesktopTaskRecovery.isRecoverable(
                 "io.github.mekhontsev.magicdesk",
-                "io.github.mekhontsev.magicdesk/.PhoneDesktopHomeActivity",
+                "io.github.mekhontsev.magicdesk/.PhoneHomeActivity",
                 false));
     }
 

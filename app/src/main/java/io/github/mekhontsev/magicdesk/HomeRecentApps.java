@@ -8,20 +8,20 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Phone HOME recents come from phone tasks, not desktop launch history. */
-final class PhoneRecentApps {
-    private PhoneRecentApps() {
+/** Ordinary HOME recents come from local tasks, not desktop launch history. */
+final class HomeRecentApps {
+    private HomeRecentApps() {
     }
 
     static List<AppReference> select(
             final List<TaskRepository.TaskEntry> tasks,
             final List<AppItem> apps,
-            final String previousHomePackage) {
+            final String previousHomePackage, final int displayId) {
         final Set<AppReference> keys = new LinkedHashSet<>();
         final Set<Integer> roots = new HashSet<>();
         for (final TaskRepository.TaskEntry task : tasks) {
             if (task == null
-                    || task.displayId != Display.DEFAULT_DISPLAY
+                    || task.displayId != displayId
                     || task.taskId < 0
                     || task.rootTaskId < 0
                     || task.home

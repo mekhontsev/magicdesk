@@ -97,10 +97,10 @@ final class DesktopSelfTestController {
         }
         // Preparation may already own a session when Stop races with this
         // worker's start. Even precondition exits must close that session.
-        final int preparedDisplayId = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final int preparedDisplayId = DesktopSelfTestRunState.preparedDisplayId();
         int displayId = target.matchesDisplay(preparedDisplayId,
                 DesktopRuntimeBridge.getDesktopTarget(preparedDisplayId))
-                && DesktopRuntimeBridge.getSessionSnapshot().policy()
+                && DesktopRuntimeBridge.getSessionSnapshot(DesktopSelfTestRunState.preparedDisplayId()).policy()
                         == DesktopSessionPolicy.ISOLATED_SELF_TEST
                 ? preparedDisplayId : Display.INVALID_DISPLAY;
         SimulatedDisplayLease lease = null;
@@ -532,7 +532,7 @@ final class DesktopSelfTestController {
             final Context context,
             final DesktopSelfTestResult result) throws AbortSelfTest {
         final int activeDisplay = findBlockingDesktopDisplay(
-                DesktopRuntimeBridge.getActiveDesktopDisplayId(),
+                DesktopRuntimeBridge.workspaceDisplayIds().stream().findFirst().orElse(-1),
                 Display.INVALID_DISPLAY);
         if (activeDisplay >= 0) {
             failAndAbort(result, "SELFTEST-PRECONDITION-001",
@@ -569,7 +569,7 @@ final class DesktopSelfTestController {
     private static int requirePreparedDisplay(
             final DesktopSelfTestTarget target,
             final DesktopSelfTestResult result) throws AbortSelfTest {
-        final int displayId = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final int displayId = DesktopSelfTestRunState.preparedDisplayId();
         final DesktopDisplayTarget displayTarget =
                 DesktopRuntimeBridge.getDesktopTarget(displayId);
         if (!target.matchesDisplay(displayId, displayTarget)) {

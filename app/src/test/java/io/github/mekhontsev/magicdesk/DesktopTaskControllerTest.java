@@ -95,11 +95,11 @@ public final class DesktopTaskControllerTest {
                 "io.github.mekhontsev.magicdesk/"
                         + "io.github.mekhontsev.magicdesk.DesktopActivity")));
         assertTrue(DesktopTaskController.isDesktopHostTask(task(
-                "io.github.mekhontsev.magicdesk/.PhoneDesktopHomeActivity")));
+                "io.github.mekhontsev.magicdesk/.PhoneHomeActivity")));
         assertTrue(DesktopTaskController.isDesktopHostTask(task(
                 "io.github.mekhontsev.magicdesk/"
                         + "io.github.mekhontsev.magicdesk."
-                        + "PhoneDesktopHomeActivity")));
+                        + "PhoneHomeActivity")));
         assertFalse(DesktopTaskController.isDesktopHostTask(task(
                 "io.github.mekhontsev.magicdesk/.DesktopSelfTestActivity")));
         assertFalse(DesktopTaskController.isDesktopHostTask(task(

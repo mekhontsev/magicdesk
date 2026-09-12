@@ -30,6 +30,8 @@ public final class DesktopCloseFailureTest {
                     DesktopDisplayTarget workspace;
                     DesktopCloseMode destination;
                     boolean recoverPhoneTasks;
+                    enum Tasks { RETURN_TO_DEFAULT_AND_REMEMBER, RETURN_TO_DEFAULT }
+                    Tasks tasks = Tasks.RETURN_TO_DEFAULT_AND_REMEMBER;
                     static DesktopSessionEndPlan create(Object current, DesktopDisplayTarget target,
                             DesktopCloseMode mode, boolean recovery) {
                         DesktopSessionEndPlan plan = new DesktopSessionEndPlan();
@@ -44,7 +46,7 @@ public final class DesktopCloseFailureTest {
                 static class CompatibilityDiagnostics { static void record(Object... args) {} }
                 static class DesktopTransitionGate {
                     enum Operation { CLOSE }
-                    void finish(Operation operation) { events.add("finished"); }
+                    boolean finish(Operation operation) { events.add("finished"); return true; }
                 }
                 final DesktopTransitionGate mGate = new DesktopTransitionGate();
                 static class Queue { void execute(Runnable r) { r.run(); } }
@@ -72,19 +74,24 @@ public final class DesktopCloseFailureTest {
                     }
                     static void releaseAfterSessionLoss(int display) throws IOException { step("release-lost"); }
                 }
+                static class DesktopAutomationEventJournal {
+                    static void record(String type, String operation, boolean success, String detail) {}
+                }
                 static class MagicDeskRuntime {
                     static void releaseDisplayInput(int id, Runnable completion) {
                         step("input"); completion.run();
                     }
-                    static void disableExternalTaskMigrationProtection() { step("protection"); }
-                    static void parkDesktopTasks(DesktopDisplayTarget t, CompletionCallback c) {
+                    static void desktopTransitionFinished() {}
+                    static void disableExternalTaskMigrationProtection(int id) { step("protection"); }
+                    static void parkDesktopTasks(DesktopDisplayTarget t, boolean remember, CompletionCallback c) {
                         step("park"); c.onComplete(true);
                     }
                 }
                 static class DesktopRuntimeBridge {
-                    static DesktopRuntimeBridge getSessionSnapshot() { return new DesktopRuntimeBridge(); }
+                    static DesktopRuntimeBridge getSessionSnapshot(int displayId) { return new DesktopRuntimeBridge(); }
                     Object workspace() { return null; }
-                    static int getActiveDesktopDisplayId() { return active; }
+                    static boolean hasWorkspaces() { return active >= 0; }
+                    static Set<Integer> workspaceDisplayIds() { return active >= 0 ? Set.of(active) : Set.of(); }
                     static boolean isLocalDesktopActiveOrStarting() { return false; }
                 }
                 static class ExternalDisplayController {
@@ -178,6 +185,6 @@ public final class DesktopCloseFailureTest {
                 }
                 """ + RuntimeSourceFixture.methods("DesktopSessionTransitionCoordinator",
                         "beginDesktopClose", "parkAndClose", "finishDesktopSessionClose",
-                        "finishDesktopClose", "recordCloseFailure", "shouldOpenPhonePanel", "complete"));
+                        "finishDesktopClose", "finishOperation", "recordCloseFailure", "shouldOpenPhonePanel", "complete"));
     }
 }

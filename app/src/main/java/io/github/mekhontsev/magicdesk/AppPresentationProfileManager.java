@@ -34,7 +34,7 @@ final class AppPresentationProfileManager {
     private static void applyStoredProfile(
             final AppIdentity application,
             final TaskRepository.ActionCallback callback) {
-        if (!DesktopRuntimeBridge.getSessionSnapshot().hasHost()) {
+        if (DesktopRuntimeBridge.getWorkspaces().stream().noneMatch(DesktopSessionSnapshot::hasHost)) {
             complete(callback, true, "application profile saved");
             return;
         }

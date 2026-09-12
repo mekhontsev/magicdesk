@@ -9,10 +9,10 @@ public final class RuntimeDesktopSessionCoordinatorTest {
     @Test
     public void onlyUnexpectedRemovalStartsEventRecovery() throws Exception {
         RuntimeSourceFixture.verify("""
-                int mDesktopDisplayId = 100;
-                int mExpectedRemovedDisplayId = -1;
+                Map<Integer, DesktopDisplayTarget> mOwnedTargets = Map.of(100, new DesktopDisplayTarget());
+                Set<Integer> mExpectedRemovedDisplays = new HashSet<>();
                 int recoveries, homeReleases, refreshes;
-                static class Display { static final int INVALID_DISPLAY = -1; }
+                static class Display { static final int INVALID_DISPLAY = -1, DEFAULT_DISPLAY = 0; }
                 static class DesktopDisplayTarget {
                     enum Kind { SIMULATED }
                     Kind kind = Kind.SIMULATED;
@@ -23,7 +23,8 @@ public final class RuntimeDesktopSessionCoordinatorTest {
                 }
                 static class DesktopRuntimeBridge {
                     static int closes;
-                    static DesktopSessionSnapshot getSessionSnapshot() { return new DesktopSessionSnapshot(); }
+                    static boolean hasWorkspace(int id) { return id == 100; }
+                    static DesktopSessionSnapshot getSessionSnapshot(int displayId) { return new DesktopSessionSnapshot(); }
                     static void closeDesktopWorkspace(int id) { closes++; }
                 }
                 static class PhoneTouchpadController { static void release(int id) {} }
@@ -32,19 +33,17 @@ public final class RuntimeDesktopSessionCoordinatorTest {
                     static boolean transitioning;
                     static boolean isSessionTransitionInProgress() { return transitioning; }
                 }
-                static boolean isExternalDesktopRemoval(boolean removed, int id, int owned,
-                        DesktopDisplayTarget target, boolean active) { return removed && id == owned; }
                 void releaseHomeLeaseAfterSessionLoss(int id) { homeReleases++; }
                 void beginRemovedDisplayRecovery(int id, boolean restore) { recoveries++; }
                 void refreshOwnership() { refreshes++; }
                 void schedulePhoneTaskRecovery() {}
                 public static void verify() {
                     Fixture expected = new Fixture();
-                    expected.mExpectedRemovedDisplayId = 100;
+                    expected.mExpectedRemovedDisplays.add(100);
                     expected.handleDisplayStateChanged(100, true);
                     check(expected.recoveries == 0, "Close acquired a second recovery owner");
                     check(expected.homeReleases == 0, "Close released HOME twice");
-                    check(expected.mExpectedRemovedDisplayId == -1, "expected marker not consumed");
+                    check(expected.mExpectedRemovedDisplays.isEmpty(), "expected marker not consumed");
                     check(expected.refreshes == 1 && DesktopRuntimeBridge.closes == 1,
                             "expected removal skipped session cleanup");
                     Fixture unexpected = new Fixture();
@@ -53,6 +52,7 @@ public final class RuntimeDesktopSessionCoordinatorTest {
                     check(unexpected.homeReleases == 1, "unexpected loss retained HOME");
                     DesktopOperations.transitioning = true;
                     Fixture closing = new Fixture();
+                    closing.mExpectedRemovedDisplays.add(100);
                     closing.handleDisplayStateChanged(100, true);
                     check(closing.recoveries == 0 && closing.homeReleases == 0,
                             "display loss after host unregister raced explicit Close");
@@ -80,7 +80,7 @@ public final class RuntimeDesktopSessionCoordinatorTest {
                 }
                 static class DesktopRuntimeBridge {
                     static DesktopSessionSnapshot session = new DesktopSessionSnapshot();
-                    static DesktopSessionSnapshot getSessionSnapshot() { return session; }
+                    static boolean hasWorkspaces() { return session.starting || session.active; }
                 }
                 static class PhoneControlPanelLauncher {
                     static int opens;
@@ -122,15 +122,17 @@ public final class RuntimeDesktopSessionCoordinatorTest {
         RuntimeSourceFixture.verify("""
                 static final String TAG = "test";
                 boolean mDestroyed;
-                RemovedDisplayRecovery mRemovedDisplayRecovery;
+                Map<Integer, RemovedDisplayRecovery> mRemovedDisplayRecoveries = new HashMap<>();
+                boolean canRecover(RemovedDisplayRecovery recovery) { return true; }
                 int clears, retries;
                 static class RemovedDisplayRecovery {
+                    int displayId = 100;
                     boolean restorePhonePanel = true;
                     boolean shouldContinue(Object session) { return true; }
                     boolean finish(PhoneDesktopTaskRecovery.Result result) { return false; }
                 }
                 static class DesktopRuntimeBridge {
-                    static Object getSessionSnapshot() { return null; }
+                    static boolean hasWorkspaces() { return false; }
                 }
                 static class PhoneDesktopTaskRecovery {
                     static class Result {
@@ -147,20 +149,20 @@ public final class RuntimeDesktopSessionCoordinatorTest {
                     static int panels;
                     static void restorePhoneAfterExternalDesktop() { panels++; }
                 }
-                void clearRemovedDisplayRecovery() { clears++; mRemovedDisplayRecovery = null; }
+                void clearRemovedDisplayRecovery(RemovedDisplayRecovery r) { clears++; mRemovedDisplayRecoveries.remove(r.displayId, r); }
                 void schedulePhoneTaskRecovery() { retries++; }
                 public static void verify() {
                     Fixture runtime = new Fixture();
                     RemovedDisplayRecovery old = new RemovedDisplayRecovery();
                     RemovedDisplayRecovery current = new RemovedDisplayRecovery();
-                    runtime.mRemovedDisplayRecovery = current;
+                    runtime.mRemovedDisplayRecoveries.put(100, current);
                     PhoneDesktopTaskRecovery.Result failure = new PhoneDesktopTaskRecovery.Result();
                     runtime.finishRemovedDisplayRecovery(old, failure);
-                    check(runtime.mRemovedDisplayRecovery == current, "late callback cleared newer recovery");
+                    check(runtime.mRemovedDisplayRecoveries.get(100) == current, "late callback cleared newer recovery");
                     check(runtime.clears == 0 && CompatibilityDiagnostics.errors == 0
                             && DesktopOperations.panels == 0, "late callback affected phone UI or diagnostics");
                     runtime.finishRemovedDisplayRecovery(current, failure);
-                    check(runtime.mRemovedDisplayRecovery == null, "failure retained recovery owner");
+                    check(runtime.mRemovedDisplayRecoveries.isEmpty(), "failure retained recovery owner");
                     check(runtime.retries == 0 && CompatibilityDiagnostics.errors == 1,
                             "terminal failure scheduled another attempt");
                     check(DesktopOperations.panels == 1, "failure prevented return to phone controls");
@@ -201,44 +203,6 @@ public final class RuntimeDesktopSessionCoordinatorTest {
                 }
                 """ + RuntimeSourceFixture.methods("RuntimeDesktopSessionCoordinator",
                         "releaseHomeLeaseAfterSessionLoss"));
-    }
-
-    @Test
-    public void recognizesOwnedDisplayAfterTargetMetadataWasLost() {
-        assertTrue(RuntimeDesktopSessionCoordinator.isExternalDesktopRemoval(
-                true, 100, 100, null, false));
-    }
-
-    @Test
-    public void recognizesKnownWirelessDisplayAfterOwnershipWasCleared() {
-        assertTrue(RuntimeDesktopSessionCoordinator.isExternalDesktopRemoval(
-                true,
-                100,
-                -1,
-                DesktopDisplayTarget.wireless(100),
-                false));
-    }
-
-    @Test
-    public void recognizesOnlyActiveSimulatedDisplayRemoval() {
-        assertTrue(RuntimeDesktopSessionCoordinator.isExternalDesktopRemoval(
-                true,
-                100,
-                100,
-                DesktopDisplayTarget.simulated(100),
-                true));
-        assertFalse(RuntimeDesktopSessionCoordinator.isExternalDesktopRemoval(
-                true,
-                100,
-                100,
-                DesktopDisplayTarget.simulated(100),
-                false));
-    }
-
-    @Test
-    public void ignoresUnownedDisplayRemoval() {
-        assertFalse(RuntimeDesktopSessionCoordinator.isExternalDesktopRemoval(
-                true, 100, -1, null, false));
     }
 
     @Test
@@ -292,12 +256,12 @@ public final class RuntimeDesktopSessionCoordinatorTest {
     }
 
     @Test
-    public void removedHostCanFinishUnregisteringDuringRecovery() {
+    public void newResidencyOnRemovedDisplayCancelsOldRecovery() {
         final RuntimeDesktopSessionCoordinator.RemovedDisplayRecovery recovery = recovery();
-        assertTrue(recovery.shouldContinue(DesktopSessionSnapshot.empty()
+        assertFalse(recovery.shouldContinue(DesktopSessionSnapshot.empty()
                 .noteTarget(DesktopDisplayTarget.simulated(100)).registerHost(100, 42)));
-        assertTrue(recovery.shouldContinue(DesktopSessionSnapshot.empty()));
-        assertTrue(recovery.begin());
+        assertFalse(recovery.shouldContinue(DesktopSessionSnapshot.empty()));
+        assertFalse(recovery.begin());
     }
 
     @Test

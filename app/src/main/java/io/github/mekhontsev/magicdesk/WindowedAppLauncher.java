@@ -286,7 +286,7 @@ final class WindowedAppLauncher {
             }
         }
         try (WindowedTaskLaunchLease launchLease =
-                WindowedTaskLaunchLease.acquire()) {
+                WindowedTaskLaunchLease.acquire(displayId)) {
             final int taskId = freshTaskLauncher.launch(displayId, bounds);
             if (taskReadyCallback != null) {
                 taskReadyCallback.onTaskReady();

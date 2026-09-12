@@ -98,7 +98,7 @@ public final class DesktopSelfTestCapabilityAudit {
                         : "unavailable; direct WindowContainerTransaction path required");
 
         final int activeDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                DesktopSelfTestRunState.preparedDisplayId();
         final DesktopDisplayTarget activeTarget =
                 DesktopRuntimeBridge.getDesktopTarget(activeDisplayId);
         final boolean wired = target == DesktopSelfTestTarget.EXTERNAL

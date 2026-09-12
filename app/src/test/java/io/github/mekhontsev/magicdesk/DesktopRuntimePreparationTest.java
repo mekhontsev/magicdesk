@@ -9,14 +9,14 @@ public final class DesktopRuntimePreparationTest {
     @Test public void coldStartNeedsReadyCallbackAndEachStartGetsItsOwnAcknowledgement() throws Exception {
         RuntimeSourceFixture.verify(fixture() + """
                 public static void verify() throws Exception {
-                    prepareDesktop(new Context());
-                    check(starts == 1 && sDesktopPreparation == null, "cold start not acknowledged");
+                    prepareDesktop(new Context(), 7);
+                    check(starts == 1 && DESKTOP_PREPARATIONS.isEmpty(), "cold start not acknowledged");
                     acknowledge = false;
-                    try { prepareDesktop(new Context()); throw new AssertionError("previous acknowledgement reused"); }
+                    try { prepareDesktop(new Context(), 7); throw new AssertionError("previous acknowledgement reused"); }
                     catch (IOException expected) { check(expected.getCause() instanceof TimeoutException, "wrong failure"); }
-                    check(sDesktopPreparation == null, "failed preparation retained callback");
+                    check(DESKTOP_PREPARATIONS.isEmpty(), "failed preparation retained callback");
                     acknowledge = true;
-                    prepareDesktop(new Context());
+                    prepareDesktop(new Context(), 7);
                     check(starts == 3, "retry did not start service");
                 }
                 """);
@@ -36,7 +36,7 @@ public final class DesktopRuntimePreparationTest {
                 static class DesktopDisplayTarget { static Object phone() { return "phone"; } }
                 static class DesktopSessionPolicy { static Object ISOLATED_SELF_TEST = new Object(); }
                 static class Display { static int INVALID_DISPLAY = -1; }
-                static class DesktopRuntimeBridge { static int getActiveDesktopDisplayId() { return -1; } }
+                static class DesktopRuntimeBridge { static boolean hasWorkspaces() { return false; } }
                 static class DesktopSelfTestController { static String unavailableReason(Object c) { return null; } }
                 static class DesktopSelfTestHostObserver { static void begin(long id) {} }
                 static class DesktopOperations {
@@ -66,15 +66,25 @@ public final class DesktopRuntimePreparationTest {
 
     private static String fixture() throws Exception {
         return """
-                static class Context {}
+                static class Context {
+                    void startForegroundService(Intent intent) { starts++; if (acknowledge) desktopRuntimePrepared(intent.displayId); }
+                }
+                static class Intent {
+                    int displayId;
+                    Intent(Context context, Class<?> service) {}
+                    Intent putExtra(String key, int id) { displayId = id; return this; }
+                }
+                static final String EXTRA_PREPARING_DISPLAY = "display";
+                static class MagicDeskRuntimeService {}
                 static class Looper { static Object myLooper() { return null; }
                     static Object getMainLooper() { return new Object(); } }
                 static class ExternalDisplayController { static final long START_TIMEOUT_MS = 5L; }
                 static class MagicDeskRuntime {}
-                static CompletableFuture<Void> sDesktopPreparation;
+                static class RuntimeCapabilities { static void requireDesktop() {} }
+                static Map<Integer, CompletableFuture<Void>> DESKTOP_PREPARATIONS = new java.util.concurrent.ConcurrentHashMap<>();
                 static boolean acknowledge = true;
                 static int starts;
-                static void start(Context context) { starts++; if (acknowledge) desktopRuntimePrepared(); }
+
                 """ + RuntimeSourceFixture.methods("MagicDeskRuntime", "prepareDesktop", "desktopRuntimePrepared")
                         .replace("android.os.Looper", "Looper");
     }

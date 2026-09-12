@@ -64,11 +64,11 @@ final class FrameworkTaskObservationSource implements Closeable {
     private final Map<Integer, Integer> mCaptionSourceIds = new HashMap<>();
     private final Set<Integer> mCaptionCaptureAttempted = new HashSet<>();
     private List<Long> mLastTaskStackFingerprint = new ArrayList<>();
-    private final Thread mThread;
+    private boolean mStarted;
+    private LatestOperationSerializer.Ticket mFailureReportedFor;
 
     private boolean mClosed;
     private boolean mTaskStackSampled;
-    private long mSampleGeneration;
     private int mDisplayId = -1;
     private Rect mDisplayBounds = new Rect();
     private Rect mWorkAreaBounds = new Rect();
@@ -94,12 +94,14 @@ final class FrameworkTaskObservationSource implements Closeable {
                         && mCapabilities.captionSource
                                 != FrameworkWindowingCompat
                                         .ObservationProvenance.UNAVAILABLE;
-        mThread = new Thread(this::run, "MagicDeskFrameworkTasks");
-        mThread.setDaemon(true);
     }
 
     void start() {
-        mThread.start();
+        synchronized (mLock) {
+            if (mClosed || mStarted) { return; }
+            mStarted = true;
+            if (mDisplayId >= 0) { Sampler.add(this); }
+        }
     }
 
     void configure(
@@ -136,8 +138,7 @@ final class FrameworkTaskObservationSource implements Closeable {
             mCaptionCaptureAttempted.clear();
             mLastTaskStackFingerprint.clear();
             mTaskStackSampled = false;
-            mSampleGeneration++;
-            mLock.notifyAll();
+            if (mStarted) { Sampler.add(this); }
         }
     }
 
@@ -159,18 +160,12 @@ final class FrameworkTaskObservationSource implements Closeable {
             mCaptionCaptureAttempted.clear();
             mLastTaskStackFingerprint.clear();
             mTaskStackSampled = false;
-            mSampleGeneration++;
-            mLock.notifyAll();
+            Sampler.remove(this);
         }
     }
 
     void requestSample() {
-        synchronized (mLock) {
-            if (!mClosed) {
-                mSampleGeneration++;
-                mLock.notifyAll();
-            }
-        }
+        Sampler.request();
     }
 
     @Override
@@ -193,79 +188,99 @@ final class FrameworkTaskObservationSource implements Closeable {
             mTaskStackSampled = false;
             mLock.notifyAll();
         }
-        mThread.interrupt();
+        Sampler.remove(this);
     }
 
-    private void run() {
-        LatestOperationSerializer.Ticket failureReportedFor = null;
-        while (true) {
-            final int displayId;
-            final Rect displayBounds;
-            final Rect workAreaBounds;
-            final long sampleGeneration;
-            final LatestOperationSerializer.Ticket configuration;
-            synchronized (mLock) {
-                while (!mClosed
-                        && (mDisplayId < 0 || mDisplayBounds.isEmpty())) {
-                    try {
-                        EventDrivenWaits.await(
-                                mLock,
-                                EventDrivenWaits.Reason
-                                        .FRAMEWORK_OBSERVER_ACTIVATION);
-                    } catch (InterruptedException error) {
-                        Thread.currentThread().interrupt();
+    private void sample() {
+        final int displayId;
+        final LatestOperationSerializer.Ticket configuration;
+        synchronized (mLock) {
+            if (mClosed || mDisplayId < 0) { return; }
+            displayId = mDisplayId;
+            configuration = mConfiguration;
+        }
+        try {
+            final FrameworkTaskSnapshotSource.Sample sample = FrameworkTaskSnapshotSource.read(
+                    mService, displayId, mCapabilities.taskLimit, mFrameworkCompat);
+            if (!mPublications.executeIfCurrent(configuration, () ->
+                    mListener.onTasksSampled(displayId, sample.rawTasks, sample.snapshots))) {
+                return;
+            }
+            publishTaskStackChanges(configuration, displayId, sample.snapshots);
+            publishWindowChanges(configuration, displayId, sample.snapshots);
+            publishImmersiveChanges(configuration, displayId, sample.snapshots);
+            mFailureReportedFor = null;
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            if (mFailureReportedFor != configuration
+                    && mPublications.executeIfCurrent(configuration, () ->
+                            mListener.onError(usefulMessage(error)))) {
+                mFailureReportedFor = configuration;
+            }
+        }
+    }
+
+    /** One bounded reconciliation cadence serves all configured workspaces. */
+    private static final class Sampler {
+        private static final Object LOCK = new Object();
+        private static final Set<FrameworkTaskObservationSource> SOURCES = new HashSet<>();
+        private static Thread sThread;
+        private static long sGeneration;
+
+        static void add(final FrameworkTaskObservationSource source) {
+            synchronized (LOCK) {
+                SOURCES.add(source);
+                sGeneration++;
+                if (sThread == null) {
+                    sThread = new Thread(Sampler::run, "MagicDeskFrameworkTasks");
+                    sThread.setDaemon(true);
+                    sThread.start();
+                }
+                LOCK.notifyAll();
+            }
+        }
+
+        static void remove(final FrameworkTaskObservationSource source) {
+            synchronized (LOCK) {
+                SOURCES.remove(source);
+                sGeneration++;
+                LOCK.notifyAll();
+            }
+        }
+
+        static void request() {
+            synchronized (LOCK) {
+                sGeneration++;
+                LOCK.notifyAll();
+            }
+        }
+
+        private static void run() {
+            while (true) {
+                final List<FrameworkTaskObservationSource> sources;
+                final long generation;
+                synchronized (LOCK) {
+                    if (SOURCES.isEmpty()) {
+                        sThread = null;
                         return;
                     }
+                    sources = List.copyOf(SOURCES);
+                    generation = sGeneration;
                 }
-                if (mClosed) {
-                    return;
+                long interval = Long.MAX_VALUE;
+                for (final FrameworkTaskObservationSource source : sources) {
+                    source.sample();
+                    interval = Math.min(interval, source.mCapabilities.fallbackIntervalMillis);
                 }
-                displayId = mDisplayId;
-                displayBounds = new Rect(mDisplayBounds);
-                workAreaBounds = new Rect(mWorkAreaBounds);
-                sampleGeneration = mSampleGeneration;
-                configuration = mConfiguration;
-            }
-            try {
-                final FrameworkTaskSnapshotSource.Sample sample =
-                        FrameworkTaskSnapshotSource.read(
-                                mService,
-                                displayId,
-                                mCapabilities.taskLimit,
-                                mFrameworkCompat);
-                final List<?> tasks = sample.rawTasks;
-                final List<FrameworkTaskSnapshot> taskSnapshots =
-                        sample.snapshots;
-                if (!mPublications.executeIfCurrent(configuration, () ->
-                        mListener.onTasksSampled(displayId, tasks, taskSnapshots))) {
-                    continue;
-                }
-                publishTaskStackChanges(configuration, displayId, taskSnapshots);
-                publishWindowChanges(configuration, displayId, taskSnapshots);
-                publishImmersiveChanges(configuration, displayId, taskSnapshots);
-                failureReportedFor = null;
-            } catch (ReflectiveOperationException | RuntimeException error) {
-                if (failureReportedFor != configuration
-                        && mPublications.executeIfCurrent(configuration, () ->
-                                mListener.onError(usefulMessage(error)))) {
-                    failureReportedFor = configuration;
-                }
-            }
-            synchronized (mLock) {
-                if (!mClosed
-                        && displayId == mDisplayId
-                        && displayBounds.equals(mDisplayBounds)
-                        && workAreaBounds.equals(mWorkAreaBounds)
-                        && sampleGeneration == mSampleGeneration) {
-                    try {
-                        EventDrivenWaits.await(
-                                mLock,
-                                EventDrivenWaits.Reason
-                                        .FRAMEWORK_OBSERVER_RESAMPLE,
-                                mCapabilities.fallbackIntervalMillis);
-                    } catch (InterruptedException error) {
-                        Thread.currentThread().interrupt();
-                        return;
+                synchronized (LOCK) {
+                    if (generation == sGeneration) {
+                        try {
+                            EventDrivenWaits.await(LOCK,
+                                    EventDrivenWaits.Reason.FRAMEWORK_OBSERVER_RESAMPLE, interval);
+                        } catch (InterruptedException error) {
+                            Thread.currentThread().interrupt();
+                            sThread = null;
+                            return;
+                        }
                     }
                 }
             }

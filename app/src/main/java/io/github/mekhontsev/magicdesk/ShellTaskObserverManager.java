@@ -17,14 +17,16 @@ final class ShellTaskObserverManager implements Closeable {
 
     private final Object mLock = new Object();
     private final Context mContext;
+    private final ShellWorkspaceMembership mMembership = new ShellWorkspaceMembership();
 
-    private Session mSession;
+    private final java.util.Map<IBinder, Session> mSessions = new java.util.LinkedHashMap<>();
 
     ShellTaskObserverManager(final Context context) {
         mContext = context;
     }
 
     void start(
+            final int displayId,
             final ITaskObserverCallback callback,
             final IActivityLaunchCallback activityLauncher) {
         if (callback == null || activityLauncher == null) {
@@ -32,20 +34,26 @@ final class ShellTaskObserverManager implements Closeable {
                     "missing task observer callbacks");
         }
         synchronized (mLock) {
-            if (mSession != null) {
-                mSession.stop();
-                mSession = null;
+            final Session previous = mSessions.remove(callback.asBinder());
+            if (previous != null) {
+                publishMembership();
+                previous.stop();
+            }
+            if (mSessions.values().stream().anyMatch(value -> value.displayId == displayId)) {
+                throw new IllegalStateException("display already has a task observer: " + displayId);
             }
             Session session = null;
             try {
-                session = new Session(callback, activityLauncher);
-                mSession = session;
+                session = new Session(displayId, callback, activityLauncher);
+                mSessions.put(session.ownerToken, session);
+                publishMembership();
                 session.start();
                 Log.i(TAG, "task observer started");
             } catch (ReflectiveOperationException | RemoteException
                     | RuntimeException error) {
-                if (mSession == session) {
-                    mSession = null;
+                if (session != null) {
+                    mSessions.remove(session.ownerToken, session);
+                    publishMembership();
                 }
                 if (session != null) {
                     session.stop();
@@ -65,7 +73,11 @@ final class ShellTaskObserverManager implements Closeable {
             final Rect workAreaBounds,
             final int desktopHostTaskId,
             final DesktopCompatibilityPolicy compatibility) {
-        requireSession(callback).observer.configure(
+        final Session session = requireSession(callback);
+        if (displayId != session.displayId && displayId >= 0) {
+            throw new IllegalArgumentException("observer belongs to display " + session.displayId);
+        }
+        session.observer.configure(
                 displayId,
                 displayBounds,
                 workAreaBounds,
@@ -141,11 +153,10 @@ final class ShellTaskObserverManager implements Closeable {
             final String intentUri) {
         final Session session;
         synchronized (mLock) {
-            if (mSession == null) {
-                throw new IllegalStateException(
-                        "task observer is not active");
-            }
-            session = mSession;
+            session = mSessions.values().stream()
+                    .filter(value -> value.displayId == displayId).findFirst()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "task observer is not active on display " + displayId));
         }
         return session.observer.launchDesktopHost(
                 displayId, intentUri);
@@ -345,11 +356,11 @@ final class ShellTaskObserverManager implements Closeable {
     void stop(final ITaskObserverCallback callback) {
         final Session session;
         synchronized (mLock) {
-            if (!ownsSession(callback)) {
+            session = callback == null ? null : mSessions.remove(callback.asBinder());
+            if (session == null) {
                 return;
             }
-            session = mSession;
-            mSession = null;
+            publishMembership();
         }
         session.stop();
         Log.i(TAG, "task observer stopped");
@@ -357,38 +368,34 @@ final class ShellTaskObserverManager implements Closeable {
 
     @Override
     public void close() {
-        final Session session;
+        final java.util.List<Session> sessions;
         synchronized (mLock) {
-            session = mSession;
-            mSession = null;
+            sessions = java.util.List.copyOf(mSessions.values());
+            mSessions.clear();
+            publishMembership();
         }
-        if (session != null) {
+        for (final Session session : sessions) {
             session.stop();
         }
     }
 
     private Session requireSession(final ITaskObserverCallback callback) {
         synchronized (mLock) {
-            if (!ownsSession(callback)) {
+            final Session session = callback == null ? null : mSessions.get(callback.asBinder());
+            if (session == null) {
                 throw new IllegalStateException(
                         "task observer is not active for this client");
             }
-            return mSession;
+            return session;
         }
-    }
-
-    private boolean ownsSession(final ITaskObserverCallback callback) {
-        return callback != null
-                && mSession != null
-                && mSession.ownerToken.equals(callback.asBinder());
     }
 
     private void ownerDisconnected(final Session session) {
         synchronized (mLock) {
-            if (mSession != session) {
+            if (!mSessions.remove(session.ownerToken, session)) {
                 return;
             }
-            mSession = null;
+            publishMembership();
         }
         session.stop();
         Log.i(TAG, "task observer owner disconnected");
@@ -404,7 +411,13 @@ final class ShellTaskObserverManager implements Closeable {
                 ? cause.getClass().getSimpleName() : message;
     }
 
+    private void publishMembership() {
+        mMembership.update(mSessions.values().stream().map(session -> session.displayId)
+                .collect(java.util.stream.Collectors.toSet()));
+    }
+
     private final class Session {
+        final int displayId;
         final IBinder ownerToken;
         final IBinder.DeathRecipient ownerDeathRecipient;
         final ShellTaskObserver observer;
@@ -413,15 +426,18 @@ final class ShellTaskObserverManager implements Closeable {
         boolean stopped;
 
         Session(
+                final int displayId,
                 final ITaskObserverCallback callback,
                 final IActivityLaunchCallback activityLauncher)
                 throws ReflectiveOperationException {
+            this.displayId = displayId;
             ownerToken = callback.asBinder();
             ownerDeathRecipient = this::ownerDisconnected;
             observer = new ShellTaskObserver(
                     mContext,
                     callback,
                     activityLauncher,
+                    mMembership,
                     this::ownerDisconnected);
         }
 

@@ -64,18 +64,15 @@ final class RuntimeDisplayInputCoordinator {
         mInputDevices.scheduleRefresh();
     }
 
-    void setInputTarget(final int displayId) {
-        if (mDestroyed) {
-            return;
-        }
-        mTarget.desktop(displayId);
-        updateInputBridges();
-        updateShowImeOverride();
-    }
-
-    void reconcileRuntime(final int displayId) {
+    void reconcileRuntime() {
         if (mDestroyed) { return; }
-        mTarget.desktop(displayId);
+        final java.util.Map<Integer, String> workspaces = new java.util.LinkedHashMap<>();
+        for (final var state : DesktopRuntimeBridge.getWorkspaces()) {
+            if (state.target() == null) { continue; }
+            final var workspace = DesktopRuntimeBridge.getWorkspaceRuntime(state.target().workspaceDisplayId);
+            if (workspace != null) { workspaces.put(workspace.displayId, workspace.id); }
+        }
+        mTarget.reconcile(workspaces);
         if (!ShellAccess.isReady()) { mTarget.release(mTarget.requestedDisplay()); }
         updateInputBridges();
         updateShowImeOverride();
@@ -142,10 +139,11 @@ final class RuntimeDisplayInputCoordinator {
                 DesktopShortcutService.captureDiagnostics(), pointer);
     }
 
-    void onDesktopPrepared(final int displayId) {
-        if (mDestroyed || displayId < 0) { return; }
-        mTarget.prepared(displayId);
+    void onDesktopPrepared(final DesktopWorkspaceRuntime workspace) {
+        if (mDestroyed || workspace == null || workspace.isClosed()) { return; }
+        mTarget.prepared(workspace.displayId, workspace.id);
         updateInputBridges();
+        updateShowImeOverride();
     }
 
     void releaseForSessionClose(final int displayId, final Runnable completion) {

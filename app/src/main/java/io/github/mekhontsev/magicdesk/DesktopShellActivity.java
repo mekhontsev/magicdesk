@@ -112,9 +112,14 @@ public abstract class DesktopShellActivity extends Activity
     private DesktopDisplayTarget mDisplayTarget;
     private DesktopSessionPolicy mSessionPolicy = DesktopSessionPolicy.USER;
     private List<AppItem> mLastApps = Collections.emptyList();
+    private FullscreenStartController mHomeStart;
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (FullscreenStartController.canHost(this)) {
+            mHomeStart = new FullscreenStartController(this, true);
+            return;
+        }
         if (!hasRequiredHomeLease()) {
             Log.i(TAG, "discarding inactive primary HOME launch");
             finishAndRemoveTask();
@@ -151,7 +156,7 @@ public abstract class DesktopShellActivity extends Activity
                     DesktopRuntimeBridge.getDesktopTarget(displayId);
             if (runtimeTarget != null) {
                 mSessionPolicy = DesktopRuntimeBridge
-                        .getSessionSnapshot().policy();
+                        .getSessionSnapshot(displayId).policy();
             }
             if (runtimeTarget == null) {
                 final DesktopHomeRoleLease.State homeLease =
@@ -159,8 +164,8 @@ public abstract class DesktopShellActivity extends Activity
                 if (homeLease != null
                         && homeLease.phase
                                 == DesktopHomeRoleLease.Phase.ACTIVE
-                        && homeLease.target().ownsWorkspace(displayId)) {
-                    runtimeTarget = homeLease.target();
+                        && homeLease.targetForDisplay(displayId) != null) {
+                    runtimeTarget = homeLease.targetForDisplay(displayId);
                     mSessionPolicy = homeLease.policy;
                 }
             }
@@ -336,15 +341,18 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     protected void onSaveInstanceState(final Bundle outState) {
-        outState.putInt(STATE_EXPECTED_DISPLAY_ID, mExpectedDisplayId);
-        if (mDisplayTarget != null) {
-            outState.putBundle(EXTRA_DISPLAY_TARGET, mDisplayTarget.toBundle());
+        // Ordinary HOME has no Desktop binding to retain across role changes.
+        if (mHomeStart == null) {
+            outState.putInt(STATE_EXPECTED_DISPLAY_ID, mExpectedDisplayId);
+            if (mDisplayTarget != null) {
+                outState.putBundle(EXTRA_DISPLAY_TARGET, mDisplayTarget.toBundle());
+            }
+            outState.putString(STATE_SESSION_POLICY, mSessionPolicy.name());
+            outState.putBoolean(
+                    STATE_TOOLS_VISIBLE,
+                    mStartMenuController != null
+                            && mStartMenuController.isToolsVisible());
         }
-        outState.putString(STATE_SESSION_POLICY, mSessionPolicy.name());
-        outState.putBoolean(
-                STATE_TOOLS_VISIBLE,
-                mStartMenuController != null
-                        && mStartMenuController.isToolsVisible());
         if (mDesktopWorkspaceController != null) {
             mDesktopWorkspaceController.saveInstanceState(outState);
         }
@@ -378,6 +386,11 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        if (mHomeStart != null) {
+            mHomeStart.destroy();
+            super.onDestroy();
+            return;
+        }
         unregisterDesktopBackCallback();
         if (mNotifications != null) {
             mNotifications.stop();
@@ -561,6 +574,13 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
+        if (mHomeStart != null) {
+            if (FullscreenStartController.isReleasing()) { return; }
+            if (FullscreenStartController.canHost(this)) { mHomeStart.resume(); }
+            else if (hasRequiredHomeLease()) { recreate(); }
+            else { finishAndRemoveTask(); }
+            return;
+        }
         if (mHomeDelegate) {
             if (mHomeDelegateReady && hasRequiredHomeLease()) {
                 DesktopRuntimeBridge.delegateDesktopHome(this);
@@ -588,6 +608,7 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onStart() {
         super.onStart();
+        if (mHomeStart != null) { mHomeStart.start(); return; }
         if (mDesktopWorkspaceController != null) {
             mDesktopWorkspaceController.start();
         }
@@ -595,6 +616,11 @@ public abstract class DesktopShellActivity extends Activity
 
     @Override
     protected void onStop() {
+        if (mHomeStart != null) {
+            mHomeStart.stop();
+            super.onStop();
+            return;
+        }
         if (mDesktopWorkspaceController != null) {
             mDesktopWorkspaceController.stop();
         }
@@ -618,8 +644,9 @@ public abstract class DesktopShellActivity extends Activity
     protected void onActivityResult(final int requestCode, final int resultCode,
             final Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        mDesktopWorkspaceController.handleActivityResult(
-                requestCode, resultCode, data);
+        if (mDesktopWorkspaceController != null) {
+            mDesktopWorkspaceController.handleActivityResult(requestCode, resultCode, data);
+        }
     }
 
     @Override
@@ -773,6 +800,13 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
+        if (mHomeStart != null) {
+            if (FullscreenStartController.isReleasing()) { return; }
+            if (FullscreenStartController.canHost(this)) { mHomeStart.newIntent(intent); }
+            else if (hasRequiredHomeLease()) { setIntent(intent); recreate(); }
+            else { finishAndRemoveTask(); }
+            return;
+        }
         // A HOME handoff does not own this host's destruction. The close
         // coordinator retains it until application tasks have left the workspace.
         if (DesktopHomeRoleLease.isReleasingForDisplay(mExpectedDisplayId)) {
@@ -828,7 +862,7 @@ public abstract class DesktopShellActivity extends Activity
             throw new IllegalArgumentException("desktop target is required");
         }
         final Intent intent = target.isDefaultWorkspace()
-                ? PhoneDesktopHomeActivity.createLaunchIntent(context)
+                ? PhoneHomeActivity.createLaunchIntent(context)
                 : DesktopActivity.createLaunchIntent(context);
         return intent
                 .putExtra(EXTRA_ACTION, ACTION_SHOW_START);
@@ -1944,6 +1978,11 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     public void onDisplayProfileReset() {
         mDesktopWorkspaceController.resetDisplayProfile();
+    }
+
+    void registerStartContextTarget(View view, AppItem app,
+            java.util.function.Supplier<StartDisplaySelector.Target> destination) {
+        mContextMenuController.registerStartTarget(view, app, destination);
     }
 
     void launchDefault(final AppItem app) {

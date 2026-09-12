@@ -59,24 +59,17 @@ final class NubiaProjectionDriver implements PlatformProjectionDriver {
     }
 
     @Override
-    public boolean setCaptionTransport(final Transport transport) {
-        if (transport == null) {
-            throw new IllegalArgumentException("projection transport is required");
+    public boolean setCaptionTransports(final java.util.Set<Transport> transports) {
+        final java.util.Set<NubiaCaptionVisibilityManager.Transport> targets =
+                java.util.EnumSet.noneOf(NubiaCaptionVisibilityManager.Transport.class);
+        for (final Transport transport : transports) {
+            switch (transport) {
+                case WIRED -> targets.add(NubiaCaptionVisibilityManager.Transport.WIRED);
+                case WIRELESS -> targets.add(NubiaCaptionVisibilityManager.Transport.WIRELESS);
+                default -> { }
+            }
         }
-        final NubiaCaptionVisibilityManager.Transport nubiaTransport;
-        switch (transport) {
-            case WIRED:
-                nubiaTransport = NubiaCaptionVisibilityManager.Transport.WIRED;
-                break;
-            case WIRELESS:
-                nubiaTransport = NubiaCaptionVisibilityManager.Transport.WIRELESS;
-                break;
-            case NONE:
-            default:
-                nubiaTransport = NubiaCaptionVisibilityManager.Transport.NONE;
-                break;
-        }
-        return NubiaCaptionVisibilityManager.setTransport(nubiaTransport);
+        return NubiaCaptionVisibilityManager.setTransports(targets);
     }
 
     private static ModeSelection convert(

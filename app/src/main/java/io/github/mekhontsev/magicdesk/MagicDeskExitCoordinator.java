@@ -7,7 +7,6 @@ final class MagicDeskExitCoordinator {
     enum Step {
         RESTORE_HARDWARE,
         RESTORE_PHONE_SCREEN,
-        RETURN_DESKTOP_TASKS,
         CLOSE_DESKTOP,
         CLEAN_PHONE_TASKS
     }
@@ -24,8 +23,6 @@ final class MagicDeskExitCoordinator {
         void restoreHardware(Callback callback);
 
         void restorePhoneScreen(Callback callback);
-
-        void returnDesktopTasks(Callback callback);
 
         void closeDesktop(Callback callback);
 
@@ -50,21 +47,18 @@ final class MagicDeskExitCoordinator {
 
     void start() {
         runStep(
-                Step.RESTORE_HARDWARE,
-                mOperations::restoreHardware,
+                Step.CLOSE_DESKTOP,
+                mOperations::closeDesktop,
                 () -> runStep(
-                        Step.RESTORE_PHONE_SCREEN,
-                        mOperations::restorePhoneScreen,
+                        Step.RESTORE_HARDWARE,
+                        mOperations::restoreHardware,
                         () -> runStep(
-                                Step.RETURN_DESKTOP_TASKS,
-                                mOperations::returnDesktopTasks,
+                                Step.RESTORE_PHONE_SCREEN,
+                                mOperations::restorePhoneScreen,
                                 () -> runStep(
-                                        Step.CLOSE_DESKTOP,
-                                        mOperations::closeDesktop,
-                                        () -> runStep(
-                                                Step.CLEAN_PHONE_TASKS,
-                                                mOperations::cleanPhoneTasks,
-                                                mOperations::finishExit)))));
+                                        Step.CLEAN_PHONE_TASKS,
+                                        mOperations::cleanPhoneTasks,
+                                        mOperations::finishExit))));
     }
 
     private void runStep(

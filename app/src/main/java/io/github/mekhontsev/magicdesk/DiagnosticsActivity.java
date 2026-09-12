@@ -555,11 +555,9 @@ public final class DiagnosticsActivity extends Activity {
                 List.of(),
                 List.of("text/plain"),
                 false);
-        final int activeDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
         final int displayId = getDisplay() == null
                 ? Display.DEFAULT_DISPLAY : getDisplay().getDisplayId();
-        if (displayId == activeDisplayId) {
+        if (DesktopRuntimeBridge.hasWorkspace(displayId)) {
             AndroidDesktopActionDispatcher.shareContent(
                     this,
                     content,

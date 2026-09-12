@@ -14,7 +14,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Prevents phone-side freeform state from destabilizing Nubia Quickstep. */
+/** Isolates an ordinary phone launcher from external freeform tasks when enabled. */
 final class ShellExternalTaskMigrationGuard implements
         Closeable, ShellActivityStartController.Listener {
     interface Listener {
@@ -34,6 +34,7 @@ final class ShellExternalTaskMigrationGuard implements
                     | Intent.FLAG_ACTIVITY_MULTIPLE_TASK;
 
     private final Object mService;
+    private final ShellWorkspaceMembership mMembership;
     private final Listener mListener;
     private final java.util.function.BooleanSupplier mRefreshFullscreenCaption;
     private final Map<Integer, TaskState> mDesktopTasks = new HashMap<>();
@@ -50,9 +51,11 @@ final class ShellExternalTaskMigrationGuard implements
 
     ShellExternalTaskMigrationGuard(
             final Object service,
+            final ShellWorkspaceMembership membership,
             final java.util.function.BooleanSupplier refreshFullscreenCaption,
             final Listener listener) {
         mService = service;
+        mMembership = membership;
         mRefreshFullscreenCaption = refreshFullscreenCaption;
         mListener = listener;
     }
@@ -82,7 +85,7 @@ final class ShellExternalTaskMigrationGuard implements
 
     void onTaskStackChanged() {
         synchronized (this) {
-            if (!mEnabled) {
+            if (!mEnabled || !mMembership.ownsPhoneNormalization(mDisplayId)) {
                 return;
             }
         }
@@ -247,7 +250,7 @@ final class ShellExternalTaskMigrationGuard implements
             final String packageName) {
         // Nubia invokes IActivityController with the original launcher intent;
         // NEW_TASK and RESET_TASK_IF_NEEDED are added only after this callback.
-        if (!mEnabled || intent == null
+        if (!mEnabled || mMembership.hasPhoneDesktop() || intent == null
                 || !Intent.ACTION_MAIN.equals(intent.getAction())
                 || intent.getCategories() == null
                 || !intent.getCategories().contains(Intent.CATEGORY_LAUNCHER)
@@ -278,7 +281,7 @@ final class ShellExternalTaskMigrationGuard implements
     private void migrateToPhone(final TaskState state) {
         final int sourceDisplayId;
         synchronized (this) {
-            if (!mEnabled
+            if (!mEnabled || mMembership.hasPhoneDesktop()
                     || !mMigratingTasks.contains(
                             Integer.valueOf(state.taskId))) {
                 return;
@@ -315,7 +318,8 @@ final class ShellExternalTaskMigrationGuard implements
             final int taskId,
             final int displayId,
             final Object task) {
-        if (displayId != Display.DEFAULT_DISPLAY) {
+        if (displayId != Display.DEFAULT_DISPLAY
+                || !mMembership.ownsPhoneNormalization(mDisplayId)) {
             return false;
         }
         final boolean freeform;
@@ -351,7 +355,7 @@ final class ShellExternalTaskMigrationGuard implements
 
     private void normalizePhoneTask(final int taskId) {
         synchronized (this) {
-            if (!mEnabled
+            if (!mEnabled || !mMembership.ownsPhoneNormalization(mDisplayId)
                     || !mMigratingTasks.contains(
                             Integer.valueOf(taskId))) {
                 return;
@@ -359,8 +363,8 @@ final class ShellExternalTaskMigrationGuard implements
         }
         try {
             // Alt+Tab and other system task switches bypass activityStarting.
-            // No task may remain freeform on display 0 during an external
-            // session: Nubia Quickstep can crash and erase launcher state.
+            // Normalization belongs to one external workspace and only while
+            // display 0 has no Desktop of its own.
             // The observer callback can outlive the phone state it reported;
             // a restore may already have moved the task back to the desktop.
             final Object task = HiddenTaskApi.findTask(

@@ -8,36 +8,36 @@ import java.util.Collections;
 
 import org.junit.Test;
 
-public final class PhoneAppLauncherTest {
+public final class DisplayAppLauncherTest {
     private static final LaunchActivityIdentity APP =
             LaunchActivityIdentity.packageScoped(0, "com.example.app", null);
 
     @Test
     public void transfersAnExistingExternalTask() {
         final TaskRepository.TaskEntry external = task(1, 3, "com.example.app", false);
-        assertSame(external, PhoneAppLauncher.selectTransfer(APP,
-                new TaskRepository.Snapshot(Collections.singletonList(external), true, "")));
+        assertSame(external, DisplayAppLauncher.selectTransfer(APP,
+                new TaskRepository.Snapshot(Collections.singletonList(external), true, ""), 0));
     }
 
     @Test
     public void phoneInstanceLeavesExternalTaskAlone() {
         final TaskRepository.TaskEntry external = task(1, 3, "com.example.app", false);
         final TaskRepository.TaskEntry phone = task(2, 0, "com.example.app", false);
-        assertNull(PhoneAppLauncher.selectTransfer(APP, new TaskRepository.Snapshot(
-                Collections.singletonList(external), Collections.singletonList(phone), true, "")));
+        assertNull(DisplayAppLauncher.selectTransfer(APP, new TaskRepository.Snapshot(
+                Collections.singletonList(external), Collections.singletonList(phone), true, ""), 0));
     }
 
     @Test
     public void doesNotMoveHomeOrUnrelatedApplications() {
-        assertNull(PhoneAppLauncher.selectTransfer(APP, new TaskRepository.Snapshot(
+        assertNull(DisplayAppLauncher.selectTransfer(APP, new TaskRepository.Snapshot(
                 Arrays.asList(task(1, 3, "com.example.app", true),
-                        task(2, 3, "com.example.other", false)), true, "")));
+                        task(2, 3, "com.example.other", false)), true, ""), 0));
     }
 
     @Test
     public void newAppNeedsNoTransfer() {
-        assertNull(PhoneAppLauncher.selectTransfer(APP, new TaskRepository.Snapshot(
-                Collections.emptyList(), true, "")));
+        assertNull(DisplayAppLauncher.selectTransfer(APP, new TaskRepository.Snapshot(
+                Collections.emptyList(), true, ""), 0));
     }
 
     private static TaskRepository.TaskEntry task(

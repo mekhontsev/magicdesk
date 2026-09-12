@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Temporarily owns Android's HOME role for one desktop session. */
+/** One HOME role lease shared by all admitted workspaces of the current profile. */
 final class DesktopHomeRoleLease {
     private static final String HOME_ROLE = "android.app.role.HOME";
     private static final String MAGICDESK_PACKAGE = BuildConfig.APPLICATION_ID;
@@ -40,7 +40,8 @@ final class DesktopHomeRoleLease {
     static final class State {
         final int userId;
         final AndroidHomeSelection previousHome;
-        private final DesktopDisplayTarget target;
+        final List<DesktopDisplayTarget> targets;
+        final int closingDisplayId;
         final DesktopSessionPolicy policy;
         final DesktopCompatibilityPolicy compatibility;
         final Phase phase;
@@ -52,8 +53,15 @@ final class DesktopHomeRoleLease {
                 final DesktopSessionPolicy policy,
                 final DesktopCompatibilityPolicy compatibility,
                 final Phase phase) {
+            this(userId, previousHome, List.of(target), policy, compatibility, phase, -1);
+        }
+
+        State(final int userId, final AndroidHomeSelection previousHome,
+                final List<DesktopDisplayTarget> targets, final DesktopSessionPolicy policy,
+                final DesktopCompatibilityPolicy compatibility, final Phase phase,
+                final int closingDisplayId) {
             if (userId < 0
-                    || target == null
+                    || targets == null || targets.isEmpty()
                     || previousHome == null
                     || policy == null
                     || compatibility == null
@@ -63,7 +71,11 @@ final class DesktopHomeRoleLease {
             }
             this.userId = userId;
             this.previousHome = previousHome;
-            this.target = target;
+            this.targets = List.copyOf(targets);
+            if (targets.stream().map(target -> target.workspaceDisplayId).distinct().count() != targets.size()) {
+                throw new IllegalArgumentException("duplicate HOME workspace");
+            }
+            this.closingDisplayId = closingDisplayId;
             this.policy = policy;
             this.compatibility = compatibility;
             this.phase = phase;
@@ -73,28 +85,34 @@ final class DesktopHomeRoleLease {
             return new State(
                     userId,
                     previousHome,
-                    target(),
+                    targets,
                     policy,
                     compatibility,
-                    newPhase);
+                    newPhase, closingDisplayId);
         }
 
         boolean matches(final DesktopDisplayTarget target) {
-            return this.target.sameBinding(target);
+            return target != null && targets.stream().anyMatch(value -> value.sameBinding(target));
         }
 
-        DesktopDisplayTarget target() {
-            return target;
+        DesktopDisplayTarget targetForDisplay(final int displayId) {
+            return targets.stream().filter(target -> target.ownsWorkspace(displayId)).findFirst().orElse(null);
+        }
+
+        State withTargets(final List<DesktopDisplayTarget> values, final int closing) {
+            return new State(userId, previousHome, values, policy, compatibility, phase, closing);
         }
     }
 
     static final class AcquireResult {
         final boolean created;
         final State state;
+        final DesktopDisplayTarget target;
 
-        AcquireResult(final boolean created, final State state) {
+        AcquireResult(final boolean created, final State state, final DesktopDisplayTarget target) {
             this.created = created;
             this.state = state;
+            this.target = target;
         }
     }
 
@@ -147,30 +165,42 @@ final class DesktopHomeRoleLease {
         synchronized (LOCK) {
             final State existing = sStorage.read();
             if (existing != null) {
-                if (!existing.matches(target)) {
-                    throw new IOException(
-                            "HOME is already leased to "
-                                    + existing.target().output.kind
-                                    + " display=" + existing.target().workspaceDisplayId);
-                }
                 if (existing.policy != policy) {
                     throw new IOException("HOME lease policy mismatch: leased="
                             + existing.policy + " requested=" + policy);
                 }
-                if (existing.phase == Phase.RELEASING) {
-                    throw new IOException("HOME lease is releasing for "
-                            + existing.target().output.kind + " display=" + existing.target().workspaceDisplayId);
+                if (existing.phase == Phase.RELEASING || existing.closingDisplayId >= 0) {
+                    throw new IOException("HOME lease is releasing a workspace");
                 }
                 final String holder = sBackend.getHomePackage(existing.userId);
+                if (!existing.matches(target)) {
+                    if (existing.phase != Phase.ACTIVE || !MAGICDESK_PACKAGE.equals(holder)
+                            || policy == DesktopSessionPolicy.ISOLATED_SELF_TEST
+                            || existing.targetForDisplay(target.workspaceDisplayId) != null) {
+                        throw new IOException("cannot join the existing HOME lease");
+                    }
+                    final List<DesktopDisplayTarget> targets = new ArrayList<>(existing.targets);
+                    targets.add(target);
+                    final State joined = existing.withTargets(targets, -1);
+                    sStorage.write(joined);
+                    try {
+                        sBackend.selectHomeSurface(surfacesFor(joined));
+                        return new AcquireResult(true, joined, target);
+                    } catch (IOException error) {
+                        try { sStorage.write(existing); sBackend.selectHomeSurface(surfacesFor(existing)); }
+                        catch (IOException restoreError) { error.addSuppressed(restoreError); }
+                        throw error;
+                    }
+                }
                 if (MAGICDESK_PACKAGE.equals(holder)) {
                     sBackend.selectHomeSurface(surfacesFor(existing));
-                    return new AcquireResult(false, existing);
+                    return new AcquireResult(false, existing, target);
                 }
                 if (existing.phase == Phase.PREPARED
                         && existing.previousHome.packageName.equals(holder)) {
                     try {
                         sBackend.selectHomeSurface(surfacesFor(existing));
-                        return new AcquireResult(true, existing);
+                        return new AcquireResult(true, existing, target);
                     } catch (IOException error) {
                         restorePreparedLease(existing, error);
                         throw error;
@@ -203,7 +233,7 @@ final class DesktopHomeRoleLease {
             sStorage.write(prepared);
             try {
                 sBackend.selectHomeSurface(surfacesFor(prepared));
-                return new AcquireResult(true, prepared);
+                return new AcquireResult(true, prepared, target);
             } catch (IOException error) {
                 restorePreparedLease(prepared, error);
                 throw error;
@@ -218,7 +248,8 @@ final class DesktopHomeRoleLease {
             if (state == null) {
                 return false;
             }
-            restoreOrAbandon(state);
+            if (state.targets.size() > 1) { removeWorkspace(state, target); }
+            else { restoreOrAbandon(state); }
             return true;
         }
     }
@@ -229,8 +260,12 @@ final class DesktopHomeRoleLease {
         synchronized (LOCK) {
             final State state = requireTarget(target);
             if (state != null) {
-                beginRelease(state);
-                restoreRole(state);
+                if (state.targets.size() == 1) {
+                    beginRelease(state);
+                    restoreRole(state);
+                } else {
+                    sStorage.write(state.withTargets(state.targets, target.workspaceDisplayId));
+                }
             }
         }
     }
@@ -241,6 +276,10 @@ final class DesktopHomeRoleLease {
         synchronized (LOCK) {
             final State state = requireTarget(target);
             if (state == null) {
+                return null;
+            }
+            if (state.targets.size() > 1 && state.closingDisplayId == target.workspaceDisplayId) {
+                removeWorkspace(state, target);
                 return null;
             }
             if (state.phase != Phase.RELEASING) {
@@ -269,9 +308,7 @@ final class DesktopHomeRoleLease {
             return null;
         }
         if (!state.matches(target)) {
-            throw new IOException("HOME lease target mismatch: leased="
-                    + state.target().output.kind + "/" + state.target().workspaceDisplayId
-                    + " requested=" + (target == null
+            throw new IOException("HOME lease target mismatch: requested=" + (target == null
                             ? "none"
                             : target.output.kind + "/" + target.workspaceDisplayId));
         }
@@ -283,17 +320,18 @@ final class DesktopHomeRoleLease {
         if (acquisition == null || !acquisition.created) {
             return;
         }
-        release(acquisition.state.target());
+        release(acquisition.target);
     }
 
     static boolean releaseAfterSessionLoss(final int displayId)
             throws IOException {
         synchronized (LOCK) {
             final State state = sStorage.read();
-            if (state == null || state.target().workspaceDisplayId != displayId) {
+            if (state == null || state.targetForDisplay(displayId) == null) {
                 return false;
             }
-            restoreOrAbandon(state);
+            if (state.targets.size() > 1) { removeWorkspace(state, state.targetForDisplay(displayId)); }
+            else { restoreOrAbandon(state); }
             return true;
         }
     }
@@ -339,41 +377,15 @@ final class DesktopHomeRoleLease {
     }
 
     static boolean isActiveForDisplay(final int displayId) {
-        return isForDisplay(displayId, Phase.ACTIVE);
+        final State state = snapshot();
+        return state != null && state.phase == Phase.ACTIVE && state.closingDisplayId != displayId
+                && state.targetForDisplay(displayId) != null;
     }
 
     static boolean isReleasingForDisplay(final int displayId) {
-        return isForDisplay(displayId, Phase.RELEASING);
-    }
-
-    private static boolean isForDisplay(final int displayId, final Phase phase) {
-        synchronized (LOCK) {
-            final State state = sStorage.read();
-            return state != null
-                    && state.phase == phase
-                    && state.target().workspaceDisplayId == displayId;
-        }
-    }
-
-    static boolean isActiveForSurface(
-            final DesktopHomeSurfaceRouter.Surface surface) {
-        return isForSurface(surface, Phase.ACTIVE);
-    }
-
-    static boolean isReleasingForSurface(
-            final DesktopHomeSurfaceRouter.Surface surface) {
-        return isForSurface(surface, Phase.RELEASING);
-    }
-
-    private static boolean isForSurface(
-            final DesktopHomeSurfaceRouter.Surface surface,
-            final Phase phase) {
-        synchronized (LOCK) {
-            final State state = sStorage.read();
-            return state != null
-                    && state.phase == phase
-                    && surfacesFor(state).primary == surface;
-        }
+        final State state = snapshot();
+        return state != null && state.targetForDisplay(displayId) != null
+                && (state.phase == Phase.RELEASING || state.closingDisplayId == displayId);
     }
 
     static boolean isPhoneOverviewRoutingActive() {
@@ -399,7 +411,7 @@ final class DesktopHomeRoleLease {
     static AcquireResult activate(final AcquireResult preparation)
             throws IOException {
         synchronized (LOCK) {
-            final State prepared = requireTarget(preparation.state.target());
+            final State prepared = requireTarget(preparation.target);
             if (prepared == null || prepared.phase == Phase.RELEASING
                     || prepared.policy != preparation.state.policy) {
                 throw new IOException("HOME preparation is no longer current");
@@ -416,27 +428,34 @@ final class DesktopHomeRoleLease {
                 final State active = prepared.withPhase(Phase.ACTIVE);
                 sStorage.write(active);
                 sPhoneOverviewRoutingActive = true;
-                if (shouldPresentMagicDeskHome(active)) {
+                if (preparation.target.isDefaultWorkspace()) {
                     sBackend.presentHome(active.userId, MAGICDESK_PACKAGE);
                 }
-                return new AcquireResult(preparation.created, active);
+                return new AcquireResult(preparation.created, active, preparation.target);
             } catch (IOException error) {
                 if (preparation.created) {
-                    restorePreparedLease(prepared, error);
+                    try { release(preparation.target); }
+                    catch (IOException restoreError) { error.addSuppressed(restoreError); }
                 }
                 throw error;
             }
         }
     }
 
-    private static boolean shouldPresentMagicDeskHome(final State state) {
-        return state.target().isDefaultWorkspace()
-                || state.policy != DesktopSessionPolicy.ISOLATED_SELF_TEST;
-    }
-
     private static DesktopHomeSurfaceRouter.Selection surfacesFor(
             final State state) {
-        return DesktopHomeSurfaceRouter.forWorkspaces(java.util.Collections.singletonList(state.target()));
+        return DesktopHomeSurfaceRouter.forWorkspaces(state.targets);
+    }
+
+    private static void removeWorkspace(final State state, final DesktopDisplayTarget target) throws IOException {
+        final List<DesktopDisplayTarget> remaining = state.targets.stream()
+                .filter(value -> !value.sameBinding(target)).toList();
+        final State next = state.withTargets(remaining, -1);
+        // Retain the closing membership until component selection succeeds.
+        // Recovery can retry this boundary without resurrecting the workspace.
+        sStorage.write(state.withTargets(state.targets, target.workspaceDisplayId));
+        sBackend.selectHomeSurface(surfacesFor(next));
+        sStorage.write(next);
     }
 
     private static void restoreOrAbandon(final State state)
@@ -644,7 +663,7 @@ final class DesktopHomeRoleLease {
     }
 
     private static final class PreferencesStorage implements Storage {
-        private static final int STORAGE_FORMAT = 2;
+        private static final int STORAGE_FORMAT = 3;
         private static final String PREFERENCES =
                 "magicdesk_desktop_home_lease";
         private static final String FORMAT = "format";
@@ -655,11 +674,8 @@ final class DesktopHomeRoleLease {
                 "previous_version_code";
         private static final String PREVIOUS_AVAILABILITY =
                 "previous_availability";
-        private static final String TARGET_KIND = "target_kind";
-        private static final String DISPLAY_ID = "display_id";
-        private static final String OUTPUT_DISPLAY_ID = "output_display_id";
-        private static final String PROFILE_KEY = "profile_key";
-        private static final String ACTIVATION_SOURCE = "activation_source";
+        private static final String TARGETS = "targets";
+        private static final String CLOSING_DISPLAY = "closing_display";
         private static final String SESSION_POLICY = "session_policy";
         private static final String COMPATIBILITY = "compatibility";
         private static final String PHASE = "phase";
@@ -681,29 +697,24 @@ final class DesktopHomeRoleLease {
                                         PREVIOUS_VERSION_CODE, -1),
                                 requiredString(
                                         preferences,
-                                        PREVIOUS_AVAILABILITY));
+                                                PREVIOUS_AVAILABILITY));
+                final org.json.JSONArray storedTargets = new org.json.JSONArray(requiredString(preferences, TARGETS));
+                final List<DesktopDisplayTarget> targets = new ArrayList<>();
+                for (int index = 0; index < storedTargets.length(); index++) {
+                    targets.add(DesktopDisplayTarget.fromJson(storedTargets.getJSONObject(index)));
+                }
                 return new State(
                         preferences.getInt(USER_ID, -1),
                         previousHome,
-                        DesktopDisplayTarget.restore(
-                                DesktopDisplayOutput.Kind.valueOf(
-                                        requiredString(
-                                                preferences, TARGET_KIND)),
-                                preferences.getInt(DISPLAY_ID, -1),
-                                preferences.getInt(
-                                        OUTPUT_DISPLAY_ID, -1),
-                                requiredString(preferences, PROFILE_KEY),
-                                DesktopDisplayOutput.ActivationSource.valueOf(
-                                        requiredString(
-                                                preferences,
-                                                ACTIVATION_SOURCE))),
+                        targets,
                         DesktopSessionPolicy.valueOf(
                                 requiredString(
                                         preferences, SESSION_POLICY)),
                         DesktopCompatibilityPolicy.fromBits(
                                 preferences.getInt(COMPATIBILITY, 0)),
-                        Phase.valueOf(requiredString(preferences, PHASE)));
-            } catch (ClassCastException | IllegalArgumentException error) {
+                        Phase.valueOf(requiredString(preferences, PHASE)),
+                        preferences.getInt(CLOSING_DISPLAY, -1));
+            } catch (ClassCastException | IllegalArgumentException | org.json.JSONException error) {
                 return null;
             }
         }
@@ -711,8 +722,18 @@ final class DesktopHomeRoleLease {
         @Override
         @SuppressLint("ApplySharedPref")
         public void write(final State state) throws IOException {
-            if (state == null
-                    || !preferences().edit()
+            if (state == null) {
+                throw new IOException("missing desktop HOME lease");
+            }
+            final org.json.JSONArray targets = new org.json.JSONArray();
+            try {
+                for (final DesktopDisplayTarget target : state.targets) {
+                    targets.put(target.toJson());
+                }
+            } catch (org.json.JSONException error) {
+                throw new IOException("invalid HOME targets", error);
+            }
+            if (!preferences().edit()
                             .putInt(FORMAT, STORAGE_FORMAT)
                             .putInt(USER_ID, state.userId)
                             .putString(
@@ -727,15 +748,8 @@ final class DesktopHomeRoleLease {
                             .putString(
                                     PREVIOUS_AVAILABILITY,
                                     state.previousHome.availability.name())
-                            .putString(TARGET_KIND, state.target().output.kind.name())
-                            .putInt(DISPLAY_ID, state.target().workspaceDisplayId)
-                            .putInt(
-                                    OUTPUT_DISPLAY_ID,
-                                    state.target().output.displayId)
-                            .putString(PROFILE_KEY, state.target().output.profileKey)
-                            .putString(
-                                    ACTIVATION_SOURCE,
-                                    state.target().output.activationSource.name())
+                            .putString(TARGETS, targets.toString())
+                            .putInt(CLOSING_DISPLAY, state.closingDisplayId)
                             .putString(SESSION_POLICY, state.policy.name())
                             .putInt(COMPATIBILITY, state.compatibility.bits())
                             .putString(PHASE, state.phase.name())
@@ -761,11 +775,8 @@ final class DesktopHomeRoleLease {
                         && preferences.contains(PREVIOUS_COMPONENT)
                         && preferences.contains(PREVIOUS_VERSION_CODE)
                         && preferences.contains(PREVIOUS_AVAILABILITY)
-                        && preferences.contains(TARGET_KIND)
-                        && preferences.contains(DISPLAY_ID)
-                        && preferences.contains(OUTPUT_DISPLAY_ID)
-                        && preferences.contains(PROFILE_KEY)
-                        && preferences.contains(ACTIVATION_SOURCE)
+                        && preferences.contains(TARGETS)
+                        && preferences.contains(CLOSING_DISPLAY)
                         && preferences.contains(SESSION_POLICY)
                         && preferences.contains(COMPATIBILITY)
                         && preferences.contains(PHASE);

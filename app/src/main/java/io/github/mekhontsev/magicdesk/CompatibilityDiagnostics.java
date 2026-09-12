@@ -239,9 +239,6 @@ public final class CompatibilityDiagnostics {
             final DesktopInputReportSnapshot inputSnapshot) {
         final SessionProfile profile = audit.sessionProfile == null
                 ? SessionProfile.load(context) : audit.sessionProfile;
-        final DesktopSessionSnapshot desktopSession =
-                DesktopRuntimeBridge.getSessionSnapshot();
-        final DesktopDisplayTarget desktopTarget = desktopSession.target();
         report.append("## Runtime profile\n")
                 .append("Platform driver: ")
                 .append(audit.platform.name())
@@ -264,21 +261,8 @@ public final class CompatibilityDiagnostics {
                 .append(", forceShellUid=").append(ShellPrivilegePolicy.forceShell())
                 .append(", configuredForceShellUid=").append(ShellPrivilegePolicy.configured(context)).append('\n')
                 .append("Display target: ").append(profile.displayWireName()).append('\n')
-                .append("Desktop session: ")
-                .append(desktopTarget == null
-                        ? "inactive"
-                        : (desktopSession.hasHost() ? "active" : "starting")
-                                + ", kind="
-                                + desktopTarget.output.kind.name()
-                                        .toLowerCase(Locale.ROOT)
-                                + ", display=" + desktopTarget.workspaceDisplayId
-                                + ", activation="
-                                + desktopTarget.output.activationSource
-                                        .diagnosticLabel)
-                .append('\n')
-                .append("Desktop task observer: ")
-                .append(desktopTaskRuntimeDetail(desktopSession))
-                .append('\n')
+                .append("Desktop workspaces: ").append(DesktopRuntimeBridge.workspaceTargets()).append('\n')
+                .append("Desktop task observers: ").append(desktopTaskRuntimeDetail()).append('\n')
                 .append("System provisioning: ")
                 .append(audit.configurationReady ? "ready" : "incomplete").append('\n')
                 .append("Reboot pending: ").append(audit.rebootRequired).append('\n')
@@ -391,8 +375,8 @@ public final class CompatibilityDiagnostics {
                         : homeLease == null
                                 ? "available; lease=inactive"
                                 : "available; lease=" + homeLease.phase
-                                        + ", target=" + homeLease.target().output.kind
-                                        + ", display=" + homeLease.target().workspaceDisplayId
+                                        + ", workspaceDisplays=" + homeLease.targets.stream()
+                                                .map(target -> target.workspaceDisplayId).toList()
                                         + ", previous="
                                         + describeHomeSelection(
                                                 homeLease.previousHome));
@@ -491,8 +475,7 @@ public final class CompatibilityDiagnostics {
                 .append('\n');
         final boolean shellPointer = ShellAccess.isReady();
         final boolean mouseBridgeExpected = shellPointer
-                && DesktopRuntimeBridge
-                        .getActiveDesktopDisplayId() > 0;
+                && MagicDeskRuntime.inputDisplayId() > 0;
         final boolean mouseBridgeReady =
                 MagicDeskRuntime
                         .isPointerTransportReady();
@@ -547,13 +530,14 @@ public final class CompatibilityDiagnostics {
     }
 
     static String desktopTaskRuntimeDetail() {
-        return desktopTaskRuntimeDetail(
-                DesktopRuntimeBridge.getSessionSnapshot());
+        return String.join("; ", DesktopRuntimeBridge.getWorkspaces().stream()
+                .map(CompatibilityDiagnostics::desktopTaskRuntimeDetail).toList());
     }
 
     private static String desktopTaskRuntimeDetail(
             final DesktopSessionSnapshot session) {
-        return "ready=" + MagicDeskRuntime.isTaskObserverReady()
+        return "ready=" + MagicDeskRuntime.isTaskObserverReady(session.target() == null
+                ? -1 : session.target().workspaceDisplayId)
                 + ", hostDisplay=" + session.activeWorkspaceDisplayId()
                 + ", hostTask=" + session.hostTaskId();
     }

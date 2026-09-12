@@ -57,11 +57,12 @@ final class DesktopSessionController {
                 preparedTarget, resolvedPolicy, null)) {
             return new ShowResult(true, false);
         }
-        MagicDeskRuntime.prepareDesktop(MagicDeskApplication.applicationContext());
-        final DesktopHomeRoleLease.AcquireResult homeAcquisition =
-                DesktopHomeRoleLease.prepare(preparedTarget, resolvedPolicy,
-                        DesktopCompatibilitySettings.nextSession());
+        DesktopHomeRoleLease.AcquireResult homeAcquisition = null;
         try {
+            MagicDeskRuntime.prepareDesktop(MagicDeskApplication.applicationContext(),
+                    preparedTarget.workspaceDisplayId);
+            homeAcquisition = DesktopHomeRoleLease.prepare(preparedTarget, resolvedPolicy,
+                    DesktopCompatibilitySettings.nextSession());
             DesktopRuntimeBridge.noteDesktopTarget(
                     preparedTarget, resolvedPolicy);
             SecondaryDisplayWindowing.prepare(preparedTarget.workspaceDisplayId);
@@ -81,7 +82,8 @@ final class DesktopSessionController {
                         homeAcquisition,
                         desktopTaskId);
             }
-            if (desktopTaskId >= 0) {
+            if (desktopTaskId >= 0 && DesktopRuntimeBridge.getSessionSnapshot(
+                    preparedTarget.workspaceDisplayId).hasHost()) {
                 Log.i(TAG, "restoring desktop kind=" + preparedTarget.output.kind
                         + " display=" + preparedTarget.workspaceDisplayId
                         + " task=" + desktopTaskId);
@@ -96,10 +98,6 @@ final class DesktopSessionController {
                             java.util.Collections.singletonList(
                                     Integer.valueOf(desktopTaskId)),
                             null);
-                }
-                if (resolvedPolicy.restoreWorkspace) {
-                    MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
-                            preparedTarget);
                 }
                 return new ShowResult(true, false);
             }
@@ -120,10 +118,6 @@ final class DesktopSessionController {
                 DesktopRuntimeBridge.clearDesktopTarget(preparedTarget);
                 MagicDeskRuntime.reconcileFailedDesktopLaunch(
                         preparedTarget.workspaceDisplayId);
-            }
-            if (ready && resolvedPolicy.restoreWorkspace) {
-                MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(
-                        preparedTarget);
             }
             return new ShowResult(ready, true);
         } catch (IOException | RuntimeException error) {
@@ -149,7 +143,7 @@ final class DesktopSessionController {
             final DesktopDisplayTarget target,
             final TaskRepository.ActionCallback callback) {
         final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
+                DesktopRuntimeBridge.getSessionSnapshot(target == null ? -1 : target.workspaceDisplayId);
         return presentExistingSession(target, session.policy(), callback);
     }
 
@@ -161,7 +155,7 @@ final class DesktopSessionController {
             return false;
         }
         final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
+                DesktopRuntimeBridge.getSessionSnapshot(target.workspaceDisplayId);
         final DesktopDisplayTarget activeTarget = session.target();
         final DesktopHomeRoleLease.State lease =
                 DesktopHomeRoleLease.snapshot();
@@ -216,7 +210,6 @@ final class DesktopSessionController {
                                 Integer.valueOf(desktopTaskId)),
                         null);
             }
-            MagicDeskRuntime.restoreParkedDesktopTasksWhenReady(target);
         }
         return new ShowResult(true, homeAcquisition.created);
     }

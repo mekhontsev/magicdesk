@@ -71,7 +71,7 @@ class ClientTest(unittest.TestCase):
                 def call(self, name, args=None, **kwargs):
                     calls.append(name)
                     if name == "get_state":
-                        return {"app": {"versionCode": 2, "instanceId": str(len(calls))}, "session": {"active": False}}
+                        return {"app": {"versionCode": 2, "instanceId": str(len(calls))}, "workspaces": []}
                     if name == "app.update_status":
                         return ({"state": "unknown"} if calls.count(name) == 1 else
                                 {"state": "installed", "versionCode": 2})
@@ -101,7 +101,7 @@ class ClientTest(unittest.TestCase):
                 def call(self, name, args=None, **kwargs):
                     calls.append(name)
                     if name == "get_state":
-                        return {"app": {"versionCode": 2, "instanceId": "new"}, "session": {"active": False}}
+                        return {"app": {"versionCode": 2, "instanceId": "new"}, "workspaces": []}
                     if name == "app.update_status":
                         return {"state": "completion_unknown", "sha256": mcp.digest(apk)}
                     raise AssertionError(name)
@@ -109,6 +109,66 @@ class ClientTest(unittest.TestCase):
             with self.assertRaisesRegex(mcp.ToolError, "outcome is unknown"):
                 mcp.update(Fake(), apk, "update1234567890")
             self.assertNotIn("app.update", calls)
+
+    def test_update_waits_for_each_workspace_and_stops_on_incomplete_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = pathlib.Path(directory) / "app.apk"
+            apk.write_bytes(b"apk")
+            for incomplete_display in (None, 0, 52):
+                with self.subTest(incomplete_display=incomplete_display):
+                    calls = []
+
+                    class Fake:
+                        timeout = 1
+                        pending = None
+                        remaining = [0, 52]
+                        installed = False
+
+                        def call(self, name, args=None, **kwargs):
+                            calls.append((name, args))
+                            if name == "get_state":
+                                return {"app": {"versionCode": 2,
+                                                "instanceId": "new" if self.installed else "old"},
+                                        "workspaces": [{"displayId": display_id}
+                                                       for display_id in reversed(self.remaining)]}
+                            if name == "app.update_status":
+                                return {"state": "installed" if self.installed else "unknown",
+                                        "versionCode": 2}
+                            if name == "close_desktop":
+                                assert self.pending is None
+                                assert args["displayId"] == self.remaining[0]
+                                self.pending = args["displayId"]
+                                return {}
+                            if name == "wait_for_state":
+                                assert args["condition"] == "desktop_inactive"
+                                assert args["timeoutMillis"] == 30000
+                                if "displayId" in args:
+                                    assert args["displayId"] == self.pending
+                                    if self.pending == incomplete_display:
+                                        return {"matched": False, "waitExpired": True}
+                                    self.remaining.remove(self.pending)
+                                    self.pending = None
+                                else:
+                                    assert not self.remaining
+                                return {"matched": True}
+                            if name == "files.upload_begin":
+                                assert self.pending is None and not self.remaining
+                                return {"state": "completed", "path": "/apk"}
+                            if name == "app.update":
+                                assert self.pending is None and not self.remaining
+                                self.installed = True
+                                return {}
+                            raise AssertionError(name)
+
+                    if incomplete_display is None:
+                        self.assertTrue(mcp.update(Fake(), apk, "update1234567890")["processChanged"])
+                        self.assertEqual([0, 52], [args["displayId"] for name, args in calls
+                                                  if name == "close_desktop"])
+                    else:
+                        with self.assertRaisesRegex(mcp.ToolError, "cleanup has not completed"):
+                            mcp.update(Fake(), apk, "update1234567890")
+                        self.assertFalse(any(name in ("files.upload_begin", "app.update")
+                                             for name, args in calls))
 
 
 if __name__ == "__main__":

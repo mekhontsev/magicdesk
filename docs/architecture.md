@@ -36,9 +36,10 @@ behavior, static verification and remaining device coverage.
   service promotion. A direct service Intent cannot promote Desktop or crash
   independent tools and automation on an unsupported SDK.
 
-The control panel's selected display has separate application, input and Desktop
-actions. Its application picker combines Files, Settings, retained shell/Termux
-and tmux sessions with current-profile application tasks. `TaskRepository`
+The control panel has independent **Apps**, input and Desktop actions. Apps
+opens fullscreen Start with its own destination selector. The shared grid lists launchable apps
+and built-in tools, retained shell/Termux and tmux sessions, plus a separate list
+of current-profile application tasks. `TaskRepository`
 revalidates exact task identity before transfer. An ordinary destination uses
 fullscreen; a Desktop destination uses managed freeform. Leaving Desktop goes
 through its existing topology owner. Ordinary-to-ordinary transfer uses
@@ -405,10 +406,11 @@ runtime integration and are not distributed through the same release path.
 
 - `ControlActivity` and `PhoneControlPanelController` provide the compact phone
   control surface. They do not create taskbar, wallpaper, or app-catalog UI.
-  `DisplaySelectionView` owns the display picker and the selected wired
-  display's resolution/refresh-rate control, placed before Start. The mode
-  remains visible but read-only during a session; choosing a display
-  does not apply a mode or switch the active session.
+  `DisplaySelectionView` owns the display picker and its output control.
+  The resolution/refresh-rate button has a permanent slot in the display action
+  grid and is enabled only for a supported selected wired output. Its dialog
+  shows the current mode, read-only while that display has a Desktop session. Choosing a display or
+  opening the dialog does not apply a mode or switch an active session.
 - `FileManagerActivity` is an ordinary tool Activity, fullscreen outside Desktop
   or a managed window inside it. The activity owns
   navigation and selection; `FileManagerView` renders them and routes user actions.
@@ -441,9 +443,8 @@ runtime integration and are not distributed through the same release path.
   cannot replace the desktop host Activity or hide every application
   merely because a report was opened. Phone-side callers may still open the
   same Activity normally in their current task.
-- `DesktopActivity` hosts external desktops, while
-  `PhoneDesktopHomeActivity` is the dedicated primary-HOME host for a phone
-  desktop.
+- `DesktopActivity` is the secondary HOME host; `PhoneHomeActivity` is the
+  primary HOME host. Both select ordinary Start or Desktop from local residency.
   `DesktopShellActivity` composes controllers and forwards Android callbacks;
   it does not own every feature directly.
 - `DeviceSetupActivity`, `DeviceSetupManager`, and `DeviceSetupView` own the
@@ -775,7 +776,9 @@ runtime integration and are not distributed through the same release path.
   selection and publication belong to its callers. It rejects observed display
   geometry changes rather than returning stale coordinate metadata.
   `DesktopAutomationCapture` is the JSON/image adapter and owns only MCP's
-  omitted-display default (active Desktop, otherwise display 0). Image bytes
+  omitted-display default (sole Desktop, otherwise display 0 when none exists).
+  Multiple workspaces require an explicit display; an explicit selection never
+  evaluates that default. Image bytes
   are never staged in a filesystem cache. Window or element bounds compose
   with the same rectangle request, without additional MCP selection modes.
 - `MagicDeskAppFunctionService` is the Android 16 system-agent adapter. Android
@@ -842,6 +845,11 @@ runtime integration and are not distributed through the same release path.
   raw query that can expose a transient Activity handoff to chrome policy.
   Unknown publication leaves visibility unchanged and remains unavailable.
   Replies requested before activation also recheck the current session.
+- `TaskbarOverflowController` separates refreshed taskbar entries from the
+  open menu's captured rows. Rebuilding its button after a task/focus snapshot
+  does not dismiss or repopulate the menu. It closes when overflow disappears,
+  on a normal panel dismissal or on teardown. Selection still passes the task
+  identity to the existing controller, which resolves current workspace state.
 
 ### Application profiles
 
@@ -1332,8 +1340,8 @@ isolated behind these boundaries.
   No extra observer, poller or worker is introduced. Input commit verification,
   owned-task parking and ordinary session cleanup remain unconditional.
 - `DesktopRuntimeBridge` is only the stable process-local facade.
-  `DesktopSessionRegistry` admits one `DesktopWorkspaceRuntime` and owns
-  session-wide policy. The workspace runtime retains its immutable local
+  `DesktopSessionRegistry` admits one `DesktopWorkspaceRuntime` per logical
+  display, with its own session policy. The workspace runtime retains its immutable local
   snapshot and weak host reference. `DesktopUiGateway` serializes admission
   and host attachment and dispatches explicitly display-addressed UI commands;
   it has no duplicate desktop host reference. A queued UI action validates the
@@ -1423,8 +1431,8 @@ finite operations read it without repeating package, permission, version, and
 UID probes. Explicit setup/diagnostic audits and command failures refresh it.
 Finite operations use typed AIDL calls or bounded shell commands. Task events,
 focus requests, and acknowledgements use a typed one-way AIDL callback. The
-callback Binder owns the single task-observer session, so client death removes
-the framework listener without a child `app_process` or textual protocol.
+callback Binder owns one display's task-observer subscription, so client death
+removes only that listener without a child `app_process` or textual protocol.
 
 Other long-lived operations use `ParcelFileDescriptor` streams owned by an APK
 Binder token:
@@ -1664,24 +1672,29 @@ the production presenter currently requires a direct binding: workspace and
 output are the same Android display. Representing a different binding does not
 enable output switching; startup rejects it before display setup or HOME changes.
 
-`DesktopWorkspaceSnapshot` describes the display-local binding and registered
-host. `DesktopWorkspaceRuntime` owns one residency of that workspace: Activity
-recreation retains the same runtime, while Close invalidates it and a subsequent
-start creates a new one, even on the same Android display. Its object identity
-is process-local, not a persisted workspace identifier. `DesktopSessionSnapshot`
-publishes local state together with session-wide policy atomically. Admission
-still allows exactly one workspace; this does not enable concurrent desktops.
+`DesktopSessionRegistry` admits one workspace per logical display. Phone and
+external workspaces can coexist. `DesktopWorkspaceSnapshot` publishes its UUID,
+binding and registered host atomically. `DesktopWorkspaceRuntime` owns that
+residency: Activity recreation retains its identity; Close invalidates it, and
+a later start creates a new identity even on the same Android display.
+`DesktopSessionSnapshot` adds the residency's policy. Isolated self-tests cannot
+join user workspaces or another test workspace.
 
 Start, Alt+Tab, settings and workspace presentation carry a display address from
 their command boundary through the runtime facade to the UI gateway. Global
-shortcuts resolve the current workspace at that boundary. Deferred host actions
-remain bound to their original Activity. Task observation and input coordination
-remain shared services with no additional observer, polling loop or worker.
-`RuntimeDesktopTaskCoordinator` holds the active workspace owner separately from
-its shared task controller. Workspace release validates that owner and any newly
-prepared workspace before releasing task observation; process shutdown has an
-explicit unconditional release path. Window-state finalization uses the same
-workspace identity, so a delayed Close cannot end a replacement's state session.
+shortcuts resolve the independently selected input display at that boundary.
+Deferred host actions remain bound to their original Activity.
+`RuntimeDesktopTaskCoordinator` owns one controller and observation subscription
+per workspace. `FrameworkTaskObservationSource` uses one shared scheduler for
+the existing 150 ms reconciliation fallback. Policy consumers add no polling.
+`ShellActivityStartController` multiplexes Android's global controller slot;
+the last client releases it. `ShellWorkspaceMembership` prevents external
+phone-task normalization from touching a live phone Desktop, and appoints only
+one external observer to normalize an ordinary phone workspace.
+Release validates the workspace identity before removing its observer.
+Window-state finalization uses the same identity, so a delayed Close cannot end
+a replacement's state session. Retained-window restoration is initiated once
+by the workspace coordinator; each restoration batch belongs to its destination.
 Host registration, task placement, window geometry, task density, capture and
 input routing address the workspace. Output mode preparation, transport caption
 policy and monitor-profile selection address the output. A profile still stores
@@ -1695,40 +1708,40 @@ HOME lease state and the host Activity retain the complete immutable target,
 not separate reconstructed copies of its fields. Intent and saved-instance state
 use the same target Bundle codec. Matching a session checks both ends of the
 binding; changing profile values does not change display identity. Phone HOME
-selection follows task residency rather than the output transport. The input
-target is derived from the active workspace; route acquisition still waits for
-workspace preparation, and teardown preserves virtual-mouse recreation and
-association restoration ordering.
+selection follows task residency rather than the output transport. Input has
+one independent selected destination. Starting a Desktop selects it only after
+that workspace is prepared; closing another Desktop does not release or redirect
+input. Teardown preserves virtual-mouse recreation and association restoration
+ordering. Display windowing defaults are acquired and restored per display.
 
 Display removal recovery addresses the lost workspace. With direct bindings,
 unplugging the output also removes that workspace and retains the normal close
-behavior. There is one active Desktop session, no automatic parking on a virtual
-display, no output-exchange backend and no new framework capability prerequisite.
+behavior for that workspace only. There is no automatic parking on a virtual
+display, output-exchange backend or new framework capability prerequisite.
 The independent display resource, viewer and session lifetimes remain unchanged.
 Workspace-local release is not the whole Close operation: the outer session
 coordinator still owns HOME handoff, input release, task return and final HOME
 surface cleanup in their existing order. Closing the only workspace leaves
 independent automation, file and terminal services available.
 
-Starting any desktop first acquires one
+Starting the first desktop acquires one
 persisted `DesktopHomeRoleLease`: MagicDesk temporarily becomes the package-wide
 Android HOME holder and remembers the previous role state plus the complete
-target. Android may have a working HOME surface while the role has no explicit
+target membership. Further workspaces join that lease without acquiring HOME
+again. Android may have a working HOME surface while the role has no explicit
 holder; that empty state is valid and is restored by removing MagicDesk rather
 than selecting a launcher on the user's behalf.
-`DesktopHomeSurfaceRouter` atomically exposes exactly one primary HOME Activity
-before the role is claimed. Its immutable selection derives primary and
-secondary component admission independently from workspace residency. A default
-workspace selects Desktop on the primary display; only secondary workspaces
-select the phone launcher there. The policy can describe both together, but
-production supplies its single admitted target. An unassigned secondary display
-does not acquire a MagicDesk host, and an empty selection enables no HOME surfaces.
-External targets use `PhoneHomeActivity` on display
-0 and launch `DesktopActivity` through the typed privileged task API as the
-HOME task on the selected display. A phone target exposes
-the dedicated `PhoneDesktopHomeActivity` as primary HOME, so Android creates
-the desktop host directly in its standard task area without conflating it with
-the external-display host component.
+`DesktopHomeSurfaceRouter` atomically enables one primary HOME component,
+`PhoneHomeActivity`, and one secondary HOME component, `DesktopActivity`, before
+claiming the role. Both identities stay enabled until the last workspace closes.
+Starting or closing the phone Desktop changes content, not the preferred HOME
+component: replacing an enabled Activity can invalidate Android's preferred
+resolution even while the package still holds the role.
+Each host selects Desktop for a resident workspace or ordinary
+`FullscreenStartController` content without Desktop preparation or task observation.
+An empty selection enables no HOME surfaces. Android creates the primary host
+in its standard task area; explicit external startup launches the secondary
+host through the typed privileged task API.
 
 `DesktopActivity` uses `singleTop`, allowing Android to create a display-local
 secondary HOME instance. Android rejects `singleTask` and `singleInstance` for
@@ -1743,11 +1756,13 @@ launch-mode restrictions. Startup still verifies the actual display and HOME
 task type.
 
 The lease is the only owner of HOME transitions and HOME-surface selection.
-Normal close quiesces MagicDesk's HOME entry points, restores the previous
-holder, and retains existing HOME surfaces through workspace teardown. It
-disables those components before presenting the restored launcher; later
-cleanup failure never reclaims HOME for MagicDesk.
-Unexpected display loss releases a live lease through the same role boundary,
+Closing one workspace retains HOME for the others. Closing the last workspace
+quiesces its HOME entry points, restores the previous holder, and retains existing
+HOME surfaces through workspace teardown. It disables those components before
+presenting the restored launcher; later cleanup failure never reclaims HOME.
+A failed component selection retains the closing membership for recovery rather
+than recreating a workspace that has already closed.
+Unexpected display loss releases that workspace's lease membership through the same role boundary,
 and a user-selected third-party HOME is never overwritten. If a new MagicDesk
 process starts while still holding HOME, the startup guard disables its HOME
 surfaces, discards the stale lease, and opens system HOME immediately without
@@ -1788,8 +1803,8 @@ close operation; transport-specific code stops at target preparation.
   can be represented by policy tests without starting an unsupported session.
   Removal eligibility excludes every built-in screen independently of ownership.
 - `ShellVirtualDisplays` owns headless Android virtual-display tokens independently
-  of HOME/tasks. Several displays may coexist, but only one desktop session runs
-  at a time. Creation size and density are configurable; scrcpy captures an
+  of HOME/tasks. Several displays and desktop workspaces may coexist.
+  Creation size and density are configurable; scrcpy captures an
   existing logical display without owning its lifecycle. Framework primitives
   and hidden flags belong to `FrameworkVirtualDisplayApi`. App-owner Binder death
   releases its display tokens. A callback-driven ImageReader supplies the
@@ -1801,7 +1816,8 @@ close operation; transport-specific code stops at target preparation.
   creation refuses an existing overlay instead of disturbing it. Headless
   displays have no such singleton limitation. The four existing session drivers
   remain; both virtual sources use the standard simulated-display path.
-- Close Desktop restores HOME, input, and tasks without deleting any display.
+- Close Desktop returns that workspace's tasks, releases input only if selected
+  there, and restores HOME only for the last workspace, without deleting a display.
   Explicit removal validates both runtime ID and unique identity, requires
   MagicDesk ownership, closes an active session on that display first, then
   waits for transition quiescence before releasing the display token. Wired,
@@ -1810,7 +1826,8 @@ close operation; transport-specific code stops at target preparation.
 
 When a new external desktop task is ready and automatic touchpad opening is
 enabled, `PhoneTouchpadController` opens `MagicDeskTouchpadActivity` on display 0
-if that display driver permits it. No absolute-position API is required.
+if that display driver permits it and display 0 does not host a Desktop.
+Explicit touchpad opening remains available. No absolute-position API is required.
 
 The runtime asks the selected platform to expose native captions for wired and
 wireless desktops. The Nubia driver applies its matching privacy filter;
@@ -1829,7 +1846,7 @@ dragging additionally exercises InputReader's device associations.
 - Starting Desktop on the phone uses a dedicated HOME task excluded from Recents.
 - An external desktop is a display-sized secondary HOME Activity. Its stack
   position separates exposed workspace tasks from tasks below HOME. The phone
-  uses the separate MagicDesk phone HOME for the duration of that session.
+  uses `PhoneHomeActivity`, showing its own Desktop if active or ordinary Start.
 - Phone control and external desktop are separate tasks and may coexist.
 
 Contributors can run `scripts/smoke-simulated-display.sh` from a host with ADB.
@@ -1943,7 +1960,7 @@ caption/input surfaces. The simulated driver
 deliberately uses this same path to model external-display behavior without
 connected hardware.
 
-`PhoneDesktopHomeActivity` is primary HOME in Android's default task area.
+`PhoneHomeActivity` is primary HOME in Android's default task area.
 Freeform applications remain standard root-workspace tasks above that HOME.
 Its `singleTop` launch mode lets Android reuse HOME inside the standard HOME
 root. Android may also create HOME in an organizer task area. Those instances
@@ -2148,12 +2165,13 @@ unconditionally assumes that view is present. Current AOSP Launcher3 permits
 the field to be absent; this is a vendor integration defect rather than
 malformed task metadata.
 
-While a desktop session is active, MagicDesk owns Android's HOME role. An
-external session uses `PhoneHomeActivity` as the phone navigation surface; a
-phone session uses `PhoneDesktopHomeActivity` as primary HOME. The task layer enforces a
-separate invariant: no application task may remain freeform on display 0 after
-migration or teardown. `ShellExternalTaskMigrationGuard` normalizes
-system-driven moves during an external session, and
+While a desktop session is active, MagicDesk owns Android's HOME role.
+`PhoneHomeActivity` remains the phone navigation surface throughout the shared
+HOME lease, showing ordinary Start or the local Desktop. The task layer enforces a
+separate invariant: no application task may remain freeform in the ordinary
+phone workspace after migration or teardown. A live phone Desktop is excluded.
+`ShellExternalTaskMigrationGuard` normalizes system-driven moves while an external
+observer owns that policy, and
 `PhoneDesktopTaskRecovery` reconciles live tasks with WMShell's retained desktop
 repository after desktop close or external-display loss. Already migrated
 phone tasks can still be indexed under the external display, so recovery
@@ -2162,14 +2180,17 @@ not move tasks that remain on another display or revive unrelated external
 entries. External Close runs this reconciliation before presenting restored
 HOME, including when the physical monitor remains connected.
 
-`PhoneHomeActivity` embeds `StartMenuContent`, the same contents used by the
-desktop `StartMenuController` popup. Each host owns its own view, query, page,
-selection and focus; both Starts can be visible at once. Phone Recent is
-derived from ordinary display-0 tasks through `PhoneRecentApps`, not from
+`FullscreenStartController` embeds `StartMenuContent`, the same contents used by the
+desktop `StartMenuController` popup. `StartActivity` opens the fullscreen version
+from Control Panel without acquiring HOME or requiring Desktop.
+`PhoneHomeActivity` and an unassigned secondary HOME use that ordinary
+launcher controller without creating Desktop. Each Start owns its view, query,
+page, selection and focus; multiple Starts can be visible at once. Ordinary HOME Recent is
+derived from its local tasks through `HomeRecentApps`, not from
 desktop history or only the applications launched by Start. It includes
 launchable phone applications opened from notifications, filters HOME and
 shell surfaces, and deduplicates application identities in snapshot order.
-The external Start retains its independent desktop launch history. Phone HOME
+Desktop Start uses remembered desktop launch history. Phone HOME
 requests a typed task snapshot only when resumed or when Recent is selected;
 stopped instances discard pending results. An unavailable snapshot is an error,
 not a fabricated empty history. The phone uses only application search, without
@@ -2178,16 +2199,29 @@ constructing the desktop file-search worker. The application catalog reuses
 `LauncherApps.Callback`, not by a timer. Grid capacity follows each panel's
 measured viewport, including keyboard resizing.
 
-Phone selection uses `PhoneAppLauncher`, outside desktop launch integrations,
-saved bounds and density profiles. A one-shot typed task snapshot identifies
-an existing external task only when there is no matching phone instance. Such
-a task returns through `TaskRepository.moveTaskToDisplay` before the ordinary
-display-0 launcher Intent is delivered; this avoids cross-area Intent reuse
-inside Android's ActivityStarter. No duplicate task or alternate transition
-protocol is introduced. The phone HOME also exposes phone controls, touchpad
-and production Close. An explicit HOME launch releases the existing touchpad
-request so its recovery mechanism cannot cover the requested phone Start.
-It registers a display-0 automation surface without registering a desktop host.
+Every Start has a compact launch-display selector alongside search. **Current**
+means the display hosting that instance, not the selected input display. Choosing
+a destination preserves query and navigation, does not dismiss Start, and changes
+neither HOME nor input ownership. The display catalog is read when the selector
+is opened; there is no new periodic observer. Explicit choices retain the live
+display identity and are revalidated at launch, so a disconnected destination
+cannot silently redirect an application to another screen. Start's application
+context-menu launches use the same captured destination. Fullscreen remains the
+existing window presentation, not a separate task-ownership mode.
+
+`DisplayAppLauncher` selects the launch path from current destination ownership,
+not the Start host's role. Ordinary destinations do not apply Desktop density
+or saved window bounds. A one-shot typed snapshot identifies an existing task
+on another display only if no matching destination instance exists. It moves
+through `TaskRepository.moveTaskToDisplay` before the ordinary launcher Intent
+is delivered, avoiding cross-area Intent reuse inside Android's ActivityStarter.
+Standalone fullscreen Start uses the same application grid plus a running-task
+section; each task retains its own identity and title. Display identity is checked
+inside the transfer owner before mutation.
+Ordinary HOME exposes controls, touchpad and production Close. Phone HOME navigation
+releases the touchpad request so recovery cannot cover the requested Start;
+navigation on other displays does not change the phone touchpad.
+Its window-local automation registry does not register a desktop host.
 
 The optional `ShellPhoneOverviewRouter` starts independently of the main
 activity-start observer. When `RECENTS_TO_HOME` is enabled, routing becomes
@@ -2200,30 +2234,30 @@ There is no background retry.
 The Overview router may remain registered while task teardown is still
 finishing, but it cancels the firmware Recents launch only after the app-side
 callback confirms an `ACTIVE` HOME lease. The lease enters `RELEASING` before
-HOME is transferred on normal close, failed start, self-test cleanup, or
-unexpected display loss. Recents therefore returns to the system launcher at
+the last membership leaves through normal close, failed start, self-test cleanup,
+or unexpected display loss. Recents therefore returns to the system launcher at
 the HOME ownership boundary rather than at the end of task cleanup; the check
 runs only for an attempted Recents launch and adds no background work.
 After a user session relinquishes HOME, the close coordinator explicitly
 presents the verified current role holder once task-session and display
-teardown have completed. Role transfer remains the first close operation, but
+teardown have completed. Role transfer precedes the last workspace's teardown, but
 the later presentation avoids asking Android to start HOME through an
 organizer hierarchy that is being removed. It also prevents Android from
 leaving the now-inactive `PhoneHomeActivity` task visible after the role itself
 has already changed.
-All MagicDesk HOME components are disabled outside a desktop session,
-including their manifest defaults. Preparation enables the target primary surface
-and, for an external session, `DesktopActivity` as `SECONDARY_HOME` in the same
-component batch, before role acquisition and HOME presentation. Normal Close
-returns the role first but keeps existing HOME surfaces alive through task
-parking and host/display teardown. Only the final close phase disables the
+Both MagicDesk HOME components are disabled when no workspace is owned,
+including their manifest defaults. First preparation enables `PhoneHomeActivity`
+and `DesktopActivity` in the same component batch, before role acquisition and
+HOME presentation. Adding or closing a non-final workspace leaves both identities
+enabled. The last Close returns the role first but keeps existing HOME surfaces
+alive through task parking and host/display teardown. Its final phase disables the
 components and clears the `RELEASING` lease, before presenting restored HOME.
 Disabling a live Activity component itself starts Android CLOSE transitions;
 it is not a harmless way to update role eligibility while parking tasks.
 The runtime's existing start/close gate prevents recovery callbacks from
 finalizing that lease concurrently. Existing HOME instances ignore new HOME
 requests during release rather than destroying the host ahead of its owner.
-Close, rollback, and session loss leave all three disabled;
+Final Close, rollback, and session loss leave both disabled;
 neither primary nor secondary launcher choices may offer inactive MagicDesk.
 A missing role holder
 therefore reaches Android's launcher resolver without selecting inactive
@@ -2257,10 +2291,11 @@ untouched. `PRESENT_DESKTOP` remains the separate command that conceals all
 application windows to expose bare wallpaper.
 
 The control panel uses one display selector and **Start desktop** action.
-For the active target it offers **Show desktop**. Starting another target is
-disabled while a session is owned, and the action boundary rejects conflicting
-requests from other callers too. Switching targets requires closing the current
-session first; ordinary tool placement remains independent.
+For an active target it offers **Show desktop**. Another display can start its
+own workspace without closing the current one. Start and Close operations are
+serialized; the UI is disabled only while such an operation is in progress.
+**Close desktop** addresses the selected workspace. Ordinary tool placement
+and input selection remain independent.
 
 Task mode is not an ownership signal on display 0. MagicDesk claims a task
 before submitting a desktop launch or window transition, and only claimed
@@ -2272,8 +2307,11 @@ observed there is published regardless of mode.
 
 Task snapshots and windowing commands issued through `TaskRepository` share a
 single `TaskCommandQueue` with phone-task recovery. Recovery checks session
-ownership before every mutation. Removed-display recovery is cancelled when a
-new phone or external target is prepared, without waiting for its HOME host.
+ownership before every mutation. Removed-display recovery is cancelled when
+that display acquires a new residency or a phone Desktop starts, without waiting
+for its HOME host. Preparing an unrelated external workspace does not cancel it.
+Broad ordinary-phone normalization never rewrites a live phone Desktop;
+explicit Close still returns the closing workspace's tasks in fullscreen.
 Ordinary taskbar operations cannot interleave with recovery commands.
 
 Each desktop target has a profile keyed by its Android display identity, never
@@ -2843,20 +2881,21 @@ destination, not a collection of cleanup flags. Before side effects,
 target/host and captures the task disposition and phone-recovery policy once.
 A stale close cannot release a different workspace's HOME or input. A retained
 target may still finish cleanup after its host or display disappeared.
-The plan explicitly ends the whole session and restores ordinary system input:
-it is not an output detach or a transfer to another active workspace. The existing
+The plan ends only the selected workspace and releases input if that workspace
+still owns the selection. It is not an output detach or a transfer to another
+active workspace. The existing
 task-return path either returns tasks to the default display and remembers their
-layout, or skips that step because Exit has already returned them. No destination
-display is removed by this plan. Multiple-workspace close and parking without
-returning applications to the phone remain unimplemented.
+layout, or returns them without retaining layout for Exit. No destination
+display is removed by this plan. Output parking without returning applications
+to the phone remains unimplemented.
 Both Close destinations park tasks before releasing the desktop host; showing
-the phone control panel is only a presentation choice. Exit skips parking
-because its preceding return-tasks step has already moved applications home
-and the saved workspace has been cleared.
+the phone control panel is only a presentation choice. Exit uses the same task
+return path without retaining a workspace for restoration.
 
-Before any normal teardown mutation, `DesktopHomeRoleLease` restores and
-verifies the exact HOME role state from session start: either the previous
-holder or no explicit holder. Before transferring the role, the lease also
+Before normal teardown, `DesktopHomeRoleLease` marks the closing membership;
+only the last workspace restores and verifies the exact original HOME role
+state: either the previous holder or no explicit holder. When acquiring the
+role, the lease also
 resolves that user-selected HOME package to a concrete `MAIN`/`HOME` Activity
 through the shell PackageManager and persists its component, package version,
 and static availability. This is a one-shot capability snapshot rather than a
@@ -2871,8 +2910,9 @@ close the role handoff does not disable Activity components: the `RELEASING`
 record retains ownership of the remaining surface cleanup until the close
 coordinator finishes task, host and display teardown. It then disables the
 components and clears the lease. A later cleanup failure never claims HOME for
-MagicDesk again. Unexpected display loss outside an explicit transition restores
-the role and disables the surfaces without waiting for a UI callback.
+MagicDesk again. Unexpected display loss outside an explicit transition releases
+the lost workspace's membership; only the last loss restores the role and
+disables the surfaces without waiting for a UI callback.
 
 Close is one-way even when a cleanup operation fails. A failed HOME handoff
 does not skip input, task, and host release. Explicit display removal that cannot
@@ -2884,12 +2924,14 @@ errors; they never reopen input routing or migration protection.
 Physical display removal, **Close desktop**, and **Exit MagicDesk** share the
 common cleanup path:
 
-- hand HOME back to the package saved by the session lease;
+- hand HOME back to the package saved by the lease only for the last workspace;
 - restore an active phone-display power guard before releasing input, even when
   the external display stays connected and the foreground runtime stays alive;
-- release shortcut filtering, display associations, and the virtual phone pointer;
+- release shortcut filtering, display associations, and the virtual phone pointer
+  only if the closing workspace owns the selected input;
 - keep HOME components enabled while parking tasks and removing the desktop host
-  or owned display, then disable them before presenting the restored launcher;
+  or owned display; after the last workspace, disable them before presenting
+  the restored launcher;
 - close display-scoped panel windows and stop task observation;
 - stop phone-display streams;
 - restore caption privacy and display geometry ownership;
@@ -2963,10 +3005,9 @@ Observer reconnection, a profile edit, or a display-density change creates a
 new bounded attempt. When a task leaves the desktop or the session closes,
 MagicDesk clears its task and plane overrides to Android's inherited density.
 
-MagicDesk temporarily owns Android's HOME role for the desktop session. The
-selected component makes `PhoneHomeActivity` the phone navigation surface for
-an external session or makes `PhoneDesktopHomeActivity` primary HOME for a
-phone session.
+MagicDesk temporarily owns Android's HOME role while any Desktop is active.
+The primary `PhoneHomeActivity` keeps the same identity across workspace changes;
+its content follows local Desktop residency.
 The crash-recovery lease is an exact, versioned snapshot. An incomplete or
 unsupported lease is discarded by startup recovery rather than interpreted as
 state from an older MagicDesk build.

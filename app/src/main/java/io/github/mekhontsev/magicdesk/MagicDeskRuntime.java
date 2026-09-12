@@ -25,7 +25,9 @@ public final class MagicDeskRuntime {
             BuildConfig.APPLICATION_ID + ".action.START_TOOLS";
     private static WeakReference<MagicDeskRuntimeBackend> sBackend =
             new WeakReference<>(null);
-    private static CompletableFuture<Void> sDesktopPreparation;
+    private static final java.util.Map<Integer, CompletableFuture<Void>> DESKTOP_PREPARATIONS =
+            new java.util.HashMap<>();
+    private static final String EXTRA_PREPARING_DISPLAY = "preparingDesktopDisplayId";
 
     private MagicDeskRuntime() {
     }
@@ -36,17 +38,18 @@ public final class MagicDeskRuntime {
                 new Intent(context, MagicDeskRuntimeService.class));
     }
 
-    static void prepareDesktop(final Context context) throws IOException {
+    static void prepareDesktop(final Context context, final int displayId) throws IOException {
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
             throw new IllegalStateException("desktop preparation must run off the UI thread");
         }
         final CompletableFuture<Void> ready;
         synchronized (MagicDeskRuntime.class) {
-            if (sDesktopPreparation == null) { sDesktopPreparation = new CompletableFuture<>(); }
-            ready = sDesktopPreparation;
+            ready = DESKTOP_PREPARATIONS.computeIfAbsent(displayId, id -> new CompletableFuture<>());
         }
         try {
-            start(context);
+            RuntimeCapabilities.requireDesktop();
+            context.startForegroundService(new Intent(context, MagicDeskRuntimeService.class)
+                    .putExtra(EXTRA_PREPARING_DISPLAY, displayId));
             // The task observer's ready callback acknowledges service promotion.
             // HOME and display policy are not changed until this event arrives.
             ready.get(ExternalDisplayController.START_TIMEOUT_MS, TimeUnit.MILLISECONDS);
@@ -57,13 +60,18 @@ public final class MagicDeskRuntime {
             throw new IOException("desktop task observer preparation failed", error);
         } finally {
             synchronized (MagicDeskRuntime.class) {
-                if (sDesktopPreparation == ready) { sDesktopPreparation = null; }
+                DESKTOP_PREPARATIONS.remove(displayId, ready);
             }
         }
     }
 
-    static synchronized void desktopRuntimePrepared() {
-        if (sDesktopPreparation != null) { sDesktopPreparation.complete(null); }
+    static synchronized void desktopRuntimePrepared(final int displayId) {
+        final CompletableFuture<Void> ready = DESKTOP_PREPARATIONS.get(displayId);
+        if (ready != null) { ready.complete(null); }
+    }
+
+    static int preparingDisplay(final Intent intent) {
+        return intent == null ? -1 : intent.getIntExtra(EXTRA_PREPARING_DISPLAY, -1);
     }
 
     static void startTools(final Context context) {
@@ -178,9 +186,14 @@ public final class MagicDeskRuntime {
         }
     }
 
+    static void desktopTransitionFinished() {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend != null) { backend.desktopTransitionFinished(); }
+    }
+
     static void configureDesktopHomeDelegate(final int displayId, final int taskId,
             final IBinder activityToken, final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             callback.onComplete(new TaskRepository.ActionResult(
                     false, "desktop runtime is unavailable"));
@@ -192,7 +205,7 @@ public final class MagicDeskRuntime {
     static void configureDesktopActivityInput(
             final int displayId,
             final IBinder activityToken) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null || activityToken == null) {
             return;
         }
@@ -202,7 +215,7 @@ public final class MagicDeskRuntime {
     static void prepareDesktopChromeHost(
             final int displayId,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             if (callback != null) {
                 callback.onComplete(new TaskRepository.ActionResult(
@@ -215,7 +228,7 @@ public final class MagicDeskRuntime {
 
     static void setDesktopChromeFocusable(final int displayId, final int taskId,
             final boolean focusable, final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             callback.onComplete(new TaskRepository.ActionResult(
                     false, "desktop runtime is unavailable"));
@@ -415,10 +428,11 @@ public final class MagicDeskRuntime {
 
     static void parkDesktopTasks(
             final DesktopDisplayTarget source,
+            final boolean remember,
             final DesktopTaskParkingRuntime.ResultCallback callback) {
         final DesktopTaskParkingRuntime parking = desktopTaskParking();
         if (parking != null) {
-            parking.park(source, callback);
+            parking.park(source, remember, callback);
         } else if (callback != null) {
             callback.onComplete(false);
         }
@@ -428,14 +442,6 @@ public final class MagicDeskRuntime {
         final DesktopTaskParkingRuntime parking = desktopTaskParking();
         if (parking != null) {
             parking.preserve(displayId);
-        }
-    }
-
-    static void restoreParkedDesktopTasksWhenReady(
-            final DesktopDisplayTarget target) {
-        final DesktopTaskParkingRuntime parking = desktopTaskParking();
-        if (parking != null) {
-            parking.restoreWhenReady(target);
         }
     }
 
@@ -455,24 +461,24 @@ public final class MagicDeskRuntime {
 
     static List<TaskRepository.TaskEntry> getVisibleFreeformTasks(
             final int displayId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks == null ? null : tasks.getVisibleFreeformTasks(displayId);
     }
 
-    static boolean isTaskObserverReady() {
-        final DesktopTaskRuntime tasks = desktopTasks();
+    static boolean isTaskObserverReady(final int displayId) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks != null && tasks.isTaskObserverReady();
     }
 
     static TaskRepository.Snapshot observedTaskSnapshot(final int displayId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks == null ? null : tasks.observedTaskSnapshot(displayId);
     }
 
     static TaskRepository.Snapshot selectDesktopTaskSnapshot(
             final int displayId,
             final TaskRepository.Snapshot snapshot) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             return new TaskRepository.Snapshot(
                     Collections.emptyList(),
@@ -487,7 +493,7 @@ public final class MagicDeskRuntime {
             final Intent intent,
             final Rect bounds,
             final int densityDpi) throws IOException {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
@@ -499,7 +505,7 @@ public final class MagicDeskRuntime {
             final int displayId,
             final Intent intent,
             final int densityDpi) throws IOException {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
@@ -511,7 +517,7 @@ public final class MagicDeskRuntime {
             final int taskId,
             final Rect bounds,
             final int densityDpi) throws IOException {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
@@ -523,7 +529,7 @@ public final class MagicDeskRuntime {
             final int displayId,
             final int taskId,
             final int densityDpi) throws IOException {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
@@ -540,7 +546,7 @@ public final class MagicDeskRuntime {
             final Rect bounds,
             final int densityDpi,
             final int existingTaskId) throws IOException {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
@@ -563,7 +569,7 @@ public final class MagicDeskRuntime {
             final Rect bounds,
             final int densityDpi,
             final int existingTaskId) throws IOException {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
@@ -577,26 +583,41 @@ public final class MagicDeskRuntime {
                 existingTaskId);
     }
 
-    static boolean applyAppPresentation(
-            final AppIdentity application,
+    static boolean applyAppPresentation(final AppIdentity application,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
-        final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
-        if (tasks == null || !session.hasHost()
-                || application == null) {
-            return false;
+        if (application == null) { return false; }
+        final List<Integer> displays = DesktopRuntimeBridge.getWorkspaces().stream()
+                .filter(DesktopSessionSnapshot::hasHost)
+                .map(DesktopSessionSnapshot::activeWorkspaceDisplayId).toList();
+        if (displays.isEmpty()) { return false; }
+        applyAppPresentation(application, displays, 0, new java.util.ArrayList<>(), callback);
+        return true;
+    }
+
+    private static void applyAppPresentation(final AppIdentity application,
+            final List<Integer> displays, final int index, final List<String> failures,
+            final TaskRepository.ActionCallback callback) {
+        if (index == displays.size()) {
+            completeTaskAction(callback, failures.isEmpty(), String.join("; ", failures));
+            return;
         }
-        final int densityDpi =
-                DesktopTaskPresentationPolicy.resolveDensityDpi(
-                        application, session.activeWorkspaceDisplayId());
-        return tasks.applyAppPresentation(
-                application, densityDpi, callback);
+        final int displayId = displays.get(index);
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
+        final Runnable next = () -> applyAppPresentation(
+                application, displays, index + 1, failures, callback);
+        if (tasks == null) { next.run(); return; }
+        final int density = DesktopTaskPresentationPolicy.resolveDensityDpi(application, displayId);
+        if (!tasks.applyAppPresentation(application, density, result -> {
+            if (!result.success) { failures.add("display " + displayId + ": " + result.message); }
+            next.run();
+        })) {
+            next.run();
+        }
     }
 
     static void noteTaskLaunchFocus(
             final int displayId, final int taskId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.noteTaskLaunchFocus(displayId, taskId);
         }
@@ -606,7 +627,7 @@ public final class MagicDeskRuntime {
             final int displayId,
             final int taskId,
             final Intent intent) throws IOException {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             throw new IOException("desktop task runtime unavailable");
         }
@@ -616,7 +637,7 @@ public final class MagicDeskRuntime {
     static void closeTask(
             final TaskRepository.TaskEntry task,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(task == null ? -1 : task.displayId);
         if (tasks == null || !tasks.closeTask(task, callback)) {
             TaskRepository.closeTask(task, callback);
         }
@@ -625,30 +646,26 @@ public final class MagicDeskRuntime {
     static boolean makeTaskFullscreen(
             final TaskRepository.TaskEntry task,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(task == null ? -1 : task.displayId);
         return tasks != null && tasks.makeTaskFullscreen(task, callback);
     }
 
-    static void forceStopApplication(
-            final AppIdentity application,
+    static void forceStopApplication(final AppIdentity application,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
-        if (tasks == null
-                || !tasks.forceStopApplication(application, callback)) {
-            TaskRepository.forceStop(application, callback);
-        }
+        // Force-stop is application-wide; each workspace observes the removals.
+        TaskRepository.forceStop(application, callback);
     }
 
     static List<TaskRepository.TaskEntry> getLastVisibleFreeformTasks(
             final int displayId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks == null
                 ? Collections.emptyList()
                 : tasks.getLastVisibleFreeformTasks(displayId);
     }
 
     static Boolean hasVisibleAppTaskSnapshot(final int displayId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks == null ? null : tasks.hasVisibleAppTaskSnapshot(displayId);
     }
 
@@ -656,7 +673,7 @@ public final class MagicDeskRuntime {
             final int displayId,
             final List<TaskRepository.TaskEntry> visibleTasks,
             final int excludedTaskId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.beginFullscreenTransition(
                     displayId, visibleTasks, excludedTaskId);
@@ -665,14 +682,14 @@ public final class MagicDeskRuntime {
 
     static void finishFullscreenTransition(
             final int displayId, final boolean success) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.finishFullscreenTransition(displayId, success);
         }
     }
 
     static void forgetVisibleFreeformTasks(final int displayId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.forgetVisibleFreeformTasks(displayId);
         }
@@ -686,10 +703,10 @@ public final class MagicDeskRuntime {
             completeTaskAction(callback, false, "invalid task");
             return;
         }
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.focusDesktopTask(displayId, taskId, callback);
-        } else if (DesktopRuntimeBridge.getSessionSnapshot()
+        } else if (DesktopRuntimeBridge.getSessionSnapshot(displayId)
                 .activeWorkspaceDisplayId() == displayId) {
             completeTaskAction(
                     callback, false, "desktop task runtime unavailable");
@@ -703,7 +720,7 @@ public final class MagicDeskRuntime {
             final int displayId,
             final int desktopHostTaskId,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.showDesktop(displayId, desktopHostTaskId, callback);
         } else {
@@ -716,7 +733,7 @@ public final class MagicDeskRuntime {
             final int displayId,
             final int desktopHostTaskId,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.presentDesktopWorkspace(
                     displayId, desktopHostTaskId, callback);
@@ -726,15 +743,11 @@ public final class MagicDeskRuntime {
         }
     }
 
-    static int activeDesktopDisplayId() {
-        return DesktopRuntimeBridge.getActiveDesktopDisplayId();
-    }
-
     static void restoreShowDesktopWorkspace(
             final int displayId,
             final int desktopHostTaskId,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.restoreShowDesktopWorkspace(
                     displayId, desktopHostTaskId, callback);
@@ -748,7 +761,7 @@ public final class MagicDeskRuntime {
             final int displayId,
             final int desktopHostTaskId,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.toggleShowDesktopWorkspace(
                     displayId, desktopHostTaskId, callback);
@@ -762,7 +775,7 @@ public final class MagicDeskRuntime {
             final int displayId,
             final List<Integer> backToFrontTaskIds,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.restoreDesktopWorkspace(
                     displayId, backToFrontTaskIds, callback);
@@ -776,7 +789,7 @@ public final class MagicDeskRuntime {
             final int displayId,
             final int taskId,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             completeTaskAction(callback, false, "desktop task runtime unavailable");
             return;
@@ -785,12 +798,12 @@ public final class MagicDeskRuntime {
     }
 
     static boolean handleActiveTaskShortcut(final int shortcut) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(inputDisplayId());
         return tasks != null && tasks.handleActiveTaskShortcut(shortcut);
     }
 
-    static boolean arrangeTask(final int taskId, final int shortcut) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+    static boolean arrangeTask(final int displayId, final int taskId, final int shortcut) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks != null && tasks.arrangeTask(taskId, shortcut);
     }
 
@@ -799,7 +812,7 @@ public final class MagicDeskRuntime {
             final int taskId,
             final Rect bounds,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks == null) {
             completeTaskAction(
                     callback, false, "desktop task runtime unavailable");
@@ -808,15 +821,15 @@ public final class MagicDeskRuntime {
         tasks.setWindowBounds(displayId, taskId, bounds, callback);
     }
 
-    static void noteManualFreeformTransition(final int taskId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+    static void noteManualFreeformTransition(final int displayId, final int taskId) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.noteManualFreeformTransition(taskId);
         }
     }
 
-    static void beginExplicitWindowedLaunch(final int taskId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+    static void beginExplicitWindowedLaunch(final int displayId, final int taskId) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.beginExplicitWindowedLaunch(taskId);
         }
@@ -825,53 +838,53 @@ public final class MagicDeskRuntime {
     static boolean protectExplicitFullscreenTask(
             final int displayId,
             final int taskId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks != null
                 && tasks.protectExplicitFullscreenTask(displayId, taskId);
     }
 
     static void expectTouchpadDisplacement() {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(inputDisplayId());
         if (tasks != null) {
             tasks.expectTouchpadDisplacement();
         }
     }
 
     static void finishTouchpadPreservation() {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(inputDisplayId());
         if (tasks != null) {
             tasks.finishTouchpadPreservation();
         }
     }
 
     static void setPhoneTouchpadRequested(final boolean requested) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(inputDisplayId());
         if (tasks != null) {
             tasks.setPhoneTouchpadRequested(requested);
         }
     }
 
-    static void disableExternalTaskMigrationProtection() {
-        final DesktopTaskRuntime tasks = desktopTasks();
+    static void disableExternalTaskMigrationProtection(final int displayId) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.disableExternalTaskMigrationProtection();
         }
     }
 
-    static void restoreExternalTaskMigrationProtection() {
-        final DesktopTaskRuntime tasks = desktopTasks();
+    static void restoreExternalTaskMigrationProtection(final int displayId) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.restoreExternalTaskMigrationProtection();
         }
     }
 
     static boolean dismissTransientActivity() {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(inputDisplayId());
         return tasks != null && tasks.dismissTransientActivity();
     }
 
     static boolean sendSystemBack() {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(inputDisplayId());
         return tasks != null && tasks.sendSystemBack();
     }
 
@@ -879,20 +892,20 @@ public final class MagicDeskRuntime {
             final int displayId,
             final int hostTaskId,
             final String stage) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks != null && tasks.startSelfTestTaskStackGuard(
                 displayId, hostTaskId, stage);
     }
 
-    static void setSelfTestTaskStackGuardStage(final String stage) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+    static void setSelfTestTaskStackGuardStage(final int displayId, final String stage) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         if (tasks != null) {
             tasks.setSelfTestTaskStackGuardStage(stage);
         }
     }
 
-    static SelfTestTaskStackReport stopSelfTestTaskStackGuard() {
-        final DesktopTaskRuntime tasks = desktopTasks();
+    static SelfTestTaskStackReport stopSelfTestTaskStackGuard(final int displayId) {
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks == null
                 ? SelfTestTaskStackReport.unavailable(
                         "desktop task runtime unavailable")
@@ -902,7 +915,7 @@ public final class MagicDeskRuntime {
     static TaskWindowSnapshot inspectTaskWindow(
             final int displayId,
             final int taskId) {
-        final DesktopTaskRuntime tasks = desktopTasks();
+        final DesktopTaskRuntime tasks = desktopTasks(displayId);
         return tasks == null
                 ? null : tasks.inspectTaskWindow(displayId, taskId);
     }
@@ -926,9 +939,9 @@ public final class MagicDeskRuntime {
         return backend != null && backend.isAvailable() ? backend : null;
     }
 
-    private static DesktopTaskRuntime desktopTasks() {
+    private static DesktopTaskRuntime desktopTasks(final int displayId) {
         final MagicDeskRuntimeBackend backend = backend();
-        return backend == null ? null : backend.desktopTasks();
+        return backend == null ? null : backend.desktopTasks(displayId);
     }
 
     private static DesktopTaskParkingRuntime desktopTaskParking() {

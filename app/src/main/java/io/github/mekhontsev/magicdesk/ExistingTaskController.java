@@ -118,7 +118,7 @@ final class ExistingTaskController {
 
         final WindowedTaskLaunchLease launchLease =
                 outerLaunchLease == null
-                        ? WindowedTaskLaunchLease.acquire()
+                        ? WindowedTaskLaunchLease.acquire(targetDisplayId)
                         : outerLaunchLease;
         try {
             if (targetFreeform && waitForTask && explicitWindowed) {

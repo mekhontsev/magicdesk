@@ -17,7 +17,7 @@ final class AutomationToolWindows {
         try {
             final ToolLaunchTarget target = ToolLaunchTarget.resolve(args.optString("placement", "auto"),
                     args.has("displayId") ? AutomationJsonArguments.requiredInt(args, "displayId") : -1,
-                    MagicDeskRuntime.activeDesktopDisplayId());
+                    DesktopRuntimeBridge.workspaceDisplayIds());
             final Context context = MagicDeskApplication.applicationContext();
             final CountDownLatch completed = new CountDownLatch(1);
             final Throwable[] failure = new Throwable[1];

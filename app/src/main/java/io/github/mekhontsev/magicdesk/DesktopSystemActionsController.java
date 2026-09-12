@@ -12,19 +12,19 @@ final class DesktopSystemActionsController {
     }
 
     void showDesktop() {
-        DesktopOperations.toggleDesktopWorkspace();
+        MagicDeskRuntime.toggleDesktopWorkspace(mActivity.getCurrentDisplayId());
     }
 
     void captureScreenshot() {
         mActivity.hideAllPanels();
         final View decor = mActivity.getWindow().getDecorView();
         if (!decor.isAttachedToWindow()) {
-            DesktopOperations.captureScreenshot();
+            DesktopOperations.captureScreenshot(mActivity.getCurrentDisplayId());
             return;
         }
         // Wait for the panel-host removal to reach the compositor before capture.
         decor.postOnAnimation(() ->
-                decor.postOnAnimation(DesktopOperations::captureScreenshot));
+                decor.postOnAnimation(() -> DesktopOperations.captureScreenshot(mActivity.getCurrentDisplayId())));
     }
 
     void toggleRecording() {
@@ -34,16 +34,16 @@ final class DesktopSystemActionsController {
                 == DisplayRecordingController.State.IDLE;
         mActivity.hideAllPanels();
         if (!starting) {
-            controller.toggle();
+            controller.toggle(mActivity.getCurrentDisplayId());
             return;
         }
         final View decor = mActivity.getWindow().getDecorView();
         if (!decor.isAttachedToWindow()) {
-            controller.toggle();
+            controller.toggle(mActivity.getCurrentDisplayId());
             return;
         }
         decor.postOnAnimation(() ->
-                decor.postOnAnimation(controller::toggle));
+                decor.postOnAnimation(() -> controller.toggle(mActivity.getCurrentDisplayId())));
     }
 
     void openDeviceSetup() {

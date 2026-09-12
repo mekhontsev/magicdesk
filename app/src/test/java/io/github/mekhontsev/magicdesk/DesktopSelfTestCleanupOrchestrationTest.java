@@ -48,7 +48,7 @@ public final class DesktopSelfTestCleanupOrchestrationTest {
                 }
                 static class DesktopDisplayTarget { int workspaceDisplayId; }
                 static class DesktopHomeRoleLease {
-                    static class State { DesktopDisplayTarget target() { return new DesktopDisplayTarget(); } }
+                    static class State { DesktopDisplayTarget targetForDisplay(int displayId) { return new DesktopDisplayTarget(); } }
                     static State lease = new State();
                     static State snapshot() { return lease; }
                 }

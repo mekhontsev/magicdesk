@@ -77,7 +77,7 @@ public final class DesktopHomeDelegateRoutingTest {
                 static DesktopShellActivity host;
                 static class Gateway {
                     final Object mHostLock = new Object();
-                    DesktopShellActivity reconcileSessionHostLocked() { return host; }
+                    DesktopShellActivity reconcileSessionHostLocked(int displayId) { return host; }
                 """ + RuntimeSourceFixture.methods("DesktopUiGateway", "desktopHomeRecipient")
                 + "}\n" + """
                 public static void verify() {

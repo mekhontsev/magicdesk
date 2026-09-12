@@ -32,7 +32,7 @@ public final class DesktopInfrastructureTasksTest {
 
     @Test
     public void onlyHomeInAnAuxiliaryAreaIsInfrastructure() {
-        final String home = componentName("PhoneDesktopHomeActivity");
+        final String home = componentName("PhoneHomeActivity");
         assertTrue(DesktopInfrastructureTasks.isAuxiliaryHome(true, 20001, home, home));
         assertFalse(DesktopInfrastructureTasks.isAuxiliaryHome(true, 1, home, home));
         assertFalse(DesktopInfrastructureTasks.isAuxiliaryHome(true, -1, home, home));

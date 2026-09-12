@@ -7,27 +7,51 @@ import java.util.List;
 import org.junit.Test;
 
 public final class DesktopHomeSurfacePolicyTest {
+    @Test public void launcherAndDesktopUseIdenticalComponentAdmission() throws Exception {
+        RuntimeSourceFixture.verify("""
+                enum Surface { SYSTEM, LAUNCHER, DESKTOP }
+                record Selection(Surface primary, boolean secondaryHome) {}
+                static class PackageManager {
+                    static final int COMPONENT_ENABLED_STATE_ENABLED = 1;
+                    static final int COMPONENT_ENABLED_STATE_DISABLED = 2;
+                }
+                static int phone, secondary;
+                static void apply(int p, int s) { phone = p; secondary = s; }
+                public static void verify() throws Exception {
+                    for (Surface surface : List.of(Surface.LAUNCHER, Surface.DESKTOP,
+                            Surface.LAUNCHER, Surface.DESKTOP)) {
+                        select(new Selection(surface, true));
+                        check(phone == 1 && secondary == 1, "workspace change replaced HOME");
+                    }
+                    disableHomeSurfaces();
+                    check(phone == 2 && secondary == 2, "last close retained a HOME candidate");
+                }
+                """ + RuntimeSourceFixture.methods("DesktopHomeSurfaceRouter",
+                        "select", "disableHomeSurfaces"));
+    }
+
     @Test public void noWorkspaceRequiresNoMagicDeskHome() {
         final var selection = DesktopHomeSurfaceRouter.forWorkspaces(List.of());
         assertEquals(SYSTEM, selection.primary);
         assertEquals(SYSTEM, selection.surfaceOn(7));
-        assertFalse(selection.secondaryDesktop);
+        assertFalse(selection.secondaryHome);
     }
 
     @Test public void secondaryWorkspaceUsesLauncherOnDefaultDisplay() {
         final var selection = DesktopHomeSurfaceRouter.forWorkspaces(
                 List.of(DesktopDisplayTarget.wired(7)));
-        assertEquals(PHONE, selection.primary);
+        assertEquals(LAUNCHER, selection.primary);
         assertEquals(DESKTOP, selection.surfaceOn(7));
-        assertEquals(SYSTEM, selection.surfaceOn(8));
-        assertTrue(selection.secondaryDesktop);
+        assertEquals(LAUNCHER, selection.surfaceOn(8));
+        assertTrue(selection.secondaryHome);
     }
 
-    @Test public void defaultWorkspaceDoesNotEnableSecondaryComponents() {
+    @Test public void defaultWorkspaceKeepsLauncherOnUnassignedDisplays() {
         final var selection = DesktopHomeSurfaceRouter.forWorkspaces(
                 List.of(DesktopDisplayTarget.phone()));
         assertEquals(DESKTOP, selection.primary);
-        assertFalse(selection.secondaryDesktop);
+        assertEquals(LAUNCHER, selection.surfaceOn(7));
+        assertTrue(selection.secondaryHome);
     }
 
     @Test public void defaultAndSecondaryDesktopsAreIndependentOfOrderAndOutput() {
@@ -37,13 +61,13 @@ public final class DesktopHomeSurfacePolicyTest {
             final var selection = DesktopHomeSurfaceRouter.forWorkspaces(targets);
             assertEquals(DESKTOP, selection.primary);
             assertEquals(DESKTOP, selection.surfaceOn(7));
-            assertTrue(selection.secondaryDesktop);
+            assertTrue(selection.secondaryHome);
         }
         final var routed = DesktopDisplayTarget.restore(DesktopDisplayOutput.Kind.WIRED,
                 12, 7, "", DesktopDisplayOutput.ActivationSource.ADOPTED_EXISTING);
         final var selection = DesktopHomeSurfaceRouter.forWorkspaces(List.of(routed));
         assertEquals(DESKTOP, selection.surfaceOn(12));
-        assertEquals(SYSTEM, selection.surfaceOn(7));
+        assertEquals(LAUNCHER, selection.surfaceOn(7));
     }
 
     @Test public void severalBuiltInPanelsUseTheSameResidencyPolicy() {
@@ -53,7 +77,7 @@ public final class DesktopHomeSurfacePolicyTest {
         for (int display = 0; display <= 2; display++) {
             assertEquals(DESKTOP, selection.surfaceOn(display));
         }
-        assertTrue(selection.secondaryDesktop);
+        assertTrue(selection.secondaryHome);
     }
 
     @Test(expected = IllegalArgumentException.class)

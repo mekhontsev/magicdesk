@@ -49,9 +49,9 @@ public final class DesktopSelfTestTasksTest {
                         + " configuration={mWindowingMode=fullscreen "
                         + "mActivityType=home}\n"
                         + " taskId=20: io.github.mekhontsev.magicdesk/"
-                        + ".PhoneDesktopHomeActivity topActivity=ComponentInfo{"
+                        + ".PhoneHomeActivity topActivity=ComponentInfo{"
                         + "io.github.mekhontsev.magicdesk/"
-                        + ".PhoneDesktopHomeActivity} "
+                        + ".PhoneHomeActivity} "
                         + "visible=true\n";
 
         assertEquals(20, DesktopSelfTestTasks.findDesktopTaskOnAnyDisplay(

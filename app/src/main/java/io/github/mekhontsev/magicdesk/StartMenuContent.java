@@ -30,9 +30,30 @@ final class StartMenuContent {
         }
         List<AppReference> recentApps();
         default String recentAppsError() { return ""; }
+        default int recentSectionLabel() { return R.string.section_recent; }
+        default List<StartMenuEntry> entries(int section) {
+            final List<StartMenuEntry> result = new ArrayList<>();
+            if (section == MENU_RECENT) {
+                for (final AppReference reference : recentApps()) {
+                    final AppItem app = LauncherAppRepository.find(apps(), reference);
+                    if (app != null) { result.add(StartMenuEntry.app(app)); }
+                }
+            } else {
+                for (final AppItem app : apps()) { result.add(StartMenuEntry.app(app)); }
+                for (final DesktopApplicationRepository.Entry entry : desktopApplications()) {
+                    if (entry.shortcut.hasExecLaunch()) {
+                        result.add(StartMenuEntry.desktopApplication(entry));
+                    }
+                }
+                result.sort(Comparator.comparing((StartMenuEntry entry) -> entry.label,
+                        String.CASE_INSENSITIVE_ORDER).thenComparing(StartMenuEntry::stableKey));
+            }
+            return result;
+        }
         default void onSectionShown(int section) { }
+        default List<StartMenuEntry> searchEntries(int section) { return entries(MENU_APPS); }
         DesktopAutomationUiRegistry automation();
-        void open(StartSearchController.Result result);
+        void open(StartMenuEntry result);
         void dismiss();
         default void appContext(View view, AppItem app) { }
         default void fileContext(View view, DesktopFile file) { }
@@ -57,6 +78,8 @@ final class StartMenuContent {
     private LinearLayout mContent;
     private LinearLayout mBody;
     private EditText mSearch;
+    private LinearLayout mSearchRow;
+    private StartDisplaySelector mDisplaySelector;
     private boolean mFocusable = true;
     private int mMode = MENU_RECENT;
     private int mPage;
@@ -72,7 +95,7 @@ final class StartMenuContent {
             final Host host) {
         mHost = host;
         mScope = scope;
-        mMode = scope == StartMenuScope.PHONE ? MENU_APPS : MENU_RECENT;
+        mMode = scope == StartMenuScope.APPLICATIONS ? MENU_APPS : MENU_RECENT;
         mActivity = activity;
         mUi = ui;
         mSearchController = new StartSearchController(
@@ -118,7 +141,7 @@ final class StartMenuContent {
                     DesktopUiFactory.COLOR_CYAN));
         }
         mSearch = new EditText(mActivity);
-        final int searchHint = mScope == StartMenuScope.PHONE
+        final int searchHint = mScope == StartMenuScope.APPLICATIONS
                 ? R.string.search_phone_apps_hint : R.string.search_apps_hint;
         mSearch.setHint(searchHint);
         mSearch.setHintTextColor(DesktopUiFactory.COLOR_MUTED);
@@ -156,8 +179,7 @@ final class StartMenuContent {
                 mSearchSelection = 0;
                 mSearchController.update(
                         mSearchQuery,
-                        mHost.apps(),
-                        mHost.desktopApplications());
+                        mHost.searchEntries(mMode));
                 renderBody();
             }
 
@@ -184,6 +206,15 @@ final class StartMenuContent {
                 mActivity.getString(searchHint));
 
         mContent = new LinearLayout(mActivity);
+        mSearchRow = new LinearLayout(mActivity);
+        mSearchRow.setGravity(Gravity.CENTER_VERTICAL);
+        mSearchRow.addView(mSearch, new LinearLayout.LayoutParams(0, dp(48), 1));
+        mDisplaySelector = new StartDisplaySelector(mActivity, mUi);
+        final LinearLayout.LayoutParams destinationParams = new LinearLayout.LayoutParams(dp(112), dp(48));
+        destinationParams.setMarginStart(dp(6));
+        mSearchRow.addView(mDisplaySelector.view(), destinationParams);
+        mHost.automation().register(mDisplaySelector.view(), "start.display", "button",
+                mActivity.getString(R.string.display_selector));
         mContent.setOrientation(LinearLayout.VERTICAL);
         final LinearLayout.LayoutParams contentParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
@@ -205,7 +236,7 @@ final class StartMenuContent {
         final LinearLayout tabs = new LinearLayout(mActivity);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.CENTER_VERTICAL);
-        tabs.addView(createTab(R.string.section_recent, MENU_RECENT),
+        tabs.addView(createTab(mHost.recentSectionLabel(), MENU_RECENT),
                 new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         final LinearLayout.LayoutParams appsTabParams =
@@ -238,7 +269,7 @@ final class StartMenuContent {
                             LinearLayout.LayoutParams.MATCH_PARENT,
                             LinearLayout.LayoutParams.WRAP_CONTENT);
             searchParams.setMargins(0, dp(10), 0, 0);
-            mContent.addView(mSearch, searchParams);
+            mContent.addView(mSearchRow, searchParams);
         }
 
         mBody = new LinearLayout(mActivity);
@@ -283,18 +314,22 @@ final class StartMenuContent {
         mFocusable = focusable;
         mSearch.setShowSoftInputOnFocus(false);
         mSearchController.update(
-                mSearchQuery, mHost.apps(), mHost.desktopApplications());
+                mSearchQuery, mHost.searchEntries(mMode));
         render();
     }
 
     void pause() {
+        mDisplaySelector.dismiss();
         mSearch.setShowSoftInputOnFocus(false);
         mSearchController.pause();
     }
 
     void release() {
+        mDisplaySelector.dismiss();
         mSearchController.close();
     }
+
+    StartDisplaySelector.Target destination() { return mDisplaySelector.target(); }
 
     void focusSearch() {
         if (!mFocusable || isUtilityMode(mMode) || mSearch == null) {
@@ -315,7 +350,7 @@ final class StartMenuContent {
             return;
         }
 
-        final List<MenuApplication> menuApps = getMenuApps();
+        final List<StartMenuEntry> menuApps = mHost.entries(mMode);
         final String recentError = mMode == MENU_RECENT ? mHost.recentAppsError() : "";
         if (menuApps.isEmpty() || !recentError.isEmpty()) {
             final TextView empty = new TextView(mActivity);
@@ -385,7 +420,8 @@ final class StartMenuContent {
                 mPanel.post(mHost::requestSearchFocus);
                 return;
             }
-            render();
+            prepare(mFocusable);
+            mHost.onSectionShown(mode);
         });
         mHost.automation().register(
                 button,
@@ -436,7 +472,7 @@ final class StartMenuContent {
     }
 
     private View createAppTile(
-            final MenuApplication application,
+            final StartMenuEntry application,
             final boolean selected) {
         final AppItem app = application.app;
         final DesktopApplicationRepository.Entry desktopApplication =
@@ -455,14 +491,10 @@ final class StartMenuContent {
                                 : DesktopUiFactory.COLOR_PANEL_ALT)));
         tile.setClickable(true);
         tile.setFocusable(true);
-        tile.setOnClickListener(view -> {
-            mHost.open(app != null
-                    ? StartSearchController.Result.app(app)
-                    : StartSearchController.Result.desktopApplication(desktopApplication));
-        });
+        tile.setOnClickListener(view -> mHost.open(application));
         if (app != null) {
             mHost.appContext(tile, app);
-        } else if (desktopApplication.desktopFile != null) {
+        } else if (desktopApplication != null && desktopApplication.desktopFile != null) {
             mHost.fileContext(
                     tile, desktopApplication.desktopFile);
         }
@@ -470,21 +502,19 @@ final class StartMenuContent {
                 tile,
                 "start.app."
                         + DesktopAutomationUiRegistry.identitySegment(
-                                application.identity()),
+                                application.stableKey()),
                 "application",
-                application.label(),
+                application.label,
                 app == null ? "" : app.packageName,
-                -1);
+                application.task == null ? -1 : application.task.taskId);
 
         final ImageView icon = new ImageView(mActivity);
-        icon.setImageDrawable(app != null
-                ? app.icon
-                : DesktopApplicationIconResolver.resolve(
-                        mActivity, desktopApplication.shortcut));
+        bindIcon(icon, application);
         tile.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
         final TextView label = new TextView(mActivity);
-        label.setText(application.label());
+        label.setText(application.label);
+        tile.setContentDescription(application.label + ", " + application.detail);
         label.setTextColor(DesktopUiFactory.COLOR_TEXT);
         label.setTextSize(11);
         label.setGravity(Gravity.CENTER);
@@ -559,41 +589,8 @@ final class StartMenuContent {
                 LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
-    private List<MenuApplication> getMenuApps() {
-        final List<MenuApplication> result = new ArrayList<>();
-        final List<AppItem> launcherApps = mHost.apps();
-        if (mMode == MENU_APPS) {
-            for (final AppItem app : launcherApps) {
-                result.add(MenuApplication.android(app));
-            }
-            for (final DesktopApplicationRepository.Entry application
-                    : mHost.desktopApplications()) {
-                if (application.shortcut.hasExecLaunch()) {
-                    result.add(MenuApplication.desktop(application));
-                }
-            }
-            result.sort(Comparator
-                    .comparing(
-                            MenuApplication::label,
-                            String.CASE_INSENSITIVE_ORDER)
-                    .thenComparing(MenuApplication::identity));
-            return result;
-        }
-        if (mMode == MENU_RECENT) {
-            for (final AppReference appKey :
-                    mHost.recentApps()) {
-                final AppItem app = LauncherAppRepository.find(
-                        launcherApps, appKey);
-                if (app != null) {
-                    result.add(MenuApplication.android(app));
-                }
-            }
-        }
-        return result;
-    }
-
     private void renderSearchResults() {
-        final List<StartSearchController.Result> matches =
+        final List<StartMenuEntry> matches =
                 mSearchController.results(getSearchResultLimit());
         if (matches.isEmpty()) {
             final TextView empty = new TextView(mActivity);
@@ -635,7 +632,7 @@ final class StartMenuContent {
         if (event.getAction() != KeyEvent.ACTION_DOWN) {
             return false;
         }
-        final List<StartSearchController.Result> matches =
+        final List<StartMenuEntry> matches =
                 mSearchController.results(getSearchResultLimit());
         final int visibleCount = matches.size();
         if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && !matches.isEmpty()) {
@@ -652,7 +649,7 @@ final class StartMenuContent {
         if ((keyCode == KeyEvent.KEYCODE_ENTER
                 || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)
                 && !matches.isEmpty()) {
-            final StartSearchController.Result result = matches.get(
+            final StartMenuEntry result = matches.get(
                     Math.min(mSearchSelection, matches.size() - 1));
             openSearchResult(result);
             return true;
@@ -665,7 +662,7 @@ final class StartMenuContent {
     }
 
     private View createSearchRow(
-            final StartSearchController.Result result,
+            final StartMenuEntry result,
             final boolean selected) {
         final LinearLayout row = new LinearLayout(mActivity);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -686,7 +683,7 @@ final class StartMenuContent {
                     row,
                     "start.search.app."
                             + DesktopAutomationUiRegistry.identitySegment(
-                                    result.app.packageName),
+                                    result.stableKey()),
                     "application",
                     result.label,
                     result.app.packageName,
@@ -713,14 +710,7 @@ final class StartMenuContent {
         }
 
         final ImageView icon = new ImageView(mActivity);
-        if (result.app != null) {
-            icon.setImageDrawable(result.app.icon);
-        } else if (result.desktopApplication != null) {
-            icon.setImageDrawable(DesktopApplicationIconResolver.resolve(
-                    mActivity, result.desktopApplication.shortcut));
-        } else {
-            icon.setImageResource(searchIcon(result));
-        }
+        bindIcon(icon, result);
         row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
 
         final LinearLayout labels = new LinearLayout(mActivity);
@@ -745,7 +735,8 @@ final class StartMenuContent {
         return row;
     }
 
-    private int searchIcon(final StartSearchController.Result result) {
+    private int searchIcon(final StartMenuEntry result) {
+        if (result.kind == StartMenuEntry.Kind.TERMINALS) { return R.drawable.ic_file_console; }
         if (result.file != null) {
             return FileIconResolver.forFile(
                     result.file.directory,
@@ -764,13 +755,21 @@ final class StartMenuContent {
             }
             return R.drawable.ic_settings;
         }
-        if (result.action == StartSearchController.Action.SCREENSHOT) {
+        if (result.action == StartMenuEntry.Action.SCREENSHOT) {
             return R.drawable.ic_camera;
         }
-        if (result.action == StartSearchController.Action.SCREEN_RECORDING) {
+        if (result.action == StartMenuEntry.Action.SCREEN_RECORDING) {
             return R.drawable.ic_video;
         }
         return R.drawable.ic_show_desktop;
+    }
+
+    private void bindIcon(final ImageView icon, final StartMenuEntry entry) {
+        if (entry.app != null) { icon.setImageDrawable(entry.app.icon); }
+        else if (entry.desktopApplication != null) {
+            icon.setImageDrawable(DesktopApplicationIconResolver.resolve(
+                    mActivity, entry.desktopApplication.shortcut));
+        } else { icon.setImageResource(searchIcon(entry)); }
     }
 
     private static String modeName(final int mode) {
@@ -788,43 +787,12 @@ final class StartMenuContent {
         }
     }
 
-    private void openSearchResult(final StartSearchController.Result result) {
+    private void openSearchResult(final StartMenuEntry result) {
         mHost.open(result);
     }
 
     private int getSearchResultLimit() {
         return Math.max(4, getRowCount() * 3);
-    }
-
-    private static final class MenuApplication {
-        final AppItem app;
-        final DesktopApplicationRepository.Entry desktopApplication;
-
-        private MenuApplication(
-                final AppItem app,
-                final DesktopApplicationRepository.Entry desktopApplication) {
-            this.app = app;
-            this.desktopApplication = desktopApplication;
-        }
-
-        static MenuApplication android(final AppItem app) {
-            return new MenuApplication(app, null);
-        }
-
-        static MenuApplication desktop(
-                final DesktopApplicationRepository.Entry application) {
-            return new MenuApplication(null, application);
-        }
-
-        String label() {
-            return app != null ? app.label : desktopApplication.shortcut.name;
-        }
-
-        String identity() {
-            return app != null
-                    ? (app.reference == null ? "" : app.reference.persistentKey())
-                    : desktopApplication.desktopFilePath;
-        }
     }
 
     private void onSearchResultsChanged() {

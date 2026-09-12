@@ -30,12 +30,12 @@ public final class DesktopDisplayBindingTest {
     public void hostAndInputBelongToWorkspaceNotOutput() {
         final DesktopDisplayTarget target = binding(12, 7);
         final DesktopSessionSnapshot pending = DesktopSessionSnapshot.empty().noteTarget(target);
-        assertEquals(-1, pending.inputDisplayId());
+        assertEquals(-1, pending.activeWorkspaceDisplayId());
         assertEquals(-1, pending.activeOutputDisplayId());
         assertNull(pending.targetForWorkspace(7));
         final DesktopSessionSnapshot active = pending.registerHost(12, 42);
         assertEquals(12, active.activeWorkspaceDisplayId());
-        assertEquals(12, active.inputDisplayId());
+        assertEquals(12, active.activeWorkspaceDisplayId());
         assertEquals(7, active.activeOutputDisplayId());
         assertSame(target, active.targetForWorkspace(12));
         assertTrue(target.ownsWorkspace(12));
@@ -57,7 +57,7 @@ public final class DesktopDisplayBindingTest {
                 .noteTarget(target).registerHost(12, 42);
         final DesktopSessionSnapshot detached = active.unregisterHost(12, true);
         assertSame(target, detached.target());
-        assertEquals(-1, detached.inputDisplayId());
+        assertEquals(-1, detached.activeWorkspaceDisplayId());
         assertEquals(-1, detached.activeOutputDisplayId());
         assertNull(active.close().target());
         assertEquals(-1, active.close().activeWorkspaceDisplayId());
@@ -73,7 +73,7 @@ public final class DesktopDisplayBindingTest {
         assertTrue(registry.registerHost(12, 42, target, DesktopSessionPolicy.USER));
         assertFalse(registry.registerHost(12, 42, otherOutput, DesktopSessionPolicy.USER));
         registry.clearTarget(otherOutput);
-        assertSame(target, registry.snapshot().target());
+        assertSame(target, registry.snapshot(12).target());
     }
 
     @Test
@@ -87,7 +87,7 @@ public final class DesktopDisplayBindingTest {
         final DesktopDisplayTarget phoneOutput = DesktopDisplayTarget.restore(
                 DesktopDisplayOutput.Kind.BUILT_IN, 12, 0, "",
                 DesktopDisplayOutput.ActivationSource.MAGICDESK_REQUESTED);
-        assertEquals(DesktopHomeSurfaceRouter.Surface.PHONE,
+        assertEquals(DesktopHomeSurfaceRouter.Surface.LAUNCHER,
                 DesktopHomeSurfaceRouter.forWorkspaces(java.util.List.of(phoneOutput)).primary);
         assertFalse(DesktopAdaptiveBrightnessController.shouldDisable(true, phoneOutput));
     }

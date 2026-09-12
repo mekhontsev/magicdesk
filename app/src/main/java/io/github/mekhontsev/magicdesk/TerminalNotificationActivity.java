@@ -19,7 +19,7 @@ public final class TerminalNotificationActivity extends Activity {
         TerminalNotifications.cancel(id);
         final int display = Math.max(0, session.displayId);
         ToolApplications.open(this, CommandConsoleActivity.attachIntent(this, session),
-                ToolLaunchTarget.resolve("auto", display, MagicDeskRuntime.activeDesktopDisplayId()),
+                ToolLaunchTarget.resolve("auto", display, DesktopRuntimeBridge.workspaceDisplayIds()),
                 null, error -> {
                     if (error != null) { Toast.makeText(this, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show(); }
                     finish();

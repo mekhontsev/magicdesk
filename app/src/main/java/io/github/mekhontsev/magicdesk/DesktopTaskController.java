@@ -44,6 +44,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     static final int SHORTCUT_CLOSE =
             DesktopWindowTransitionController.SHORTCUT_CLOSE;
     private final Context mApplicationContext;
+    private final int mObserverDisplayId;
     private final Handler mHandler;
     private final Runnable mTaskStackChanged;
     private final SnapshotListener mSnapshotListener;
@@ -84,10 +85,12 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     private final AppProfile mAppProfile;
 
     DesktopTaskController(
+            final int observerDisplayId,
             final Context context,
             final Handler handler,
             final Runnable taskStackChanged,
             final SnapshotListener snapshotListener) {
+        mObserverDisplayId = observerDisplayId;
         mApplicationContext = context.getApplicationContext();
         mAppProfile = AppProfile.current(context);
         mHandler = handler;
@@ -752,7 +755,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
 
     private int prepareCloseFocus(final int taskId) {
         final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
+                DesktopRuntimeBridge.getSessionSnapshot(mObserverDisplayId);
         final int hostTaskId = session.activeWorkspaceDisplayId() == mDisplayId
                 ? session.hostTaskId() : -1;
         final int focusTaskId = selectCloseSurvivorTaskId(
@@ -1251,7 +1254,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
 
     private int currentDesktopHostTaskId() {
         final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
+                DesktopRuntimeBridge.getSessionSnapshot(mObserverDisplayId);
         return session.activeWorkspaceDisplayId() == mDisplayId
                 ? session.hostTaskId() : -1;
     }
@@ -1413,9 +1416,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     private static boolean isActiveDesktopDisplay(final int displayId) {
-        return displayId >= 0
-                && DesktopRuntimeBridge.getSessionSnapshot()
-                        .activeWorkspaceDisplayId() == displayId;
+        return DesktopRuntimeBridge.hasWorkspace(displayId);
     }
 
     private static void recordWorkspaceCommandEvent(
@@ -1861,7 +1862,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
     }
 
     private void startTaskWatcher(final int generation) {
-        mTaskWatcher.start(generation);
+        mTaskWatcher.start(mObserverDisplayId, generation);
     }
 
     private void notifyTaskStackChanged() {
@@ -1878,7 +1879,7 @@ final class DesktopTaskController implements DesktopTaskRuntime {
         final Rect workAreaBounds =
                 mNativeWindowBounds.getTaskbarMaximizedBounds();
         final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
+                DesktopRuntimeBridge.getSessionSnapshot(mObserverDisplayId);
         final int desktopHostTaskId = session.activeWorkspaceDisplayId() == mDisplayId
                 ? session.hostTaskId() : -1;
         mTaskWatcher.configure(

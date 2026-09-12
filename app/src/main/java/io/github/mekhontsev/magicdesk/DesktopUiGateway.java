@@ -22,36 +22,38 @@ final class DesktopUiGateway {
     private final Object mHostLock = new Object();
     private final DesktopSessionRegistry mSession;
 
-    private WeakReference<PhoneHomeActivity> mPhoneHome = new WeakReference<>(null);
+    private final java.util.Map<android.view.Window, DesktopAutomationUiRegistry> mUiWindows =
+            new java.util.WeakHashMap<>();
+
+    void registerUiWindow(final android.view.Window window, final DesktopAutomationUiRegistry registry) {
+        mUiWindows.put(window, registry);
+    }
+
+    void unregisterUiWindow(final android.view.Window window) {
+        mUiWindows.remove(window);
+    }
 
     DesktopUiGateway(final DesktopSessionRegistry session) {
         mSession = session;
     }
 
-    void registerPhoneHome(final PhoneHomeActivity activity) {
-        synchronized (mHostLock) {
-            mPhoneHome = new WeakReference<>(activity);
-        }
-    }
-
-    void unregisterPhoneHome(final PhoneHomeActivity activity) {
-        synchronized (mHostLock) {
-            if (mPhoneHome.get() == activity) {
-                mPhoneHome.clear();
-            }
-        }
-    }
-
     // UI-thread only. A phone HOME registry is not a desktop session host.
     private DesktopAutomationUiRegistry automationUi(final int displayId) {
-        final PhoneHomeActivity phone;
-        synchronized (mHostLock) {
-            phone = mPhoneHome.get();
+        DesktopAutomationUiRegistry visible = null;
+        boolean ambiguous = false;
+        for (final java.util.Map.Entry<android.view.Window, DesktopAutomationUiRegistry> entry
+                : mUiWindows.entrySet()) {
+            final android.view.View decor = entry.getKey().peekDecorView();
+            if (decor == null || !decor.isAttachedToWindow() || !decor.isShown()
+                    || decor.getWindowVisibility() != android.view.View.VISIBLE
+                    || decor.getDisplay() == null || decor.getDisplay().getDisplayId() != displayId) { continue; }
+            if (decor.hasWindowFocus()) { return entry.getValue(); }
+            ambiguous |= visible != null;
+            visible = entry.getValue();
         }
-        if (displayId == Display.DEFAULT_DISPLAY && phone != null
-                && phone.isAutomationAvailable()) {
-            return phone.automation();
-        }
+        // Global keyboard focus can be on another display. A sole visible Start
+        // still owns its local controls; multiple unfocused windows are ambiguous.
+        if (!ambiguous && visible != null) { return visible; }
         final DesktopShellActivity desktop = usableDesktop(displayId, false);
         return desktop != null && desktop.getCurrentDisplayId() == displayId
                 ? desktop.automationUi() : null;
@@ -64,7 +66,7 @@ final class DesktopUiGateway {
         final DesktopShellActivity previous;
         final int displayId = activity.getCurrentDisplayId();
         synchronized (mHostLock) {
-            previous = reconcileSessionHostLocked();
+            previous = reconcileSessionHostLocked(displayId);
             if (previous == activity) {
                 return true;
             }
@@ -79,10 +81,10 @@ final class DesktopUiGateway {
                         activity.getTaskId());
                 return false;
             }
-            mSession.workspace().attachHost(activity);
-            AppWindowStateStore.beginSession(mSession.workspace(), mSession.snapshot().policy());
+            mSession.workspace(displayId).attachHost(activity);
+            AppWindowStateStore.beginSession(mSession.workspace(displayId), mSession.snapshot(displayId).policy());
         }
-        final DesktopDisplayTarget activeTarget = sessionSnapshot().target();
+        final DesktopDisplayTarget activeTarget = sessionSnapshot(displayId).target();
         if (displayId == Display.DEFAULT_DISPLAY
                 && activeTarget != null
                 && activeTarget.isDefaultWorkspace()
@@ -105,7 +107,7 @@ final class DesktopUiGateway {
         }
         final DesktopShellActivity host;
         synchronized (mHostLock) {
-            host = reconcileSessionHostLocked();
+            host = reconcileSessionHostLocked(activity.getCurrentDisplayId());
             if (host == null || host.getTaskId() == activity.getTaskId()
                     || host.getCurrentDisplayId() != activity.getCurrentDisplayId()) {
                 return null;
@@ -122,9 +124,9 @@ final class DesktopUiGateway {
         final DesktopSessionPolicy policy;
         final DesktopWorkspaceRuntime workspace;
         synchronized (mHostLock) {
-            workspace = mSession.workspace();
+            workspace = mSession.workspace(displayId);
             desktopRemoved = workspace != null && workspace.host() == activity;
-            policy = mSession.snapshot().policy();
+            policy = mSession.snapshot(displayId).policy();
             if (desktopRemoved) {
                 mSession.unregisterHost(displayId, changingConfigurations);
             }
@@ -154,7 +156,7 @@ final class DesktopUiGateway {
         final DesktopWorkspaceRuntime workspace;
         synchronized (mHostLock) {
             activity = usableDesktopLocked(displayId, false);
-            final DesktopDisplayTarget target = mSession.snapshot().target();
+            final DesktopDisplayTarget target = mSession.snapshot(displayId).target();
             if (displayId < Display.DEFAULT_DISPLAY
                     || target == null
                     || target.workspaceDisplayId != displayId) {
@@ -163,9 +165,9 @@ final class DesktopUiGateway {
                 }
                 return;
             }
-            policy = mSession.snapshot().policy();
-            workspace = mSession.workspace();
-            mSession.close();
+            policy = mSession.snapshot(displayId).policy();
+            workspace = mSession.workspace(displayId);
+            mSession.close(displayId);
         }
         DesktopSelfTestRunState.noteDesktopSessionClosed(policy, displayId);
         if (policy.persistWorkspace) {
@@ -219,10 +221,21 @@ final class DesktopUiGateway {
         }
     }
 
-    DesktopSessionSnapshot sessionSnapshot() {
+    DesktopSessionSnapshot sessionSnapshot(final int displayId) {
         synchronized (mHostLock) {
-            reconcileSessionHostLocked();
-            return mSession.snapshot();
+            reconcileSessionHostLocked(displayId);
+            return mSession.snapshot(displayId);
+        }
+    }
+
+    List<DesktopSessionSnapshot> sessionSnapshots() {
+        synchronized (mHostLock) {
+            for (final DesktopSessionSnapshot snapshot : mSession.snapshots()) {
+                if (snapshot.target() != null) {
+                    reconcileSessionHostLocked(snapshot.target().workspaceDisplayId);
+                }
+            }
+            return mSession.snapshots();
         }
     }
 
@@ -250,11 +263,15 @@ final class DesktopUiGateway {
 
     void clearDesktopTarget(final DesktopDisplayTarget target) {
         synchronized (mHostLock) {
-            mSession.clearTarget(target);
+            final DesktopSessionSnapshot session = mSession.snapshot(target == null ? -1 : target.workspaceDisplayId);
+            if (target == null || session.target() == null || !session.target().sameBinding(target)) {
+                return;
+            }
+            // Rollback must retire a host that appeared just before launch failed.
+            // Clearing only its binding would orphan both the UI and observer.
+            closeDesktopWorkspace(target.workspaceDisplayId, null);
         }
-        if (target != null) {
-            recordSession("target_cleared", target.workspaceDisplayId, -1);
-        }
+        recordSession("target_cleared", target.workspaceDisplayId, -1);
     }
 
     DesktopViewport getDesktopViewport(final int displayId) {
@@ -523,7 +540,7 @@ final class DesktopUiGateway {
     void showTransientStatus(
             final String message,
             final boolean longDuration) {
-        final DesktopShellActivity activity = usableDesktop(sessionSnapshot().activeWorkspaceDisplayId(), false);
+        final DesktopShellActivity activity = usableDesktop(MagicDeskRuntime.inputDisplayId(), false);
         if (activity == null) {
             return;
         }
@@ -538,9 +555,9 @@ final class DesktopUiGateway {
     }
 
     void refreshDesktopControls() {
-        final DesktopShellActivity activity = usableDesktop(sessionSnapshot().activeWorkspaceDisplayId(), false);
-        if (activity != null) {
-            postToHost(activity, activity::updateDesktopControls);
+        for (final DesktopSessionSnapshot workspace : sessionSnapshots()) {
+            final DesktopShellActivity activity = usableDesktop(workspace.activeWorkspaceDisplayId(), false);
+            if (activity != null) { postToHost(activity, activity::updateDesktopControls); }
         }
     }
 
@@ -765,9 +782,9 @@ final class DesktopUiGateway {
     }
 
     void refreshSettings() {
-        final DesktopShellActivity activity = usableDesktop(sessionSnapshot().activeWorkspaceDisplayId(), false);
-        if (activity != null) {
-            postToHost(activity, activity::refreshSettings);
+        for (final DesktopSessionSnapshot workspace : sessionSnapshots()) {
+            final DesktopShellActivity activity = usableDesktop(workspace.activeWorkspaceDisplayId(), false);
+            if (activity != null) { postToHost(activity, activity::refreshSettings); }
         }
     }
 
@@ -958,7 +975,7 @@ final class DesktopUiGateway {
 
     private DesktopShellActivity usableDesktopLocked(
             final int displayId, final boolean requirePanels) {
-        final DesktopShellActivity activity = reconcileSessionHostLocked();
+        final DesktopShellActivity activity = reconcileSessionHostLocked(displayId);
         if (!isUsable(activity) || activity.getCurrentDisplayId() != displayId
                 || !activity.isDesktopShell()
                 || (requirePanels && activity.panels() == null)) {
@@ -967,18 +984,18 @@ final class DesktopUiGateway {
         return activity;
     }
 
-    private DesktopShellActivity reconcileSessionHostLocked() {
-        final DesktopWorkspaceRuntime workspace = mSession.workspace();
+    private DesktopShellActivity reconcileSessionHostLocked(final int displayId) {
+        final DesktopWorkspaceRuntime workspace = mSession.workspace(displayId);
         final DesktopShellActivity activity = workspace == null ? null : workspace.host();
         if (!isUsable(activity) || !activity.isDesktopShell()) {
-            final DesktopSessionSnapshot snapshot = mSession.snapshot();
+            final DesktopSessionSnapshot snapshot = mSession.snapshot(displayId);
             if (snapshot.hasHost()) {
                 mSession.unregisterHost(
                         snapshot.activeWorkspaceDisplayId(), true);
             }
             return null;
         }
-        final DesktopSessionSnapshot snapshot = mSession.snapshot();
+        final DesktopSessionSnapshot snapshot = mSession.snapshot(displayId);
         if (snapshot.activeWorkspaceDisplayId() != activity.getCurrentDisplayId()
                 || snapshot.hostTaskId() != activity.getTaskId()) {
             recordSession(

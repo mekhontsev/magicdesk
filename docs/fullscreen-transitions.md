@@ -1,5 +1,16 @@
 # Fullscreen transitions
 
+## Workspace Boundaries
+
+Each logical display has its own workspace, task observer, transition gateway
+and fullscreen-plane ownership. Multiple workspaces share the package-wide HOME
+lease but not task ordering or fullscreen state. Taskbar, Alt+Tab and automation
+select an explicit workspace; keyboard shortcuts use the independent input
+selection. Closing a workspace does not close another or release its planes.
+Unassigned HOME displays use the shared ordinary Start host without a Desktop
+observer. The last workspace releases HOME. Output parking and output exchange
+are not implemented; workspace identity and output binding remain distinct.
+
 ## System HOME Instances
 
 Android 15 can launch HOME separately in each organizer task display area.
@@ -105,7 +116,7 @@ stable surface-order identity, so selection can change z-order without an
 application-visible lifecycle, mode, bounds, or parent change.
 
 The same topology is used on phone, simulated, wired, and wireless targets.
-`PhoneDesktopHomeActivity` remains primary HOME in Android's default task area;
+`PhoneHomeActivity` remains primary HOME in Android's default task area;
 ordinary freeform tasks share the standard root workspace, while fullscreen
 tasks use independent planes under that workspace. Display chrome uses one
 transparent STANDARD task in a root-level organizer area, a sibling of the
@@ -374,8 +385,9 @@ avoids a MagicDesk-created removal trigger, not the underlying framework
 defect: abrupt physical disconnect can still precede cleanup. Keep the
 new-residue assertion and the abrupt-removal scenario intact.
 
-Returning the HOME role precedes teardown, but disabling HOME Activity
-components follows it. Component disable triggers Android's own asynchronous
+Closing the last workspace returns the HOME role before teardown and disables
+HOME Activity components afterward. Non-final Close retains both. Component
+disable triggers Android's own asynchronous
 CLOSE transaction; doing this while parking applications can leave that
 transaction waiting for the desktop display to become ready. The session close
 owner retains HOME surfaces and the `RELEASING` lease through workspace cleanup
@@ -496,8 +508,9 @@ timer, polling source, HOME launch, or application selection command.
 
 `ShellPreparedTaskTransition` separately owns hidden preparation and reveal
 for running-task display moves and freeform decoration repair outside the
-per-plane exit path. Phone-session teardown restores the previous HOME role and
-normalizes desktop-owned display-0 tasks without deleting an application
+per-plane exit path. Phone-session teardown normalizes desktop-owned display-0
+tasks and restores the previous HOME role only if no other workspace remains,
+without deleting an application
 organizer area. The primary HOME host is never part of plane cleanup.
 
 The reverse transition includes the caption inset after returning the task to

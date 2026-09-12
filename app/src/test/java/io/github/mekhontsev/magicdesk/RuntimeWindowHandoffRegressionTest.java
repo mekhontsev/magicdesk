@@ -18,28 +18,6 @@ public final class RuntimeWindowHandoffRegressionTest {
     }
 
     @Test
-    public void taskReturnKeepsIoFailureAndMissingDisplayCleanup() throws Exception {
-        RuntimeSourceFixture.verify(returnFixture() + """
-                public static void verify() {
-                    ShellAccess.fail=true;
-                    returnDesktopTasksToPhone(new DesktopDisplayTarget(7), success -> {
-                        check(!success, "I/O failure reported as success");
-                        check(MagicDeskRuntime.restored==1, "I/O failure did not restore protection");
-                        callbacks++;
-                    });
-                    check(callbacks==1 && DesktopTaskReturnResult.calls==0, "I/O completion changed");
-                    ShellAccess.fail=false;
-                    MagicDeskRuntime.displayId=0;
-                    returnDesktopTasksToPhone(null, success -> {
-                        check(success, "absent desktop should need no return"); callbacks++;
-                    });
-                    check(callbacks==2 && MagicDeskRuntime.restored==1, "absent display cleanup changed");
-                    check(ShellAccess.calls==1, "absent display issued a return command");
-                }
-                """);
-    }
-
-    @Test
     public void builtInLaunchCompletesOnlyAfterReadyAcknowledgement() throws Exception {
         verifyLaunch(launchFixture() + """
                 public static void verify() {
@@ -111,7 +89,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                     Display.id=0;
                     Activity activity=new Activity();
                     launch(activity,new Intent(),new AppLaunchTarget(),
-                            ToolLaunchTarget.resolve("display",7,-1),null,error -> {
+                            ToolLaunchTarget.resolve("display",7,Set.of()),null,error -> {
                                 check(error==null,"secondary launch failed"); callbacks++;
                             });
                     activity.drainUi();
@@ -144,57 +122,8 @@ public final class RuntimeWindowHandoffRegressionTest {
                 """);
     }
 
-    private static void verifyReturnResult(final String output, final boolean success) throws Exception {
+    private static void verifyReturnResult(final String output, final boolean success) {
         assertEquals(success, DesktopTaskReturnResult.succeeded(output, 7));
-        RuntimeSourceFixture.verify(returnFixture() + """
-                public static void verify() {
-                    ShellAccess.output=%s;
-                    DesktopTaskReturnResult.result=%s;
-                    returnDesktopTasksToPhone(new DesktopDisplayTarget(7), success -> {
-                        check(success==%s, "task return ignored typed command result"); callbacks++;
-                    });
-                    check(callbacks==1, "task return callback count changed");
-                    check(DesktopTaskReturnResult.calls==1, "caller bypassed typed result parser");
-                    check(MagicDeskRuntime.disabled==1 && MagicDeskRuntime.restored==%d,
-                            "migration protection cleanup changed");
-                }
-                """.formatted(JSONObject.quote(output), success, success, success ? 0 : 1));
-    }
-
-    private static String returnFixture() throws Exception {
-        return """
-                static final String TAG="test", DESKTOP_TASK_RETURN_COMMAND="task-return";
-                static int callbacks;
-                interface ResultCallback { void onComplete(boolean success); }
-                static class DesktopDisplayTarget { int workspaceDisplayId; DesktopDisplayTarget(int d) { workspaceDisplayId=d; } }
-                static class MagicDeskRuntime {
-                    static int disabled,restored,displayId=7;
-                    static void disableExternalTaskMigrationProtection() { disabled++; }
-                    static void restoreExternalTaskMigrationProtection() { restored++; }
-                    static int activeDesktopDisplayId() { return displayId; }
-                }
-                static class Queue { void execute(Runnable action) { action.run(); } }
-                static final Queue OPERATIONS=new Queue();
-                static class ShellAccess {
-                    static String output=""; static boolean fail; static int calls;
-                    static String run(String command) throws IOException {
-                        calls++; if (fail) throw new IOException("shell failed"); return output;
-                    }
-                }
-                static class AppProcessCommand { static String run(String owner,String arguments) { return arguments; } }
-                static class Log {
-                    static void w(String tag,String message) {}
-                    static void w(String tag,String message,Throwable error) {}
-                }
-                static class DesktopTaskReturnResult {
-                    static int calls; static boolean result;
-                    static boolean succeeded(String output,int displayId) {
-                        calls++;
-                        check(output.equals(ShellAccess.output.trim()) && displayId==7, "typed result arguments changed");
-                        return result;
-                    }
-                }
-                """ + RuntimeSourceFixture.methods("DesktopOperations", "returnDesktopTasksToPhone");
     }
 
     private static void verifyLaunch(final String members) throws Exception {
@@ -267,7 +196,10 @@ public final class RuntimeWindowHandoffRegressionTest {
                 static class DesktopTaskController {
                     static List<TaskRepository.TaskEntry> selectVisibleFreeformTasks(Object snapshot) { return List.of(); }
                 }
-                static class DesktopRuntimeBridge { static void syncTaskbarWithSnapshot(int displayId,Object snapshot) {} }
+                static class DesktopRuntimeBridge {
+                    static Set<Integer> workspaceDisplayIds() { return MagicDeskRuntime.active < 0 ? Set.of() : Set.of(MagicDeskRuntime.active); }
+                    static boolean hasWorkspace(int id) { return MagicDeskRuntime.active == id; }
+                    static void syncTaskbarWithSnapshot(int displayId,Object snapshot) {} }
                 static class WindowedAppLauncher {
                     interface TaskReadyCallback { void onTaskReady(); }
                     static int calls; static int[] preserved; static IOException failure;

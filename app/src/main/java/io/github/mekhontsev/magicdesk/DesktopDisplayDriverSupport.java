@@ -59,6 +59,7 @@ final class DesktopDisplayDriverSupport {
                     DesktopSessionController.show(target, policy);
             if (result.ready && result.created
                     && driver.features().phoneTouchpad
+                    && !DesktopRuntimeBridge.isLocalDesktopActiveOrStarting()
                     && MagicDeskSettings.load()
                             .openTouchpadAutomatically) {
                 PhoneTouchpadController.open(target.workspaceDisplayId);

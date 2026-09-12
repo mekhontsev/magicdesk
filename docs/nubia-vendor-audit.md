@@ -109,8 +109,8 @@ a null title view, while `TaskView.setThumbnailOrientation()` asserts that the
 view is non-null. Display-0 freeform tasks grouped through WMShell's desktop
 repository can reach this crash.
 
-MagicDesk's shared HOME lifecycle presents `PhoneHomeActivity` on display 0
-during external sessions, and `PhoneDesktopHomeActivity` during phone desktop.
+MagicDesk's shared HOME lifecycle presents `PhoneHomeActivity` on display 0,
+with ordinary Start or Desktop content according to local workspace residency.
 HOME ownership by itself does not normalize other tasks or clear WMShell
 repository membership.
 
@@ -120,7 +120,7 @@ Intent flags, and transfers the existing task to phone fullscreen. Its
 observation path normalizes all observed display-0 freeform tasks during a
 wired/wireless session, not just tasks cached from the desktop. It is disabled
 for phone and simulated sessions. This broad policy is distinct from the
-exact-task transfer already performed by `PhoneAppLauncher`. Notification
+exact-task transfer already performed by `DisplayAppLauncher`. Notification
 `PendingIntent` launches are not necessarily MAIN/LAUNCHER requests and cannot
 be assumed to pass through this interceptor.
 
@@ -284,9 +284,10 @@ These are vendor operations despite their location on `SurfaceControl`.
 `SurfaceFlingerOptionCommand`, an app-UID helper. There is no corresponding
 SurfaceFlinger getter. The exported `cn.nubia.touping.TouPingProvider` supplies
 separate preferences through `CALL_4_KEY12` (`CALL_4`, wireless) and
-`CALL_5_KEY3` (`CALL_5`, wired). The manager journals transport ownership,
-exposes layers for the active physical transport, and restores its saved
-preference on transport change, teardown, or interrupted-session recovery.
+`CALL_5_KEY3` (`CALL_5`, wired). The manager journals ownership independently
+for each transport, exposes layers for all active physical transports, and
+restores each saved preference after the last workspace using that transport
+closes, or during interrupted-session recovery.
 Simulated sessions do not acquire that physical-transport override.
 
 ## Phone Screen Power

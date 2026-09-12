@@ -490,9 +490,10 @@ public final class ShellCommandService extends IShellCommandService.Stub {
 
     @Override
     public void startTaskObserver(
+            final int displayId,
             final ITaskObserverCallback callback,
             final IActivityLaunchCallback activityLauncher) {
-        mTaskObserverManager.start(callback, activityLauncher);
+        mTaskObserverManager.start(displayId, callback, activityLauncher);
     }
 
     @Override

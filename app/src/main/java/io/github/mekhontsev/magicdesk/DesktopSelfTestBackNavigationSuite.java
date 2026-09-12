@@ -29,7 +29,7 @@ final class DesktopSelfTestBackNavigationSuite {
             final int displayId,
             final DesktopSelfTestGeometry geometry) {
         final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
+                DesktopRuntimeBridge.getSessionSnapshot(displayId);
         if (session.activeWorkspaceDisplayId() != displayId
                 || session.hostTaskId() < 0) {
             addUnavailableResults(result, "desktop host is unavailable");

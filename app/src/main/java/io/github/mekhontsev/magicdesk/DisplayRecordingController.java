@@ -88,19 +88,19 @@ final class DisplayRecordingController implements ShellAccess.StateListener {
         mListeners.remove(listener);
     }
 
-    void toggle() {
-        requestTransition(snapshot().state);
+    void toggle(final int displayId) {
+        requestTransition(snapshot().state, displayId);
     }
 
-    boolean requestStart() {
-        return requestTransition(State.IDLE);
+    boolean requestStart(final int displayId) {
+        return requestTransition(State.IDLE, displayId);
     }
 
     boolean requestStop() {
-        return requestTransition(State.RECORDING);
+        return requestTransition(State.RECORDING, -1);
     }
 
-    private boolean requestTransition(final State operation) {
+    private boolean requestTransition(final State operation, final int displayId) {
         final Snapshot snapshot;
         final long generation;
         synchronized (this) {
@@ -128,7 +128,7 @@ final class DisplayRecordingController implements ShellAccess.StateListener {
         dispatchSnapshot(snapshot);
         switch (operation) {
             case IDLE:
-                start(generation);
+                start(generation, displayId);
                 break;
             case RECORDING:
                 stop(generation);
@@ -165,12 +165,12 @@ final class DisplayRecordingController implements ShellAccess.StateListener {
         dispatchSnapshot(snapshot);
     }
 
-    private void start(final long generation) {
+    private void start(final long generation, final int displayId) {
         mExecutor.execute(() -> {
             String outputPath = null;
             DesktopCaptureTarget capture = null;
             try {
-                capture = DesktopCaptureTarget.resolveActive();
+                capture = DesktopCaptureTarget.resolve(displayId);
                 final DisplayRecordingSettings.Values settings =
                         DisplayRecordingSettings.load(
                                 MagicDeskApplication.applicationContext());

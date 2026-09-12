@@ -36,6 +36,50 @@ final class ShellActivityStartController implements AutoCloseable {
     }
 
     private static final String TAG = "MagicDeskTasks";
+    private static final Object REGISTRATION_LOCK = new Object();
+    private static final java.util.concurrent.CopyOnWriteArrayList<ShellActivityStartController>
+            CLIENTS = new java.util.concurrent.CopyOnWriteArrayList<>();
+    // Android has one controller slot, regardless of the number of displays.
+    // A veto is final, so a Recents request is handled by one router only.
+    private static final IActivityController CONTROLLER = new IActivityController.Stub() {
+        @Override public boolean activityStarting(final Intent intent, final String packageName)
+                throws android.os.RemoteException {
+            for (final ShellActivityStartController client : CLIENTS) {
+                if (!client.mController.activityStarting(intent, packageName)) { return false; }
+            }
+            return true;
+        }
+        @Override public boolean activityResuming(final String packageName)
+                throws android.os.RemoteException {
+            for (final ShellActivityStartController client : CLIENTS) {
+                if (!client.mController.activityResuming(packageName)) { return false; }
+            }
+            return true;
+        }
+        @Override public boolean appCrashed(final String process, final int pid,
+                final String shortMessage, final String longMessage, final long time,
+                final String stack) throws android.os.RemoteException {
+            for (final ShellActivityStartController client : CLIENTS) {
+                client.mController.appCrashed(process, pid, shortMessage, longMessage, time, stack);
+            }
+            return true;
+        }
+        @Override public int appEarlyNotResponding(final String process, final int pid,
+                final String annotation) throws android.os.RemoteException {
+            for (final ShellActivityStartController client : CLIENTS) {
+                client.mController.appEarlyNotResponding(process, pid, annotation);
+            }
+            return 0;
+        }
+        @Override public int appNotResponding(final String process, final int pid,
+                final String stats) throws android.os.RemoteException {
+            for (final ShellActivityStartController client : CLIENTS) {
+                client.mController.appNotResponding(process, pid, stats);
+            }
+            return 0;
+        }
+        @Override public int systemNotResponding(final String message) { return -1; }
+    };
 
     private final Object mService;
     private final Listener[] mListeners;
@@ -152,9 +196,12 @@ final class ShellActivityStartController implements AutoCloseable {
         if (mEnabled) {
             return;
         }
-        installController();
-        mInstalled = true;
-        mEnabled = true;
+        synchronized (REGISTRATION_LOCK) {
+            if (CLIENTS.isEmpty()) { setController(CONTROLLER); }
+            CLIENTS.addIfAbsent(this);
+            mInstalled = true;
+            mEnabled = true;
+        }
     }
 
     @Override
@@ -164,8 +211,11 @@ final class ShellActivityStartController implements AutoCloseable {
             return;
         }
         try {
-            setController(null);
-            mInstalled = false;
+            synchronized (REGISTRATION_LOCK) {
+                CLIENTS.remove(this);
+                if (CLIENTS.isEmpty()) { setController(null); }
+                mInstalled = false;
+            }
         } catch (ReflectiveOperationException | RuntimeException error) {
             // A stale controller can block Home and Recents even after the
             // shell process exits on vendor firmware. Report the failed
@@ -173,11 +223,6 @@ final class ShellActivityStartController implements AutoCloseable {
             report("activity-start observer release failed: "
                     + usefulMessage(error));
         }
-    }
-
-    private void installController()
-            throws ReflectiveOperationException {
-        setController(mController);
     }
 
     private void setController(final IActivityController controller)

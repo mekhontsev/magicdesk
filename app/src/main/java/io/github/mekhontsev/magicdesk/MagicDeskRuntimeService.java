@@ -92,6 +92,15 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
+    public void desktopTransitionFinished() {
+        postIfAlive(() -> {
+            mDesktopSession.refreshOwnership();
+            mDesktopSession.reconcileHomeLease();
+            updateDesktopTasks();
+        });
+    }
+
+    @Override
     public void refreshPlatformState() {
         postIfAlive(() -> {
             updateNotification();
@@ -118,12 +127,15 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void reconcileFailedDesktopLaunch(final int displayId) {
-        if (mDesktopSession == null
-                || displayId <= android.view.Display.DEFAULT_DISPLAY) {
+        if (mDesktopSession == null || displayId < 0) {
             return;
         }
-        postIfAlive(() -> mDesktopSession
-                .reconcileFailedDesktopLaunch(displayId));
+        postIfAlive(() -> {
+            mPreparingDisplays.remove(displayId);
+            mDesktopTaskRuntime.releaseFailedPreparation(displayId, () -> {
+                mDesktopSession.reconcileFailedDesktopLaunch(displayId);
+            });
+        });
     }
 
     @Override
@@ -207,7 +219,7 @@ public final class MagicDeskRuntimeService extends Service
             final int displayId, final Runnable completion) {
         final Runnable release = () -> {
             try {
-                if (!mDestroyed && mDesktopSession != null && desktopDisplayId() == displayId) {
+                if (!mDestroyed && mDesktopSession != null && DesktopRuntimeBridge.hasWorkspace(displayId)) {
                     mDesktopSession.prepareDisplayRemoval(displayId);
                 }
                 if (!mDestroyed && mDisplayInput != null) {
@@ -330,9 +342,9 @@ public final class MagicDeskRuntimeService extends Service
     }
 
     @Override
-    public DesktopTaskRuntime desktopTasks() {
+    public DesktopTaskRuntime desktopTasks(final int displayId) {
         return mDestroyed || mDesktopTaskRuntime == null
-                ? null : mDesktopTaskRuntime.operations();
+                ? null : mDesktopTaskRuntime.operations(displayId);
     }
 
     @Override
@@ -451,10 +463,9 @@ public final class MagicDeskRuntimeService extends Service
         if (ShellAccess.isReady()) {
             updatePlatformCaptionTarget();
         } else {
-            mProjection.setCaptionTransport(
-                    PlatformProjectionDriver.Transport.NONE);
+            mProjection.setCaptionTransports(java.util.Set.of());
         }
-        mDisplayInput.reconcileRuntime(DesktopRuntimeBridge.getSessionSnapshot().inputDisplayId());
+        mDisplayInput.reconcileRuntime();
         updateDesktopTasks();
         mPlatform.startRuntime(this);
         mMcpRuntime.reconcile();
@@ -497,16 +508,28 @@ public final class MagicDeskRuntimeService extends Service
             return START_NOT_STICKY;
         }
         initialize();
-        mDisplayInput.reconcileRuntime(DesktopRuntimeBridge.getSessionSnapshot().inputDisplayId());
+        final int preparingDisplay = MagicDeskRuntime.preparingDisplay(intent);
+        if (preparingDisplay >= 0) {
+            mPreparingDisplays.add(preparingDisplay);
+            mDesktopTaskRuntime.prepare(preparingDisplay);
+        }
+        mDisplayInput.reconcileRuntime();
         updateDesktopTasks();
         mDesktopSession.schedulePhoneTaskRecovery();
         reportDesktopPrepared();
         return START_NOT_STICKY;
     }
 
+    private final java.util.Set<Integer> mPreparingDisplays = new java.util.HashSet<>();
+
     private void reportDesktopPrepared() {
-        if (mDesktopTaskRuntime != null && mDesktopTaskRuntime.operations().isTaskObserverReady()) {
-            MagicDeskRuntime.desktopRuntimePrepared();
+        if (mDesktopTaskRuntime == null) { return; }
+        for (final int displayId : java.util.Set.copyOf(mPreparingDisplays)) {
+            final DesktopTaskRuntime tasks = mDesktopTaskRuntime.operations(displayId);
+            if (tasks != null && tasks.isTaskObserverReady()) {
+                mPreparingDisplays.remove(displayId);
+                MagicDeskRuntime.desktopRuntimePrepared(displayId);
+            }
         }
     }
 
@@ -574,7 +597,7 @@ public final class MagicDeskRuntimeService extends Service
             mDesktopTaskRuntime = null;
         }
         if (mDisplayInput != null) {
-            mDisplayInput.setInputTarget(-1);
+            mDisplayInput.reconcileRuntime();
         }
         if (mSessionWakeLock != null) {
             mSessionWakeLock.release();
@@ -628,7 +651,7 @@ public final class MagicDeskRuntimeService extends Service
             return;
         }
         if (mDisplayInput != null) {
-            mDisplayInput.reconcileRuntime(DesktopRuntimeBridge.getSessionSnapshot().inputDisplayId());
+            mDisplayInput.reconcileRuntime();
         }
         if (!mInitialized) {
             if (ShellAccess.isReady()
@@ -639,15 +662,14 @@ public final class MagicDeskRuntimeService extends Service
             return;
         }
         mDesktopSession.refreshOwnership();
-        mDisplayInput.reconcileRuntime(DesktopRuntimeBridge.getSessionSnapshot().inputDisplayId());
+        mDisplayInput.reconcileRuntime();
         updateDesktopTasks();
         if (ShellAccess.isReady()) {
             updatePlatformCaptionTarget();
             mPlatform.startRuntime(this);
             mDesktopSession.onShellReady();
         } else {
-            mProjection.setCaptionTransport(
-                    PlatformProjectionDriver.Transport.NONE);
+            mProjection.setCaptionTransports(java.util.Set.of());
             mPlatform.stopRuntime();
         }
         updateNotification();
@@ -656,7 +678,7 @@ public final class MagicDeskRuntimeService extends Service
 
     private void handleDesktopOwnershipRefreshed(
             final boolean changed) {
-        mDisplayInput.setInputTarget(DesktopRuntimeBridge.getSessionSnapshot().inputDisplayId());
+        mDisplayInput.reconcileRuntime();
         updateAdaptiveBrightness();
         if (!changed) {
             updateSessionWakeLock();
@@ -664,7 +686,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         updateSessionWakeLock();
         Log.i(TAG, "ownsExternalDesktop=" + ownsExternalDesktop()
-                + " desktopDisplay=" + desktopDisplayId());
+                + " workspaces=" + DesktopRuntimeBridge.workspaceDisplayIds());
         updateNotification();
         if (ShellAccess.isReady()) {
             updatePlatformCaptionTarget();
@@ -677,7 +699,7 @@ public final class MagicDeskRuntimeService extends Service
         }
         mSessionWakeLock.reconcile(
                 mKeepDesktopAwake,
-                desktopDisplayId());
+                DesktopRuntimeBridge.hasWorkspaces());
     }
 
     private void refreshRuntimeSettings() {
@@ -702,12 +724,12 @@ public final class MagicDeskRuntimeService extends Service
         }
         mAdaptiveBrightness.reconcile(
                 mDisableAdaptiveBrightness,
-                DesktopRuntimeBridge.getDesktopTarget(desktopDisplayId()));
+                DesktopRuntimeBridge.workspaceTargets());
     }
 
     private void updatePlatformCaptionTarget() {
         DesktopOperations.updateExternalTaskCaptionTarget(
-                DesktopRuntimeBridge.getDesktopTarget(desktopDisplayId()));
+                DesktopRuntimeBridge.workspaceTargets());
     }
 
     private boolean ownsExternalDesktop() {
@@ -715,18 +737,12 @@ public final class MagicDeskRuntimeService extends Service
                 && mDesktopSession.ownsExternalDesktop();
     }
 
-    private int desktopDisplayId() {
-        return mDesktopSession == null
-                ? android.view.Display.INVALID_DISPLAY
-                : mDesktopSession.desktopDisplayId();
-    }
-
     private void updateDesktopTasks() {
         if (mDesktopTaskRuntime == null) {
             return;
         }
         mDesktopTaskRuntime.reconcile(
-                DesktopRuntimeBridge.getSessionSnapshot(),
+                DesktopRuntimeBridge.getWorkspaces(),
                 ShellAccess.isReady());
     }
 
@@ -766,7 +782,7 @@ public final class MagicDeskRuntimeService extends Service
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setContentIntent(openControlPanelPendingIntent);
-        final int targetDisplayId = desktopDisplayId();
+        final int targetDisplayId = inputDisplayId();
         if (ShellAccess.isReady()
                 && PhoneTouchpadController.isSupported(targetDisplayId)) {
             builder.addAction(

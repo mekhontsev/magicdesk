@@ -270,7 +270,7 @@ final class DesktopControlsController {
                 DesktopScreenPolicy.isExternalDesktop(
                         mActivity.getCurrentDisplayId());
         final int activeDesktopDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                mActivity.getCurrentDisplayId();
         final boolean externalDesktopSession =
                 DesktopScreenPolicy.isExternalDesktopSession(
                         mActivity.getCurrentDisplayId(),
@@ -333,7 +333,7 @@ final class DesktopControlsController {
         final boolean externalDesktopSession =
                 DesktopScreenPolicy.isExternalDesktopSession(
                         displayId,
-                        DesktopRuntimeBridge.getActiveDesktopDisplayId());
+                        mActivity.getCurrentDisplayId());
         if (!DesktopScreenPolicy.canControlPhoneScreen(
                 externalDesktopSession,
                 DesktopRuntimeBridge.getDesktopTarget(displayId),

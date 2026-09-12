@@ -456,7 +456,7 @@ public final class CommandConsoleActivity extends Activity
                         if (isFinishing() || isDestroyed()) return;
                         try {
                             ToolApplications.open(this, FileManagerActivity.createSaveIntent(this, content),
-                                    ToolLaunchTarget.resolve("auto", display, MagicDeskRuntime.activeDesktopDisplayId()),
+                                    ToolLaunchTarget.resolve("auto", display, DesktopRuntimeBridge.workspaceDisplayIds()),
                                     null, this::imageActionFinished);
                         } catch (RuntimeException error) { imageActionFinished(error); }
                     });

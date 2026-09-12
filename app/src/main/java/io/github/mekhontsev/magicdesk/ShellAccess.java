@@ -1119,6 +1119,7 @@ public final class ShellAccess {
     }
 
     static ShellTaskObserverHandle openTaskObserver(
+            final int displayId,
             final ITaskObserverCallback callback,
             final IActivityLaunchCallback activityLauncher,
             final Runnable disconnected) throws IOException {
@@ -1129,7 +1130,7 @@ public final class ShellAccess {
         final ShellTaskObserverHandle handle = new ShellTaskObserverHandle(
                 service, callback, activityLauncher, disconnected);
         try {
-            handle.start();
+            handle.start(displayId);
             return handle;
         } catch (RemoteException error) {
             handle.closeAfterStartFailure();

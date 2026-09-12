@@ -22,13 +22,21 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     private final Object mLock = new Object();
     private final Map<Integer, ParkedTask> mParked =
             new LinkedHashMap<>();
-    private int mObservedDisplayId = Display.INVALID_DISPLAY;
-    private List<ParkedTask> mObservedTopFirst = Collections.emptyList();
-    private boolean mObservedOwnershipReady;
-    private Set<Integer> mObservedOwnedTaskIds = Collections.emptySet();
-    private DesktopDisplayTarget mPendingTarget;
-    private boolean mRestoreInProgress;
-    private int mRestoreCompletedHostTaskId = -1;
+    private record Observation(List<ParkedTask> topFirst, boolean ownershipReady,
+            Set<Integer> ownedTaskIds) { }
+    private final Map<Integer, Observation> mObservations = new LinkedHashMap<>();
+    private static final class Restore {
+        final DesktopDisplayTarget target;
+        final List<ParkedTask> tasks;
+        boolean running;
+
+        Restore(final DesktopDisplayTarget target, final List<ParkedTask> tasks) {
+            this.target = target;
+            this.tasks = tasks;
+        }
+    }
+
+    private final Map<Integer, Restore> mRestores = new LinkedHashMap<>();
     private long mGeneration;
 
     DesktopTaskParkingController() {
@@ -37,8 +45,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     boolean isWorkspacePrepared(final DesktopSessionSnapshot session) {
         synchronized (mLock) {
             return !session.policy().restoreWorkspace
-                    || (!mRestoreInProgress && (mParked.isEmpty()
-                            || mRestoreCompletedHostTaskId == session.hostTaskId()));
+                    || !mRestores.containsKey(session.activeWorkspaceDisplayId());
         }
     }
 
@@ -64,13 +71,9 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                                 filterByOwnership ? ownership : null);
         final DesktopDisplayTarget pendingTarget;
         synchronized (mLock) {
-            mObservedDisplayId = displayId;
-            mObservedTopFirst = observed;
-            mObservedOwnershipReady = ownershipReady;
-            mObservedOwnedTaskIds = ownership;
-            pendingTarget = mPendingTarget != null
-                            && mPendingTarget.workspaceDisplayId == displayId
-                    ? mPendingTarget : null;
+            mObservations.put(displayId, new Observation(observed, ownershipReady, ownership));
+            final Restore restore = mRestores.get(displayId);
+            pendingTarget = restore == null ? null : restore.target;
         }
         if (pendingTarget != null) {
             restoreIfReady(pendingTarget);
@@ -80,6 +83,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     @Override
     public void park(
             final DesktopDisplayTarget source,
+            final boolean remember,
             final ResultCallback callback) {
         if (source == null
                 || source.workspaceDisplayId < Display.DEFAULT_DISPLAY) {
@@ -91,61 +95,55 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             generation = mGeneration;
         }
         TaskCommandQueue.execute(
-                () -> parkNow(source, callback, generation));
+                () -> parkNow(source, remember, callback, generation));
     }
 
     @Override
     public void preserve(final int displayId) {
         final int saved;
         synchronized (mLock) {
-            if (displayId < Display.DEFAULT_DISPLAY
-                    || displayId != mObservedDisplayId
-                    || (displayId == Display.DEFAULT_DISPLAY
-                            && !mObservedOwnershipReady)) {
+            final Observation observation = mObservations.get(displayId);
+            if (observation == null || (displayId == Display.DEFAULT_DISPLAY
+                            && !observation.ownershipReady)) {
                 return;
             }
-            mGeneration++;
-            mergePreservedTasks(
-                    mParked, mObservedTopFirst, false);
-            mPendingTarget = null;
-            mRestoreInProgress = false;
-            mRestoreCompletedHostTaskId = -1;
-            saved = mObservedTopFirst.size();
+            cancelRestore(displayId);
+            mergePreservedTasks(mParked, observation.topFirst, false);
+            saved = observation.topFirst.size();
         }
         Log.i(TAG, "preserved=" + saved + " display=" + displayId);
     }
 
-    @Override
-    public void restoreWhenReady(final DesktopDisplayTarget target) {
+    void restoreWhenReady(final DesktopDisplayTarget target) {
         if (target == null
                 || target.workspaceDisplayId < Display.DEFAULT_DISPLAY) {
             return;
         }
-        if (!DesktopRuntimeBridge.getSessionSnapshot()
+        if (!DesktopRuntimeBridge.getSessionSnapshot(target.workspaceDisplayId)
                 .policy().restoreWorkspace) {
             return;
         }
         synchronized (mLock) {
-            if (mParked.isEmpty()) {
+            if (mParked.isEmpty() || mRestores.containsKey(target.workspaceDisplayId)) {
                 return;
             }
-            mPendingTarget = target;
+            mRestores.put(target.workspaceDisplayId,
+                    new Restore(target, new ArrayList<>(mParked.values())));
+            mParked.clear();
         }
         restoreIfReady(target);
     }
 
     @Override
     public void onDesktopHostReady(final int displayId) {
-        if (!DesktopRuntimeBridge.getSessionSnapshot()
+        if (!DesktopRuntimeBridge.getSessionSnapshot(displayId)
                 .policy().restoreWorkspace) {
             return;
         }
         final DesktopDisplayTarget target;
         synchronized (mLock) {
-            target = mPendingTarget != null
-                            && mPendingTarget.workspaceDisplayId == displayId
-                    ? mPendingTarget
-                    : DesktopRuntimeBridge.getDesktopTarget(displayId);
+            final Restore restore = mRestores.get(displayId);
+            target = restore == null ? null : restore.target;
         }
         restoreIfReady(target);
     }
@@ -155,18 +153,14 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         synchronized (mLock) {
             mGeneration++;
             mParked.clear();
-            mObservedDisplayId = Display.INVALID_DISPLAY;
-            mObservedTopFirst = Collections.emptyList();
-            mObservedOwnershipReady = false;
-            mObservedOwnedTaskIds = Collections.emptySet();
-            mPendingTarget = null;
-            mRestoreInProgress = false;
-            mRestoreCompletedHostTaskId = -1;
+            mObservations.clear();
+            mRestores.clear();
         }
     }
 
     private void parkNow(
             final DesktopDisplayTarget source,
+            final boolean remember,
             final ResultCallback callback,
             final long generation) {
         final TaskRepository.Snapshot snapshot =
@@ -190,10 +184,9 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         final boolean ownershipReady;
         final Set<Integer> ownedTaskIds;
         synchronized (mLock) {
-            ownershipReady = source.workspaceDisplayId == mObservedDisplayId
-                    && mObservedOwnershipReady;
-            ownedTaskIds = source.workspaceDisplayId == mObservedDisplayId
-                    ? mObservedOwnedTaskIds : Collections.emptySet();
+            final Observation observation = mObservations.get(source.workspaceDisplayId);
+            ownershipReady = observation != null && observation.ownershipReady;
+            ownedTaskIds = observation != null ? observation.ownedTaskIds : Collections.emptySet();
         }
         if (filterByOwnership && !ownershipReady) {
             recordFailure(
@@ -219,9 +212,8 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
 
         if (source.workspaceDisplayId == Display.DEFAULT_DISPLAY) {
             synchronized (mLock) {
-                if (generation == mGeneration) {
+                if (remember && generation == mGeneration) {
                     mergePreservedTasks(mParked, candidates, true);
-                    mPendingTarget = null;
                 }
             }
             Log.i(TAG, "parked=" + candidates.size()
@@ -247,13 +239,12 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
 
         final Set<Integer> returnedTaskIds = parseReturnedTaskIds(output);
         synchronized (mLock) {
-            if (generation == mGeneration) {
+            if (remember && generation == mGeneration) {
                 // Preserve the complete observed workspace even when Android
                 // migrates one task only after the display disappears. The
                 // restore path still requires the exact live task ID and
                 // package, so a failed or closed task is never relaunched.
                 mergePreservedTasks(mParked, candidates, true);
-                mPendingTarget = null;
             }
         }
         final boolean success = returnedTaskIds.size() == candidates.size();
@@ -274,33 +265,26 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 || target.workspaceDisplayId < Display.DEFAULT_DISPLAY
                 || !DesktopRuntimeBridge.isDesktopReadyOnDisplay(
                         target.workspaceDisplayId)
-                || !MagicDeskRuntime.isTaskObserverReady()) {
+                || !MagicDeskRuntime.isTaskObserverReady(target.workspaceDisplayId)) {
             return;
         }
-        final long generation;
+        final Restore restore;
         synchronized (mLock) {
-            if (mParked.isEmpty() || mRestoreInProgress
-                    || mObservedDisplayId != target.workspaceDisplayId
-                    || !mObservedOwnershipReady) {
+            restore = mRestores.get(target.workspaceDisplayId);
+            final Observation observation = mObservations.get(target.workspaceDisplayId);
+            if (restore == null || restore.running
+                    || observation == null || !observation.ownershipReady) {
                 return;
             }
-            mRestoreInProgress = true;
-            generation = mGeneration;
+            restore.running = true;
         }
-        TaskCommandQueue.execute(() -> restoreNow(target, generation));
+        TaskCommandQueue.execute(() -> restoreNow(restore));
     }
 
-    private void restoreNow(
-            final DesktopDisplayTarget target,
-            final long generation) {
-        final int hostTaskId = DesktopRuntimeBridge.getSessionSnapshot().hostTaskId();
-        final List<ParkedTask> saved;
-        synchronized (mLock) {
-            if (generation != mGeneration) {
-                return;
-            }
-            saved = new ArrayList<>(mParked.values());
-        }
+    private void restoreNow(final Restore restore) {
+        final DesktopDisplayTarget target = restore.target;
+        final List<ParkedTask> saved = restore.tasks;
+        if (!isCurrentRestore(restore)) { return; }
         final Set<Integer> completed = new HashSet<>();
         final List<Integer> restoredTaskIds = new ArrayList<>();
         try {
@@ -314,7 +298,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             }
 
             for (int index = saved.size() - 1; index >= 0; index--) {
-                if (!isCurrentGeneration(generation)) {
+                if (!isCurrentRestore(restore)) {
                     return;
                 }
                 final ParkedTask parked = saved.get(index);
@@ -349,7 +333,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                     Log.w(TAG, "Could not restore task=" + parked.taskId, error);
                 }
             }
-            if (isCurrentGeneration(generation)) {
+            if (isCurrentRestore(restore)) {
                 restoreFreeformLayout(target, saved, restoredTaskIds);
             }
         } catch (IOException | RuntimeException error) {
@@ -358,51 +342,54 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         }
         // Readiness follows the final workspace commit, not just the queued
         // request. Failure still completes preparation so input remains usable.
-        if (!isCurrentGeneration(generation)) {
+        if (!isCurrentRestore(restore)) {
             return;
         }
         try {
             restoreStackState(target.workspaceDisplayId, saved, restoredTaskIds,
-                    () -> finishRestore(target, generation, hostTaskId,
+                    () -> finishRestore(restore,
                             completed, restoredTaskIds.size()));
         } catch (IOException | RuntimeException error) {
             recordFailure("Could not restore desktop stack", error.getMessage());
-            finishRestore(target, generation, hostTaskId,
+            finishRestore(restore,
                     completed, restoredTaskIds.size());
         }
     }
 
     private void finishRestore(
-            final DesktopDisplayTarget target,
-            final long generation,
-            final int hostTaskId,
+            final Restore restore,
             final Set<Integer> completed,
             final int restoredCount) {
         final boolean current;
         synchronized (mLock) {
-            current = generation == mGeneration;
+            current = mRestores.remove(restore.target.workspaceDisplayId, restore);
             if (current) {
-                for (final Integer taskId : completed) {
-                    mParked.remove(taskId);
+                for (final ParkedTask task : restore.tasks) {
+                    if (!completed.contains(task.taskId)) { mParked.putIfAbsent(task.taskId, task); }
                 }
-                if (mPendingTarget != null
-                        && mPendingTarget.workspaceDisplayId == target.workspaceDisplayId) {
-                    mPendingTarget = null;
-                }
-                mRestoreInProgress = false;
-                mRestoreCompletedHostTaskId = hostTaskId;
             }
         }
-        if (current) {
-            MagicDeskRuntime.refreshDesktopTasks();
-        }
-        Log.i(TAG, "restored=" + restoredCount
-                + " display=" + target.workspaceDisplayId);
+        if (current) { MagicDeskRuntime.refreshDesktopTasks(); }
+        Log.i(TAG, "restored=" + restoredCount + " display=" + restore.target.workspaceDisplayId);
     }
 
-    private boolean isCurrentGeneration(final long generation) {
+    private boolean isCurrentRestore(final Restore restore) {
         synchronized (mLock) {
-            return generation == mGeneration;
+            return mRestores.get(restore.target.workspaceDisplayId) == restore;
+        }
+    }
+
+    void retire(final int displayId) {
+        synchronized (mLock) {
+            cancelRestore(displayId);
+            mObservations.remove(displayId);
+        }
+    }
+
+    private void cancelRestore(final int displayId) {
+        final Restore restore = mRestores.remove(displayId);
+        if (restore != null) {
+            for (final ParkedTask task : restore.tasks) { mParked.putIfAbsent(task.taskId, task); }
         }
     }
 

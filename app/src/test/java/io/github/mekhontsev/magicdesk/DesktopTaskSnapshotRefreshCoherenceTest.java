@@ -100,7 +100,7 @@ public final class DesktopTaskSnapshotRefreshCoherenceTest {
                 }
                 static class DesktopRuntimeBridge {
                     static int activeDisplay = 66;
-                    static DesktopSessionSnapshot getSessionSnapshot() { return new DesktopSessionSnapshot(); }
+                    static DesktopSessionSnapshot getSessionSnapshot(int displayId) { return new DesktopSessionSnapshot(); }
                 }
                 static class MagicDeskRuntime {
                     static TaskRepository.Snapshot observed = new TaskRepository.Snapshot(

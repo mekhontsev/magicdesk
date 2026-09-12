@@ -69,7 +69,7 @@ public final class UiPresentationContractTest {
         final String launch = source.substring(source.indexOf("public void openApplicationSettings()"),
                 source.indexOf("public void openDiagnostics()"));
         assertTrue(launch.contains("final android.view.Display display = getDisplay();"));
-        assertTrue(launch.contains("if (displayId == DesktopRuntimeBridge.getActiveDesktopDisplayId()"));
+        assertTrue(launch.contains("DesktopRuntimeBridge.hasWorkspace(displayId)"));
         assertTrue(launch.contains("&& DesktopRuntimeBridge.openApplicationSettings(displayId, null)"));
         assertTrue(launch.contains("startActivityOnCurrentDisplay("));
     }

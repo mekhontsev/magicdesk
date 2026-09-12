@@ -5,7 +5,7 @@ final class StartMenuLayout {
     private StartMenuLayout() { }
 
     static int columns(final int widthDp) {
-        return Math.max(1, Math.min(4, widthDp / 100));
+        return Math.max(1, widthDp / 100);
     }
 
     static int rows(final int bodyHeightDp) {

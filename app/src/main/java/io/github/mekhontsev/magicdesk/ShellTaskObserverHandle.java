@@ -37,12 +37,12 @@ final class ShellTaskObserverHandle implements Closeable {
         mServiceDeathRecipient = this::serviceDisconnected;
     }
 
-    void start() throws RemoteException {
+    void start(final int displayId) throws RemoteException {
         mServiceBinder.linkToDeath(mServiceDeathRecipient, 0);
         synchronized (this) {
             mServiceLinked = true;
         }
-        mService.startTaskObserver(mCallback, mActivityLauncher);
+        mService.startTaskObserver(displayId, mCallback, mActivityLauncher);
         synchronized (this) {
             if (!mClosed.get()) {
                 mRegistered = true;

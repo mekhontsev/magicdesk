@@ -428,6 +428,11 @@ final class DesktopContextMenuController {
                 panels != null && panels.containsVisiblePanelView(view));
     }
 
+    void registerStartTarget(View view, AppItem app,
+            java.util.function.Supplier<StartDisplaySelector.Target> destination) {
+        registerTarget(view, ContextTarget.startApp(app, destination));
+    }
+
     private void showTargetMenu(
             final float x,
             final float y,
@@ -436,7 +441,8 @@ final class DesktopContextMenuController {
         mRetainOwnerPanel = retainOwnerPanel;
         if (target.app != null) {
             showAppMenu(
-                    x, y, target.app, target.task, target.file);
+                    x, y, target.app, target.task, target.file,
+                    target.launchDestination == null ? null : target.launchDestination.get());
         } else if (target.file != null) {
             showFileMenu(x, y, target.file);
         } else if (target.appWidgetId >= 0) {
@@ -603,14 +609,16 @@ final class DesktopContextMenuController {
             final float y,
             final AppItem app,
             final TaskRepository.TaskEntry exactTask,
-            final DesktopFile desktopFile) {
+            final DesktopFile desktopFile,
+            final StartDisplaySelector.Target destination) {
         final DesktopPanelWindowController panels = mActivity.panels();
         if (mPanel == null || panels == null) {
             return;
         }
         final TaskRepository.TaskEntry task = exactTask != null
                 ? exactTask
-                : mActivity.findFirstTask(app);
+                : destination == null || destination.displayId() == mActivity.getCurrentDisplayId()
+                        ? mActivity.findFirstTask(app) : null;
         showAppMenu(new AppMenuState(
                 x,
                 y,
@@ -619,7 +627,7 @@ final class DesktopContextMenuController {
                 desktopFile,
                 List.of(),
                 List.of(),
-                false));
+                false, destination));
         if (!panels.isRequested(mMenuRoot)) {
             return;
         }
@@ -635,7 +643,7 @@ final class DesktopContextMenuController {
                     ? DesktopLaunchIntegrationRegistry.actions(mActivity, app.launchTarget)
                     : List.of();
             return new AppMenuState(x, y, app, task, desktopFile,
-                    shortcuts, integrationActions, hasWidgets);
+                    shortcuts, integrationActions, hasWidgets, destination);
         }, null).thenAccept(completion -> request.deliver(mActivity::runOnUiThread, () -> {
             if (request != mShortcutRequest) {
                 return;
@@ -671,7 +679,7 @@ final class DesktopContextMenuController {
                 true,
                 view -> {
                     if (state.task == null) {
-                        mActivity.launchDefault(state.app);
+                        launchApp(state, DesktopLaunchPresentation.automatic());
                     } else {
                         mActivity.focusTask(state.app, state.task);
                     }
@@ -780,7 +788,18 @@ final class DesktopContextMenuController {
                     shortcut.icon,
                     DesktopUiFactory.COLOR_CYAN,
                     true,
-                    view -> mActivity.launchShortcut(state.app, shortcut));
+                    view -> {
+                        if (state.destination == null) {
+                            mActivity.launchShortcut(state.app, shortcut);
+                        } else {
+                            StartEntryLauncher.request(mActivity, new DesktopLaunchRequest(
+                                    shortcut.label, state.app.packageName, null,
+                                    new AndroidShortcutSpec(state.app.identity, state.app.launchTarget, shortcut.id),
+                                    null, DesktopLaunchPresentation.automatic(), DesktopLaunchArguments.empty(), ""),
+                                    state.destination, () -> !mActivity.isActivityUnavailable(),
+                                    mActivity::hideAllPanels, this::launchFailed);
+                        }
+                    });
         }
         positionAndShow(state.x, state.y);
     }
@@ -810,20 +829,22 @@ final class DesktopContextMenuController {
                         state.app.label),
                 view -> showAppMenu(state));
 
-        final boolean windowControl = ShellAccess.isReady();
+        final boolean windowControl = ShellAccess.isReady()
+                && (state.destination == null || DesktopRuntimeBridge.hasWorkspace(state.destination.displayId()));
         if (state.app.canFloat && windowControl) {
             addAction(
                     R.string.action_open_floating,
                     DesktopUiFactory.COLOR_PANEL_ALT,
                     true,
-                    view -> mActivity.launchWindowed(state.app));
+                    view -> launchApp(state, DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED)));
             if (BuiltInDesktopAppCatalog.supportsMultipleWindows(
                     state.app.launchTarget)) {
                 addAction(
                         R.string.action_new_window,
                         DesktopUiFactory.COLOR_PANEL_ALT,
                         true,
-                        view -> mActivity.launchNewWindow(state.app));
+                        view -> launchApp(state, DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED)
+                                .withInstancePolicy(DesktopTaskInstancePolicy.CREATE_NEW)));
             }
         }
         addAction(
@@ -832,7 +853,7 @@ final class DesktopContextMenuController {
                 true,
                 view -> {
                     if (state.task == null) {
-                        mActivity.launchFullscreen(state.app);
+                        launchApp(state, DesktopLaunchPresentation.forMode(DesktopLaunchMode.FULLSCREEN));
                     } else {
                         mActivity.openTaskFullscreen(
                                 state.app, state.task);
@@ -850,6 +871,25 @@ final class DesktopContextMenuController {
                             state.app, state.task));
         }
         positionAndShow(state.x, state.y);
+    }
+
+    private void launchApp(AppMenuState state, DesktopLaunchPresentation presentation) {
+        if (state.destination == null) {
+            if (presentation.mode == DesktopLaunchMode.AUTO) { mActivity.launchDefault(state.app); }
+            else if (presentation.mode == DesktopLaunchMode.FULLSCREEN) { mActivity.launchFullscreen(state.app); }
+            else if (presentation.instancePolicy == DesktopTaskInstancePolicy.CREATE_NEW) {
+                mActivity.launchNewWindow(state.app);
+            } else { mActivity.launchWindowed(state.app); }
+            return;
+        }
+        DisplayAppLauncher.launch(mActivity, state.app, state.destination.displayId(), state.destination.uniqueId(),
+                presentation, () -> !mActivity.isActivityUnavailable(),
+                mActivity::hideAllPanels, this::launchFailed);
+    }
+
+    private void launchFailed(Throwable error) {
+        android.widget.Toast.makeText(mActivity, ShellAccess.usefulMessage(error),
+                android.widget.Toast.LENGTH_LONG).show();
     }
 
     private void prepareAppMenuTitle(
@@ -1102,6 +1142,7 @@ final class DesktopContextMenuController {
         final List<AppShortcutAction> shortcuts;
         final List<DesktopLaunchIntegrationAction> integrationActions;
         final boolean hasWidgets;
+        final StartDisplaySelector.Target destination;
 
         AppMenuState(
                 final float x,
@@ -1111,7 +1152,7 @@ final class DesktopContextMenuController {
                 final DesktopFile desktopFile,
                 final List<AppShortcutAction> shortcuts,
                 final List<DesktopLaunchIntegrationAction> integrationActions,
-                final boolean hasWidgets) {
+                final boolean hasWidgets, final StartDisplaySelector.Target destination) {
             this.x = x;
             this.y = y;
             this.app = app;
@@ -1120,6 +1161,7 @@ final class DesktopContextMenuController {
             this.shortcuts = shortcuts;
             this.integrationActions = integrationActions;
             this.hasWidgets = hasWidgets;
+            this.destination = destination;
         }
     }
 }

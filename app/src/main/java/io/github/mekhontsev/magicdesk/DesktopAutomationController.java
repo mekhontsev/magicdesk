@@ -102,14 +102,14 @@ final class DesktopAutomationController {
                     final TaskRepository.TaskEntry moving = findTask(requiredInt(args, "taskId"));
                     result = moving == null ? taskNotFound(requiredInt(args, "taskId"))
                             : awaitTaskAction(callback -> TaskRepository.moveTaskToDisplay(moving,
-                                    requiredInt(args, "displayId"), null, callback));
+                                    requiredInt(args, "displayId"), optionalString(args, "uniqueId", null), null, callback));
                     if (result.success) {
                         result.data.put("accepted", true).put("taskId", moving.taskId)
                                 .put("displayId", requiredInt(args, "displayId"));
                     }
                     break;
                 case CLOSE_DESKTOP:
-                    result = closeDesktop();
+                    result = closeDesktop(args);
                     break;
                 case LAUNCH_APP:
                     result = launchApp(args);
@@ -211,10 +211,10 @@ final class DesktopAutomationController {
                     break;
                 case SHOW_START:
                     result = simpleRuntimeAction(
-                            MagicDeskRuntime.showStart(DesktopRuntimeBridge.getActiveDesktopDisplayId()), "Start menu shown");
+                            MagicDeskRuntime.showStart(optionalDisplayId(args)), "Start menu shown");
                     break;
                 case SHOW_DESKTOP:
-                    result = toggleDesktopWorkspace();
+                    result = toggleDesktopWorkspace(args);
                     break;
                 case OPEN_SETTINGS:
                     result = openSettings();
@@ -235,7 +235,7 @@ final class DesktopAutomationController {
                     result = recordingStatus("screen recording status");
                     break;
                 case START_RECORDING:
-                    result = startRecording();
+                    result = startRecording(args);
                     break;
                 case STOP_RECORDING:
                     result = stopRecording();
@@ -436,10 +436,6 @@ final class DesktopAutomationController {
         if (!display.canHostDesktop) {
             throw new IllegalArgumentException("display cannot host a desktop");
         }
-        final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (active != null && active.workspaceDisplayId != display.id) {
-            return DesktopAutomationResult.failure("close the active desktop before changing displays");
-        }
         DesktopOperations.showDesktop(display);
         return DesktopAutomationResult.success("desktop start accepted", DesktopDisplayCatalog.json(display));
     }
@@ -488,10 +484,10 @@ final class DesktopAutomationController {
                 : DesktopAutomationResult.failure("could not remove display");
     }
 
-    private DesktopAutomationResult closeDesktop()
+    private DesktopAutomationResult closeDesktop(final JSONObject args)
             throws InterruptedException {
         final DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getActiveDesktopTarget();
+                DesktopRuntimeBridge.getDesktopTarget(optionalDisplayId(args));
         if (target == null) {
             return DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.DESKTOP_NOT_ACTIVE,
@@ -529,7 +525,7 @@ final class DesktopAutomationController {
         if (!placement.desktop) {
             return mAndroid.launchApplication(application, target, presentation, placement);
         }
-        placement.requireCurrent(DesktopRuntimeBridge.getActiveDesktopDisplayId());
+        placement.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
         final DesktopActivityLaunchResult result =
                 DesktopRuntimeBridge.launchApplicationObserved(
                         application, target,
@@ -726,9 +722,9 @@ final class DesktopAutomationController {
         }
     }
 
-    private DesktopAutomationResult toggleDesktopWorkspace()
+    private DesktopAutomationResult toggleDesktopWorkspace(final JSONObject args)
             throws InterruptedException {
-        final int displayId = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final int displayId = optionalDisplayId(args);
         final DesktopAutomationResult result = awaitTaskAction(callback -> {
             if (!MagicDeskRuntime.toggleDesktopWorkspace(displayId, callback)) {
                 callback.onComplete(new TaskRepository.ActionResult(
@@ -854,7 +850,7 @@ final class DesktopAutomationController {
                 throw new IllegalArgumentException(
                         "arrangement must be left, right, maximize, or restore");
         }
-        if (!MagicDeskRuntime.arrangeTask(taskId, shortcut)) {
+        if (!MagicDeskRuntime.arrangeTask(task.displayId, taskId, shortcut)) {
             return DesktopAutomationResult.failure(
                     DesktopAutomationErrorCode.HOST_UNAVAILABLE,
                     "desktop task runtime is unavailable", true);
@@ -866,11 +862,11 @@ final class DesktopAutomationController {
                         .put("arrangement", arrangement));
     }
 
-    private DesktopAutomationResult startRecording()
+    private DesktopAutomationResult startRecording(final JSONObject args)
             throws JSONException {
         final DisplayRecordingController controller =
                 DisplayRecordingController.get();
-        if (!controller.requestStart()) {
+        if (!controller.requestStart(optionalDisplayId(args))) {
             return recordingStateFailure(
                     "screen recording is not idle", controller.snapshot());
         }
@@ -1177,19 +1173,21 @@ final class DesktopAutomationController {
                         .put("matched", "display_present".equals(condition) == present);
             }
             case "desktop_active": {
-                final DesktopSessionSnapshot session =
-                        DesktopRuntimeBridge.getSessionSnapshot();
-                return observation
-                        .put("matched", session.hasHost()
-                                && (!args.has("displayId")
-                                    || args.optInt("displayId") == session.activeWorkspaceDisplayId()))
-                        .put("displayId", session.activeWorkspaceDisplayId());
+                final java.util.List<DesktopSessionSnapshot> sessions = args.has("displayId")
+                        ? java.util.List.of(DesktopRuntimeBridge.getSessionSnapshot(requiredInt(args, "displayId")))
+                        : DesktopRuntimeBridge.getWorkspaces();
+                final boolean transitioning = DesktopOperations.isSessionTransitionInProgress();
+                return observation.put("transitioning", transitioning)
+                        .put("matched", !transitioning
+                                && sessions.stream().anyMatch(DesktopSessionSnapshot::hasHost));
             }
             case "desktop_inactive": {
-                final DesktopSessionSnapshot session =
-                        DesktopRuntimeBridge.getSessionSnapshot();
-                return observation.put("matched",
-                        session.target() == null && !session.hasHost());
+                final boolean present = args.has("displayId")
+                        ? DesktopRuntimeBridge.hasWorkspace(requiredInt(args, "displayId"))
+                        : DesktopRuntimeBridge.hasWorkspaces();
+                final boolean transitioning = DesktopOperations.isSessionTransitionInProgress();
+                return observation.put("transitioning", transitioning)
+                        .put("matched", !present && !transitioning);
             }
             case "task_present":
             case "task_absent":
@@ -1424,22 +1422,36 @@ final class DesktopAutomationController {
             final JSONObject args, final JSONObject observation)
             throws JSONException {
         final String condition = requiredString(args, "condition");
-        final int activeDisplayId = DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final Integer displayId = args.has("displayId")
-                ? Integer.valueOf(requiredInt(args, "displayId")) : null;
-        if (displayId != null && displayId.intValue() < 0) {
+        final Integer displayId = args.has("displayId") ? requiredInt(args, "displayId") : null;
+        if (displayId != null && displayId < 0) {
             throw new IllegalArgumentException("displayId must be nonnegative");
         }
-        TaskRepository.Snapshot snapshot = selectObservedTasks(
-                MagicDeskRuntime.observedTaskSnapshot(activeDisplayId),
-                activeDisplayId, displayId);
-        final boolean published = activeDisplayId >= 0 && (displayId != null
-                ? displayId.intValue() == activeDisplayId
-                        || displayId.intValue() == Display.DEFAULT_DISPLAY
-                : !"task_absent".equals(condition) && (snapshot == null
-                        || "system_dialog_visible".equals(condition)
-                        || (args.has("taskId")
-                                && findTask(snapshot, requiredInt(args, "taskId")) != null)));
+        final java.util.Map<Integer, TaskRepository.TaskEntry> observed = new java.util.LinkedHashMap<>();
+        boolean available = false;
+        boolean unknownWorkspace = false;
+        final boolean selectedWorkspace = displayId != null
+                && DesktopRuntimeBridge.workspaceDisplayIds().contains(displayId);
+        for (final int id : DesktopRuntimeBridge.workspaceDisplayIds()) {
+            if (selectedWorkspace && id != displayId) { continue; }
+            final TaskRepository.Snapshot raw = MagicDeskRuntime.observedTaskSnapshot(id);
+            unknownWorkspace |= raw == null || !raw.available;
+            final TaskRepository.Snapshot source = selectObservedTasks(
+                    raw, id, displayId);
+            if (source != null && source.available) {
+                available = true;
+                for (final TaskRepository.TaskEntry task : source.tasks) { observed.put(task.taskId, task); }
+            }
+        }
+        TaskRepository.Snapshot snapshot = available
+                ? new TaskRepository.Snapshot(new ArrayList<>(observed.values()), true, "") : null;
+        final boolean unresolved = displayId == null && unknownWorkspace
+                && !"task_absent".equals(condition)
+                && (!args.has("taskId") || !observed.containsKey(requiredInt(args, "taskId")));
+        if (unresolved) { snapshot = null; }
+        final boolean published = selectedWorkspace || unresolved || available && (displayId != null
+                || !"task_absent".equals(condition) && (args.has("taskId")
+                        ? observed.containsKey(requiredInt(args, "taskId"))
+                        : "system_dialog_visible".equals(condition)));
         if (!published) {
             // An explicit bounded wait still covers inactive sessions and other displays.
             // In particular, only a global query can establish global task absence.
@@ -1450,7 +1462,7 @@ final class DesktopAutomationController {
                 .put("taskObservationSource", published ? "published" : "fresh")
                 .put("taskObservationRecheck", !published)
                 .put("taskObservationScope", displayId != null ? "display"
-                        : published ? "active_desktop_and_phone" : "global");
+                        : published ? "desktop_workspaces_and_phone" : "global");
         if (displayId != null) {
             observation.put("requestedDisplayId", displayId.intValue());
         }
@@ -1636,9 +1648,8 @@ final class DesktopAutomationController {
     }
 
     private int optionalDisplayId(final JSONObject args) {
-        final int active = DesktopRuntimeBridge.getActiveDesktopDisplayId();
         final int displayId = args.has("displayId")
-                ? requiredInt(args, "displayId") : active;
+                ? requiredInt(args, "displayId") : DesktopRuntimeBridge.requireSingleDesktopDisplay();
         if (displayId < Display.DEFAULT_DISPLAY) {
             throw new IllegalArgumentException(
                     "no active desktop display");

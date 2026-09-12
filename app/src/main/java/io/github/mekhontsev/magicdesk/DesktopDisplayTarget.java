@@ -75,6 +75,21 @@ final class DesktopDisplayTarget {
                 && output.sameEndpoint(other.output);
     }
 
+    org.json.JSONObject toJson() throws org.json.JSONException {
+        return new org.json.JSONObject().put("workspaceDisplayId", workspaceDisplayId)
+                .put("output", new org.json.JSONObject().put("displayId", output.displayId)
+                        .put("kind", output.kind.name()).put("profileKey", output.profileKey)
+                        .put("activationSource", output.activationSource.name()));
+    }
+
+    static DesktopDisplayTarget fromJson(final org.json.JSONObject value) throws org.json.JSONException {
+        final org.json.JSONObject output = value.getJSONObject("output");
+        return restore(DesktopDisplayOutput.Kind.valueOf(output.getString("kind")),
+                value.getInt("workspaceDisplayId"), output.getInt("displayId"),
+                output.getString("profileKey"),
+                DesktopDisplayOutput.ActivationSource.valueOf(output.getString("activationSource")));
+    }
+
     android.os.Bundle toBundle() {
         final android.os.Bundle bundle = new android.os.Bundle();
         bundle.putInt("workspace", workspaceDisplayId);

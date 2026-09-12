@@ -91,8 +91,7 @@ public final class DebugSelfTestActivity extends Activity {
 
     private static boolean runtimeReady() {
         return DeviceSetupManager.isRuntimeAuthorized()
-                && ShellAccess.isReady()
-                && MagicDeskRuntime.isTaskObserverReady();
+                && ShellAccess.isReady();
     }
 
     private void launchDiagnostics(final LaunchTarget target) {

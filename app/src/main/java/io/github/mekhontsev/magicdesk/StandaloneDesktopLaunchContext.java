@@ -1,16 +1,19 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.app.ActivityOptions;
 import android.content.Intent;
 import android.widget.Toast;
 
-/** Launch host used by Files when no desktop session owns its display. */
+/** Launch context for an ordinary destination, independent of the displaying Activity. */
 final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
     private final Activity mActivity;
+    private final int mDisplayId;
+    private final String mUniqueId;
 
-    StandaloneDesktopLaunchContext(final Activity activity) {
+    StandaloneDesktopLaunchContext(Activity activity, int displayId, String uniqueId) {
         mActivity = activity;
+        mDisplayId = displayId;
+        mUniqueId = uniqueId;
     }
 
     @Override
@@ -19,8 +22,7 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
     }
 
     private int displayId() {
-        return mActivity.getDisplay() == null
-                ? 0 : mActivity.getDisplay().getDisplayId();
+        return mDisplayId;
     }
 
     @Override
@@ -32,24 +34,59 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
             final DesktopLaunchRequest request,
             final Runnable onPrepared,
             final DesktopActivityLaunchResult.Completion completion) {
-        if (request.androidLaunch == null) {
-            return false;
-        }
-        final Intent intent = request.androidLaunch.resolve(
-                mActivity.getPackageManager());
-        if (intent == null) {
-            return false;
-        }
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        mActivity.startActivity(intent, options().toBundle());
-        if (onPrepared != null) {
-            onPrepared.run();
-        }
-        if (completion != null) {
-            completion.onComplete(
-                    DesktopActivityLaunchResult.unmanagedAccepted(displayId()));
-        }
+        if (request.androidLaunch == null && request.androidShortcut == null) { return false; }
+        OrdinaryActivityLaunch.requirePresentation(request.presentation);
+        TaskCommandQueue.execute(() -> {
+            try {
+                if (isUnavailable()) { return; }
+                ToolLaunchTarget.resolve("display", mDisplayId, DesktopRuntimeBridge.workspaceDisplayIds());
+                DesktopDisplayCatalog.require(mDisplayId, mUniqueId);
+                if (request.androidShortcut != null) {
+                    final AndroidShortcutSpec shortcut = request.androidShortcut;
+                    AppProfile.requireCurrent(mActivity, shortcut.application);
+                    ShellAccess.sendActivityOnDisplay(ShellAccess.getShortcutLaunchIntent(
+                            shortcut.publisher.packageName, shortcut.shortcutId), mDisplayId);
+                } else {
+                    final Intent intent = request.androidLaunch.resolve(mActivity.getPackageManager());
+                    if (intent == null) { throw new IllegalStateException("Activity is unavailable"); }
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    if (mDisplayId == 0 && mActivity.getDisplay() != null
+                            && mActivity.getDisplay().getDisplayId() == 0) {
+                        mActivity.runOnUiThread(() -> {
+                            if (isUnavailable()) { return; }
+                            try {
+                                ToolLaunchTarget.resolve("display", mDisplayId,
+                                        DesktopRuntimeBridge.workspaceDisplayIds());
+                                final android.app.ActivityOptions options = android.app.ActivityOptions.makeBasic();
+                                options.setLaunchDisplayId(mDisplayId);
+                                mActivity.startActivity(intent, options.toBundle());
+                                launched(onPrepared, completion);
+                            } catch (RuntimeException error) { failed(request, error, completion); }
+                        });
+                        return;
+                    }
+                    OrdinaryActivityLaunch.launch(mActivity, intent, request.androidLaunch.delivery, mDisplayId);
+                }
+                mActivity.runOnUiThread(() -> launched(onPrepared, completion));
+            } catch (java.io.IOException | RuntimeException error) {
+                mActivity.runOnUiThread(() -> failed(request, error, completion));
+            }
+        });
         return true;
+    }
+
+    private void launched(Runnable onPrepared, DesktopActivityLaunchResult.Completion completion) {
+        if (isUnavailable()) { return; }
+        if (onPrepared != null) { onPrepared.run(); }
+        if (completion != null) {
+            completion.onComplete(DesktopActivityLaunchResult.unmanagedAccepted(displayId()));
+        }
+    }
+
+    private void failed(DesktopLaunchRequest request, Throwable error,
+            DesktopActivityLaunchResult.Completion completion) {
+        onFailure(request, error);
+        if (completion != null) { completion.onComplete(DesktopActivityLaunchResult.failed(error)); }
     }
 
     @Override
@@ -61,7 +98,9 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
                         request.exec.command,
                         request.exec.workingDirectory,
                         request.exec.backend),
-                CommandConsoleActivity.launchTarget(), error -> {
+                CommandConsoleActivity.launchTarget(),
+                ToolLaunchTarget.resolve("display", mDisplayId, DesktopRuntimeBridge.workspaceDisplayIds()),
+                mUniqueId, error -> {
                     if (error != null) { onFailure(request, error); }
                 });
     }
@@ -93,12 +132,6 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
         show(mActivity.getString(
                 R.string.status_desktop_exec_failed,
                 request.name));
-    }
-
-    private ActivityOptions options() {
-        final ActivityOptions options = ActivityOptions.makeBasic();
-        options.setLaunchDisplayId(displayId());
-        return options;
     }
 
     private void show(final String message) {

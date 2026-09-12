@@ -180,7 +180,7 @@ final class DesktopSelfTestDisplayRemovalSuite {
             throws IOException {
         final long deadline = SystemClock.uptimeMillis()
                 + STEP_TIMEOUT_MILLIS;
-        int activeDisplay = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        int activeDisplay = DesktopSelfTestRunState.preparedDisplayId();
         DesktopDisplayTarget target =
                 DesktopRuntimeBridge.getDesktopTarget(displayId);
         TaskStackParser.Entry desktop = null;
@@ -188,7 +188,7 @@ final class DesktopSelfTestDisplayRemovalSuite {
         do {
             final String stack = ShellAccess.run(
                     "/system/bin/cmd activity stack list");
-            activeDisplay = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+            activeDisplay = DesktopSelfTestRunState.preparedDisplayId();
             target = DesktopRuntimeBridge.getDesktopTarget(displayId);
             desktop = findDesktopTaskOnAnyDisplay(stack);
             fullscreenAreaPresent = hasFullscreenTaskArea();

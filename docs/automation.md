@@ -211,7 +211,7 @@ add the configured server name, so documentation uses `magicdesk.get_state`.
 
 Normal read tools include:
 
-- `magicdesk.get_state`: session, shell, platform, runtime, MagicDesk-owned UI,
+- `magicdesk.get_state`: workspaces, shared HOME lease, shell, platform, runtime, MagicDesk-owned UI,
   actual focused input windows, and system error dialogs;
 - `magicdesk.list_displays`: display modes, dimensions, density, and work area;
 - `magicdesk.list_tasks`: task focus, visibility, bounds, display, native and
@@ -249,9 +249,10 @@ Disabling repair does not remove the workspace command's input postcondition.
 Task and application lists accept filters plus `limit` and `cursor`. Returned
 pages contain `count`, `total`, and a nullable `nextCursor`.
 
-`get_state.ui` reports the taskbar, Start, popup, wallpaper, desktop plane,
-touchpad, and phone control panel. Bounds are included for surfaces owned by
-the desktop host. Screenshot capture returns PNG bytes as MCP image content and
+Each `get_state.workspaces[]` record has a local `ui` snapshot of the taskbar,
+Start, popup, wallpaper and desktop plane. `get_state.runtime` reports the
+shared touchpad and control-panel visibility. Bounds are included for surfaces
+owned by each desktop host. Screenshot capture returns PNG bytes as MCP image content and
 does not create a file. Pixel sampling reads up to 64 coordinates in one shell
 capture operation and returns exact ARGB and component values.
 
@@ -272,25 +273,31 @@ screen coordinates. `magicdesk.invoke_ui_action` accepts an id returned by
 same click or context-menu listener as user input; MCP does not contain a
 parallel menu policy.
 
-During an external desktop session, `list_ui_elements(displayId=0)` also
-exposes the visible phone HOME Start. Its `start.*` IDs are local to that
-display, so `invoke_ui_action` with display 0 launches on the phone while
-the same ID on the desktop display retains desktop behavior. Phone HOME
+`list_ui_elements` also exposes visible fullscreen Start, including HOME and the
+independent Apps screen. Its `start.*` IDs are local to that window;
+`start.display` chooses its launch destination (initially **Current**).
+The action's `displayId` addresses the window containing the control, not the
+selected launch destination. Phone HOME
 actions are `phone.controls`, `phone.touchpad` and `phone.close_desktop`.
-The registry is removed when that HOME stops; this does not create another
+The registry is removed when that Start stops; this does not create another
 desktop session or a background UI observer.
+A visible registered Start remains addressable when keyboard focus is on another
+display. Within one display, a focused registered window takes priority; multiple
+unfocused registered windows are not selected arbitrarily.
 
 ## Display Preparation
 
-`get_state.session.displayId` addresses the active task workspace. The session
-also reports `outputDisplayId` and `inputDisplayId`; all are `-1` without a
-registered host. A prepared `target` contains `workspaceDisplayId` and an
+`get_state.workspaces` contains one record per admitted workspace. Each record
+has a residency `id`, `displayId`, `outputDisplayId`, `active`, `starting`,
+`hostTaskId`, `controlsInput`, and its local `ui` snapshot. The IDs remain
+available during preparation before host registration. The residency ID survives
+host recreation, not Close. A `target` contains `workspaceDisplayId` and an
 `output` object with `displayId`, `kind`, `profileKey`, and `activationSource`.
-The current presenter uses a direct binding, so all three active IDs coincide.
+The current presenter requires a direct workspace/output binding.
 Output kinds are `built_in`, `wired`, `wireless`, and `simulated`; the `phone`
 launch/self-test target still means the system default display.
-Session `inputDisplayId` is the workspace's intended input destination, not
-confirmation of routing. `get_state.inputControl` independently reports
+`get_state.homeLease` reports shared phase, closing display and membership;
+it is not a fresh Android role-holder query. `get_state.inputControl` independently reports
 `requestedDisplayId`, `readyDisplayId`, `transitioning` and `error`, including
 manual control without Desktop or on a different display.
 Launch, task, UI and injected-input commands continue to address logical Android
@@ -310,8 +317,14 @@ MagicDesk starts on it.
 - `start_desktop(displayId, uniqueId)` starts on exactly the selected display.
   The optional uniqueId prevents stale selection after hotplug. Do not combine
   this form with the target convenience selector. Wait for `desktop_active`;
-  command acceptance does not mean the host has appeared.
-- `close_desktop` leaves the display connected and reusable.
+  command acceptance does not mean the host has appeared. The active/inactive
+  conditions also wait for the shared startup/cleanup operation to finish,
+  so a matched result permits the next session command.
+- `close_desktop(displayId)` closes only that workspace and leaves its display
+  connected and reusable. HOME is returned when the last workspace closes.
+  Omitting a Desktop destination is permitted only when exactly one workspace
+  exists. Multiple workspaces require an explicit display ID; the server does
+  not silently choose the input display.
 - `remove_display(displayId, uniqueId)` only removes a MagicDesk-owned display.
   It first closes any session on that display, releases its selected input and
   waits for window transitions.
@@ -471,9 +484,10 @@ and `termux` reports the resolved command service and any availability error.
 MCP commands use the same selection as the UI, never an independent backend.
 
 `terminal.open`, `terminal.attach`, `tmux.open` and `open_builtin` accept a
-`placement`: `auto` (active Desktop or phone), `phone` (ordinary display 0),
+`placement`: `auto` (selected display, sole Desktop, or phone when none exists), `phone` (ordinary display 0),
 `display` (ordinary fullscreen on an explicit `displayId`), or `desktop`
-(the active managed display). An optional `uniqueId` validates display identity.
+(the selected managed display). Multiple workspaces require an explicit
+`displayId`. An optional `uniqueId` validates display identity.
 An ordinary placement cannot bypass an active Desktop on that same display;
 choose `auto` or `desktop` instead. These launches never start Desktop implicitly.
 
@@ -718,7 +732,8 @@ flags, or a raw `intentUri` as the base with structured fields applied on top.
 The raw form is a mode of the same gateway, not a separate launch path.
 
 Activity commands also share built-in tools' `placement` contract: `auto`
-selects the supplied `displayId`, otherwise active Desktop or phone; `phone`
+selects the supplied `displayId`, otherwise the sole Desktop or phone when no
+Desktop exists. Multiple workspaces require an explicit destination; `phone`
 selects ordinary display 0; `display` requires a display id; `desktop` requires
 an active session. Ordinary placement cannot bypass Desktop ownership on the
 same display. This applies to application launches, Intents, URI/file/share

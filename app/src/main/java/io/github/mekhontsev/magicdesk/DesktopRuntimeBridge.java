@@ -12,6 +12,15 @@ public final class DesktopRuntimeBridge {
     private DesktopRuntimeBridge() {
     }
 
+    static void registerUiWindow(final android.view.Window window,
+            final DesktopAutomationUiRegistry registry) {
+        UI.registerUiWindow(window, registry);
+    }
+
+    static void unregisterUiWindow(final android.view.Window window) {
+        UI.unregisterUiWindow(window);
+    }
+
     static boolean canDelegateDesktopHome(final DesktopShellActivity activity) {
         return UI.desktopHomeRecipient(activity) != null;
     }
@@ -34,14 +43,6 @@ public final class DesktopRuntimeBridge {
         UI.unregister(activity);
     }
 
-    static void registerPhoneHome(final PhoneHomeActivity activity) {
-        UI.registerPhoneHome(activity);
-    }
-
-    static void unregisterPhoneHome(final PhoneHomeActivity activity) {
-        UI.unregisterPhoneHome(activity);
-    }
-
     static void closeDesktopWorkspace(final int displayId) {
         UI.closeDesktopWorkspace(displayId, null);
     }
@@ -52,12 +53,41 @@ public final class DesktopRuntimeBridge {
         UI.closeDesktopWorkspace(displayId, completion);
     }
 
-    public static int getActiveDesktopDisplayId() {
-        return getSessionSnapshot().activeWorkspaceDisplayId();
+    static java.util.List<DesktopSessionSnapshot> getWorkspaces() {
+        return UI.sessionSnapshots();
     }
 
-    static DesktopSessionSnapshot getSessionSnapshot() {
-        return UI.sessionSnapshot();
+    static java.util.List<DesktopDisplayTarget> workspaceTargets() {
+        return getWorkspaces().stream().map(DesktopSessionSnapshot::target)
+                .filter(java.util.Objects::nonNull).toList();
+    }
+
+    static boolean hasWorkspaces() {
+        return !getWorkspaces().isEmpty();
+    }
+
+    static java.util.Set<Integer> workspaceDisplayIds() {
+        return getWorkspaces().stream().filter(workspace -> workspace.target() != null)
+                .map(workspace -> workspace.target().workspaceDisplayId)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    static DesktopSessionSnapshot getSessionSnapshot(final int displayId) {
+        return UI.sessionSnapshot(displayId);
+    }
+
+    static boolean hasWorkspace(final int displayId) {
+        return getSessionSnapshot(displayId).target() != null;
+    }
+
+    /** Only an unambiguous command boundary may infer a destination. */
+    static int requireSingleDesktopDisplay() {
+        final java.util.List<DesktopSessionSnapshot> workspaces = getWorkspaces();
+        if (workspaces.size() != 1) {
+            throw new IllegalStateException(workspaces.isEmpty()
+                    ? "no Desktop is running" : "several Desktops are running; specify displayId");
+        }
+        return workspaces.get(0).target().workspaceDisplayId;
     }
 
     static DesktopWorkspaceRuntime getWorkspaceRuntime(final int displayId) {
@@ -79,15 +109,11 @@ public final class DesktopRuntimeBridge {
     }
 
     static DesktopDisplayTarget getDesktopTarget(final int displayId) {
-        return getSessionSnapshot().targetForWorkspace(displayId);
-    }
-
-    static DesktopDisplayTarget getActiveDesktopTarget() {
-        return getSessionSnapshot().target();
+        return getSessionSnapshot(displayId).target();
     }
 
     static boolean isLocalDesktopActiveOrStarting() {
-        return getSessionSnapshot().isLocalActiveOrStarting();
+        return hasWorkspace(android.view.Display.DEFAULT_DISPLAY);
     }
 
     static DesktopViewport getDesktopViewport(final int displayId) {

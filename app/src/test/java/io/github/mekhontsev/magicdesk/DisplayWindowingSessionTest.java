@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class DisplayWindowingSessionTest {
     @Test
@@ -251,5 +252,23 @@ public final class DisplayWindowingSessionTest {
             storageWrites++;
             pending = new LinkedHashMap<>(value);
         }
+    }
+
+    @Test public void concurrentDisplayDefaultsAreReleasedIndependently() throws Exception {
+        final var f = new Fixture();
+        f.display(3, "virtual", 6, true);
+        f.session.prepare(2);
+        f.session.prepare(3);
+        f.session.recover();
+        assertEquals(List.of("2=5", "3=5"), f.writes);
+        f.session.release(2);
+        assertEquals(1, f.displays.get(2).mode);
+        assertEquals(5, f.displays.get(3).mode);
+        assertEquals(Set.of("virtual"), f.pending.keySet());
+        f.session.recover();
+        assertEquals(5, f.displays.get(3).mode);
+        f.session.release(3);
+        assertEquals(6, f.displays.get(3).mode);
+        assertTrue(f.pending.isEmpty());
     }
 }

@@ -76,7 +76,6 @@ public final class FileManagerActivity extends Activity
     private ShellDirectoryObserverHandle mDirectoryObserver;
     private int mDirectoryObserverGeneration;
     private FileOpenWithController mOpenWith;
-    private DesktopLaunchCoordinator mLaunchCoordinator;
     private PopupWindow mItemMenu;
     private OnBackInvokedCallback mBackCallback;
     private String mCurrentPath = DEFAULT_PATH;
@@ -152,8 +151,6 @@ public final class FileManagerActivity extends Activity
                 MagicDeskSettings.load().openFilesWithSingleClick,
                 ViewConfiguration.getDoubleTapTimeout());
         mOpenWith = new FileOpenWithController(this, mWorker);
-        mLaunchCoordinator = new DesktopLaunchCoordinator(
-                new StandaloneDesktopLaunchContext(this));
         mOperations = new FileManagerOperationController(
                 this,
                 new FileManagerOperationController.Listener() {
@@ -569,7 +566,7 @@ public final class FileManagerActivity extends Activity
             final DesktopLaunchArguments arguments) {
         final int displayId = getDisplay() == null
                 ? 0 : getDisplay().getDisplayId();
-        if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId) {
+        if (DesktopRuntimeBridge.hasWorkspace(displayId)) {
             if (!DesktopRuntimeBridge.launchDesktopShortcut(
                     shortcut,
                     arguments,
@@ -580,7 +577,11 @@ public final class FileManagerActivity extends Activity
             }
             return;
         }
-        if (!mLaunchCoordinator.launchShortcut(
+        // Files can itself move between displays. Capture the destination when
+        // opening the entry, not when the Files Activity was constructed.
+        final DesktopLaunchCoordinator launcher = new DesktopLaunchCoordinator(
+                new StandaloneDesktopLaunchContext(this, displayId, null));
+        if (!launcher.launchShortcut(
                 shortcut, arguments, desktopFilePath)) {
             mView.setStatus(getString(R.string.desktop_shortcut_unavailable));
         }
@@ -603,7 +604,7 @@ public final class FileManagerActivity extends Activity
     private void openWebShortcut(final DesktopWebShortcut shortcut) {
         final int displayId = getDisplay() == null
                 ? 0 : getDisplay().getDisplayId();
-        if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId) {
+        if (DesktopRuntimeBridge.hasWorkspace(displayId)) {
             if (!DesktopRuntimeBridge.launchDesktopWebShortcut(
                     shortcut, displayId)) {
                 mView.setStatus(getString(
@@ -1880,7 +1881,7 @@ public final class FileManagerActivity extends Activity
 
     private int currentDisplayId() {
         return getDisplay() == null
-                ? DesktopRuntimeBridge.getActiveDesktopDisplayId()
+                ? android.view.Display.DEFAULT_DISPLAY
                 : getDisplay().getDisplayId();
     }
 

@@ -44,8 +44,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
     private final ShellPhoneOverviewRouter mPhoneOverviewRouter;
     private final ShellPhoneDesktopWallpaperPolicy mPhoneWallpaperPolicy;
-    private final ShellSecondaryHomeStartPolicy mSecondaryHomeStartPolicy =
-            new ShellSecondaryHomeStartPolicy();
     private final ShellActivityStartController mActivityStartController;
     private final FrameworkTaskObservationSource mTaskObservations;
     private final ShellDesktopTaskOwnership mDesktopOwnership =
@@ -75,6 +73,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             final Context context,
             final ITaskObserverCallback callback,
             final IActivityLaunchCallback activityLauncher,
+            final ShellWorkspaceMembership membership,
             final Runnable callbackFailure)
             throws ReflectiveOperationException {
         if (callback == null) {
@@ -133,6 +132,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         mCallback.onInputFocusRefreshRequired(taskId)));
         mMigrationGuard = new ShellExternalTaskMigrationGuard(
                 mService,
+                membership,
                 this::refreshFullscreenCaption,
                 new ShellExternalTaskMigrationGuard.Listener() {
                     @Override
@@ -186,7 +186,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 null,
                 mPhoneOverviewRouter,
                 mPhoneWallpaperPolicy,
-                mSecondaryHomeStartPolicy,
                 mMigrationGuard,
                 mTaskActivityModeGuard);
         mFreeformCleanup = new ShellFreeformTaskCleanup(
@@ -362,7 +361,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             mSystemDialogTracker.configure(
                     Display.INVALID_DISPLAY,
                     mInputWindowObservations.latestSnapshot());
-            mSecondaryHomeStartPolicy.configure(Display.INVALID_DISPLAY);
             mMigrationGuard.configure(-1, false);
             mFreeformCleanup.configure(-1);
             mTaskActivityModeGuard.configure(Display.INVALID_DISPLAY, false);
@@ -401,7 +399,6 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mFocusController.configure(displayId);
         mSystemDialogTracker.configure(
                 displayId, mInputWindowObservations.latestSnapshot());
-        mSecondaryHomeStartPolicy.configure(displayId);
         mMigrationGuard.configure(displayId, false);
         // External tasks must remain outside phone-side Recents cleanup.
         mFreeformCleanup.configure(

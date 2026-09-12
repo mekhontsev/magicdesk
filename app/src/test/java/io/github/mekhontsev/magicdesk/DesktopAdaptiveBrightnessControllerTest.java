@@ -34,7 +34,7 @@ public final class DesktopAdaptiveBrightnessControllerTest {
         final DesktopAdaptiveBrightnessController controller =
                 new DesktopAdaptiveBrightnessController(mode, Runnable::run);
 
-        controller.reconcile(true, DesktopDisplayTarget.wired(2));
+        controller.reconcile(true, List.of(DesktopDisplayTarget.wired(2)));
         controller.release();
 
         assertEquals(List.of(
@@ -50,7 +50,7 @@ public final class DesktopAdaptiveBrightnessControllerTest {
         final DesktopAdaptiveBrightnessController controller =
                 new DesktopAdaptiveBrightnessController(mode, Runnable::run);
 
-        controller.reconcile(true, DesktopDisplayTarget.wired(2));
+        controller.reconcile(true, List.of(DesktopDisplayTarget.wired(2)));
         controller.release();
 
         assertTrue(mode.writes.isEmpty());
@@ -65,7 +65,7 @@ public final class DesktopAdaptiveBrightnessControllerTest {
                 new DesktopAdaptiveBrightnessController(
                         mode, operations::add);
 
-        controller.reconcile(true, DesktopDisplayTarget.wired(2));
+        controller.reconcile(true, List.of(DesktopDisplayTarget.wired(2)));
         controller.release();
         operations.forEach(Runnable::run);
 

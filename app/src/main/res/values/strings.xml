@@ -1,4 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="start_current_display">Current</string>
+    <string name="start_launch_display">Launch on: %1$s</string>
     <string name="settings_shell_backend">Privileged service (next app start)</string>
     <string name="settings_force_shell">Limit service to shell UID 2000 (next app start)</string>
     <string name="setup_action_allow_root">Connect through root</string>
@@ -9,8 +11,6 @@
     <string name="settings_integration_missing_manager">Cannot open selected Shizuku manager: %1$s</string>
     <string name="notification_tools_ready">Tools available</string>
     <string name="control_section_tools">Applications</string>
-    <string name="display_open_application">Open application</string>
-    <string name="display_open_on">Open on %1$s</string>
     <string name="display_running_apps">Running applications</string>
     <string name="display_show_task">Show on display %1$d (task %2$d)</string>
     <string name="display_move_task">Move from display %1$d (task %2$d)</string>
@@ -43,7 +43,6 @@
     <string name="section_tools">Tools</string>
     <string name="section_quick_controls">Quick controls</string>
     <string name="section_capture">Capture</string>
-    <string name="control_section_desktop">Display</string>
     <string name="section_recent">Recent</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_start">Start</string>
@@ -280,7 +279,7 @@
     <string name="external_display_resolution">Resolution and refresh rate</string>
     <string name="external_display_no_modes">No modes available</string>
     <string name="external_display_system_native">System / native</string>
-    <string name="external_display_system_mode">%1$s (system)</string>
+    <string name="external_display_current_mode">Current: %1$s</string>
     <string name="action_desktop_this_screen">Open desktop here</string>
     <string name="action_open_touchpad">Open touchpad</string>
     <string name="action_open_control_panel">Phone control panel</string>
@@ -488,7 +487,6 @@
     <string name="control_status_ready">Ready</string>
     <string name="control_status_desktop_active">Desktop active</string>
     <string name="control_runtime_status">Shell access: %1$s</string>
-    <string name="control_display_status">Desktop: %1$s</string>
     <string name="control_external_display_status">Output: %1$s</string>
     <string name="search_apps_hint">Search apps, files and actions</string>
     <string name="search_phone_apps_hint">Search apps</string>
@@ -834,6 +832,7 @@
     <string name="display_start">Start desktop</string>
     <string name="desktop_android_requirement">Desktop requires Android 15+</string>
     <string name="display_show">Show desktop</string>
+    <string name="display_desktop_active">Desktop active</string>
     <string name="display_create">Create display</string>
     <string name="display_remove">Remove display</string>
     <string name="display_virtual">Virtual display</string>

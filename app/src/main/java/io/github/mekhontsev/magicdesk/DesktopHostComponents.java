@@ -8,7 +8,7 @@ final class DesktopHostComponents {
     static final String EXTERNAL_HOME_CLASS =
             PACKAGE_NAME + ".DesktopActivity";
     static final String PHONE_HOME_CLASS =
-            PACKAGE_NAME + ".PhoneDesktopHomeActivity";
+            PACKAGE_NAME + ".PhoneHomeActivity";
 
     private DesktopHostComponents() {
     }

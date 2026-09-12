@@ -71,7 +71,7 @@ public final class QuickControlsPresentationTest {
         final String render = RuntimeSourceFixture.methods("PhoneControlPanelController", "render");
         assertFalse(render.contains("setVisibility"));
         assertFalse(render.contains("removeView"));
-        assertTrue(render.contains("mCloseDesktop.setEnabled(canCloseDesktop)"));
+        assertTrue(render.contains("mCloseDesktop.setEnabled(canCloseDesktop("));
         final String create = RuntimeSourceFixture.methods("PhoneControlPanelController", "createView");
         assertTrue(create.indexOf("addDesktopActions(content)") < create.indexOf("addSystemActions(content)"));
         final String controller = source("PhoneControlPanelController");
@@ -95,7 +95,7 @@ public final class QuickControlsPresentationTest {
         assertFalse(desktop.contains("parent.addView(mCloseDesktop"));
         final String render = RuntimeSourceFixture.methods("PhoneControlPanelController", "render");
         assertTrue(render.contains("mConnectWirelessDisplay.setEnabled(state.wirelessConnectionUiAvailable"));
-        assertTrue(render.contains("!state.desktopSessionActive"));
+        assertFalse(render.contains("!state.desktopSessionActive"));
         assertTrue(render.contains("!state.wirelessDisplayConnected"));
         assertTrue(render.contains("!state.displayOperation"));
     }

@@ -78,13 +78,13 @@ final class DesktopTaskWatcher {
         mListener = listener;
     }
 
-    void start(final int generation) {
+    void start(final int displayId, final int generation) {
         synchronized (this) {
             if (mDestroyed) {
                 throw new IllegalStateException("task watcher is destroyed");
             }
             final long lifecycleGeneration = ++mLifecycleGeneration;
-            mExecutor.execute(() -> open(generation, lifecycleGeneration));
+            mExecutor.execute(() -> open(displayId, generation, lifecycleGeneration));
         }
     }
 
@@ -772,6 +772,7 @@ final class DesktopTaskWatcher {
     }
 
     private void open(
+            final int displayId,
             final int generation,
             final long lifecycleGeneration) {
         final TaskObserverCallback callback =
@@ -781,6 +782,7 @@ final class DesktopTaskWatcher {
         ShellTaskObserverHandle handle = null;
         try {
             handle = ShellAccess.openTaskObserver(
+                    displayId,
                     callback,
                     activityLauncher,
                     () -> observerDisconnected(generation, callback));

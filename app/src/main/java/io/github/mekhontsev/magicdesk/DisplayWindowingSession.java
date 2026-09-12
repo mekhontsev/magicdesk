@@ -22,7 +22,7 @@ final class DisplayWindowingSession {
 
     private final Api mApi;
     private final Storage mStorage;
-    private DisplayWindowingSnapshot mActive;
+    private final Map<Integer, DisplayWindowingSnapshot> mActive = new java.util.LinkedHashMap<>();
 
     DisplayWindowingSession(final Api api, final Storage storage) {
         mApi = api;
@@ -30,11 +30,8 @@ final class DisplayWindowingSession {
     }
 
     synchronized void prepare(final int displayId) throws IOException {
-        if (displayId <= 0 || mActive != null && mActive.displayId == displayId) {
+        if (displayId <= 0 || mActive.containsKey(displayId)) {
             return;
-        }
-        if (mActive != null) {
-            throw new IOException("another display windowing session is active");
         }
         recover();
         final DisplayWindowingSnapshot before = mApi.read(displayId);
@@ -50,18 +47,17 @@ final class DisplayWindowingSession {
             // death must not discard restoration of WindowManager's override.
             mStorage.write(pending);
         }
-        mActive = before;
+        mActive.put(displayId, before);
         if (changesDefaults) {
             mApi.set(displayId, before.uniqueId, FREEFORM);
         }
     }
 
     synchronized void release(final int displayId) throws IOException {
-        if (mActive == null || mActive.displayId != displayId) {
+        final DisplayWindowingSnapshot owned = mActive.remove(displayId);
+        if (owned == null) {
             return;
         }
-        final DisplayWindowingSnapshot owned = mActive;
-        mActive = null;
         final Map<String, DisplayWindowingSnapshot> pending = mStorage.read();
         final DisplayWindowingSnapshot previous = pending.get(owned.uniqueId);
         if (previous == null) {
@@ -95,8 +91,7 @@ final class DisplayWindowingSession {
             }
             connected.add(current.uniqueId);
             final DisplayWindowingSnapshot previous = pending.get(current.uniqueId);
-            if (previous != null && (mActive == null
-                    || !mActive.uniqueId.equals(current.uniqueId))) {
+            if (previous != null && !owns(current.uniqueId)) {
                 restore(current, previous);
                 pending.remove(current.uniqueId);
                 mStorage.write(pending);
@@ -105,7 +100,7 @@ final class DisplayWindowingSession {
         // Android discards a virtual display's override when that display dies.
         if (pending.values().removeIf(previous -> previous.virtual
                 && !connected.contains(previous.uniqueId)
-                && (mActive == null || !mActive.uniqueId.equals(previous.uniqueId)))) {
+                && !owns(previous.uniqueId))) {
             mStorage.write(pending);
         }
     }
@@ -122,8 +117,12 @@ final class DisplayWindowingSession {
         }
     }
 
+    private boolean owns(final String uniqueId) {
+        return mActive.values().stream().anyMatch(value -> value.uniqueId.equals(uniqueId));
+    }
+
     synchronized String diagnostics() throws IOException {
-        return "policy=freeform, activeDisplay=" + (mActive == null ? -1 : mActive.displayId)
+        return "policy=freeform, activeDisplays=" + mActive.keySet()
                 + ", restoreEntries=" + mStorage.read().size()
                 + ", restoration=previous-effective-mode";
     }

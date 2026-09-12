@@ -59,7 +59,8 @@ final class AppWindowStateStore {
             new LinkedHashMap<>();
     private static long sPendingModeSequence;
     private static long sSessionPatchSequence;
-    private static DesktopWorkspaceRuntime sSessionOwner;
+    private static final java.util.Set<DesktopWorkspaceRuntime> SESSION_OWNERS =
+            new java.util.HashSet<>();
     private static boolean sSessionPersistent = true;
     private static long sSessionStartSequence;
 
@@ -97,12 +98,17 @@ final class AppWindowStateStore {
         }
         synchronized (STATE_LOCK) {
             final boolean persistent = policy == null || policy.persistWorkspace;
-            if (sSessionOwner == owner && sSessionPersistent == persistent) {
+            if (SESSION_OWNERS.contains(owner)) {
                 return;
             }
-            sSessionOwner = owner;
-            sSessionPersistent = persistent;
-            sSessionStartSequence = sSessionPatchSequence;
+            if (!SESSION_OWNERS.isEmpty() && sSessionPersistent != persistent) {
+                throw new IllegalStateException("isolated and user workspaces cannot share window state");
+            }
+            if (SESSION_OWNERS.isEmpty()) {
+                sSessionPersistent = persistent;
+                sSessionStartSequence = sSessionPatchSequence;
+            }
+            SESSION_OWNERS.add(owner);
         }
     }
 
@@ -110,20 +116,25 @@ final class AppWindowStateStore {
         while (true) {
             final Map<AppReference, SessionPatch> snapshot;
             synchronized (STATE_LOCK) {
-                // Closing an old host must not flush or discard a newer session.
-                if (owner == null || sSessionOwner != owner) {
+                // Window preferences are shared by applications, not by displays.
+                // Only the last workspace flushes the shared session overlay.
+                if (!SESSION_OWNERS.contains(owner)) {
+                    return true;
+                }
+                if (SESSION_OWNERS.size() > 1) {
+                    SESSION_OWNERS.remove(owner);
                     return true;
                 }
                 if (!sSessionPersistent) {
                     SESSION_PATCHES.entrySet().removeIf(
                             entry -> entry.getValue().sequence
                                     > sSessionStartSequence);
-                    sSessionOwner = null;
+                    SESSION_OWNERS.remove(owner);
                     sSessionPersistent = true;
                     return true;
                 }
                 if (SESSION_PATCHES.isEmpty()) {
-                    sSessionOwner = null;
+                    SESSION_OWNERS.remove(owner);
                     sSessionPersistent = true;
                     return true;
                 }
@@ -140,8 +151,7 @@ final class AppWindowStateStore {
             });
             if (!saved) {
                 synchronized (STATE_LOCK) {
-                    if (sSessionOwner == owner) {
-                        sSessionOwner = null;
+                    if (SESSION_OWNERS.remove(owner) && SESSION_OWNERS.isEmpty()) {
                         sSessionPersistent = true;
                     }
                 }
@@ -223,7 +233,7 @@ final class AppWindowStateStore {
             return false;
         }
         synchronized (STATE_LOCK) {
-            if (sSessionOwner != null) {
+            if (!SESSION_OWNERS.isEmpty()) {
                 final SessionPatch current = SESSION_PATCHES.get(stateKey);
                 SESSION_PATCHES.put(
                         stateKey,
@@ -265,7 +275,7 @@ final class AppWindowStateStore {
             return true;
         }
         synchronized (STATE_LOCK) {
-            if (sSessionOwner != null) {
+            if (!SESSION_OWNERS.isEmpty()) {
                 for (final Map.Entry<AppReference, RelativeWindowBounds> entry
                         : snapshot.entrySet()) {
                     final SessionPatch current =
@@ -305,7 +315,7 @@ final class AppWindowStateStore {
             return false;
         }
         synchronized (STATE_LOCK) {
-            if (sSessionOwner != null) {
+            if (!SESSION_OWNERS.isEmpty()) {
                 SESSION_PATCHES.put(
                         stateKey,
                         new SessionPatch(
@@ -333,7 +343,7 @@ final class AppWindowStateStore {
             SESSION_PATCHES.clear();
             sPendingModeSequence = 0L;
             sSessionPatchSequence = 0L;
-            sSessionOwner = null;
+            SESSION_OWNERS.clear();
             sSessionPersistent = true;
             sSessionStartSequence = 0L;
         }

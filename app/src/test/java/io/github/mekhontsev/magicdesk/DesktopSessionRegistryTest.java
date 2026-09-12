@@ -20,7 +20,7 @@ public final class DesktopSessionRegistryTest {
         assertSame(first, registry.workspace(7));
         assertFalse(first.isClosed());
         assertTrue(registry.registerHost(7, 42, target, DesktopSessionPolicy.USER));
-        registry.close();
+        registry.close(7);
         assertTrue(first.isClosed());
         registry.noteTarget(target);
         assertTrue(first != registry.workspace(7));
@@ -36,7 +36,7 @@ public final class DesktopSessionRegistryTest {
         assertTrue(registry.registerHost(7, 42, target, DesktopSessionPolicy.USER));
         registry.unregisterHost(0, false);
         assertSame(first, registry.workspace(7));
-        assertTrue(registry.snapshot().hasHost());
+        assertTrue(registry.snapshot(7).hasHost());
         registry.unregisterHost(7, false);
         registry.unregisterHost(7, false);
         assertNull(registry.workspace(7));
@@ -44,13 +44,13 @@ public final class DesktopSessionRegistryTest {
     }
 
     @Test
-    public void replacingPreparedTargetClosesOnlyItsOldRuntime() {
+    public void admittingAnotherDisplayPreservesExistingRuntime() {
         final DesktopSessionRegistry registry = new DesktopSessionRegistry();
         registry.noteTarget(DesktopDisplayTarget.wired(7));
         final DesktopWorkspaceRuntime first = registry.workspace(7);
         registry.noteTarget(DesktopDisplayTarget.phone());
-        assertTrue(first.isClosed());
-        assertNull(registry.workspace(7));
+        assertFalse(first.isClosed());
+        assertSame(first, registry.workspace(7));
         assertEquals(0, registry.workspace(0).displayId);
     }
 
@@ -63,7 +63,7 @@ public final class DesktopSessionRegistryTest {
         assertTrue(registry.registerHost(
                 7, 42, target, DesktopSessionPolicy.USER));
 
-        final DesktopSessionSnapshot active = registry.snapshot();
+        final DesktopSessionSnapshot active = registry.snapshot(7);
         assertTrue(active.hasHost());
         assertSame(target, active.target());
         assertEquals(7, active.activeWorkspaceDisplayId());
@@ -71,7 +71,7 @@ public final class DesktopSessionRegistryTest {
 
         registry.unregisterHost(7, false);
 
-        final DesktopSessionSnapshot stopped = registry.snapshot();
+        final DesktopSessionSnapshot stopped = registry.snapshot(7);
         assertFalse(stopped.hasHost());
         assertNull(stopped.target());
     }
@@ -84,10 +84,10 @@ public final class DesktopSessionRegistryTest {
                 9, 51, DesktopDisplayTarget.wireless(9),
                 DesktopSessionPolicy.USER));
 
-        registry.close();
+        registry.close(9);
 
-        assertFalse(registry.snapshot().hasHost());
-        assertNull(registry.snapshot().target());
+        assertFalse(registry.snapshot(9).hasHost());
+        assertNull(registry.snapshot(9).target());
     }
 
     @Test
@@ -102,8 +102,8 @@ public final class DesktopSessionRegistryTest {
                 0, 42, DesktopDisplayTarget.phone(),
                 DesktopSessionPolicy.USER));
 
-        assertEquals(0, registry.snapshot().activeWorkspaceDisplayId());
-        assertEquals(41, registry.snapshot().hostTaskId());
+        assertEquals(0, registry.snapshot(0).activeWorkspaceDisplayId());
+        assertEquals(41, registry.snapshot(0).hostTaskId());
     }
 
     @Test
@@ -117,7 +117,7 @@ public final class DesktopSessionRegistryTest {
         assertTrue(registry.registerHost(
                 0, 41, DesktopDisplayTarget.phone(),
                 DesktopSessionPolicy.USER));
-        assertEquals(41, registry.snapshot().hostTaskId());
+        assertEquals(41, registry.snapshot(0).hostTaskId());
     }
 
     @Test
@@ -133,7 +133,7 @@ public final class DesktopSessionRegistryTest {
                 DesktopSessionPolicy.USER));
         assertEquals(
                 DesktopDisplayOutput.Kind.WIRED,
-                registry.snapshot().target().output.kind);
+                registry.snapshot(7).target().output.kind);
     }
 
     @Test
@@ -142,18 +142,18 @@ public final class DesktopSessionRegistryTest {
 
         assertFalse(registry.registerHost(
                 0, 41, null, DesktopSessionPolicy.USER));
-        assertFalse(registry.snapshot().hasHost());
+        assertFalse(registry.snapshot(0).hasHost());
     }
 
     @Test
-    public void hostCannotReplaceAnotherPreparedTarget() {
+    public void hostOnAnotherDisplayKeepsBothPreparedTargets() {
         final DesktopSessionRegistry registry = new DesktopSessionRegistry();
         registry.noteTarget(DesktopDisplayTarget.wired(7));
 
-        assertFalse(registry.registerHost(
+        assertTrue(registry.registerHost(
                 0, 41, DesktopDisplayTarget.phone(),
                 DesktopSessionPolicy.USER));
-        assertFalse(registry.snapshot().hasHost());
-        assertEquals(7, registry.snapshot().target().workspaceDisplayId);
+        assertFalse(registry.snapshot(7).hasHost());
+        assertEquals(7, registry.snapshot(7).target().workspaceDisplayId);
     }
 }

@@ -154,7 +154,7 @@ public final class ControlActivity extends Activity
         mSessionController = new MagicDeskSessionController(this);
         mWirelessConnectionUiAvailable =
                 mProjection.hasWirelessConnectionUi(this);
-        mStatus = getString(DesktopRuntimeBridge.getActiveDesktopDisplayId() >= 0
+        mStatus = getString(DesktopRuntimeBridge.hasWorkspaces()
                 ? R.string.control_status_desktop_active
                 : R.string.control_status_ready);
         setContentView(mPanel.createView());
@@ -175,7 +175,7 @@ public final class ControlActivity extends Activity
         // Returning from a cancelled picker already leaves the panel visible.
         mReturnToPanelAfterWirelessConnection = false;
         MagicDeskRuntime.refreshNotification();
-        mStatus = getString(DesktopRuntimeBridge.getActiveDesktopDisplayId() >= 0
+        mStatus = getString(DesktopRuntimeBridge.hasWorkspaces()
                 ? R.string.control_status_desktop_active
                 : R.string.control_status_ready);
         if (mPanel != null) {
@@ -252,8 +252,7 @@ public final class ControlActivity extends Activity
             return;
         }
         final DesktopDisplayInfo display = selectedDisplay();
-        final DesktopDisplayTarget active = DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (!DisplaySelectionView.canStart(display, active == null ? -1 : active.workspaceDisplayId,
+        if (!DisplaySelectionView.canStart(display,
                 ShellAccess.isReady(), mDisplayOperation || DesktopOperations.isSessionTransitionInProgress(),
                 android.os.Build.VERSION.SDK_INT)) {
             return;
@@ -308,7 +307,7 @@ public final class ControlActivity extends Activity
             // Browsing prepared displays must not switch the active session.
             if (selectedDisplay() == null && displays.length > 0) {
                 mSelectedDisplayUniqueId = displays[0].uniqueId;
-                final int active = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                final int active = MagicDeskRuntime.inputDisplayId();
                 for (final DesktopDisplayInfo display : displays) {
                     if (display.id == active) { mSelectedDisplayUniqueId = display.uniqueId; }
                 }
@@ -332,7 +331,7 @@ public final class ControlActivity extends Activity
     @Override
     public void connectWirelessDisplay() {
         if (!mWirelessConnectionUiAvailable
-                || hasDesktopSessionActiveOrStarting()
+                || DesktopOperations.isSessionTransitionInProgress()
                 || wirelessConnected()) {
             mStatus = getString(R.string.status_external_display_unavailable);
             refresh();
@@ -352,7 +351,7 @@ public final class ControlActivity extends Activity
     public void setExternalOutputTiming(final String outputTiming) {
         final DesktopDisplayInfo display = selectedDisplay();
         if (mExternalDisplayProfile == null || display == null
-                || !"wired".equals(display.source) || hasDesktopSessionActiveOrStarting()) {
+                || !"wired".equals(display.source) || DesktopRuntimeBridge.hasWorkspace(display.id)) {
             return;
         }
         final DisplayProfileStore.Profile profile = mExternalDisplayProfile;
@@ -392,15 +391,12 @@ public final class ControlActivity extends Activity
         if (!ShellAccess.isReady()) {
             return;
         }
-        DesktopDisplayTarget target =
-                DesktopRuntimeBridge.getActiveDesktopTarget();
-        if (target == null) {
-            final DesktopHomeRoleLease.State lease =
-                    DesktopHomeRoleLease.snapshot();
-            if (lease != null
-                    && lease.phase == DesktopHomeRoleLease.Phase.ACTIVE) {
-                target = lease.target();
-            }
+        final DesktopDisplayInfo selected = selectedDisplay();
+        DesktopDisplayTarget target = selected == null ? null
+                : DesktopRuntimeBridge.getDesktopTarget(selected.id);
+        if (target == null && selected != null) {
+            final DesktopHomeRoleLease.State lease = DesktopHomeRoleLease.snapshot();
+            target = lease == null ? null : lease.targetForDisplay(selected.id);
         }
         if (target == null) {
             mStatus = getString(R.string.status_external_display_unavailable);
@@ -461,8 +457,7 @@ public final class ControlActivity extends Activity
 
     @Override
     public void openApplications() {
-        final DesktopDisplayInfo selected = selectedDisplay();
-        if (selected != null) { DisplayApplicationsDialog.show(this, selected); }
+        StartActivity.open(this);
     }
 
     @Override public void controlSelectedDisplay() {
@@ -509,21 +504,10 @@ public final class ControlActivity extends Activity
         if (mPanel == null) {
             return;
         }
-        final int activeDesktopDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
-        final DesktopDisplayTarget activeTarget =
-                DesktopRuntimeBridge.getDesktopTarget(activeDesktopDisplayId);
-        final DesktopHomeRoleLease.State homeLease =
-                DesktopHomeRoleLease.snapshot();
-        final boolean desktopSessionActive = homeLease != null
-                && homeLease.phase == DesktopHomeRoleLease.Phase.ACTIVE;
-        final boolean externalRuntimeDesktop = activeTarget != null
-                && !activeTarget.isDefaultWorkspace();
-        final boolean externalDesktopActive =
-                externalRuntimeDesktop;
+        final java.util.Set<Integer> desktopDisplays = DesktopRuntimeBridge.workspaceDisplayIds();
+        final boolean externalDesktopActive = desktopDisplays.stream().anyMatch(id -> id > 0);
         mPanel.render(new PhoneControlPanelController.State(
-                mDisplays, mSelectedDisplayUniqueId, activeDesktopDisplayId, mDisplayOperation,
-                desktopSessionActive,
+                mDisplays, mSelectedDisplayUniqueId, desktopDisplays, mDisplayOperation,
                 mSessionController.isOperationInProgress(),
                 externalDesktopActive,
                 ShellAccess.isReady(),
@@ -607,7 +591,7 @@ public final class ControlActivity extends Activity
     }
 
     private boolean hasDesktopSessionActiveOrStarting() {
-        return DesktopRuntimeBridge.getActiveDesktopTarget() != null;
+        return DesktopRuntimeBridge.hasWorkspaces();
     }
 
 }

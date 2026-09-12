@@ -19,7 +19,7 @@ public final class ShellDesktopFocusControllerTest {
         assertTrue(ShellDesktopFocusController.isDesktopHostTarget(
                 2,
                 BuildConfig.APPLICATION_ID,
-                BuildConfig.APPLICATION_ID + ".PhoneDesktopHomeActivity"));
+                BuildConfig.APPLICATION_ID + ".PhoneHomeActivity"));
         assertFalse(ShellDesktopFocusController.isDesktopHostTarget(
                 1,
                 BuildConfig.APPLICATION_ID,
@@ -85,7 +85,7 @@ public final class ShellDesktopFocusControllerTest {
         final FrameworkTaskSnapshot phoneHome = snapshot(
                 43,
                 FrameworkTaskSnapshot.ACTIVITY_TYPE_HOME,
-                BuildConfig.APPLICATION_ID + "/.PhoneDesktopHomeActivity",
+                BuildConfig.APPLICATION_ID + "/.PhoneHomeActivity",
                 true,
                 true);
 

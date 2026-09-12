@@ -262,13 +262,7 @@ final class TaskOverviewController {
             mActivity.hideAllPanels();
             mActivity.focusTask(app, task);
         });
-        final ConsoleTerminalRegistry.Snapshot terminal =
-                ConsoleTerminalRegistry.snapshotForTask(task.taskId);
-        final String taskLabel = terminal == null
-                ? app.label
-                : terminal.taskLabel("termux".equals(terminal.backend)
-                        ? mActivity.getString(R.string.console_termux_title)
-                        : app.label);
+        final String taskLabel = TaskTitle.resolve(mActivity, app, task);
         mActivity.registerContextTarget(tile, app, task);
         mActivity.registerAutomationUiElement(
                 tile,

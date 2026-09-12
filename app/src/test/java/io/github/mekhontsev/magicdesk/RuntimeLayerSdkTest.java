@@ -26,6 +26,7 @@ public final class RuntimeLayerSdkTest {
                 static final int NOTIFICATION_ID = 1, START_NOT_STICKY = 2;
                 static class Intent { String action; Intent(String value) { action = value; } }
                 static class MagicDeskRuntime {
+                    static int preparingDisplay(Intent i) { return -1; }
                     static boolean isToolsStart(Intent i) { return i != null && "tools".equals(i.action); }
                     static boolean isAutomationStart(Intent i) { return i != null && "automation".equals(i.action); }
                 }
@@ -36,13 +37,16 @@ public final class RuntimeLayerSdkTest {
                 static class ShellAccess { static boolean isReady() { return true; } }
                 static class DesktopHomeRoleLease { static Object snapshot() { return null; } }
                 static class Mcp { int reconciles; void reconcile() { reconciles++; } }
-                static class Input { void reconcileRuntime(int id) {} }
+                static class Input { void reconcileRuntime() {} }
                 static class DesktopRuntimeBridge {
-                    static SessionSnapshot getSessionSnapshot() { return new SessionSnapshot(); }
+                    static SessionSnapshot getSessionSnapshot(int displayId) { return new SessionSnapshot(); }
                 }
                 static class SessionSnapshot { int inputDisplayId() { return -1; } }
                 static class Session { void schedulePhoneTaskRecovery() {} }
                 Mcp mMcpRuntime = new Mcp();
+                Set<Integer> mPreparingDisplays = new HashSet<>();
+                static class Tasks { void prepare(int id) {} }
+                Tasks mDesktopTaskRuntime = new Tasks();
                 Input mDisplayInput;
                 Session mDesktopSession;
                 boolean mToolsRequested, mInitialized, stopped;

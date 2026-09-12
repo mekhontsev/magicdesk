@@ -43,7 +43,7 @@ final class TerminalSessionsDialog {
 
     static void show(Activity activity) {
         show(activity, ToolLaunchTarget.resolve("auto", activity.getDisplay() == null
-                ? 0 : activity.getDisplay().getDisplayId(), MagicDeskRuntime.activeDesktopDisplayId()), null);
+                ? 0 : activity.getDisplay().getDisplayId(), DesktopRuntimeBridge.workspaceDisplayIds()), null);
     }
 
     static void show(Activity activity, ToolLaunchTarget target, String uniqueId) {

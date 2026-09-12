@@ -1,10 +1,10 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Ends the entire session, restoring system input; not a workspace/output handoff. */
+/** Ends one workspace; the last member releases the shared HOME role. */
 final class DesktopSessionEndPlan {
     enum Tasks {
         RETURN_TO_DEFAULT_AND_REMEMBER,
-        ALREADY_RETURNED
+        RETURN_TO_DEFAULT
     }
 
     final DesktopDisplayTarget workspace;
@@ -16,8 +16,7 @@ final class DesktopSessionEndPlan {
             final DesktopCloseMode mode, final boolean recovery) {
         workspace = target;
         destination = mode;
-        // Exit's preceding task-return step has already cleared preservation.
-        tasks = mode == DesktopCloseMode.EXIT ? Tasks.ALREADY_RETURNED
+        tasks = mode == DesktopCloseMode.EXIT ? Tasks.RETURN_TO_DEFAULT
                 : Tasks.RETURN_TO_DEFAULT_AND_REMEMBER;
         recoverPhoneTasks = recovery;
     }
@@ -36,11 +35,7 @@ final class DesktopSessionEndPlan {
         return new DesktopSessionEndPlan(requested, mode, recovery);
     }
 
-    boolean returnsTasks() {
-        return tasks == Tasks.RETURN_TO_DEFAULT_AND_REMEMBER;
-    }
-
     boolean needsPhoneRecovery() {
-        return returnsTasks() && !workspace.isDefaultWorkspace();
+        return !workspace.isDefaultWorkspace();
     }
 }

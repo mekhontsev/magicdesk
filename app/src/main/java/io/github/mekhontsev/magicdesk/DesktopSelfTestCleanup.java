@@ -325,11 +325,11 @@ final class DesktopSelfTestCleanup {
     private static void closeDesktopSessionAndWait(final int displayId) throws IOException {
         final DesktopHomeRoleLease.State home = DesktopHomeRoleLease.snapshot();
         final DesktopDisplayTarget active = DesktopRuntimeBridge.getDesktopTarget(displayId);
-        if (home != null && home.target().workspaceDisplayId != displayId) {
-            throw new IOException("HOME lease belongs to display " + home.target().workspaceDisplayId);
+        if (home != null && home.targetForDisplay(displayId) == null) {
+            throw new IOException("HOME lease does not own display " + displayId);
         }
         final DesktopDisplayTarget target = active != null ? active
-                : home != null ? home.target() : null;
+                : home != null ? home.targetForDisplay(displayId) : null;
         if (target == null) {
             // The display-removal suite may already have completed production teardown.
             return;

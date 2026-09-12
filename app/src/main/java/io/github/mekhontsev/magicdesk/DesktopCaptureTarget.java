@@ -14,9 +14,7 @@ final class DesktopCaptureTarget {
         this.physicalDisplayId = physicalDisplayId;
     }
 
-    static DesktopCaptureTarget resolveActive() throws IOException {
-        final int desktopDisplayId =
-                DesktopRuntimeBridge.getActiveDesktopDisplayId();
+    static DesktopCaptureTarget resolve(final int desktopDisplayId) throws IOException {
         if (desktopDisplayId < 0) {
             throw new IOException("no active desktop display");
         }

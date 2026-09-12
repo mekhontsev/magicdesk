@@ -34,33 +34,33 @@ public final class DisplayInputSessionBoundaryTest {
 
     @Test public void desktopWaitsForPreparationAndRejectsLateReadinessAfterClose() {
         var target = new DisplayInputTarget();
-        target.desktop(7);
+        target.reconcile(java.util.Map.of(7, "first"));
         assertEquals(-1, target.readyTarget());
-        target.prepared(8);
+        target.prepared(8, "other");
         assertEquals(-1, target.readyTarget());
-        target.prepared(7);
+        target.prepared(7, "first");
         assertEquals(7, target.readyTarget());
         assertTrue(target.desktopShortcuts());
         assertFalse(target.release(8));
         assertEquals(7, target.readyTarget());
         target.release(7);
-        target.prepared(7);
+        target.prepared(7, "first");
         assertEquals(-1, target.readyTarget());
-        target.desktop(-1);
-        target.desktop(7);
+        target.reconcile(java.util.Map.of());
+        target.reconcile(java.util.Map.of(7, "first"));
         assertEquals(-1, target.readyTarget());
-        target.prepared(7);
+        target.prepared(7, "first");
         assertEquals(7, target.readyTarget());
     }
 
     @Test public void closingDesktopPreservesLaterManualSelectionOnAnotherDisplay() {
         var target = new DisplayInputTarget();
-        target.desktop(7);
-        target.prepared(7);
+        target.reconcile(java.util.Map.of(7, "first"));
+        target.prepared(7, "first");
         target.select(8);
         assertFalse(target.desktopShortcuts());
         assertFalse(target.release(7));
-        target.desktop(-1);
+        target.reconcile(java.util.Map.of());
         assertEquals(8, target.readyTarget());
         assertTrue(target.release(8));
         assertEquals(-1, target.readyTarget());
@@ -69,46 +69,41 @@ public final class DisplayInputSessionBoundaryTest {
     @Test public void newDesktopReplacesManualControlButOnlyAfterPreparation() {
         var target = new DisplayInputTarget();
         target.select(8);
-        target.desktop(7);
-        assertEquals(-1, target.readyTarget());
-        target.prepared(7);
+        target.reconcile(java.util.Map.of(7, "first"));
+        assertEquals(8, target.readyTarget());
+        target.prepared(7, "first");
         assertEquals(7, target.readyTarget());
         target.select(-1);
-        target.desktop(7);
-        target.prepared(7);
+        target.reconcile(java.util.Map.of(7, "first"));
+        target.prepared(7, "first");
         assertEquals(-1, target.readyTarget());
     }
 
-    @Test
-    public void parkedWorkspaceMustFinishBeforeInputStarts() throws Exception {
+    @Test public void restorationReadinessIsLocalToItsWorkspace() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class DesktopSessionSnapshot {
+                    int displayId = 7;
                     boolean restoreWorkspace = true;
-                    int host = 10;
                     DesktopSessionSnapshot policy() { return this; }
-                    int hostTaskId() { return host; }
+                    int activeWorkspaceDisplayId() { return displayId; }
                 }
                 final Object mLock = new Object();
-                boolean mRestoreInProgress;
-                int mRestoreCompletedHostTaskId = -1;
-                final Map<Integer, String> mParked = new HashMap<>();
+                final Map<Integer, String> mRestores = new HashMap<>();
                 public static void verify() {
                     Fixture f = new Fixture();
-                    DesktopSessionSnapshot s = new DesktopSessionSnapshot();
-                    check(f.isWorkspacePrepared(s), "empty workspace is not ready");
-                    f.mParked.put(1, "app");
-                    check(!f.isWorkspacePrepared(s), "pending restore was ignored");
-                    f.mRestoreInProgress = true;
-                    check(!f.isWorkspacePrepared(s), "queued restore counted as complete");
-                    f.mRestoreInProgress = false;
-                    f.mRestoreCompletedHostTaskId = 10;
-                    check(f.isWorkspacePrepared(s), "failed individual app blocked input forever");
-                    s.host = 11;
-                    check(!f.isWorkspacePrepared(s), "old host completion reused for new session");
-                    s.restoreWorkspace = false;
-                    check(f.isWorkspacePrepared(s), "isolated test waited for parked apps");
+                    DesktopSessionSnapshot session = new DesktopSessionSnapshot();
+                    check(f.isWorkspacePrepared(session), "empty workspace is not ready");
+                    f.mRestores.put(8, "other");
+                    check(f.isWorkspacePrepared(session), "another workspace blocked input");
+                    f.mRestores.put(7, "current");
+                    check(!f.isWorkspacePrepared(session), "unfinished restore accepted");
+                    f.mRestores.remove(7);
+                    check(f.isWorkspacePrepared(session), "completed restore still blocked");
+                    session.restoreWorkspace = false;
+                    f.mRestores.put(7, "current");
+                    check(f.isWorkspacePrepared(session), "isolated test waited for user windows");
                 }
-                """ + RuntimeSourceFixture.methods("DesktopTaskParkingController",
-                        "isWorkspacePrepared"));
+                """ + RuntimeSourceFixture.methods("DesktopTaskParkingController", "isWorkspacePrepared"));
     }
+
 }

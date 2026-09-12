@@ -397,7 +397,7 @@ public final class SettingsActivity extends Activity
         final int displayId = display == null
                 ? android.view.Display.DEFAULT_DISPLAY
                 : display.getDisplayId();
-        if (displayId == DesktopRuntimeBridge.getActiveDesktopDisplayId()
+        if (DesktopRuntimeBridge.hasWorkspace(displayId)
                 && DesktopRuntimeBridge.openApplicationSettings(displayId, null)) {
             return;
         }
@@ -411,7 +411,7 @@ public final class SettingsActivity extends Activity
         final int displayId = display == null
                 ? android.view.Display.DEFAULT_DISPLAY
                 : display.getDisplayId();
-        if (displayId == DesktopRuntimeBridge.getActiveDesktopDisplayId()
+        if (DesktopRuntimeBridge.hasWorkspace(displayId)
                 && DesktopRuntimeBridge.openBuiltin(displayId, "diagnostics")) {
             return;
         }

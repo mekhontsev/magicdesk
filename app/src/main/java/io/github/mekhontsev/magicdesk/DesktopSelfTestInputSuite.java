@@ -54,7 +54,7 @@ final class DesktopSelfTestInputSuite {
         // Observe its production readiness separately, without moving the cursor.
         while (true) {
             DesktopSelfTestRunState.checkpoint();
-            if (DesktopRuntimeBridge.getActiveDesktopDisplayId() == displayId
+            if (DesktopRuntimeBridge.hasWorkspace(displayId)
                     && MagicDeskRuntime.isPointerTransportReady()) {
                 return "display=" + displayId + ", virtual mouse and routing ready";
             }
@@ -867,7 +867,7 @@ final class DesktopSelfTestInputSuite {
                 () -> {
                     toggleTaskbarTaskThroughDesktop(displayId, firstTaskId);
                     final DesktopSessionSnapshot session =
-                            DesktopRuntimeBridge.getSessionSnapshot();
+                            DesktopRuntimeBridge.getSessionSnapshot(displayId);
                     if (session.activeWorkspaceDisplayId() != displayId
                             || session.hostTaskId() < 0) {
                         throw new IOException("desktop host is unavailable");
@@ -1528,7 +1528,7 @@ final class DesktopSelfTestInputSuite {
             final int displayId,
             final int taskId) throws IOException {
         final DesktopSessionSnapshot session =
-                DesktopRuntimeBridge.getSessionSnapshot();
+                DesktopRuntimeBridge.getSessionSnapshot(displayId);
         if (session.activeWorkspaceDisplayId() != displayId
                 || session.hostTaskId() < 0) {
             throw new IOException("desktop host is unavailable");
@@ -1800,7 +1800,7 @@ final class DesktopSelfTestInputSuite {
                     + task.windowingMode);
         }
         if (!MagicDeskRuntime.arrangeTask(
-                taskId, DesktopTaskController.SHORTCUT_RESTORE)) {
+                displayId,                 taskId, DesktopTaskController.SHORTCUT_RESTORE)) {
             throw new IOException(
                     "MagicDesk fullscreen restore is unavailable");
         }

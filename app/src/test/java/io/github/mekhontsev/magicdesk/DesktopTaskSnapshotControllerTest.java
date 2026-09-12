@@ -13,7 +13,7 @@ public final class DesktopTaskSnapshotControllerTest {
     @Test
     public void auxiliaryHomeDoesNotCoverDesktopOrDisableChrome() {
         final TaskRepository.TaskEntry home = desktopHost(true);
-        final String component = BuildConfig.APPLICATION_ID + "/.PhoneDesktopHomeActivity";
+        final String component = BuildConfig.APPLICATION_ID + "/.PhoneHomeActivity";
         final TaskRepository.TaskEntry delegate = new TaskRepository.TaskEntry(
                 91, 92, home.displayId, BuildConfig.APPLICATION_ID, component,
                 component, "fullscreen", new Rect(0, 0, 1920, 1080),

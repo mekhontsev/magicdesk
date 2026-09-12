@@ -19,6 +19,8 @@ interface MagicDeskRuntimeBackend {
 
     void refreshDesktopTasks();
 
+    void desktopTransitionFinished();
+
     void refreshPlatformState();
 
     void refreshSettings(Runnable completion);
@@ -79,7 +81,7 @@ interface MagicDeskRuntimeBackend {
 
     boolean openSettings(final int displayId);
 
-    DesktopTaskRuntime desktopTasks();
+    DesktopTaskRuntime desktopTasks(int displayId);
 
     DesktopTaskParkingRuntime desktopTaskParking();
 }

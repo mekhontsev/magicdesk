@@ -6,6 +6,7 @@ import java.util.Arrays;
 final class DesktopSelfTestTaskStackGuard {
     private static final int MAX_REPORTED_ANOMALIES = 8;
 
+    private static int sDisplayId = -1;
     private static boolean sRequested;
     private static boolean sActive;
     private static String sUnavailableReason = "";
@@ -21,6 +22,7 @@ final class DesktopSelfTestTaskStackGuard {
             return;
         }
         sRequested = true;
+        sDisplayId = displayId;
         sActive = MagicDeskRuntime.startSelfTestTaskStackGuard(
                 displayId, hostTaskId, stage);
         sUnavailableReason = sActive
@@ -29,7 +31,7 @@ final class DesktopSelfTestTaskStackGuard {
 
     static synchronized void stage(final String stage) {
         if (sActive) {
-            MagicDeskRuntime.setSelfTestTaskStackGuardStage(stage);
+            MagicDeskRuntime.setSelfTestTaskStackGuardStage(sDisplayId, stage);
         }
     }
 
@@ -38,7 +40,7 @@ final class DesktopSelfTestTaskStackGuard {
             return;
         }
         final SelfTestTaskStackReport report = sActive
-                ? MagicDeskRuntime.stopSelfTestTaskStackGuard()
+                ? MagicDeskRuntime.stopSelfTestTaskStackGuard(sDisplayId)
                 : SelfTestTaskStackReport.unavailable(sUnavailableReason);
         sRequested = false;
         sActive = false;
@@ -81,7 +83,7 @@ final class DesktopSelfTestTaskStackGuard {
 
     static synchronized void cancel() {
         if (sActive) {
-            MagicDeskRuntime.stopSelfTestTaskStackGuard();
+            MagicDeskRuntime.stopSelfTestTaskStackGuard(sDisplayId);
         }
         sRequested = false;
         sActive = false;

@@ -85,7 +85,7 @@ final class DesktopSelfTestLauncher {
             finishPreparation(false, issue);
             return;
         }
-        if (DesktopRuntimeBridge.getActiveDesktopDisplayId() != Display.INVALID_DISPLAY) {
+        if (DesktopRuntimeBridge.hasWorkspaces()) {
             // A rejected launch must not close a user's existing session.
             completePreparation(false, "close the active desktop first");
             return;
@@ -180,7 +180,7 @@ final class DesktopSelfTestLauncher {
                         || DesktopSelfTestRunState.snapshot().cancellationRequested) {
                     return;
                 }
-                final int id = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+                final int id = DesktopSelfTestRunState.preparedDisplayId();
                 final DesktopDisplayTarget display = DesktopRuntimeBridge.getDesktopTarget(id);
                 if (mTarget.matchesDisplay(id, display)
                         && (kind == null || display.output.kind == kind)) {
@@ -234,10 +234,10 @@ final class DesktopSelfTestLauncher {
         }
         mFinishingPreparation = true;
         stopWirelessObservation();
-        final int id = DesktopRuntimeBridge.getActiveDesktopDisplayId();
+        final int id = DesktopSelfTestRunState.preparedDisplayId();
         final DesktopDisplayTarget display = DesktopRuntimeBridge.getDesktopTarget(id);
         if (mTarget.matchesDisplay(id, display)
-                && DesktopRuntimeBridge.getSessionSnapshot().policy()
+                && DesktopRuntimeBridge.getSessionSnapshot(DesktopSelfTestRunState.preparedDisplayId()).policy()
                         == DesktopSessionPolicy.ISOLATED_SELF_TEST) {
             DesktopOperations.closeDesktop(display, DesktopCloseMode.HOME,
                     ignored -> MAIN.post(() -> completePreparation(cancelled, detail)));

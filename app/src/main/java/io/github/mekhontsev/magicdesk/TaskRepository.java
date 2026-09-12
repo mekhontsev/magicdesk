@@ -227,6 +227,7 @@ public final class TaskRepository {
     static void moveTaskToDisplay(
             final TaskEntry task,
             final int targetDisplayId,
+            final String targetUniqueId,
             final RelativeWindowBounds preferredBounds,
             final ActionCallback callback) {
         if (!isTransferable(task) || targetDisplayId < 0) {
@@ -238,7 +239,7 @@ public final class TaskRepository {
                 if (DesktopOperations.isSessionTransitionInProgress()) {
                     throw new IllegalStateException("desktop transition is in progress");
                 }
-                DesktopDisplayCatalog.require(targetDisplayId, null);
+                DesktopDisplayCatalog.require(targetDisplayId, targetUniqueId);
                 final Snapshot snapshot = loadAllNow();
                 if (!snapshot.available) { throw new IOException(snapshot.error); }
                 final TaskEntry live = findMatchingTask(snapshot.tasks, task);

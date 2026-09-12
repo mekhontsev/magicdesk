@@ -1,6 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -41,10 +42,10 @@ public final class DesktopHomeRoleLeaseTest {
         final DesktopDisplayTarget original = DesktopDisplayTarget.simulated(7)
                 .withProfile("display:simulated:workspace");
         final DesktopHomeRoleLease.AcquireResult result = acquire(original);
-        assertSame(original, result.state.target());
+        assertSame(original, result.state.targetForDisplay(original.workspaceDisplayId));
         final DesktopHomeRoleLease.State releasing = result.state.withPhase(
                 DesktopHomeRoleLease.Phase.RELEASING);
-        assertSame(original, releasing.target());
+        assertSame(original, releasing.targetForDisplay(original.workspaceDisplayId));
         final DesktopDisplayTarget differentOutput = DesktopDisplayTarget.restore(
                 DesktopDisplayOutput.Kind.SIMULATED, 7, 8,
                 "display:simulated:workspace",
@@ -60,7 +61,7 @@ public final class DesktopHomeRoleLeaseTest {
                         DesktopDisplayTarget.simulated(7), DesktopSessionPolicy.USER,
                         DesktopCompatibilityPolicy.NONE);
         assertEquals(LAUNCHER, mBackend.homePackage);
-        assertEquals(DesktopHomeSurfaceRouter.Surface.PHONE, mBackend.homeSurface);
+        assertEquals(DesktopHomeSurfaceRouter.Surface.LAUNCHER, mBackend.homeSurface);
         assertEquals(DesktopHomeRoleLease.Phase.PREPARED, mStorage.state.phase);
         assertFalse(DesktopHomeRoleLease.isPhoneOverviewRoutingActive());
         assertFalse(mBackend.primaryHomePresented);
@@ -125,10 +126,9 @@ public final class DesktopHomeRoleLeaseTest {
         assertTrue(DesktopHomeRoleLease.isPhoneOverviewRoutingActive());
         assertTrue(mBackend.stateWasPreparedBeforeSet);
         assertEquals(
-                DesktopHomeSurfaceRouter.Surface.PHONE,
+                DesktopHomeSurfaceRouter.Surface.LAUNCHER,
                 mBackend.homeSurface);
-        assertTrue(mBackend.primaryHomePresented);
-        assertEquals(0, mBackend.presentedUserId);
+        assertFalse(mBackend.primaryHomePresented);
     }
 
     @Test
@@ -138,10 +138,8 @@ public final class DesktopHomeRoleLeaseTest {
         assertEquals(
                 DesktopHomeSurfaceRouter.Surface.DESKTOP,
                 mBackend.homeSurface);
-        assertTrue(DesktopHomeRoleLease.isActiveForSurface(
-                DesktopHomeSurfaceRouter.Surface.DESKTOP));
-        assertFalse(DesktopHomeRoleLease.isActiveForSurface(
-                DesktopHomeSurfaceRouter.Surface.PHONE));
+        assertTrue(DesktopHomeRoleLease.isActiveForDisplay(0));
+        assertFalse(DesktopHomeRoleLease.isActiveForDisplay(7));
         assertEquals(
                 DesktopHomeSurfaceRouter.Surface.DESKTOP,
                 mBackend.presentedSurface);
@@ -225,16 +223,23 @@ public final class DesktopHomeRoleLeaseTest {
     }
 
     @Test
-    public void acquireRejectsSecondTarget() throws Exception {
-        acquire(DesktopDisplayTarget.simulated(7));
-
-        try {
-            acquire(
-                    DesktopDisplayTarget.wired(8));
-            fail("second target must be rejected");
-        } catch (IOException expected) {
-            assertTrue(expected.getMessage().contains("already leased"));
-        }
+    public void homeIsSharedUntilTheLastWorkspaceCloses() throws Exception {
+        final var first = DesktopDisplayTarget.simulated(7);
+        final var second = DesktopDisplayTarget.phone();
+        acquire(first);
+        acquire(second);
+        assertEquals(1, mBackend.setCalls);
+        assertEquals(List.of(first, second), mStorage.state.targets);
+        DesktopHomeRoleLease.releaseForSessionClose(first);
+        assertEquals(MAGICDESK, mBackend.homePackage);
+        assertTrue(DesktopHomeRoleLease.isActiveForDisplay(0));
+        assertFalse(DesktopHomeRoleLease.isActiveForDisplay(7));
+        assertNull(DesktopHomeRoleLease.finishSessionClose(first));
+        assertEquals(List.of(second), mStorage.state.targets);
+        DesktopHomeRoleLease.releaseForSessionClose(second);
+        assertEquals(LAUNCHER, mBackend.homePackage);
+        DesktopHomeRoleLease.finishSessionClose(second);
+        assertNull(mStorage.state);
     }
 
     @Test
@@ -283,10 +288,8 @@ public final class DesktopHomeRoleLeaseTest {
         assertEquals(DesktopHomeRoleLease.Phase.RELEASING, mStorage.state.phase);
         assertEquals(DesktopHomeSurfaceRouter.Surface.DESKTOP, mBackend.homeSurface);
         assertFalse(DesktopHomeRoleLease.isPhoneOverviewRoutingActive());
-        assertTrue(DesktopHomeRoleLease.isReleasingForSurface(
-                DesktopHomeSurfaceRouter.Surface.DESKTOP));
-        assertFalse(DesktopHomeRoleLease.isActiveForSurface(
-                DesktopHomeSurfaceRouter.Surface.DESKTOP));
+        assertTrue(DesktopHomeRoleLease.isReleasingForDisplay(0));
+        assertFalse(DesktopHomeRoleLease.isActiveForDisplay(0));
 
         final DesktopHomeRoleLease.RestoredHomePresentation presentation =
                 DesktopHomeRoleLease.finishSessionClose(DesktopDisplayTarget.phone());
@@ -495,19 +498,16 @@ public final class DesktopHomeRoleLeaseTest {
     public void newSessionCanAcquireHomeAfterStartupRecovery() throws Exception {
         acquire(DesktopDisplayTarget.phone());
         DesktopHomeRoleLease.discardForStartupRelinquish();
-        assertFalse(DesktopHomeRoleLease.isActiveForSurface(
-                DesktopHomeSurfaceRouter.Surface.DESKTOP));
+        assertFalse(DesktopHomeRoleLease.isActiveForDisplay(0));
         // Disabling our components returns HOME to the system outside the
         // shell-backed lease. A later explicit start owns a new lease.
         mBackend.homePackage = LAUNCHER;
         final DesktopHomeRoleLease.AcquireResult prepared = DesktopHomeRoleLease.prepare(
                 DesktopDisplayTarget.phone(), DesktopSessionPolicy.USER,
                 DesktopCompatibilityPolicy.NONE);
-        assertFalse(DesktopHomeRoleLease.isActiveForSurface(
-                DesktopHomeSurfaceRouter.Surface.DESKTOP));
+        assertFalse(DesktopHomeRoleLease.isActiveForDisplay(0));
         DesktopHomeRoleLease.activate(prepared);
-        assertTrue(DesktopHomeRoleLease.isActiveForSurface(
-                DesktopHomeSurfaceRouter.Surface.DESKTOP));
+        assertTrue(DesktopHomeRoleLease.isActiveForDisplay(0));
         assertEquals(LAUNCHER, DesktopHomeRoleLease.snapshot().previousHome.packageName);
     }
 
@@ -588,7 +588,7 @@ public final class DesktopHomeRoleLeaseTest {
             fail("role return failure expected");
         } catch (IOException expected) {
             assertEquals(DesktopHomeRoleLease.Phase.RELEASING, mStorage.state.phase);
-            assertEquals(DesktopHomeSurfaceRouter.Surface.PHONE, mBackend.homeSurface);
+            assertEquals(DesktopHomeSurfaceRouter.Surface.LAUNCHER, mBackend.homeSurface);
         }
         try {
             DesktopHomeRoleLease.finishSessionClose(target);
@@ -610,6 +610,36 @@ public final class DesktopHomeRoleLeaseTest {
         assertEquals(List.of("surface:disabled"), mBackend.releaseCalls);
     }
 
+    @Test public void failedWorkspaceJoinRetainsTheExistingHomeAndResidency() throws Exception {
+        final var external = DesktopDisplayTarget.simulated(7);
+        acquire(external);
+        mBackend.failHomeSelection = true;
+        assertThrows(IOException.class, () -> DesktopHomeRoleLease.prepare(
+                DesktopDisplayTarget.phone(), DesktopSessionPolicy.USER, DesktopCompatibilityPolicy.NONE));
+        assertEquals(List.of(external), mStorage.state.targets);
+        assertEquals(MAGICDESK, mBackend.homePackage);
+        assertEquals(1, mBackend.setCalls);
+    }
+
+    @Test public void failedPartialCloseRetainsItsReleaseBoundaryForRetry() throws Exception {
+        final var external = DesktopDisplayTarget.simulated(7);
+        final var phone = DesktopDisplayTarget.phone();
+        acquire(external);
+        acquire(phone);
+        DesktopHomeRoleLease.releaseForSessionClose(phone);
+        mBackend.failHomeSelection = true;
+        assertThrows(IOException.class, () -> DesktopHomeRoleLease.finishSessionClose(phone));
+        assertEquals(0, mStorage.state.closingDisplayId);
+        assertTrue(DesktopHomeRoleLease.isActiveForDisplay(7));
+        assertFalse(DesktopHomeRoleLease.isActiveForDisplay(0));
+        assertEquals(MAGICDESK, mBackend.homePackage);
+        mBackend.failHomeSelection = false;
+        assertNull(DesktopHomeRoleLease.finishSessionClose(phone));
+        assertEquals(List.of(external), mStorage.state.targets);
+        assertEquals(-1, mStorage.state.closingDisplayId);
+        assertEquals(MAGICDESK, mBackend.homePackage);
+    }
+
     private final class FakeBackend implements DesktopHomeRoleLease.Backend {
         String homePackage;
         int setCalls;
@@ -620,6 +650,7 @@ public final class DesktopHomeRoleLeaseTest {
         boolean primaryHomePresented;
         boolean failHomeSurfaceDisable;
         boolean failHomeResolution;
+        boolean failHomeSelection;
         int presentedUserId = -1;
         String presentedHomePackage;
         String resolvedHomePackage;
@@ -653,7 +684,8 @@ public final class DesktopHomeRoleLeaseTest {
 
         @Override
         public void selectHomeSurface(
-                final DesktopHomeSurfaceRouter.Selection selection) {
+                final DesktopHomeSurfaceRouter.Selection selection) throws IOException {
+            if (failHomeSelection) { throw new IOException("HOME selection unavailable"); }
             surfaceSelections++;
             homeSurface = selection.primary;
         }

@@ -8,9 +8,9 @@ import org.junit.Test;
 public final class DesktopSessionWakeLockTest {
     @Test
     public void holdsOnlyForEnabledDesktopSession() {
-        assertFalse(DesktopSessionWakeLock.shouldHold(false, 3));
-        assertFalse(DesktopSessionWakeLock.shouldHold(true, -1));
-        assertTrue(DesktopSessionWakeLock.shouldHold(true, 0));
-        assertTrue(DesktopSessionWakeLock.shouldHold(true, 3));
+        assertFalse(DesktopSessionWakeLock.shouldHold(false, true));
+        assertFalse(DesktopSessionWakeLock.shouldHold(true, false));
+        assertTrue(DesktopSessionWakeLock.shouldHold(true, true));
+        assertTrue(DesktopSessionWakeLock.shouldHold(true, true));
     }
 }

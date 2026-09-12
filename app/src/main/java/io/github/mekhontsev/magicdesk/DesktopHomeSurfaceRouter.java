@@ -14,7 +14,7 @@ import java.util.Set;
 final class DesktopHomeSurfaceRouter {
     enum Surface {
         SYSTEM,
-        PHONE,
+        LAUNCHER,
         DESKTOP
     }
 
@@ -22,12 +22,12 @@ final class DesktopHomeSurfaceRouter {
     static final class Selection {
         private final Set<Integer> workspaces;
         final Surface primary;
-        final boolean secondaryDesktop;
+        final boolean secondaryHome;
 
         private Selection(final Set<Integer> displays) {
             workspaces = Collections.unmodifiableSet(displays);
             primary = surfaceOn(0);
-            secondaryDesktop = displays.stream().anyMatch(id -> id != 0);
+            secondaryHome = !displays.isEmpty();
         }
 
         Surface surfaceOn(final int displayId) {
@@ -37,7 +37,7 @@ final class DesktopHomeSurfaceRouter {
             if (workspaces.contains(displayId)) {
                 return Surface.DESKTOP;
             }
-            return displayId == 0 && !workspaces.isEmpty() ? Surface.PHONE : Surface.SYSTEM;
+            return !workspaces.isEmpty() ? Surface.LAUNCHER : Surface.SYSTEM;
         }
     }
 
@@ -59,13 +59,10 @@ final class DesktopHomeSurfaceRouter {
             throw new IllegalArgumentException("HOME surface is required");
         }
         apply(
-                selection.primary == Surface.PHONE
+                selection.primary != Surface.SYSTEM
                         ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
                         : PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                selection.primary == Surface.DESKTOP
-                        ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                        : PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                selection.secondaryDesktop
+                selection.secondaryHome
                         ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
                         : PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
     }
@@ -73,27 +70,22 @@ final class DesktopHomeSurfaceRouter {
     static void disableHomeSurfaces() throws IOException {
         apply(
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED);
     }
 
     private static void apply(
             final int phoneState,
-            final int desktopState,
             final int secondaryState) throws IOException {
         final Context context = MagicDeskApplication.applicationContext();
         final PackageManager manager = context.getPackageManager();
         final ComponentName phone = new ComponentName(
                 context, PhoneHomeActivity.class);
-        final ComponentName desktop = new ComponentName(
-                context, PhoneDesktopHomeActivity.class);
         final ComponentName secondary = new ComponentName(
                 context, DesktopActivity.class);
-        // Primary and secondary hosts are independent. All must disappear
-        // from Android's launcher choices when the shared HOME lease ends.
+        // Keep HOME identities stable throughout the lease. Replacing the
+        // primary component invalidates Android's preferred Activity while
+        // its package can still hold ROLE_HOME, exposing a launcher chooser.
         if (manager.getComponentEnabledSetting(phone) == phoneState
-                && manager.getComponentEnabledSetting(desktop)
-                        == desktopState
                 && manager.getComponentEnabledSetting(secondary) == secondaryState) {
             return;
         }
@@ -102,10 +94,6 @@ final class DesktopHomeSurfaceRouter {
                     new PackageManager.ComponentEnabledSetting(
                             phone,
                             phoneState,
-                            PackageManager.DONT_KILL_APP),
-                    new PackageManager.ComponentEnabledSetting(
-                            desktop,
-                            desktopState,
                             PackageManager.DONT_KILL_APP),
                     new PackageManager.ComponentEnabledSetting(
                             secondary,

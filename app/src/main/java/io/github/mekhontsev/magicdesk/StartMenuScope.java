@@ -1,7 +1,7 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Fixed launch/search scope; never inferred from current input focus. */
+/** Available content, not HOME ownership or a launch destination. */
 enum StartMenuScope {
     DESKTOP,
-    PHONE
+    APPLICATIONS
 }

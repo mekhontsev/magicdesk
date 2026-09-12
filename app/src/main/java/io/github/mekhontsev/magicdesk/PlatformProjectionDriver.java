@@ -120,5 +120,5 @@ public interface PlatformProjectionDriver {
             int physicalDisplayId,
             DisplayProfileStore.Profile profile) throws IOException;
 
-    boolean setCaptionTransport(Transport transport);
+    boolean setCaptionTransports(java.util.Set<Transport> transports);
 }

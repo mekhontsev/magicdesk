@@ -57,7 +57,7 @@ public final class DesktopOperations {
                 boolean success = false;
                 try {
                     final int desktopDisplayId = screenOff
-                            ? MagicDeskRuntime.activeDesktopDisplayId()
+                            ? MagicDeskRuntime.inputDisplayId()
                             : android.view.Display.INVALID_DISPLAY;
                     success = PHONE_UI.setPhoneScreenOff(
                             screenOff, desktopDisplayId);
@@ -158,7 +158,7 @@ public final class DesktopOperations {
     }
 
     static void toggleDesktopWorkspace() {
-        if (!MagicDeskRuntime.toggleDesktopWorkspace(MagicDeskRuntime.activeDesktopDisplayId())) {
+        if (!MagicDeskRuntime.toggleDesktopWorkspace(MagicDeskRuntime.inputDisplayId())) {
             showMagicDesk();
         }
     }
@@ -186,64 +186,24 @@ public final class DesktopOperations {
     }
 
     static void updateExternalTaskCaptionTarget(
-            final DesktopDisplayTarget target) {
-        TRANSITIONS.updateCaptionTransport(target);
-    }
-
-    static void returnDesktopTasksToPhone(
-            final DesktopDisplayTarget target,
-            final ResultCallback callback) {
-        MagicDeskRuntime.disableExternalTaskMigrationProtection();
-        OPERATIONS.execute(new Runnable() {
-            @Override
-            public void run() {
-                boolean success = false;
-                try {
-                    final int displayId = target != null
-                            && target.workspaceDisplayId > 0
-                            ? target.workspaceDisplayId
-                            : MagicDeskRuntime.activeDesktopDisplayId();
-                    if (displayId <= 0) {
-                        success = true;
-                        return;
-                    }
-                    final String output = ShellAccess.run(
-                            AppProcessCommand.run(
-                                    DESKTOP_TASK_RETURN_COMMAND,
-                                    Integer.toString(displayId))).trim();
-                    success = DesktopTaskReturnResult.succeeded(output, displayId);
-                    if (!success) {
-                        Log.w(TAG, "Desktop task return failed output=" + output);
-                    }
-                } catch (IOException error) {
-                    Log.w(TAG, "Desktop task return failed", error);
-                } finally {
-                    if (!success) {
-                        MagicDeskRuntime
-                                .restoreExternalTaskMigrationProtection();
-                    }
-                    if (callback != null) {
-                        callback.onComplete(success);
-                    }
-                }
-            }
-        });
+            final java.util.List<DesktopDisplayTarget> targets) {
+        TRANSITIONS.updateCaptionTransport(targets);
     }
 
     static void advanceAltTab(final boolean reverse) {
-        if (!MagicDeskRuntime.advanceAltTab(MagicDeskRuntime.activeDesktopDisplayId(), reverse)) {
+        if (!MagicDeskRuntime.advanceAltTab(MagicDeskRuntime.inputDisplayId(), reverse)) {
             Log.w(TAG, "MagicDesk desktop is unavailable for Alt+Tab");
         }
     }
 
     static void finishAltTab() {
-        if (!MagicDeskRuntime.finishAltTab(MagicDeskRuntime.activeDesktopDisplayId())) {
+        if (!MagicDeskRuntime.finishAltTab(MagicDeskRuntime.inputDisplayId())) {
             Log.w(TAG, "MagicDesk desktop is unavailable for Alt+Tab completion");
         }
     }
 
     static void cancelAltTab() {
-        MagicDeskRuntime.cancelAltTab(MagicDeskRuntime.activeDesktopDisplayId());
+        MagicDeskRuntime.cancelAltTab(MagicDeskRuntime.inputDisplayId());
     }
 
     static void sendSystemBack() {
@@ -279,30 +239,30 @@ public final class DesktopOperations {
     }
 
     static void showShortcutHelp() {
-        if (!MagicDeskRuntime.toggleShortcutHelp(MagicDeskRuntime.activeDesktopDisplayId())) {
+        if (!MagicDeskRuntime.toggleShortcutHelp(MagicDeskRuntime.inputDisplayId())) {
             Log.w(TAG, "MagicDesk desktop is unavailable for shortcut help");
         }
     }
 
     static void toggleNotificationCenter() {
-        if (!MagicDeskRuntime.toggleNotificationCenter(MagicDeskRuntime.activeDesktopDisplayId())) {
+        if (!MagicDeskRuntime.toggleNotificationCenter(MagicDeskRuntime.inputDisplayId())) {
             Log.w(TAG, "MagicDesk desktop is unavailable for notifications");
         }
     }
 
     static void toggleSystemPanel() {
-        if (!MagicDeskRuntime.toggleSystemPanel(MagicDeskRuntime.activeDesktopDisplayId())) {
+        if (!MagicDeskRuntime.toggleSystemPanel(MagicDeskRuntime.inputDisplayId())) {
             Log.w(TAG, "MagicDesk desktop is unavailable for system controls");
         }
     }
 
     static void openSettings() {
-        if (!MagicDeskRuntime.openSettings(MagicDeskRuntime.activeDesktopDisplayId())) {
+        if (!MagicDeskRuntime.openSettings(MagicDeskRuntime.inputDisplayId())) {
             Log.w(TAG, "MagicDesk desktop is unavailable for settings");
         }
     }
 
-    static void captureScreenshot() {
+    static void captureScreenshot(final int displayId) {
         if (!ShellAccess.isReady()) {
             Log.w(TAG, "screenshot unavailable; shell="
                     + ShellAccess.statusLabel());
@@ -314,7 +274,7 @@ public final class DesktopOperations {
         OPERATIONS.execute(new Runnable() {
             @Override
             public void run() {
-                captureScreenshotInternal();
+                captureScreenshotInternal(displayId);
             }
         });
     }
@@ -331,11 +291,11 @@ public final class DesktopOperations {
         OPERATIONS.execute(action);
     }
 
-    private static void captureScreenshotInternal() {
+    private static void captureScreenshotInternal(final int displayId) {
         String path = null;
         DesktopCaptureTarget capture = null;
         try {
-            capture = DesktopCaptureTarget.resolveActive();
+            capture = DesktopCaptureTarget.resolve(displayId);
             final String physicalDisplayId = capture.desktopDisplayId == 0
                     ? null : capture.physicalDisplayId;
             final String fileName = "MagicDesk_"

@@ -4,7 +4,6 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.os.PowerManager;
 import android.util.Log;
-import android.view.Display;
 
 final class DesktopSessionWakeLock {
     private static final String TAG = "MagicDeskWakeLock";
@@ -23,8 +22,8 @@ final class DesktopSessionWakeLock {
     }
 
     @SuppressLint("WakelockTimeout")
-    void reconcile(final boolean enabled, final int desktopDisplayId) {
-        final boolean shouldHold = shouldHold(enabled, desktopDisplayId);
+    void reconcile(final boolean enabled, final boolean hasWorkspaces) {
+        final boolean shouldHold = shouldHold(enabled, hasWorkspaces);
         if (mWakeLock == null || shouldHold == mWakeLock.isHeld()) {
             return;
         }
@@ -42,7 +41,7 @@ final class DesktopSessionWakeLock {
                     "POWER-AWAKE-001",
                     "Could not update the desktop session wake lock",
                     "enabled=" + enabled
-                            + " display=" + desktopDisplayId,
+                            + " workspaces=" + hasWorkspaces,
                     error);
         }
     }
@@ -64,7 +63,7 @@ final class DesktopSessionWakeLock {
 
     static boolean shouldHold(
             final boolean enabled,
-            final int desktopDisplayId) {
-        return enabled && desktopDisplayId >= Display.DEFAULT_DISPLAY;
+            final boolean hasWorkspaces) {
+        return enabled && hasWorkspaces;
     }
 }

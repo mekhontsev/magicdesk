@@ -187,8 +187,9 @@ public final class TaskManagerActivity extends Activity
         }));
     }
 
-    private static int observationDisplayId() {
-        final DesktopSessionSnapshot session = DesktopRuntimeBridge.getSessionSnapshot();
+    private int observationDisplayId() {
+        final DesktopSessionSnapshot session = DesktopRuntimeBridge.getSessionSnapshot(
+                getDisplay() == null ? 0 : getDisplay().getDisplayId());
         // A prepared target survives host recreation; it is not a standalone query path.
         return session.hasHost() ? session.activeWorkspaceDisplayId()
                 : session.target() == null ? -1 : session.target().workspaceDisplayId;

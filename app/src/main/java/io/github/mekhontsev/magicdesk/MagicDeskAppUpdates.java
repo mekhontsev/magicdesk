@@ -24,8 +24,7 @@ final class MagicDeskAppUpdates {
             if (!sha.equals(previous.optString("sha256"))) throw new IllegalArgumentException("updateId belongs to another APK");
             return previous;
         }
-        final DesktopSessionSnapshot desktop = DesktopRuntimeBridge.getSessionSnapshot();
-        if (desktop.target() != null || desktop.hasHost() || DesktopSelfTestRunState.isActive()) {
+        if (DesktopRuntimeBridge.hasWorkspaces() || DesktopSelfTestRunState.isActive()) {
             throw new IllegalArgumentException("close desktop and finish self-test cleanup before updating MagicDesk");
         }
         final SharedPreferences preferences = preferences(context);

@@ -159,6 +159,8 @@ public final class TaskManagerActivityTest {
                 void load(boolean memory, java.util.function.Consumer<Snapshot> callback) { loads++; pending = callback; }
                 void complete() { var callback = pending; pending = null; callback.accept(new Snapshot()); }
             }
+            static class Display { int getDisplayId() { return 4; } }
+            Display getDisplay() { return new Display(); }
             static class ShellAccess { static boolean isReady() { return true; } }
             static class TaskRepository {
                 static class TaskEntry { final int taskId; TaskEntry(int id) { taskId = id; } }
@@ -176,7 +178,7 @@ public final class TaskManagerActivityTest {
             }
             static class DesktopRuntimeBridge {
                 static DesktopSessionSnapshot session = new DesktopSessionSnapshot(-1, -1);
-                static DesktopSessionSnapshot getSessionSnapshot() { return session; }
+                static DesktopSessionSnapshot getSessionSnapshot(int displayId) { return session; }
             }
             static class MagicDeskRuntime {
                 static TaskRepository.Snapshot observed;

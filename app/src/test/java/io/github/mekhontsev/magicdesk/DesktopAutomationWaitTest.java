@@ -208,7 +208,7 @@ public final class DesktopAutomationWaitTest {
                     static Snapshot loadAllNow() { queries++; return global; }
                 }
                 static class DesktopRuntimeBridge {
-                    static int getActiveDesktopDisplayId() { return activeDisplay; }
+                    static Set<Integer> workspaceDisplayIds() { return activeDisplay < 0 ? Set.of() : Set.of(activeDisplay); }
                 }
                 static class MagicDeskRuntime {
                     static TaskRepository.Snapshot observedTaskSnapshot(int display) {

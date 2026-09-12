@@ -115,20 +115,30 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 static class State {
                     int userId;
                     AndroidHomeSelection previousHome;
-                    DesktopDisplayTarget target;
+                    List<DesktopDisplayTarget> targets;
+                    int closingDisplayId = -1;
                     DesktopSessionPolicy policy; Phase phase;
                     DesktopCompatibilityPolicy compatibility;
                     State(int user, AndroidHomeSelection previous, DesktopDisplayTarget t,
                             DesktopSessionPolicy p, DesktopCompatibilityPolicy c, Phase ph) {
-                        userId=user; previousHome=previous; target=t; policy=p; phase=ph;
+                        userId=user; previousHome=previous; targets=List.of(t); policy=p; phase=ph;
                         compatibility=c;
                     }
-                    DesktopDisplayTarget target() { return target; }
+                    State(int user, AndroidHomeSelection previous, List<DesktopDisplayTarget> values,
+                            DesktopSessionPolicy p, DesktopCompatibilityPolicy c, Phase ph, int closing) {
+                        userId=user; previousHome=previous; targets=values; policy=p; phase=ph;
+                        compatibility=c; closingDisplayId=closing;
+                    }
+                    DesktopDisplayTarget targetForDisplay(int id) { return targets.stream()
+                            .filter(t -> t.workspaceDisplayId == id).findFirst().orElse(null); }
+                    State withTargets(List<DesktopDisplayTarget> values, int closing) {
+                        return new State(userId, previousHome, values, policy, compatibility, phase, closing);
+                    }
                 """ + RuntimeSourceFixture.methods("DesktopHomeRoleLease", "matches", "withPhase") + "}\n"
                 + """
                 static class AcquireResult {
-                    boolean created; State state;
-                    AcquireResult(boolean c, State s) { created=c; state=s; }
+                    boolean created; State state; DesktopDisplayTarget target;
+                    AcquireResult(boolean c, State s, DesktopDisplayTarget t) { created=c; state=s; target=t; }
                 }
                 static class Storage {
                     State state; int writes;
@@ -148,6 +158,7 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 static class PackageNameValidator { static boolean isSafe(String p) { return true; } }
                 static Storage sStorage=new Storage(); static Backend sBackend=new Backend();
                 static DesktopHomeSurfaceRouter.Surface surfacesFor(State s) { return DesktopHomeSurfaceRouter.Surface.PHONE; }
+                static void release(DesktopDisplayTarget target) throws IOException { throw new AssertionError("unexpected release"); }
                 static void restorePreparedLease(State s, IOException e) { throw new AssertionError("unexpected branch"); }
                 static AndroidHomeSelection resolvePreviousHome(int user, String p) { throw new AssertionError("unexpected branch"); }
                 static void assertRejected(DesktopDisplayTarget target,DesktopSessionPolicy policy,

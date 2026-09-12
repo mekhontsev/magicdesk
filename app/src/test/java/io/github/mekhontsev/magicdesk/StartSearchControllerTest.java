@@ -18,11 +18,11 @@ public final class StartSearchControllerTest {
         final Set<String> ids = new HashSet<>();
         for (final BuiltInDesktopAppCatalog.Entry entry
                 : BuiltInDesktopAppCatalog.searchEntries()) {
-            final StartSearchController.Result result =
-                    StartSearchController.Result.builtIn("Same label", entry);
+            final StartMenuEntry result =
+                    StartMenuEntry.builtIn("Same label", entry);
             assertEquals("MagicDesk", result.detail);
             assertTrue(ids.add(DesktopAutomationUiRegistry.identitySegment(result.stableKey())));
-            assertEquals(result.stableKey(), StartSearchController.Result.builtIn(
+            assertEquals(result.stableKey(), StartMenuEntry.builtIn(
                     "Localized label", entry).stableKey());
         }
     }
@@ -30,13 +30,13 @@ public final class StartSearchControllerTest {
     @Test
     public void actionsHaveDistinctSemanticIdsDespiteSharedDetail() {
         final Set<String> ids = new HashSet<>();
-        for (final StartSearchController.Action action
-                : StartSearchController.Action.values()) {
-            final StartSearchController.Result result =
-                    StartSearchController.Result.action("Same label", action);
+        for (final StartMenuEntry.Action action
+                : StartMenuEntry.Action.values()) {
+            final StartMenuEntry result =
+                    StartMenuEntry.action("Same label", action);
             assertEquals("Action", result.detail);
             assertTrue(ids.add(DesktopAutomationUiRegistry.identitySegment(result.stableKey())));
-            assertEquals(result.stableKey(), StartSearchController.Result.action(
+            assertEquals(result.stableKey(), StartMenuEntry.action(
                     "Localized label", action).stableKey());
         }
     }
@@ -46,10 +46,10 @@ public final class StartSearchControllerTest {
         final DesktopApplicationShortcut shortcut = new DesktopCommandApplicationDraft(
                 "Command", "pwd", DesktopExecBackend.SHELL, "",
                 DesktopCommandApplicationDraft.FileArguments.NONE, "").build();
-        final StartSearchController.Result first = StartSearchController.Result
+        final StartMenuEntry first = StartMenuEntry
                 .desktopApplication(new DesktopApplicationRepository.Entry(
                         shortcut, "/Desktop/first.desktop", null));
-        final StartSearchController.Result second = StartSearchController.Result
+        final StartMenuEntry second = StartMenuEntry
                 .desktopApplication(new DesktopApplicationRepository.Entry(
                         shortcut, "/Desktop/second.desktop", null));
 
@@ -73,7 +73,7 @@ public final class StartSearchControllerTest {
         for (final String path : new String[] {
                 "/Desktop/Aa.desktop", "/Desktop/aa.desktop", "/Desktop/a b.desktop",
                 "/Desktop/a/b.desktop", "/Desktop/a-b.desktop"}) {
-            final StartSearchController.Result result = StartSearchController.Result
+            final StartMenuEntry result = StartMenuEntry
                     .desktopApplication(new DesktopApplicationRepository.Entry(shortcut, path, null));
             assertTrue(commandIds.add("start.search.command."
                     + DesktopAutomationUiRegistry.identitySegment(path)));
@@ -86,7 +86,7 @@ public final class StartSearchControllerTest {
     public void startAndTaskbarEncodeIdentitiesWithoutChangingReadableLabels() throws IOException {
         final String start = read("StartMenuContent.java").replaceAll("\\s+", "");
         for (final String identity : new String[] {
-                "application.identity()", "result.app.packageName",
+                "application.stableKey()",
                 "result.desktopApplication.desktopFilePath", "result.stableKey()"}) {
             assertTrue(start.contains("DesktopAutomationUiRegistry.identitySegment(" + identity + ")"));
         }
@@ -99,14 +99,13 @@ public final class StartSearchControllerTest {
     }
 
     @Test
-    public void utilitySearchResultsUseExistingDesktopLaunchActions() throws IOException {
+    public void utilitySearchResultsUseSharedPlacement() throws IOException {
         final String source = read("StartMenuController.java");
-        assertTrue(source.contains("BuiltInDesktopAppCatalog.appPresentationSettingsTarget()"));
-        assertTrue(source.contains("mActivity.openApplicationSettings(null);"));
-        assertTrue(source.contains("BuiltInDesktopAppCatalog.diagnosticsTarget()"));
-        assertTrue(source.contains("mActivity.openDiagnostics();"));
-        assertTrue(source.contains("BuiltInDesktopAppCatalog.activityExplorerTarget()"));
-        assertTrue(source.contains("mActivity.openActivityExplorer();"));
+        assertTrue(source.contains("StartEntryLauncher.open(mActivity, result, mContent.destination()"));
+        final String launcher = read("StartEntryLauncher.java");
+        assertTrue(launcher.contains("entry.builtIn.launchTarget.resolve"));
+        assertTrue(launcher.contains("ToolApplications.open(activity, intent, placement(destination)"));
+        assertTrue(launcher.contains("destination.uniqueId()"));
     }
 
     private static String read(final String name) throws IOException {

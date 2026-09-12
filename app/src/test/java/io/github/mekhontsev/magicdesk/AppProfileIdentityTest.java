@@ -58,10 +58,10 @@ public final class AppProfileIdentityTest {
                 LaunchActivityIdentity.packageScoped(10, PACKAGE, null);
         final TaskRepository.TaskEntry work = task(10, 3);
         final TaskRepository.TaskEntry personalPhone = task(0, 0);
-        assertSame(work, PhoneAppLauncher.selectTransfer(identity,
-                new TaskRepository.Snapshot(List.of(work), List.of(personalPhone), true, "")));
-        assertNull(PhoneAppLauncher.selectTransfer(identity,
-                new TaskRepository.Snapshot(List.of(task(0, 3)), true, "")));
+        assertSame(work, DisplayAppLauncher.selectTransfer(identity,
+                new TaskRepository.Snapshot(List.of(work), List.of(personalPhone), true, ""), 0));
+        assertNull(DisplayAppLauncher.selectTransfer(identity,
+                new TaskRepository.Snapshot(List.of(task(0, 3)), true, ""), 0));
     }
 
     @Test
@@ -72,7 +72,7 @@ public final class AppProfileIdentityTest {
         assertTrue(app.matchesTask(task(10, 3)));
         assertFalse(app.matchesTask(task(0, 3)));
         assertFalse(app.matchesTask(task(-1, 3)));
-        assertTrue(PhoneRecentApps.select(List.of(task(0, 0)), List.of(app), "").isEmpty());
+        assertTrue(HomeRecentApps.select(List.of(task(0, 0)), List.of(app), "", 0).isEmpty());
     }
 
     @Test

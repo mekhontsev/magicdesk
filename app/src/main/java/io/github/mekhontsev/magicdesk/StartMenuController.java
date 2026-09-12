@@ -120,7 +120,7 @@ final class StartMenuController implements StartMenuContent.Host {
         return mActivity.handleDesktopMouseGenericEvent(event, true);
     }
     @Override public void appContext(final View view, final AppItem app) {
-        mActivity.registerContextTarget(view, app, null);
+        mActivity.registerStartContextTarget(view, app, mContent::destination);
     }
     @Override public void fileContext(final View view, final DesktopFile file) {
         mActivity.registerFileContextTarget(view, file);
@@ -134,57 +134,21 @@ final class StartMenuController implements StartMenuContent.Host {
         }
     }
 
-    @Override public void open(final StartSearchController.Result result) {
+    @Override public void open(final StartMenuEntry result) {
+        if (result.action == null) {
+            StartEntryLauncher.open(mActivity, result, mContent.destination(),
+                    DesktopLaunchPresentation.automatic(), () -> !mActivity.isActivityUnavailable(),
+                    mActivity::hideAllPanels, error -> android.widget.Toast.makeText(mActivity,
+                            ShellAccess.usefulMessage(error), android.widget.Toast.LENGTH_LONG).show());
+            return;
+        }
         mActivity.hideAllPanels();
-        if (result.app != null) {
-            mActivity.launchDefault(result.app);
-            return;
-        }
-        if (result.desktopApplication != null) {
-            mActivity.launchDesktopShortcut(
-                    result.desktopApplication.shortcut,
-                    DesktopLaunchArguments.empty(),
-                    result.desktopApplication.desktopFilePath);
-            return;
-        }
-        if (result.file != null) {
-            final android.content.Intent intent = result.file.directory
-                    ? FileManagerActivity.createIntent(
-                            mActivity, result.file.absolutePath)
-                    : FileManagerActivity.createRevealIntent(
-                            mActivity, result.file);
-            mActivity.launchInternalWindow(
-                    intent,
-                    BuiltInDesktopAppCatalog.filesTarget(),
-                    mActivity.getString(R.string.file_manager_title));
-            return;
-        }
-        if (result.builtIn != null) {
-            final AppLaunchTarget target = result.builtIn.launchTarget;
-            if (BuiltInDesktopAppCatalog.filesTarget().equals(target)) {
-                mActivity.openFiles();
-            } else if (BuiltInDesktopAppCatalog.consoleTarget().equals(target)) {
-                mActivity.openConsole();
-            } else if (BuiltInDesktopAppCatalog.taskManagerTarget().equals(target)) {
-                mActivity.openTaskManager();
-            } else if (BuiltInDesktopAppCatalog.settingsTarget().equals(target)) {
-                mActivity.openSettings();
-            } else if (BuiltInDesktopAppCatalog.appPresentationSettingsTarget()
-                    .equals(target)) {
-                mActivity.openApplicationSettings(null);
-            } else if (BuiltInDesktopAppCatalog.diagnosticsTarget().equals(target)) {
-                mActivity.openDiagnostics();
-            } else if (BuiltInDesktopAppCatalog.activityExplorerTarget().equals(target)) {
-                mActivity.openActivityExplorer();
-            }
-            return;
-        }
-        if (result.action == StartSearchController.Action.SHOW_DESKTOP) {
+        if (result.action == StartMenuEntry.Action.SHOW_DESKTOP) {
             mActivity.toggleDesktopWorkspace();
-        } else if (result.action == StartSearchController.Action.SCREENSHOT) {
+        } else if (result.action == StartMenuEntry.Action.SCREENSHOT) {
             mActivity.captureDesktopScreenshot();
         } else if (result.action
-                == StartSearchController.Action.SCREEN_RECORDING) {
+                == StartMenuEntry.Action.SCREEN_RECORDING) {
             mActivity.toggleDesktopRecording();
         }
 

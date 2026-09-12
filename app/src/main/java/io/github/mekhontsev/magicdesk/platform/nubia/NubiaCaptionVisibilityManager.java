@@ -16,7 +16,6 @@ import java.util.Locale;
 /** Owns Nubia's temporary external-caption visibility override. */
 public final class NubiaCaptionVisibilityManager {
     public enum Transport {
-        NONE(-1, null, null, null),
         WIRELESS(
                 1100,
                 "CALL_4",
@@ -47,8 +46,7 @@ public final class NubiaCaptionVisibilityManager {
 
     private static final String TAG = "MagicDeskCaptions";
     private static final String PREFS = "magicdesk_caption_visibility";
-    private static final String KEY_OWNED_TRANSPORT = "owned_transport";
-    private static final String KEY_RESTORE_VALUE = "restore_value";
+    private static final String RESTORE_PREFIX = "restore_";
     private static final String PROJECTION_PROVIDER =
             "content://cn.nubia.touping.TouPingProvider";
     private static final String PROVIDER_METHOD = "MagicDesk";
@@ -61,41 +59,31 @@ public final class NubiaCaptionVisibilityManager {
     private NubiaCaptionVisibilityManager() {
     }
 
-    public static synchronized boolean setTransport(final Transport target) {
-        if (target == null) {
-            throw new IllegalArgumentException("caption transport is required");
-        }
+    public static synchronized boolean setTransports(final java.util.Set<Transport> targets) {
+        if (targets == null) { throw new IllegalArgumentException("caption transports are required"); }
         final Context context = MagicDeskApplication.applicationContext();
-        if (context == null) {
-            Log.w(TAG, "application context is unavailable");
-            return false;
+        if (context == null) { return false; }
+        final SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        final java.util.Set<Transport> owned = readOwnedTransports(preferences);
+        boolean success = true;
+        // Each transport has a separate vendor option and restoration value.
+        // Failure on one output must not skip release or setup for another.
+        for (final Transport transport : Transport.values()) {
+            if (targets.contains(transport)) {
+                success &= owned.contains(transport)
+                        ? applyVisible(context, transport) : acquire(context, preferences, transport);
+            } else if (owned.contains(transport)) {
+                success &= restore(context, preferences, transport);
+            }
         }
-        final SharedPreferences preferences =
-                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        final Transport owned = readOwnedTransport(preferences);
-
-        if (owned == target) {
-            return target == Transport.NONE
-                    || applyVisible(context, target);
-        }
-        if (owned != Transport.NONE
-                && !restore(context, preferences, owned)) {
-            return false;
-        }
-        if (target == Transport.NONE) {
-            return true;
-        }
-        return acquire(context, preferences, target);
+        return success;
     }
 
     /** Exposes owned state only to the debug vendor probe so it can restore it. */
-    static synchronized Transport ownedTransportForDiagnostics() {
+    static synchronized java.util.Set<Transport> ownedTransportsForDiagnostics() {
         final Context context = MagicDeskApplication.applicationContext();
-        if (context == null) {
-            return Transport.NONE;
-        }
-        return readOwnedTransport(context.getSharedPreferences(
-                PREFS, Context.MODE_PRIVATE));
+        return context == null ? java.util.Set.of() : readOwnedTransports(
+                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE));
     }
 
     static Integer parsePrivacyValue(final String value) {
@@ -133,8 +121,7 @@ public final class NubiaCaptionVisibilityManager {
             return false;
         }
         if (!preferences.edit()
-                .putString(KEY_OWNED_TRANSPORT, transport.name())
-                .putInt(KEY_RESTORE_VALUE, restoreValue.intValue())
+                .putInt(RESTORE_PREFIX + transport.name(), restoreValue.intValue())
                 .commit()) {
             Log.w(TAG, "could not record caption visibility ownership");
             return false;
@@ -149,8 +136,7 @@ public final class NubiaCaptionVisibilityManager {
             setSurfaceFlingerOption(
                     context, transport, restoreValue.intValue());
             if (!preferences.edit()
-                    .remove(KEY_OWNED_TRANSPORT)
-                    .remove(KEY_RESTORE_VALUE)
+                    .remove(RESTORE_PREFIX + transport.name())
                     .commit()) {
                 Log.w(TAG, "could not clear failed caption ownership");
             }
@@ -167,13 +153,12 @@ public final class NubiaCaptionVisibilityManager {
         final Integer currentValue = readPrivacyMode(context, transport);
         final int restoreValue = currentValue != null
                 ? currentValue.intValue()
-                : preferences.getInt(KEY_RESTORE_VALUE, 1);
+                : preferences.getInt(RESTORE_PREFIX + transport.name(), 1);
         try {
             final String output = setSurfaceFlingerOption(
                     context, transport, restoreValue);
             if (!preferences.edit()
-                    .remove(KEY_OWNED_TRANSPORT)
-                    .remove(KEY_RESTORE_VALUE)
+                    .remove(RESTORE_PREFIX + transport.name())
                     .commit()) {
                 Log.w(TAG, "could not clear caption visibility ownership");
                 return false;
@@ -210,23 +195,17 @@ public final class NubiaCaptionVisibilityManager {
         }
     }
 
-    private static Transport readOwnedTransport(
-            final SharedPreferences preferences) {
-        final String value = preferences.getString(
-                KEY_OWNED_TRANSPORT, Transport.NONE.name());
-        try {
-            return Transport.valueOf(value);
-        } catch (IllegalArgumentException error) {
-            return Transport.NONE;
+    private static java.util.Set<Transport> readOwnedTransports(final SharedPreferences preferences) {
+        final java.util.Set<Transport> owned = java.util.EnumSet.noneOf(Transport.class);
+        for (final Transport transport : Transport.values()) {
+            if (preferences.contains(RESTORE_PREFIX + transport.name())) { owned.add(transport); }
         }
+        return owned;
     }
 
     private static Integer readPrivacyMode(
             final Context context,
             final Transport transport) {
-        if (transport == Transport.NONE) {
-            return null;
-        }
         final Bundle request = new Bundle();
         request.putBoolean(transport.providerRequestKey, true);
         try {

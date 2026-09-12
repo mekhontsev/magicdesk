@@ -25,7 +25,7 @@ public final class MagicDeskRuntimeTest {
         final boolean[] desktopReleaseCompleted = {false};
 
         MagicDeskRuntime.parkDesktopTasks(
-                DesktopDisplayTarget.wired(7),
+                DesktopDisplayTarget.wired(7), true,
                 success -> parkingResult[0] = success);
         MagicDeskRuntime.releaseDesktopWorkspace(workspace,
                 () -> desktopReleaseCompleted[0] = true);
@@ -155,6 +155,7 @@ public final class MagicDeskRuntimeTest {
                     @Override
                     public void park(
                             final DesktopDisplayTarget source,
+                            final boolean remember,
                             final ResultCallback callback) {
                         if (callback != null) {
                             callback.onComplete(true);
@@ -164,11 +165,6 @@ public final class MagicDeskRuntimeTest {
                     @Override
                     public void preserve(final int displayId) {
                         preservedDesktopDisplayId = displayId;
-                    }
-
-                    @Override
-                    public void restoreWhenReady(
-                            final DesktopDisplayTarget target) {
                     }
 
                     @Override
@@ -400,9 +396,12 @@ public final class MagicDeskRuntimeTest {
         }
 
         @Override
-        public DesktopTaskRuntime desktopTasks() {
+        public DesktopTaskRuntime desktopTasks(final int displayId) {
             return null;
         }
+
+        @Override
+        public void desktopTransitionFinished() { }
 
         @Override
         public DesktopTaskParkingRuntime desktopTaskParking() {

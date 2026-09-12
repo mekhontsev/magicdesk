@@ -211,7 +211,7 @@ final class DesktopTaskSnapshotController {
     void refresh() {
         final int generation = ++mRefreshGeneration;
         final int displayId = mActivity.getCurrentDisplayId();
-        if (displayId >= 0 && DesktopRuntimeBridge.getSessionSnapshot()
+        if (displayId >= 0 && DesktopRuntimeBridge.getSessionSnapshot(displayId)
                 .activeWorkspaceDisplayId() == displayId) {
             applyRefreshSnapshot(generation, displayId, null);
             return;
@@ -233,7 +233,7 @@ final class DesktopTaskSnapshotController {
             // Active desktop chrome follows the controller's publication, not
             // an independent query that can observe an in-flight handoff.
             final TaskRepository.Snapshot current = displayId >= 0
-                    && DesktopRuntimeBridge.getSessionSnapshot()
+                    && DesktopRuntimeBridge.getSessionSnapshot(displayId)
                             .activeWorkspaceDisplayId() == displayId
                     ? MagicDeskRuntime.observedTaskSnapshot(displayId) : snapshot;
             if (current != null && current.available) {

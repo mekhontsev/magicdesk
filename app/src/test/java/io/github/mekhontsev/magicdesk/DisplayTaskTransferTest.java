@@ -67,7 +67,7 @@ public final class DisplayTaskTransferTest {
                     route=""; success=false; desktop=owner;
                     live.displayId=source;
                     TaskEntry request=new TaskEntry(); request.displayId=source;
-                    moveTaskToDisplay(request,destination,null,r -> success=r.success);
+                    moveTaskToDisplay(request,destination,null,null,r -> success=r.success);
                 }
                 public static void verify() {
                     run(0,7,-1); check(success && route.equals("ordinary"),"ordinary launch required Desktop");
@@ -80,7 +80,7 @@ public final class DisplayTaskTransferTest {
                     transition=false; profile=false; run(0,7,-1);
                     check(!success && route.isEmpty(),"cross-profile transfer"); profile=true;
                     route=""; live.displayId=8;
-                    moveTaskToDisplay(new TaskEntry(),7,null,r -> success=r.success);
+                    moveTaskToDisplay(new TaskEntry(),7,null,null,r -> success=r.success);
                     check(!success && route.isEmpty(),"stale source accepted");
                 }
                 """ + RuntimeSourceFixture.methods("TaskRepository", "moveTaskToDisplay"));

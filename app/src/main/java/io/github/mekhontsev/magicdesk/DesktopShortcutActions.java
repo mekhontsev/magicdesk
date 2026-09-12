@@ -60,10 +60,10 @@ final class DesktopShortcutActions {
                 DesktopOperations.toggleDesktopWorkspace();
                 break;
             case SCREENSHOT:
-                DesktopOperations.captureScreenshot();
+                DesktopOperations.captureScreenshot(MagicDeskRuntime.inputDisplayId());
                 break;
             case SCREEN_RECORDING:
-                DisplayRecordingController.get().toggle();
+                DisplayRecordingController.get().toggle(MagicDeskRuntime.inputDisplayId());
                 break;
             case SHORTCUT_HELP:
                 DesktopOperations.showShortcutHelp();

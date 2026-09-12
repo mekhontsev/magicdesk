@@ -43,9 +43,8 @@ final class PhoneControlPanelController {
     static final class State {
         final DesktopDisplayInfo[] displays;
         final String selectedDisplayUniqueId;
-        final int activeDisplayId;
+        final java.util.Set<Integer> desktopDisplays;
         final boolean displayOperation;
-        final boolean desktopSessionActive;
         final boolean sessionOperationInProgress;
         final boolean externalDesktopActive;
         final boolean shellReady;
@@ -61,9 +60,8 @@ final class PhoneControlPanelController {
         State(
                 final DesktopDisplayInfo[] displays,
                 final String selectedDisplayUniqueId,
-                final int activeDisplayId,
+                final java.util.Set<Integer> desktopDisplays,
                 final boolean displayOperation,
-                final boolean desktopSessionActive,
                 final boolean sessionOperationInProgress,
                 final boolean externalDesktopActive,
                 final boolean shellReady,
@@ -77,9 +75,8 @@ final class PhoneControlPanelController {
                 final String runtime) {
             this.displays = displays;
             this.selectedDisplayUniqueId = selectedDisplayUniqueId;
-            this.activeDisplayId = activeDisplayId;
+            this.desktopDisplays = java.util.Set.copyOf(desktopDisplays);
             this.displayOperation = displayOperation;
-            this.desktopSessionActive = desktopSessionActive;
             this.sessionOperationInProgress = sessionOperationInProgress;
             this.externalDesktopActive = externalDesktopActive;
             this.shellReady = shellReady;
@@ -104,7 +101,6 @@ final class PhoneControlPanelController {
 
     private TextView mStatus;
     private TextView mRuntime;
-    private TextView mDisplay;
     private Button mConnectWirelessDisplay;
     private DisplaySelectionView mDisplaySelection;
     private Button mCloseDesktop;
@@ -161,22 +157,13 @@ final class PhoneControlPanelController {
         if (!MagicDeskRuntime.inputError().isEmpty()) { mStatus.setText(MagicDeskRuntime.inputError()); }
         mRuntime.setText(mActivity.getString(
                 R.string.control_runtime_status, state.runtime));
-        final String desktopDisplay = state.activeDisplayId >= 0
-                ? desktopDisplayLabel(state.displays, state.activeDisplayId)
-                : mActivity.getString(R.string.state_off);
-        mDisplay.setText(mActivity.getString(
-                R.string.control_display_status, desktopDisplay));
         mDisplaySelection.render(state.displays, state.selectedDisplayUniqueId,
-                state.activeDisplayId, state.shellReady,
+                state.desktopDisplays, state.shellReady,
                 state.sessionOperationInProgress || state.displayOperation,
                 state.externalOutputControlAvailable, state.externalModeSelection);
         mConnectWirelessDisplay.setEnabled(state.wirelessConnectionUiAvailable
-                && !state.desktopSessionActive && !state.wirelessDisplayConnected
+                && !state.sessionOperationInProgress && !state.wirelessDisplayConnected
                 && !state.displayOperation);
-        final boolean canCloseDesktop = canCloseDesktop(
-                state.desktopSessionActive,
-                state.shellReady,
-                state.sessionOperationInProgress);
         final boolean canOpenTouchpad = MagicDeskRuntime.inputDisplayId() > 0
                 && MagicDeskRuntime.isPointerTransportReady() && state.shellReady;
         final boolean busy = state.sessionOperationInProgress || state.displayOperation;
@@ -187,14 +174,15 @@ final class PhoneControlPanelController {
         }
         mControlDisplay.setEnabled(state.shellReady && !busy && selectedId >= 0 && selectedId != inputDisplay);
         mReleaseInput.setEnabled(state.shellReady && !busy && inputDisplay >= 0);
-        mApplications.setEnabled(state.shellReady && !busy && selectedId >= 0);
+        mApplications.setEnabled(!busy);
         mControlDisplay.setText(inputDisplay == selectedId && selectedId >= 0
                 ? MagicDeskRuntime.readyInputDisplayId() == selectedId
                     ? R.string.display_input_active : R.string.display_input_starting
                 : R.string.display_control);
         final boolean canControlPhoneScreen = state.externalDesktopActive
                 && state.phoneScreenControlAvailable;
-        mCloseDesktop.setEnabled(canCloseDesktop);
+        mCloseDesktop.setEnabled(canCloseDesktop(state.desktopDisplays.contains(selectedId),
+                state.shellReady, busy));
         mTouchpad.setEnabled(canOpenTouchpad);
         mPhoneScreen.setText(state.phoneScreenOff
                 ? R.string.action_phone_screen_on
@@ -202,13 +190,6 @@ final class PhoneControlPanelController {
         mUi.setControlIcon(mPhoneScreen, state.phoneScreenOff
                 ? R.drawable.ic_phone_screen_on : R.drawable.ic_phone_screen_off);
         mPhoneScreen.setEnabled(canControlPhoneScreen);
-    }
-
-    static String desktopDisplayLabel(final DesktopDisplayInfo[] displays, final int activeId) {
-        for (final DesktopDisplayInfo display : displays) {
-            if (display.id == activeId) { return display.name + " [" + activeId + "]"; }
-        }
-        return Integer.toString(activeId);
     }
 
     static boolean canCloseDesktop(
@@ -256,8 +237,13 @@ final class PhoneControlPanelController {
     }
 
     private void addStatus(final LinearLayout parent) {
+        final LinearLayout row = new LinearLayout(mActivity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        final LinearLayout status = new LinearLayout(mActivity);
+        status.setOrientation(LinearLayout.VERTICAL);
         mStatus = statusText(COLOR_TEXT, 14, true);
-        parent.addView(mStatus);
+        status.addView(mStatus);
 
         mRuntime = statusText(COLOR_MUTED, 12, false);
         final LinearLayout.LayoutParams runtimeParams =
@@ -265,24 +251,21 @@ final class PhoneControlPanelController {
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT);
         runtimeParams.setMargins(0, dp(7), 0, 0);
-        parent.addView(mRuntime, runtimeParams);
-
+        status.addView(mRuntime, runtimeParams);
+        row.addView(status, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        mApplications = mUi.controlAction(R.string.section_apps, R.drawable.ic_sections, COLOR_TEXT);
+        mApplications.setOnClickListener(view -> mActions.openApplications());
+        final LinearLayout.LayoutParams appsParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(ACTION_HEIGHT_DP));
+        appsParams.setMarginStart(dp(12));
+        row.addView(mApplications, appsParams);
+        parent.addView(row, fullWidthWrapParams(0));
     }
 
     private void addDesktopActions(final LinearLayout parent) {
-        mUi.addControlSection(parent, R.string.control_section_desktop, dp(16));
-        mDisplay = statusText(COLOR_MUTED, 13, false);
-        final LinearLayout.LayoutParams displayParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT);
-        displayParams.setMargins(0, 0, 0, dp(8));
-        parent.addView(mDisplay, displayParams);
         mDisplaySelection = new DisplaySelectionView(mActivity, mUi, mActions, parent);
         final GridLayout displayActions = actionGrid();
-        mApplications = mUi.controlAction(R.string.display_open_application, R.drawable.ic_file_new_window, COLOR_TEXT);
-        mApplications.setOnClickListener(view -> mActions.openApplications());
-        addGridAction(displayActions, mApplications);
         mControlDisplay = mUi.controlAction(R.string.display_control, R.drawable.ic_touchpad, COLOR_TEXT);
         mControlDisplay.setOnClickListener(view -> mActions.controlSelectedDisplay());
         addGridAction(displayActions, mControlDisplay);
@@ -309,6 +292,7 @@ final class PhoneControlPanelController {
                 R.string.action_connect_wireless_display, R.drawable.ic_cast, COLOR_TEXT);
         mConnectWirelessDisplay.setOnClickListener(view -> mActions.connectWirelessDisplay());
         addGridAction(sessionActions, mConnectWirelessDisplay);
+        addGridAction(sessionActions, mDisplaySelection.outputControl());
         parent.addView(sessionActions, fullWidthWrapParams(dp(4)));
     }
 
@@ -319,10 +303,18 @@ final class PhoneControlPanelController {
     }
 
     private View centered(final View view) {
-        final FrameLayout host = new FrameLayout(mActivity);
-        final int availableWidth = Math.max(1,
-                mActivity.getResources().getConfiguration().screenWidthDp - 36);
-        host.addView(view, new FrameLayout.LayoutParams(dp(Math.min(540, availableWidth)),
+        final FrameLayout host = new FrameLayout(mActivity) {
+            @Override
+            protected void onMeasure(final int widthMeasureSpec, final int heightMeasureSpec) {
+                // The parent already excludes page padding and system insets.
+                // Recompute after resize instead of retaining startup Configuration dimensions.
+                final int maxWidth = dp(540);
+                view.getLayoutParams().width = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED
+                        ? maxWidth : Math.min(maxWidth, MeasureSpec.getSize(widthMeasureSpec));
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            }
+        };
+        host.addView(view, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
         return host;
     }

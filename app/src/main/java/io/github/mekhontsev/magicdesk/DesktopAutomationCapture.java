@@ -12,6 +12,7 @@ import org.json.JSONObject;
 
 import java.io.IOException;
 import java.util.Locale;
+import java.util.function.IntSupplier;
 
 /** MCP adaptation of shared display capture; selection stays in display coordinates. */
 final class DesktopAutomationCapture {
@@ -24,7 +25,7 @@ final class DesktopAutomationCapture {
     DesktopAutomationResult screenshot(final JSONObject args) {
         try {
             final DisplayCaptureService.Image image = mCapture.capture(
-                    request(args, defaultDisplayId()));
+                    request(args, DesktopAutomationCapture::defaultDisplayId));
             final DisplayCaptureRequest.Region region = image.region();
             final JSONObject data = metadata(image.display())
                     .put("width", region.width())
@@ -64,7 +65,7 @@ final class DesktopAutomationCapture {
                 y[i] = requiredInt(point, "y");
             }
             final DisplayCaptureService.Samples result = mCapture.samplePixels(
-                    displayId(args, defaultDisplayId()), x, y);
+                    displayId(args, DesktopAutomationCapture::defaultDisplayId), x, y);
             final JSONArray samples = new JSONArray();
             for (int i = 0; i < result.colors().length; i++) {
                 final int color = result.colors()[i];
@@ -93,7 +94,7 @@ final class DesktopAutomationCapture {
         }
     }
 
-    static DisplayCaptureRequest request(final JSONObject args, final int defaultDisplayId)
+    static DisplayCaptureRequest request(final JSONObject args, final IntSupplier defaultDisplayId)
             throws JSONException {
         final DisplayCaptureRequest.Region region;
         if (args.has("region")) {
@@ -107,13 +108,14 @@ final class DesktopAutomationCapture {
         return new DisplayCaptureRequest(displayId(args, defaultDisplayId), region);
     }
 
-    private static int displayId(final JSONObject args, final int defaultDisplayId)
+    private static int displayId(final JSONObject args, final IntSupplier defaultDisplayId)
             throws JSONException {
-        return args.has("displayId") ? requiredInt(args, "displayId") : defaultDisplayId;
+        return args.has("displayId") ? requiredInt(args, "displayId") : defaultDisplayId.getAsInt();
     }
 
     private static int defaultDisplayId() {
-        return Math.max(Display.DEFAULT_DISPLAY, DesktopRuntimeBridge.getActiveDesktopDisplayId());
+        return DesktopRuntimeBridge.hasWorkspaces()
+                ? DesktopRuntimeBridge.requireSingleDesktopDisplay() : Display.DEFAULT_DISPLAY;
     }
 
     private static JSONObject metadata(final DisplayCaptureService.Frame display)

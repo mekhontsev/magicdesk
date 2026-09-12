@@ -51,6 +51,7 @@ interface IShellCommandService {
         String command, long requestId, IBinder ownerToken) = 10;
 
     void startTaskObserver(
+        int displayId,
         ITaskObserverCallback callback,
         IActivityLaunchCallback activityLauncher) = 11;
 

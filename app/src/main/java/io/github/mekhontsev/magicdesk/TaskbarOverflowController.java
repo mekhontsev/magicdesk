@@ -50,9 +50,17 @@ final class TaskbarOverflowController {
         mMenuNavigator = new DesktopMenuNavigator(activity::hideTopPanel);
     }
 
-    View createButton(final List<Entry> items) {
-        clear();
+    void setItems(final List<Entry> items) {
+        mItems.clear();
         mItems.addAll(items);
+        // A task snapshot refreshes the next menu, not the current interaction.
+        // Its displayed rows keep their captured entries until dismissal.
+        if (mItems.isEmpty()) {
+            hide();
+        }
+    }
+
+    View createButton() {
         final int hiddenCount = mItems.size();
 
         final FrameLayout button = new FrameLayout(mActivity);
@@ -106,16 +114,16 @@ final class TaskbarOverflowController {
         return button;
     }
 
-    void clear() {
+    private void hide() {
         final DesktopPanelWindowController panels = mActivity.panels();
         if (panels != null && panels.isRequested(mPanel)) {
             panels.hide(mPanel);
         }
-        mItems.clear();
     }
 
     void release() {
-        clear();
+        hide();
+        mItems.clear();
         mPanel = null;
         mList = null;
     }

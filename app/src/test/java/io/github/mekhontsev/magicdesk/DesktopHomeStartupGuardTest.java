@@ -96,7 +96,7 @@ public final class DesktopHomeStartupGuardTest {
         for (int i = 0; i < activities.getLength(); i++) {
             final Element activity = (Element) activities.item(i);
             final String name = activity.getAttributeNS(android, "name");
-            if (".PhoneDesktopHomeActivity".equals(name)) {
+            if (".PhoneHomeActivity".equals(name)) {
                 assertTrue("primary HOME must reuse the standard HOME root",
                         "singleTop".equals(activity.getAttributeNS(android, "launchMode")));
             }
@@ -113,7 +113,33 @@ public final class DesktopHomeStartupGuardTest {
                 found++;
             }
         }
-        assertTrue("all three HOME surfaces declared", found == 3);
+        assertEquals("primary and secondary HOME surfaces declared", 2, found);
+    }
+
+    @Test
+    public void primaryHomeIdentityDoesNotDependOnWorkspaceResidency() throws Exception {
+        final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        final NodeList activities = factory.newDocumentBuilder()
+                .parse(Path.of("src/main/AndroidManifest.xml").toFile())
+                .getElementsByTagName("activity");
+        final String android = "http://schemas.android.com/apk/res/android";
+        int primary = 0;
+        for (int i = 0; i < activities.getLength(); i++) {
+            final Element activity = (Element) activities.item(i);
+            final NodeList categories = activity.getElementsByTagName("category");
+            for (int j = 0; j < categories.getLength(); j++) {
+                if ("android.intent.category.HOME".equals(((Element) categories.item(j))
+                        .getAttributeNS(android, "name"))) {
+                    assertEquals(".PhoneHomeActivity", activity.getAttributeNS(android, "name"));
+                    primary++;
+                }
+            }
+        }
+        assertEquals("one stable preferred HOME Activity", 1, primary);
+        final String source = Files.readString(Path.of(
+                "src/main/java/io/github/mekhontsev/magicdesk/PhoneHomeActivity.java"));
+        assertTrue(source.contains("extends DesktopShellActivity"));
     }
 
     @Test
@@ -148,7 +174,7 @@ public final class DesktopHomeStartupGuardTest {
         final String source = Files.readString(Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/DesktopHomeStartupGuard.java"));
         assertFalse(source.contains("sRelinquishedOnProcessStart"));
-        for (final String activity : new String[] {"PhoneHomeActivity", "DesktopShellActivity"}) {
+        for (final String activity : new String[] {"DesktopShellActivity"}) {
             final String activitySource = Files.readString(Path.of(
                     "src/main/java/io/github/mekhontsev/magicdesk/" + activity + ".java"));
             assertFalse(activitySource.contains("shouldDiscardStaleHomeLaunch"));

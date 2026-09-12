@@ -33,9 +33,9 @@ sessions from opening.
 
 ## Open Tools
 
-Use **Files**, **Console**, **Termux Console** or **Terminal sessions** in the
-control panel. By default they open on the phone. **Open on selected display**
-uses the display selected below.
+Open **Apps** in the control panel, then choose an application or **Terminal
+sessions**. The selector beside Start search defaults to **Current**, the screen
+containing Start. Select another display there to launch on it.
 
 Outside Desktop these are ordinary fullscreen Activities. If the destination
 already has a MagicDesk Desktop session, the tools use its managed window path.
@@ -100,25 +100,30 @@ Only managed Desktop needs this preparation:
 4. Restart Shizuku as needed and reopen MagicDesk.
 5. Select a display and press **Start desktop**.
 
-Only one Desktop session runs at a time. Close it before selecting another
-target. **Show desktop** returns to the active workspace, keeping its managed
+Each display can run its own Desktop. Select another display and start there
+without closing an existing workspace. **Show desktop** returns to the selected workspace, keeping its managed
 freeform tasks and demoting managed fullscreen tasks on that display.
 
-During Desktop, MagicDesk temporarily owns Android's HOME role. In an external
-session, phone Start and desktop Start are independent: phone Start launches
-ordinary fullscreen phone apps and shows phone recent tasks. On the phone
-Desktop target, HOME shows the desktop workspace.
+MagicDesk temporarily acquires Android's HOME role for the first Desktop and
+retains it until the last one closes. Without a phone Desktop, phone Start
+launches ordinary fullscreen phone apps and shows phone recent tasks. With a
+phone Desktop, HOME shows that workspace. Start on each display is independent.
+The control panel's **Apps** opens fullscreen Start, even without Desktop. Its
+**Running applications** tab can move a specific task to the selected destination.
+Every Start has its own launch-display choice; changing it does not switch input
+or start a Desktop.
 
 Notification-listener access is optional. Grant it only when MagicDesk's
 notification center and popups are wanted.
 
 ## Close, Exit And Recovery
 
-**Close desktop** returns HOME to its previous role state, releases input and
-other session-owned changes, and returns surviving managed applications to
+**Close desktop** closes the selected workspace, releases its selected input and
+other session-owned changes, and returns its surviving managed applications to
 phone fullscreen. It records the workspace for a later session, restoring
 only tasks that are still alive. It keeps independent tools, retained terminals
-and owned displays available.
+and owned displays available. Other Desktops keep running; only closing the last
+one returns HOME to its previous role state.
 
 **Exit MagicDesk** also clears that live workspace record, closes built-in
 windows, ends retained terminal sessions and stops the runtime. Neither action
