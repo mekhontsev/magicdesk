@@ -445,6 +445,10 @@ runtime integration and are not distributed through the same release path.
   same Activity normally in their current task.
 - `DesktopActivity` is the secondary HOME host; `PhoneHomeActivity` is the
   primary HOME host. Both select ordinary Start or Desktop from local residency.
+  Before creating either surface, the host rejects `SECONDARY_HOME` on the
+  default display. A misrouted new Intent is ignored without destroying an
+  existing valid HOME. Primary HOME and explicit Desktop launches retain their
+  normal behavior; secondary built-in displays follow the same routing rule.
   `DesktopShellActivity` composes controllers and forwards Android callbacks;
   it does not own every feature directly.
 - `DeviceSetupActivity`, `DeviceSetupManager`, and `DeviceSetupView` own the
@@ -2237,6 +2241,15 @@ Ordinary HOME exposes controls, touchpad and production Close. Phone HOME naviga
 releases the touchpad request so recovery cannot cover the requested Start;
 navigation on other displays does not change the phone touchpad.
 Its window-local automation registry does not register a desktop host.
+
+External task observers attach `ShellSecondaryHomeStartPolicy` to the shared
+activity-start controller while configured. It rejects unaddressed secondary
+HOME selection before any Activity or HOME root is brought forward, including
+selectors resolved to MagicDesk itself. Android's package-addressed per-area
+HOME starts and our explicit display-targeted host launches are preserved.
+The callback exposes no destination options, so admission does not infer a
+display from focus or launch a replacement. Closing one workspace removes only
+its policy; closing the last external workspace restores ordinary selection.
 
 The optional `ShellPhoneOverviewRouter` starts independently of the main
 activity-start observer. When `RECENTS_TO_HOME` is enabled, routing becomes

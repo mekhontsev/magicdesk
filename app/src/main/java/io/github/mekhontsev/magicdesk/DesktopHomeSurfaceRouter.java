@@ -44,6 +44,11 @@ final class DesktopHomeSurfaceRouter {
     private DesktopHomeSurfaceRouter() {
     }
 
+    static boolean acceptsHomeIntent(final int displayId, final boolean secondaryHome) {
+        // SECONDARY_HOME is never a request to replace the primary display's foreground app.
+        return displayId >= 0 && (!secondaryHome || displayId != android.view.Display.DEFAULT_DISPLAY);
+    }
+
     static Selection forWorkspaces(final Iterable<DesktopDisplayTarget> targets) {
         final Set<Integer> displays = new HashSet<>();
         for (final DesktopDisplayTarget target : targets) {

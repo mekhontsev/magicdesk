@@ -44,6 +44,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
     private final ShellTaskActivityModeGuard mTaskActivityModeGuard;
     private final ShellPhoneOverviewRouter mPhoneOverviewRouter;
     private final ShellPhoneDesktopWallpaperPolicy mPhoneWallpaperPolicy;
+    private final ShellSecondaryHomeStartPolicy mSecondaryHomeStartPolicy =
+            new ShellSecondaryHomeStartPolicy();
     private final ShellActivityStartController mActivityStartController;
     private final FrameworkTaskObservationSource mTaskObservations;
     private final ShellDesktopTaskOwnership mDesktopOwnership =
@@ -184,6 +186,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                 error -> callCallback(() -> mCallback.onObserverError(error)),
                 mProcessFailureTracker,
                 null,
+                mSecondaryHomeStartPolicy,
                 mPhoneOverviewRouter,
                 mPhoneWallpaperPolicy,
                 mMigrationGuard,
@@ -353,6 +356,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             // observation alive between sessions, but never retain launch
             // interception after the desktop configuration is cleared.
             mPhoneOverviewRouter.stop();
+            mSecondaryHomeStartPolicy.configure(Display.INVALID_DISPLAY);
             mPhoneWallpaperPolicy.configure(Display.INVALID_DISPLAY);
             mActivityStartController.close();
             mConfiguredDisplayId = Display.INVALID_DISPLAY;
@@ -374,10 +378,12 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         }
         mCompatibility = java.util.Objects.requireNonNull(compatibility);
         mProcessFailureTracker.configure(displayId);
+        mSecondaryHomeStartPolicy.configure(displayId);
         try {
             mActivityStartController.start();
         } catch (ReflectiveOperationException | RuntimeException error) {
             mPhoneOverviewRouter.stop();
+            mSecondaryHomeStartPolicy.configure(Display.INVALID_DISPLAY);
             mActivityStartController.close();
             mProcessFailureTracker.configure(Display.INVALID_DISPLAY);
             throw new IllegalStateException(
@@ -1372,6 +1378,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             return;
         }
         mClosed = true;
+        mSecondaryHomeStartPolicy.configure(Display.INVALID_DISPLAY);
         final boolean registered = mRegistered;
         mRegistered = false;
         synchronized (this) {

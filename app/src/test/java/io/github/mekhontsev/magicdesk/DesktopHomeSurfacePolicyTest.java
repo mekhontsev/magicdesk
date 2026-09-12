@@ -7,6 +7,52 @@ import java.util.List;
 import org.junit.Test;
 
 public final class DesktopHomeSurfacePolicyTest {
+    @Test public void secondaryHomeCannotCoverPrimaryDisplay() {
+        assertFalse(DesktopHomeSurfaceRouter.acceptsHomeIntent(0, true));
+        assertFalse(DesktopHomeSurfaceRouter.acceptsHomeIntent(-1, true));
+        assertTrue(DesktopHomeSurfaceRouter.acceptsHomeIntent(0, false));
+        for (int display : new int[]{1, 2, 7}) {
+            assertTrue(DesktopHomeSurfaceRouter.acceptsHomeIntent(display, true));
+            assertTrue(DesktopHomeSurfaceRouter.acceptsHomeIntent(display, false));
+        }
+    }
+
+    @Test public void invalidNewIntentDoesNotFinishExistingHome() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Intent {}
+                static class Parent { void onNewIntent(Intent intent) {} }
+                static class FullscreenStartController { static boolean isReleasing() { return false; }
+                    static boolean canHost(Object host) { return true; } }
+                static class DesktopHomeRoleLease { static boolean isReleasingForDisplay(int display) { return false; } }
+                static class Log { static void i(String tag, String message) {} }
+                static class Host extends Parent {
+                    final String TAG = "test";
+                    int mExpectedDisplayId, changes;
+                    boolean accepted, mHomeDelegate;
+                    class Start { void newIntent(Intent intent) { changes++; } }
+                    Start mHomeStart;
+                    boolean acceptsHomeIntent(Intent intent) { return accepted; }
+                    boolean hasRequiredHomeLease() { return true; }
+                    void setIntent(Intent intent) { changes++; }
+                    void recreate() { changes++; }
+                    void finishAndRemoveTask() { throw new AssertionError("valid HOME destroyed"); }
+                    void handleLaunchAction(Intent intent) { changes++; }
+                """ + RuntimeSourceFixture.methods("DesktopShellActivity", "onNewIntent") + """
+                }
+                public static void verify() {
+                    Host host = new Host();
+                    host.onNewIntent(new Intent());
+                    check(host.changes == 0, "desktop reacted to misrouted HOME");
+                    host.mHomeStart = host.new Start();
+                    host.onNewIntent(new Intent());
+                    check(host.changes == 0, "Start reacted to misrouted HOME");
+                    host.accepted = true;
+                    host.onNewIntent(new Intent());
+                    check(host.changes == 1, "valid HOME no longer reaches Start");
+                }
+                """);
+    }
+
     @Test public void launcherAndDesktopUseIdenticalComponentAdmission() throws Exception {
         RuntimeSourceFixture.verify("""
                 enum Surface { SYSTEM, LAUNCHER, DESKTOP }

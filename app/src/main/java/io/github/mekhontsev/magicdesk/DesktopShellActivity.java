@@ -116,6 +116,10 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (!acceptsHomeIntent(getIntent())) {
+            finishAndRemoveTask();
+            return;
+        }
         if (FullscreenStartController.canHost(this)) {
             mHomeStart = new FullscreenStartController(this, true);
             return;
@@ -800,6 +804,8 @@ public abstract class DesktopShellActivity extends Activity
     @Override
     protected void onNewIntent(final Intent intent) {
         super.onNewIntent(intent);
+        // A misrouted request must neither replace nor finish an already valid HOME instance.
+        if (!acceptsHomeIntent(intent)) { return; }
         if (mHomeStart != null) {
             if (FullscreenStartController.isReleasing()) { return; }
             if (FullscreenStartController.canHost(this)) { mHomeStart.newIntent(intent); }
@@ -822,6 +828,13 @@ public abstract class DesktopShellActivity extends Activity
             return;
         }
         handleLaunchAction(intent);
+    }
+
+    private boolean acceptsHomeIntent(final Intent intent) {
+        final boolean accepted = DesktopHomeSurfaceRouter.acceptsHomeIntent(getCurrentDisplayId(),
+                intent != null && intent.hasCategory(Intent.CATEGORY_SECONDARY_HOME));
+        if (!accepted) { Log.w(TAG, "discarding HOME intent on incompatible display=" + getCurrentDisplayId()); }
+        return accepted;
     }
 
     private boolean hasRequiredHomeLease() {

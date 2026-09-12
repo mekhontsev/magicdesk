@@ -19,6 +19,16 @@ configured system secondary launcher when necessary, before disabling HOME
 components. Preferred-handler selection does not change the display targeted
 by a system launch; display routing remains a separate launch boundary.
 
+While an external workspace is configured, `ShellSecondaryHomeStartPolicy`
+rejects unaddressed `MAIN`/`SECONDARY_HOME` selectors in the shared
+`IActivityController`, before Android can reorder the phone's HOME root.
+A resolved MagicDesk component does not exempt an implicit selector. Android's
+package-addressed per-area HOME starts, primary HOME, and explicit Desktop host
+launches remain available. The callback has no launch-display options; it must
+not guess a destination or redirect the request. Each observer releases only
+its own admission policy, so another external workspace remains protected.
+The Activity-side display check is a final safety check, not this early barrier.
+
 Android 15 can launch HOME separately in each organizer task display area.
 Only the registered HOME in the standard workspace owns the desktop UI.
 Additional instances are navigation delegates, retained until area removal;
