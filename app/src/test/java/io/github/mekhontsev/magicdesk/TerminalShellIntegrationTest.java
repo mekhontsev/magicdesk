@@ -82,8 +82,12 @@ public final class TerminalShellIntegrationTest {
         final Path home = temporary.getRoot().toPath();
         assertEquals("/example/prefix/bin/bash", resolveShell(bash, home, "/example/prefix/bin/login"));
         Files.createDirectories(home.resolve(".termux"));
-        Files.createSymbolicLink(home.resolve(".termux/shell"), bash);
-        assertEquals(bash.toRealPath().toString(), resolveShell(bash, home, "/example/prefix/bin/login"));
+        // Termux's selected shell belongs to its own group. A host /bin/bash
+        // usually belongs to root, so it cannot model that ownership on CI.
+        final Path selectedShell = Files.writeString(home.resolve("user-shell"), "#!/bin/sh\nexit 0\n");
+        assertTrue(selectedShell.toFile().setExecutable(true));
+        Files.createSymbolicLink(home.resolve(".termux/shell"), selectedShell);
+        assertEquals(selectedShell.toRealPath().toString(), resolveShell(bash, home, "/example/prefix/bin/login"));
         assertEquals("/custom/zsh", resolveShell(bash, home, "/custom/zsh"));
     }
 
