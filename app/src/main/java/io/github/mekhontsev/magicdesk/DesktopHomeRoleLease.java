@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/** One HOME role lease shared by all admitted workspaces of the current profile. */
+/** One HOME/SECONDARY_HOME lease shared by all workspaces of the current profile. */
 final class DesktopHomeRoleLease {
     private static final String HOME_ROLE = "android.app.role.HOME";
     private static final String MAGICDESK_PACKAGE = BuildConfig.APPLICATION_ID;
@@ -34,12 +34,14 @@ final class DesktopHomeRoleLease {
     enum Phase {
         PREPARED,
         ACTIVE,
-        RELEASING
+        RELEASING,
+        STARTUP_RELINQUISHED
     }
 
     static final class State {
         final int userId;
         final AndroidHomeSelection previousHome;
+        final String previousSecondaryHome;
         final List<DesktopDisplayTarget> targets;
         final int closingDisplayId;
         final DesktopSessionPolicy policy;
@@ -49,20 +51,23 @@ final class DesktopHomeRoleLease {
         State(
                 final int userId,
                 final AndroidHomeSelection previousHome,
+                final String previousSecondaryHome,
                 final DesktopDisplayTarget target,
                 final DesktopSessionPolicy policy,
                 final DesktopCompatibilityPolicy compatibility,
                 final Phase phase) {
-            this(userId, previousHome, List.of(target), policy, compatibility, phase, -1);
+            this(userId, previousHome, previousSecondaryHome, List.of(target), policy, compatibility, phase, -1);
         }
 
         State(final int userId, final AndroidHomeSelection previousHome,
+                final String previousSecondaryHome,
                 final List<DesktopDisplayTarget> targets, final DesktopSessionPolicy policy,
                 final DesktopCompatibilityPolicy compatibility, final Phase phase,
                 final int closingDisplayId) {
             if (userId < 0
                     || targets == null || targets.isEmpty()
                     || previousHome == null
+                    || previousSecondaryHome == null || previousSecondaryHome.isEmpty()
                     || policy == null
                     || compatibility == null
                     || phase == null) {
@@ -71,6 +76,7 @@ final class DesktopHomeRoleLease {
             }
             this.userId = userId;
             this.previousHome = previousHome;
+            this.previousSecondaryHome = previousSecondaryHome;
             this.targets = List.copyOf(targets);
             if (targets.stream().map(target -> target.workspaceDisplayId).distinct().count() != targets.size()) {
                 throw new IllegalArgumentException("duplicate HOME workspace");
@@ -85,6 +91,7 @@ final class DesktopHomeRoleLease {
             return new State(
                     userId,
                     previousHome,
+                    previousSecondaryHome,
                     targets,
                     policy,
                     compatibility,
@@ -100,7 +107,7 @@ final class DesktopHomeRoleLease {
         }
 
         State withTargets(final List<DesktopDisplayTarget> values, final int closing) {
-            return new State(userId, previousHome, values, policy, compatibility, phase, closing);
+            return new State(userId, previousHome, previousSecondaryHome, values, policy, compatibility, phase, closing);
         }
     }
 
@@ -137,6 +144,12 @@ final class DesktopHomeRoleLease {
 
         String getHomePackage(int userId) throws IOException;
 
+        String captureSecondaryHome(int userId) throws IOException;
+
+        void claimSecondaryHome(int userId) throws IOException;
+
+        void restoreSecondaryHome(int userId, String componentName) throws IOException;
+
         AndroidHomeSelection resolveHomeSelection(
                 int userId,
                 String packageName) throws IOException;
@@ -169,7 +182,8 @@ final class DesktopHomeRoleLease {
                     throw new IOException("HOME lease policy mismatch: leased="
                             + existing.policy + " requested=" + policy);
                 }
-                if (existing.phase == Phase.RELEASING || existing.closingDisplayId >= 0) {
+                if (existing.phase == Phase.RELEASING || existing.phase == Phase.STARTUP_RELINQUISHED
+                        || existing.closingDisplayId >= 0) {
                     throw new IOException("HOME lease is releasing a workspace");
                 }
                 final String holder = sBackend.getHomePackage(existing.userId);
@@ -226,6 +240,7 @@ final class DesktopHomeRoleLease {
             final State prepared = new State(
                     userId,
                     previousHome,
+                    sBackend.captureSecondaryHome(userId),
                     target,
                     policy,
                     compatibility,
@@ -358,14 +373,16 @@ final class DesktopHomeRoleLease {
         }
     }
 
-    static boolean discardForStartupRelinquish() throws IOException {
+    static boolean markStartupRelinquished() throws IOException {
         synchronized (LOCK) {
             sPhoneOverviewRoutingActive = false;
             final State state = sStorage.read();
             if (state == null) {
                 return false;
             }
-            sStorage.clear();
+            // HOME is relinquished immediately by disabling our components. Keep
+            // only recovery intent, never a recoverable Desktop, until shell is ready.
+            sStorage.write(state.withTargets(state.targets, -1).withPhase(Phase.STARTUP_RELINQUISHED));
             return true;
         }
     }
@@ -403,7 +420,10 @@ final class DesktopHomeRoleLease {
     }
 
     private static void claim(final State state) throws IOException {
-        sBackend.setHomePackage(state.userId, MAGICDESK_PACKAGE);
+        sBackend.claimSecondaryHome(state.userId);
+        if (!MAGICDESK_PACKAGE.equals(sBackend.getHomePackage(state.userId))) {
+            sBackend.setHomePackage(state.userId, MAGICDESK_PACKAGE);
+        }
         requireHolder(state.userId, MAGICDESK_PACKAGE);
     }
 
@@ -413,6 +433,7 @@ final class DesktopHomeRoleLease {
         synchronized (LOCK) {
             final State prepared = requireTarget(preparation.target);
             if (prepared == null || prepared.phase == Phase.RELEASING
+                    || prepared.phase == Phase.STARTUP_RELINQUISHED
                     || prepared.policy != preparation.state.policy) {
                 throw new IOException("HOME preparation is no longer current");
             }
@@ -423,8 +444,8 @@ final class DesktopHomeRoleLease {
                             || !prepared.previousHome.packageName.equals(holder)) {
                         throw new IOException("HOME changed during preparation");
                     }
-                    claim(prepared);
                 }
+                if (prepared.phase == Phase.PREPARED) { claim(prepared); }
                 final State active = prepared.withPhase(Phase.ACTIVE);
                 sStorage.write(active);
                 sPhoneOverviewRoutingActive = true;
@@ -461,22 +482,39 @@ final class DesktopHomeRoleLease {
     private static void restoreOrAbandon(final State state)
             throws IOException {
         beginRelease(state);
-        presentRestoredHome(finishRelease(state));
+        final RestoredHomePresentation presentation = finishRelease(state);
+        if (state.phase != Phase.STARTUP_RELINQUISHED) { presentRestoredHome(presentation); }
     }
 
     private static void beginRelease(final State state) throws IOException {
         sPhoneOverviewRoutingActive = false;
-        if (state.phase != Phase.RELEASING) {
+        if (state.phase != Phase.RELEASING && state.phase != Phase.STARTUP_RELINQUISHED) {
             sStorage.write(state.withPhase(Phase.RELEASING));
         }
     }
 
     private static void restoreRole(final State state) throws IOException {
-        final String holder = sBackend.getHomePackage(state.userId);
-        if (MAGICDESK_PACKAGE.equals(holder)
-                || (holder.isEmpty() && !state.previousHome.packageName.isEmpty())) {
-            restorePreviousHolder(state);
+        IOException failure = null;
+        try {
+            sBackend.restoreSecondaryHome(state.userId, state.previousSecondaryHome);
+        } catch (IOException error) {
+            failure = error;
         }
+        try {
+            // Startup already returned primary HOME through ordinary Android APIs.
+            // Do not override the user's choice when privileges arrive later.
+            if (state.phase != Phase.STARTUP_RELINQUISHED) {
+                final String holder = sBackend.getHomePackage(state.userId);
+                if (MAGICDESK_PACKAGE.equals(holder)
+                        || (holder.isEmpty() && !state.previousHome.packageName.isEmpty())) {
+                    restorePreviousHolder(state);
+                }
+            }
+        } catch (IOException error) {
+            if (failure == null) { failure = error; }
+            else { failure.addSuppressed(error); }
+        }
+        if (failure != null) { throw failure; }
     }
 
     private static RestoredHomePresentation finishRelease(final State state)
@@ -560,6 +598,21 @@ final class DesktopHomeRoleLease {
     }
 
     private static final class ShellBackend implements Backend {
+        @Override
+        public String captureSecondaryHome(final int userId) throws IOException {
+            return ShellAccess.captureSecondaryHome(userId);
+        }
+
+        @Override
+        public void claimSecondaryHome(final int userId) throws IOException {
+            ShellAccess.claimSecondaryHome(userId);
+        }
+
+        @Override
+        public void restoreSecondaryHome(final int userId, final String componentName) throws IOException {
+            ShellAccess.restoreSecondaryHome(userId, componentName);
+        }
+
         @Override
         public int currentUserId() {
             return Process.myUid() / PER_USER_RANGE;
@@ -663,7 +716,7 @@ final class DesktopHomeRoleLease {
     }
 
     private static final class PreferencesStorage implements Storage {
-        private static final int STORAGE_FORMAT = 3;
+        private static final int STORAGE_FORMAT = 4;
         private static final String PREFERENCES =
                 "magicdesk_desktop_home_lease";
         private static final String FORMAT = "format";
@@ -679,6 +732,7 @@ final class DesktopHomeRoleLease {
         private static final String SESSION_POLICY = "session_policy";
         private static final String COMPATIBILITY = "compatibility";
         private static final String PHASE = "phase";
+        private static final String PREVIOUS_SECONDARY_HOME = "previous_secondary_home";
 
         @Override
         public State read() {
@@ -706,6 +760,7 @@ final class DesktopHomeRoleLease {
                 return new State(
                         preferences.getInt(USER_ID, -1),
                         previousHome,
+                        requiredString(preferences, PREVIOUS_SECONDARY_HOME),
                         targets,
                         DesktopSessionPolicy.valueOf(
                                 requiredString(
@@ -736,6 +791,7 @@ final class DesktopHomeRoleLease {
             if (!preferences().edit()
                             .putInt(FORMAT, STORAGE_FORMAT)
                             .putInt(USER_ID, state.userId)
+                            .putString(PREVIOUS_SECONDARY_HOME, state.previousSecondaryHome)
                             .putString(
                                     PREVIOUS_PACKAGE,
                                     state.previousHome.packageName)
@@ -771,6 +827,7 @@ final class DesktopHomeRoleLease {
             try {
                 return preferences.getInt(FORMAT, -1) == STORAGE_FORMAT
                         && preferences.contains(USER_ID)
+                        && preferences.contains(PREVIOUS_SECONDARY_HOME)
                         && preferences.contains(PREVIOUS_PACKAGE)
                         && preferences.contains(PREVIOUS_COMPONENT)
                         && preferences.contains(PREVIOUS_VERSION_CODE)

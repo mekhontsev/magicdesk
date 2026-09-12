@@ -21,6 +21,7 @@ public final class DesktopHomeRoleLeaseTest {
     private static final String MAGICDESK =
             "io.github.mekhontsev.magicdesk";
     private static final String LAUNCHER = "com.example.launcher";
+    private static final String SECONDARY = LAUNCHER + "/.SecondaryHome";
 
     private MemoryStorage mStorage;
     private FakeBackend mBackend;
@@ -206,6 +207,7 @@ public final class DesktopHomeRoleLeaseTest {
         mStorage.state = new DesktopHomeRoleLease.State(
                 0,
                 homeSelection(LAUNCHER),
+                SECONDARY,
                 DesktopDisplayTarget.simulated(7),
                 DesktopSessionPolicy.USER,
                 DesktopCompatibilityPolicy.NONE,
@@ -476,32 +478,34 @@ public final class DesktopHomeRoleLeaseTest {
     }
 
     @Test
-    public void startupRelinquishDiscardsLeaseWithoutChangingRole()
+    public void startupRelinquishRetainsSecondaryRecoveryWithoutChangingRole()
             throws Exception {
         acquire(DesktopDisplayTarget.phone());
 
-        assertTrue(DesktopHomeRoleLease.discardForStartupRelinquish());
+        assertTrue(DesktopHomeRoleLease.markStartupRelinquished());
 
         assertEquals(MAGICDESK, mBackend.homePackage);
-        assertNull(mStorage.state);
+        assertEquals(DesktopHomeRoleLease.Phase.STARTUP_RELINQUISHED, mStorage.state.phase);
+        assertEquals(SECONDARY, mStorage.state.previousSecondaryHome);
         assertTrue(mBackend.releaseCalls.isEmpty());
     }
 
     @Test
     public void startupRelinquishDoesNotRequireStoredLease()
             throws Exception {
-        assertFalse(DesktopHomeRoleLease.discardForStartupRelinquish());
+        assertFalse(DesktopHomeRoleLease.markStartupRelinquished());
         assertNull(mStorage.state);
     }
 
     @Test
     public void newSessionCanAcquireHomeAfterStartupRecovery() throws Exception {
         acquire(DesktopDisplayTarget.phone());
-        DesktopHomeRoleLease.discardForStartupRelinquish();
+        DesktopHomeRoleLease.markStartupRelinquished();
         assertFalse(DesktopHomeRoleLease.isActiveForDisplay(0));
         // Disabling our components returns HOME to the system outside the
         // shell-backed lease. A later explicit start owns a new lease.
         mBackend.homePackage = LAUNCHER;
+        DesktopHomeRoleLease.reconcile(false);
         final DesktopHomeRoleLease.AcquireResult prepared = DesktopHomeRoleLease.prepare(
                 DesktopDisplayTarget.phone(), DesktopSessionPolicy.USER,
                 DesktopCompatibilityPolicy.NONE);
@@ -640,8 +644,98 @@ public final class DesktopHomeRoleLeaseTest {
         assertEquals(MAGICDESK, mBackend.homePackage);
     }
 
+    @Test
+    public void secondaryIsCapturedBeforeEnableAndClaimedOnlyForFirstWorkspace() throws Exception {
+        final DesktopDisplayTarget external = DesktopDisplayTarget.simulated(7);
+        final DesktopDisplayTarget phone = DesktopDisplayTarget.phone();
+        final DesktopHomeRoleLease.AcquireResult prepared = DesktopHomeRoleLease.prepare(
+                external, DesktopSessionPolicy.USER, DesktopCompatibilityPolicy.NONE);
+        assertEquals(List.of("capture"), mBackend.secondaryCalls);
+        assertEquals(SECONDARY, prepared.state.previousSecondaryHome);
+        DesktopHomeRoleLease.activate(prepared);
+        acquire(phone);
+        acquire(phone);
+        assertEquals(List.of("capture", "claim"), mBackend.secondaryCalls);
+        DesktopHomeRoleLease.releaseForSessionClose(phone);
+        DesktopHomeRoleLease.finishSessionClose(phone);
+        assertEquals(1, mBackend.secondaryClaims);
+        assertEquals(MAGICDESK + "/.DesktopActivity", mBackend.secondaryHome);
+        DesktopHomeRoleLease.releaseForSessionClose(external);
+        assertEquals(SECONDARY, mBackend.secondaryHome);
+        assertEquals(LAUNCHER, mBackend.homePackage);
+        assertTrue(mBackend.homeSurface != null);
+        DesktopHomeRoleLease.finishSessionClose(external);
+        assertNull(mStorage.state);
+    }
+
+    @Test
+    public void noSecondaryPreferenceUsesSystemFallback() throws Exception {
+        mBackend.secondaryHome = "";
+        acquire(DesktopDisplayTarget.phone());
+        assertEquals(SECONDARY, mStorage.state.previousSecondaryHome);
+        DesktopHomeRoleLease.release(DesktopDisplayTarget.phone());
+        assertEquals(SECONDARY, mBackend.secondaryHome);
+    }
+
+    @Test
+    public void noSystemFallbackDoesNotChangeHomeOrEnableComponents() {
+        mBackend.failSecondaryCapture = true;
+        assertThrows(IOException.class, () -> acquire(DesktopDisplayTarget.phone()));
+        assertEquals(0, mBackend.surfaceSelections);
+        assertEquals(0, mBackend.setCalls);
+        assertNull(mStorage.state);
+    }
+
+    @Test
+    public void failedSecondaryVerificationRollsBackBothHomes() {
+        mBackend.failSecondaryClaim = true;
+        assertThrows(IOException.class, () -> acquire(DesktopDisplayTarget.phone()));
+        assertEquals(SECONDARY, mBackend.secondaryHome);
+        assertEquals(LAUNCHER, mBackend.homePackage);
+        assertNull(mBackend.homeSurface);
+        assertNull(mStorage.state);
+    }
+
+    @Test
+    public void secondaryRestoreFailureDoesNotPreventPrimaryReleaseAndCanBeRetried() throws Exception {
+        final DesktopDisplayTarget target = DesktopDisplayTarget.phone();
+        acquire(target);
+        mBackend.failSecondaryRestore = true;
+        assertThrows(IOException.class, () -> DesktopHomeRoleLease.release(target));
+        assertEquals(LAUNCHER, mBackend.homePackage);
+        assertNull(mBackend.homeSurface);
+        assertEquals(DesktopHomeRoleLease.Phase.RELEASING, mStorage.state.phase);
+        mBackend.failSecondaryRestore = false;
+        assertTrue(DesktopHomeRoleLease.reconcile(false));
+        assertEquals(SECONDARY, mBackend.secondaryHome);
+        assertNull(mStorage.state);
+    }
+
+    @Test
+    public void startupRecoveryDoesNotReclaimPrimaryHomeOrPresentItAgain() throws Exception {
+        acquire(DesktopDisplayTarget.simulated(7));
+        DesktopHomeRoleLease.markStartupRelinquished();
+        mBackend.homePackage = "";
+        mBackend.failSecondaryRestore = true;
+        assertThrows(IOException.class, () -> DesktopHomeRoleLease.reconcile(false));
+        assertEquals(DesktopHomeRoleLease.Phase.STARTUP_RELINQUISHED, mStorage.state.phase);
+        assertEquals("", mBackend.homePackage);
+        mBackend.failSecondaryRestore = false;
+        assertTrue(DesktopHomeRoleLease.reconcile(false));
+        assertEquals("", mBackend.homePackage);
+        assertFalse(mBackend.primaryHomePresented);
+        assertEquals(SECONDARY, mBackend.secondaryHome);
+        assertNull(mStorage.state);
+    }
+
     private final class FakeBackend implements DesktopHomeRoleLease.Backend {
         String homePackage;
+        String secondaryHome = SECONDARY;
+        int secondaryClaims;
+        boolean failSecondaryClaim;
+        boolean failSecondaryRestore;
+        boolean failSecondaryCapture;
+        final List<String> secondaryCalls = new ArrayList<>();
         int setCalls;
         int surfaceSelections;
         boolean failMagicDeskClaim;
@@ -670,6 +764,30 @@ public final class DesktopHomeRoleLeaseTest {
         @Override
         public String getHomePackage(final int userId) {
             return homePackage;
+        }
+
+        @Override
+        public String captureSecondaryHome(final int userId) throws IOException {
+            if (failSecondaryCapture) { throw new IOException("no system secondary HOME"); }
+            secondaryCalls.add("capture");
+            return secondaryHome.isEmpty() ? SECONDARY : secondaryHome;
+        }
+
+        @Override
+        public void claimSecondaryHome(final int userId) throws IOException {
+            assertEquals(DesktopHomeRoleLease.Phase.PREPARED, mStorage.state.phase);
+            assertEquals(secondaryHome.isEmpty() ? SECONDARY : secondaryHome, mStorage.state.previousSecondaryHome);
+            secondaryCalls.add("claim");
+            secondaryClaims++;
+            secondaryHome = MAGICDESK + "/.DesktopActivity";
+            if (failSecondaryClaim) { throw new IOException("secondary claim verification failed"); }
+        }
+
+        @Override
+        public void restoreSecondaryHome(final int userId, final String componentName) throws IOException {
+            secondaryCalls.add("restore");
+            if (failSecondaryRestore) { throw new IOException("secondary restore failed"); }
+            secondaryHome = componentName;
         }
 
         @Override

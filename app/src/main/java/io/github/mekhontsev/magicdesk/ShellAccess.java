@@ -232,6 +232,33 @@ public final class ShellAccess {
         }
     }
 
+    static String captureSecondaryHome(final int userId) throws IOException {
+        try {
+            return requireService().captureSecondaryHome(userId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("SECONDARY_HOME resolution failed: " + usefulMessage(error), error);
+        }
+    }
+
+    static void claimSecondaryHome(final int userId) throws IOException {
+        try {
+            requireService().claimSecondaryHome(userId);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("SECONDARY_HOME selection failed: " + usefulMessage(error), error);
+        }
+    }
+
+    static void restoreSecondaryHome(final int userId, final String componentName) throws IOException {
+        try {
+            requireService().restoreSecondaryHome(userId, componentName);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("SECONDARY_HOME restoration failed: " + usefulMessage(error), error);
+        }
+    }
+
     static AndroidActivityResolution resolveActivity(final Intent intent)
             throws IOException {
         try {

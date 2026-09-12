@@ -13,6 +13,12 @@ are not implemented; workspace identity and output binding remain distinct.
 
 ## System HOME Instances
 
+The shared HOME lease also selects MagicDesk's `SECONDARY_HOME` handler for its
+first workspace. The last release restores the captured handler, or Android's
+configured system secondary launcher when necessary, before disabling HOME
+components. Preferred-handler selection does not change the display targeted
+by a system launch; display routing remains a separate launch boundary.
+
 Android 15 can launch HOME separately in each organizer task display area.
 Only the registered HOME in the standard workspace owns the desktop UI.
 Additional instances are navigation delegates, retained until area removal;

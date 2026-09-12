@@ -93,7 +93,7 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 static final String MAGICDESK_PACKAGE="io.github.mekhontsev.magicdesk";
                 static final Object LOCK=new Object();
                 static boolean sPhoneOverviewRoutingActive;
-                enum Phase { PREPARED, ACTIVE, RELEASING }
+                enum Phase { PREPARED, ACTIVE, RELEASING, STARTUP_RELINQUISHED }
                 enum DesktopSessionPolicy { USER, ISOLATED_SELF_TEST }
                 static class DesktopCompatibilityPolicy {
                     static final DesktopCompatibilityPolicy NONE = new DesktopCompatibilityPolicy();
@@ -115,6 +115,7 @@ public final class RuntimeHomeLeaseAdmissionTest {
                 static class State {
                     int userId;
                     AndroidHomeSelection previousHome;
+                    String previousSecondaryHome = "com.example.home/.Secondary";
                     List<DesktopDisplayTarget> targets;
                     int closingDisplayId = -1;
                     DesktopSessionPolicy policy; Phase phase;
@@ -124,15 +125,19 @@ public final class RuntimeHomeLeaseAdmissionTest {
                         userId=user; previousHome=previous; targets=List.of(t); policy=p; phase=ph;
                         compatibility=c;
                     }
-                    State(int user, AndroidHomeSelection previous, List<DesktopDisplayTarget> values,
+                    State(int user, AndroidHomeSelection previous, String secondary, DesktopDisplayTarget t,
+                            DesktopSessionPolicy p, DesktopCompatibilityPolicy c, Phase ph) {
+                        this(user,previous,t,p,c,ph); previousSecondaryHome=secondary;
+                    }
+                    State(int user, AndroidHomeSelection previous, String secondary, List<DesktopDisplayTarget> values,
                             DesktopSessionPolicy p, DesktopCompatibilityPolicy c, Phase ph, int closing) {
                         userId=user; previousHome=previous; targets=values; policy=p; phase=ph;
-                        compatibility=c; closingDisplayId=closing;
+                        previousSecondaryHome=secondary; compatibility=c; closingDisplayId=closing;
                     }
                     DesktopDisplayTarget targetForDisplay(int id) { return targets.stream()
                             .filter(t -> t.workspaceDisplayId == id).findFirst().orElse(null); }
                     State withTargets(List<DesktopDisplayTarget> values, int closing) {
-                        return new State(userId, previousHome, values, policy, compatibility, phase, closing);
+                        return new State(userId, previousHome, previousSecondaryHome, values, policy, compatibility, phase, closing);
                     }
                 """ + RuntimeSourceFixture.methods("DesktopHomeRoleLease", "matches", "withPhase") + "}\n"
                 + """
@@ -150,6 +155,8 @@ public final class RuntimeHomeLeaseAdmissionTest {
                     String holder=MAGICDESK_PACKAGE;
                     int currentUserId() { return 0; }
                     String getHomePackage(int user) { calls++; return holder; }
+                    String captureSecondaryHome(int user) { return "com.example.home/.Secondary"; }
+                    void claimSecondaryHome(int user) { calls++; }
                     void selectHomeSurface(Object surface) throws IOException { calls++; }
                     void presentHome(int user, String holder) { calls++; }
                     void setHomePackage(int user, String packageName) { calls++; claims++; holder=packageName; }

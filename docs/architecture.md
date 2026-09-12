@@ -1731,6 +1731,14 @@ target membership. Further workspaces join that lease without acquiring HOME
 again. Android may have a working HOME surface while the role has no explicit
 holder; that empty state is valid and is restored by removing MagicDesk rather
 than selecting a launcher on the user's behalf.
+The same lease owns the `MAIN`/`SECONDARY_HOME` preferred Activity. Before enabling
+its components it captures the resolved handler, or resolves Android's
+`config_secondaryHomePackage` when there is no concrete selection. Activation
+selects `DesktopActivity`; the last release restores the saved component, using
+the same system fallback if that component is no longer available.
+`FrameworkSecondaryHomeApi` encapsulates user-scoped PackageManager queries and
+replacement of this exact Intent filter, without clearing a package's other
+preferred activities or using persistent system-only preferences.
 `DesktopHomeSurfaceRouter` atomically enables one primary HOME component,
 `PhoneHomeActivity`, and one secondary HOME component, `DesktopActivity`, before
 claiming the role. Both identities stay enabled until the last workspace closes.
@@ -1757,7 +1765,7 @@ task type.
 
 The lease is the only owner of HOME transitions and HOME-surface selection.
 Closing one workspace retains HOME for the others. Closing the last workspace
-quiesces its HOME entry points, restores the previous holder, and retains existing
+quiesces its HOME entry points, restores both launcher selections, and retains existing
 HOME surfaces through workspace teardown. It disables those components before
 presenting the restored launcher; later cleanup failure never reclaims HOME.
 A failed component selection retains the closing membership for recovery rather
@@ -1765,8 +1773,11 @@ than recreating a workspace that has already closed.
 Unexpected display loss releases that workspace's lease membership through the same role boundary,
 and a user-selected third-party HOME is never overwritten. If a new MagicDesk
 process starts while still holding HOME, the startup guard disables its HOME
-surfaces, discards the stale lease, and opens system HOME immediately without
-waiting for the privileged service. Subsequent HOME admission checks the current active lease,
+surfaces and opens system HOME immediately without waiting for the privileged
+service. It marks the lease `STARTUP_RELINQUISHED`; once privileges are ready,
+reconciliation restores only SECONDARY_HOME and clears that record, without
+reopening a workspace or overriding the user's new primary HOME selection.
+Subsequent HOME admission checks the current active lease,
 not a process-lifetime recovery flag, so a new explicit session can start in
 that same process. One event-driven reconciliation clears a release record
 left after HOME was already transferred before process loss. This recovery does
@@ -2909,7 +2920,8 @@ continues to use the role-holder package as its authoritative identity.
 The lease enters `RELEASING` before that handoff so startup recovery can finish
 an interrupted release without treating it as an active desktop. If MagicDesk
 still owns HOME after process loss, the pre-privilege startup guard instead
-disables its HOME surfaces and discards the lease immediately. During normal
+disables its HOME surfaces immediately and retains a `STARTUP_RELINQUISHED`
+record solely for secondary-handler restoration. During normal
 close the role handoff does not disable Activity components: the `RELEASING`
 record retains ownership of the remaining surface cleanup until the close
 coordinator finishes task, host and display teardown. It then disables the

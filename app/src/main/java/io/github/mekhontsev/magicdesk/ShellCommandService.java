@@ -196,6 +196,33 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override
+    public String captureSecondaryHome(final int userId) {
+        try {
+            return new FrameworkSecondaryHomeApi(userId).capture(mContext);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("SECONDARY_HOME resolution failed", error);
+        }
+    }
+
+    @Override
+    public void claimSecondaryHome(final int userId) {
+        try {
+            new FrameworkSecondaryHomeApi(userId).claim();
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("SECONDARY_HOME selection failed", error);
+        }
+    }
+
+    @Override
+    public void restoreSecondaryHome(final int userId, final String componentName) {
+        try {
+            new FrameworkSecondaryHomeApi(userId).restore(mContext, componentName);
+        } catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("SECONDARY_HOME restoration failed", error);
+        }
+    }
+
+    @Override
     public AndroidActivityResolution resolveActivity(final Intent intent) {
         try {
             return ShellAndroidIntegrationGateway.resolveActivity(

@@ -464,4 +464,7 @@ interface IShellCommandService {
 
     void configureCommandEnvironment(String endpoint, String apk) = 133;
     void moveOrdinaryTask(int taskId, int sourceDisplayId, int targetDisplayId, int userId) = 134;
+    String captureSecondaryHome(int userId) = 135;
+    void claimSecondaryHome(int userId) = 136;
+    void restoreSecondaryHome(int userId, String componentName) = 137;
 }

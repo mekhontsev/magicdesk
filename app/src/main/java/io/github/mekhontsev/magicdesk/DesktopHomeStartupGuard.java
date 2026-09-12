@@ -54,11 +54,11 @@ final class DesktopHomeStartupGuard {
         }
         // Startup while holding HOME means the owning desktop process was
         // lost. Disabled surfaces already make MagicDesk ineligible as HOME,
-        // so there is no shell-backed release transaction left to recover.
+        // but the saved SECONDARY_HOME preference still needs privileged restoration.
         try {
-            DesktopHomeRoleLease.discardForStartupRelinquish();
+            DesktopHomeRoleLease.markStartupRelinquished();
         } catch (IOException error) {
-            Log.w(TAG, "could not discard stale HOME lease", error);
+            Log.w(TAG, "could not retain secondary HOME restoration", error);
         }
         try {
             context.startActivity(homeIntent);
