@@ -2,10 +2,11 @@
 
 **An open-source Android workstation.**
 
-MagicDesk brings native Android app windows, independent Termux terminals, a
-real file-based desktop, and programmable automation into one connected
-workspace. Work directly on your phone, on an external display, or from a
-computer through scrcpy.
+MagicDesk combines **native Android app windows, graphical terminals and
+independent desktops on multiple displays**. Add a real file-based desktop,
+per-app interface scaling and programmable automation, and your phone becomes
+a workstation. Work on its own screen, on external displays, or from a computer
+through scrcpy.
 
 Run Android apps and command-line tools side by side. Move content between
 Files, terminals and Android apps. Let an authorized AI client use the same
@@ -13,8 +14,10 @@ services you use interactively. Desktop is one way to work with these tools,
 not a requirement for using them.
 
 The APK requires **Android 14+**. Managed **Desktop requires Android 15+**.
-Privileged operations use [Shizuku](https://github.com/RikkaApps/Shizuku) or
-optional direct root. Android shell UID 2000 remains the baseline; root is not required.
+Use [Shizuku](https://github.com/RikkaApps/Shizuku) on an unrooted device, or
+**direct root without Shizuku** on a rooted one. Both start the same privileged
+service. Root is optional, and root users can limit that service to Android's
+shell UID 2000.
 
 [Latest release](https://github.com/mekhontsev/magicdesk/releases/latest) |
 [Development APK](https://github.com/mekhontsev/magicdesk/releases/download/development/MagicDesk-development.apk) |
@@ -33,9 +36,17 @@ not yet include every feature below.
 
 MagicDesk's strength is how its parts work together:
 
-- **Android apps and command-line tools share a desktop.** Keep a browser,
-  editor, file manager and several Termux terminals in separate native windows,
-  with task switching, keyboard shortcuts and [per-app DPI](#per-app-dpi).
+- **Each screen can have its own desktop.** Keep a workspace on the phone and
+  another on an external or virtual display. Each has its own windows, taskbar
+  and Start. Launch apps on a chosen screen, move running tasks, and close one
+  Desktop without closing the others.
+- **A terminal worth using on its own.** Run Android shell, root shell or
+  Termux tools in independent windows with a bundled Nerd Font, clickable
+  links, Sixel/Kitty images, touch scrolling and a unified terminal/tmux picker.
+  Use it on the phone without opening Desktop, or beside your Android apps.
+- **Android apps get room to work.** Keep a browser, editor, file manager and
+  terminals in separate native windows, with task switching, keyboard shortcuts
+  and [per-app DPI](#per-app-dpi).
 - **Files connect the tools.** The desktop is a real folder. Files, clipboard,
   drag and drop, Android sharing and command launchers work with the same
   content, so a file can move from a terminal workflow to an Android app without
@@ -48,14 +59,16 @@ MagicDesk's strength is how its parts work together:
   own. Close Desktop without ending retained terminal sessions, then reattach
   their windows. A virtual display can remain available to scrcpy independently
   of the desktop session.
-- **The workspace is programmable.** Authorized MCP clients can inspect state,
-  manage windows, work with files and terminals, invoke Android actions and
+- **The workspace is programmable from AI or shell scripts.** Authorized MCP
+  clients can inspect state, manage windows, work with files and terminals, invoke Android actions and
   compose workflows through the same services as the UI. Automation can also
   run without Desktop, locally or over an explicitly enabled network connection.
+  The built-in `magicdesk` CLI exposes the same command catalog without requiring
+  an MCP server, Python or Termux.
 
 During an external desktop session, the phone remains useful in its own right:
-its Start launches fullscreen phone apps independently, or it can serve as a
-touchpad and show your normal Android keyboard for an external app.
+run a second Desktop, keep an ordinary app launcher, or use the phone as a
+touchpad with your normal Android keyboard for an external app.
 
 ## Native Android Desktop
 
@@ -89,6 +102,10 @@ Desktop has an ordinary Start surface: it launches phone apps in fullscreen and
 lists phone recent tasks. Each Desktop Start remains independent and can be
 open at the same time. Every Start has a display selector beside search:
 **Current** launches on its own screen; another selection sends apps there.
+The same Start is available through **Apps** even with no Desktop running.
+The target screen determines placement: managed windows on a Desktop, ordinary
+fullscreen apps elsewhere. Opening an app does not redirect the keyboard or mouse;
+input routing has its own control.
 
 Close records the selected workspace and returns its surviving application
 tasks to phone fullscreen, leaving other Desktops running. A later session
@@ -145,24 +162,39 @@ create another Desktop folder. Profile-qualified app identities are implemented
 in catalogs and state; full work-profile and Private Space support is not yet
 implemented.
 
-### Shell And Termux Sessions
+### A Full Terminal, With Or Without Desktop
 
-Console provides a real interactive PTY with ANSI colors, scrollback, selection,
-clipboard, terminal mouse reporting, resizing and alternate-screen programs.
-Both consoles include a bundled Nerd Font, clickable links, shell command history
-and static Sixel/Kitty images, including Kitty placeholders through tmux.
-See [terminal integration](docs/terminal-integration.md) for protocols and limits.
+MagicDesk's terminal is an interactive PTY, not a command-output panel. Run
+editors, file managers, terminal dashboards and CLI agents with ANSI colors,
+scrollback, terminal mouse reporting and alternate-screen support. Android-shell
+and Termux sessions share the same renderer, controls and automation API.
 
-- Android-shell sessions run under the connected service identity.
-- Termux sessions run under Termux's own UID, using its installed tools and
-  documented external-command permission.
-- Each retained session owns its shell and terminal state. Closing a window
-  detaches its view; **Terminal sessions** reattaches it without restarting
-  the shell. **End session** explicitly terminates it.
-- Sessions survive window closure and Close Desktop, not MagicDesk process
-  death or APK replacement.
-- Optional tmux integration discovers, creates and attaches Termux tmux
-  sessions. tmux is not required and is not installed automatically.
+- **Bundled Nerd Font:** JetBrains Mono with regular, bold and italic faces,
+  aligned box drawing and Powerline symbols. Adjust font size per window with
+  settings, pinch or Ctrl+wheel.
+- **Graphics inside the terminal:** static Sixel and inline Kitty images,
+  including Kitty placeholders through tmux. Preview an image next to command
+  output, then **Save in Files**, **Open** or **Share** it through Android.
+- **Shell integration:** clickable OSC 8 links, window titles, notifications,
+  progress and shell-marked command history. Supported shell hooks let you
+  revisit a command and copy its output without selecting the whole transcript.
+- **Phone-friendly interaction:** kinetic touch scrolling, selection handles,
+  a layout that resizes for the on-screen keyboard, and **Copy as paragraph**
+  to join unwanted terminal line breaks when copying prose.
+- **One session picker:** retained Android-shell and Termux terminals alongside
+  discovered tmux sessions. Create, attach, rename, detach or explicitly end a
+  session from Phone Control Panel or any console toolbar.
+
+Closing an ordinary terminal window detaches the view and retains its shell and
+programs. Closing a managed tmux window detaches its client; tmux keeps its server
+session and programs. **Close Desktop** does not end retained terminals. Local
+PTYs do not survive MagicDesk process death or APK replacement; independently
+running tmux sessions can be attached again.
+
+Android-shell terminals use the connected service's shell or root identity.
+Termux terminals use **Termux's own UID, packages and shell configuration**, with
+its documented external-command permission. Termux and tmux are optional;
+neither is required for the ordinary Console.
 
 Multiple Termux-backed windows are ordinary Android tasks, not tabs inside the
 Termux app or windows confined to an X11 server. MagicDesk cannot import an
@@ -172,7 +204,29 @@ integration.
 ![Independent Termux terminals running nvim and Midnight Commander](docs/images/magicdesk-termux-windows.png)
 
 See [Workstation tools](docs/workstation-tools.md) and
-[Desktop Entry files](docs/desktop-entries.md).
+[terminal integration](docs/terminal-integration.md) for setup, supported
+protocols and limits, and [Desktop Entry files](docs/desktop-entries.md) to turn
+commands into launchers.
+
+## Shizuku Or Direct Root
+
+**Rooted devices can use MagicDesk without installing or running Shizuku.**
+Choose **Settings > Integrations > Privileged service > Root (su)**, reopen
+MagicDesk and authorize it in your root manager. The control panel shows
+**Access: shell / root / none** for the actual connected identity and provides
+the authorization entry point, even without Desktop.
+
+This is one service with two startup methods, not separate versions of the app.
+Files, Console, displays, input and automation use the same implementation.
+With root access, Files and Android-shell terminals can reach paths and perform
+operations allowed to that identity; Termux sessions still run as Termux.
+
+The independent **Limit service to shell UID 2000** setting works with direct
+root and root-backed Shizuku. It reduces the working service's privileges at
+startup, keeping the same baseline used on unrooted phones. It does not revoke
+the application's root-manager grant. Backend and identity changes apply after
+Exit and reopen, never halfway through a session. See
+[Privilege boundaries](docs/privilege-modes.md).
 
 ## MagicDesk On A Computer With scrcpy
 
@@ -219,6 +273,8 @@ The optional MCP server exposes the same services used by the UI:
 - Independent tool placement and retained terminal control.
 - Android intents, handlers, shortcuts, Activity results and App Functions.
 - Screen capture, clipboard and notification operations.
+- Rectangular screenshots and scoped Android UI inspection with element bounds,
+  actions and waits, without requiring Desktop.
 - File upload/download with bounded chunks and integrity checks.
 - Same-package, same-signer MagicDesk APK updates, with an installer worker
   that survives replacement and allows the client to reconnect.
@@ -275,10 +331,11 @@ and the [API-level contract](docs/runtime-api-levels.md).
 | Wired/wireless output | Hardware and firmware that expose a usable Android secondary display |
 
 1. Install MagicDesk and open Phone Control Panel.
-2. For shell-backed features, install and start official Shizuku, then authorize
-   MagicDesk. Termux is optional and has its own permission setup.
-3. Open **Files**, **Console**, **Termux Console** or **Terminal sessions**
-   directly, without starting Desktop.
+2. For privileged features, start Shizuku and authorize MagicDesk, or select
+   **Root (su)** in **Settings > Integrations**, reopen MagicDesk and approve the
+   root request. Termux is optional and has its own permission setup.
+3. Use **Apps** for Files and other applications, or **Terminal sessions** to
+   create an Android-shell, Termux or tmux terminal without starting Desktop.
 4. For Desktop, open **Settings > Device setup**, complete the required changes,
    and reboot only when setup requests it. Restart Shizuku afterward as needed.
 5. Select the phone, a connected display, or a display created through
@@ -305,8 +362,8 @@ observations and optional vendor controls.
 ## Input And Optional Features
 
 Physical mice and keyboards stay Android input devices, explicitly associated
-with the selected Desktop display. Android handles acceleration, layout, repeat,
-hover and right click. MagicDesk's key-only Accessibility service handles
+with the selected input display, with or without Desktop. Android handles
+acceleration, layout, repeat, hover and right click. MagicDesk's key-only Accessibility service handles
 desktop shortcuts only during the session.
 
 The optional phone touchpad supplies one virtual relative mouse. The user's
@@ -443,6 +500,7 @@ API 34 native validation and other ABIs remain in the
 
 - [Getting started](docs/getting-started.md)
 - [Workstation tools](docs/workstation-tools.md)
+- [Terminal integration](docs/terminal-integration.md)
 - [Architecture](docs/architecture.md)
 - [Automation and MCP](docs/automation.md)
 - [Runtime API levels](docs/runtime-api-levels.md)
