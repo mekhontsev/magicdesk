@@ -994,6 +994,10 @@ keep Diagnostics above the workspace under test. Cancellation still runs cleanup
 and preserves the previous saved result.
 
 Interactive self-tests require an awake, unlocked device and a visible target.
+Phone and external test preparation waits for the selected workspace's registered
+HOME host and completion of the production start operation. Target selection alone
+does not admit window checks or cleanup. The wait observes existing host and
+transition events; the normal window, render and input assertions still follow.
 `get_state.readiness` reports awake, lock, and privileged-service prerequisites and explicit
 required actions; unknown lock observations never mean ready. `get_state.app`
 includes a source build identity, process instance id, and installation time,

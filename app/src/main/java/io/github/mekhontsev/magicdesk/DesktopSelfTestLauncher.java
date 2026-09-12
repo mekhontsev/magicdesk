@@ -172,25 +172,14 @@ final class DesktopSelfTestLauncher {
 
     private void waitForDesktop(final DesktopDisplayOutput.Kind kind) {
         new Thread(() -> {
-            final long deadline = SystemClock.uptimeMillis()
-                    + ExternalDisplayController.START_TIMEOUT_MS * 2L;
-            boolean ready = false;
-            do {
-                if (!DesktopSelfTestRunState.isStarting(mRunId)
-                        || DesktopSelfTestRunState.snapshot().cancellationRequested) {
-                    return;
-                }
-                final int id = DesktopSelfTestRunState.preparedDisplayId();
-                final DesktopDisplayTarget display = DesktopRuntimeBridge.getDesktopTarget(id);
-                if (mTarget.matchesDisplay(id, display)
-                        && (kind == null || display.output.kind == kind)) {
-                    ready = true;
-                    break;
-                }
-                BoundedStateAwaiter.pause(BoundedStateAwaiter.Reason.DISPLAY_STATE,
-                        ExternalDisplayController.STATE_POLL_MS);
-            } while (SystemClock.uptimeMillis() < deadline);
-            final boolean prepared = ready;
+            final boolean prepared;
+            try {
+                prepared = awaitPreparedDesktop(kind);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                MAIN.post(() -> finishPreparation(false, "desktop preparation wait interrupted"));
+                return;
+            }
             MAIN.post(() -> {
                 if (preparing()) {
                     if (prepared) {
@@ -201,6 +190,31 @@ final class DesktopSelfTestLauncher {
                 }
             });
         }, "MagicDeskSelfTestDesktopWait").start();
+    }
+
+    private boolean awaitPreparedDesktop(final DesktopDisplayOutput.Kind kind)
+            throws InterruptedException {
+        final long deadline = SystemClock.uptimeMillis()
+                + ExternalDisplayController.START_TIMEOUT_MS * 2L;
+        long eventId = DesktopAutomationEventJournal.latestId();
+        while (DesktopSelfTestRunState.isStarting(mRunId)
+                && !DesktopSelfTestRunState.snapshot().cancellationRequested) {
+            final int id = DesktopSelfTestRunState.preparedDisplayId();
+            final DesktopSessionSnapshot session = DesktopRuntimeBridge.getSessionSnapshot(id);
+            final DesktopDisplayTarget display = session.target();
+            // Target selection precedes HOME creation. The harness must not
+            // inspect or close that workspace until the production Start finishes.
+            if (mTarget.matchesDisplay(id, display)
+                    && (kind == null || display.output.kind == kind)
+                    && session.hasHost()
+                    && !DesktopOperations.isSessionTransitionInProgress()) {
+                return true;
+            }
+            final long remaining = deadline - SystemClock.uptimeMillis();
+            if (remaining <= 0L) { return false; }
+            eventId = DesktopAutomationEventJournal.awaitChange(eventId, remaining);
+        }
+        return false;
     }
 
     private void run() {
