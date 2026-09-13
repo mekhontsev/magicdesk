@@ -199,7 +199,6 @@
             android:exported="true"
             android:permission="android.permission.INSTALL_PACKAGES"
             android:excludeFromRecents="true"
-            android:noHistory="true"
             android:taskAffinity=""
             android:theme="@android:style/Theme.NoDisplay" />
 

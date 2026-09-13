@@ -50,6 +50,8 @@ public final class AppUpdateArchitectureTest {
                 .split("/>", 2)[0];
         assertTrue(declaration.contains("android:permission=\"android.permission.INSTALL_PACKAGES\""));
         assertTrue(declaration.contains("@android:style/Theme.NoDisplay"));
+        assertFalse(declaration.contains("android:noHistory=\"true\""));
+        assertTrue(source("AppUpdateResumeActivity").contains("finish()"));
         final String service = manifest.substring(manifest.indexOf("android:name=\".MagicDeskRuntimeService\""))
                 .split("</service>", 2)[0];
         assertTrue(service.contains("android:exported=\"false\""));

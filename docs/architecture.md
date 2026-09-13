@@ -636,6 +636,9 @@ runtime integration and are not distributed through the same release path.
   On success it starts the installer-only `AppUpdateResumeActivity`, protected
   by the signature-level `INSTALL_PACKAGES` permission. Its `Theme.NoDisplay`
   entry creates no window, starts enabled automation and immediately finishes.
+  It is not `noHistory`: Android may otherwise remove a newly requested Activity
+  on visibility loss before its cold process has bound and called `onCreate`.
+  Explicit completion owns this entry's lifetime for both UID 0 and UID 2000.
   `FrameworkUserApi` launches it with the real shell identity and the requesting
   Android user, not the worker's synthetic application context.
   This avoids depending on background-service autolaunch while leaving
