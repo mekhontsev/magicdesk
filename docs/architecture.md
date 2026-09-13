@@ -594,6 +594,19 @@ runtime integration and are not distributed through the same release path.
   prerequisite for shell execution. The channel has bounded messages/workers,
   no polling, and closes with the runtime. Process restart invalidates old
   channels. The CLI never retries an indeterminate action.
+- `UserInteractions` owns script prompts and actionable notifications, lazily
+  and independently of Desktop or MCP enablement. `UserInteractionRequest`
+  validates bounded declarative content; `UserInteractionRegistry` retains
+  process-local, non-consuming results and event-driven waits. Completion is
+  first-wins and notifies outside its lock. Pending entries cannot be evicted;
+  one-shot deadlines, explicit close and runtime exit release UI. Prompt
+  Activities use `ToolApplications`, are not launcher entries or restorable
+  windows, and retain drafts across configuration changes. App-private
+  notification PendingIntents return only selected IDs or bounded inline text;
+  no executable callback or extra privilege is attached to a button. All four
+  commands require MCP content access, rechecked after a wait. Replies are not
+  published in diagnostic events. CLI `--field` projects one returned JSON field
+  without introducing a second command schema or a JSON-parser dependency.
 - `AutomationDeviceState` shares on-demand awake/lock prerequisites between MCP
   and the self-test launcher. Build, process and installation identities are
   separate observations. `DesktopSelfTestResult` persists an atomic JSON result

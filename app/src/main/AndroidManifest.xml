@@ -355,6 +355,17 @@
             android:taskAffinity=""
             android:theme="@style/TransparentActivityTheme" />
         <activity
+            android:name=".UserPromptActivity"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:excludeFromRecents="true"
+            android:label="@string/script_dialog"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.prompt"
+            android:theme="@style/UserPromptTheme"
+            android:windowSoftInputMode="adjustResize" />
+        <receiver android:name=".UserNotificationReceiver" android:exported="false" />
+        <activity
             android:name=".CommandConsoleActivity"
             android:configChanges="density|fontScale|keyboard|keyboardHidden|layoutDirection|locale|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"

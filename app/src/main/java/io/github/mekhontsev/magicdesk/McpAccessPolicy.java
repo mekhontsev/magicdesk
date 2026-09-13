@@ -63,6 +63,7 @@ final class McpAccessPolicy {
                     "force_stop_app" -> Permission.INPUT_TESTS;
             case "send_broadcast", "start_service", "launch_desktop_entry" -> Permission.SHELL;
             case "capture_screenshot", "sample_pixels", "start_recording", "stop_recording",
+                    "dialog.show", "notification.post", "interaction.result", "interaction.close",
                     "clipboard.read_text", "clipboard.write_text", "clipboard.clear",
                     "clipboard.open", "clipboard.share", "list_notifications",
                     "get_intent_result", "get_activity_history" -> Permission.CONTENT;

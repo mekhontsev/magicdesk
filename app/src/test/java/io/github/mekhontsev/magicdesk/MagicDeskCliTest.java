@@ -41,6 +41,38 @@ public final class MagicDeskCliTest {
         assertEquals(0, calls.get());
     }
 
+    @Test public void fieldOutputNeedsNoExternalJsonParserAndPreservesText() {
+        assertEquals(0, run("list_tasks", "--query", "first\nsecond", "--field", "data.query"));
+        assertEquals("first\nsecond" + System.lineSeparator(), stdout);
+        assertEquals(0, run("list_tasks", "--args", "{\"query\":\"plain\"}", "--field", "data.query"));
+        assertEquals("plain" + System.lineSeparator(), stdout);
+        assertEquals(0, run("list_tasks", "--limit", "3", "--field", "data"));
+        assertTrue(stdout.contains("\"limit\":3"));
+    }
+
+    @Test public void invalidFieldSyntaxNeverExecutesAndMissingFieldsNeverReplay() {
+        for (String field : new String[]{"", "data..text", "data.text;exit", ".data", "data."}) {
+            assertEquals(2, run("get_state", "--field", field));
+        }
+        assertEquals(2, run("get_state", "--field", "data", "--dry-run"));
+        assertEquals(2, run("get_state", "--field", "data", "--field", "data"));
+        assertEquals(0, calls.get());
+        assertEquals(1, run("get_state", "--field", "data.missing"));
+        assertEquals(1, calls.get());
+        assertTrue(stdout.isEmpty());
+        assertTrue(stderr.contains("result field is absent"));
+    }
+
+    @Test public void fieldModeKeepsFailureDetailsOnStderr() throws Exception {
+        assertEquals(1, run("", (name, args) -> DesktopAutomationResult.failure(
+                DesktopAutomationErrorCode.ACTION_FAILED, "failed", false).toJson(),
+                "get_state", "--field", "data"));
+        assertEquals(1, calls.get());
+        assertTrue(stdout.isEmpty());
+        assertEquals(DesktopAutomationErrorCode.ACTION_FAILED,
+                new JSONObject(stderr).getJSONObject("error").getString("code"));
+    }
+
     @Test public void everyCommandHasGeneratedHelpAndSchema() throws Exception {
         final var catalog = AutomationCommandCatalog.create();
         for (int i = 0; i < catalog.length(); i++) {

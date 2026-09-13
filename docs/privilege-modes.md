@@ -147,7 +147,8 @@ authenticated client; additional grants cover:
 
 - Desktop/application control.
 - Injected input, self-tests and force-stop.
-- Screen, clipboard and notification contents.
+- Screen, clipboard and notification contents, plus script dialogs,
+  notification publication and their user responses.
 - File reads/downloads.
 - File writes/uploads.
 - Shell commands, terminals and background execution.

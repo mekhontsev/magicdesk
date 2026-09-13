@@ -21,14 +21,13 @@ final class DesktopNotificationMapper {
             final Context context,
             final StatusBarNotification statusBarNotification,
             final RankingMap rankingMap) {
-        if (statusBarNotification == null
-                || context.getPackageName().equals(
-                        statusBarNotification.getPackageName())) {
+        if (statusBarNotification == null) {
             return null;
         }
         final Notification notification =
                 statusBarNotification.getNotification();
-        if (notification == null) {
+        if (notification == null || !includeNotification(context.getPackageName(),
+                statusBarNotification.getPackageName(), notification.getChannelId())) {
             return null;
         }
 
@@ -91,6 +90,12 @@ final class DesktopNotificationMapper {
                         ? notification.getLargeIcon()
                         : notification.getSmallIcon(),
                 Collections.unmodifiableList(actions));
+    }
+
+    static boolean includeNotification(String ownPackage, String sourcePackage, String channelId) {
+        // Script and terminal messages are user content, unlike the runtime's status notification.
+        return !ownPackage.equals(sourcePackage) || UserInteractions.CHANNEL.equals(channelId)
+                || TerminalNotifications.CHANNEL.equals(channelId);
     }
 
     private static String loadApplicationLabel(

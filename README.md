@@ -300,6 +300,12 @@ command catalog, and execution uses the same services as MCP. It works without
 Desktop, an enabled MCP server, Python, or an installed Termux app when using
 the ordinary Console.
 
+Scripts can ask for text, confirmation or a choice through Android dialogs, and
+post notifications with buttons or inline replies. Responses return through the
+same CLI/MCP commands, so a build script can offer to open its output folder or
+ask a question without keeping the terminal in front. CLI `--field` extracts a
+result field without an external JSON parser.
+
 See [Automation and MCP](docs/automation.md) for configuration, permissions,
 transfer/update protocols and test control.
 

@@ -1,4 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="script_dialog">MagicDesk script dialog</string>
+    <string name="script_notifications">Script notifications</string>
     <string name="start_current_display">Current</string>
     <string name="start_launch_display">Launch on: %1$s</string>
     <string name="settings_shell_backend">Privileged service (next app start)</string>
@@ -619,7 +621,7 @@
     <string name="settings_mcp_network_access">Network MCP permissions</string>
     <string name="mcp_permission_control">Desktop and application control</string>
     <string name="mcp_permission_input">UI actions, gestures, awake leases, self-tests and force-stop</string>
-    <string name="mcp_permission_content">App UI text, screen capture, clipboard and notification contents</string>
+    <string name="mcp_permission_content">App UI text, screen capture, clipboard, notifications and script dialogs</string>
     <string name="mcp_permission_files_read">Download and read files</string>
     <string name="mcp_permission_files_write">Upload, create and replace files</string>
     <string name="mcp_permission_shell">Shell, terminals and background commands</string>

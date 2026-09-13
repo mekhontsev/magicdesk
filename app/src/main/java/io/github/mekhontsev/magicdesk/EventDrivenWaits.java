@@ -11,6 +11,7 @@ public final class EventDrivenWaits {
         ACTIVITY_LAUNCH_RESULT,
         PTY_RESPONSE,
         AUTOMATION_EVENT,
+        USER_INTERACTION,
         UI_AUTOMATION_CONNECTION,
         UI_AUTOMATION_CHANGE,
         UI_AUTOMATION_INPUT,

@@ -131,7 +131,8 @@ Each listener independently grants:
 
 - `control`: desktop, application, window and semantic UI actions;
 - `input_tests`: synthetic input, self-tests and package force-stop;
-- `content`: capture, clipboard, notification contents and Activity results;
+- `content`: capture, clipboard, notification contents, Activity results and
+  script dialogs/notifications (including their user responses);
 - `files_read`: filesystem listing and downloads;
 - `files_write`: uploads, creation and replacement;
 - `shell`: shell/terminal/tmux and background Intent/desktop-entry commands;
@@ -179,12 +180,93 @@ A successful observation can still have `matched=false`. Acceptance is not
 completion; use the ordinary observation commands and exact operation/run IDs.
 There are no automatic command retries after a lost response.
 
+`--field data.requestId` selects a dotted object field from a successful result.
+Strings are printed unquoted; numbers, booleans, null, objects and arrays keep
+their JSON representation. This works in ordinary `sh` without an external
+JSON parser. Missing fields and operation failures return exit status 1 with
+the full response on stderr. Invalid field syntax is rejected before execution;
+field selection never retries the command. It cannot be combined with `--dry-run`.
+
 The entry script invokes the Java CLI from the same APK using Android
 `app_process`. It inherits a private local command channel from the shell launch,
 not privileges from the APK. Existing shells must be reopened after upgrading
 or restarting the runtime. The entry script contains no secret, and running it
 from an unrelated app does not grant access. Shell descendants are trusted as
 part of the user's command environment; do not pass it to untrusted code.
+
+## Script Dialogs And Notifications
+
+Four shared commands let scripts communicate with a user without Desktop or
+Termux. MCP requires `content` for all four, including creation and cancellation.
+The CLI uses its existing inherited command channel. Background dialog placement
+uses the shared privileged launcher; notification publication and result handling
+use ordinary app APIs. Android notification permission and channel settings still
+apply and are never silently changed.
+
+- `dialog.show`: `text`, `confirm` or `choice`; choice supports single or multiple
+  selection. `displayId` defaults to 0. An active Desktop uses its normal managed
+  placement; otherwise this is an ordinary Android dialog Activity. No HOME or
+  Desktop is acquired. Dialogs are not application-launcher entries or restored
+  windows. Back, outside dismissal and task close cancel the request.
+- `notification.post`: title, message and up to three `{id,label,reply}` actions.
+  `reply:true` collects an inline text response. Tapping the body returns the
+  reserved `actionId:"open"`; a button returns its own ID, and a reply includes
+  `text`. Swiping away cancels. The first answer completes the request and removes
+  the notification. Buttons publish data, not stored shell commands or privileged
+  callbacks; the waiting script decides what to do next under its own authority.
+  Script and terminal message channels are also included in MagicDesk's
+  notification center and `list_notifications`; runtime status notifications
+  remain excluded. Inline replies use Android's notification UI.
+- `interaction.result`: read by exact `requestId`, optionally event-wait for
+  `waitMillis` (0-30000). Reads do not consume the response. A wait ending with
+  `state:"pending"` is not an answer and does not close the UI.
+- `interaction.close`: cancel a pending request. Repeating it cannot overwrite a
+  completed response. Closing an unknown request still returns `not_found`.
+
+Creation returns acceptance with a generated `requestId`, not proof of visible
+UI or a user answer. Do not replay creation after a lost response. States are
+`pending`, `completed`, `cancelled`, `expired`, `failed` and `not_found`.
+`presented` means the dialog resumed or Android accepted the notification;
+another window, DND or lock-screen policy may still obscure it. An asynchronous
+presentation failure is recorded as `failed` with `failure` detail.
+
+Requests live for `lifetimeMillis` (1000-86400000, default one hour). One-shot
+expiration closes their UI independently of result waits. The registry retains
+up to 64 requests and admits at most 16 pending interactions; pending entries
+are never evicted to admit more work. Completed entries may be evicted by newer
+requests. Runtime exit cancels pending work. Process restart loses responses;
+old notifications are removed when the interaction service next initializes.
+`not_found` never proves that a user accepted or cancelled a request. Repeated
+reads are safe only while that exact result remains retained. Text is bounded
+to 8192 characters; replies are not copied into the diagnostics event journal.
+
+Example for an ordinary MagicDesk shell, with no `jq` or Python:
+
+```sh
+request=$(magicdesk dialog.show --type text --title 'Archive name' \
+    --initialText backup --field data.requestId) || exit 1
+trap 'magicdesk interaction.close --requestId "$request" >/dev/null' EXIT
+while :; do
+    state=$(magicdesk interaction.result --requestId "$request" \
+        --waitMillis 30000 --field data.state) || exit 1
+    [ "$state" = pending ] || break
+done
+[ "$state" = completed ] || exit 1
+name=$(magicdesk interaction.result --requestId "$request" --field data.result.text) || exit 1
+printf 'Chosen name: %s\n' "$name"
+```
+
+The loop repeats a bounded event wait, not state polling. Validate user input
+for its intended use and quote it as data; never evaluate it as shell code.
+
+```sh
+magicdesk notification.post --title 'Build finished' --message 'APK is ready' \
+    --actions '[{"id":"files","label":"Open folder"},{"id":"answer","label":"Reply","reply":true}]'
+```
+
+Use the returned request ID with the same result wait. Only after a
+`completed` result with `actionId:"files"` should the script call `open_file`
+or open Files. Notification clicks themselves do not launch an application.
 
 ## Result Contract
 

@@ -1,4 +1,9 @@
 <resources>
+    <style name="UserPromptTheme" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#22D3EE</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowCloseOnTouchOutside">true</item>
+    </style>
     <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowNoTitle">true</item>
         <item name="android:fontFamily">sans</item>

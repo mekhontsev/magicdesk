@@ -11,6 +11,17 @@ import org.junit.Test;
 /** Keeps notification entry points outside Android's trampoline restriction. */
 public final class RuntimeNotificationContractTest {
     @Test
+    public void userMessagesAreListedButInternalStatusIsNot() {
+        assertTrue(DesktopNotificationMapper.includeNotification("magicdesk", "other", "status"));
+        assertTrue(DesktopNotificationMapper.includeNotification(
+                "magicdesk", "magicdesk", UserInteractions.CHANNEL));
+        assertTrue(DesktopNotificationMapper.includeNotification(
+                "magicdesk", "magicdesk", TerminalNotifications.CHANNEL));
+        assertFalse(DesktopNotificationMapper.includeNotification("magicdesk", "magicdesk", "status"));
+        assertFalse(DesktopNotificationMapper.includeNotification("magicdesk", "magicdesk", null));
+    }
+
+    @Test
     public void notificationEntryPointsLaunchActivitiesDirectly() throws Exception {
         final String source = Files.readString(Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/"

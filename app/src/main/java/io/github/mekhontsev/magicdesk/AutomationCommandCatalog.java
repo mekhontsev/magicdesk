@@ -532,6 +532,7 @@ final class AutomationCommandCatalog {
                                 .put("x", integerProperty("Optional x; requires y."))
                                 .put("y", integerProperty("Optional y; requires x.")))));
         addAndroidUiTools(tools);
+        addInteractionTools(tools);
         addShellTools(tools);
         addTransferTools(tools);
         tools.put(destructiveTool("app.update", "Update MagicDesk",
@@ -542,6 +543,40 @@ final class AutomationCommandCatalog {
                 .put(readTool("app.update_status", "MagicDesk update status", "Read the durable installer result for an exact update operation.",
                         objectSchema(new JSONObject().put("updateId", stringProperty("Id passed to app.update.")), "updateId")));
         return tools;
+    }
+
+    private static void addInteractionTools(final JSONArray tools) throws JSONException {
+        final JSONObject item = objectSchema(new JSONObject()
+                .put("id", stringProperty("Distinct result id, 1-80 characters."))
+                .put("label", stringProperty("Visible label, 1-160 characters.")), "id", "label");
+        final JSONObject action = objectSchema(new JSONObject(item.getJSONObject("properties").toString())
+                .put("reply", booleanProperty("Collect an inline text reply; default false.")), "id", "label");
+        tools.put(actionTool("dialog.show", "Ask the user",
+                "Show an ordinary Android dialog on displayId (default 0), without starting Desktop. Returns a process-local requestId; use interaction.result to wait for the user's answer. Creation is not safe to replay after a lost response.",
+                objectSchema(interactionProperties()
+                        .put("displayId", integerProperty("Destination display, default 0. An active Desktop retains managed placement."))
+                        .put("type", enumProperty("Dialog kind.", "text", "confirm", "choice"))
+                        .put("initialText", stringProperty("Initial text, at most 8192 characters; text dialogs only."))
+                        .put("choices", arrayProperty("1-32 choices; choice dialogs only.", item))
+                        .put("multiple", booleanProperty("Allow several or no selected choices; default false.")), "title", "type")))
+                .put(actionTool("notification.post", "Post a script notification",
+                        "Post an Android notification without Desktop. Buttons return actionId, optionally text; they never execute code. Tapping the body returns actionId=open. The first action completes the request and removes the notification. Requires Android notification permission. Do not replay after a lost creation response.",
+                        objectSchema(interactionProperties().put("actions", arrayProperty(
+                                "Up to 3 buttons. IDs must be distinct; open is reserved for the body.", action)), "title")))
+                .put(readTool("interaction.result", "Read a user response",
+                        "Read or event-wait for a dialog or notification result. A wait timeout leaves state=pending and does not cancel the request. Results are non-consuming; not_found means expired retention or process restart, not a user answer.",
+                        objectSchema(new JSONObject().put("requestId", stringProperty("Exact ID from creation."))
+                                .put("waitMillis", integerProperty("Event wait from 0 to 30000 ms, default 0.")), "requestId")))
+                .put(tool("interaction.close", "Close a user interaction",
+                        "Cancel a pending dialog or notification and close its UI. Repeating close preserves an already completed result. Unknown IDs remain not_found.",
+                        objectSchema(new JSONObject().put("requestId", stringProperty("Exact ID from creation.")), "requestId"),
+                        false, false, true));
+    }
+
+    private static JSONObject interactionProperties() throws JSONException {
+        return new JSONObject().put("title", stringProperty("Nonblank title, at most 160 characters."))
+                .put("message", stringProperty("Optional message, at most 4096 characters."))
+                .put("lifetimeMillis", integerProperty("Request lifetime, 1000-86400000 ms; default 3600000. Expiration closes UI independently of observation waits."));
     }
 
     private static void addAndroidUiTools(final JSONArray tools) throws JSONException {
@@ -1211,6 +1246,22 @@ final class AutomationCommandCatalog {
             throws JSONException {
         final JSONObject properties = new JSONObject();
         switch (toolName) {
+            case "dialog.show":
+            case "notification.post":
+            case "interaction.result":
+            case "interaction.close":
+                properties.put("requestId", stringProperty("Process-local interaction ID."))
+                        .put("kind", enumProperty("Interaction kind.", "dialog", "notification"))
+                        .put("state", enumProperty("Outcome; pending is not an answer.",
+                                "pending", "completed", "cancelled", "expired", "failed", "not_found"))
+                        .put("presented", booleanProperty("Dialog resumed or notification submitted to Android; not a guarantee of visibility above other UI."))
+                        .put("failure", stringProperty("Failure detail, empty otherwise."))
+                        .put("result", objectSchema(new JSONObject()
+                                .put("text", stringProperty("Text input or inline notification reply."))
+                                .put("confirmed", booleanProperty("True when a confirmation was accepted."))
+                                .put("selectedIds", arrayProperty("Selected choice IDs in original order.", stringProperty("Choice ID.")))
+                                .put("actionId", stringProperty("Selected notification action ID."))));
+                break;
             case "ui.inspect":
                 properties.put("snapshotId", stringProperty("Short-lived snapshot identity."))
                         .put("complete", booleanProperty("Stable, accessible, complete traversal; separate from text preview truncation."))

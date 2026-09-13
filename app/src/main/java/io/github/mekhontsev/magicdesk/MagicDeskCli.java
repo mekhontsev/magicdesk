@@ -49,9 +49,17 @@ public final class MagicDeskCli {
             JSONObject args = new JSONObject();
             boolean dryRun = false;
             boolean wholeObject = false;
+            String field = null;
             for (int i = 1; i < argv.length; i++) {
                 String option = argv[i];
                 if (option.equals("--dry-run")) { dryRun = true; continue; }
+                if (option.equals("--field")) {
+                    if (field != null || ++i == argv.length || !argv[i].matches("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*")) {
+                        throw new IllegalArgumentException("Use --field with one dotted object path, such as data.requestId");
+                    }
+                    field = argv[i];
+                    continue;
+                }
                 if (option.equals("--args")) {
                     if (wholeObject || args.length() != 0 || ++i == argv.length) {
                         throw new IllegalArgumentException("Use --args JSON|@file|- without named arguments");
@@ -77,6 +85,7 @@ public final class MagicDeskCli {
                 args.put(key, parse(type, value));
             }
             AutomationCommandArguments.check(name, args);
+            if (dryRun && field != null) throw new IllegalArgumentException("--field cannot be combined with --dry-run");
             if (dryRun) {
                 out.println(new JSONObject().put("name", name).put("arguments", args));
                 return 0;
@@ -84,7 +93,20 @@ public final class MagicDeskCli {
             try {
                 final JSONObject result = executor.execute(name, args);
                 final int status = result.getBoolean("success") ? 0 : 1;
-                out.println(result);
+                if (field == null) out.println(result);
+                else if (status != 0) err.println(result);
+                else {
+                    Object value = result;
+                    for (String key : field.split("\\.")) {
+                        if (!(value instanceof JSONObject object) || !object.has(key)) {
+                            err.println("magicdesk: result field is absent: " + field);
+                            err.println(result);
+                            return 1;
+                        }
+                        value = object.get(key);
+                    }
+                    out.println(value);
+                }
                 return status;
             } catch (Exception error) {
                 final String message = error instanceof java.io.EOFException
@@ -156,6 +178,7 @@ public final class MagicDeskCli {
         }
         if (schema.has("required")) out.append("Required: ").append(schema.getJSONArray("required")).append('\n');
         return out.append("\n--args JSON|@file|-  Supply the entire argument object.\n")
+                .append("--field PATH        Print one result field; strings are unquoted, objects/arrays remain JSON.\n")
                 .append("--dry-run           Print the request without executing it.\n")
                 .append("Exit codes: 0 success, 1 operation failed, 2 arguments, 3 transport.\n").toString();
     }
