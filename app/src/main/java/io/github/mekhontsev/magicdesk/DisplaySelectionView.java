@@ -278,8 +278,16 @@ final class DisplaySelectionView {
         return -1;
     }
 
+    static int[] creationResolution(final DesktopDisplayInfo selected,
+            final VirtualDisplaySpec previous) {
+        return selected == null ? new int[] {previous.width, previous.height}
+                : new int[] {selected.width, selected.height};
+    }
+
     private void showCreateDialog() {
         final VirtualDisplaySpec defaults = VirtualDisplayPreferences.load(mActivity);
+        // Snapshot only; validate creation limits on Create, not while opening the dialog.
+        final int[] resolution = creationResolution(mSelected, defaults);
         final LinearLayout content = new LinearLayout(mActivity);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(20), dp(8), dp(20), dp(8));
@@ -287,19 +295,17 @@ final class DisplaySelectionView {
                 mActivity.getString(R.string.display_virtual),
                 mActivity.getString(R.string.display_preview)});
         kind.setContentDescription(mActivity.getString(R.string.display_type));
-        final int[][] sizes = {{1920, 1080}, {1280, 720}, {2560, 1440}, {2560, 1080}, {3840, 2160}};
+        final int[][] sizes = {resolution,
+                {1920, 1080}, {1280, 720}, {2560, 1440}, {2560, 1080}, {3840, 2160}};
         final Spinner preset = spinner(content, new String[] {
+                mActivity.getString(R.string.display_resolution_default, resolution[0], resolution[1]),
                 "1920 x 1080", "1280 x 720", "2560 x 1440", "2560 x 1080", "3840 x 2160",
                 mActivity.getString(R.string.display_custom)});
         preset.setContentDescription(mActivity.getString(R.string.display_resolution));
-        final EditText width = number(content, R.string.display_width, defaults.width);
-        final EditText height = number(content, R.string.display_height, defaults.height);
+        final EditText width = number(content, R.string.display_width, resolution[0]);
+        final EditText height = number(content, R.string.display_height, resolution[1]);
         final EditText scale = number(content, R.string.display_scale, defaults.densityDpi * 100 / 160);
-        int selected = sizes.length;
-        for (int i = 0; i < sizes.length; i++) {
-            if (sizes[i][0] == defaults.width && sizes[i][1] == defaults.height) { selected = i; }
-        }
-        preset.setSelection(selected);
+        preset.setSelection(0);
         preset.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(final AdapterView<?> p, final View v,
                     final int position, final long id) {

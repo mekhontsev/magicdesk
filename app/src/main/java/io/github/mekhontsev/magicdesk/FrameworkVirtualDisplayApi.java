@@ -49,7 +49,7 @@ final class FrameworkVirtualDisplayApi {
             // same frame-consumer lifecycle on Android 15, without a polling
             // loop or a per-display thread. scrcpy captures the logical scene.
             display = manager.createVirtualDisplay(
-                    "MagicDesk Computer", spec.width, spec.height, spec.densityDpi,
+                    "MagicDesk", spec.width, spec.height, spec.densityDpi,
                     output.getSurface(), flags);
             if (display == null) { throw new IllegalStateException("Android did not create the virtual display"); }
             return new OwnedDisplay(context, display, output);

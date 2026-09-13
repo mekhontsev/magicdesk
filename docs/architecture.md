@@ -1837,6 +1837,13 @@ The normal transition gate explicitly accepts or rejects startup. Driver results
 propagate through it, so the portable launch callback reports the Desktop launch
 result, not just a successfully attached viewer.
 
+Owned virtual displays are named **MagicDesk** and distinguished by their display
+IDs. The control panel's creation dialog initially selects **Default**, a snapshot
+of the selected display's current width and height; scale remains independently
+editable. Without a selected display it uses the saved creation parameters.
+Fixed resolutions and custom dimensions remain available. This choice does not
+link the created display's configuration to later changes or loss of its output.
+
 Park, Close Desktop and Remove Display remain separate commands. Reconnecting
 an output requires selecting its current catalog identity and opening a viewer
 for the retained source; no numeric output ID is persisted or automatically

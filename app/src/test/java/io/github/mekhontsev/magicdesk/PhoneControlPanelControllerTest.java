@@ -87,6 +87,42 @@ public final class PhoneControlPanelControllerTest {
     }
 
     @Test
+    public void creationResolutionSnapshotsTheSelectedDisplay() {
+        final VirtualDisplaySpec previous = new VirtualDisplaySpec(1920, 1080, 200);
+        for (final String source : new String[] {"wired", "wireless", "phone", "internal", "virtual"}) {
+            final DesktopDisplayInfo selected = new DesktopDisplayInfo(7, "display:7", "Display", source,
+                    2560, 1080, 320, true, false);
+            assertArrayEquals(new int[] {2560, 1080},
+                    DisplaySelectionView.creationResolution(selected, previous));
+        }
+        final DesktopDisplayInfo portrait = new DesktopDisplayInfo(0, "display:0", "Phone", "phone",
+                1216, 2688, 520, true, false);
+        assertArrayEquals(new int[] {1216, 2688}, DisplaySelectionView.creationResolution(portrait, previous));
+        assertEquals(1920, previous.width);
+        assertEquals(1080, previous.height);
+    }
+
+    @Test
+    public void creationResolutionFallsBackOnlyWhenNoDisplayIsSelected() {
+        final VirtualDisplaySpec previous = new VirtualDisplaySpec(1280, 720, 160);
+        assertArrayEquals(new int[] {1280, 720}, DisplaySelectionView.creationResolution(null, previous));
+        final DesktopDisplayInfo small = new DesktopDisplayInfo(7, "display:7", "Display", "virtual",
+                240, 240, 160, false, false);
+        assertArrayEquals(new int[] {240, 240}, DisplaySelectionView.creationResolution(small, previous));
+    }
+
+    @Test
+    public void creationDialogInitiallySelectsTheResolutionSnapshot() throws Exception {
+        final String dialog = RuntimeSourceFixture.methods("DisplaySelectionView", "showCreateDialog");
+        assertTrue(dialog.contains("creationResolution(mSelected, defaults)"));
+        assertTrue(dialog.contains("R.string.display_resolution_default, resolution[0], resolution[1]"));
+        assertTrue(dialog.contains("R.string.display_scale, defaults.densityDpi * 100 / 160"));
+        assertTrue(dialog.contains("preset.setSelection(0)"));
+        assertTrue(dialog.contains("width.setEnabled(custom)"));
+        assertTrue(dialog.contains("height.setEnabled(custom)"));
+    }
+
+    @Test
     public void outputControlsBelongOnlyToTheSelectedWiredDisplay() {
         assertTrue(DisplaySelectionView.hasOutputControls(display(3, "wired", true, false), true));
         assertFalse(DisplaySelectionView.hasOutputControls(display(3, "wired", true, false), false));
