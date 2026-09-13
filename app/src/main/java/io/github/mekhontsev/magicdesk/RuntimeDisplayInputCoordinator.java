@@ -18,6 +18,7 @@ final class RuntimeDisplayInputCoordinator {
     private final Runnable mHardwareKeyboardChanged;
     private final RuntimeInputCoordinator mInputDevices;
     private final DisplayInputSession mInputSession;
+    private final DisplayInputRequests mRequests;
 
     private boolean mHasHardwareKeyboard;
     private boolean mHasExternalMouse;
@@ -28,11 +29,14 @@ final class RuntimeDisplayInputCoordinator {
     private boolean mPointerReleaseExpected;
     private String mPreviousShowImeWithHardKeyboard;
     private boolean mDestroyed;
+    private TaskRepository.ActionCallback mSelectionCompletion;
 
     RuntimeDisplayInputCoordinator(
             final Context context,
             final Handler handler,
+            final DisplayInputRequests requests,
             final Runnable hardwareKeyboardChanged) {
+        mRequests = requests;
         mHardwareKeyboardChanged = hardwareKeyboardChanged;
         mInputDevices = new RuntimeInputCoordinator(
                 context, handler, this::handleInputStateChanged);
@@ -51,6 +55,8 @@ final class RuntimeDisplayInputCoordinator {
 
     void destroy() {
         mDestroyed = true;
+        mRequests.invalidate();
+        completeSelection(false, "input runtime is closed");
         mInputDevices.stop();
         mInputSession.destroy();
         restoreShowImeOverride();
@@ -72,17 +78,36 @@ final class RuntimeDisplayInputCoordinator {
             final var workspace = DesktopRuntimeBridge.getWorkspaceRuntime(state.target().workspaceDisplayId);
             if (workspace != null) { workspaces.put(workspace.displayId, workspace.id); }
         }
+        final int previous = mTarget.requestedDisplay();
         mTarget.reconcile(workspaces);
         if (!ShellAccess.isReady()) { mTarget.release(mTarget.requestedDisplay()); }
+        if (previous != mTarget.requestedDisplay()) mRequests.invalidate();
         updateInputBridges();
         updateShowImeOverride();
     }
 
-    void selectDisplay(final int displayId) {
+    void selectDisplay(final int displayId, final TaskRepository.ActionCallback completion) {
         if (mDestroyed) { throw new IllegalStateException("input runtime is closed"); }
         mTarget.select(displayId);
+        completeSelection(false, "input selection was superseded");
+        mSelectionCompletion = completion;
         updateInputBridges();
         updateShowImeOverride();
+        finishSelectionIfSettled();
+    }
+
+    private void finishSelectionIfSettled() {
+        if (mSelectionCompletion == null || mInputSession.transitioning()) return;
+        final boolean ready = mInputSession.error().isEmpty()
+                && mInputSession.readyDisplay() == mTarget.requestedDisplay();
+        completeSelection(ready, ready ? "input target ready" : mInputSession.error().isEmpty()
+                ? "input selection was superseded" : mInputSession.error());
+    }
+
+    private void completeSelection(boolean success, String message) {
+        final TaskRepository.ActionCallback callback = mSelectionCompletion;
+        mSelectionCompletion = null;
+        if (callback != null) callback.onComplete(new TaskRepository.ActionResult(success, message));
     }
 
     int requestedDisplay() { return mInputDisplayId; }
@@ -141,17 +166,21 @@ final class RuntimeDisplayInputCoordinator {
 
     void onDesktopPrepared(final DesktopWorkspaceRuntime workspace) {
         if (mDestroyed || workspace == null || workspace.isClosed()) { return; }
+        final int previous = mTarget.requestedDisplay();
         mTarget.prepared(workspace.displayId, workspace.id);
+        if (previous != mTarget.requestedDisplay()) mRequests.invalidate();
         updateInputBridges();
         updateShowImeOverride();
     }
 
     void releaseForSessionClose(final int displayId, final Runnable completion) {
+        mRequests.release(displayId);
         if (!mTarget.release(displayId)) {
             completion.run();
             return;
         }
         mInputDisplayId = Display.INVALID_DISPLAY;
+        completeSelection(false, "input target was released");
         mPointerReleaseExpected = true;
         PhoneTouchpadController.release(displayId);
         updateShowImeOverride();
@@ -222,6 +251,7 @@ final class RuntimeDisplayInputCoordinator {
 
     private void handleInputSessionStateChanged() {
         if (!mDestroyed) {
+            finishSelectionIfSettled();
             DesktopAutomationEventJournal.record("input", "routing_changed", mInputSession.error().isEmpty(),
                     "requested=" + mInputDisplayId + " ready=" + mInputSession.readyDisplay());
             final boolean ready = mInputSession.isPointerReady(

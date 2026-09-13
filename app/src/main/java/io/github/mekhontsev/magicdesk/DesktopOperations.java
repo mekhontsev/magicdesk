@@ -41,8 +41,12 @@ public final class DesktopOperations {
         TRANSITIONS.removeVirtualDisplay(id, uniqueId, callback::onComplete);
     }
 
-    static void showDesktop(final DesktopDisplayInfo display) {
-        TRANSITIONS.showDesktop(display);
+    static boolean showDesktop(final DesktopDisplayInfo display) {
+        return TRANSITIONS.showDesktop(display);
+    }
+
+    static boolean showDesktop(final DesktopDisplayInfo display, final TaskRepository.ActionCallback callback) {
+        return TRANSITIONS.showDesktop(display, callback);
     }
 
     interface TouchpadRestoreCallback {
@@ -79,26 +83,28 @@ public final class DesktopOperations {
         });
     }
 
-    static void showMagicDesk() {
-        TRANSITIONS.showPreferredDesktop();
+    static boolean showMagicDesk() {
+        return TRANSITIONS.showPreferredDesktop();
     }
 
-    static void showWiredDesktop() {
-        TRANSITIONS.showWiredDesktop();
+    static boolean showWiredDesktop() {
+        return TRANSITIONS.showWiredDesktop();
     }
 
-    static void showWiredDesktop(final DesktopSessionPolicy policy) {
-        TRANSITIONS.showWiredDesktop(policy);
+    static boolean showWiredDesktop(final DesktopSessionPolicy policy) {
+        return TRANSITIONS.showWiredDesktop(policy);
     }
 
-    static void showDesktop(final DesktopDisplayTarget target) {
-        TRANSITIONS.showDesktop(target);
+    static boolean showSimulatedDesktop() { return TRANSITIONS.showSimulatedDesktop(); }
+
+    static boolean showDesktop(final DesktopDisplayTarget target) {
+        return TRANSITIONS.showDesktop(target);
     }
 
-    static void showDesktop(
+    static boolean showDesktop(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
-        TRANSITIONS.showDesktop(target, policy);
+        return TRANSITIONS.showDesktop(target, policy);
     }
 
     static boolean presentDesktopWorkspace(

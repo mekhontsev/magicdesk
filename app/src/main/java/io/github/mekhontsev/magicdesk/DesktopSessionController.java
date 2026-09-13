@@ -22,11 +22,19 @@ final class DesktopSessionController {
     static final class ShowResult {
         final boolean ready;
         final boolean created;
+        final String error;
 
         ShowResult(final boolean ready, final boolean created) {
+            this(ready, created, ready ? "" : "Desktop did not become ready");
+        }
+
+        private ShowResult(boolean ready, boolean created, String error) {
             this.ready = ready;
             this.created = created;
+            this.error = error;
         }
+
+        static ShowResult failed(String error) { return new ShowResult(false, false, error); }
     }
 
     static ShowResult show(final DesktopDisplayTarget target)

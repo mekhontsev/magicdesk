@@ -195,10 +195,34 @@ public final class MagicDeskRuntimeService extends Service
     @Override public boolean inputTransitioning() { return mDisplayInput != null && mDisplayInput.transitioning(); }
     @Override public String inputError() { return mDisplayInput == null ? "" : mDisplayInput.error(); }
 
-    @Override public void selectInputDisplay(final int displayId,
+    private final DisplayInputRequests mInputRequests = new DisplayInputRequests();
+
+    @Override public long inputSelectionVersion() { return mInputRequests.version(); }
+
+    @Override public void releaseSelectedInput(int displayId, TaskRepository.ActionCallback callback) {
+        final DisplayInputRequests.Request request = mInputRequests.beginRelease(displayId);
+        if (!postIfAlive(() -> {
+            if (request == null || !request.isCurrent() || inputDisplayId() != displayId) {
+                callback.onComplete(new TaskRepository.ActionResult(true, "input is no longer selected"));
+                return;
+            }
+            try { mDisplayInput.selectDisplay(-1, callback); }
+            catch (RuntimeException error) {
+                callback.onComplete(new TaskRepository.ActionResult(false, error.getMessage()));
+            }
+        })) callback.onComplete(new TaskRepository.ActionResult(true, "input runtime is closed"));
+    }
+
+    @Override public DisplayInputRequests.Request selectInputDisplay(final int displayId, final long expectedVersion,
             final TaskRepository.ActionCallback callback) {
+        final DisplayInputRequests.Request request = mInputRequests.begin(displayId, expectedVersion);
+        if (request == null) {
+            callback.onComplete(new TaskRepository.ActionResult(false, "input selection was superseded"));
+            return null;
+        }
         if (!postIfAlive(() -> {
             try {
+                if (!request.isCurrent()) { throw new IllegalStateException("input selection was cancelled or superseded"); }
                 if (!ShellAccess.isReady()) { throw new IllegalStateException("privileged service is unavailable"); }
                 if (DesktopOperations.isSessionTransitionInProgress()) {
                     throw new IllegalStateException("desktop transition is in progress");
@@ -207,12 +231,12 @@ public final class MagicDeskRuntimeService extends Service
                     throw new IllegalArgumentException("input display is unavailable");
                 }
                 ensureInputRuntime();
-                mDisplayInput.selectDisplay(displayId);
-                callback.onComplete(new TaskRepository.ActionResult(true, "input target requested"));
+                mDisplayInput.selectDisplay(displayId, callback);
             } catch (RuntimeException error) {
                 callback.onComplete(new TaskRepository.ActionResult(false, error.getMessage()));
             }
         })) { callback.onComplete(new TaskRepository.ActionResult(false, "input runtime is closed")); }
+        return request;
     }
 
     @Override
@@ -474,7 +498,7 @@ public final class MagicDeskRuntimeService extends Service
 
     private void ensureInputRuntime() {
         if (mDisplayInput == null) {
-            mDisplayInput = new RuntimeDisplayInputCoordinator(this, mHandler, () -> {
+            mDisplayInput = new RuntimeDisplayInputCoordinator(this, mHandler, mInputRequests, () -> {
                 updateNotification();
                 ControlActivity.refreshInputState();
                 MagicDeskTouchpadActivity.refreshInputControls();

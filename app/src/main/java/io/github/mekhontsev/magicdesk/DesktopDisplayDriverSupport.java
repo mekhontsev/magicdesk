@@ -13,11 +13,11 @@ final class DesktopDisplayDriverSupport {
     private DesktopDisplayDriverSupport() {
     }
 
-    static void showReadySecondary(final DesktopDisplayTarget target) {
-        showReadySecondary(target, DesktopSessionPolicy.USER);
+    static DesktopSessionController.ShowResult showReadySecondary(final DesktopDisplayTarget target) {
+        return showReadySecondary(target, DesktopSessionPolicy.USER);
     }
 
-    static void showReadySecondary(
+    static DesktopSessionController.ShowResult showReadySecondary(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         if (target == null
@@ -42,14 +42,14 @@ final class DesktopDisplayDriverSupport {
                         error);
             }
         }
-        showPrepared(preparedTarget, policy);
+        return showPrepared(preparedTarget, policy);
     }
 
-    static void showPrepared(final DesktopDisplayTarget target) {
-        showPrepared(target, DesktopSessionPolicy.USER);
+    static DesktopSessionController.ShowResult showPrepared(final DesktopDisplayTarget target) {
+        return showPrepared(target, DesktopSessionPolicy.USER);
     }
 
-    static void showPrepared(
+    static DesktopSessionController.ShowResult showPrepared(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         final DesktopDisplayDriver driver =
@@ -64,6 +64,7 @@ final class DesktopDisplayDriverSupport {
                             .openTouchpadAutomatically) {
                 PhoneTouchpadController.open(target.workspaceDisplayId);
             }
+            return result;
         } catch (IOException error) {
             Log.w(TAG, "Desktop launch failed", error);
             CompatibilityDiagnostics.record(
@@ -73,6 +74,7 @@ final class DesktopDisplayDriverSupport {
                             + " display=" + target.workspaceDisplayId
                             + " error=" + error.getMessage(),
                     error);
+            return DesktopSessionController.ShowResult.failed(ShellAccess.usefulMessage(error));
         }
     }
 

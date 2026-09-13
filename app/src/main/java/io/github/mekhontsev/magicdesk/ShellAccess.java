@@ -1212,6 +1212,17 @@ public final class ShellAccess {
         }
     }
 
+    static IDisplayViewer openDisplayViewer(DesktopDisplayInfo source, DesktopDisplayInfo output,
+            IBinder owner) throws IOException {
+        try {
+            return requireService().openDisplayViewer(source.id, source.uniqueId,
+                    output.id, output.uniqueId, VIRTUAL_DISPLAY_OWNER, owner);
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("could not open display viewer: " + usefulMessage(error), error);
+        }
+    }
+
     static ShellInputRoutingHandle openInputRouting(
             final int displayId, final boolean desktopShortcuts) throws IOException {
         if (displayId < 0) {

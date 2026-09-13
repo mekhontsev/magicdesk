@@ -38,48 +38,57 @@ final class DesktopSessionTransitionCoordinator {
         mPhoneUi = phoneUi;
     }
 
-    void showPreferredDesktop() {
-        enqueueDesktopStart(this::showPreferredDesktopNow);
+    boolean showPreferredDesktop() {
+        return enqueueDesktopStart(this::showPreferredDesktopNow, null);
     }
 
-    void showWiredDesktop() {
-        showWiredDesktop(DesktopSessionPolicy.USER);
+    boolean showWiredDesktop() {
+        return showWiredDesktop(DesktopSessionPolicy.USER);
     }
 
-    void showWiredDesktop(final DesktopSessionPolicy policy) {
+    boolean showWiredDesktop(final DesktopSessionPolicy policy) {
         if (!mFeatures.supportsDisplay(
                 DesktopDisplayOutput.Kind.WIRED)) {
             throw new IllegalStateException(
                     "wired displays are unsupported by the current platform");
         }
-        enqueueDesktopStart(
-                () -> DesktopDisplayDrivers.activateWired(null, policy));
+        return enqueueDesktopStart(
+                () -> DesktopDisplayDrivers.activateWired(null, policy), null);
     }
 
-    void showDesktop(final DesktopDisplayInfo display) {
+    boolean showSimulatedDesktop() {
+        return enqueueDesktopStart(SimulatedDesktopDisplayController::show, null);
+    }
+
+    boolean showDesktop(final DesktopDisplayInfo display) {
+        return showDesktop(display, null);
+    }
+
+    boolean showDesktop(final DesktopDisplayInfo display, final TaskRepository.ActionCallback callback) {
         if (display == null || !display.canHostDesktop) {
             throw new IllegalArgumentException("an available desktop display is required");
         }
         if (!mFeatures.supportsDisplay(display.target().output.kind)) {
             throw new IllegalStateException("display target is unsupported by the current platform");
         }
-        enqueueDesktopStart(() -> {
+        return enqueueDesktopStart(() -> {
             try {
                 final DesktopDisplayTarget target =
                         DesktopDisplayCatalog.require(display.id, display.uniqueId).target();
-                DesktopDisplayDrivers.forTarget(target).showReady(null, target, DesktopSessionPolicy.USER);
+                return DesktopDisplayDrivers.forTarget(target).showReady(null, target, DesktopSessionPolicy.USER);
             } catch (java.io.IOException error) {
                 CompatibilityDiagnostics.record("DISPLAY-START-001",
                         "Selected display is unavailable", error.getMessage(), error);
+                return DesktopSessionController.ShowResult.failed(ShellAccess.usefulMessage(error));
             }
-        });
+        }, callback);
     }
 
-    void showDesktop(final DesktopDisplayTarget target) {
-        showDesktop(target, DesktopSessionPolicy.USER);
+    boolean showDesktop(final DesktopDisplayTarget target) {
+        return showDesktop(target, DesktopSessionPolicy.USER);
     }
 
-    void showDesktop(
+    boolean showDesktop(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
         if (target == null
@@ -91,8 +100,8 @@ final class DesktopSessionTransitionCoordinator {
             throw new IllegalStateException(
                     "display target is unsupported by the current platform");
         }
-        enqueueDesktopStart(() -> DesktopDisplayDrivers.forTarget(target)
-                .showReady(null, target, policy));
+        return enqueueDesktopStart(() -> DesktopDisplayDrivers.forTarget(target)
+                .showReady(null, target, policy), null);
     }
 
     void closeDesktop(
@@ -424,7 +433,7 @@ final class DesktopSessionTransitionCoordinator {
         return mode == DesktopCloseMode.CONTROL_PANEL && !panelVisible;
     }
 
-    private void showPreferredDesktopNow() {
+    private DesktopSessionController.ShowResult showPreferredDesktopNow() {
         final boolean wiredSupported = mFeatures.supportsDisplay(
                 DesktopDisplayOutput.Kind.WIRED);
         final boolean wirelessSupported = mFeatures.supportsDisplay(
@@ -432,45 +441,53 @@ final class DesktopSessionTransitionCoordinator {
         if (wiredSupported
                 && ExternalDisplayController.findExternalDisplayId()
                         > Display.DEFAULT_DISPLAY) {
-            DesktopDisplayDrivers.activateWired(null);
-            return;
+            return DesktopDisplayDrivers.activateWired(null);
         }
         final int wirelessDisplayId =
                 ExternalDisplayController.findWirelessDisplayId();
         if (wirelessSupported
                 && wirelessDisplayId > Display.DEFAULT_DISPLAY) {
-            DesktopDisplayDrivers
+            return DesktopDisplayDrivers
                     .forKind(DesktopDisplayOutput.Kind.WIRELESS)
                     .showReady(
                             null,
                             DesktopDisplayTarget.wireless(
                                     wirelessDisplayId));
-            return;
         }
         if (mFeatures.supportsDisplay(
                 DesktopDisplayOutput.Kind.SIMULATED)) {
-            SimulatedDesktopDisplayController.show();
-            return;
+            return SimulatedDesktopDisplayController.show();
         }
         Log.i(TAG, "No desktop display is available");
+        return DesktopSessionController.ShowResult.failed("No desktop display is available");
     }
 
-    private void enqueueDesktopStart(final Runnable action) {
-        if (mGate.isActive(DesktopTransitionGate.Operation.CLOSE)) {
-            Log.i(TAG, "Desktop close is already in progress");
-            return;
-        }
+    private boolean enqueueDesktopStart(final java.util.function.Supplier<DesktopSessionController.ShowResult> action,
+            final TaskRepository.ActionCallback callback) {
         if (!mGate.begin(DesktopTransitionGate.Operation.START)) {
             Log.i(TAG, "Another desktop transition is already in progress");
-            return;
+            if (callback != null) callback.onComplete(new TaskRepository.ActionResult(false,
+                    "Another desktop transition is already in progress"));
+            return false;
         }
         mOperations.execute(() -> {
+            final TaskRepository.ActionResult result;
             try {
-                action.run();
-            } finally {
+                final DesktopSessionController.ShowResult shown = action.get();
+                result = new TaskRepository.ActionResult(shown.ready,
+                        shown.ready ? "Desktop opened" : shown.error);
+            } catch (RuntimeException error) {
                 finishOperation(DesktopTransitionGate.Operation.START);
+                CompatibilityDiagnostics.record("DISPLAY-START-001", "Desktop start failed",
+                        ShellAccess.usefulMessage(error), error);
+                if (callback != null) callback.onComplete(new TaskRepository.ActionResult(false,
+                        ShellAccess.usefulMessage(error)));
+                return;
             }
+            finishOperation(DesktopTransitionGate.Operation.START);
+            if (callback != null) callback.onComplete(result);
         });
+        return true;
     }
 
     private static PlatformProjectionDriver.Transport transportFor(

@@ -51,8 +51,11 @@ final class DisplayCaptureService {
     private Frame resolve(final int displayId) throws IOException {
         if (displayId < 0) throw new IllegalArgumentException("invalid display id");
         final DisplayManager manager = mContext.getSystemService(DisplayManager.class);
-        final Display display = manager == null ? null : manager.getDisplay(displayId);
-        if (display == null) throw new IOException("display is unavailable");
+        final Display target = manager == null ? null : manager.getDisplay(displayId);
+        if (target == null) throw new IOException("display is unavailable");
+        // Application resources may currently describe an Activity on another
+        // display. Bind metrics to the capture target, not that Activity.
+        final Display display = mContext.createDisplayContext(target).getDisplay();
         final Point size = new Point();
         display.getRealSize(size);
         if (size.x <= 0 || size.y <= 0) throw new IOException("display has invalid dimensions");

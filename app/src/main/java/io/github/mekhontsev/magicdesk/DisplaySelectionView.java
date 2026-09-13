@@ -27,6 +27,7 @@ final class DisplaySelectionView {
         void createDisplay(VirtualDisplaySpec spec, boolean preview);
         void removeDisplay(DesktopDisplayInfo display);
         void setExternalOutputTiming(String outputTiming);
+        void startPortableDesktop(DesktopDisplayInfo output);
     }
 
     private final Activity mActivity;
@@ -37,6 +38,7 @@ final class DisplaySelectionView {
     private final ImageButton mCreate;
     private final ImageButton mDelete;
     private final ImageButton mCopy;
+    private final ImageButton mMore;
     private final TextView mCommand;
     private final ArrayAdapter<String> mLabels;
     private final Button mOutput;
@@ -91,6 +93,12 @@ final class DisplaySelectionView {
                     .show();
         });
         row.addView(mDelete, new LinearLayout.LayoutParams(dp(48), dp(52)));
+        mMore = ui.menuIconButton(R.drawable.ic_more, R.string.display_actions);
+        mMore.setOnClickListener(v -> {
+            if (mSelected != null) DisplayPresentationMenu.show(mActivity, mMore,
+                    mSelected, mDisplays, mActions::startPortableDesktop);
+        });
+        row.addView(mMore, new LinearLayout.LayoutParams(dp(48), dp(52)));
         final LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
         rowParams.topMargin = dp(12);
         parent.addView(row, rowParams);
@@ -174,6 +182,7 @@ final class DisplaySelectionView {
                 android.os.Build.VERSION.SDK_INT));
         mCreate.setEnabled(shellReady && !busy);
         mDelete.setEnabled(shellReady && !busy && mSelected != null && mSelected.canRemove());
+        mMore.setEnabled(shellReady && !busy && mSelected != null);
         final boolean remote = mSelected != null
                 && ("virtual".equals(mSelected.source) || "overlay".equals(mSelected.source));
         mCommand.setText(remote ? DesktopDisplayCatalog.scrcpyCommand(mSelected) : "");
@@ -210,7 +219,10 @@ final class DisplaySelectionView {
     }
 
     private String label(final DesktopDisplayInfo display) {
+        final DisplayPresentations.Session presentation = DisplayPresentations.forSource(display.id);
         return display.name + " [" + display.id + "]"
+                + (presentation == null ? "" : " - " + mActivity.getString(
+                        R.string.display_presented_on, presentation.output.name, presentation.output.id))
                 + (display.canHostDesktop ? "" : " (" + mActivity.getString(R.string.display_unavailable) + ")");
     }
 

@@ -45,7 +45,10 @@ interface MagicDeskRuntimeBackend {
     boolean inputTransitioning();
     String inputError();
 
-    void selectInputDisplay(int displayId, TaskRepository.ActionCallback callback);
+    long inputSelectionVersion();
+    void releaseSelectedInput(int displayId, TaskRepository.ActionCallback callback);
+    DisplayInputRequests.Request selectInputDisplay(int displayId, long expectedVersion,
+            TaskRepository.ActionCallback callback);
 
     void releaseDisplayInput(int displayId, Runnable completion);
 

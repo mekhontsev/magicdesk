@@ -35,11 +35,11 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
         return DesktopDisplayTarget.wired(displayId);
     }
 
-    void activate(final Activity source) {
-        activate(source, DesktopSessionPolicy.USER);
+    DesktopSessionController.ShowResult activate(final Activity source) {
+        return activate(source, DesktopSessionPolicy.USER);
     }
 
-    void activate(
+    DesktopSessionController.ShowResult activate(
             final Activity source,
             final DesktopSessionPolicy policy) {
         final int connectedDisplayId =
@@ -49,13 +49,13 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                     "DISPLAY-EXTERNAL-001",
                     "Could not open MagicDesk on the wired display",
                     "no connected wired display was reported");
-            return;
+            return DesktopSessionController.ShowResult.failed("No connected wired display");
         }
-        showReady(source, target(connectedDisplayId), policy);
+        return showReady(source, target(connectedDisplayId), policy);
     }
 
     @Override
-    public void showReady(
+    public DesktopSessionController.ShowResult showReady(
             final Activity source,
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
@@ -92,7 +92,7 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                 }
             }
             ExternalDisplayController.ensureLandscape(readyTarget.workspaceDisplayId);
-            DesktopDisplayDriverSupport.showReadySecondary(
+            return DesktopDisplayDriverSupport.showReadySecondary(
                     readyTarget, policy);
         } catch (IOException | RuntimeException error) {
             android.util.Log.w(TAG, "Wired display preparation failed", error);
@@ -101,6 +101,7 @@ final class WiredDisplayDriver implements DesktopDisplayDriver {
                     "Could not prepare the wired display",
                     error.getMessage(),
                     error);
+            return DesktopSessionController.ShowResult.failed(ShellAccess.usefulMessage(error));
         }
     }
 

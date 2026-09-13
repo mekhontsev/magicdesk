@@ -207,6 +207,7 @@ final class DesktopAutomationStateReader {
         return new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())
                 .put("displays", displays)
+                .put("presentations", DisplayPresentations.snapshot())
                 .put("catalogError", catalogError == null ? JSONObject.NULL : catalogError);
     }
 
@@ -481,8 +482,9 @@ final class DesktopAutomationStateReader {
         return result;
     }
 
-    private JSONObject displayJson(final Display display)
+    private JSONObject displayJson(final Display target)
             throws JSONException {
+        final Display display = mContext.createDisplayContext(target).getDisplay();
         final Point realSize = new Point();
         display.getRealSize(realSize);
         final DisplayMetrics metrics = new DisplayMetrics();

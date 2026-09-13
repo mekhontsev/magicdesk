@@ -33,6 +33,7 @@ public final class ControlActivity extends Activity
     private SessionProfile mSessionProfile;
     private boolean mStartupAuditRunning;
     private boolean mStartupPrepared;
+    private Runnable mStartupRequest;
     private boolean mReturnToPanelAfterWirelessConnection;
     private boolean mWirelessConnectionUiAvailable;
     private int mOutputGeneration;
@@ -75,11 +76,12 @@ public final class ControlActivity extends Activity
         setIntent(intent);
     }
 
-    private void runStartupAudit() {
+    private void runStartupAudit(final Runnable request) {
         if (mStartupAuditRunning) {
             return;
         }
         mStartupAuditRunning = true;
+        mStartupRequest = request;
         new Thread(() -> {
             try {
                 final DeviceSetupManager.Audit audit = DeviceSetupManager.audit(
@@ -114,6 +116,7 @@ public final class ControlActivity extends Activity
             return;
         }
         mStartupAuditRunning = false;
+        mStartupRequest = null;
         DeviceSetupManager.revokeRuntimeAuthorization(this);
         final Intent setupIntent = DeviceSetupActivity.createLaunchIntent(this);
         mSessionProfile.writeToIntent(setupIntent);
@@ -136,8 +139,10 @@ public final class ControlActivity extends Activity
             return;
         }
         mStartupPrepared = false;
+        final Runnable request = mStartupRequest;
+        mStartupRequest = null;
         DeviceSetupManager.authorizeRuntime(this);
-        startSelectedDesktop();
+        if (request != null) request.run();
     }
 
     @Override
@@ -256,7 +261,7 @@ public final class ControlActivity extends Activity
             return;
         }
         if (!DeviceSetupManager.isRuntimeAuthorized()) {
-            runStartupAudit();
+            runStartupAudit(this::startSelectedDesktop);
             return;
         }
         final DesktopDisplayInfo display = selectedDisplay();
@@ -290,6 +295,21 @@ public final class ControlActivity extends Activity
             refreshCatalog();
             refresh();
         }));
+    }
+
+    @Override public void startPortableDesktop(final DesktopDisplayInfo output) {
+        if (!DeviceSetupManager.isRuntimeAuthorized()) { runStartupAudit(() -> startPortableDesktop(output)); return; }
+        if (mDisplayOperation || DesktopOperations.isSessionTransitionInProgress()) return;
+        mDisplayOperation = true;
+        refresh();
+        DesktopPresentationLauncher.start(this, output, (source, error) -> {
+            if (isActivityUnavailable()) return;
+            mDisplayOperation = false;
+            if (source != null) mSelectedDisplayUniqueId = source.uniqueId;
+            if (error != null) mStatus = error;
+            refreshCatalog();
+            refresh();
+        });
     }
 
     @Override

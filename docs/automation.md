@@ -403,7 +403,7 @@ it is not a fresh Android role-holder query. `get_state.inputControl` independen
 `requestedDisplayId`, `readyDisplayId`, `transitioning` and `error`, including
 manual control without Desktop or on a different display.
 Launch, task, UI and injected-input commands continue to address logical Android
-displays. This state model does not expose an output-switching operation.
+displays. Viewer presentation bindings are separate from these task targets.
 
 `list_displays` publishes source, uniqueId, dimensions, densityDpi,
 defaultDisplay, builtIn, canHostDesktop, owned and canRemove. Default-display
@@ -431,9 +431,32 @@ MagicDesk starts on it.
   It first closes any session on that display, releases its selected input and
   waits for window transitions.
   Then wait for `display_absent`; a removal request is not a display-loss event.
+- `open_display_viewer(sourceDisplayId, outputDisplayId, fullscreen)` presents
+  a live source in an ordinary window on another display. MagicDesk-owned virtual
+  sources connect directly; existing screens are mirrored through WindowManager.
+  Built-in sources use their individual IDs, not an implicit display-0 selection.
+  It does not start Desktop or claim physical input. Completion confirms Surface
+  attachment, not the first rendered frame. Repeating the same source/output
+  reuses its live presentation and applies the requested fullscreen state;
+  another source on that output changes the viewer.
+- `select_display_viewer(viewerId, sourceDisplayId)` changes only presentation.
+  If another viewer owns that source, the two sources are exchanged. Omitting
+  `sourceDisplayId` selects the previous source. Completion commits both bindings,
+  waits for visible participants' attachments and any already-acquired input
+  handoff. A hidden viewer attaches when shown; it does not block the visible
+  peer and remains `ready=false`. Task IDs, display IDs,
+  window bounds and density do not change.
+- `park_display_viewer(viewerId)` releases the viewer and its selected input,
+  keeping the source and its applications/optional Desktop alive. Direct sources
+  return to their own sink; closing a mirror removes only its copied scene.
+  Repeating an absent viewer ID succeeds. A disconnected output also parks
+  the viewer; reconnect by choosing its fresh display catalog entry.
+  Pending viewer input acquisition is cancelled at the input runtime; a later
+  explicit selection of another display is preserved.
 - `control_display(displayId)` explicitly routes phone-attached physical mice
   and keyboards and enables the phone touchpad for an external display. Use
-  `-1` to release input and restore prior routing. Wait for `input_ready` with
+  `-1` to release input and restore prior routing. Completion confirms routing,
+  not virtual pointer readiness. Observe `input_ready` with
   the same display ID (including `-1`); `pointer_ready` separately verifies the
   phone mouse transport. No HOME or Desktop is acquired. Desktop shortcuts are
   enabled only when the selected display hosts its prepared workspace.
@@ -443,6 +466,19 @@ MagicDesk starts on it.
   its source are revalidated; launch acceptance must be followed by task/UI
   observation. This action never claims input. Built-ins retain `open_builtin`
   and terminal-session commands, using the same destination policy.
+
+`list_displays.presentations` reports each viewer's UUID, exact source/output
+display identities, `mode` (`direct` or `mirror`), attachment `ready`, fullscreen
+state and error. Viewer
+operations publish `display/presentation_changed` events. `OUTCOME_UNKNOWN`
+means only the callback observation expired; it never cancels an operation.
+Re-list presentations after an uncertain switch, especially before repeating
+a previous-source action that would otherwise switch back again. Capturing a
+viewer output captures its scaling and letterboxing; capturing the source
+continues to use original logical coordinates.
+Loss of the privileged viewer lease clears readiness and reports an error.
+Selecting the same source retries the binding; stale errors from a previous
+connection cannot invalidate a new one.
 
 The panel copies an existing-display command such as
 `scrcpy --display-id=3 --mouse-bind=++++ --shortcut-mod=rctrl`.

@@ -55,14 +55,14 @@ final class DesktopDisplayDrivers {
         return forKind(target.output.kind);
     }
 
-    static void activateWired(final android.app.Activity source) {
-        activateWired(source, DesktopSessionPolicy.USER);
+    static DesktopSessionController.ShowResult activateWired(final android.app.Activity source) {
+        return activateWired(source, DesktopSessionPolicy.USER);
     }
 
-    static void activateWired(
+    static DesktopSessionController.ShowResult activateWired(
             final android.app.Activity source,
             final DesktopSessionPolicy policy) {
-        WIRED.activate(source, policy);
+        return WIRED.activate(source, policy);
     }
 
     static boolean hasActiveWorkspace(final int displayId) {

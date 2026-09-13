@@ -11,14 +11,14 @@ interface DesktopDisplayDriver {
     DesktopDisplayTarget target(int displayId);
 
     /** Opens a normal user desktop on a ready logical task-host display. */
-    default void showReady(
+    default DesktopSessionController.ShowResult showReady(
             final Activity source,
             final DesktopDisplayTarget target) {
-        showReady(source, target, DesktopSessionPolicy.USER);
+        return showReady(source, target, DesktopSessionPolicy.USER);
     }
 
     /** Opens the desktop with an explicit workspace lifecycle policy. */
-    void showReady(
+    DesktopSessionController.ShowResult showReady(
             Activity source,
             DesktopDisplayTarget target,
             DesktopSessionPolicy policy);

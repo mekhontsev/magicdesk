@@ -25,6 +25,7 @@ final class KeyboardShortcutStateMachine {
         SNAP_LEFT,
         SNAP_RIGHT,
         SHOW_DESKTOP,
+        SWITCH_DISPLAY,
         SCREENSHOT,
         SCREEN_RECORDING,
         SHORTCUT_HELP
@@ -86,6 +87,9 @@ final class KeyboardShortcutStateMachine {
 
     private static Action action(final int key, final boolean ctrl, final boolean alt,
             final boolean shift, final boolean meta) {
+        if (ctrl && alt && !shift && !meta && key == KeyEvent.KEYCODE_TAB) {
+            return Action.SWITCH_DISPLAY;
+        }
         if (alt && !ctrl && !meta) {
             if (key == KeyEvent.KEYCODE_TAB) {
                 return shift ? Action.ALT_TAB_REVERSE : Action.ALT_TAB_FORWARD;

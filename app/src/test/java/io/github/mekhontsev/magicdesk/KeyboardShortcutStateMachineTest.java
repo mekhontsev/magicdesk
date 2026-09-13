@@ -6,6 +6,15 @@ import static org.junit.Assert.*;
 import static io.github.mekhontsev.magicdesk.KeyboardShortcutStateMachine.Action.*;
 
 public final class KeyboardShortcutStateMachineTest {
+    @Test public void displaySwitchDoesNotStartAnApplicationAltTabCycle() {
+        final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
+        assertEquals(SWITCH_DISPLAY, s.accept(KeyEvent.KEYCODE_TAB, true, 0,
+                true, true, false, false).action);
+        assertTrue(s.accept(KeyEvent.KEYCODE_TAB, false, 0, true, true, false, false).consumed);
+        assertEquals(NONE, s.accept(KeyEvent.KEYCODE_ALT_LEFT, false, 0,
+                true, false, false, false).action);
+        assertFalse(s.reset());
+    }
     @Test public void altTabConsumesBothTabEdgesAndCommitsOnlyOnFinalAltRelease() {
         final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
         assertFalse(s.accept(KeyEvent.KEYCODE_ALT_LEFT, true, 0, false, true, false, false).consumed);

@@ -467,4 +467,7 @@ interface IShellCommandService {
     String captureSecondaryHome(int userId) = 135;
     void claimSecondaryHome(int userId) = 136;
     void restoreSecondaryHome(int userId, String componentName) = 137;
+    io.github.mekhontsev.magicdesk.IDisplayViewer openDisplayViewer(
+        int sourceDisplayId, String sourceUniqueId, int outputDisplayId,
+        String outputUniqueId, IBinder displayOwner, IBinder viewerOwner) = 138;
 }

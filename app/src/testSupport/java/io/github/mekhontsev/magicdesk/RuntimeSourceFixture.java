@@ -1,10 +1,12 @@
 package io.github.mekhontsev.magicdesk;
 
 import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.TryTree;
 import com.sun.source.util.JavacTask;
 import com.sun.source.util.TreeScanner;
+import com.sun.source.util.Trees;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -31,6 +33,14 @@ final class RuntimeSourceFixture {
     }
 
     static String methods(final String file, final String... names) throws IOException {
+        return methods(file, false, names);
+    }
+
+    static String topLevelMethods(final String file, final String... names) throws IOException {
+        return methods(file, true, names);
+    }
+
+    private static String methods(final String file, boolean topLevel, final String... names) throws IOException {
         final JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         final List<String> requested = Arrays.asList(names);
         final StringBuilder methods = new StringBuilder();
@@ -41,6 +51,10 @@ final class RuntimeSourceFixture {
                     files.getJavaFileObjects(Path.of(MAIN + file + ".java").toFile()));
             for (final CompilationUnitTree unit : task.parse()) {
                 new TreeScanner<Void, Void>() {
+                    @Override public Void visitClass(final ClassTree node, final Void unused) {
+                        return !topLevel || node.getSimpleName().contentEquals(file)
+                                ? super.visitClass(node, unused) : null;
+                    }
                     @Override public Void visitMethod(final MethodTree method, final Void unused) {
                         if (requested.contains(method.getName().toString())) {
                             methods.append(standaloneMethod(method.toString()))
@@ -57,6 +71,32 @@ final class RuntimeSourceFixture {
     static String standaloneMethod(final String source) {
         // Javac's tree printer uses host line endings even for LF source files.
         return source.replace("\r\n", "\n").replace("@Override\n", "");
+    }
+
+    static String nestedClass(final String file, final String name) throws IOException {
+        final JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        final Path path = Path.of(MAIN + file + ".java");
+        final String source = Files.readString(path);
+        final StringBuilder result = new StringBuilder();
+        try (StandardJavaFileManager files = compiler.getStandardFileManager(null, null, StandardCharsets.UTF_8)) {
+            final JavacTask task = (JavacTask) compiler.getTask(null, files, null, List.of("-proc:none"), null,
+                    files.getJavaFileObjects(path.toFile()));
+            final var positions = Trees.instance(task).getSourcePositions();
+            for (final CompilationUnitTree unit : task.parse()) {
+                new TreeScanner<Void, Void>() {
+                    @Override public Void visitClass(ClassTree node, Void unused) {
+                        if (node.getSimpleName().contentEquals(name)) {
+                            result.append(source, (int) positions.getStartPosition(unit, node),
+                                    (int) positions.getEndPosition(unit, node));
+                            return null;
+                        }
+                        return super.visitClass(node, unused);
+                    }
+                }.scan(unit, null);
+            }
+        }
+        if (result.isEmpty()) throw new IllegalArgumentException("missing class " + file + "." + name);
+        return result.toString();
     }
 
     static void verify(final String members) throws Exception {

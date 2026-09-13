@@ -130,6 +130,10 @@ final class BuiltInDesktopAppCatalog {
             AppLaunchTarget.explicit(PACKAGE_NAME, UserPromptActivity.class.getName(), ""),
             R.string.script_dialog, false, true, false, false,
             new RelativeWindowBounds(5000, 5000, 4000, 5500));
+    private static final Entry DISPLAY_VIEWER = new Entry(
+            AppLaunchTarget.explicit(PACKAGE_NAME, DisplayViewerActivity.class.getName(), ""),
+            R.string.display_viewer, false, true, false, false,
+            new RelativeWindowBounds(5000, 5000, 7000, 8000));
     private static final List<Entry> ENTRIES = Collections.unmodifiableList(
             Arrays.asList(
                     FILES,
@@ -140,7 +144,7 @@ final class BuiltInDesktopAppCatalog {
                     DIAGNOSTICS,
                     LOG_VIEWER,
                     ACTIVITY_EXPLORER,
-                    USER_PROMPT));
+                    USER_PROMPT, DISPLAY_VIEWER));
 
     private BuiltInDesktopAppCatalog() {
     }
@@ -190,7 +194,7 @@ final class BuiltInDesktopAppCatalog {
     static List<Entry> searchEntries() {
         final List<Entry> result = new ArrayList<>();
         for (final Entry entry : ENTRIES) {
-            if (entry != LOG_VIEWER && entry != USER_PROMPT) {
+            if (entry != LOG_VIEWER && entry != USER_PROMPT && entry != DISPLAY_VIEWER) {
                 result.add(entry);
             }
         }

@@ -272,8 +272,14 @@ public final class MagicDeskRuntimeTest {
         @Override public int readyInputDisplayId() { return -1; }
         @Override public boolean inputTransitioning() { return false; }
         @Override public String inputError() { return ""; }
-        @Override public void selectInputDisplay(int id, TaskRepository.ActionCallback callback) {
+        @Override public long inputSelectionVersion() { return 0; }
+        @Override public void releaseSelectedInput(int id, TaskRepository.ActionCallback callback) {
             callback.onComplete(new TaskRepository.ActionResult(true, "requested"));
+        }
+        @Override public DisplayInputRequests.Request selectInputDisplay(int id, long expectedVersion,
+                TaskRepository.ActionCallback callback) {
+            callback.onComplete(new TaskRepository.ActionResult(true, "requested"));
+            return new DisplayInputRequests().begin(id, -1);
         }
 
         @Override

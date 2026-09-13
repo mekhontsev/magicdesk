@@ -17,11 +17,11 @@ final class SimulatedDesktopDisplayController {
     private SimulatedDesktopDisplayController() {
     }
 
-    static void show() {
+    static DesktopSessionController.ShowResult show() {
         int displayId = Display.INVALID_DISPLAY;
         try {
             displayId = acquire();
-            DesktopDisplayDrivers
+            return DesktopDisplayDrivers
                     .forKind(DesktopDisplayOutput.Kind.SIMULATED)
                     .showReady(
                             null,
@@ -33,6 +33,7 @@ final class SimulatedDesktopDisplayController {
                     "Could not open the simulated desktop",
                     usefulMessage(error),
                     error);
+            return DesktopSessionController.ShowResult.failed(usefulMessage(error));
         }
     }
 

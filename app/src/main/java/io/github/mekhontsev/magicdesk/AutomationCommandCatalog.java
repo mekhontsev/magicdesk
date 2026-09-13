@@ -123,6 +123,20 @@ final class AutomationCommandCatalog {
                                 .put("height", integerProperty("Display height in pixels."))
                                 .put("densityDpi", integerProperty("Display density; default 160.")),
                                 "width", "height")))
+                .put(actionTool("open_display_viewer", "Open display viewer",
+                        "Show a display in a window on another display, with aspect-fit scaling. Owned virtual sources connect directly; other sources, including the phone, are mirrored. Waits for Surface attachment, not a rendered frame. Does not start Desktop, move tasks or claim physical input. OUTCOME_UNKNOWN does not cancel launch; observe list_displays.presentations before retrying.",
+                        objectSchema(new JSONObject()
+                                .put("sourceDisplayId", integerProperty("Existing source display, including display 0."))
+                                .put("outputDisplayId", integerProperty("Display on which to open the viewer."))
+                                .put("fullscreen", booleanProperty("Hide viewer controls and request immersive presentation.")),
+                                "sourceDisplayId", "outputDisplayId")))
+                .put(actionTool("select_display_viewer", "Select viewer source",
+                        "Change a viewer's source without moving applications; if another viewer shows it, exchange both sources. Waits for visible viewers' attachments and acquired input handoff; hidden viewers attach when shown. Omit sourceDisplayId for the previous source. OUTCOME_UNKNOWN does not cancel switching; re-list presentations before retrying a previous-source command.",
+                        objectSchema(new JSONObject().put("viewerId", stringProperty("Live presentation ID."))
+                                .put("sourceDisplayId", integerProperty("New source display; omitted means previous.")), "viewerId")))
+                .put(actionTool("park_display_viewer", "Park display viewer",
+                        "Close only the viewer, retaining the source display, applications and Desktop. Direct sources return to their own sink; mirrors are detached. Repeating an absent viewer ID succeeds.",
+                        objectSchema(new JSONObject().put("viewerId", stringProperty("Presentation ID.")), "viewerId")))
                 .put(actionTool(
                         "remove_display", "Remove display",
                         "Close any desktop on this display, then remove only the selected MagicDesk-owned display. Safe to repeat with the same displayId and uniqueId: retries join pending removal and absence succeeds. OUTCOME_UNKNOWN does not cancel removal. Observe display_absent for Android publication.",
@@ -131,7 +145,7 @@ final class AutomationCommandCatalog {
                                 .put("uniqueId", stringProperty("Exact identity returned by list_displays.")),
                                 "displayId", "uniqueId")))
                 .put(actionTool("control_display", "Control display",
-                        "Route phone-attached mice and keyboards to a display without starting Desktop. Use -1 to restore prior routes. Acceptance is separate from input readiness.",
+                        "Route phone-attached mice and keyboards to a display without starting Desktop. Use -1 to restore prior routes. Waits for routing readiness; OUTCOME_UNKNOWN does not cancel selection.",
                         objectSchema(new JSONObject().put("displayId", integerProperty(
                                 "Destination display ID, or -1 to release input.")), "displayId")))
                 .put(actionTool("move_task", "Move task",

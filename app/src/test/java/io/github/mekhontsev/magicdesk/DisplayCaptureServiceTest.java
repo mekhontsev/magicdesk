@@ -7,6 +7,43 @@ import java.io.IOException;
 import org.junit.Test;
 
 public final class DisplayCaptureServiceTest {
+    @Test public void captureMetricsBelongToTargetNotLastApplicationActivity() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static class Point { int x, y; }
+                static class Display {
+                    int id;
+                    boolean scoped;
+                    Display(int id, boolean scoped) { this.id = id; this.scoped = scoped; }
+                    void getRealSize(Point point) {
+                        point.x = scoped && id == 0 ? 1216 : 480;
+                        point.y = scoped && id == 0 ? 2688 : 800;
+                    }
+                    int getRotation() { return scoped && id == 0 ? 0 : 1; }
+                }
+                static class DisplayManager {
+                    Display getDisplay(int id) { return id < 2 ? new Display(id, false) : null; }
+                }
+                static class Context {
+                    int id;
+                    DisplayManager getSystemService(Class<?> type) { return new DisplayManager(); }
+                    Context createDisplayContext(Display display) {
+                        Context context = new Context(); context.id = display.id; return context;
+                    }
+                    Display getDisplay() { return new Display(id, true); }
+                }
+                final Context mContext = new Context();
+                record Frame(int displayId, int width, int height, int rotation) { }
+                public static void verify() throws Exception {
+                    Fixture fixture = new Fixture();
+                    check(fixture.resolve(0).equals(new Frame(0, 1216, 2688, 0)),
+                            "phone inherited virtual Activity metrics");
+                    check(fixture.resolve(1).equals(new Frame(1, 480, 800, 1)), "virtual target metrics");
+                    try { fixture.resolve(9); throw new AssertionError("absent display accepted"); }
+                    catch (IOException expected) { }
+                }
+                """ + RuntimeSourceFixture.methods("DisplayCaptureService", "resolve"));
+    }
+
     @Test public void nativeCropIsUnscaledAndPipeClosesBeforeGeometryCheck() throws Exception {
         RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 private static final int MAX_CAPTURE_BYTES = 100;

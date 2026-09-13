@@ -29,7 +29,7 @@ final class PhoneDisplayDriver implements DesktopDisplayDriver {
     }
 
     @Override
-    public void showReady(
+    public DesktopSessionController.ShowResult showReady(
             final Activity source,
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy) {
@@ -37,7 +37,7 @@ final class PhoneDisplayDriver implements DesktopDisplayDriver {
                 || target.output.kind != DesktopDisplayOutput.Kind.BUILT_IN) {
             throw new IllegalArgumentException("phone target is required");
         }
-        DesktopDisplayDriverSupport.showPrepared(target, policy);
+        return DesktopDisplayDriverSupport.showPrepared(target, policy);
     }
 
     @Override

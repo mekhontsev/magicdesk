@@ -4,7 +4,9 @@ package io.github.mekhontsev.magicdesk;
 final class FrameworkRuntime {
     private FrameworkDisplayWindowingApi mDisplayWindowingApi;
     private FrameworkInputRoutingApi mInputRoutingApi;
+    private FrameworkInputInjectionApi mInputInjectionApi;
     private FrameworkVirtualDisplayApi mVirtualDisplayApi;
+    private FrameworkDisplayMirrorApi mDisplayMirrorApi;
     private final FrameworkDisplayCaptureApi mDisplayCaptureApi = new FrameworkDisplayCaptureApi();
 
     private FrameworkRuntime() {
@@ -51,6 +53,16 @@ final class FrameworkRuntime {
             mInputRoutingApi = new FrameworkInputRoutingApi();
         }
         return mInputRoutingApi;
+    }
+
+    synchronized FrameworkInputInjectionApi inputInjection() throws ReflectiveOperationException {
+        if (mInputInjectionApi == null) { mInputInjectionApi = new FrameworkInputInjectionApi(); }
+        return mInputInjectionApi;
+    }
+
+    synchronized FrameworkDisplayMirrorApi displayMirror() throws ReflectiveOperationException {
+        if (mDisplayMirrorApi == null) mDisplayMirrorApi = new FrameworkDisplayMirrorApi();
+        return mDisplayMirrorApi;
     }
 
     String diagnosticDetail() {

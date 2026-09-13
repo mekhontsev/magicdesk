@@ -11,7 +11,9 @@ public final class DesktopDisplayDriverSupportTest {
                 static class DesktopDisplayTarget { int workspaceDisplayId = 7; }
                 enum DesktopSessionPolicy { USER }
                 static class DesktopSessionController {
-                    record ShowResult(boolean ready, boolean created) {}
+                    record ShowResult(boolean ready, boolean created) {
+                        static ShowResult failed(String error) { return new ShowResult(false, false); }
+                    }
                     static ShowResult show(Object target, Object policy) throws IOException {
                         return new ShowResult(Fixture.ready, Fixture.created);
                     }
@@ -34,6 +36,7 @@ public final class DesktopDisplayDriverSupportTest {
                 static class PhoneTouchpadController { static void open(int id) { opens++; } }
                 static class Log { static void w(Object... args) {} }
                 static class CompatibilityDiagnostics { static void record(Object... args) {} }
+                static class ShellAccess { static String usefulMessage(Throwable error) { return error.toString(); } }
                 public static void verify() {
                     var target = new DesktopDisplayTarget();
                     phone = true;

@@ -51,6 +51,16 @@
     <string name="action_close">Close</string>
     <string name="action_back">Back</string>
     <string name="action_previous">Prev</string>
+    <string name="display_viewer">Display Viewer</string>
+    <string name="display_viewer_source">Source display</string>
+    <string name="display_close_viewer">Close Display Viewer</string>
+    <string name="display_previous">Previous display</string>
+    <string name="display_park">Park display</string>
+    <string name="display_actions">Display actions</string>
+    <string name="display_show_on">Show on display</string>
+    <string name="display_start_portable">Start portable desktop here</string>
+    <string name="display_presented_on">on %1$s [%2$d]</string>
+    <string name="shortcut_display">Ctrl + Alt + Tab</string>
     <string name="action_next">Next</string>
     <string name="action_open">Open</string>
     <string name="action_switch_to">Switch to</string>

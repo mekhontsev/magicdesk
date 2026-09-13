@@ -1,15 +1,11 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.annotation.SuppressLint;
 import android.graphics.Point;
-import android.os.IBinder;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyCharacterMap;
 import android.view.MotionEvent;
-
-import java.lang.reflect.Method;
 
 /** Injects display-targeted pointer actions. */
 public final class DesktopPointerInjector {
@@ -20,7 +16,6 @@ public final class DesktopPointerInjector {
     private DesktopPointerInjector() {
     }
 
-    @SuppressLint("BlockedPrivateApi")
     public static void injectClickAt(
             final int displayId,
             final Point position,
@@ -51,7 +46,6 @@ public final class DesktopPointerInjector {
         }
     }
 
-    @SuppressLint("BlockedPrivateApi")
     static void injectMouseHover(
             final int displayId,
             final Point position) throws ReflectiveOperationException {
@@ -59,7 +53,6 @@ public final class DesktopPointerInjector {
         injectionContext().injectMouseHover(displayId, position);
     }
 
-    @SuppressLint("BlockedPrivateApi")
     static void injectSyntheticTouchLongPress(
             final int displayId,
             final Point position,
@@ -85,7 +78,6 @@ public final class DesktopPointerInjector {
         }
     }
 
-    @SuppressLint("BlockedPrivateApi")
     static void injectMouseDrag(
             final int displayId,
             final Point start,
@@ -166,20 +158,10 @@ public final class DesktopPointerInjector {
     }
 
     private static final class InjectionContext {
-        private final Object mInputManager;
-        private final Method mInject;
-        private final Method mSetDisplayId;
-        private final Method mSetActionButton;
+        private final FrameworkInputInjectionApi mApi;
 
-        @SuppressLint("BlockedPrivateApi")
         InjectionContext() throws ReflectiveOperationException {
-            mInputManager = getInputManager();
-            mInject = findInjectMethod();
-            mSetDisplayId = InputEvent.class.getDeclaredMethod(
-                    "setDisplayId", int.class);
-            mSetDisplayId.setAccessible(true);
-            mSetActionButton = MotionEvent.class.getMethod(
-                    "setActionButton", int.class);
+            mApi = FrameworkRuntime.current().inputInjection();
         }
 
         void injectMouse(
@@ -268,8 +250,7 @@ public final class DesktopPointerInjector {
                     0, buttonState, precision, precision,
                     deviceId, 0, source, 0);
             try {
-                mSetActionButton.invoke(
-                        event, Integer.valueOf(actionButton));
+                mApi.actionButton(event, actionButton);
                 injectEvent(displayId, event, injectionMode);
             } finally {
                 event.recycle();
@@ -281,18 +262,7 @@ public final class DesktopPointerInjector {
                 final InputEvent event,
                 final int injectionMode)
                 throws ReflectiveOperationException {
-            mSetDisplayId.invoke(event, Integer.valueOf(displayId));
-            final Object result = mInject.getParameterCount() == 2
-                    ? mInject.invoke(mInputManager, event,
-                            Integer.valueOf(injectionMode))
-                    : mInject.invoke(mInputManager, event,
-                            Integer.valueOf(injectionMode),
-                            Integer.valueOf(-1));
-            if (result instanceof Boolean
-                    && !((Boolean) result).booleanValue()) {
-                throw new IllegalStateException(
-                        "input injection was rejected");
-            }
+            mApi.inject(displayId, event, injectionMode);
         }
     }
 
@@ -306,31 +276,4 @@ public final class DesktopPointerInjector {
         return 0;
     }
 
-    private static Object getInputManager()
-            throws ReflectiveOperationException {
-        final Class<?> serviceManager = Class.forName(
-                "android.os.ServiceManager");
-        final IBinder binder = (IBinder) serviceManager
-                .getMethod("getService", String.class)
-                .invoke(null, "input");
-        return Class.forName("android.hardware.input.IInputManager$Stub")
-                .getMethod("asInterface", IBinder.class)
-                .invoke(null, binder);
-    }
-
-    private static Method findInjectMethod()
-            throws ReflectiveOperationException {
-        final Class<?> type = Class.forName(
-                "android.hardware.input.IInputManager");
-        try {
-            return type.getMethod(
-                    "injectInputEvent", InputEvent.class, Integer.TYPE);
-        } catch (NoSuchMethodException ignored) {
-            return type.getMethod(
-                    "injectInputEventToTarget",
-                    InputEvent.class,
-                    Integer.TYPE,
-                    Integer.TYPE);
-        }
-    }
 }

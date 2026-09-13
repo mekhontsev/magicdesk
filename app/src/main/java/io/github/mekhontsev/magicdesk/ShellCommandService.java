@@ -110,6 +110,12 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         mVirtualDisplays.remove(displayId, uniqueId, ownerToken);
     }
 
+    @Override public IDisplayViewer openDisplayViewer(int sourceDisplayId, String sourceUniqueId,
+            int outputDisplayId, String outputUniqueId, IBinder displayOwner, IBinder viewerOwner) {
+        return mVirtualDisplays.openViewer(sourceDisplayId, sourceUniqueId,
+                outputDisplayId, outputUniqueId, displayOwner, viewerOwner);
+    }
+
     @Override
     public DisplayWindowingSnapshot readDisplayWindowing(final int displayId) {
         try {

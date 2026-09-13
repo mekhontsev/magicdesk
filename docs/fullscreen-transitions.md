@@ -8,8 +8,10 @@ lease but not task ordering or fullscreen state. Taskbar, Alt+Tab and automation
 select an explicit workspace; keyboard shortcuts use the independent input
 selection. Closing a workspace does not close another or release its planes.
 Unassigned HOME displays use the shared ordinary Start host without a Desktop
-observer. The last workspace releases HOME. Output parking and output exchange
-are not implemented; workspace identity and output binding remain distinct.
+observer. The last workspace releases HOME. An optional viewer can present an
+owned virtual workspace on another display. Switching or parking that viewer
+does not change task ownership or these workspace bindings; see
+[Display presentations](architecture.md#display-presentations).
 
 ## System HOME Instances
 

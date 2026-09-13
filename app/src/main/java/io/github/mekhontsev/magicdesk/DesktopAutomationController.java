@@ -88,6 +88,13 @@ final class DesktopAutomationController {
                 case CREATE_DISPLAY:
                     result = createDisplay(args);
                     break;
+                case OPEN_DISPLAY_VIEWER:
+                    result = openDisplayViewer(args);
+                    break;
+                case SELECT_DISPLAY_VIEWER:
+                case PARK_DISPLAY_VIEWER:
+                    result = changeDisplayViewer(args, action);
+                    break;
                 case REMOVE_DISPLAY:
                     result = removeDisplay(args);
                     break;
@@ -386,15 +393,16 @@ final class DesktopAutomationController {
                     "shell command service is unavailable");
         }
         final String target = rawTarget.toLowerCase(Locale.ROOT);
+        final boolean accepted;
         switch (target) {
             case "auto":
-                DesktopOperations.showMagicDesk();
+                accepted = DesktopOperations.showMagicDesk();
                 break;
             case "phone":
-                DesktopOperations.showDesktop(DesktopDisplayTarget.phone());
+                accepted = DesktopOperations.showDesktop(DesktopDisplayTarget.phone());
                 break;
             case "simulated":
-                SimulatedDesktopDisplayController.show();
+                accepted = DesktopOperations.showSimulatedDesktop();
                 break;
             case "wired":
                 if (ExternalDisplayController.findExternalDisplayId()
@@ -402,7 +410,7 @@ final class DesktopAutomationController {
                     return DesktopAutomationResult.failure(
                             "no connected wired display");
                 }
-                DesktopOperations.showWiredDesktop();
+                accepted = DesktopOperations.showWiredDesktop();
                 break;
             case "wireless":
                 final int wirelessDisplayId =
@@ -411,13 +419,14 @@ final class DesktopAutomationController {
                     return DesktopAutomationResult.failure(
                             "no connected wireless display");
                 }
-                DesktopOperations.showDesktop(
+                accepted = DesktopOperations.showDesktop(
                         DesktopDisplayTarget.wireless(wirelessDisplayId));
                 break;
             default:
                 throw new IllegalArgumentException(
                         "target must be auto, phone, simulated, wired, or wireless");
         }
+        if (!accepted) return DesktopAutomationResult.failure("another desktop transition is in progress");
         return DesktopAutomationResult.success(
                 "desktop start accepted",
                 new JSONObject().put("target", target));
@@ -434,7 +443,9 @@ final class DesktopAutomationController {
         if (!display.canHostDesktop) {
             throw new IllegalArgumentException("display cannot host a desktop");
         }
-        DesktopOperations.showDesktop(display);
+        if (!DesktopOperations.showDesktop(display)) {
+            return DesktopAutomationResult.failure("another desktop transition is in progress");
+        }
         return DesktopAutomationResult.success("desktop start accepted", DesktopDisplayCatalog.json(display));
     }
 
@@ -460,6 +471,52 @@ final class DesktopAutomationController {
         return display[0] == null ? DesktopAutomationResult.failure(failure[0])
                 : DesktopAutomationResult.success("display created; desktop not started",
                         DesktopDisplayCatalog.json(display[0]));
+    }
+
+    private DesktopAutomationResult openDisplayViewer(JSONObject args) throws JSONException {
+        final CountDownLatch completed = new CountDownLatch(1);
+        final Throwable[] failure = new Throwable[1];
+        DisplayPresentations.open(mContext, requiredInt(args, "sourceDisplayId"),
+                requiredInt(args, "outputDisplayId"), args.optBoolean("fullscreen", false), error -> {
+                    failure[0] = error;
+                    completed.countDown();
+                });
+        final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
+                ACTION_TIMEOUT_MILLIS, "display viewer attachment", false,
+                new JSONObject().put("sourceDisplayId", args.getInt("sourceDisplayId"))
+                        .put("outputDisplayId", args.getInt("outputDisplayId")));
+        if (pending != null) return pending;
+        return failure[0] == null ? DesktopAutomationResult.success("viewer attached",
+                new JSONObject().put("accepted", true).put("presentations", DisplayPresentations.snapshot()))
+                : DesktopAutomationResult.failure(ShellAccess.usefulMessage(failure[0]));
+    }
+
+    private DesktopAutomationResult changeDisplayViewer(JSONObject args, DesktopAutomationAction action)
+            throws JSONException {
+        final String id = args.getString("viewerId");
+        final Integer source = args.has("sourceDisplayId") ? requiredInt(args, "sourceDisplayId") : null;
+        final CountDownLatch completed = new CountDownLatch(1);
+        final Throwable[] failure = new Throwable[1];
+        final BuiltInWindowLauncher.Callback callback = error -> {
+            failure[0] = error;
+            completed.countDown();
+        };
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            final DisplayPresentations.Session session = DisplayPresentations.find(id);
+            if (session == null) {
+                callback.onComplete(action == DesktopAutomationAction.PARK_DISPLAY_VIEWER ? null
+                        : new IllegalArgumentException("viewer does not exist"));
+            } else if (action == DesktopAutomationAction.PARK_DISPLAY_VIEWER) DisplayPresentations.park(session, callback);
+            else if (source == null) DisplayPresentations.previous(session, callback);
+            else DisplayPresentations.select(session, source, callback);
+        });
+        final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
+                ACTION_TIMEOUT_MILLIS, "display viewer change", action == DesktopAutomationAction.PARK_DISPLAY_VIEWER,
+                new JSONObject().put("viewerId", id));
+        if (pending != null) return pending;
+        return failure[0] == null ? DesktopAutomationResult.success("viewer change completed",
+                new JSONObject().put("viewerId", id).put("presentations", DisplayPresentations.snapshot()))
+                : DesktopAutomationResult.failure(ShellAccess.usefulMessage(failure[0]));
     }
 
     private DesktopAutomationResult removeDisplay(final JSONObject args)

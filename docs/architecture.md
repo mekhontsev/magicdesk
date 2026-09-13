@@ -799,7 +799,9 @@ runtime integration and are not distributed through the same release path.
   and asks the existing shell capture backend for one cropped PNG pipe or one
   bounded pixel batch. It is independent of MCP, accessibility and Desktop;
   selection and publication belong to its callers. It rejects observed display
-  geometry changes rather than returning stale coordinate metadata.
+  geometry changes rather than returning stale coordinate metadata. Metrics
+  come from the requested display's Context, not application resources that
+  can describe the last Activity on a different display.
   `DesktopAutomationCapture` is the JSON/image adapter and owns only MCP's
   omitted-display default (sole Desktop, otherwise display 0 when none exists).
   Multiple workspaces require an explicit display; an explicit selection never
@@ -1741,13 +1743,107 @@ ordering. Display windowing defaults are acquired and restored per display.
 
 Display removal recovery addresses the lost workspace. With direct bindings,
 unplugging the output also removes that workspace and retains the normal close
-behavior for that workspace only. There is no automatic parking on a virtual
-display, output-exchange backend or new framework capability prerequisite.
-The independent display resource, viewer and session lifetimes remain unchanged.
+behavior for that workspace only. A direct physical workspace cannot be parked
+by exchanging compositor tokens: that would not transfer Android's logical
+display ownership. The optional virtual-first path below keeps residency on an
+owned virtual display from the start, without changing ordinary startup.
 Workspace-local release is not the whole Close operation: the outer session
 coordinator still owns HOME handoff, input release, task return and final HOME
 surface cleanup in their existing order. Closing the only workspace leaves
 independent automation, file and terminal services available.
+
+### Display Presentations
+
+`DisplayPresentations` maps a live source display to an ordinary
+`DisplayViewerActivity` on another live display. This is a separate presentation
+edge, not a mutation of the workspace's immutable `DesktopDisplayTarget`, HOME
+lease or task ownership. The existing direct target continues to describe the
+Android display containing those tasks. A source need not host Desktop.
+
+`DisplayPresentationMode` distinguishes direct presentation of a MagicDesk-owned
+virtual source from mirroring another existing display. Every built-in panel is
+addressed by its own display ID and unique ID; mirroring is not restricted to
+display 0 and does not require that panel to support managed Desktop.
+`DisplayPresentationSurface` owns only the presentation lifetime. Direct
+presentation returns the source to its existing sink on close. The mirrored
+implementation uses Android's `IWindowManager.mirrorDisplay` under
+`READ_FRAME_BUFFER` through `FrameworkDisplayMirrorApi`; it attaches the copied
+scene below the viewer's SurfaceView and releases only that copy. It creates no
+additional display, changes no source power state and leaves applications in
+place. Missing framework support or permission fails only the viewer operation.
+
+`FrameworkVirtualDisplayApi.OwnedDisplay` uses `VirtualDisplay.setSurface` to
+present to the viewer's `SurfaceView`. Its buffer retains the source dimensions;
+the view fits it into the output window preserving aspect ratio. Android performs
+composition and scaling, without frame copies, a Java rendering loop, vendor
+display tokens or additional libraries. Letterbox margins do not accept source
+input. A source change gets a new Surface consumer: returning from `setSurface`
+does not certify that the previous compositor producer has disconnected.
+
+`ShellDisplayViewer` is a revocable Binder lease, independent of the source's
+resource owner. It serializes source-addressed input and releases held keys and
+touch streams before detaching. The framework injection adapter is shared with
+the existing test pointer injector. Parking returns the virtual display to its
+existing non-null ImageReader sink with unchanged task IDs, logical dimensions,
+density and configuration. While presented, a display-scoped Android wake lock
+wakes and retains only the source's own power group. Parking releases it and
+allows ordinary idle sleep; attaching again wakes that source, without changing
+the phone's screen timeout or holding unrelated displays awake. Closing the viewer or losing
+its output does not close that source's Desktop or move applications.
+
+The process-local registry admits one viewer per source and output and rejects
+presentation cycles at both the app and privileged boundaries. Selecting a source
+already shown by another viewer exchanges the two bindings. Both old leases are
+released before either new attachment; completion includes acquired physical
+input handoff. A hidden peer commits its logical binding without waiting for a
+Surface; it remains unready until Android shows its window and attachment
+succeeds. Hiding a participant releases its attachment barrier without raising
+that window. Input follows its current output only if the user had selected
+that source, and a later explicit input selection takes precedence. Merely
+opening a viewer never claims physical devices. Touch/key events delivered to
+the viewer are forwarded with the inverse presentation transform.
+
+`DisplayInputRequests` belongs to the runtime input owner, not the Viewer
+registry. Its cancellable requests are checked when queued input actually
+executes. Parking cancels the viewer's pending acquisition and conditionally
+releases its selected source without superseding a newer explicit selection.
+Desktop preparation, release and runtime teardown invalidate obsolete requests.
+`DisplayViewerConnection` observes Binder lease death and input failures with
+the same binding generation used for attachment. A dead connection invalidates
+readiness; selecting that source again uses the normal detach/rebind path.
+Late failures from an old lease cannot invalidate its replacement.
+
+Cycle validation includes Android overlay previews' implicit presentation on
+the default display. A source geometry change is observed through the display
+listener and reuses the binding transaction, updating aspect-fit and input
+coordinates together. Refresh-rate and power notifications do not query the
+privileged catalog when dimensions/density are unchanged. Source geometry
+changes do not release and reacquire unchanged physical-input routing.
+
+The viewer source menu and previous-source action share this registry. Desktop
+`Ctrl+Alt+Tab` addresses the viewer showing the selected input source; ordinary
+application Alt+Tab is unchanged. Fullscreen hides viewer controls and requests
+immersive system bars; Back returns to the controls before parking the viewer.
+Reopening an existing output applies the requested fullscreen state too; Open
+waits for that output's attachment even if source selection committed while hidden.
+The display selector's additional actions expose viewing, parking, and optional
+**Start portable desktop here**. `DesktopPresentationLauncher` creates a virtual
+source using the selected output's size/density, runs normal Desktop startup on
+the source, then opens its viewer. HOME acquisition and automatic phone UI finish
+before this final presentation, so they cannot cover a viewer opened on the phone.
+Provisioning retains the exact chosen
+launch action. Failure retains the created display and reports its identity.
+The normal transition gate explicitly accepts or rejects startup. Driver results
+propagate through it, so the portable launch callback reports the Desktop launch
+result, not just a successfully attached viewer.
+
+Park, Close Desktop and Remove Display remain separate commands. Reconnecting
+an output requires selecting its current catalog identity and opening a viewer
+for the retained source; no numeric output ID is persisted or automatically
+reused. Mirroring an existing screen does not substitute its physical panel's
+contents: a window placed over the source also appears in its mirror. Arbitrary
+phone/HDMI logical-display exchange and seamless native pointer
+crossing between outputs are not implemented by this presentation path.
 
 Starting the first desktop acquires one
 persisted `DesktopHomeRoleLease`: MagicDesk temporarily becomes the package-wide

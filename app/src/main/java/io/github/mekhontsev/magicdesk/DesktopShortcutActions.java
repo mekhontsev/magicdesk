@@ -59,6 +59,9 @@ final class DesktopShortcutActions {
             case SHOW_DESKTOP:
                 DesktopOperations.toggleDesktopWorkspace();
                 break;
+            case SWITCH_DISPLAY:
+                DisplayPresentations.previousForInput();
+                break;
             case SCREENSHOT:
                 DesktopOperations.captureScreenshot(MagicDeskRuntime.inputDisplayId());
                 break;

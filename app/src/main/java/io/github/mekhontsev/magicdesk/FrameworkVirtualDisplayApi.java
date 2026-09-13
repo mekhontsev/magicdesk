@@ -8,6 +8,7 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.util.DisplayMetrics;
 import android.view.Display;
 
@@ -51,7 +52,7 @@ final class FrameworkVirtualDisplayApi {
                     "MagicDesk Computer", spec.width, spec.height, spec.densityDpi,
                     output.getSurface(), flags);
             if (display == null) { throw new IllegalStateException("Android did not create the virtual display"); }
-            return new OwnedDisplay(display, output);
+            return new OwnedDisplay(context, display, output);
         } catch (RuntimeException error) {
             if (display != null) { display.release(); }
             output.close();
@@ -62,9 +63,12 @@ final class FrameworkVirtualDisplayApi {
     static final class OwnedDisplay {
         private final VirtualDisplay mDisplay;
         private final ImageReader mOutput;
+        private final Context mContext;
+        private PowerManager.WakeLock mPresentationWakeLock;
         private boolean mReleased;
 
-        OwnedDisplay(final VirtualDisplay display, final ImageReader output) {
+        OwnedDisplay(final Context context, final VirtualDisplay display, final ImageReader output) {
+            mContext = context;
             mDisplay = display;
             mOutput = output;
             output.setOnImageAvailableListener(reader -> discardFrame(),
@@ -73,6 +77,48 @@ final class FrameworkVirtualDisplayApi {
 
         Display getDisplay() { return mDisplay.getDisplay(); }
 
+        synchronized void present(final android.view.Surface surface) {
+            if (mReleased) { throw new IllegalStateException("virtual display was removed"); }
+            if (surface == null || !surface.isValid()) {
+                throw new IllegalArgumentException("a live viewer surface is required");
+            }
+            keepPresentationAwake();
+            try { mDisplay.setSurface(surface); }
+            catch (RuntimeException error) { releasePresentationWakeLock(); throw error; }
+        }
+
+        synchronized void park() {
+            // Keep a render target and task configuration when the viewer
+            // disappears. Ordinary idle sleep is allowed while parked.
+            try { if (!mReleased) mDisplay.setSurface(mOutput.getSurface()); }
+            finally { releasePresentationWakeLock(); }
+        }
+
+        @SuppressWarnings("deprecation")
+        private void keepPresentationAwake() {
+            if (mPresentationWakeLock == null) {
+                final PowerManager power = mContext.getSystemService(PowerManager.class);
+                try {
+                    // Android 14/15's two-argument API affects every power group.
+                    // A viewer must wake/retain only its owned virtual source.
+                    mPresentationWakeLock = (PowerManager.WakeLock) PowerManager.class.getMethod(
+                            "newWakeLock", int.class, String.class, int.class).invoke(power,
+                            PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                            "MagicDesk:DisplayViewer", mDisplay.getDisplay().getDisplayId());
+                    mPresentationWakeLock.setReferenceCounted(false);
+                } catch (ReflectiveOperationException error) {
+                    throw new IllegalStateException("could not acquire source display power", error);
+                }
+            }
+            if (!mPresentationWakeLock.isHeld()) mPresentationWakeLock.acquire();
+        }
+
+        private void releasePresentationWakeLock() {
+            if (mPresentationWakeLock != null && mPresentationWakeLock.isHeld()) {
+                mPresentationWakeLock.release();
+            }
+        }
+
         private synchronized void discardFrame() {
             if (mReleased) { return; }
             try (Image ignored = mOutput.acquireLatestImage()) { }
@@ -80,7 +126,8 @@ final class FrameworkVirtualDisplayApi {
 
         synchronized void release() {
             if (mReleased) { return; }
-            mDisplay.release();
+            try { mDisplay.release(); }
+            finally { releasePresentationWakeLock(); }
             mReleased = true;
             mOutput.setOnImageAvailableListener(null, null);
             mOutput.close();

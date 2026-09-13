@@ -331,10 +331,30 @@ public final class MagicDeskRuntime {
         return backend == null ? "" : backend.inputError();
     }
 
-    static void selectInputDisplay(final int displayId, final TaskRepository.ActionCallback callback) {
+    static long inputSelectionVersion() {
         final MagicDeskRuntimeBackend backend = backend();
-        if (backend == null) { completeTaskAction(callback, false, "input runtime is unavailable"); }
-        else { backend.selectInputDisplay(displayId, callback); }
+        return backend == null ? -1 : backend.inputSelectionVersion();
+    }
+
+    static void releaseSelectedInput(int displayId, TaskRepository.ActionCallback callback) {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend == null) completeTaskAction(callback, true, "input runtime is not active");
+        else backend.releaseSelectedInput(displayId, callback);
+    }
+
+    static DisplayInputRequests.Request selectInputDisplay(final int displayId,
+            final TaskRepository.ActionCallback callback) {
+        return selectInputDisplay(displayId, -1, callback);
+    }
+
+    static DisplayInputRequests.Request selectInputDisplay(final int displayId, final long expectedVersion,
+            final TaskRepository.ActionCallback callback) {
+        final MagicDeskRuntimeBackend backend = backend();
+        if (backend == null) {
+            completeTaskAction(callback, false, "input runtime is unavailable");
+            return null;
+        }
+        return backend.selectInputDisplay(displayId, expectedVersion, callback);
     }
 
     static boolean movePointer(
