@@ -21,7 +21,7 @@ import android.widget.TextView;
 final class PhoneControlPanelController {
     interface Actions extends DisplaySelectionView.Actions {
 
-        void connectWirelessDisplay();
+        void openWirelessSettings();
 
         void closeDesktop();
 
@@ -55,7 +55,6 @@ final class PhoneControlPanelController {
         final boolean externalOutputControlAvailable;
         final PlatformProjectionDriver.ModeSelection externalModeSelection;
         final boolean wirelessConnectionUiAvailable;
-        final boolean wirelessDisplayConnected;
         final String status;
         final String runtime;
 
@@ -72,7 +71,6 @@ final class PhoneControlPanelController {
                 final boolean externalOutputControlAvailable,
                 final PlatformProjectionDriver.ModeSelection externalModeSelection,
                 final boolean wirelessConnectionUiAvailable,
-                final boolean wirelessDisplayConnected,
                 final String status,
                 final String runtime) {
             this.displays = displays;
@@ -89,7 +87,6 @@ final class PhoneControlPanelController {
             this.externalModeSelection = externalModeSelection;
             this.wirelessConnectionUiAvailable =
                     wirelessConnectionUiAvailable;
-            this.wirelessDisplayConnected = wirelessDisplayConnected;
             this.status = status;
             this.runtime = runtime;
         }
@@ -164,7 +161,7 @@ final class PhoneControlPanelController {
                 state.sessionOperationInProgress || state.displayOperation,
                 state.externalOutputControlAvailable, state.externalModeSelection);
         mConnectWirelessDisplay.setEnabled(state.wirelessConnectionUiAvailable
-                && !state.sessionOperationInProgress && !state.wirelessDisplayConnected
+                && !state.sessionOperationInProgress
                 && !state.displayOperation);
         final boolean canOpenTouchpad = MagicDeskRuntime.inputDisplayId() > 0
                 && MagicDeskRuntime.isPointerTransportReady() && state.shellReady;
@@ -294,7 +291,7 @@ final class PhoneControlPanelController {
 
         mConnectWirelessDisplay = mUi.controlAction(
                 R.string.action_connect_wireless_display, R.drawable.ic_cast, COLOR_TEXT);
-        mConnectWirelessDisplay.setOnClickListener(view -> mActions.connectWirelessDisplay());
+        mConnectWirelessDisplay.setOnClickListener(view -> mActions.openWirelessSettings());
         addGridAction(sessionActions, mConnectWirelessDisplay);
         addGridAction(sessionActions, mDisplaySelection.outputControl());
         parent.addView(sessionActions, fullWidthWrapParams(dp(4)));

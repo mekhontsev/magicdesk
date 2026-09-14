@@ -2047,8 +2047,10 @@ close operation; transport-specific code stops at target preparation.
   Android resolves `Settings.ACTION_CAST_SETTINGS` through PackageManager and
   opens it with ordinary application permissions; the manifest declares that
   query. The Nubia implementation opens SmartCast. Both return to Phone Control
-  Panel after Android reports the Wi-Fi display, without starting the desktop
-  implicitly. Cast-settings availability does not guarantee Miracast support;
+  Panel after Android reports a newly connected Wi-Fi display, without starting
+  the desktop implicitly. **Wireless** remains available for an existing
+  connection; reopening its settings does not request an automatic return to
+  the panel. Cast-settings availability does not guarantee Miracast support;
   a real secondary display must still appear in the shared display catalog.
 - Once Android reports a Wi-Fi display, MagicDesk passes that display ID to the
   common desktop session. It does not implement a second discovery or streaming

@@ -357,17 +357,20 @@ public final class ControlActivity extends Activity
     }
 
     @Override
-    public void connectWirelessDisplay() {
+    public void openWirelessSettings() {
         if (!mWirelessConnectionUiAvailable
                 || DesktopOperations.isSessionTransitionInProgress()
-                || wirelessConnected()) {
+                || mDisplayOperation) {
             mStatus = getString(R.string.status_external_display_unavailable);
             refresh();
             return;
         }
-        mReturnToPanelAfterWirelessConnection = true;
+        // Existing connections open for management, not a new-connection handoff.
+        mReturnToPanelAfterWirelessConnection = !wirelessConnected();
         if (mProjection.openWirelessConnectionUi(this)) {
-            mStatus = getString(R.string.status_wireless_display_connecting);
+            if (mReturnToPanelAfterWirelessConnection) {
+                mStatus = getString(R.string.status_wireless_display_connecting);
+            }
         } else {
             mReturnToPanelAfterWirelessConnection = false;
             mStatus = getString(R.string.status_external_display_unavailable);
@@ -567,7 +570,6 @@ public final class ControlActivity extends Activity
                 mProjection.supportsOutputConfiguration(),
                 mExternalModeSelection,
                 mWirelessConnectionUiAvailable,
-                wirelessConnected(),
                 ShellPrivilegePolicy.restartRequired(this) ? getString(R.string.access_restart_required)
                         : !ShellAccess.isReady() ? ShellAccess.currentSnapshot().error : mStatus,
                 ShellAccess.currentSnapshot().accessLabel()));
