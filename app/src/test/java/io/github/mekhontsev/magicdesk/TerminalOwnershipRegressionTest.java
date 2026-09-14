@@ -4,6 +4,56 @@ import org.junit.Test;
 
 /** Runs the registry ownership operations with lightweight window/PTY doubles. */
 public final class TerminalOwnershipRegressionTest {
+    @Test public void notificationResumeUsesFocusOrderAndRetainsDetachedPtys() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() {
+                    check(mostRecent() == null, "empty registry offered a terminal");
+                    Activity first = new Activity(), second = new Activity();
+                    ConsoleTerminalSession a = acquire("terminal-a", ignored -> new ConsoleTerminalSession());
+                    register(first, a, new ConsoleTerminalView(), "terminal-a");
+                    focused("terminal-a", first);
+                    ConsoleTerminalSession b = acquire("terminal-b", ignored -> new ConsoleTerminalSession());
+                    register(second, b, new ConsoleTerminalView(), "terminal-b");
+                    focused("terminal-b", second);
+                    check(mostRecent().id.equals("terminal-b"), "did not choose latest focus");
+                    focused("terminal-a", first);
+                    check(mostRecent().id.equals("terminal-a"), "used creation order instead of focus");
+                    check(new ArrayList<>(ENTRIES.keySet()).equals(List.of("terminal-a", "terminal-b")),
+                            "focus reordered the shared session catalog");
+                    detach("terminal-a", first);
+                    check(mostRecent().id.equals("terminal-a") && !a.closed, "lost retained MRU after detach");
+                    focused("terminal-b", first);
+                    check(mostRecent().id.equals("terminal-a"), "foreign window stole focus record");
+                    close("terminal-a");
+                    check(mostRecent().id.equals("terminal-b"), "did not fall back after MRU ended");
+                    close("terminal-b");
+                    check(mostRecent() == null, "ended sessions remained resumable");
+                    check(MagicDeskRuntime.refreshes == 5, "notification did not follow registrations/detach/close");
+                }
+                """);
+    }
+
+    @Test public void staleAndFinishingWindowFocusCannotReplaceRecentTerminal() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() {
+                    Activity old = new Activity(), replacement = new Activity(), other = new Activity();
+                    ConsoleTerminalSession a = acquire("terminal-a", ignored -> new ConsoleTerminalSession());
+                    register(old, a, new ConsoleTerminalView(), "terminal-a");
+                    focused("terminal-a", old);
+                    register(replacement, a, new ConsoleTerminalView(), "terminal-a");
+                    ConsoleTerminalSession b = acquire("terminal-b", ignored -> new ConsoleTerminalSession());
+                    register(other, b, new ConsoleTerminalView(), "terminal-b");
+                    focused("terminal-b", other);
+                    focused("terminal-a", old);
+                    replacement.finished = true;
+                    focused("terminal-a", replacement);
+                    focused(null, other);
+                    check(mostRecent().id.equals("terminal-b"), "stale or finishing window changed MRU");
+                    check(MagicDeskRuntime.refreshes == 3, "focus unnecessarily refreshed notification");
+                }
+                """);
+    }
+
     @Test public void detachAndReattachRetainOnePtyAndRejectStaleWindowCleanup() throws Exception {
         RuntimeSourceFixture.verify(fixture() + """
                 public static void verify() {
@@ -95,20 +145,23 @@ public final class TerminalOwnershipRegressionTest {
                     boolean isFinishing() { return finished; }
                     int getTaskId() { return 1; } void finishAndRemoveTask() { finished=true; } }
                 static class DesktopAutomationEventJournal { static void record(String t,String o,boolean s,String d) {} }
-                static class MagicDeskRuntime { static void refreshNotification() {} }
+                static class MagicDeskRuntime { static int refreshes; static void refreshNotification() { refreshes++; } }
                 static class TerminalNotifications { static void cancel(String id) {} }
+                record Snapshot(String id) {}
                 static class Entry implements ConsoleTerminalSession.Listener {
-                    final ConsoleTerminalSession session; long attachmentGeneration;
+                    final String id; final ConsoleTerminalSession session; long attachmentGeneration, lastFocusSequence;
                     String tmuxSessionId = "";
                     WeakReference<Activity> activity=new WeakReference<>(null);
                     WeakReference<ConsoleTerminalView> view=new WeakReference<>(null);
-                    Entry(String id,Function<ConsoleTerminalSession.Listener,ConsoleTerminalSession> f) { session=f.apply(this); }
+                    Entry(String id,Function<ConsoleTerminalSession.Listener,ConsoleTerminalSession> f) { this.id=id; session=f.apply(this); }
+                    Snapshot snapshot(String id) { return new Snapshot(id); }
                 }
                 static Map<String,Entry> ENTRIES = new LinkedHashMap<>();
+                static long focusSequence;
                 static java.util.concurrent.atomic.AtomicLong NEXT_ID = new java.util.concurrent.atomic.AtomicLong();
                 static <T> T callOnMain(Callable<T> c) { try { return c.call(); } catch(Exception e) { throw new RuntimeException(e); } }
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalRegistry", "acquire", "register",
                         "nextId", "validId", "detach", "close", "hide", "find", "findLocked", "pruneLocked",
-                        "attachmentGeneration", "hasWindowLocked");
+                        "attachmentGeneration", "hasWindowLocked", "focused", "mostRecent");
     }
 }

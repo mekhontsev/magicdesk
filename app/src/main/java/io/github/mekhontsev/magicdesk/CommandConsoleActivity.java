@@ -283,6 +283,12 @@ public final class CommandConsoleActivity extends Activity
     }
 
     @Override
+    public void onWindowFocusChanged(final boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) { ConsoleTerminalRegistry.focused(mTerminalRegistryId, this); }
+    }
+
+    @Override
     protected void onStart() {
         super.onStart();
         if (mBackend == DesktopExecBackend.SHELL) {

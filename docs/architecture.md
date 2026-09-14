@@ -491,6 +491,13 @@ runtime integration and are not distributed through the same release path.
   point to Phone Control Panel; its separate touchpad action opens the
   phone-side input panel. Both use direct, immutable Activity PendingIntents
   with display-0 launch options, never service or broadcast trampolines.
+  A separate **Terminal** action is present while a local PTY session exists,
+  with or without Desktop. Its Activity entry resolves the last focused terminal
+  at click time and uses `TerminalSessions.open` to activate the existing window
+  on its display or reattach a retained PTY. It never starts a replacement shell.
+  Window-focus callbacks record recency in `ConsoleTerminalRegistry`; session
+  registration and removal refresh the notification, not terminal output or polling.
+  Process-scoped PendingIntents cannot attach to a reused ID after app restart.
   The touchpad action is offered for the selected external input display;
   the Activity validates its target again before requesting phone input.
   Any visible phone application suspends automatic touchpad restoration using

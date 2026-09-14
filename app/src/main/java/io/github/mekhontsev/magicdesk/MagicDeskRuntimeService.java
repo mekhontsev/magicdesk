@@ -24,6 +24,7 @@ public final class MagicDeskRuntimeService extends Service
     private static final int NOTIFICATION_ID = 1;
     private static final int OPEN_TOUCHPAD_REQUEST_CODE = 1;
     private static final int OPEN_CONTROL_PANEL_REQUEST_CODE = 2;
+    private static final int OPEN_TERMINAL_REQUEST_CODE = 3;
     private final PlatformDriver mPlatform = PlatformDrivers.current();
     private final PlatformPhoneUiDriver mPhoneUi = mPlatform.phoneUi();
     private final PlatformProjectionDriver mProjection =
@@ -809,6 +810,14 @@ public final class MagicDeskRuntimeService extends Service
                 .setOngoing(true)
                 .setShowWhen(false)
                 .setContentIntent(openControlPanelPendingIntent);
+        if (ConsoleTerminalRegistry.registeredCount() > 0) {
+            builder.addAction(
+                    R.drawable.ic_file_console,
+                    getString(R.string.notification_open_terminal),
+                    phoneActivityPendingIntent(
+                            OPEN_TERMINAL_REQUEST_CODE,
+                            TerminalNotificationActivity.resumeIntent(this)));
+        }
         final int targetDisplayId = inputDisplayId();
         if (ShellAccess.isReady()
                 && PhoneTouchpadController.isSupported(targetDisplayId)) {

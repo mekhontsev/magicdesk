@@ -495,6 +495,7 @@
     <string name="notification_hw_disconnected">No hardware keyboard</string>
     <string name="notification_automation_ready">Automation server ready</string>
     <string name="notification_open_touchpad">Open touchpad</string>
+    <string name="notification_open_terminal">Terminal</string>
     <string name="control_status_ready">Ready</string>
     <string name="control_status_desktop_active">Desktop active</string>
     <string name="control_runtime_status">Access: %1$s</string>

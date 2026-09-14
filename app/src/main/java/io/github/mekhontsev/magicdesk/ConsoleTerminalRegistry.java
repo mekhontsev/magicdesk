@@ -32,6 +32,7 @@ final class ConsoleTerminalRegistry {
     private static final AtomicLong NEXT_ID = new AtomicLong();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final Map<String, Entry> ENTRIES = new LinkedHashMap<>();
+    private static long focusSequence;
 
     private ConsoleTerminalRegistry() {
     }
@@ -82,7 +83,32 @@ final class ConsoleTerminalRegistry {
         DesktopAutomationEventJournal.record(
                 "terminal", "opened", true,
                 "terminalId=" + id + " task=" + activity.getTaskId());
+        MagicDeskRuntime.refreshNotification();
         return id;
+    }
+
+    static void focused(final String id, final Activity activity) {
+        synchronized (ENTRIES) {
+            final Entry entry = ENTRIES.get(id);
+            if (entry != null && entry.activity.get() == activity
+                    && !activity.isFinishing() && !activity.isDestroyed()) {
+                entry.lastFocusSequence = ++focusSequence;
+            }
+        }
+    }
+
+    static Snapshot mostRecent() {
+        return callOnMain(() -> {
+            synchronized (ENTRIES) {
+                Entry selected = null;
+                for (final Entry entry : ENTRIES.values()) {
+                    if (selected == null || entry.lastFocusSequence >= selected.lastFocusSequence) {
+                        selected = entry;
+                    }
+                }
+                return selected == null ? null : selected.snapshot(selected.id);
+            }
+        });
     }
 
     static String nextId() {
@@ -556,6 +582,7 @@ final class ConsoleTerminalRegistry {
         WeakReference<ConsoleTerminalView> view = new WeakReference<>(null);
         final ConsoleTerminalSession session;
         long attachmentGeneration;
+        long lastFocusSequence;
         String userTitle = "";
         String tmuxSessionId = "";
         long tmuxCreatedSeconds;
