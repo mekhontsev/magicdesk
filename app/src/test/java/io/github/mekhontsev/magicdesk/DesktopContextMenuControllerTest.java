@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -81,7 +82,7 @@ public final class DesktopContextMenuControllerTest {
         assertTrue(menu.contains("R.string.action_settings"));
         assertTrue(menu.contains("addCheckableAction(R.string.settings_taskbar_auto_hide"));
         assertTrue(menu.contains("addCheckableAction(R.string.settings_keyboard_on_app_display"));
-        assertTrue(menu.contains("positionAndShow(x, y, true)"));
+        assertTrue(menu.contains("positionAndShow(x, y)"));
         final String save = between(read("DesktopShellActivity.java"),
                 "private void saveTaskbarSetting(", "DesktopViewport getDesktopViewport(");
         assertTrue(save.contains("DesktopRuntimeBridge.refreshSettings()"));
@@ -100,7 +101,7 @@ public final class DesktopContextMenuControllerTest {
     }
 
     @Test
-    public void onlyTaskbarMenuRequestsImeFocusIncludingForMouseOpening() throws IOException {
+    public void taskbarMenuKeepsPointerFocusUnchangedAndExcludesIme() throws IOException {
         final String source = read("DesktopContextMenuController.java");
         final String taskbar = between(source,
                 "private void populateTaskbarMenu(", "void showForRegisteredView(");
@@ -109,14 +110,15 @@ public final class DesktopContextMenuControllerTest {
         assertTrue(mouse.contains("mRequestKeyboardFocus = false;"));
         assertTrue(mouse.contains("populateTaskbarMenu(x, y);"));
         assertTrue(taskbar.contains("mRetainOwnerPanel = false;"));
-        assertTrue(taskbar.contains("positionAndShow(x, y, true);"));
-        assertTrue(source.indexOf("positionAndShow(x, y, true);")
-                == source.lastIndexOf("positionAndShow(x, y, true);"));
+        assertTrue(taskbar.contains("positionAndShow(x, y);"));
+        assertFalse(taskbar.contains("mRequestKeyboardFocus = true;"));
+        final String keyboard = between(source,
+                "void showTaskbarMenu(", "private void populateTaskbarMenu(");
+        assertTrue(keyboard.contains("mRequestKeyboardFocus = true;"));
         final String placement = between(source,
                 "private void positionAndShow(", "private int getWidth(");
-        assertTrue(placement.contains("positionAndShow(pointerX, pointerY, false);"));
-        assertTrue(placement.matches("(?s).*mRequestKeyboardFocus \\|\\| inputMethodTarget,"
-                + "\\s*inputMethodTarget,.*"));
+        assertTrue(placement.matches("(?s).*mRequestKeyboardFocus,\\s*false,.*"));
+        assertFalse(placement.contains("inputMethodTarget"));
     }
 
     private static String between(final String source, final String start, final String end) {

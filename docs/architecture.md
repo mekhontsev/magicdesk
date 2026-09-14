@@ -196,12 +196,12 @@ an unacknowledged write. Phone desktop leaves display-0 policy unchanged. A fail
 live policy change reports an error without releasing otherwise working input.
 Settings refresh completes after the input worker finishes applying the policy,
 not when the change is queued. Taskbar checkboxes dismiss their menu only after
-that completion; stale callbacks cannot dismiss a replacement menu. The taskbar
-settings menu accepts normal window and IME focus, including when opened by a
-secondary click. Other context menus retain their IME-focus exclusion, and the
-desktop and taskbar base windows remain non-focusable. Android owns editor
-reconnection when the menu closes; changing display policy alone does not
-restart an existing editor connection or guarantee immediate IME relocation.
+that completion; stale callbacks cannot dismiss a replacement menu. Context
+menus, including taskbar settings, retain their IME-focus exclusion. Pointer
+opening does not request keyboard focus; explicit keyboard entry points do.
+The desktop and taskbar base windows remain non-focusable. Android owns the
+existing editor connection; changing display policy alone does not restart it
+or guarantee immediate relocation of an already connected IME.
 
 The phone touchpad is an ordinary Activity with a non-focusable attached
 `PopupWindow` containing its controls and touch surface. Android's
