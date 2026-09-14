@@ -93,6 +93,19 @@ public final class MagicDeskCliTest {
         assertEquals(10, arguments.optInt("limit"));
     }
 
+    @Test public void displayAttachmentUsesTheSharedCommandSchema() {
+        assertEquals(0, run("attach_display_viewer", "--sourceDisplayId", "12",
+                "--outputDisplayId", "11", "--fullscreen"));
+        assertEquals("attach_display_viewer", name);
+        assertEquals(12, arguments.optInt("sourceDisplayId"));
+        assertEquals(11, arguments.optInt("outputDisplayId"));
+        assertTrue(arguments.optBoolean("fullscreen"));
+        assertEquals(0, run("detach_display_viewer", "--viewerId", "presentation-id"));
+        assertEquals("detach_display_viewer", name);
+        assertEquals("presentation-id", arguments.optString("viewerId"));
+        assertEquals(2, calls.get());
+    }
+
     @Test public void booleansCanBeBareOrExplicit() {
         assertEquals(0, run("get_self_test", "--includeReport"));
         assertTrue(arguments.optBoolean("includeReport"));

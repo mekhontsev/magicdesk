@@ -20,22 +20,24 @@ final class DisplayPresentationMenu {
         final DisplayPresentations.Session session = DisplayPresentations.forSource(selected.id);
         final List<DesktopDisplayInfo> otherDisplays = Arrays.stream(catalog)
                 .filter(d -> d.id != selected.id).toList();
-        menu.getMenu().add(R.string.display_show_on).setEnabled(!otherDisplays.isEmpty())
+        menu.getMenu().add(R.string.display_attach_output).setEnabled(!otherDisplays.isEmpty())
                 .setOnMenuItemClickListener(item -> {
-                    new AlertDialog.Builder(activity).setTitle(R.string.display_show_on)
+                    new AlertDialog.Builder(activity).setTitle(R.string.display_attach_output)
                             .setItems(otherDisplays.stream().map(DisplayPresentationMenu::label).toArray(String[]::new),
-                                    (dialog, index) -> DisplayPresentations.showOn(activity, selected.id,
+                                    (dialog, index) -> DisplayPresentations.attachOutput(activity, selected.id,
                                             otherDisplays.get(index).id, reportFailure(activity)))
                             .setNegativeButton(android.R.string.cancel, null).show();
                     return true;
                 });
-        menu.getMenu().add(source ? R.string.display_park : R.string.display_close_viewer).setEnabled(session != null)
-                .setOnMenuItemClickListener(item -> { DisplayPresentations.park(session); return true; });
+        menu.getMenu().add(session == null ? activity.getString(R.string.display_detach_output)
+                : activity.getString(R.string.display_detach_named_output, label(session.output)))
+                .setEnabled(session != null)
+                .setOnMenuItemClickListener(item -> { DisplayPresentations.detach(session); return true; });
         menu.getMenu().add(R.string.display_viewer).setEnabled(!otherDisplays.isEmpty())
                 .setOnMenuItemClickListener(item -> {
                     new AlertDialog.Builder(activity).setTitle(R.string.display_viewer_source)
                             .setItems(otherDisplays.stream().map(DisplayPresentationMenu::label).toArray(String[]::new),
-                                    (dialog, index) -> DisplayPresentations.open(activity,
+                                    (dialog, index) -> DisplayPresentations.attach(activity,
                                             otherDisplays.get(index).id, selected.id, false, reportFailure(activity)))
                             .setNegativeButton(android.R.string.cancel, null).show();
                     return true;

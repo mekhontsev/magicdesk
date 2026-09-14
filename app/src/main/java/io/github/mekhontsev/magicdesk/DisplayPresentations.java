@@ -43,13 +43,13 @@ final class DisplayPresentations {
     private static final Map<String, Session> SESSIONS = new LinkedHashMap<>();
     private DisplayPresentations() { }
 
-    /** Present on an output without Viewer controls, including after parking. */
-    static void showOn(Context context, int sourceId, int outputId,
+    /** Attach a fullscreen output to the source, whose lifetime remains independent. */
+    static void attachOutput(Context context, int sourceId, int outputId,
             BuiltInWindowLauncher.Callback callback) {
-        open(context, sourceId, outputId, true, callback);
+        attach(context, sourceId, outputId, true, callback);
     }
 
-    static void open(Context context, int sourceId, int outputId, boolean fullscreen,
+    static void attach(Context context, int sourceId, int outputId, boolean fullscreen,
             BuiltInWindowLauncher.Callback callback) {
         TaskCommandQueue.execute(() -> {
             try {
@@ -64,10 +64,10 @@ final class DisplayPresentations {
                             }
                             setFullscreen(existing, fullscreen);
                             if (existing.listener == null) {
-                                selectForOpen(existing, source, callback);
+                                selectForAttachment(existing, source, callback);
                             } else existing.listener.show(error -> {
                                 if (error != null) callback.onComplete(error);
-                                else selectForOpen(existing, source, callback);
+                                else selectForAttachment(existing, source, callback);
                             });
                             return;
                         }
@@ -78,7 +78,7 @@ final class DisplayPresentations {
                         ToolApplications.open(context, DisplayViewerActivity.createIntent(context, session.id),
                                 ToolLaunchTarget.resolve("auto", output.id,
                                         DesktopRuntimeBridge.workspaceDisplayIds()), output.uniqueId, error -> {
-                                    if (error != null) { failed(session, error); park(session); }
+                                    if (error != null) { failed(session, error); detach(session); }
                                 });
                     } catch (RuntimeException error) { callback.onComplete(error); }
                 });
@@ -88,7 +88,7 @@ final class DisplayPresentations {
 
     static Session find(String id) { synchronized (SESSIONS) { return SESSIONS.get(id); } }
 
-    private static void selectForOpen(Session session, DesktopDisplayInfo source,
+    private static void selectForAttachment(Session session, DesktopDisplayInfo source,
             BuiltInWindowLauncher.Callback callback) {
         select(session, source.id, source.uniqueId, error -> {
             if (error != null || session.ready) callback.onComplete(error);
@@ -126,7 +126,7 @@ final class DisplayPresentations {
                 final DesktopDisplayInfo source = requireSource(sourceId, uniqueId);
                 DesktopDisplayCatalog.require(session.output.id, session.output.uniqueId);
                 MAIN.post(() -> {
-                    if (session.closed) { completion.onComplete(new IllegalStateException("viewer was parked")); return; }
+                    if (session.closed) { completion.onComplete(new IllegalStateException("viewer was detached")); return; }
                     try {
                         if (session.change != null) {
                             if (!source.uniqueId.equals(session.change.next.get(session).uniqueId)) {
@@ -205,21 +205,21 @@ final class DisplayPresentations {
         });
     }
 
-    static void park(Session session) {
-        park(session, error -> {
+    static void detach(Session session) {
+        detach(session, error -> {
             if (error != null) CompatibilityDiagnostics.record("DISPLAY-VIEWER-002",
-                    "Could not park viewer", ShellAccess.usefulMessage(error));
+                    "Could not detach viewer", ShellAccess.usefulMessage(error));
         });
     }
 
-    static void park(Session session, BuiltInWindowLauncher.Callback completion) {
+    static void detach(Session session, BuiltInWindowLauncher.Callback completion) {
         if (session.closed) { completion.onComplete(null); return; }
-        if (session.change != null) session.change.fail(new IllegalStateException("viewer was parked"));
+        if (session.change != null) session.change.fail(new IllegalStateException("viewer was detached"));
         if (session.inputRequest != null) session.inputRequest.cancel();
         session.closed = true;
         session.ready = false;
         synchronized (SESSIONS) { SESSIONS.remove(session.id); }
-        complete(session, new IllegalStateException("viewer was parked"));
+        complete(session, new IllegalStateException("viewer was detached"));
         final int[] pending = {2};
         final Throwable[] failure = {null};
         final BuiltInWindowLauncher.Callback released = error -> {
@@ -463,7 +463,7 @@ final class DisplayPresentations {
                 if (session == replacing || session.closed) continue;
                 if (session.source.uniqueId.equals(source.uniqueId)
                         || reservedSource(session).uniqueId.equals(source.uniqueId)) {
-                    throw new IllegalStateException("source already has a viewer; park it first");
+                    throw new IllegalStateException("source already has a viewer; detach it first");
                 }
                 if (session.output.uniqueId.equals(output.uniqueId)) {
                     throw new IllegalStateException("output already has a viewer; select its source there");

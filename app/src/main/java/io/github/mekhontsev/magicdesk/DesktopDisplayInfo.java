@@ -61,6 +61,8 @@ public final class DesktopDisplayInfo implements Parcelable {
 
     static boolean supportsDesktop(final int id, final String source,
             final boolean publicDisplay, final boolean trusted) {
+        // Android requires a trusted display for organizer-created task areas.
+        // Ordinary Viewer output does not acquire those areas on its display.
         // Additional built-in panels are catalogued, not admitted through the
         // external-display path before their HOME/input lifecycle is verified.
         return !"unknown".equals(source) && !"internal".equals(source)

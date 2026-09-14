@@ -182,6 +182,12 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
 
 ## Known Limitations
 
+- A display without Android's `TRUSTED` flag cannot directly host MagicDesk's
+  organizer task areas. **No direct desktop** does not mean the output is
+  unusable: **Display actions > Start portable desktop here** can present a
+  trusted virtual workspace there, if Android allows the Viewer Activity.
+  Google Cast receivers can expose this kind of public, untrusted display;
+  it is distinct from a Miracast connection.
 - Android 14 installation is the chosen APK baseline, but device and native
   helper validation remain pending. The current helpers are ARM64-only; see
   [Runtime API levels](runtime-api-levels.md).

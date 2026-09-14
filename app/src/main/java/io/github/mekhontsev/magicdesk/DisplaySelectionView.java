@@ -223,7 +223,7 @@ final class DisplaySelectionView {
         return display.name + " [" + display.id + "]"
                 + (presentation == null ? "" : " - " + mActivity.getString(
                         R.string.display_presented_on, presentation.output.name, presentation.output.id))
-                + (display.canHostDesktop ? "" : " (" + mActivity.getString(R.string.display_unavailable) + ")");
+                + (display.canHostDesktop ? "" : " (" + mActivity.getString(R.string.display_no_direct_desktop) + ")");
     }
 
     private void showOutputModeDialog() {

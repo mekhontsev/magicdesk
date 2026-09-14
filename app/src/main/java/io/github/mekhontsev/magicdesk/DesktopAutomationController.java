@@ -88,11 +88,11 @@ final class DesktopAutomationController {
                 case CREATE_DISPLAY:
                     result = createDisplay(args);
                     break;
-                case OPEN_DISPLAY_VIEWER:
-                    result = openDisplayViewer(args);
+                case ATTACH_DISPLAY_VIEWER:
+                    result = attachDisplayViewer(args);
                     break;
                 case SELECT_DISPLAY_VIEWER:
-                case PARK_DISPLAY_VIEWER:
+                case DETACH_DISPLAY_VIEWER:
                     result = changeDisplayViewer(args, action);
                     break;
                 case REMOVE_DISPLAY:
@@ -473,10 +473,10 @@ final class DesktopAutomationController {
                         DesktopDisplayCatalog.json(display[0]));
     }
 
-    private DesktopAutomationResult openDisplayViewer(JSONObject args) throws JSONException {
+    private DesktopAutomationResult attachDisplayViewer(JSONObject args) throws JSONException {
         final CountDownLatch completed = new CountDownLatch(1);
         final Throwable[] failure = new Throwable[1];
-        DisplayPresentations.open(mContext, requiredInt(args, "sourceDisplayId"),
+        DisplayPresentations.attach(mContext, requiredInt(args, "sourceDisplayId"),
                 requiredInt(args, "outputDisplayId"), args.optBoolean("fullscreen", false), error -> {
                     failure[0] = error;
                     completed.countDown();
@@ -504,14 +504,14 @@ final class DesktopAutomationController {
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             final DisplayPresentations.Session session = DisplayPresentations.find(id);
             if (session == null) {
-                callback.onComplete(action == DesktopAutomationAction.PARK_DISPLAY_VIEWER ? null
+                callback.onComplete(action == DesktopAutomationAction.DETACH_DISPLAY_VIEWER ? null
                         : new IllegalArgumentException("viewer does not exist"));
-            } else if (action == DesktopAutomationAction.PARK_DISPLAY_VIEWER) DisplayPresentations.park(session, callback);
+            } else if (action == DesktopAutomationAction.DETACH_DISPLAY_VIEWER) DisplayPresentations.detach(session, callback);
             else if (source == null) DisplayPresentations.previous(session, callback);
             else DisplayPresentations.select(session, source, callback);
         });
         final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
-                ACTION_TIMEOUT_MILLIS, "display viewer change", action == DesktopAutomationAction.PARK_DISPLAY_VIEWER,
+                ACTION_TIMEOUT_MILLIS, "display viewer change", action == DesktopAutomationAction.DETACH_DISPLAY_VIEWER,
                 new JSONObject().put("viewerId", id));
         if (pending != null) return pending;
         return failure[0] == null ? DesktopAutomationResult.success("viewer change completed",

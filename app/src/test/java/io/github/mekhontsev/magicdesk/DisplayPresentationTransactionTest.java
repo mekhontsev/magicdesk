@@ -28,7 +28,7 @@ public final class DisplayPresentationTransactionTest {
                 """);
     }
 
-    @Test public void parkCancelsHandoffBeforeServiceExecution() throws Exception {
+    @Test public void detachCancelsHandoffBeforeServiceExecution() throws Exception {
         verify("""
                 MagicDeskRuntime.display = 1;
                 Session a = session(1, 3, true);
@@ -38,22 +38,22 @@ public final class DisplayPresentationTransactionTest {
                 attached(a);
                 check(!MAIN.queue.isEmpty(), "no queued input acquisition");
                 int[] completed = {0};
-                park(a, error -> { check(error == null, "park failed"); completed[0]++; });
+                detach(a, error -> { check(error == null, "detach failed"); completed[0]++; });
                 MAIN.drain();
-                check(a.closed && completed[0] == 1, "park not completed exactly once");
-                check(MagicDeskRuntime.display == -1, "parked viewer reacquired input");
+                check(a.closed && completed[0] == 1, "detach not completed exactly once");
+                check(MagicDeskRuntime.display == -1, "detached viewer reacquired input");
                 """);
     }
 
-    @Test public void parkReleasesHandoffAlreadyExecutedByService() throws Exception {
+    @Test public void detachReleasesHandoffAlreadyExecutedByService() throws Exception {
         verify("""
                 MagicDeskRuntime.display = 1;
                 Session a = session(1, 3, true);
                 new Change(Map.of(a, new DesktopDisplayInfo(2))).start(); MAIN.drain();
                 attached(a); MAIN.queue.remove().run();
                 check(MagicDeskRuntime.display == 2, "handoff was not executed");
-                park(a, error -> check(error == null, "park failed")); MAIN.drain();
-                check(MagicDeskRuntime.display == -1, "applied handoff survived park");
+                detach(a, error -> check(error == null, "detach failed")); MAIN.drain();
+                check(MagicDeskRuntime.display == -1, "applied handoff survived detach");
                 """);
     }
 
@@ -70,12 +70,12 @@ public final class DisplayPresentationTransactionTest {
                 """);
     }
 
-    @Test public void parkCancelsViewerControlButtonRequest() throws Exception {
+    @Test public void detachCancelsViewerControlButtonRequest() throws Exception {
         verify("""
                 Session a = session(1, 3, true); a.ready = true;
                 controlInput(a, result -> {});
-                park(a, error -> check(error == null, "park failed")); MAIN.drain();
-                check(MagicDeskRuntime.display == -1, "Control button acquired input after park");
+                detach(a, error -> check(error == null, "detach failed")); MAIN.drain();
+                check(MagicDeskRuntime.display == -1, "Control button acquired input after detach");
                 """);
     }
 
@@ -140,7 +140,7 @@ public final class DisplayPresentationTransactionTest {
                 """ + RuntimeSourceFixture.nestedClass("DisplayPresentations", "Listener")
                 + RuntimeSourceFixture.nestedClass("DisplayPresentations", "Session")
                 + RuntimeSourceFixture.nestedClass("DisplayPresentations", "Change")
-                + RuntimeSourceFixture.topLevelMethods("DisplayPresentations", "park", "attached", "visibilityChanged",
+                + RuntimeSourceFixture.topLevelMethods("DisplayPresentations", "detach", "attached", "visibilityChanged",
                         "setFullscreen", "controlInput") + """
                     static final Map<String, Session> SESSIONS = new LinkedHashMap<>();
                     static void notify(Session s) { if (s.listener != null) s.listener.changed(); }

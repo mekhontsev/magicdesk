@@ -142,7 +142,7 @@ final class ShellVirtualDisplays implements AutoCloseable {
                     : new DisplayPresentationSurface() {
                         @Override public void attach(android.view.Surface surface,
                                 android.view.SurfaceControl parent) { entry.display.present(surface); }
-                        @Override public void close() { entry.display.park(); }
+                        @Override public void close() { entry.display.detachViewer(); }
                     };
             final ShellDisplayViewer viewer = new ShellDisplayViewer(
                     presentation, sourceId, outputId, viewerOwner);

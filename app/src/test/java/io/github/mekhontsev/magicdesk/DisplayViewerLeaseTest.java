@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class DisplayViewerLeaseTest {
-    @Test public void parkCancelsHeldInputAndReleasesResourcesEvenAfterInjectionFailure() throws Exception {
+    @Test public void detachCancelsHeldInputAndReleasesResourcesEvenAfterInjectionFailure() throws Exception {
         RuntimeSourceFixture.verify("""
                 boolean mClosed;
                 MotionEvent mTouch = new MotionEvent();
@@ -33,7 +33,7 @@ public final class DisplayViewerLeaseTest {
                     }
                 }
                 static class SystemClock { static long uptimeMillis() { return 100; } }
-                static class Display { int parked; void close() { parked++; } }
+                static class Display { int detached; void close() { detached++; } }
                 static class Surface { boolean released; void release() { released = true; } }
                 static class Owner { int unlinked; void unlinkToDeath(Object death, int flags) { unlinked++; } }
                 void inject(MotionEvent event) {
@@ -56,11 +56,11 @@ public final class DisplayViewerLeaseTest {
                         try { f.close(); } catch (IllegalStateException expected) { thrown = true; }
                         check(thrown == failure, "input error was lost");
                         check(f.actions.equals(List.of(3, 1, 1)), "not all held input was released");
-                        check(f.mPresentation.parked == 1 && surface.released && touch.recycled,
+                        check(f.mPresentation.detached == 1 && surface.released && touch.recycled,
                                 "input failure skipped Surface cleanup");
                         check(f.mOwner.unlinked == 1 && f.mKeys.isEmpty(), "lease retained resources");
                         f.close();
-                        check(f.mPresentation.parked == 1, "second close touched parked source");
+                        check(f.mPresentation.detached == 1, "second close touched detached source");
                     }
                 }
                 """ + RuntimeSourceFixture.methods("ShellDisplayViewer", "close"));

@@ -32,7 +32,7 @@ final class DisplayInputRequests {
     }
 
     synchronized Request beginRelease(int displayId) {
-        // Parking an output must not supersede a user's queued selection of another display.
+        // Detaching an output must not supersede a user's queued selection of another display.
         if (current != null && !current.cancelled && current.displayId != displayId) return null;
         return begin(-1, -1);
     }

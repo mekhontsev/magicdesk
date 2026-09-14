@@ -29,13 +29,13 @@ public final class DesktopPresentationLauncherTest {
                 }
                 static class DisplayPresentations {
                     static int opens;
-                    static void open(Context c, int source, int output, boolean full,
+                    static void attach(Context c, int source, int output, boolean full,
                             BuiltInWindowLauncher.Callback callback) {
                         check(full && source == 2 && output == 3,
                                 "portable Desktop did not use fullscreen output presentation");
                         opens++; callback.onComplete(null);
                     }
-                """ + RuntimeSourceFixture.methods("DisplayPresentations", "showOn") + """
+                """ + RuntimeSourceFixture.methods("DisplayPresentations", "attachOutput") + """
                 }
                 static class BuiltInWindowLauncher { interface Callback { void onComplete(Throwable error); } }
                 static class Result { boolean success; String message = "start rejected"; }

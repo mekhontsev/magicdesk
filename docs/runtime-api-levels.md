@@ -64,7 +64,7 @@ separate from these feature requirements.
   flags/callbacks. Its separate update process does not remove the requirement
   to verify Binder identity and process restart on each supported release.
 - `FrameworkVirtualDisplayApi` uses `DisplayManager.createVirtualDisplay` with
-  hidden touch, trusted, decoration and own-display-group flags. A display's
+  hidden touch, trusted and own-display-group flags. A display's
   public API availability does not guarantee those privileges or firmware
   behavior. Failures stay local to that operation, not the entire tool runtime.
 

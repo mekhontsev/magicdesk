@@ -1852,7 +1852,7 @@ ordering. Display windowing defaults are acquired and restored per display.
 
 Display removal recovery addresses the lost workspace. With direct bindings,
 unplugging the output also removes that workspace and retains the normal close
-behavior for that workspace only. A direct physical workspace cannot be parked
+behavior for that workspace only. A direct physical workspace cannot be retained
 by exchanging compositor tokens: that would not transfer Android's logical
 display ownership. The optional virtual-first path below keeps residency on an
 owned virtual display from the start, without changing ordinary startup.
@@ -1865,11 +1865,19 @@ Owned virtual displays retain trusted, touch-capable, own-content and independen
 power-group flags without requesting SystemUI decorations. Desktop starts its
 HOME root explicitly; system navigation is not a creation prerequisite. Native
 window captions and display IME policy keep their existing owners. This applies
-when the display is created, not when it is parked or shown on another output.
+when the display is created, not when its viewer is detached or attached to
+another output.
 Android's optional forced external desktop mode or a system display override can
 still enable system decorations; MagicDesk does not change those settings here.
 
 ### Display Presentations
+
+`DesktopDisplayInfo.canHostDesktop` admits direct managed workspaces, not
+presentation outputs. Android rejects organizer-created task areas on untrusted
+displays even for privileged callers. Such a display can still receive an
+ordinary Viewer through the privileged Activity launcher: a portable workspace
+keeps its HOME, task areas and input on MagicDesk's trusted virtual source.
+The selector's **No direct desktop** label does not disable presentation actions.
 
 `DisplayPresentations` maps a live source display to an ordinary
 `DisplayViewerActivity` on another live display. This is a separate presentation
@@ -1900,10 +1908,10 @@ does not certify that the previous compositor producer has disconnected.
 `ShellDisplayViewer` is a revocable Binder lease, independent of the source's
 resource owner. It serializes source-addressed input and releases held keys and
 touch streams before detaching. The framework injection adapter is shared with
-the existing test pointer injector. Parking returns the virtual display to its
+the existing test pointer injector. Detach returns the virtual display to its
 existing non-null ImageReader sink with unchanged task IDs, logical dimensions,
 density and configuration. While presented, a display-scoped Android wake lock
-wakes and retains only the source's own power group. Parking releases it and
+wakes and retains only the source's own power group. Detach releases it and
 allows ordinary idle sleep; attaching again wakes that source, without changing
 the phone's screen timeout or holding unrelated displays awake. Closing the viewer or losing
 its output does not close that source's Desktop or move applications.
@@ -1922,7 +1930,7 @@ the viewer are forwarded with the inverse presentation transform.
 
 `DisplayInputRequests` belongs to the runtime input owner, not the Viewer
 registry. Its cancellable requests are checked when queued input actually
-executes. Parking cancels the viewer's pending acquisition and conditionally
+executes. Detach cancels the viewer's pending acquisition and conditionally
 releases its selected source without superseding a newer explicit selection.
 Desktop preparation, release and runtime teardown invalidate obsolete requests.
 `DisplayViewerConnection` observes Binder lease death and input failures with
@@ -1940,13 +1948,14 @@ changes do not release and reacquire unchanged physical-input routing.
 The viewer source menu and previous-source action share this registry. Desktop
 `Ctrl+Alt+Tab` addresses the viewer showing the selected input source; ordinary
 application Alt+Tab is unchanged. Fullscreen hides viewer controls and requests
-immersive system bars; Back returns to the controls before parking the viewer.
-Reopening an existing output applies the requested fullscreen state too; Open
+immersive system bars; Back returns to the controls before detaching the viewer.
+Reattaching an existing output applies the requested fullscreen state too; Attach
 waits for that output's attachment even if source selection committed while hidden.
-The display selector distinguishes **Show on display**, a fullscreen output
+The display selector distinguishes **Attach output...**, a fullscreen output
 without Viewer controls, from **Display Viewer**, an explicitly opened viewer
-with its controls. `DisplayPresentations.showOn` is shared by **Show on display**
-and **Start portable desktop here**, so parking and choosing a reconnected output
+with its controls. `DisplayPresentations.attachOutput` is shared by
+**Attach output...** and **Start portable desktop here**, so detaching and
+choosing a reconnected output
 does not turn the portable Desktop into a windowed viewer. The choice belongs
 to the command, not stored display metadata; input remains explicitly acquired.
 `DesktopPresentationLauncher` creates a virtual
@@ -1966,8 +1975,12 @@ editable. Without a selected display it uses the saved creation parameters.
 Fixed resolutions and custom dimensions remain available. This choice does not
 link the created display's configuration to later changes or loss of its output.
 
-Park, Close Desktop and Remove Display remain separate commands. Reconnecting
-an output requires selecting its current catalog identity and opening a viewer
+Attach connects an output to a source, not the source's lifetime to an output.
+Detach changes only presentation; **Detach output: [name]** names the actual
+output for both direct virtual sources and mirrored sources. Neither action
+disconnects Android's physical or wireless display transport. Close Desktop
+and Remove Display remain separate commands. Reconnecting
+an output requires selecting its current catalog identity and attaching a viewer
 for the retained source; no numeric output ID is persisted or automatically
 reused. Mirroring an existing screen does not substitute its physical panel's
 contents: a window placed over the source also appears in its mirror. Arbitrary
@@ -3162,8 +3175,8 @@ still owns the selection. It is not an output detach or a transfer to another
 active workspace. The existing
 task-return path either returns tasks to the default display and remembers their
 layout, or returns them without retaining layout for Exit. No destination
-display is removed by this plan. Output parking without returning applications
-to the phone remains unimplemented.
+display is removed by this plan. Retaining a workspace after output loss uses
+the separate virtual-source presentation path: Detach is not a Close operation.
 Both Close destinations park tasks before releasing the desktop host; showing
 the phone control panel is only a presentation choice. Exit uses the same task
 return path without retaining a workspace for restoration.

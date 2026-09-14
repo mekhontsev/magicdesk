@@ -87,9 +87,9 @@ final class FrameworkVirtualDisplayApi {
             catch (RuntimeException error) { releasePresentationWakeLock(); throw error; }
         }
 
-        synchronized void park() {
+        synchronized void detachViewer() {
             // Keep a render target and task configuration when the viewer
-            // disappears. Ordinary idle sleep is allowed while parked.
+            // disappears. Ordinary idle sleep is allowed while detached.
             try { if (!mReleased) mDisplay.setSurface(mOutput.getSurface()); }
             finally { releasePresentationWakeLock(); }
         }

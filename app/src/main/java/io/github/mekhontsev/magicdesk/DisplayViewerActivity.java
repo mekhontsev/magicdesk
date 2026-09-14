@@ -37,7 +37,7 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
     private Button mSourceButton;
     private ImageButton mPrevious;
     private ImageButton mInput;
-    private ImageButton mClose;
+    private ImageButton mDetach;
     private TextView mError;
     private FrameLayout mFrame;
     private SurfaceView mSurface;
@@ -62,7 +62,7 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
         mSession = DisplayPresentations.find(getIntent().getStringExtra(SESSION));
         if (mSession == null || getDisplay() == null
                 || getDisplay().getDisplayId() != mSession.output.id) {
-            if (mSession != null) DisplayPresentations.park(mSession);
+            if (mSession != null) DisplayPresentations.detach(mSession);
             finish();
             return;
         }
@@ -98,7 +98,7 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
         action(R.drawable.ic_show_desktop, R.string.action_open_fullscreen, () -> {
             DisplayPresentations.setFullscreen(mSession, !mSession.fullscreen);
         });
-        mClose = action(R.drawable.ic_close, R.string.action_close_window, () -> DisplayPresentations.park(mSession));
+        mDetach = action(R.drawable.ic_close, R.string.display_detach_output, () -> DisplayPresentations.detach(mSession));
         root.addView(mToolbar, new LinearLayout.LayoutParams(-1, -2));
         mFrame = new FrameLayout(this);
         mFrame.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fit());
@@ -112,7 +112,7 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
         getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> {
                     if (mSession.fullscreen) DisplayPresentations.setFullscreen(mSession, false);
-                    else DisplayPresentations.park(mSession);
+                    else DisplayPresentations.detach(mSession);
                 });
         changed();
     }
@@ -130,10 +130,10 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
         mPrevious.setEnabled(mSession.change == null && !mSession.history.isEmpty());
         mInput.setEnabled(mSession.ready && mSession.change == null);
         mSourceButton.setEnabled(mSession.change == null);
-        final String closeLabel = getString(DisplayPresentationMode.forSource(mSession.source)
-                == DisplayPresentationMode.DIRECT ? R.string.display_park : R.string.action_close_window);
-        mClose.setContentDescription(closeLabel);
-        mClose.setTooltipText(closeLabel);
+        final String detachLabel = getString(R.string.display_detach_named_output,
+                mSession.output.name + " [" + mSession.output.id + "]");
+        mDetach.setContentDescription(detachLabel);
+        mDetach.setTooltipText(detachLabel);
         mError.setText(mSession.error);
         mError.setVisibility(mSession.error.isEmpty() ? View.GONE : View.VISIBLE);
         if (mRenderedBinding != mSession.bindingGeneration) {
@@ -321,17 +321,17 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
             }
             for (DesktopDisplayInfo source : displays) {
                 if (source.id == mSession.source.id) {
-                    if (!source.uniqueId.equals(mSession.source.uniqueId)) DisplayPresentations.park(mSession);
+                    if (!source.uniqueId.equals(mSession.source.uniqueId)) DisplayPresentations.detach(mSession);
                     else DisplayPresentations.updateGeometry(mSession, source);
                     return;
                 }
             }
-            DisplayPresentations.park(mSession);
+            DisplayPresentations.detach(mSession);
         }));
     }
     @Override public void onDisplayRemoved(int displayId) {
         if (mSession != null && (displayId == mSession.source.id || displayId == mSession.output.id)) {
-            DisplayPresentations.park(mSession);
+            DisplayPresentations.detach(mSession);
         }
     }
     @Override public void onConfigurationChanged(Configuration configuration) {
@@ -356,7 +356,7 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
 
     private void verifyOutput() {
         if (mSession != null && (getDisplay() == null
-                || getDisplay().getDisplayId() != mSession.output.id)) DisplayPresentations.park(mSession);
+                || getDisplay().getDisplayId() != mSession.output.id)) DisplayPresentations.detach(mSession);
     }
 
     @Override protected void onDestroy() {
@@ -364,7 +364,7 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
         if (mDisplays != null) mDisplays.unregisterDisplayListener(this);
         if (mSession != null && mSession.listener == this) {
             mSession.listener = null;
-            if (!isChangingConfigurations()) DisplayPresentations.park(mSession);
+            if (!isChangingConfigurations()) DisplayPresentations.detach(mSession);
         }
         BuiltInWindowRegistry.unregister(this);
         super.onDestroy();

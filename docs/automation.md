@@ -412,12 +412,19 @@ ineligible for Desktop until verified. These are live display identities, not
 desktop-session records. A wireless connection may already be listed before
 MagicDesk starts on it.
 
+`canHostDesktop=false` rejects only direct managed Desktop startup, not ordinary
+tool placement or Viewer output. In particular, untrusted public displays may
+accept a privileged Viewer launch but cannot host organizer-created task areas.
+Create a trusted virtual source, start Desktop there and use
+`attach_display_viewer` with the other display as its output; keep input addressed
+to the source. Viewer launch and attachment errors remain authoritative.
+
 - `create_display(width, height, densityDpi, type)` creates a `virtual`
   (headless, default) or `overlay` (phone preview) display without starting HOME.
   Several headless displays can coexist; only one Android overlay can be
   created without rewriting an existing overlay set.
-  Owned virtual displays do not request system navigation decorations. Parking
-  or reopening a viewer preserves the source's original creation flags.
+  Owned virtual displays do not request system navigation decorations. Detaching
+  or reattaching a viewer preserves the source's original creation flags.
 - `start_desktop(displayId, uniqueId)` starts on exactly the selected display.
   The optional uniqueId prevents stale selection after hotplug. Do not combine
   this form with the target convenience selector. Wait for `desktop_active`;
@@ -433,8 +440,8 @@ MagicDesk starts on it.
   It first closes any session on that display, releases its selected input and
   waits for window transitions.
   Then wait for `display_absent`; a removal request is not a display-loss event.
-- `open_display_viewer(sourceDisplayId, outputDisplayId, fullscreen)` presents
-  a live source in an ordinary window on another display. MagicDesk-owned virtual
+- `attach_display_viewer(sourceDisplayId, outputDisplayId, fullscreen)` attaches
+  an output to a live source through an ordinary viewer window. MagicDesk-owned virtual
   sources connect directly; existing screens are mirrored through WindowManager.
   Built-in sources use their individual IDs, not an implicit display-0 selection.
   It does not start Desktop or claim physical input. Completion confirms Surface
@@ -448,10 +455,10 @@ MagicDesk starts on it.
   handoff. A hidden viewer attaches when shown; it does not block the visible
   peer and remains `ready=false`. Task IDs, display IDs,
   window bounds and density do not change.
-- `park_display_viewer(viewerId)` releases the viewer and its selected input,
+- `detach_display_viewer(viewerId)` releases the viewer and its selected input,
   keeping the source and its applications/optional Desktop alive. Direct sources
   return to their own sink; closing a mirror removes only its copied scene.
-  Repeating an absent viewer ID succeeds. A disconnected output also parks
+  Repeating an absent viewer ID succeeds. A disconnected output also detaches
   the viewer; reconnect by choosing its fresh display catalog entry.
   Pending viewer input acquisition is cancelled at the input runtime; a later
   explicit selection of another display is preserved.
@@ -482,11 +489,15 @@ Loss of the privileged viewer lease clears readiness and reports an error.
 Selecting the same source retries the binding; stale errors from a previous
 connection cannot invalidate a new one.
 
-The control panel's **Show on display** and **Start portable desktop here**
+The control panel's **Attach output...** and **Start portable desktop here**
 both request fullscreen output without Viewer controls. **Display Viewer**
 opens with its controls. Automation keeps the explicit `fullscreen` argument;
-use `fullscreen=true` to present a parked source on a reconnected output in the
-same way as **Show on display**. This does not reacquire released input.
+use `fullscreen=true` to attach a reconnected output to a retained source in the
+same way as **Attach output...**. This does not reacquire released input.
+**Detach output: [name]** ends only that presentation, not its source display or
+Desktop, and does not disconnect the output's HDMI/wireless transport. The
+built-in CLI uses the same `attach_display_viewer` and
+`detach_display_viewer` commands from this catalog.
 
 The panel copies an existing-display command such as
 `scrcpy --display-id=3 --mouse-bind=++++ --shortcut-mod=rctrl`.

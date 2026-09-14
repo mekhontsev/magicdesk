@@ -256,6 +256,14 @@ with configurable dimensions and scale. Multiple headless virtual displays can
 coexist; the Android preview adapter has a single shared configuration.
 **Copy scrcpy command** supplies a viewer command for the selected display.
 
+**Attach output...** connects a screen for viewing the selected source display.
+For a MagicDesk-owned virtual source, **Detach output: [name]** releases that
+presentation while retaining the virtual display, its applications and Desktop.
+The HDMI or wireless connection itself stays connected. Attach another output
+to continue there. **Start portable desktop here** creates a virtual source,
+starts Desktop there and attaches the selected output to it. **Display Viewer**
+opens an ordinary viewer with its controls instead.
+
 A viewer, display and Desktop session have independent lifetimes:
 
 - Closing a viewer does not close Desktop or remove MagicDesk's display.

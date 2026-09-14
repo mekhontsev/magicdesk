@@ -54,11 +54,11 @@
     <string name="action_previous">Prev</string>
     <string name="display_viewer">Display Viewer</string>
     <string name="display_viewer_source">Source display</string>
-    <string name="display_close_viewer">Close Display Viewer</string>
     <string name="display_previous">Previous display</string>
-    <string name="display_park">Park display</string>
+    <string name="display_detach_output">Detach output</string>
+    <string name="display_detach_named_output">Detach output: %1$s</string>
     <string name="display_actions">Display actions</string>
-    <string name="display_show_on">Show on display</string>
+    <string name="display_attach_output">Attach output...</string>
     <string name="display_start_portable">Start portable desktop here</string>
     <string name="display_presented_on">on %1$s [%2$d]</string>
     <string name="shortcut_display">Ctrl + Alt + Tab</string>
@@ -857,7 +857,7 @@
     <string name="display_height">Height</string>
     <string name="display_scale">Scale (%)</string>
     <string name="display_copy_command">Copy scrcpy command</string>
-    <string name="display_unavailable">Unavailable</string>
+    <string name="display_no_direct_desktop">No direct desktop</string>
     <string name="display_invalid_parameters">Size: 320-8192, up to 32 megapixels. Scale: 50-400%.</string>
     <string name="display_creating">Creating display...</string>
     <string name="display_created">Display ready</string>

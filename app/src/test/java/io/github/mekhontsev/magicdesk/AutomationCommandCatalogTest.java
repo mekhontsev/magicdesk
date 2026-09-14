@@ -12,6 +12,21 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class AutomationCommandCatalogTest {
+    @Test public void displayAttachmentCommandsExposeSourceOutputAndPresentationIdentity() throws Exception {
+        final JSONArray tools = AutomationCommandCatalog.create();
+        final JSONObject attach = tool(tools, "attach_display_viewer").getJSONObject("inputSchema");
+        assertEquals("[\"sourceDisplayId\",\"outputDisplayId\"]", attach.getJSONArray("required").toString());
+        assertEquals(3, attach.getJSONObject("properties").length());
+        assertTrue(attach.getJSONObject("properties").has("fullscreen"));
+        final JSONObject detach = tool(tools, "detach_display_viewer").getJSONObject("inputSchema");
+        assertEquals("[\"viewerId\"]", detach.getJSONArray("required").toString());
+        assertEquals(1, detach.getJSONObject("properties").length());
+        assertEquals(DesktopAutomationAction.ATTACH_DISPLAY_VIEWER,
+                DesktopAutomationAction.parse("attach_display_viewer"));
+        assertEquals(DesktopAutomationAction.DETACH_DISPLAY_VIEWER,
+                DesktopAutomationAction.parse("detach_display_viewer"));
+    }
+
     @Test public void captureUsesOneOptionalRectangleWithoutSelectorModes() throws Exception {
         final var tools = AutomationCommandCatalog.create();
         final var capture = tool(tools, "capture_screenshot");
