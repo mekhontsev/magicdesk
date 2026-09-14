@@ -94,11 +94,16 @@ final class ShellPtyHandle implements TerminalTransport {
 
     @Override
     public long processId() throws IOException {
+        return outputEndpoint().processId();
+    }
+
+    @Override
+    public PtyEndpoint outputEndpoint() throws IOException {
         if (mClosed.get()) {
             throw new IOException("Shell PTY is closed");
         }
         try {
-            return mService.getPtyProcessId(mRequestId);
+            return PtyEndpoint.parse(mService.getPtyEndpoint(mRequestId));
         } catch (RemoteException | RuntimeException error) {
             throw new IOException(
                     "Shell PTY process lookup failed: "

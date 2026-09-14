@@ -797,12 +797,16 @@ final class AutomationCommandCatalog {
                 .put(actionTool(
                         "console.execute",
                         "Execute headless shell command",
-                        "Execute a command in a persistent gated headless shell session.",
+                        "Execute in a persistent non-PTY shell. Optional stdout sends raw bytes or PNG to a terminal/pane without returning them. stderr and exit code remain diagnostic. Closing this console cancels its command. Never replay an interrupted delivery automatically.",
                         objectSchema(new JSONObject()
                                         .put("sessionId", stringProperty(
                                                 "Console session id."))
                                         .put("command", stringProperty(
-                                                "Shell command.")),
+                                                "Shell command."))
+                                        .put("stdout", objectSchema(new JSONObject()
+                                                .put("terminalId", stringProperty("Retained terminal destination; exclusive with tmuxTarget."))
+                                                .put("tmuxTarget", stringProperty("Exact target from tmux.panes; exclusive with terminalId. PNG requires tmux allow-passthrough."))
+                                                .put("mimeType", enumProperty("Omit for raw terminal bytes; image/png encodes Kitty.", "image/png")))),
                                 "sessionId", "command")))
                 .put(readTool(
                         "console.status",
@@ -892,6 +896,22 @@ final class AutomationCommandCatalog {
                         "List tmux sessions",
                         "List persistent tmux sessions inside Termux on demand; tmux may be unavailable.",
                         emptySchema()))
+                .put(actionTool("terminal.emit", "Emit terminal output",
+                        "Write output bytes to a live terminal's slave PTY, not keyboard input. Does not require a window or Desktop. "
+                                + "For output inside tmux use tmux.emit instead. Output shares terminal state and may be overwritten. "
+                                + "Supply exactly one of UTF-8 text or dataBase64 (1..65536 decoded bytes); wait for each receipt before the next chunk. "
+                                + "Non-idempotent: never automatically retry an unconfirmed or partial write.",
+                        outputBytesSchema("terminalId", "Retained terminal id from terminal.list.")))
+                .put(readTool("tmux.panes", "List tmux output targets",
+                        "List live writable panes on the selected Termux package's default tmux server, including detached sessions. "
+                                + "Targets identify the pane process and reject stale selections. No Desktop or terminal window required.",
+                        objectSchema(new JSONObject().put("sessionId", stringProperty("Optional session id from tmux.list; omitted lists all sessions.")))))
+                .put(actionTool("tmux.emit", "Emit tmux pane output",
+                        "Write bytes to the selected pane's slave PTY as a peer application writer, before tmux parses them. "
+                                + "Not keyboard input, an overlay or a separate pane. Output may be overwritten by the running application. "
+                                + "Supply exactly one of UTF-8 text or dataBase64 (1..65536 decoded bytes); wait for each receipt before the next chunk. "
+                                + "Non-idempotent: never automatically retry an unconfirmed or partial write. Graphics depend on tmux protocol support/configuration.",
+                        outputBytesSchema("target", "Opaque live target from tmux.panes; never construct or reuse after it disappears.")))
                 .put(actionTool(
                         "tmux.open",
                         "Open tmux session",
@@ -906,6 +926,12 @@ final class AutomationCommandCatalog {
     private static JSONObject pathSchema() throws JSONException {
         return objectSchema(new JSONObject().put(
                 "path", stringProperty("Absolute shell path.")), "path");
+    }
+
+    private static JSONObject outputBytesSchema(String target, String description) throws JSONException {
+        return objectSchema(new JSONObject().put(target, stringProperty(description))
+                .put("text", stringProperty("UTF-8 output, including ANSI/OSC controls; exclusive with dataBase64."))
+                .put("dataBase64", stringProperty("Base64-encoded raw output bytes; exclusive with text.")), target);
     }
 
     private static JSONObject toolPlacementProperties() throws JSONException {
@@ -1674,6 +1700,14 @@ final class AutomationCommandCatalog {
                 properties.put("sessionId", stringProperty("Session id."))
                         .put("exitCode", integerProperty("Command exit code."))
                         .put("output", stringProperty("Combined output."))
+                        .put("stderr", stringProperty("Diagnostics when stdout is redirected."))
+                        .put("stderrTruncated", booleanProperty("Whether diagnostics exceeded the capture limit."))
+                        .put("stdoutDelivery", objectSchema(new JSONObject()
+                                .put("completed", booleanProperty("PTY accepted all encoded bytes; not a rendering acknowledgement."))
+                                .put("sourceBytes", integerProperty("Raw stdout bytes received."))
+                                .put("bytesWritten", integerProperty("Confirmed PTY bytes, including presentation framing."))
+                                .put("writeUnconfirmed", booleanProperty("A write may have occurred without acknowledgement; do not replay."))
+                                .put("errno", integerProperty("Last reported native delivery errno."))))
                         .put("workingDirectory", stringProperty(
                                 "Current directory."));
                 break;
@@ -1720,6 +1754,18 @@ final class AutomationCommandCatalog {
                                 "Interactive terminal id."))
                         .put("characters", integerProperty(
                                 "Number of accepted characters."));
+                break;
+            case "terminal.emit":
+            case "tmux.emit":
+                properties.put(toolName.equals("terminal.emit") ? "terminalId" : "target",
+                                stringProperty("Resolved output target."))
+                        .put("bytesRequested", integerProperty("Requested output bytes."))
+                        .put("bytesWritten", integerProperty("Bytes written to the slave PTY, not a rendering acknowledgement."))
+                        .put("errno", integerProperty("Native write error; zero on success."));
+                break;
+            case "tmux.panes":
+                properties.put("count", integerProperty("Number of live writable panes."))
+                        .put("panes", arrayProperty("Pane identities and opaque output targets.", openObjectProperty("tmux pane.")));
                 break;
             case "terminal.send_key":
                 properties.put("terminalId", stringProperty(

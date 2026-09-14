@@ -1,118 +1,107 @@
 package io.github.mekhontsev.magicdesk;
 
-import static org.junit.Assert.assertEquals;
-
+import static org.junit.Assert.*;
 import org.junit.Test;
-
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 
 public final class PersistentAutomationCommandExecutorTest {
     private static final String MARKER = "__MAGICDESK_TEST__";
 
-    @Test
-    public void readsOutputAndCompletionRecordWithoutLosingNewlines()
-            throws Exception {
-        final PersistentAutomationCommandExecutor.ReadState state = read(
-                "one\ntwo\n\n" + MARKER + "7\t/tmp\n");
-        final PersistentAutomationCommandExecutor.Completion completion =
-                completion(
-                        "one\ntwo\n\n" + MARKER + "7\t/tmp\n");
-
-        assertEquals("one\ntwo\n", state.output());
-        assertEquals(7, completion.exitCode);
-        assertEquals("/tmp", completion.workingDirectory);
+    @Test public void binaryStdoutAndDelayedStderrAreSeparate() throws Exception {
+        final ByteArrayOutputStream frames = new ByteArrayOutputStream();
+        final byte[] binary = new byte[256];
+        for (int i = 0; i < 256; i++) binary[i] = (byte) i;
+        frame(frames, 33, binary);
+        frame(frames, 33, end(7));
+        frame(frames, 34, "late diagnostic\n");
+        frame(frames, 34, end(7));
+        final ByteArrayOutputStream received = new ByteArrayOutputStream();
+        final var result = ShellCommandOutput.read(new ByteArrayInputStream(frames.toByteArray()),
+                MARKER, received::write);
+        assertArrayEquals(binary, received.toByteArray());
+        assertEquals("", result.output());
+        assertEquals("late diagnostic\n", result.stderr());
+        assertEquals(7, result.exitCode());
+        assertEquals("/tmp", result.workingDirectory());
     }
 
-    @Test
-    public void keepsOutputThatOnlyPartiallyMatchesMarker() throws Exception {
-        final String output = "before\n" + MARKER + "not-a-record\nafter";
-        final PersistentAutomationCommandExecutor.ReadState state = read(
-                output + "\n" + MARKER + "0\t/sdcard\n");
-
-        assertEquals(output, state.output());
+    @Test public void everyByteCanBeItsOwnFrameIncludingUtf8AndMarkers() throws Exception {
+        final ByteArrayOutputStream frames = new ByteArrayOutputStream();
+        final String text = "one\ntwo\n\u043f\u0440\u0438\u0432\u0435\u0442\n";
+        for (byte value : (text + end(0)).getBytes(StandardCharsets.UTF_8)) frame(frames, 33, new byte[]{value});
+        frame(frames, 34, end(0));
+        final var result = read(frames);
+        assertEquals(text, result.output());
     }
 
-    @Test
-    public void completionCanImmediatelyFollowARejectedMarkerLine() throws Exception {
-        final String output = "before\n" + MARKER + "not-a-record";
-        final String encoded = output + "\n" + MARKER + "0\t/tmp\n";
-        final StringBuilder streamed = new StringBuilder();
-        final var state = new PersistentAutomationCommandExecutor.ReadState(
-                ("\n" + MARKER).getBytes(StandardCharsets.UTF_8), streamed::append);
-        final var completion = state.read(new ByteArrayInputStream(
-                encoded.getBytes(StandardCharsets.UTF_8)));
-
-        assertEquals(0, completion.exitCode);
-        assertEquals("/tmp", completion.workingDirectory);
-        assertEquals(output, state.output());
-        assertEquals(output, streamed.toString());
+    @Test public void rejectedMarkerLineAndPartialPrefixAreOrdinaryOutput() throws Exception {
+        final String text = "before\n__MAGIC\n" + MARKER + "not-a-record";
+        final ByteArrayOutputStream frames = new ByteArrayOutputStream();
+        frame(frames, 33, text + end(0));
+        frame(frames, 34, end(0));
+        assertEquals(text, read(frames).output());
     }
 
-    @Test
-    public void streamsOnlyVisibleCommandOutput() throws Exception {
-        final List<String> streamed = new ArrayList<>();
-        final PersistentAutomationCommandExecutor.ReadState state =
-                new PersistentAutomationCommandExecutor.ReadState(
-                        ("\n" + MARKER).getBytes(StandardCharsets.UTF_8),
-                        streamed::add);
-
-        state.read(new ByteArrayInputStream(
-                ("one\ntwo\n\n" + MARKER + "0\t/tmp\n")
-                        .getBytes(StandardCharsets.UTF_8)));
-
-        assertEquals("one\ntwo\n", String.join("", streamed));
-        assertEquals("one\ntwo\n", state.output());
+    @Test public void ordinaryCommandsRetainBothOutputChannels() throws Exception {
+        final ByteArrayOutputStream frames = new ByteArrayOutputStream();
+        frame(frames, 34, "error");
+        frame(frames, 33, "out");
+        frame(frames, 34, end(0));
+        frame(frames, 33, end(0));
+        assertEquals("errorout", read(frames).output());
     }
 
-    @Test
-    public void streamsTextBeforePossibleMarkerLineIsResolved()
-            throws Exception {
-        final StringBuilder streamed = new StringBuilder();
-        final byte[] encoded = ("ready\n\n" + MARKER + "0\t/tmp\n")
-                .getBytes(StandardCharsets.UTF_8);
-        final int boundary = "ready\n".getBytes(StandardCharsets.UTF_8).length;
-        final InputStream input = new InputStream() {
-            private int mOffset;
-
-            @Override
-            public int read() {
-                if (mOffset == boundary) {
-                    assertEquals("ready", streamed.toString());
-                }
-                return mOffset < encoded.length
-                        ? encoded[mOffset++] & 0xff : -1;
-            }
-        };
-        final PersistentAutomationCommandExecutor.ReadState state =
-                new PersistentAutomationCommandExecutor.ReadState(
-                        ("\n" + MARKER).getBytes(StandardCharsets.UTF_8),
-                        streamed::append);
-
-        state.read(input);
-
-        assertEquals("ready\n", streamed.toString());
+    @Test public void malformedOrMissingBoundariesAndFramesAreRejected() throws Exception {
+        final ByteArrayOutputStream frames = new ByteArrayOutputStream();
+        frame(frames, 33, end(0));
+        assertThrows(IOException.class, () -> read(frames));
+        frame(frames, 34, end(1));
+        assertThrows(IOException.class, () -> read(frames));
+        final ByteArrayOutputStream invalid = new ByteArrayOutputStream();
+        frame(invalid, 98, "x");
+        assertThrows(IOException.class, () -> read(invalid));
+        invalid.reset();
+        frame(invalid, 33, new byte[8193]);
+        assertThrows(IOException.class, () -> read(invalid));
     }
 
-    private static PersistentAutomationCommandExecutor.ReadState read(
-            final String encoded) throws Exception {
-        final PersistentAutomationCommandExecutor.ReadState state =
-                new PersistentAutomationCommandExecutor.ReadState(
-                        ("\n" + MARKER).getBytes(StandardCharsets.UTF_8));
-        state.read(new ByteArrayInputStream(
-                encoded.getBytes(StandardCharsets.UTF_8)));
-        return state;
+    @Test public void captureIsBoundedButRedirectedStdoutIsNotTruncated() throws Exception {
+        final ByteArrayOutputStream frames = new ByteArrayOutputStream();
+        for (int i = 0; i < 64; i++) {
+            frame(frames, 33, new byte[8192]);
+            frame(frames, 34, new byte[8192]);
+        }
+        frame(frames, 33, end(0)); frame(frames, 34, end(0));
+        final long[] count = {0};
+        final var result = ShellCommandOutput.read(new ByteArrayInputStream(frames.toByteArray()), MARKER,
+                (b, o, n) -> count[0] += n);
+        assertEquals(524288, count[0]);
+        assertTrue(result.stderrTruncated());
+        assertEquals("", result.output());
+        assertTrue(result.stderr().length() < 400000);
     }
 
-    private static PersistentAutomationCommandExecutor.Completion completion(
-            final String encoded) throws Exception {
-        final PersistentAutomationCommandExecutor.ReadState state =
-                new PersistentAutomationCommandExecutor.ReadState(
-                        ("\n" + MARKER).getBytes(StandardCharsets.UTF_8));
-        return state.read(new ByteArrayInputStream(
-                encoded.getBytes(StandardCharsets.UTF_8)));
+    @Test public void recipientFailurePreservesObservedStderrAndStopsReading() throws Exception {
+        final ByteArrayOutputStream frames = new ByteArrayOutputStream();
+        frame(frames, 34, "diagnostic");
+        frame(frames, 33, "content");
+        final var error = assertThrows(ShellCommandOutput.Failure.class,
+                () -> ShellCommandOutput.read(new ByteArrayInputStream(frames.toByteArray()), MARKER,
+                        (b, o, n) -> { throw new IOException("recipient closed"); }));
+        assertEquals("diagnostic", error.stderr);
+        assertEquals("recipient closed", error.getMessage());
+    }
+
+    private static ShellCommandOutput.Result read(ByteArrayOutputStream frames) throws IOException {
+        return ShellCommandOutput.read(new ByteArrayInputStream(frames.toByteArray()), MARKER, null);
+    }
+    private static String end(int code) { return "\n" + MARKER + code + "\t/tmp\n"; }
+    private static void frame(ByteArrayOutputStream output, int kind, String bytes) throws IOException {
+        frame(output, kind, bytes.getBytes(StandardCharsets.UTF_8));
+    }
+    private static void frame(ByteArrayOutputStream output, int kind, byte[] bytes) throws IOException {
+        final DataOutputStream data = new DataOutputStream(output);
+        data.writeByte(kind); data.writeInt(bytes.length); data.write(bytes);
     }
 }

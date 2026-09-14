@@ -44,7 +44,7 @@ public final class TermuxPtyProtocolTest {
     public void parsesAuthenticatedHello() throws Exception {
         final TermuxPtyProtocol.Frame frame = new TermuxPtyProtocol.Frame(
                 TermuxPtyProtocol.FRAME_HELLO,
-                (TOKEN + " 1234").getBytes(StandardCharsets.US_ASCII));
+                (TOKEN + " 1234 5678 /dev/pts/9").getBytes(StandardCharsets.US_ASCII));
 
         assertEquals(
                 1234L,
@@ -55,7 +55,7 @@ public final class TermuxPtyProtocolTest {
     public void rejectsWrongHelloToken() throws Exception {
         final TermuxPtyProtocol.Frame frame = new TermuxPtyProtocol.Frame(
                 TermuxPtyProtocol.FRAME_HELLO,
-                (TOKEN + " 1234").getBytes(StandardCharsets.US_ASCII));
+                (TOKEN + " 1234 5678 /dev/pts/9").getBytes(StandardCharsets.US_ASCII));
 
         TermuxPtyProtocol.parseHello(frame, TOKEN.substring(1) + "0");
     }
@@ -125,7 +125,7 @@ public final class TermuxPtyProtocolTest {
     @Test
     public void fragmentedHandshakeSharesOneDeadline() throws Exception {
         final byte[] hello = frame(TermuxPtyProtocol.FRAME_HELLO,
-                (TOKEN + " 1234").getBytes(StandardCharsets.US_ASCII));
+                (TOKEN + " 1234 5678 /dev/pts/9").getBytes(StandardCharsets.US_ASCII));
         final FragmentedSocket socket = new FragmentedSocket(hello, 100);
 
         assertThrows(SocketTimeoutException.class,
@@ -138,7 +138,7 @@ public final class TermuxPtyProtocolTest {
     public void timelyHandshakeDoesNotConsumeFollowingOutput() throws Exception {
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         bytes.write(frame(TermuxPtyProtocol.FRAME_HELLO,
-                (TOKEN + " 1234").getBytes(StandardCharsets.US_ASCII)));
+                (TOKEN + " 1234 5678 /dev/pts/9").getBytes(StandardCharsets.US_ASCII)));
         bytes.write(frame(TermuxPtyProtocol.FRAME_OUTPUT, new byte[]{65}));
         final FragmentedSocket socket = new FragmentedSocket(bytes.toByteArray(), 1);
 

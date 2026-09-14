@@ -50,7 +50,7 @@ final class McpAccessPolicy {
             case "console.open", "console.execute", "console.status", "console.close",
                     "terminal.open", "terminal.list", "terminal.status", "terminal.read",
                     "terminal.write", "terminal.send_key", "terminal.close", "terminal.attach",
-                    "terminal.detach", "tmux.list", "tmux.open"
+                    "terminal.detach", "terminal.emit", "tmux.list", "tmux.open", "tmux.panes", "tmux.emit"
                     -> Permission.SHELL;
             case "files.list", "files.stat", "files.download_begin", "files.download_chunk",
                     "files.download_finish" -> Permission.FILES_READ;

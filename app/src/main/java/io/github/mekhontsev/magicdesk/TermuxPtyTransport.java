@@ -37,7 +37,7 @@ final class TermuxPtyTransport implements TerminalTransport {
     private final DataOutputStream mOutput;
     private final InputStream mTerminalInput = new FramedInput();
     private final AtomicBoolean mClosed = new AtomicBoolean();
-    private final long mProcessId;
+    private final PtyEndpoint mEndpoint;
 
     private String mWorkingDirectory;
     private long mDirectoryGeneration;
@@ -48,12 +48,12 @@ final class TermuxPtyTransport implements TerminalTransport {
     private TermuxPtyTransport(
             final Socket socket,
             final DataInputStream input,
-            final long processId,
+            final PtyEndpoint endpoint,
             final String workingDirectory) throws IOException {
         mSocket = socket;
         mInput = input;
         mOutput = new DataOutputStream(socket.getOutputStream());
-        mProcessId = processId;
+        mEndpoint = endpoint;
         mWorkingDirectory = workingDirectory;
         OPENED.incrementAndGet();
         ACTIVE.incrementAndGet();
@@ -173,7 +173,7 @@ final class TermuxPtyTransport implements TerminalTransport {
             socket.setSoTimeout(0);
             return new TermuxPtyTransport(
                     socket, new DataInputStream(socket.getInputStream()),
-                    hello.processId, workingDirectory);
+                    hello.endpoint, workingDirectory);
         } catch (IOException | RuntimeException error) {
             try {
                 socket.close();
@@ -249,7 +249,13 @@ final class TermuxPtyTransport implements TerminalTransport {
     @Override
     public long processId() throws IOException {
         ensureOpen();
-        return mProcessId;
+        return mEndpoint.processId();
+    }
+
+    @Override
+    public PtyEndpoint outputEndpoint() throws IOException {
+        ensureOpen();
+        return mEndpoint;
     }
 
     @Override

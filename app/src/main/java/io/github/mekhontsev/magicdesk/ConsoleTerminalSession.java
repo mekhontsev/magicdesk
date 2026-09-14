@@ -100,6 +100,7 @@ final class ConsoleTerminalSession {
             TerminalProcessInfo.unknown();
     private TerminalTransport mTransport;
     private long mProcessId = -1L;
+    private PtyEndpoint mOutputEndpoint;
     private int mColumns;
     private int mRows;
     private boolean mStarted;
@@ -170,6 +171,13 @@ final class ConsoleTerminalSession {
 
     DesktopExecBackend backend() {
         return mBackend;
+    }
+
+    PtyEndpoint outputEndpoint() throws IOException {
+        synchronized (mLock) {
+            if (!mReady || mClosed || mOutputEndpoint == null) throw new IOException("terminal output endpoint is unavailable");
+            return mOutputEndpoint;
+        }
     }
 
     String workingDirectory() {
@@ -430,8 +438,10 @@ final class ConsoleTerminalSession {
         final int currentRows;
         final int currentColumns;
         long processId = -1L;
+        PtyEndpoint outputEndpoint = null;
         try {
             processId = transport.processId();
+            outputEndpoint = transport.outputEndpoint();
         } catch (IOException ignored) {
             // Process metadata is useful to automation but not required for
             // an otherwise healthy interactive terminal.
@@ -443,6 +453,7 @@ final class ConsoleTerminalSession {
             }
             mTransport = transport;
             mProcessId = processId;
+            mOutputEndpoint = outputEndpoint;
             mReady = true;
             mStartupCommandSent = mStartupCommand.isEmpty()
                     || transport.consumesStartupCommand();

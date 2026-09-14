@@ -40,16 +40,7 @@ final class TermuxIntegration {
     static final String PTY_BOOTSTRAP =
             "set -eu\n"
             + "target=\"${HOME:?}/.local/libexec/$7\"\n"
-            + "mkdir -p \"${target%/*}\"\n"
-            + "tmp=\"${target%/*}/.magicdesk-pty-tmp.$$\"\n"
-            + "trap 'rm -f \"$tmp\"' EXIT HUP INT TERM\n"
-            + "base64 -d > \"$tmp\"\n"
-            + "chmod 700 \"$tmp\"\n"
-            + "mv -f \"$tmp\" \"$target\"\n"
-            + "for old in \"${target%/*}\"/magicdesk-pty-*; do\n"
-            + "  [ \"$old\" = \"$target\" ] || rm -f -- \"$old\"\n"
-            + "done\n"
-            + "trap - EXIT HUP INT TERM\n"
+            + TermuxPtyBridgeLauncher.INSTALL_HELPER
             + TerminalShellIntegration.termuxBootstrap()
             + "exec \"$target\" --socket \"$1\" \"$2\" \"$3\" "
             + "\"$4\" \"$5\" "
@@ -200,6 +191,14 @@ final class TermuxIntegration {
             final String workingDirectory,
             final long timeoutMillis,
             final ResultCallback callback) {
+        runBackgroundShellCommandForResult(context, endpoint, command, label,
+                workingDirectory, timeoutMillis, null, callback);
+    }
+
+    static void runBackgroundShellCommandForResult(
+            final Context context, final Endpoint endpoint, final String command,
+            final String label, final String workingDirectory, final long timeoutMillis,
+            final String stdin, final ResultCallback callback) {
         final TermuxCommandResultReceiver.Registration registration =
                 TermuxCommandResultReceiver.register(
                         context, timeoutMillis, callback);
@@ -207,6 +206,7 @@ final class TermuxIntegration {
             context.startForegroundService(commandIntent(endpoint,
                     command, label, workingDirectory)
                     .putExtra(EXTRA_BACKGROUND, true)
+                    .putExtra(EXTRA_STDIN, stdin)
                     .putExtra(
                             EXTRA_RESULT_PENDING_INTENT,
                             registration.pendingIntent));

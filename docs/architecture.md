@@ -793,9 +793,15 @@ runtime integration and are not distributed through the same release path.
   `DesktopAutomationFileTools` delegates to the same typed `ShellFileSystem`
   service as built-in Files. `DesktopAutomationConsoleSessions` owns a bounded
   set of lifecycle-scoped `PersistentAutomationShellSession` instances and
-  closes them with the shared command runtime. These marker-delimited non-terminal shells
-  exist only to return structured command output, exit status, and current
-  directory to command adapters; they are not a second user-facing Console implementation.
+  closes them with the shared command runtime. These non-PTY shells retain
+  their environment and directory. The native pipe relay owns each UNIX session
+  and frames stdout/stderr separately. `ShellCommandOutput` consumes a boundary
+  on both channels before committing command status; binary stdout is never
+  decoded as text. `TerminalOutputTarget` resolves peer identity and
+  `TerminalOutputStream` delivers bounded blocks, optionally encoding PNG as
+  Kitty. Ordinary commands retain bounded combined text output. Closing or
+  cancelling the source shell terminates its jobs, not its terminal recipient.
+  These are command services, not a second user-facing Console implementation.
 - `ConsoleTerminalRegistry` owns up to 32 process-local terminal sessions and weak
   references to their optional windows. It exposes immutable task, display, PTY,
   dimensions, foreground-process, title, directory, viewport, and transcript
@@ -1502,6 +1508,17 @@ death, or stream failure ends that PTY and its UNIX-session jobs, including
 foreground and background process groups. A failed transport is
 discarded rather than silently changing privilege or execution backend.
 
+The relay handshake publishes a `PtyEndpoint` (PID, process start ticks and slave
+device) captured at PTY creation. The registry exposes that identity only while
+the session remains ready and live. `PtyPeerOutput` performs bounded, one-shot
+slave writes using the same native helper under the PTY's existing execution
+identity. `TmuxPanes` adds on-demand default-server discovery and verifies pane
+membership before using that same writer. Termux helper installation is shared
+with relay startup, not a second bootstrap implementation. No persistent output
+worker, alternate renderer path, privilege fallback or replay mechanism exists.
+`DesktopAutomationPtyOutput` adapts both paths for the shared MCP/CLI executor;
+delivery receipts distinguish complete, partial and unconfirmed writes.
+
 Termux service resolution is restricted to the selected package and the
 standard `com.termux.RUN_COMMAND` action. A unique exported service must retain
 the command/result protocol and a permission MagicDesk supports. A renamed
@@ -1519,8 +1536,11 @@ shutdown. Process signals wake the same poll owner; cleanup has a bounded
 HUP-to-kill sequence for the owned UNIX session, not a separate worker thread.
 The shell leader remains unreaped until cleanup finishes, reserving its session
 ID. Session membership is inspected only during teardown; an early shell exit
-does not leave HUP-ignoring jobs alive. Independently sessionized processes,
-including tmux servers, remain outside this ownership boundary.
+does not leave HUP-ignoring jobs alive. Both graceful and forced shutdown wait
+for every owned member to stop executing before reporting successful cleanup;
+delivery of SIGKILL or exit of the leader alone is not that acknowledgement.
+Independently sessionized processes, including tmux servers, remain outside
+this ownership boundary.
 
 `ConsoleTerminalSession` owns transport and terminal state independently of a window.
 The registry releases sessions on explicit termination, shell EOF or runtime exit.

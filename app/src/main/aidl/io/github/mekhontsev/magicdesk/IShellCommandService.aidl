@@ -322,7 +322,7 @@ interface IShellCommandService {
 
     String getPtyWorkingDirectory(long requestId) = 93;
 
-    long getPtyProcessId(long requestId) = 94;
+    String getPtyEndpoint(long requestId) = 94;
 
     boolean clearTaskObserverConfiguration(
         ITaskObserverCallback callback,

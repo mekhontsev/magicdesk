@@ -1480,10 +1480,11 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override
-    public long getPtyProcessId(final long requestId) {
+    public String getPtyEndpoint(final long requestId) {
         final PtyStreamSession session = requirePtySession(requestId);
         try {
-            return session.processId();
+            session.processId();
+            return session.endpoint.wireValue();
         } catch (IOException error) {
             throw new IllegalStateException(
                     "cannot read Shell PTY process: "
@@ -1755,7 +1756,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     private final class PtyStreamSession extends OwnedStreamSession {
         final DataOutputStream commandWriter;
         final CountDownLatch shellPidReady = new CountDownLatch(1);
-        volatile long shellPid = -1L;
+        volatile PtyEndpoint endpoint;
 
         PtyStreamSession(
                 final long requestId,
@@ -1797,7 +1798,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                 throws IOException {
             final StringBuilder header = new StringBuilder();
             int value = -1;
-            while (header.length() < 64
+            while (header.length() < 192
                     && (value = input.read()) >= 0
                     && value != '\n') {
                 header.append((char) value);
@@ -1808,9 +1809,9 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                 throw new IOException("invalid PTY helper handshake");
             }
             try {
-                shellPid = Long.parseLong(
+                endpoint = PtyEndpoint.parse(
                         header.substring("MAGICDESK_PTY ".length()));
-            } catch (NumberFormatException error) {
+            } catch (IOException error) {
                 shellPidReady.countDown();
                 throw new IOException("invalid PTY shell process", error);
             }
@@ -1827,10 +1828,10 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                 Thread.currentThread().interrupt();
                 throw new IOException("PTY directory lookup interrupted", error);
             }
-            if (shellPid <= 0L) {
+            if (endpoint == null) {
                 throw new IOException("PTY shell process is unavailable");
             }
-            return shellPid;
+            return endpoint.processId();
         }
 
         String workingDirectory() throws IOException {

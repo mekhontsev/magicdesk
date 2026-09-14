@@ -348,11 +348,20 @@ int main(int argc, char **argv) {
                     ok = 0;
                     continue;
                 }
-            } else if (wait_bridge(jobs[i], notifications, &job_status, 1000)) {
-                continue;
             } else {
-                fprintf(stderr, "FAIL: terminal job %d survived PTY teardown\n", jobs[i]);
-                ok = 0;
+                struct process_relationship job;
+                const int observed = read_process_relationship(jobs[i], &job);
+                const int gone = observed == 0 ? job.state == 'Z' || job.state == 'X'
+                        : errno == ENOENT || errno == ESRCH;
+                if (!gone) {
+                    fprintf(stderr, "FAIL: terminal job %d still live at PTY teardown completion\n", jobs[i]);
+                    ok = 0;
+                } else if (wait_bridge(jobs[i], notifications, &job_status, 1000)) {
+                    continue;
+                } else {
+                    fprintf(stderr, "FAIL: terminal job %d was not reaped\n", jobs[i]);
+                    ok = 0;
+                }
             }
             assert(kill(jobs[i], SIGKILL) == 0);
             assert(wait_bridge(jobs[i], notifications, &job_status, 1000));

@@ -1,265 +1,99 @@
 package io.github.mekhontsev.magicdesk;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
-
+import static org.junit.Assert.*;
 import org.junit.Test;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class PersistentAutomationShellSessionTest {
-    private static final String MARKER = "__MAGICDESK_CWD_test__0\t";
-
-    @Test
-    public void runsInCurrentDirectoryAndTracksChangedDirectory()
-            throws Exception {
-        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
-                "/storage/emulated/0/Dmitry's files",
-                command -> {
-                    assertTrue(command.startsWith(
-                            "__magicdesk_status_test=0\n"
-                                    + "cd -- '/storage/emulated/0/Dmitry'"
-                                    + "\"'\"'s files'"
-                                    + " || __magicdesk_status_test=$?\n"));
-                    assertTrue(command.contains("cd ../Desktop && pwd\n"));
-                    return result(0, "/storage/emulated/0/Desktop");
-                },
-                "test");
-
-        final PersistentAutomationShellSession.ExecutionResult result =
-                session.execute("cd ../Desktop && pwd");
-
-        assertEquals(0, result.exitCode);
-        assertEquals("/storage/emulated/0/Desktop\n", result.output);
-        assertEquals("/storage/emulated/0/Desktop", result.workingDirectory);
-        assertEquals("/storage/emulated/0/Desktop", session.workingDirectory());
+    @Test public void directoryEnvironmentAndBinarySinkShareOneExecutor() throws Exception {
+        final List<String> requests = new ArrayList<>();
+        final var sink = new java.io.ByteArrayOutputStream();
+        final var session = new PersistentAutomationShellSession("/tmp", (command, stdout) -> {
+            requests.add(command);
+            if (stdout != null) stdout.write(new byte[]{0, (byte) 255}, 0, 2);
+            return result("/sdcard", 7);
+        }, "test");
+        session.execute("export X=kept; cd /sdcard");
+        final var result = session.execute("printf \"$X\"", sink::write);
+        assertTrue(requests.get(0).contains("cd -- '/tmp'"));
+        assertFalse(requests.get(1).contains("cd -- "));
+        assertTrue(requests.get(1).contains("printf \"$X\""));
+        assertTrue(requests.get(0).contains("} 2>&1\n"));
+        assertFalse(requests.get(1).contains("} 2>&1\n"));
+        assertArrayEquals(new byte[]{0, (byte) 255}, sink.toByteArray());
+        assertEquals("/sdcard", session.workingDirectory());
+        assertEquals(7, result.exitCode());
+        assertTrue(requests.get(1).contains(" >&2\n"));
     }
 
-    @Test
-    public void keepsTrailingNewlineFromUserOutput() throws Exception {
-        final PersistentAutomationShellSession session = sessionReturning(
-                new ShellAccess.CommandResult(
-                        0,
-                        "one\ntwo\n\n" + MARKER + "/tmp\n"));
-
-        final PersistentAutomationShellSession.ExecutionResult result =
-                session.execute("printf 'one\\ntwo\\n'");
-
-        assertEquals("one\ntwo\n", result.output);
-        assertEquals("/tmp", result.workingDirectory);
+    @Test public void quotedDirectorySpellingIsRetained() throws Exception {
+        final String directory = "/tmp/link/../Dmitry's files";
+        final var session = new PersistentAutomationShellSession(directory, (command, stdout) -> {
+            assertTrue(command.contains("cd -- " + ShellCommandLine.quote(directory)));
+            return result(directory, 0);
+        }, "test");
+        assertEquals(directory, session.execute("pwd").workingDirectory());
     }
 
-    @Test
-    public void appliesDirectoryOnlyWhenPersistentShellNeedsIt()
-            throws Exception {
-        final int[] execution = { 0 };
-        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
-                "/tmp",
-                command -> {
-                    if (execution[0]++ == 0) {
-                        assertTrue(command.contains("cd -- '/tmp'"));
-                    } else {
-                        assertFalse(command.contains("cd -- "));
-                    }
-                    return result(0, "/tmp");
-                },
-                "test");
-
-        session.execute("export VALUE=kept");
-        session.execute("printenv VALUE");
-
-        assertEquals(2, execution[0]);
-    }
-
-    @Test
-    public void explicitDirectoryChangeIsAppliedOnce() throws Exception {
-        final int[] execution = { 0 };
-        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
-                "/tmp",
-                command -> {
-                    execution[0]++;
-                    if (execution[0] == 2) {
-                        assertTrue(command.contains("cd -- '/sdcard'"));
-                    } else if (execution[0] == 3) {
-                        assertFalse(command.contains("cd -- "));
-                    }
-                    return result(0, execution[0] >= 2 ? "/sdcard" : "/tmp");
-                },
-                "test");
-
+    @Test public void failedOrCancelledShellReappliesLastConfirmedDirectory() throws Exception {
+        final int[] execution = {0};
+        final boolean[] cancelled = {false};
+        final var executor = new PersistentAutomationShellSession.CommandExecutor() {
+            @Override public ShellCommandOutput.Result execute(String command, ShellCommandOutput.Sink sink)
+                    throws IOException {
+                if (execution[0]++ == 1) throw new IOException("closed");
+                assertTrue(command.contains("cd -- "));
+                return result("/sdcard", 0);
+            }
+            @Override public void cancelCurrent() { cancelled[0] = true; }
+        };
+        final var session = new PersistentAutomationShellSession("/tmp", executor, "test");
+        session.execute("cd /sdcard");
+        assertThrows(IOException.class, () -> session.execute("failed"));
         session.execute("pwd");
-        session.setWorkingDirectory("/sdcard");
-        session.execute("pwd");
-        session.execute("pwd");
-
-        assertEquals(3, execution[0]);
-    }
-
-    @Test
-    public void keepsDirectoryAndOutputWhenCommandExitsBeforeMarker()
-            throws Exception {
-        final PersistentAutomationShellSession session = sessionReturning(
-                new ShellAccess.CommandResult(4, "stopped\n"));
-
-        final PersistentAutomationShellSession.ExecutionResult result =
-                session.execute("echo stopped; exit 4");
-
-        assertEquals(4, result.exitCode);
-        assertEquals("stopped\n", result.output);
-        assertEquals("/tmp", result.workingDirectory);
-    }
-
-    @Test
-    public void recognizesCommandsThatCloseConsole() {
-        assertTrue(PersistentAutomationShellSession.isExitCommand("exit"));
-        assertTrue(PersistentAutomationShellSession.isExitCommand("  exit 4  "));
-        assertFalse(PersistentAutomationShellSession.isExitCommand("echo exit"));
-        assertFalse(PersistentAutomationShellSession.isExitCommand("exit invalid"));
-    }
-
-    @Test
-    public void failedShellReappliesLastConfirmedDirectory() throws Exception {
-        final int[] execution = { 0 };
-        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
-                "/tmp",
-                command -> {
-                    execution[0]++;
-                    assertTrue(command.contains("cd -- '/tmp'"));
-                    if (execution[0] == 1) {
-                        throw new java.io.IOException("stream ended");
-                    }
-                    return result(0, "/tmp");
-                },
-                "test");
-
-        try {
-            session.execute("pwd");
-        } catch (java.io.IOException expected) {
-            assertEquals("stream ended", expected.getMessage());
-        }
-        session.execute("pwd");
-
-        assertEquals(2, execution[0]);
-    }
-
-    @Test
-    public void rejectsRelativeWorkingDirectory() {
-        try {
-            new PersistentAutomationShellSession("relative", command -> null, "test");
-        } catch (IllegalArgumentException expected) {
-            assertTrue(expected.getMessage().contains("absolute"));
-            return;
-        }
-        throw new AssertionError("relative working directory was accepted");
-    }
-
-    @Test
-    public void serviceMarkerIsNotPartOfVisibleOutput() throws Exception {
-        final PersistentAutomationShellSession session = sessionReturning(result(0, "/tmp"));
-
-        final String output = session.execute("pwd").output;
-
-        assertFalse(output.contains("MAGICDESK_CWD"));
-    }
-
-    @Test
-    public void fallsBackToCompletedOutputWhenExecutorCannotStream()
-            throws Exception {
-        final PersistentAutomationShellSession session = sessionReturning(
-                result(0, "/tmp"));
-        final StringBuilder streamed = new StringBuilder();
-
-        session.execute("pwd", streamed::append);
-
-        assertEquals("/tmp\n", streamed.toString());
-    }
-
-    @Test
-    public void invalidInitialDirectoriesAreRejectedBeforeExecution() {
-        for (final String directory : new String[]{null, "", "relative", "/tmp\0other",
-                "/tmp\nother", "/tmp\rother", "/" + "x".repeat(4096)}) {
-            assertThrows(IllegalArgumentException.class,
-                    () -> new PersistentAutomationShellSession(directory, command -> {
-                        throw new AssertionError("invalid directory reached executor");
-                    }, "test"));
-        }
-    }
-
-    @Test
-    public void rejectedDirectoryChangeKeepsLastConfirmedDirectory() throws Exception {
-        final PersistentAutomationShellSession session = sessionReturning(result(0, "/tmp"));
-        session.execute("pwd");
-        assertThrows(IllegalArgumentException.class,
-                () -> session.setWorkingDirectory("/tmp\0other"));
-        assertEquals("/tmp", session.workingDirectory());
-        assertEquals("/tmp", session.execute("pwd").workingDirectory);
-    }
-
-    @Test
-    public void invalidObservedDirectoryDoesNotReplaceSessionState() throws Exception {
-        for (final String directory : new String[]{"/tmp\0other", "/tmp\rother",
-                "/" + "x".repeat(4096)}) {
-            final String raw = "output\n\n" + MARKER + directory + "\n";
-            final PersistentAutomationShellSession session = sessionReturning(
-                    new ShellAccess.CommandResult(0, raw));
-            final var result = session.execute("pwd");
-            assertEquals("/tmp", result.workingDirectory);
-            assertEquals(raw, result.output);
-        }
-    }
-
-    @Test
-    public void validDirectorySpellingIsNotLexicallyRewritten() throws Exception {
-        final String directory = "/tmp/link/../space ' name";
-        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
-                directory, command -> {
-                    assertTrue(command.contains("cd -- " + ShellCommandLine.quote(directory)));
-                    return result(0, directory);
-                }, "test");
-        assertEquals(directory, session.execute("pwd").workingDirectory);
-    }
-
-    @Test
-    public void cancelIsDelegatedAndReappliesTheWorkingDirectory()
-            throws Exception {
-        final boolean[] cancelled = { false };
-        final int[] execution = { 0 };
-        final PersistentAutomationShellSession.CommandExecutor executor =
-                new PersistentAutomationShellSession.CommandExecutor() {
-                    @Override
-                    public ShellAccess.CommandResult execute(
-                            final String command) {
-                        execution[0]++;
-                        if (execution[0] == 2) {
-                            assertTrue(command.contains("cd -- '/tmp'"));
-                        }
-                        return result(0, "/tmp");
-                    }
-
-                    @Override
-                    public void cancelCurrent() {
-                        cancelled[0] = true;
-                    }
-                };
-        final PersistentAutomationShellSession session = new PersistentAutomationShellSession(
-                "/tmp", executor, "test");
-        session.execute("pwd");
-
         session.cancelCurrentCommand();
-        session.execute("pwd");
-
         assertTrue(cancelled[0]);
+        session.execute("pwd");
     }
 
-    private static PersistentAutomationShellSession sessionReturning(
-            final ShellAccess.CommandResult result) {
-        return new PersistentAutomationShellSession("/tmp", command -> result, "test");
+    @Test public void invalidDirectoriesAndCommandsNeverReachExecutor() {
+        for (String directory : new String[]{null, "", "relative", "/tmp\0other",
+                "/tmp\nother", "/tmp\rother", "/" + "x".repeat(4096)}) {
+            assertThrows(IllegalArgumentException.class, () -> new PersistentAutomationShellSession(
+                    directory, (c, s) -> { throw new AssertionError(); }, "test"));
+        }
+        final var session = new PersistentAutomationShellSession("/tmp",
+                (c, s) -> { throw new AssertionError(); }, "test");
+        for (String command : new String[]{null, "", " ", "echo\0bad"}) {
+            assertThrows(IllegalArgumentException.class, () -> session.execute(command));
+        }
     }
 
-    private static ShellAccess.CommandResult result(
-            final int exitCode, final String directory) {
-        return new ShellAccess.CommandResult(
-                exitCode,
-                directory + "\n\n" + MARKER + directory + "\n");
+    @Test public void cancellationDoesNotWaitForCommandMonitor() throws Exception {
+        final var started = new java.util.concurrent.CountDownLatch(1);
+        final var cancelled = new java.util.concurrent.CountDownLatch(1);
+        final var executor = new PersistentAutomationShellSession.CommandExecutor() {
+            @Override public ShellCommandOutput.Result execute(String c, ShellCommandOutput.Sink s) throws IOException {
+                started.countDown();
+                try { assertTrue(cancelled.await(2, java.util.concurrent.TimeUnit.SECONDS)); }
+                catch (InterruptedException e) { throw new IOException(e); }
+                return result("/tmp", 0);
+            }
+            @Override public void close() { cancelled.countDown(); }
+        };
+        final var session = new PersistentAutomationShellSession("/tmp", executor, "test");
+        final var worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            final var job = worker.submit(() -> session.execute("running"));
+            assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS));
+            session.close();
+            job.get(2, java.util.concurrent.TimeUnit.SECONDS);
+        } finally { worker.shutdownNow(); }
+    }
+
+    private static ShellCommandOutput.Result result(String cwd, int code) {
+        return new ShellCommandOutput.Result(code, cwd, "output\n", "error\n", false);
     }
 }

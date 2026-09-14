@@ -160,7 +160,7 @@ final class AutomationCommands implements AutoCloseable {
                 case "console.open":
                     return mConsole.open(args);
                 case "console.execute":
-                    return mConsole.execute(args);
+                    return mConsole.execute(mContext, args);
                 case "console.status":
                     return mConsole.status(args);
                 case "console.close":
@@ -179,12 +179,18 @@ final class AutomationCommands implements AutoCloseable {
                     return mTerminals.read(args);
                 case "terminal.write":
                     return mTerminals.write(args);
+                case "terminal.emit":
+                case "tmux.emit":
+                    return DesktopAutomationPtyOutput.emit(MagicDeskApplication.applicationContext(), args,
+                            name.equals("tmux.emit"));
                 case "terminal.send_key":
                     return mTerminals.sendKey(args);
                 case "terminal.close":
                     return mTerminals.close(args);
                 case "tmux.list":
                     return mTmux.list();
+                case "tmux.panes":
+                    return mTmux.panes(args);
                 case "tmux.open":
                     return mTmux.open(args);
                 default:

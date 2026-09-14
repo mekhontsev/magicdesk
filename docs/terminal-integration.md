@@ -331,3 +331,120 @@ with the usual `maxChars` bound. `available=false` means missing/expired output,
 not successful execution with empty output. Existing viewport/transcript reads
 are unchanged. These additions use the existing terminal tool permissions and
 catalog, so the built-in CLI receives them without a separate OSC command set.
+
+### Peer Output
+
+`terminal.write` and `terminal.send_key` send **input** to a program. In contrast,
+`terminal.emit` writes **output** into the slave PTY of a retained shell or
+Termux terminal. It also works after detaching an ordinary window. The bytes
+pass through the existing PTY reader, emulator and renderer, including ANSI,
+OSC, Sixel and Kitty graphics. There is no renderer injection or overlay.
+
+For output inside a running tmux pane, use `tmux.panes`, then `tmux.emit` with
+the returned opaque `target`. An optional `sessionId` filters pane discovery;
+without it, discovery lists live writable panes across the selected Termux
+package's default tmux server. Detached tmux sessions need no MagicDesk window.
+Window/pane active flags help the caller select a destination, but emission
+never silently changes the selection to the currently active pane. Dead panes
+have no live output target. Custom tmux sockets are not exposed by this API.
+
+```sh
+magicdesk terminal.emit --terminalId terminal-1 --text 'Peer output'
+magicdesk tmux.panes
+magicdesk tmux.emit --target 'TARGET_FROM_PANES' --text 'Output inside the pane'
+magicdesk tmux.emit --args - < request.json
+```
+
+Both emit operations accept exactly one of UTF-8 `text` or raw `dataBase64`,
+with 1 to 65,536 decoded bytes per request. For larger graphics streams, split
+the bytes into chunks, preserve their order and await each receipt. `bytesWritten`
+acknowledges slave-side writes, **not** parsing, visibility or display retention.
+Terminal line-discipline output processing still applies, just as for the
+application's own writes. Emission uses the PTY owner's existing execution
+identity; Termux output never falls back to shell/root access.
+
+The producer shares the application's terminal state. Programs can repaint or
+erase emitted content; concurrent writers can interleave control sequences;
+terminal queries/replies go to the running program rather than the caller.
+Avoid reply-requesting sequences unless that program expects them. tmux graphics
+still depend on its build and configuration, as described above. Sending through
+`terminal.emit` to a tmux client PTY targets its outer terminal, not its pane:
+use `tmux.emit` for the peer-writer path before tmux parsing.
+
+Targets include the process birth identity and controlling PTY; the native
+helper verifies them before writing. A reused PID, recycled PTY or closed pane
+cannot redirect an old target into a new program. Writes have a bounded
+backpressure deadline and report any partial byte count with an error. Never
+automatically retry a partial write or `OUTCOME_UNKNOWN`: missing acknowledgement
+does not undo bytes or guarantee cancellation. There is no replay queue.
+All three commands use the existing `shell` automation grant and require neither
+Desktop nor a visible window. CLI and MCP use the same catalog and executor.
+Ordinary terminal IDs are unique across MagicDesk process restarts, so a stale
+input/output request cannot select a newly created console with a reused number.
+
+### Command Stdout
+
+`console.execute` can route a command's stdout directly to a peer terminal.
+The source is the existing non-PTY Android shell, with its retained environment
+and working directory. It does not add prompts, echo or PTY newline conversion.
+No temporary output file, Termux installation or external encoder is needed for
+the shell-to-shell path. An arbitrary external utility remains responsible for
+producing the content (for example, rendering a formula into PNG).
+
+```json
+{
+  "sessionId": "SOURCE_CONSOLE",
+  "command": "render-formula --format png",
+  "stdout": {
+    "terminalId": "DESTINATION_TERMINAL",
+    "mimeType": "image/png"
+  }
+}
+```
+
+Use `tmuxTarget` instead of `terminalId` to select a target from `tmux.panes`.
+Raw stdout needs no MIME type and passes through unchanged, including ANSI or
+already encoded graphics. PNG uses bounded
+[Kitty chunks](https://sw.kovidgoyal.net/kitty/graphics-protocol/#transferring-pixel-data),
+without decoding or buffering the complete image. PNG to a tmux pane uses its
+DCS passthrough protocol and requires `allow-passthrough`; MagicDesk does not
+change that server setting. Plain Kitty placement may be erased by tmux redraws;
+it is not a persistent placeholder-based image. Raw preformatted streams remain
+under the producing application's control. PNG responses are suppressed so
+they do not become unexpected keyboard input to the recipient program.
+
+Without `stdout`, the result contains the usual bounded combined `output`.
+With it, there is no stdout copy in the result. Instead it contains:
+
+```json
+{
+  "exitCode": 0,
+  "stderr": "",
+  "stderrTruncated": false,
+  "stdoutDelivery": {
+    "completed": true,
+    "sourceBytes": 12345,
+    "bytesWritten": 16560,
+    "writeUnconfirmed": false,
+    "errno": 0
+  }
+}
+```
+
+The example byte counts differ because `bytesWritten` includes presentation
+framing. `completed` acknowledges all PTY writes, not successful rendering.
+A nonzero command exit status is independent of output delivery. If execution
+does not reach both channel boundaries, `exitCode` is unknown (`null`). stderr
+on failure contains only diagnostics observed before interruption.
+
+Backpressure propagates through bounded buffers. A failed recipient write stops
+source execution and resets that command shell; closing the console does the
+same. Recipient identity is rechecked on each write, not by a background watcher.
+Cancelling while a write awaits its acknowledgement cannot retract that block.
+Previously confirmed bytes remain counted; `writeUnconfirmed` marks a block
+whose final byte count could not be confirmed. Never replay the command or its
+output automatically. Do not run background producers beyond the command's
+completion boundary; keep the pipeline in the foreground or use its own console.
+
+The generated CLI exposes this same object as `--stdout '{...}'` or through
+`--args`; it has no separate streaming implementation or MIME-specific tool.

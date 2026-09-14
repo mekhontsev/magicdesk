@@ -96,6 +96,21 @@ public final class AutomationCommandCatalogTest {
     }
 
     @Test
+    public void consoleRedirectionIsOneTypedOptionalDestination() throws Exception {
+        final var execute = tool(AutomationCommandCatalog.create(), "console.execute");
+        final var schema = execute.getJSONObject("inputSchema");
+        assertFalse(schema.getJSONArray("required").toString().contains("stdout"));
+        final var stdout = schema.getJSONObject("properties").getJSONObject("stdout");
+        assertEquals("object", stdout.getString("type"));
+        assertFalse(stdout.getBoolean("additionalProperties"));
+        assertTrue(stdout.getJSONObject("properties").has("terminalId"));
+        assertTrue(stdout.getJSONObject("properties").has("tmuxTarget"));
+        assertEquals("[\"image/png\"]", stdout.getJSONObject("properties")
+                .getJSONObject("mimeType").getJSONArray("enum").toString());
+        assertFalse(execute.getJSONObject("annotations").getBoolean("idempotentHint"));
+    }
+
+    @Test
     public void appFunctionParametersDeclareHomogeneousArrayContract() throws Exception {
         final JSONObject parameters = tool(AutomationCommandCatalog.create(),
                 "execute_app_function").getJSONObject("inputSchema")
@@ -362,6 +377,22 @@ public final class AutomationCommandCatalogTest {
         assertTrue(openInput.has("name"));
         assertTrue(openOutput.has("terminalId"));
         assertTrue(openOutput.has("tmuxSessionName"));
+    }
+
+    @Test public void peerOutputUsesSharedShellGrantAndNonIdempotentCatalog() throws Exception {
+        final JSONArray tools = AutomationCommandCatalog.create();
+        for (String name : new String[]{"terminal.emit", "tmux.emit"}) {
+            final JSONObject entry = tool(tools, name);
+            final JSONObject properties = entry.getJSONObject("inputSchema").getJSONObject("properties");
+            assertTrue(properties.has("text"));
+            assertTrue(properties.has("dataBase64"));
+            assertFalse(entry.getJSONObject("annotations").getBoolean("idempotentHint"));
+            assertEquals("shell", McpAccessPolicy.permissionName(name));
+            assertTrue(entry.getJSONObject("outputSchema").getJSONObject("properties")
+                    .getJSONObject("data").getJSONObject("properties").has("bytesWritten"));
+        }
+        assertEquals("shell", McpAccessPolicy.permissionName("tmux.panes"));
+        assertTrue(tool(tools, "tmux.panes").getJSONObject("annotations").getBoolean("readOnlyHint"));
     }
 
     @Test

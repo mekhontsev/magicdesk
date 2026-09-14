@@ -592,8 +592,17 @@ Shell-granted commands are:
 - `magicdesk.tmux.list` and `magicdesk.tmux.open`.
 
 `console.*` addresses headless command sessions. Each session is persistent,
-has its own current directory, returns bounded output and exit status, and is
-bounded by the server lifetime. At most eight such sessions may exist at once.
+has its own current directory and environment, and is owned by the shared
+command runtime. At most eight such sessions may exist at once.
+Console IDs are opaque and cannot select another session after a process restart.
+`console.execute` normally returns bounded combined text output and exit status.
+Its optional `stdout` object selects exactly one `terminalId` or `tmuxTarget`.
+Omit `mimeType` to send raw terminal bytes; `image/png` encodes PNG as Kitty.
+Redirected stdout is not copied into the response: `stderr`, `stderrTruncated`
+and `stdoutDelivery` report diagnostics and PTY delivery separately from
+`exitCode`. `console.close` cancels source jobs, never the destination terminal
+or tmux server. See [streamed command output](terminal-integration.md#command-stdout)
+for lifecycle, graphics and partial-delivery semantics.
 
 `terminal.*` addresses retained Console sessions by opaque
 `terminalId`. It can inspect task/display identity, shell PID, dimensions,
@@ -613,6 +622,15 @@ returns `available=false` rather than a fabricated empty result. See
 default is `shell`. A Termux terminal requires the installed Termux app, its
 external-command setting, and the `RUN_COMMAND` permission; after launch all
 other `terminal.*` operations are backend-independent.
+
+`terminal.emit` is slave-side output, unlike the keyboard input of
+`terminal.write`. It works for retained shell and Termux PTYs. `tmux.panes`
+discovers live pane targets, and `tmux.emit` writes output before tmux parses it,
+including for detached sessions. Both emit commands take exactly one of `text`
+or `dataBase64` (up to 65,536 decoded bytes), return `bytesWritten`, and must not
+be automatically retried after partial or unconfirmed completion. They use the
+`shell` grant without Desktop. See [peer output](terminal-integration.md#peer-output)
+for target lifetimes, graphics, terminal-state conflicts and CLI examples.
 
 **Settings > Integrations** selects the Termux and Shizuku manager packages;
 changes apply only at the next MagicDesk process startup. Compatible forks use

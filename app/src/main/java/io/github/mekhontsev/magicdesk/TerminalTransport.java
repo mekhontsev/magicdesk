@@ -16,6 +16,10 @@ interface TerminalTransport extends Closeable {
 
     long processId() throws IOException;
 
+    default PtyEndpoint outputEndpoint() throws IOException {
+        throw new IOException("PTY output endpoint is unavailable");
+    }
+
     default boolean supportsForegroundProcess() {
         return false;
     }

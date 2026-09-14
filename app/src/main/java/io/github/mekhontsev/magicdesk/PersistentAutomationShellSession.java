@@ -1,225 +1,85 @@
 package io.github.mekhontsev.magicdesk;
 
 import java.io.IOException;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.regex.Pattern;
 
 final class PersistentAutomationShellSession {
-    private static final AtomicLong NEXT_SESSION_ID = new AtomicLong();
-    private static final String MARKER_PREFIX = "__MAGICDESK_CWD_";
-    private static final Pattern EXIT_COMMAND = Pattern.compile(
-            "^\\s*exit(?:\\s+([0-9]+))?\\s*$");
-
     private final CommandExecutor mExecutor;
     private final String mMarker;
-    private final AtomicLong mShellResetGeneration = new AtomicLong();
+    private final AtomicLong mResetGeneration = new AtomicLong();
     private volatile String mWorkingDirectory;
     private volatile boolean mDirectoryChangePending = true;
 
-    PersistentAutomationShellSession(final String initialDirectory) {
-        mWorkingDirectory = requireAbsoluteDirectory(initialDirectory);
-        final String sessionToken =
-                Long.toHexString(NEXT_SESSION_ID.incrementAndGet())
-                        + Long.toHexString(System.nanoTime());
-        mMarker = MARKER_PREFIX + sessionToken + "__";
-        mExecutor = new PersistentAutomationCommandExecutor(mMarker);
+    PersistentAutomationShellSession(String directory) {
+        this(directory, null, UUID.randomUUID().toString().replace("-", ""));
     }
 
-    PersistentAutomationShellSession(
-            final String initialDirectory,
-            final CommandExecutor executor,
-            final String sessionToken) {
-        if (executor == null) {
-            throw new IllegalArgumentException("missing command executor");
-        }
-        if (sessionToken == null || !sessionToken.matches("[a-zA-Z0-9]+")) {
+    PersistentAutomationShellSession(String directory, CommandExecutor executor, String token) {
+        if (token == null || !token.matches("[a-zA-Z0-9]+")) {
             throw new IllegalArgumentException("invalid console session token");
         }
-        mWorkingDirectory = requireAbsoluteDirectory(initialDirectory);
-        mMarker = MARKER_PREFIX + sessionToken + "__";
-        mExecutor = executor;
+        mWorkingDirectory = requireDirectory(directory);
+        mMarker = "__MAGICDESK_CWD_" + token + "__";
+        mExecutor = executor == null ? new PersistentAutomationCommandExecutor(mMarker) : executor;
     }
 
-    String workingDirectory() {
-        return mWorkingDirectory;
-    }
+    String workingDirectory() { return mWorkingDirectory; }
 
-    void setWorkingDirectory(final String directory) {
-        mWorkingDirectory = requireAbsoluteDirectory(directory);
-        mDirectoryChangePending = true;
-    }
+    ShellCommandOutput.Result execute(String command) throws IOException { return execute(command, null); }
 
-    ExecutionResult execute(final String command) throws IOException {
-        return execute(command, null);
-    }
-
-    ExecutionResult execute(
-            final String command,
-            final OutputListener outputListener) throws IOException {
-        if (command == null || command.trim().isEmpty()) {
-            throw new IllegalArgumentException("missing console command");
+    // Serialize directory preparation, execution and state commit together.
+    // close/cancel deliberately do not acquire this monitor.
+    synchronized ShellCommandOutput.Result execute(String command, ShellCommandOutput.Sink stdout)
+            throws IOException {
+        if (command == null || command.trim().isEmpty() || command.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("missing or invalid console command");
         }
-        final long resetGeneration = mShellResetGeneration.get();
-        final StringBuilder streamed = outputListener == null
-                ? null : new StringBuilder();
-        final ShellAccess.CommandResult raw;
+        final long generation = mResetGeneration.get();
         try {
-            raw = mExecutor.execute(
-                    wrap(command, mDirectoryChangePending),
-                    output -> {
-                        if (streamed != null && output != null
-                                && !output.isEmpty()) {
-                            streamed.append(output);
-                            outputListener.onOutput(output);
-                        }
-                    });
+            final var result = mExecutor.execute(wrap(command, stdout != null), stdout);
+            mWorkingDirectory = requireDirectory(result.workingDirectory());
+            mDirectoryChangePending = generation != mResetGeneration.get();
+            return result;
         } catch (IOException | RuntimeException error) {
-            // The executor discards a failed shell; its replacement must
-            // resume in the requested or last confirmed directory.
             mDirectoryChangePending = true;
             throw error;
         }
-        final ParsedOutput parsed = parseOutput(raw.output);
-        if (outputListener != null
-                && parsed.output.startsWith(streamed.toString())
-                && streamed.length() < parsed.output.length()) {
-            outputListener.onOutput(
-                    parsed.output.substring(streamed.length()));
-        }
-        if (parsed.workingDirectory != null) {
-            mWorkingDirectory = parsed.workingDirectory;
-            mDirectoryChangePending = resetGeneration
-                    != mShellResetGeneration.get();
-        }
-        return new ExecutionResult(
-                raw.exitCode,
-                parsed.output,
-                mWorkingDirectory);
     }
 
     void cancelCurrentCommand() {
-        mShellResetGeneration.incrementAndGet();
+        mResetGeneration.incrementAndGet();
         mDirectoryChangePending = true;
         mExecutor.cancelCurrent();
     }
 
-    void close() {
-        mExecutor.close();
-    }
+    void close() { mExecutor.close(); }
 
-    private String wrap(
-            final String command,
-            final boolean applyWorkingDirectory) {
-        final String statusVariable = "__magicdesk_status_"
-                + mMarker.substring(MARKER_PREFIX.length(),
-                        mMarker.length() - 2);
-        final StringBuilder shell = new StringBuilder();
-        shell.append(statusVariable).append("=0\n");
-        if (applyWorkingDirectory) {
-            shell.append("cd -- ")
-                    .append(ShellCommandLine.quote(mWorkingDirectory))
-                    .append(" || ")
-                    .append(statusVariable)
-                    .append("=$?\n");
-        }
-        shell.append("if [ \"$")
-                .append(statusVariable)
-                .append("\" -eq 0 ]; then\n")
-                .append(command);
-        if (!command.endsWith("\n")) {
-            shell.append('\n');
-        }
-        shell.append(statusVariable).append("=$?\n")
-                .append("fi\n")
-                .append("printf '\\n")
-                .append(mMarker)
-                .append("%s\\t%s\\n' \"$")
-                .append(statusVariable)
-                .append("\" \"$PWD\"\n")
-                .append("unset ")
-                .append(statusVariable);
-        return shell.toString();
-    }
-
-    private ParsedOutput parseOutput(final String rawOutput) {
-        final String delimiter = "\n" + mMarker;
-        final int markerStart = rawOutput.lastIndexOf(delimiter);
-        if (markerStart < 0) {
-            // Commands such as `exit` can end the shell before it reports its cwd.
-            return new ParsedOutput(rawOutput, null);
-        }
-        final int statusStart = markerStart + delimiter.length();
-        final int statusEnd = rawOutput.indexOf('\t', statusStart);
-        if (statusEnd < 0) {
-            return new ParsedOutput(rawOutput, null);
-        }
-        final int pathStart = statusEnd + 1;
-        final int pathEnd = rawOutput.indexOf('\n', pathStart);
-        if (pathEnd < 0) {
-            return new ParsedOutput(rawOutput, null);
-        }
-        final String directory;
-        try {
-            directory = requireAbsoluteDirectory(rawOutput.substring(pathStart, pathEnd));
-        } catch (IllegalArgumentException invalidDirectory) {
-            return new ParsedOutput(rawOutput, null);
-        }
-        return new ParsedOutput(rawOutput.substring(0, markerStart), directory);
-    }
-
-    static boolean isExitCommand(final String command) {
-        return command != null && EXIT_COMMAND.matcher(command).matches();
-    }
-
-    private static String requireAbsoluteDirectory(final String directory) {
+    private static String requireDirectory(String directory) {
         if (directory == null || !directory.startsWith("/")) {
             throw new IllegalArgumentException("working directory must be absolute");
         }
         return DesktopExecWorkingDirectory.normalize(directory);
     }
 
+    private String wrap(String command, boolean redirectStdout) {
+        final String status = "__magicdesk_status_" + mMarker;
+        final StringBuilder shell = new StringBuilder(status + "=0\n");
+        if (mDirectoryChangePending) shell.append("cd -- ")
+                .append(ShellCommandLine.quote(mWorkingDirectory)).append(" || ").append(status).append("=$?\n");
+        shell.append("if [ \"$").append(status).append("\" -eq 0 ]; then\n{\n")
+                .append(command).append('\n').append(status).append("=$?\n}")
+                .append(redirectStdout ? "\n" : " 2>&1\n").append("fi\n");
+        final String completion = "printf '\\n" + mMarker + "%s\\t%s\\n' \"$" + status + "\" \"$PWD\"";
+        // Each pipe has its own boundary: a fast stdout drain cannot discard
+        // delayed stderr, and binary output never passes through a UTF-8 decoder.
+        return shell.append(completion).append('\n').append(completion)
+                .append(" >&2\nunset ").append(status).toString();
+    }
+
     interface CommandExecutor {
-        ShellAccess.CommandResult execute(String command) throws IOException;
-
-        default ShellAccess.CommandResult execute(
-                final String command,
-                final OutputListener outputListener) throws IOException {
-            return execute(command);
-        }
-
-        default void cancelCurrent() {
-        }
-
-        default void close() {
-        }
-    }
-
-    interface OutputListener {
-        void onOutput(String output);
-    }
-
-    static final class ExecutionResult {
-        final int exitCode;
-        final String output;
-        final String workingDirectory;
-
-        ExecutionResult(
-                final int exitCode,
-                final String output,
-                final String workingDirectory) {
-            this.exitCode = exitCode;
-            this.output = output;
-            this.workingDirectory = workingDirectory;
-        }
-    }
-
-    private static final class ParsedOutput {
-        final String output;
-        final String workingDirectory;
-
-        ParsedOutput(final String output, final String workingDirectory) {
-            this.output = output;
-            this.workingDirectory = workingDirectory;
-        }
+        ShellCommandOutput.Result execute(String command, ShellCommandOutput.Sink stdout) throws IOException;
+        default void cancelCurrent() { }
+        default void close() { }
     }
 }

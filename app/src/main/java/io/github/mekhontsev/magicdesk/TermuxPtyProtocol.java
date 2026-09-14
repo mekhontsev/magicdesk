@@ -19,7 +19,7 @@ final class TermuxPtyProtocol {
     static final int MAX_FRAME_BYTES = 1024 * 1024;
     private static final int PROCESS_HEADER_BYTES = 8;
     private static final int MAX_PROCESS_NAME_BYTES = 512;
-    private static final int MAX_HELLO_BYTES = 96;
+    private static final int MAX_HELLO_BYTES = 192;
 
     private TermuxPtyProtocol() {
     }
@@ -91,22 +91,13 @@ final class TermuxPtyProtocol {
         }
         final String value = new String(
                 frame.payload, StandardCharsets.US_ASCII);
-        final int separator = value.lastIndexOf(' ');
+        final int separator = value.indexOf(' ');
         if (separator < 1
                 || !constantTimeEquals(
                         value.substring(0, separator), expectedToken)) {
             throw new IOException("invalid Termux PTY handshake");
         }
-        try {
-            final long processId = Long.parseLong(
-                    value.substring(separator + 1));
-            if (processId <= 0L) {
-                throw new NumberFormatException("non-positive pid");
-            }
-            return new Hello(processId);
-        } catch (NumberFormatException error) {
-            throw new IOException("invalid Termux PTY process id", error);
-        }
+        return new Hello(PtyEndpoint.parse(value.substring(separator + 1)));
     }
 
     static TerminalProcessInfo parseForegroundProcess(final Frame frame)
@@ -177,9 +168,11 @@ final class TermuxPtyProtocol {
 
     static final class Hello {
         final long processId;
+        final PtyEndpoint endpoint;
 
-        Hello(final long processId) {
-            this.processId = processId;
+        Hello(final PtyEndpoint endpoint) {
+            this.endpoint = endpoint;
+            this.processId = endpoint.processId();
         }
     }
 }

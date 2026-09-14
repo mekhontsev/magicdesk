@@ -4,6 +4,19 @@ import org.junit.Test;
 
 /** Runs the registry ownership operations with lightweight window/PTY doubles. */
 public final class TerminalOwnershipRegressionTest {
+    @Test public void terminalIdsDoNotRestartWithTheProcess() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() {
+                    java.util.Set<String> ids = new java.util.HashSet<>();
+                    for (int i = 0; i < 100; i++) {
+                        String id = nextId();
+                        check(validId(id), "generated id rejected");
+                        check(id.matches("terminal-[0-9a-f]{32}"), "process-local counter used as id");
+                        check(ids.add(id), "terminal id reused");
+                    }
+                }
+                """);
+    }
     @Test public void notificationResumeUsesFocusOrderAndRetainsDetachedPtys() throws Exception {
         RuntimeSourceFixture.verify(fixture() + """
                 public static void verify() {
@@ -159,7 +172,6 @@ public final class TerminalOwnershipRegressionTest {
                 }
                 static Map<String,Entry> ENTRIES = new LinkedHashMap<>();
                 static long focusSequence;
-                static java.util.concurrent.atomic.AtomicLong NEXT_ID = new java.util.concurrent.atomic.AtomicLong();
                 static <T> T callOnMain(Callable<T> c) { try { return c.call(); } catch(Exception e) { throw new RuntimeException(e); } }
                 """ + "static " + RuntimeSourceFixture.nestedClass("TerminalWindowAttachment", "TerminalWindowAttachment")
                 + RuntimeSourceFixture.methods("ConsoleTerminalRegistry", "acquire", "register",

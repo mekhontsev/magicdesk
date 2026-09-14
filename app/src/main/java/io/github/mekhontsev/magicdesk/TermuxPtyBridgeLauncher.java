@@ -13,6 +13,19 @@ import java.security.NoSuchAlgorithmException;
 final class TermuxPtyBridgeLauncher {
     private static final String HELPER_NAME = "libmagicdesk_pty_bridge.so";
     private static final int MAX_HELPER_BYTES = 512 * 1024;
+    // The caller supplies a versioned target and base64 helper on stdin. Both
+    // bridge startup and one-shot PTY operations run under the Termux UID.
+    static final String INSTALL_HELPER =
+            "mkdir -p \"${target%/*}\"\n"
+            + "tmp=\"${target%/*}/.magicdesk-pty-tmp.$$\"\n"
+            + "trap 'rm -f \"$tmp\"' EXIT HUP INT TERM\n"
+            + "base64 -d > \"$tmp\"\n"
+            + "chmod 700 \"$tmp\"\n"
+            + "mv -f \"$tmp\" \"$target\"\n"
+            + "for old in \"${target%/*}\"/magicdesk-pty-*; do\n"
+            + "  [ \"$old\" = \"$target\" ] || rm -f -- \"$old\"\n"
+            + "done\n"
+            + "trap - EXIT HUP INT TERM\n";
 
     private TermuxPtyBridgeLauncher() {
     }
@@ -26,6 +39,12 @@ final class TermuxPtyBridgeLauncher {
             final int columns,
             final String workingDirectory,
             final String startupCommand) throws IOException {
+        final Helper helper = readHelper(context);
+        TermuxIntegration.runPtyBridge(context, endpoint, port, token, rows, columns,
+                workingDirectory, startupCommand, helper.target, helper.encoded);
+    }
+
+    static Helper readHelper(Context context) throws IOException {
         final File helper = new File(
                 context.getApplicationInfo().nativeLibraryDir,
                 HELPER_NAME);
@@ -36,18 +55,10 @@ final class TermuxPtyBridgeLauncher {
         final String digest = sha256(bytes);
         final String target = "magicdesk-pty-" + digest;
         final String encoded = Base64.encodeToString(bytes, Base64.NO_WRAP);
-        TermuxIntegration.runPtyBridge(
-                context,
-                endpoint,
-                port,
-                token,
-                rows,
-                columns,
-                workingDirectory,
-                startupCommand,
-                target,
-                encoded);
+        return new Helper(target, encoded);
     }
+
+    record Helper(String target, String encoded) { }
 
     private static String sha256(final byte[] bytes) throws IOException {
         final byte[] digest;

@@ -18,7 +18,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 /** Owns PTYs independently of their optional Activity and terminal View. */
@@ -28,7 +27,6 @@ final class ConsoleTerminalRegistry {
     }
 
     private static final long MAIN_TIMEOUT_MILLIS = 2_000L;
-    private static final AtomicLong NEXT_ID = new AtomicLong();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final Map<String, Entry> ENTRIES = new LinkedHashMap<>();
     private static long focusSequence;
@@ -103,12 +101,9 @@ final class ConsoleTerminalRegistry {
     }
 
     static String nextId() {
-        synchronized (ENTRIES) {
-            String id;
-            do { id = "terminal-" + Long.toString(NEXT_ID.incrementAndGet(), 36); }
-            while (ENTRIES.containsKey(id));
-            return id;
-        }
+        // A request/notification can outlive the process. Do not let its old
+        // terminal id select a newly created PTY after MagicDesk restarts.
+        return "terminal-" + java.util.UUID.randomUUID().toString().replace("-", "");
     }
 
     static void detach(final String id, final Activity activity) {
@@ -229,6 +224,14 @@ final class ConsoleTerminalRegistry {
             final Entry entry = find(id);
             return entry == null ? null : entry.snapshot(id);
         });
+    }
+
+    record OutputTarget(DesktopExecBackend backend, PtyEndpoint endpoint) { }
+
+    static OutputTarget outputTarget(String id) throws java.io.IOException {
+        final Entry entry = find(id);
+        if (entry == null) throw new java.io.IOException("terminal no longer exists");
+        return new OutputTarget(entry.session.backend(), entry.session.outputEndpoint());
     }
 
     static Snapshot snapshotForTask(final int taskId) {

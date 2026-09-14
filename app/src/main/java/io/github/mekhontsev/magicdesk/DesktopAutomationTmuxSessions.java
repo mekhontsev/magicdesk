@@ -82,6 +82,27 @@ final class DesktopAutomationTmuxSessions {
         }
     }
 
+    DesktopAutomationResult panes(JSONObject args) {
+        try {
+            final String sessionId = args.has("sessionId") ? args.getString("sessionId") : null;
+            final JSONArray panes = new JSONArray();
+            for (final var pane : TmuxPanes.list(mContext, sessionId)) {
+                panes.put(new JSONObject().put("target", pane.target().token())
+                        .put("sessionId", pane.target().sessionId()).put("paneId", pane.target().paneId())
+                        .put("windowId", pane.windowId()).put("activeWindow", pane.activeWindow())
+                        .put("activePane", pane.activePane()));
+            }
+            return DesktopAutomationResult.success("Live tmux output targets listed",
+                    new JSONObject().put("count", panes.length()).put("panes", panes));
+        } catch (IllegalArgumentException | JSONException error) {
+            return DesktopAutomationResult.failure(DesktopAutomationErrorCode.INVALID_ARGUMENT,
+                    ShellAccess.usefulMessage(error), false);
+        } catch (IOException | RuntimeException error) {
+            return DesktopAutomationResult.failure(DesktopAutomationErrorCode.CONSOLE_ACCESS_FAILED,
+                    ShellAccess.usefulMessage(error), false);
+        }
+    }
+
     private static DesktopAutomationResult listResult(
             final TmuxSessionProvider.Snapshot snapshot) {
         try {

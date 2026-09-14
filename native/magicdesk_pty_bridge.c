@@ -13,6 +13,8 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/signalfd.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <time.h>
@@ -46,6 +48,8 @@ struct process_relationship {
     pid_t parent;
     pid_t group;
     pid_t session;
+    unsigned int tty;
+    unsigned long long start_ticks;
 };
 
 static int write_all(int fd, const void *buffer, size_t length) {
@@ -397,16 +401,22 @@ static int read_process_relationship(
     int parent = -1;
     int group = -1;
     int session = -1;
+    int tty = 0;
+    unsigned long long start_ticks = 0;
     if (command_end == NULL
-            || sscanf(command_end + 1, " %c %d %d %d", &state, &parent, &group, &session)
-                    != 4
+            || sscanf(command_end + 1,
+                    " %c %d %d %d %d"
+                    " %*s %*s %*s %*s %*s %*s %*s" /* proc fields 8..14 */
+                    " %*s %*s %*s %*s %*s %*s %*s %llu", /* 15..21, starttime */
+                    &state, &parent, &group, &session, &tty, &start_ticks) != 6
             || group < 1 || session < 1) {
         errno = EPROTO;
         return -1;
     }
     *process = (struct process_relationship) {
         .state = state, .parent = (pid_t) parent,
-        .group = (pid_t) group, .session = (pid_t) session
+        .group = (pid_t) group, .session = (pid_t) session,
+        .tty = (unsigned int) tty, .start_ticks = start_ticks
     };
     return 0;
 }
@@ -781,7 +791,7 @@ static int signal_terminal_session(pid_t session, int signal_number) {
     return live;
 }
 
-static int await_session_exit(pid_t child, int notifications, int shell_only) {
+static int await_session_exit(pid_t child, int notifications) {
     const int64_t started = monotonic_millis();
     if (started < 0) {
         return -1;
@@ -796,7 +806,8 @@ static int await_session_exit(pid_t child, int notifications, int shell_only) {
             return -1;
         }
         if (result == 0 && info.si_pid == child) {
-            if (shell_only) { return 1; }
+            // Sending SIGKILL is not an exit acknowledgement. The same barrier
+            // covers every session member after graceful and forced shutdown.
             const int live = signal_terminal_session(child, 0);
             if (live <= 0) { return live == 0 ? 1 : -1; }
         }
@@ -829,7 +840,7 @@ static int stop_shell(pid_t child, int master, int notifications) {
         (void) kill(-child, SIGHUP);
     }
     close(master);
-    int exited = await_session_exit(child, notifications, 0);
+    int exited = await_session_exit(child, notifications);
     if (exited != 1) {
         if (signal_terminal_session(child, SIGKILL) < 0) {
             perror("kill terminal session");
@@ -837,7 +848,7 @@ static int stop_shell(pid_t child, int master, int notifications) {
         }
         (void) kill(-child, SIGKILL);
         (void) kill(child, SIGKILL);
-        exited = await_session_exit(child, notifications, 1);
+        exited = await_session_exit(child, notifications);
     }
     if (exited != 1) {
         return 1;
@@ -850,7 +861,101 @@ static int stop_shell(pid_t child, int master, int notifications) {
             : WIFSIGNALED(status) ? 128 + WTERMSIG(status) : 1;
 }
 
+/* A peer writes the slave, not the master (which would be keyboard input).
+ * Keep the opened device pinned and verify its live owner before any output. */
+static int peer_pty(pid_t pid, unsigned long long start_ticks, const char *tty,
+        struct process_relationship *identity) {
+    if (strncmp(tty, "/dev/pts/", 9) != 0 || tty[9] == '\0'
+            || strspn(tty + 9, "0123456789") != strlen(tty + 9)) {
+        errno = EINVAL;
+        return -1;
+    }
+    const int fd = open(tty, O_WRONLY | O_NOCTTY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return -1;
+    struct stat device;
+    if (read_process_relationship(pid, identity) != 0 || fstat(fd, &device) != 0) {
+        const int error = errno;
+        close(fd);
+        errno = error;
+        return -1;
+    }
+    /* tty_nr in proc uses the Linux encoded device number, not libc dev_t. */
+    const unsigned int tty_major = (identity->tty >> 8) & 0xfff;
+    const unsigned int tty_minor = (identity->tty & 0xff) | ((identity->tty >> 12) & 0xfff00);
+    if (!S_ISCHR(device.st_mode) || device.st_uid != geteuid() || !isatty(fd)
+            || identity->state == 'Z' || identity->state == 'X' || identity->tty == 0
+            || major(device.st_rdev) != tty_major || minor(device.st_rdev) != tty_minor
+            || (start_ticks != 0 && identity->start_ticks != start_ticks)) {
+        close(fd);
+        errno = ESTALE;
+        return -1;
+    }
+    return fd;
+}
+
+#define MAX_PEER_OUTPUT (64U * 1024U)
+#define PEER_OUTPUT_TIMEOUT_MILLIS 2000
+
+static int emit_peer_output(pid_t pid, unsigned long long start_ticks,
+        const char *tty, const unsigned char *bytes, size_t length, size_t *written) {
+    *written = 0;
+    struct process_relationship owner;
+    const int fd = peer_pty(pid, start_ticks, tty, &owner);
+    if (fd < 0) return errno;
+    const int64_t deadline = monotonic_millis() + PEER_OUTPUT_TIMEOUT_MILLIS;
+    int error = 0;
+    while (*written < length) {
+        const int64_t remaining = deadline - monotonic_millis();
+        if (remaining <= 0) { error = ETIMEDOUT; break; }
+        struct pollfd output = { .fd = fd, .events = POLLOUT };
+        const int ready = poll(&output, 1, (int) remaining);
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready < 0) { error = errno; break; }
+        if (ready == 0) { error = ETIMEDOUT; break; }
+        if (output.revents & (POLLERR | POLLHUP | POLLNVAL)) { error = EIO; break; }
+        const ssize_t count = write(fd, bytes + *written, length - *written);
+        if (count < 0 && (errno == EINTR || errno == EAGAIN)) continue;
+        if (count <= 0) { error = count < 0 ? errno : EIO; break; }
+        *written += (size_t) count;
+    }
+    close(fd);
+    return error;
+}
+
+static int peer_output_command(int argc, char **argv) {
+    const int describe = strcmp(argv[1], "--describe-pty") == 0;
+    if (argc != (describe ? 4 : 6)) return 2;
+    char *end;
+    const long pid = strtol(argv[2], &end, 10);
+    if (*end != '\0' || pid < 1 || pid > INT_MAX) return 2;
+    if (describe) {
+        struct process_relationship owner;
+        const int fd = peer_pty((pid_t) pid, 0, argv[3], &owner);
+        if (fd < 0) return 1;
+        close(fd);
+        return printf("%llu\n", owner.start_ticks) < 0 ? 1 : 0;
+    }
+    const unsigned long long ticks = strtoull(argv[3], &end, 10);
+    if (*end != '\0' || ticks == 0) return 2;
+    const unsigned long length = strtoul(argv[5], &end, 10);
+    if (*end != '\0' || length == 0 || length > MAX_PEER_OUTPUT) return 2;
+    unsigned char bytes[MAX_PEER_OUTPUT + 1];
+    /* Read the complete bounded payload before writing, including a check for
+     * truncation/trailing bytes. The caller supplies a finite pipe, not a PTY. */
+    const size_t received = fread(bytes, 1, length + 1, stdin);
+    size_t written = 0;
+    const int error = received != length || ferror(stdin) ? EINVAL
+            : emit_peer_output((pid_t) pid, ticks, argv[4], bytes, length, &written);
+    printf("MAGICDESK_EMIT %zu %d\n", written, error);
+    return error == 0 ? 0 : 1;
+}
+
+#include "magicdesk_pipe_shell.h"
+
 int main(int argc, char **argv) {
+    if (argc == 3 && strcmp(argv[1], "--pipe-shell") == 0) return pipe_shell_command(argv[2]);
+    if (argc >= 2 && (strcmp(argv[1], "--describe-pty") == 0
+            || strcmp(argv[1], "--emit-pty") == 0)) return peer_output_command(argc, argv);
     const int socket_mode = argc == 10 && strcmp(argv[1], "--socket") == 0;
     if (argc != 4 && !socket_mode) {
         fprintf(stderr,
@@ -908,12 +1013,19 @@ int main(int argc, char **argv) {
     }
     int control_fd = STDIN_FILENO;
     int output_fd = STDOUT_FILENO;
+    struct process_relationship owner;
+    char tty[64];
+    if (read_process_relationship(child, &owner) != 0 || ptsname_r(master, tty, sizeof(tty)) != 0) {
+        (void) stop_shell(child, master, notifications);
+        close(notifications);
+        return 1;
+    }
     if (socket_mode) {
         control_fd = connect_loopback(strtol(argv[2], NULL, 10));
         output_fd = control_fd;
-        char hello[96];
+        char hello[192];
         const int hello_length = snprintf(
-                hello, sizeof(hello), "%s %d", argv[3], child);
+                hello, sizeof(hello), "%s %d %llu %s", argv[3], child, owner.start_ticks, tty);
         if (control_fd < 0
                 || hello_length < 1
                 || (size_t) hello_length >= sizeof(hello)
@@ -930,7 +1042,7 @@ int main(int argc, char **argv) {
             return 1;
         }
     } else if (dprintf(
-            STDOUT_FILENO, "MAGICDESK_PTY %d\n", child) < 0) {
+            STDOUT_FILENO, "MAGICDESK_PTY %d %llu %s\n", child, owner.start_ticks, tty) < 0) {
         (void) stop_shell(child, master, notifications);
         close(notifications);
         return 1;
