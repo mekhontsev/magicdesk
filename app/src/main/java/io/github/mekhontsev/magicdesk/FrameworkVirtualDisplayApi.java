@@ -25,12 +25,12 @@ final class FrameworkVirtualDisplayApi {
     private final int mVirtual = displayConstant("TYPE_VIRTUAL");
     private final int mTrusted = displayConstant("FLAG_TRUSTED");
     private static int creationFlags() throws ReflectiveOperationException {
+        // Desktop launches its HOME root explicitly; do not request SystemUI navigation.
         return DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC
             | DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
             | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY
             | virtualFlag("VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH")
             | virtualFlag("VIRTUAL_DISPLAY_FLAG_TRUSTED")
-            | virtualFlag("VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS")
             | virtualFlag("VIRTUAL_DISPLAY_FLAG_OWN_DISPLAY_GROUP");
     }
 

@@ -6,6 +6,7 @@ import android.view.View;
 import android.widget.PopupMenu;
 import android.widget.Toast;
 import java.util.Arrays;
+import java.util.List;
 import java.util.function.Consumer;
 
 /** Optional presentation actions share the existing display selection, not another home screen. */
@@ -17,12 +18,14 @@ final class DisplayPresentationMenu {
         final PopupMenu menu = new PopupMenu(activity, anchor);
         final boolean source = DisplayPresentationMode.forSource(selected) == DisplayPresentationMode.DIRECT;
         final DisplayPresentations.Session session = DisplayPresentations.forSource(selected.id);
-        final var otherDisplays = Arrays.stream(catalog).filter(d -> d.id != selected.id).toList();
+        final List<DesktopDisplayInfo> otherDisplays = Arrays.stream(catalog)
+                .filter(d -> d.id != selected.id).toList();
         menu.getMenu().add(R.string.display_show_on).setEnabled(!otherDisplays.isEmpty())
                 .setOnMenuItemClickListener(item -> {
                     new AlertDialog.Builder(activity).setTitle(R.string.display_show_on)
                             .setItems(otherDisplays.stream().map(DisplayPresentationMenu::label).toArray(String[]::new),
-                                    (dialog, index) -> open(activity, selected, otherDisplays.get(index)))
+                                    (dialog, index) -> DisplayPresentations.showOn(activity, selected.id,
+                                            otherDisplays.get(index).id, reportFailure(activity)))
                             .setNegativeButton(android.R.string.cancel, null).show();
                     return true;
                 });
@@ -32,7 +35,8 @@ final class DisplayPresentationMenu {
                 .setOnMenuItemClickListener(item -> {
                     new AlertDialog.Builder(activity).setTitle(R.string.display_viewer_source)
                             .setItems(otherDisplays.stream().map(DisplayPresentationMenu::label).toArray(String[]::new),
-                                    (dialog, index) -> open(activity, otherDisplays.get(index), selected))
+                                    (dialog, index) -> DisplayPresentations.open(activity,
+                                            otherDisplays.get(index).id, selected.id, false, reportFailure(activity)))
                             .setNegativeButton(android.R.string.cancel, null).show();
                     return true;
                 });
@@ -44,10 +48,10 @@ final class DisplayPresentationMenu {
         menu.show();
     }
 
-    private static void open(Activity activity, DesktopDisplayInfo source, DesktopDisplayInfo output) {
-        DisplayPresentations.open(activity, source.id, output.id, false, error -> {
+    private static BuiltInWindowLauncher.Callback reportFailure(Activity activity) {
+        return error -> {
             if (error != null) Toast.makeText(activity, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
-        });
+        };
     }
 
     private static String label(DesktopDisplayInfo display) {

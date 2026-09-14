@@ -28,7 +28,7 @@ final class DesktopPresentationLauncher {
                             }
                             // HOME acquisition and automatic phone UI belong to startup.
                             // Present the requested output only after that startup completes.
-                            DisplayPresentations.open(application, source.id, output.id, true, launchError ->
+                            DisplayPresentations.showOn(application, source.id, output.id, launchError ->
                                     callback.onComplete(source, launchError == null ? null
                                             : retained(source, ShellAccess.usefulMessage(launchError))));
                         }));

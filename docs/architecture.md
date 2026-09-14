@@ -1861,6 +1861,14 @@ coordinator still owns HOME handoff, input release, task return and final HOME
 surface cleanup in their existing order. Closing the only workspace leaves
 independent automation, file and terminal services available.
 
+Owned virtual displays retain trusted, touch-capable, own-content and independent
+power-group flags without requesting SystemUI decorations. Desktop starts its
+HOME root explicitly; system navigation is not a creation prerequisite. Native
+window captions and display IME policy keep their existing owners. This applies
+when the display is created, not when it is parked or shown on another output.
+Android's optional forced external desktop mode or a system display override can
+still enable system decorations; MagicDesk does not change those settings here.
+
 ### Display Presentations
 
 `DisplayPresentations` maps a live source display to an ordinary
@@ -1935,8 +1943,13 @@ application Alt+Tab is unchanged. Fullscreen hides viewer controls and requests
 immersive system bars; Back returns to the controls before parking the viewer.
 Reopening an existing output applies the requested fullscreen state too; Open
 waits for that output's attachment even if source selection committed while hidden.
-The display selector's additional actions expose viewing, parking, and optional
-**Start portable desktop here**. `DesktopPresentationLauncher` creates a virtual
+The display selector distinguishes **Show on display**, a fullscreen output
+without Viewer controls, from **Display Viewer**, an explicitly opened viewer
+with its controls. `DisplayPresentations.showOn` is shared by **Show on display**
+and **Start portable desktop here**, so parking and choosing a reconnected output
+does not turn the portable Desktop into a windowed viewer. The choice belongs
+to the command, not stored display metadata; input remains explicitly acquired.
+`DesktopPresentationLauncher` creates a virtual
 source using the selected output's size/density, runs normal Desktop startup on
 the source, then opens its viewer. HOME acquisition and automatic phone UI finish
 before this final presentation, so they cannot cover a viewer opened on the phone.

@@ -416,6 +416,8 @@ MagicDesk starts on it.
   (headless, default) or `overlay` (phone preview) display without starting HOME.
   Several headless displays can coexist; only one Android overlay can be
   created without rewriting an existing overlay set.
+  Owned virtual displays do not request system navigation decorations. Parking
+  or reopening a viewer preserves the source's original creation flags.
 - `start_desktop(displayId, uniqueId)` starts on exactly the selected display.
   The optional uniqueId prevents stale selection after hotplug. Do not combine
   this form with the target convenience selector. Wait for `desktop_active`;
@@ -479,6 +481,12 @@ continues to use original logical coordinates.
 Loss of the privileged viewer lease clears readiness and reports an error.
 Selecting the same source retries the binding; stale errors from a previous
 connection cannot invalidate a new one.
+
+The control panel's **Show on display** and **Start portable desktop here**
+both request fullscreen output without Viewer controls. **Display Viewer**
+opens with its controls. Automation keeps the explicit `fullscreen` argument;
+use `fullscreen=true` to present a parked source on a reconnected output in the
+same way as **Show on display**. This does not reacquire released input.
 
 The panel copies an existing-display command such as
 `scrcpy --display-id=3 --mouse-bind=++++ --shortcut-mod=rctrl`.

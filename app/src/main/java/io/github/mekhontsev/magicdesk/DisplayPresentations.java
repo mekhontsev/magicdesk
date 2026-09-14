@@ -43,6 +43,12 @@ final class DisplayPresentations {
     private static final Map<String, Session> SESSIONS = new LinkedHashMap<>();
     private DisplayPresentations() { }
 
+    /** Present on an output without Viewer controls, including after parking. */
+    static void showOn(Context context, int sourceId, int outputId,
+            BuiltInWindowLauncher.Callback callback) {
+        open(context, sourceId, outputId, true, callback);
+    }
+
     static void open(Context context, int sourceId, int outputId, boolean fullscreen,
             BuiltInWindowLauncher.Callback callback) {
         TaskCommandQueue.execute(() -> {
