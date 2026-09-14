@@ -112,12 +112,7 @@ public final class MagicDeskRuntimeService extends Service
 
     @Override
     public void refreshSettings(final Runnable completion) {
-        postIfAlive(() -> {
-            refreshRuntimeSettings();
-            if (completion != null) {
-                completion.run();
-            }
-        });
+        postIfAlive(() -> refreshRuntimeSettings(completion));
     }
 
     @Override
@@ -385,7 +380,7 @@ public final class MagicDeskRuntimeService extends Service
             // stays on main, and a newer authorization supersedes this release.
             if (mDestroyed || DeviceSetupManager.isRuntimeAuthorized() && ShellAccess.isReady()) { return; }
             destroyDesktopRuntime();
-            refreshRuntimeSettings();
+            refreshRuntimeSettings(null);
         }));
     }
 
@@ -504,7 +499,7 @@ public final class MagicDeskRuntimeService extends Service
                 ControlActivity.refreshInputState();
                 MagicDeskTouchpadActivity.refreshInputControls();
             });
-            mDisplayInput.refreshSettings(MagicDeskSettings.load());
+            mDisplayInput.refreshSettings(MagicDeskSettings.load(), null);
             mDisplayInput.start();
         }
     }
@@ -729,9 +724,8 @@ public final class MagicDeskRuntimeService extends Service
                 DesktopRuntimeBridge.hasWorkspaces());
     }
 
-    private void refreshRuntimeSettings() {
+    private void refreshRuntimeSettings(final Runnable completion) {
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
-        if (mDisplayInput != null) mDisplayInput.refreshSettings(settings);
         mKeepDesktopAwake = settings.keepDesktopAwake;
         mDisableAdaptiveBrightness =
                 settings.disableAdaptiveBrightnessOnExternalDesktop;
@@ -743,6 +737,11 @@ public final class MagicDeskRuntimeService extends Service
         if (!mInitialized && !mToolsRequested && !MagicDeskMcpPreferences.isEnabled(this)
                 && ConsoleTerminalRegistry.registeredCount() == 0) {
             stopSelf();
+        }
+        if (mDisplayInput != null) {
+            mDisplayInput.refreshSettings(settings, completion);
+        } else if (completion != null) {
+            completion.run();
         }
     }
 

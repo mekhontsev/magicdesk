@@ -5,6 +5,7 @@ final class FrameworkRuntime {
     private FrameworkDisplayWindowingApi mDisplayWindowingApi;
     private FrameworkInputRoutingApi mInputRoutingApi;
     private FrameworkInputInjectionApi mInputInjectionApi;
+    private FrameworkInputMethodApi mInputMethodApi;
     private FrameworkVirtualDisplayApi mVirtualDisplayApi;
     private FrameworkDisplayMirrorApi mDisplayMirrorApi;
     private final FrameworkDisplayCaptureApi mDisplayCaptureApi = new FrameworkDisplayCaptureApi();
@@ -58,6 +59,11 @@ final class FrameworkRuntime {
     synchronized FrameworkInputInjectionApi inputInjection() throws ReflectiveOperationException {
         if (mInputInjectionApi == null) { mInputInjectionApi = new FrameworkInputInjectionApi(); }
         return mInputInjectionApi;
+    }
+
+    synchronized FrameworkInputMethodApi inputMethod() throws ReflectiveOperationException {
+        if (mInputMethodApi == null) { mInputMethodApi = new FrameworkInputMethodApi(); }
+        return mInputMethodApi;
     }
 
     synchronized FrameworkDisplayMirrorApi displayMirror() throws ReflectiveOperationException {

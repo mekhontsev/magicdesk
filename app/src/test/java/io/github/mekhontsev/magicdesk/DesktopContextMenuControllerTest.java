@@ -81,10 +81,22 @@ public final class DesktopContextMenuControllerTest {
         assertTrue(menu.contains("R.string.action_settings"));
         assertTrue(menu.contains("addCheckableAction(R.string.settings_taskbar_auto_hide"));
         assertTrue(menu.contains("addCheckableAction(R.string.settings_keyboard_on_app_display"));
+        assertTrue(menu.contains("positionAndShow(x, y)"));
+        final String placement = between(read("DesktopContextMenuController.java"),
+                "private void positionAndShow(", "private int getWidth(");
+        assertTrue(placement.matches("(?s).*mRequestKeyboardFocus,\\s*false,.*"));
         final String save = between(read("DesktopShellActivity.java"),
                 "private void saveTaskbarSetting(", "DesktopViewport getDesktopViewport(");
         assertTrue(save.contains("DesktopRuntimeBridge.refreshSettings()"));
-        assertTrue(save.contains("MagicDeskRuntime.refreshSettings()"));
+        assertTrue(save.contains("MagicDeskRuntime.refreshSettings(completion)"));
+        final String checkable = between(read("DesktopContextMenuController.java"),
+                "private void addCheckableAction(", "private Button addMenuItem(");
+        assertTrue(checkable.contains("addMenuItem(button, null, true, false, false"));
+        assertTrue(checkable.contains("action.accept(button.isChecked(), () ->"));
+        assertTrue(checkable.indexOf("panels.hide(mMenuRoot)") > checkable.indexOf("action.accept("));
+        assertTrue(checkable.contains("button.isShown() && button.getParent() == mPanel"));
+        final String runtime = read("MagicDeskRuntimeService.java");
+        assertTrue(runtime.contains("mDisplayInput.refreshSettings(settings, completion)"));
         final String factory = read("DesktopUiFactory.java");
         assertTrue(factory.contains("new android.widget.CheckBox(mContext)"));
         assertTrue(factory.contains("button.setChecked(checked)"));

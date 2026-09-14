@@ -19,8 +19,9 @@ public final class UiPresentationContractTest {
         assertFalse(grid.contains("FOCUS_BLOCK_DESCENDANTS"));
         assertFalse(grid.contains("setFocusable(true)"));
         assertTrue(read("DesktopItemViewFactory.java").contains("item.setFocusable(true);"));
-        assertTrue(read("DesktopWorkspaceController.java").contains(
-                "grid.setOnClickListener(view -> clearFileSelection());"));
+        assertFalse(read("DesktopWorkspaceController.java").contains("grid.setOnClickListener("));
+        assertTrue(read("DesktopShellActivity.java").contains(
+                "mDesktopWorkspaceController.clearFileSelection();"));
         assertTrue(grid.contains("setOnDragListener("));
     }
 

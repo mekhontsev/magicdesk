@@ -996,7 +996,10 @@ public abstract class DesktopShellActivity extends Activity
             }
             return handled;
         });
-        desktop.setOnClickListener(view -> { });
+        desktop.setOnClickListener(view -> {
+            mDesktopWorkspaceController.clearFileSelection();
+            mInputController.onDesktopClick();
+        });
         registerAutomationUiElement(
                 desktop, "desktop", "desktop", "Desktop");
 
@@ -1847,21 +1850,22 @@ public abstract class DesktopShellActivity extends Activity
         return mTaskbarAutoHide;
     }
 
-    void setTaskbarAutoHide(final boolean enabled) {
-        saveTaskbarSetting(MagicDeskSettings.setTaskbarAutoHide(enabled));
+    void setTaskbarAutoHide(final boolean enabled, final Runnable completion) {
+        saveTaskbarSetting(MagicDeskSettings.setTaskbarAutoHide(enabled), completion);
     }
 
-    void setKeyboardOnAppDisplay(final boolean enabled) {
-        saveTaskbarSetting(MagicDeskSettings.setKeyboardOnAppDisplay(enabled));
+    void setKeyboardOnAppDisplay(final boolean enabled, final Runnable completion) {
+        saveTaskbarSetting(MagicDeskSettings.setKeyboardOnAppDisplay(enabled), completion);
     }
 
-    private void saveTaskbarSetting(final boolean saved) {
+    private void saveTaskbarSetting(final boolean saved, final Runnable completion) {
         if (!saved) {
             setStatus(R.string.settings_save_failed);
+            completion.run();
             return;
         }
         DesktopRuntimeBridge.refreshSettings();
-        MagicDeskRuntime.refreshSettings();
+        MagicDeskRuntime.refreshSettings(completion);
     }
 
     DesktopViewport getDesktopViewport() {

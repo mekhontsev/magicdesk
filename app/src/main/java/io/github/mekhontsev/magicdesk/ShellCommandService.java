@@ -8,6 +8,7 @@ import android.content.pm.ShortcutInfo;
 import android.graphics.Point;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
+import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
@@ -403,6 +404,18 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                     "cannot update hardware keyboard layout: "
                             + usefulMessage(error),
                     error);
+        }
+    }
+
+    @Override
+    public void requestHideCurrentInputMethod(final int originatingDisplayId) {
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            FrameworkRuntime.current().inputMethod().hideCurrentInputMethod(originatingDisplayId);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            Log.w(TAG, "Could not hide current input method", error);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
         }
     }
 

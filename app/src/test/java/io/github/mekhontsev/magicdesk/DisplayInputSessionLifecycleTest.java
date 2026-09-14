@@ -72,11 +72,11 @@ public final class DisplayInputSessionLifecycleTest {
                     Fixture f = new Fixture();
                     f.reconcile(7, true);
                     check(ShellAccess.entered.await(2, TimeUnit.SECONDS), "acquisition not reached");
-                    f.setKeyboardOnAppDisplay(true, error -> { throw new AssertionError(error); });
+                    f.setKeyboardOnAppDisplay(true, error -> { throw new AssertionError(error); }, null);
                     ShellAccess.proceed.countDown();
                     f.mWorker.submit(() -> {}).get(2, TimeUnit.SECONDS);
                     check(ShellAccess.route.keyboardOnAppDisplay, "queued mode was lost");
-                    f.setKeyboardOnAppDisplay(false, error -> { throw new AssertionError(error); });
+                    f.setKeyboardOnAppDisplay(false, error -> { throw new AssertionError(error); }, null);
                     f.mWorker.submit(() -> {}).get(2, TimeUnit.SECONDS);
                     check(!ShellAccess.route.keyboardOnAppDisplay, "live switch ignored");
                     check(ShellAccess.opens == 1 && f.mMouse.starts == 1 && f.isRoutingReady(7),
@@ -97,12 +97,67 @@ public final class DisplayInputSessionLifecycleTest {
                     f.mWorker.submit(() -> {}).get(2, TimeUnit.SECONDS);
                     ShellAccess.route.fail = true;
                     CountDownLatch failed = new CountDownLatch(1);
-                    f.setKeyboardOnAppDisplay(true, error -> failed.countDown());
+                    CountDownLatch completed = new CountDownLatch(1);
+                    f.setKeyboardOnAppDisplay(true, error -> failed.countDown(), completed::countDown);
                     check(failed.await(2, TimeUnit.SECONDS), "failure not reported");
+                    check(completed.await(2, TimeUnit.SECONDS), "failed switch retained the menu");
                     check(f.isRoutingReady(7) && f.mMouse.active && ShellAccess.route.active,
                             "keyboard failure dropped working input");
                     ShellAccess.route.fail = false;
                     f.stop(() -> {});
+                    f.mWorker.shutdown();
+                    check(f.mWorker.awaitTermination(2, TimeUnit.SECONDS), "worker leaked");
+                }
+                """);
+    }
+
+    @Test public void keyboardCompletionWaitsForThePolicyIncludingAnUnchangedRefresh() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() throws Exception {
+                    Fixture f = new Fixture();
+                    ShellAccess.proceed.countDown();
+                    f.reconcile(7, true);
+                    f.mWorker.submit(() -> {}).get(2, TimeUnit.SECONDS);
+                    CountDownLatch entered = new CountDownLatch(1);
+                    CountDownLatch release = new CountDownLatch(1);
+                    CountDownLatch completed = new CountDownLatch(2);
+                    f.mWorker.execute(() -> {
+                        entered.countDown();
+                        try { check(release.await(2, TimeUnit.SECONDS), "fixture gate timed out"); }
+                        catch (InterruptedException e) { throw new AssertionError(e); }
+                    });
+                    check(entered.await(2, TimeUnit.SECONDS), "worker gate not reached");
+                    Runnable completion = () -> {
+                        check(ShellAccess.route.keyboardOnAppDisplay, "completion preceded policy write");
+                        completed.countDown();
+                    };
+                    f.setKeyboardOnAppDisplay(true, error -> { throw new AssertionError(error); }, completion);
+                    f.setKeyboardOnAppDisplay(true, error -> { throw new AssertionError(error); }, completion);
+                    check(completed.getCount() == 2, "refresh returned before the queued policy");
+                    release.countDown();
+                    check(completed.await(2, TimeUnit.SECONDS), "refresh did not finish");
+                    check(ShellAccess.opens == 1 && f.mMouse.starts == 1, "refresh restarted input");
+                    f.stop(() -> {});
+                    f.mWorker.shutdown();
+                    check(f.mWorker.awaitTermination(2, TimeUnit.SECONDS), "worker leaked");
+                }
+                """);
+    }
+
+    @Test public void keyboardCompletionIsDeliveredWithoutAnActiveRoute() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() throws Exception {
+                    Fixture f = new Fixture();
+                    CountDownLatch completed = new CountDownLatch(1);
+                    f.setKeyboardOnAppDisplay(true, error -> { throw new AssertionError(error); },
+                            completed::countDown);
+                    check(completed.await(2, TimeUnit.SECONDS), "inactive refresh did not finish");
+                    check(ShellAccess.opens == 0, "refresh acquired input");
+                    f.mDestroyed = true;
+                    CountDownLatch destroyed = new CountDownLatch(1);
+                    f.setKeyboardOnAppDisplay(false, error -> { throw new AssertionError(error); },
+                            destroyed::countDown);
+                    check(destroyed.getCount() == 0, "destroyed refresh lost completion");
                     f.mWorker.shutdown();
                     check(f.mWorker.awaitTermination(2, TimeUnit.SECONDS), "worker leaked");
                 }

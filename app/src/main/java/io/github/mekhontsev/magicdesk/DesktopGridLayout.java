@@ -7,7 +7,7 @@ import android.view.DragEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
-/** Programmatic desktop grid whose constructor requires explicit cell geometry. */
+/** Desktop items own clicks; empty cells pass touch gestures to the wallpaper parent. */
 @SuppressLint("ViewConstructor")
 final class DesktopGridLayout extends ViewGroup {
     interface Listener {

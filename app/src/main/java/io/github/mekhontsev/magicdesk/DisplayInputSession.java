@@ -84,16 +84,20 @@ final class DisplayInputSession {
     }
 
     void setKeyboardOnAppDisplay(final boolean enabled,
-            final java.util.function.Consumer<String> failure) {
-        if (mDestroyed || mKeyboardOnAppDisplay == enabled) return;
+            final java.util.function.Consumer<String> failure, final Runnable completion) {
+        if (mDestroyed) {
+            if (completion != null) completion.run();
+            return;
+        }
+        if (mKeyboardOnAppDisplay == enabled && completion == null) return;
         mKeyboardOnAppDisplay = enabled;
         final long generation = mGeneration;
         // Serialize with acquisition and release without restarting pointer or
         // shortcut ownership. Rapid toggles apply the latest preference.
         mWorker.execute(() -> {
-            if (mGeneration != generation || mRouting == null
-                    || mRouting.displayId() != mRequestedDisplay) return;
             try {
+                if (mGeneration != generation || mRouting == null
+                        || mRouting.displayId() != mRequestedDisplay) return;
                 mRouting.setKeyboardPlacement(mKeyboardOnAppDisplay);
             } catch (IOException error) {
                 CompatibilityDiagnostics.record("INPUT-IME-001",
@@ -101,6 +105,8 @@ final class DisplayInputSession {
                 mHandler.post(() -> {
                     if (mGeneration == generation) failure.accept(ShellAccess.usefulMessage(error));
                 });
+            } finally {
+                if (completion != null) mHandler.post(completion);
             }
         });
     }

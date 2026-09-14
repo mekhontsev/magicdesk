@@ -81,6 +81,9 @@ interface IShellCommandService {
 
     void setInputKeyboardPlacement(IBinder ownerToken, boolean onAppDisplay) = 139;
 
+    // Requests dismissal of the current IME, even when it is shown on another display.
+    oneway void requestHideCurrentInputMethod(int originatingDisplayId) = 140;
+
     void stopInputRouting(IBinder ownerToken) = 20;
 
     int cleanupInputRouting() = 21;

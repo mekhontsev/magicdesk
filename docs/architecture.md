@@ -194,6 +194,12 @@ has our value. Repeated configuration of the same display does not query or
 write the policy. A live change retains the original policy for release, including
 an unacknowledged write. Phone desktop leaves display-0 policy unchanged. A failed
 live policy change reports an error without releasing otherwise working input.
+Settings refresh completes after the input worker finishes applying the policy,
+not when the change is queued. Taskbar checkboxes dismiss their menu only after
+that completion; stale callbacks cannot dismiss a replacement menu. Context
+menus retain their IME-focus exclusion. Android owns the existing editor
+connection; changing display policy alone does not restart it or guarantee
+immediate relocation of an already connected IME.
 
 The phone touchpad is an ordinary Activity with a non-focusable attached
 `PopupWindow` containing its controls and touch surface. Android's
@@ -222,6 +228,19 @@ that child receives ordinary hardware key events.
 No editor text is captured or relayed by MagicDesk. Composing text, selection,
 deletion, editor actions, and Back-to-dismiss remain Android IME operations.
 There is no extra keyboard, polling loop, or software-keyboard selection.
+
+A completed primary click or tap on empty desktop wallpaper requests dismissal
+of the current IME, wherever it is shown. It does not change editor focus,
+desktop focusability, window order, or display input routing. Long presses and
+secondary clicks retain context-menu behavior. Empty grid cells pass gestures
+to the wallpaper parent, which owns selection clearing and keyboard dismissal;
+individual icons and widgets retain their own input handlers. `DesktopInputController` submits
+an asynchronous shell Binder request; the lazily resolved `FrameworkInputMethodApi`
+uses Android's `IStatusBarService.hideCurrentInputMethodForBubbles` operation.
+Its originating display supplies Android user context, not editor-display
+isolation. No Back key, focus pulse, visibility polling, or IME-policy change is
+used. An unavailable API or denied request is logged without changing the
+workspace or adding a startup prerequisite.
 
 While an external input display is selected, the runtime temporarily enables Android's
 `show_ime_with_hard_keyboard` setting so the user can explicitly open the

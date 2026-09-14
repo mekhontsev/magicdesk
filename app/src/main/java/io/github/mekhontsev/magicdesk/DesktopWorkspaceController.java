@@ -83,7 +83,6 @@ final class DesktopWorkspaceController {
                 mActivity,
                 desktopDp(112, 82),
                 desktopDp(102, 78));
-        grid.setOnClickListener(view -> clearFileSelection());
         grid.setListener(new DesktopGridLayout.Listener() {
             @Override
             public void onGridSizeChanged(final int columns, final int rows) {
@@ -1138,7 +1137,7 @@ final class DesktopWorkspaceController {
         }
     }
 
-    private void clearFileSelection() {
+    void clearFileSelection() {
         mItemActivation.reset();
         if (mSelectedFileItemId != null) {
             mSelectedFileItemId = null;

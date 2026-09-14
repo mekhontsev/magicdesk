@@ -1,5 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
+import android.util.Log;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -17,6 +18,12 @@ final class DesktopInputController {
 
     DesktopInputController(final DesktopShellActivity activity) {
         mActivity = activity;
+    }
+
+    void onDesktopClick() {
+        if (!ShellAccess.requestHideCurrentInputMethod(mActivity.getCurrentDisplayId())) {
+            Log.w("MagicDeskInput", "Could not request keyboard dismissal");
+        }
     }
 
     boolean handleTouchEvent(

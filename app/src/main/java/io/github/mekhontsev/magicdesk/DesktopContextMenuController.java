@@ -993,11 +993,20 @@ final class DesktopContextMenuController {
     }
 
     private void addCheckableAction(final int textResId, final boolean checked,
-            final java.util.function.Consumer<Boolean> action) {
+            final java.util.function.BiConsumer<Boolean, Runnable> action) {
         final android.widget.CheckBox button = mUi.menuCheckBox(
                 mActivity.getString(textResId), checked);
-        addMenuItem(button, null, true, true, false,
-                view -> action.accept(button.isChecked()));
+        addMenuItem(button, null, true, false, false, view -> {
+            button.setEnabled(false);
+            // Returning editor focus must follow application of the new IME policy.
+            action.accept(button.isChecked(), () -> {
+                button.setEnabled(true);
+                final DesktopPanelWindowController panels = mActivity.panels();
+                if (button.isShown() && button.getParent() == mPanel && panels != null) {
+                    panels.hide(mMenuRoot);
+                }
+            });
+        });
         mActivity.registerAutomationUiElement(button,
                 "context.action." + mActivity.getResources().getResourceEntryName(textResId),
                 "checkbox", button.getText());

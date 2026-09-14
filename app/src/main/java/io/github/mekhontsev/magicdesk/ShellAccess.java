@@ -433,6 +433,23 @@ public final class ShellAccess {
         }
     }
 
+    static boolean requestHideCurrentInputMethod(final int originatingDisplayId) {
+        if (!isReady() || originatingDisplayId < 0) {
+            return false;
+        }
+        final IShellCommandService service = connectedServiceOrConnect();
+        if (service == null) {
+            return false;
+        }
+        try {
+            service.requestHideCurrentInputMethod(originatingDisplayId);
+            return true;
+        } catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            return false;
+        }
+    }
+
     static boolean injectPointerHoverAt(
             final int displayId,
             final int x,

@@ -45,11 +45,11 @@ final class RuntimeDisplayInputCoordinator {
         mInputSession = new DisplayInputSession(context, handler, this::handleInputSessionStateChanged);
     }
 
-    void refreshSettings(final MagicDeskSettings.Values settings) {
+    void refreshSettings(final MagicDeskSettings.Values settings, final Runnable completion) {
         mInputSession.setKeyboardOnAppDisplay(settings.keyboardOnAppDisplay,
                 error -> android.widget.Toast.makeText(mContext,
                         mContext.getString(R.string.keyboard_placement_failed, error),
-                        android.widget.Toast.LENGTH_LONG).show());
+                        android.widget.Toast.LENGTH_LONG).show(), completion);
     }
 
     void start() {
