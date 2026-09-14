@@ -70,14 +70,15 @@ public final class AndroidTerminalImages {
         }
     }
 
-    void retain(List<TerminalGraphics.Placement> placements) {
+    void retain(List<TerminalFrame.ImagePlacement> placements) {
         bitmaps.keySet().removeIf(image -> placements.stream().noneMatch(p -> p.image == image));
         // Dropped bitmaps are left to Android, which may still reference them in a hardware display list.
     }
 
-    void draw(Canvas canvas, List<TerminalGraphics.Placement> placements, int layer,
+    void draw(Canvas canvas, List<TerminalFrame.ImagePlacement> placements, int layer,
             int topRow, float cellWidth, float cellHeight) {
-        for (TerminalGraphics.Placement p : placements) {
+        for (TerminalFrame.ImagePlacement p : placements) {
+            if (p.virtual) continue;
             int imageLayer = p.z < -1073741824 ? 0 : p.z < 0 ? 1 : 2;
             if (imageLayer != layer) continue;
             Bitmap bitmap = p.image instanceof BitmapImage androidImage ? androidImage.bitmap : bitmaps.get(p.image);
@@ -99,9 +100,9 @@ public final class AndroidTerminalImages {
         }
     }
 
-    void drawPlaceholder(Canvas canvas, TerminalEmulator terminal, KittyImagePlaceholder cell,
+    void drawPlaceholder(Canvas canvas, TerminalFrame frame, KittyImagePlaceholder cell,
             int column, int row, float cw, float ch) {
-        TerminalGraphics.Placement p = terminal.getGraphics().virtualPlacement(terminal.getScreen(), cell.imageId, cell.placementId);
+        TerminalFrame.ImagePlacement p = frame.virtualPlacement(cell.imageId, cell.placementId);
         if (p == null || cell.column >= p.columns || cell.row >= p.rows) return;
         // Application sessions store Android-native rasters; no per-cell bitmap copies or caches.
         if (!(p.image instanceof BitmapImage image)) return;

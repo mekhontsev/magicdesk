@@ -22,6 +22,17 @@ public final class TerminalBuffer {
     private int mScreenFirstRow = 0;
     TerminalGraphics graphics;
     private boolean reflowing;
+    interface CellChangeListener {
+        void onCellsChanged(int left, int top, int right, int bottom);
+    }
+    CellChangeListener cellChangeListener;
+
+    private void notifyCellsChanged(int left, int top, int right, int bottom) {
+        if (cellChangeListener == null || reflowing || right <= left) return;
+        for (int y = top; y < bottom; y++) {
+            cellChangeListener.onCellsChanged(left, y, right, y + 1);
+        }
+    }
 
     /**
      * Create a transcript screen.
@@ -479,7 +490,11 @@ public final class TerminalBuffer {
         for (int y = 0; y < h; y++) {
             int y2 = copyingUp ? y : (h - (y + 1));
             TerminalRow sourceRow = allocateFullLineIfNecessary(externalToInternalRow(sy + y2));
-            allocateFullLineIfNecessary(externalToInternalRow(dy + y2)).copyInterval(sourceRow, sx, sx + w, dx);
+            TerminalRow target = allocateFullLineIfNecessary(externalToInternalRow(dy + y2));
+            int left = cellChangeListener == null ? dx : target.glyphStart(dx);
+            int right = cellChangeListener == null ? dx + w : target.glyphEnd(dx + w);
+            target.copyInterval(sourceRow, sx, sx + w, dx);
+            notifyCellsChanged(left, dy + y2, right, dy + y2 + 1);
         }
     }
 
@@ -519,10 +534,14 @@ public final class TerminalBuffer {
     public void setChar(int column, int row, int codePoint, long style, TerminalHyperlink link) {
         if (row  < 0 || row >= mScreenRows || column < 0 || column >= mColumns)
             throw new IllegalArgumentException("TerminalBuffer.setChar(): row=" + row + ", column=" + column + ", mScreenRows=" + mScreenRows + ", mColumns=" + mColumns);
+        TerminalRow target = allocateFullLineIfNecessary(externalToInternalRow(row));
+        int right = Math.min(mColumns, column + Math.max(1, WcWidth.width(codePoint)));
+        int left = cellChangeListener == null ? column : target.glyphStart(column);
+        if (cellChangeListener != null) right = target.glyphEnd(right);
         if (graphics != null && !reflowing && WcWidth.width(codePoint) > 0)
             graphics.eraseSixel(this, column, row, column + Math.max(1, WcWidth.width(codePoint)), row + 1);
-        row = externalToInternalRow(row);
-        allocateFullLineIfNecessary(row).setChar(column, codePoint, style, link);
+        target.setChar(column, codePoint, style, link);
+        notifyCellsChanged(left, row, right, row + 1);
     }
 
     public long getStyleAt(int externalRow, int column) {
@@ -551,6 +570,7 @@ public final class TerminalBuffer {
                 }
                 line.mStyle[x] = TextStyle.encode(foreColor, backColor, effect);
             }
+            notifyCellsChanged(line.glyphStart(startOfLine), y, line.glyphEnd(endOfLine), y + 1);
         }
     }
 

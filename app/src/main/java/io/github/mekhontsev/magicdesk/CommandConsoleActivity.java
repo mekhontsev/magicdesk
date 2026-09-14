@@ -1,33 +1,19 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.ColorStateList;
-import android.graphics.Color;
 import android.os.Bundle;
-import android.provider.DocumentsContract;
-import android.view.DragEvent;
-import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
-import android.view.View;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
-import android.widget.ImageButton;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.IOException;
-import java.util.function.Consumer;
 
 public final class CommandConsoleActivity extends Activity
         implements ShellAccess.StateListener,
-        ConsoleTerminalSession.Listener,
-        ConsoleTerminalView.Actions {
+        ConsoleTerminalSession.Listener {
     private static final String EXTRA_INITIAL_DIRECTORY =
             "io.github.mekhontsev.magicdesk.extra.CONSOLE_DIRECTORY";
     private static final String EXTRA_AUTO_RUN_COMMAND =
@@ -42,34 +28,17 @@ public final class CommandConsoleActivity extends Activity
     private static final String EXTRA_TMUX_CREATED = "tmux_created";
     private static final String STATE_WORKING_DIRECTORY = "working_directory";
     private static final String STATE_FONT_SIZE = "font_size_sp";
-    private static final int COLOR_BACKGROUND = 0xFF090D14;
-    private static final int COLOR_TEXT = 0xFFE5E7EB;
-    private static final int COLOR_MUTED = 0xFF94A3B8;
-    private static final int COLOR_CYAN = 0xFF22D3EE;
-    private static final int COLOR_AMBER = 0xFFF59E0B;
 
     private ConsoleTerminalView mTerminalView;
-    private FrameLayout mTerminalContainer;
     private ConsoleTerminalSession mSession;
-    private TextView mShellStatus;
-    private ImageButton mSessions;
-    private final java.util.concurrent.ExecutorService mContentWorker =
-            java.util.concurrent.Executors.newSingleThreadExecutor(r -> new Thread(r, "MagicDeskTerminalContent"));
-    private boolean mExportingImage;
-    private android.widget.ProgressBar mProgress;
-    private LinearLayout mToolbar;
-    private ImageButton mShowToolbar;
-    private ImageButton mClear;
-    private ImageButton mCopy;
-    private ImageButton mPaste;
-    private LinearLayout.LayoutParams mTerminalParams;
+    private ConsoleTerminalActions mActions;
+    private ConsoleTerminalWindow mWindow;
     private ShellAccess.Snapshot mSnapshot;
     private DesktopExecBackend mBackend;
     private String mTerminalStatus = "";
     private String mTerminalRegistryId = "";
     private boolean mTerminalFailed;
     private boolean mPermissionRequested;
-    private boolean mToolbarVisible = true;
 
     static Intent createIntent(final Context context) {
         return new Intent(context, CommandConsoleActivity.class).putExtra(
@@ -184,7 +153,10 @@ public final class CommandConsoleActivity extends Activity
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         mSnapshot = mBackend == DesktopExecBackend.SHELL
                 ? ShellAccess.currentSnapshot() : null;
-        setContentView(createContentView());
+        mTerminalView = new ConsoleTerminalView(this);
+        mActions = new ConsoleTerminalActions(this, mTerminalView, () -> mSession);
+        mWindow = new ConsoleTerminalWindow(this, mTerminalView, mActions, this::createTerminalApplication);
+        setContentView(mWindow.content());
         if (savedInstanceState != null) {
             mTerminalView.setFontSizeSp(savedInstanceState.getInt(STATE_FONT_SIZE, mTerminalView.fontSizeSp()));
         }
@@ -223,7 +195,7 @@ public final class CommandConsoleActivity extends Activity
             ConsoleTerminalRegistry.bindTmux(sessionId, getIntent().getStringExtra(EXTRA_TMUX_SESSION),
                     getIntent().getLongExtra(EXTRA_TMUX_CREATED, 0));
         }
-        mTerminalView.attach(mSession, this);
+        mTerminalView.attach(mSession, mActions);
         mTerminalView.addOnLayoutChangeListener((
                 view,
                 left,
@@ -277,7 +249,7 @@ public final class CommandConsoleActivity extends Activity
         }
         if (event.getAction() == KeyEvent.ACTION_DOWN
                 && event.getRepeatCount() == 0) {
-            setToolbarVisible(!mToolbarVisible);
+            mWindow.toggleToolbar();
         }
         return true;
     }
@@ -313,7 +285,7 @@ public final class CommandConsoleActivity extends Activity
     @Override
     protected void onStop() {
         ShellAccess.removeStateListener(this);
-        refreshWorkingDirectory(null);
+        if (mActions != null) mActions.refreshWorkingDirectory(null);
         super.onStop();
     }
 
@@ -322,7 +294,7 @@ public final class CommandConsoleActivity extends Activity
         BuiltInWindowRegistry.unregister(this);
         ConsoleTerminalRegistry.detach(mTerminalRegistryId, this);
         if (mTerminalView != null) { mTerminalView.attach(null, null); }
-        mContentWorker.shutdownNow();
+        if (mActions != null) mActions.close();
         super.onDestroy();
     }
 
@@ -397,165 +369,14 @@ public final class CommandConsoleActivity extends Activity
 
     @Override public void onNotification(final String message) { }
 
-    @Override public void onMetadataChanged() {
-        if (mSession == null || mProgress == null) { return; }
-        final var data = mSession.metadata();
-        mProgress.setVisibility(data.progressState() == 0 ? View.INVISIBLE : View.VISIBLE);
-        mProgress.setIndeterminate(data.progressState() == 3 || data.progressPercent() < 0);
-        if (data.progressPercent() >= 0) { mProgress.setProgress(data.progressPercent()); }
-        final int color = data.progressState() == 2 ? 0xFFEF4444
-                : data.progressState() == 4 ? COLOR_AMBER : COLOR_CYAN;
-        mProgress.setProgressTintList(ColorStateList.valueOf(color));
-        mProgress.setIndeterminateTintList(ColorStateList.valueOf(color));
-        mProgress.setContentDescription(getString(R.string.console_progress, data.progressState(), data.progressPercent()));
-    }
-
-    @Override public void showLink(final com.termux.terminal.TerminalHyperlink link) {
-        final TerminalLink target = TerminalLink.parse(link.uri());
-        final AlertDialog.Builder dialog = new AlertDialog.Builder(this)
-                .setTitle(R.string.console_link).setMessage(link.uri())
-                .setNeutralButton(android.R.string.copy, (which, button) -> copyText(link.uri()))
-                .setNegativeButton(android.R.string.cancel, null);
-        if (target.canOpen()) { dialog.setPositiveButton(R.string.action_open, (which, button) -> {
-            final int display = getDisplay() == null ? 0 : getDisplay().getDisplayId();
-            mContentWorker.execute(() -> {
-                if (target.localPath() != null) { loadAndOpenPath(target.localPath()); return; }
-                try {
-                    final var result = new AndroidIntegrationGateway(this).openContent(
-                            AndroidContentPayload.text(getString(R.string.console_link), target.uri(), false,
-                                    AndroidContentPayload.Origin.APPLICATION), display);
-                    if (!result.success) { throw new IOException(result.message); }
-                } catch (Exception error) {
-                    runOnUiThread(() -> Toast.makeText(this, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show());
-                }
-            });
-        }); }
-        dialog.show();
-    }
-
-    @Override public void showImage(final com.termux.terminal.TerminalImage image) {
-        if (mExportingImage || isFinishing() || isDestroyed()) return;
-        new AlertDialog.Builder(this)
-                .setTitle(getString(R.string.console_image_title, image.width, image.height))
-                .setItems(new String[]{getString(R.string.console_image_save),
-                        getString(R.string.action_open), getString(R.string.file_manager_share)},
-                        (dialog, action) -> exportImage(image, action))
-                .setNegativeButton(android.R.string.cancel, null).show();
-    }
-
-    private void exportImage(final com.termux.terminal.TerminalImage image, final int action) {
-        if (mExportingImage) return;
-        mExportingImage = true;
-        final int display = getDisplay() == null ? 0 : getDisplay().getDisplayId();
-        Toast.makeText(this, R.string.console_image_preparing, Toast.LENGTH_SHORT).show();
-        // The immutable raster stays alive even if the program clears or replaces its placement.
-        mContentWorker.execute(() -> {
-            try {
-                final var uri = GeneratedContentProvider.publish(this, "Terminal image.png",
-                        output -> com.termux.terminal.AndroidTerminalImages.writePng(image, output));
-                final var content = AndroidContentPayload.uris(getString(R.string.console_image),
-                        java.util.List.of(new AndroidContentPayload.UriItem(uri, "image/png")),
-                        java.util.List.of(), AndroidContentPayload.Origin.APPLICATION);
-                if (isFinishing() || isDestroyed()) return;
-                if (action == 0) {
-                    runOnUiThread(() -> {
-                        if (isFinishing() || isDestroyed()) return;
-                        try {
-                            ToolApplications.open(this, FileManagerActivity.createSaveIntent(this, content),
-                                    ToolLaunchTarget.resolve("auto", display, DesktopRuntimeBridge.workspaceDisplayIds()),
-                                    null, this::imageActionFinished);
-                        } catch (RuntimeException error) { imageActionFinished(error); }
-                    });
-                } else {
-                    final var gateway = new AndroidIntegrationGateway(this);
-                    final var result = action == 1 ? gateway.openContent(content, display) : gateway.shareContent(content, display);
-                    if (!result.success) throw new IOException(result.message);
-                }
-            } catch (Exception error) {
-                runOnUiThread(() -> imageActionFinished(error));
-            } finally {
-                runOnUiThread(() -> mExportingImage = false);
-            }
-        });
-    }
-
-    private void imageActionFinished(final Throwable error) {
-        if (error != null && !isFinishing() && !isDestroyed()) {
-            Toast.makeText(this, ShellAccess.usefulMessage(error), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void showCommandHistory() {
-        if (mSession == null) { return; }
-        final var history = mSession.emulator().getCommandHistory();
-        final var commands = new java.util.ArrayList<>(history.snapshots());
-        java.util.Collections.reverse(commands);
-        final String[] labels = new String[commands.size()];
-        for (int i = 0; i < labels.length; i++) {
-            final var command = commands.get(i);
-            labels[i] = (command.commandKnown() ? command.command() : getString(R.string.console_command_unknown))
-                    + "\n" + command.state() + (command.exitCode() == null ? "" : " [exit " + command.exitCode() + "]");
-        }
-        final AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(R.string.console_commands)
-                .setNegativeButton(android.R.string.cancel, null);
-        if (commands.isEmpty()) { dialog.setMessage(R.string.console_no_commands); }
-        else { dialog.setItems(labels, (picker, index) -> {
-            final var command = commands.get(index);
-            final java.util.ArrayList<String> actions = new java.util.ArrayList<>();
-            final java.util.ArrayList<Runnable> handlers = new java.util.ArrayList<>();
-            if (command.commandKnown()) {
-                actions.add(getString(R.string.console_copy_command)); handlers.add(() -> copyText(command.command()));
-            }
-            if (command.outputAvailable()) {
-                actions.add(getString(R.string.console_copy_command_output)); handlers.add(() -> {
-                    final String output = history.output(command.id());
-                    if (output != null) { copyText(output); }
-                    else { Toast.makeText(this, R.string.console_output_expired, Toast.LENGTH_SHORT).show(); }
-                });
-            }
-            if (command.position() != null && !mSession.emulator().isAlternateBufferActive()) {
-                for (final boolean output : new boolean[]{false, true}) {
-                    if (history.range(command.id(), output) == null) { continue; }
-                    actions.add(getString(output ? R.string.console_select_output : R.string.console_select_command));
-                    handlers.add(() -> {
-                        final var range = history.range(command.id(), output);
-                        if (range != null) { mTerminalView.selectRange(range); }
-                        else { Toast.makeText(this, R.string.console_output_expired, Toast.LENGTH_SHORT).show(); }
-                    });
-                }
-                actions.add(getString(R.string.console_jump_command)); handlers.add(() -> {
-                    for (final var latest : history.snapshots()) {
-                        if (latest.id() == command.id()) { mTerminalView.jumpTo(latest.position()); break; }
-                    }
-                });
-            }
-            new AlertDialog.Builder(this).setTitle(labels[index])
-                    .setItems(actions.toArray(new String[0]), (menu, action) -> handlers.get(action).run())
-                    .setNegativeButton(android.R.string.cancel, null).show();
-        }); }
-        dialog.show();
-    }
-
-    private void showNotificationSettings() {
-        TerminalNotifications.ensureChannel(this);
-        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
-                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1);
-        } else {
-            startActivity(new Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())
-                    .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, TerminalNotifications.CHANNEL));
-        }
-    }
-
     @Override
     public void onCopyRequested(final String text) {
-        copyText(text);
+        mActions.copyText(text);
     }
 
     @Override
     public void onPasteRequested() {
-        pasteClipboard();
+        mActions.pasteClipboard();
     }
 
     @Override
@@ -563,168 +384,6 @@ public final class CommandConsoleActivity extends Activity
         if (mTerminalView != null) {
             mTerminalView.performHapticFeedback(
                     HapticFeedbackConstants.LONG_PRESS);
-        }
-    }
-
-    @Override
-    public void copySelection() {
-        if (mSession == null || mTerminalView == null) {
-            return;
-        }
-        final String selected = mTerminalView.selectedText();
-        copyText(selected.isEmpty() ? mSession.transcript() : selected);
-    }
-
-    private void showCopyActions(final View anchor) {
-        if (mSession == null || mTerminalView == null) return;
-        final String selected = mTerminalView.selectedText();
-        if (selected.isEmpty()) {
-            copySelection();
-            return;
-        }
-        final android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
-        menu.getMenu().add(R.string.console_copy_exact).setOnMenuItemClickListener(item -> {
-            copyText(selected);
-            return true;
-        });
-        menu.getMenu().add(R.string.console_copy_paragraph).setOnMenuItemClickListener(item -> {
-            copyText(ConsoleCopyText.asParagraph(selected));
-            return true;
-        });
-        menu.show();
-    }
-
-    @Override
-    public void pasteClipboard() {
-        if (mSession == null) {
-            return;
-        }
-        final AndroidClipboardGateway.TextReadResult clipboard =
-                AndroidClipboardGateway.get(this).readText();
-        if (clipboard.text.isEmpty()) {
-            return;
-        }
-        mSession.paste(clipboard.text);
-        mTerminalView.scrollToBottom();
-    }
-
-    private View createContentView() {
-        final LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(8), dp(6), dp(8), dp(6));
-        // Edge-to-edge windows receive IME insets instead of a resized content frame.
-        SystemBarInsets.addToPadding(page, true);
-        page.setBackgroundColor(COLOR_BACKGROUND);
-
-        mToolbar = new LinearLayout(this);
-        mToolbar.setOrientation(LinearLayout.HORIZONTAL);
-        mToolbar.setGravity(Gravity.CENTER_VERTICAL);
-
-        mSessions = createIconButton(
-                R.drawable.ic_file_new_window, R.string.terminal_sessions,
-                view -> TerminalSessionsDialog.show(this));
-        mToolbar.addView(mSessions, buttonParams());
-        mClear = createIconButton(
-                R.drawable.ic_clear_output,
-                R.string.console_clear,
-                view -> {
-                    mSession.clear();
-                    mTerminalView.clearSelection();
-                });
-        mToolbar.addView(mClear, buttonParams());
-        mCopy = createIconButton(
-                R.drawable.ic_file_copy,
-                R.string.console_copy_output,
-                this::showCopyActions);
-        mToolbar.addView(mCopy, buttonParams());
-        mPaste = createIconButton(
-                R.drawable.ic_file_paste,
-                R.string.console_paste,
-                view -> pasteClipboard());
-        mToolbar.addView(mPaste, buttonParams());
-        mToolbar.addView(createIconButton(R.drawable.ic_history,
-                R.string.console_commands, view -> showCommandHistory()), buttonParams());
-        mToolbar.addView(createIconButton(R.drawable.ic_notifications,
-                R.string.console_notifications, view -> showNotificationSettings()), buttonParams());
-        mToolbar.addView(createIconButton(R.drawable.ic_font_size,
-                R.string.console_font_size, view -> ConsoleFontSizeDialog.show(this,
-                        R.string.console_font_size, mTerminalView.fontSizeSp(),
-                        ConsolePreferences.fontSizeSp(this), mTerminalView::setFontSizeSp)), buttonParams());
-        final ImageButton createApplication = createIconButton(
-                R.drawable.ic_add,
-                R.string.action_new_terminal_application,
-                view -> createTerminalApplication());
-        mToolbar.addView(createApplication, buttonParams());
-        final ImageButton openFiles = createIconButton(
-                R.drawable.ic_folder_open,
-                R.string.console_open_working_directory,
-                view -> openSelectedPathOrWorkingDirectory());
-        mToolbar.addView(openFiles, buttonParams());
-        final ImageButton hideToolbar = createIconButton(
-                R.drawable.ic_arrow_up,
-                R.string.console_hide_toolbar,
-                view -> setToolbarVisible(false));
-        mToolbar.addView(hideToolbar, buttonParams());
-        mToolbar.setVisibility(mToolbarVisible ? View.VISIBLE : View.GONE);
-        final android.widget.HorizontalScrollView toolbarScroll = new android.widget.HorizontalScrollView(this);
-        toolbarScroll.setHorizontalScrollBarEnabled(false);
-        toolbarScroll.addView(mToolbar);
-        page.addView(toolbarScroll, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        mShellStatus = new TextView(this);
-        mShellStatus.setTextSize(12);
-        mShellStatus.setPadding(dp(4), dp(4), dp(4), dp(4));
-        mShellStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        mShellStatus.setVisibility(View.GONE);
-        page.addView(mShellStatus, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        mProgress = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        mProgress.setMax(100);
-        mProgress.setVisibility(View.INVISIBLE);
-        page.addView(mProgress, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(3)));
-
-        mTerminalView = new ConsoleTerminalView(this);
-        mTerminalView.setOnDragListener(this::handleFileDrop);
-        mTerminalContainer = new FrameLayout(this);
-        mTerminalContainer.addView(mTerminalView, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
-        mShowToolbar = createIconButton(
-                R.drawable.ic_arrow_down,
-                R.string.console_show_toolbar,
-                view -> setToolbarVisible(true));
-        mShowToolbar.setPadding(dp(6), dp(6), dp(6), dp(6));
-        mShowToolbar.setVisibility(View.GONE);
-        final FrameLayout.LayoutParams showToolbarParams =
-                new FrameLayout.LayoutParams(dp(32), dp(32));
-        showToolbarParams.gravity = Gravity.TOP | Gravity.END;
-        mTerminalContainer.addView(mShowToolbar, showToolbarParams);
-        mTerminalParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
-        mTerminalParams.setMargins(
-                0, mToolbarVisible ? dp(4) : 0, 0, 0);
-        page.addView(mTerminalContainer, mTerminalParams);
-        return page;
-    }
-
-    private void setToolbarVisible(final boolean visible) {
-        if (mToolbarVisible == visible || mToolbar == null) {
-            return;
-        }
-        mToolbarVisible = visible;
-        mToolbar.setVisibility(visible ? View.VISIBLE : View.GONE);
-        if (mShowToolbar != null) {
-            mShowToolbar.setVisibility(visible ? View.GONE : View.VISIBLE);
-        }
-        if (mTerminalParams != null
-                && mTerminalContainer != null
-                && mTerminalView != null) {
-            mTerminalParams.topMargin = visible ? dp(4) : 0;
-            mTerminalContainer.setLayoutParams(mTerminalParams);
-            mTerminalView.requestFocus();
         }
     }
 
@@ -831,27 +490,6 @@ public final class CommandConsoleActivity extends Activity
         }
     }
 
-    private void updateShellStatus() {
-        if (mShellStatus == null || mSessions == null) return;
-        final boolean termux = mBackend == DesktopExecBackend.TERMUX;
-        final boolean unavailable = !termux && (mSnapshot == null || !mSnapshot.isReady());
-        final boolean root = !termux && !unavailable && mSnapshot.uid == ShellAccess.ROOT_UID;
-        final String identity = termux ? getString(R.string.console_shell_termux)
-                : unavailable ? getString(R.string.console_title)
-                : getString(root ? R.string.console_shell_root : R.string.console_shell_android, mSnapshot.uid);
-        final String description = getString(R.string.terminal_sessions) + "\n" + identity;
-        mSessions.setTooltipText(description);
-        mSessions.setContentDescription(description);
-        mSessions.setImageTintList(ColorStateList.valueOf(root ? COLOR_AMBER : COLOR_TEXT));
-
-        final String status = unavailable ? getString(R.string.console_shell_unavailable,
-                mSnapshot == null || mSnapshot.error.isEmpty()
-                        ? getString(R.string.state_unavailable) : mSnapshot.error) : mTerminalStatus;
-        mShellStatus.setText(status);
-        mShellStatus.setTextColor(unavailable || mTerminalFailed ? COLOR_AMBER : COLOR_MUTED);
-        mShellStatus.setVisibility(status.isEmpty() ? View.GONE : View.VISIBLE);
-    }
-
     private void failTerminal(final String message) {
         if (mTerminalFailed) {
             return;
@@ -860,150 +498,6 @@ public final class CommandConsoleActivity extends Activity
         mTerminalStatus = message;
         updateShellStatus();
         updateActions();
-    }
-
-    private void updateActions() {
-        if (mClear == null || mCopy == null || mPaste == null) {
-            return;
-        }
-        final boolean ready = mSession != null && mSession.isReady();
-        mClear.setEnabled(ready);
-        mCopy.setEnabled(mSession != null);
-        mPaste.setEnabled(ready);
-    }
-
-    private boolean handleFileDrop(final View view, final DragEvent event) {
-        final FileDragPayload payload = FileDragPayload.from(event);
-        switch (event.getAction()) {
-            case DragEvent.ACTION_DRAG_STARTED:
-                return payload != null;
-            case DragEvent.ACTION_DROP:
-                if (payload == null || mSession == null) {
-                    return false;
-                }
-                mSession.write(ConsolePathText.quotePaths(
-                        payload.absolutePaths) + " ");
-                mTerminalView.requestFocus();
-                return true;
-            default:
-                return payload != null;
-        }
-    }
-
-    private void openSelectedPathOrWorkingDirectory() {
-        final String selected = mTerminalView.selectedText();
-        if (selected.isEmpty()) {
-            refreshWorkingDirectory(directory -> openFilesAt(
-                    createFilesDirectoryInfo(directory)));
-            return;
-        }
-        mSession.requestWorkingDirectory((directory, lookupError) -> {
-            final String resolved;
-            try {
-                resolved = ConsolePathText.resolveSelectedPath(
-                        directory, selected);
-            } catch (IllegalArgumentException error) {
-                showPathUnavailable(error);
-                return;
-            }
-            new Thread(
-                    () -> loadAndOpenPath(resolved),
-                    "MagicDeskConsolePath").start();
-        });
-    }
-
-    private void loadAndOpenPath(final String path) {
-        try {
-            final ShellFileInfo file = ShellAccess.getShellFileInfo(path);
-            runOnUiThread(() -> {
-                if (!isFinishing() && !isDestroyed()) {
-                    openFilesAt(file);
-                }
-            });
-        } catch (IOException | RuntimeException error) {
-            runOnUiThread(() -> showPathUnavailable(error));
-        }
-    }
-
-    private void refreshWorkingDirectory(final Consumer<String> action) {
-        if (mSession == null) {
-            return;
-        }
-        mSession.requestWorkingDirectory((directory, error) -> {
-            if (action != null && !isFinishing() && !isDestroyed()) {
-                action.accept(directory);
-            }
-        });
-    }
-
-    private void openFilesAt(final ShellFileInfo file) {
-        BuiltInWindowLauncher.launch(
-                this,
-                FileManagerActivity.createRevealIntent(this, file),
-                FileManagerActivity.launchTarget(this),
-                error -> {
-                    if (error != null) {
-                        Toast.makeText(
-                                this,
-                                getString(
-                                        R.string.console_files_failed,
-                                        ShellAccess.usefulMessage(error)),
-                                Toast.LENGTH_LONG).show();
-                    }
-                });
-    }
-
-    private void showPathUnavailable(final Throwable error) {
-        if (isFinishing() || isDestroyed()) {
-            return;
-        }
-        Toast.makeText(
-                this,
-                getString(
-                        R.string.console_path_unavailable,
-                        ShellAccess.usefulMessage(error)),
-                Toast.LENGTH_SHORT).show();
-    }
-
-    private void copyText(final String text) {
-        if (text == null || text.isEmpty()) {
-            return;
-        }
-        final AndroidClipboardGateway.OperationResult copied =
-                AndroidClipboardGateway.get(this).writeText(
-                        "MagicDesk console output", text, false);
-        if (!copied.successful) {
-            Toast.makeText(this, R.string.console_copy_failed,
-                    Toast.LENGTH_LONG).show();
-            return;
-        }
-        Toast.makeText(this, R.string.console_copied,
-                Toast.LENGTH_SHORT).show();
-    }
-
-    private ImageButton createIconButton(
-            final int drawableResId,
-            final int descriptionResId,
-            final View.OnClickListener listener) {
-        final ImageButton button = new ImageButton(this);
-        button.setImageResource(drawableResId);
-        button.setImageTintList(new ColorStateList(
-                new int[][]{
-                    new int[]{-android.R.attr.state_enabled},
-                    new int[0]
-                },
-                new int[]{COLOR_MUTED, COLOR_TEXT}));
-        button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        button.setPadding(dp(10), dp(10), dp(10), dp(10));
-        button.setBackgroundColor(Color.TRANSPARENT);
-        button.setContentDescription(getString(descriptionResId));
-        button.setTooltipText(getString(descriptionResId));
-        button.setOnClickListener(listener);
-        return button;
-    }
-
-    private LinearLayout.LayoutParams buttonParams() {
-        return new LinearLayout.LayoutParams(dp(44), dp(44));
     }
 
     private static String initialDirectory(final Intent intent) {
@@ -1024,33 +518,15 @@ public final class CommandConsoleActivity extends Activity
         }
     }
 
-    private static ShellFileInfo createFilesDirectoryInfo(
-            final String absolutePath) {
-        final String normalized = ShellFilePathPolicy
-                .normalizeShellAbsolute(absolutePath);
-        final String name = "/".equals(normalized)
-                ? "/" : normalized.substring(normalized.lastIndexOf('/') + 1);
-        return new ShellFileInfo(
-                normalized,
-                name,
-                DocumentsContract.Document.MIME_TYPE_DIR,
-                "",
-                0L,
-                0L,
-                0L,
-                0L,
-                ShellAccess.SHELL_UID,
-                ShellAccess.SHELL_UID,
-                0,
-                true,
-                false,
-                true,
-                false,
-                true,
-                false);
+    @Override public void onMetadataChanged() {
+        if (mSession != null && mWindow != null) mWindow.updateMetadata(mSession.metadata());
     }
 
-    private int dp(final int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+    private void updateActions() {
+        if (mWindow != null) mWindow.updateActions(mSession != null, mSession != null && mSession.isReady());
+    }
+
+    private void updateShellStatus() {
+        if (mWindow != null) mWindow.updateStatus(mBackend, mSnapshot, mTerminalStatus, mTerminalFailed);
     }
 }

@@ -139,6 +139,7 @@ public final class TerminalOwnershipRegressionTest {
         return """
                 static class WeakReference<T> extends java.lang.ref.WeakReference<T> { WeakReference(T v) { super(v); } }
                 interface Function<T,R> extends java.util.function.Function<T,R> {}
+                interface Consumer<T> extends java.util.function.Consumer<T> {}
                 static class ConsoleTerminalSession { interface Listener {} boolean closed; void close() { closed=true; } }
                 static class ConsoleTerminalView { boolean detached; void attach(Object a,Object b) { detached=true; } }
                 static class Activity { boolean finished; boolean isDestroyed() { return false; }
@@ -146,13 +147,13 @@ public final class TerminalOwnershipRegressionTest {
                     int getTaskId() { return 1; } void finishAndRemoveTask() { finished=true; } }
                 static class DesktopAutomationEventJournal { static void record(String t,String o,boolean s,String d) {} }
                 static class MagicDeskRuntime { static int refreshes; static void refreshNotification() { refreshes++; } }
-                static class TerminalNotifications { static void cancel(String id) {} }
+                static class TerminalNotifications { static class Session { void close() {} } }
                 record Snapshot(String id) {}
                 static class Entry implements ConsoleTerminalSession.Listener {
-                    final String id; final ConsoleTerminalSession session; long attachmentGeneration, lastFocusSequence;
+                    final String id; final ConsoleTerminalSession session; long lastFocusSequence;
                     String tmuxSessionId = "";
-                    WeakReference<Activity> activity=new WeakReference<>(null);
-                    WeakReference<ConsoleTerminalView> view=new WeakReference<>(null);
+                    final TerminalWindowAttachment window=new TerminalWindowAttachment();
+                    final TerminalNotifications.Session notifications=new TerminalNotifications.Session();
                     Entry(String id,Function<ConsoleTerminalSession.Listener,ConsoleTerminalSession> f) { this.id=id; session=f.apply(this); }
                     Snapshot snapshot(String id) { return new Snapshot(id); }
                 }
@@ -160,7 +161,8 @@ public final class TerminalOwnershipRegressionTest {
                 static long focusSequence;
                 static java.util.concurrent.atomic.AtomicLong NEXT_ID = new java.util.concurrent.atomic.AtomicLong();
                 static <T> T callOnMain(Callable<T> c) { try { return c.call(); } catch(Exception e) { throw new RuntimeException(e); } }
-                """ + RuntimeSourceFixture.methods("ConsoleTerminalRegistry", "acquire", "register",
+                """ + "static " + RuntimeSourceFixture.nestedClass("TerminalWindowAttachment", "TerminalWindowAttachment")
+                + RuntimeSourceFixture.methods("ConsoleTerminalRegistry", "acquire", "register",
                         "nextId", "validId", "detach", "close", "hide", "find", "findLocked", "pruneLocked",
                         "attachmentGeneration", "hasWindowLocked", "focused", "mostRecent");
     }

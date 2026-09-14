@@ -47,42 +47,46 @@ public final class MagicDeskTerminalRenderer {
         return mCellHeight;
     }
 
-    public void draw(
-            final Canvas canvas,
-            final TerminalEmulator emulator,
-            final int topRow,
-            final int visibleRows,
-            final int selectionStartColumn,
-            final int selectionStartRow,
-            final int selectionEndColumn,
-            final int selectionEndRow,
-            final boolean focused) {
-        final int[] colors = emulator.mColors.mCurrentColors;
+    void drawScrolling(Canvas canvas, TerminalFrame frame, int topRow, int visibleRows) {
+        draw(canvas, frame, topRow, visibleRows, 0, Integer.MIN_VALUE,
+                Integer.MIN_VALUE, 0, 0, false);
+    }
+
+    public void draw(Canvas canvas, TerminalFrame frame, int topRow, int visibleRows,
+            float rowOffsetPixels, int selectionStartColumn, int selectionStartRow,
+            int selectionEndColumn, int selectionEndRow, boolean focused) {
+        final int[] colors = frame.colors;
         final int defaultBackground = colors[TextStyle.COLOR_INDEX_BACKGROUND];
         canvas.drawColor(defaultBackground);
-        final TerminalBuffer screen = emulator.getScreen();
-        final List<TerminalGraphics.Placement> images = emulator.getGraphics().visible(screen, topRow, topRow + visibleRows);
+        final int saved = canvas.save();
+        canvas.clipRect(0, 0, frame.columns * mCellWidth, visibleRows * mCellHeight);
+        canvas.translate(0, -rowOffsetPixels);
+        final int rowCount = visibleRows + (rowOffsetPixels > 0 ? 1 : 0);
+        final List<TerminalFrame.ImagePlacement> images = frame.images;
         mImages.retain(images);
         mImages.draw(canvas, images, 0, topRow, mCellWidth, mCellHeight);
         // Text has separate background/glyph passes so graphics can occupy each specified z layer.
         int passes = images.isEmpty() ? 1 : 2;
         for (int pass = 0; pass < passes; pass++) {
             if (pass == 1) mImages.draw(canvas, images, 1, topRow, mCellWidth, mCellHeight);
-            for (int viewportRow = 0; viewportRow < visibleRows; viewportRow++) {
+            for (int viewportRow = 0; viewportRow < rowCount; viewportRow++) {
+                if (canvas.quickReject(0, viewportRow * mCellHeight,
+                        frame.columns * mCellWidth, (viewportRow + 1) * mCellHeight)) continue;
                 final int externalRow = topRow + viewportRow;
-                if (externalRow < -screen.getActiveTranscriptRows() || externalRow >= emulator.mRows) continue;
-                drawRow(canvas, emulator, screen, externalRow, viewportRow,
+                TerminalRow row = frame.row(externalRow);
+                drawRow(canvas, frame, row, externalRow, viewportRow,
                         selectionStartColumn, selectionStartRow, selectionEndColumn, selectionEndRow,
                         focused, passes == 1 ? 2 : pass);
             }
         }
         mImages.draw(canvas, images, 2, topRow, mCellWidth, mCellHeight);
+        canvas.restoreToCount(saved);
     }
 
     private void drawRow(
             final Canvas canvas,
-            final TerminalEmulator emulator,
-            final TerminalBuffer screen,
+            final TerminalFrame frame,
+            final TerminalRow row,
             final int externalRow,
             final int viewportRow,
             final int selectionStartColumn,
@@ -91,14 +95,12 @@ public final class MagicDeskTerminalRenderer {
             final int selectionEndRow,
             final boolean focused,
             final int pass) {
-        final TerminalRow row = screen.mLines[
-                screen.externalToInternalRow(externalRow)];
         if (row == null) {
             return;
         }
         int previousCharacterStart = -1;
         mPlaceholder.reset();
-        for (int column = 0; column < emulator.mColumns; column++) {
+        for (int column = 0; column < frame.columns; column++) {
             final int characterStart = row.findStartOfColumn(column);
             if (characterStart == previousCharacterStart) {
                 continue;
@@ -108,12 +110,12 @@ public final class MagicDeskTerminalRenderer {
                     row.mText, characterStart, row.getSpaceUsed());
             final int displayWidth = Math.max(1, WcWidth.width(codePoint));
             final int endColumn = Math.min(
-                    emulator.mColumns, column + displayWidth);
+                    frame.columns, column + displayWidth);
             final int characterEnd = row.findStartOfColumn(endColumn);
             final long style = row.mStyle[column];
             drawCell(
                     canvas,
-                    emulator,
+                    frame,
                     row.mText,
                     characterStart,
                     characterEnd,
@@ -131,18 +133,18 @@ public final class MagicDeskTerminalRenderer {
                             selectionEndColumn,
                             selectionEndRow),
                     focused
-                            && externalRow == emulator.getCursorRow()
-                            && column == emulator.getCursorCol()
-                            && emulator.shouldCursorBeVisible(),
+                            && externalRow == frame.cursorRow
+                            && column == frame.cursorColumn
+                            && frame.cursorVisible,
                     pass);
             if (pass != 0 && mPlaceholder.read(row, column, characterStart, characterEnd))
-                mImages.drawPlaceholder(canvas, emulator, mPlaceholder, column, viewportRow, mCellWidth, mCellHeight);
+                mImages.drawPlaceholder(canvas, frame, mPlaceholder, column, viewportRow, mCellWidth, mCellHeight);
         }
     }
 
     private void drawCell(
             final Canvas canvas,
-            final TerminalEmulator emulator,
+            final TerminalFrame frame,
             final char[] text,
             final int textStart,
             final int textEnd,
@@ -156,12 +158,12 @@ public final class MagicDeskTerminalRenderer {
             final boolean cursor,
             final int pass) {
         int foreground = resolveColor(
-                emulator, TextStyle.decodeForeColor(style));
+                    frame, TextStyle.decodeForeColor(style));
         int background = resolveColor(
-                emulator, TextStyle.decodeBackColor(style));
+                    frame, TextStyle.decodeBackColor(style));
         final int effects = TextStyle.decodeEffect(style);
         if ((effects & TextStyle.CHARACTER_ATTRIBUTE_INVERSE) != 0
-                ^ emulator.isReverseVideo()) {
+                ^ frame.reverseVideo) {
             final int swap = foreground;
             foreground = background;
             background = swap;
@@ -171,7 +173,7 @@ public final class MagicDeskTerminalRenderer {
         final float right = left + displayWidth * mCellWidth;
         final float bottom = top + mCellHeight;
         if (pass != 1) {
-            if (background != emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND]) {
+            if (background != frame.colors[TextStyle.COLOR_INDEX_BACKGROUND]) {
                 mFillPaint.setColor(background);
                 canvas.drawRect(left, top, right, bottom, mFillPaint);
             }
@@ -182,8 +184,8 @@ public final class MagicDeskTerminalRenderer {
             canvas.drawRect(left, top, right, bottom, mFillPaint);
         }
         if (cursor) {
-            drawCursor(canvas, emulator, left, top, right, bottom);
-            if (emulator.getCursorStyle()
+            drawCursor(canvas, frame, left, top, right, bottom);
+            if (frame.cursorStyle
                     == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK) {
                 foreground = background;
             }
@@ -250,14 +252,14 @@ public final class MagicDeskTerminalRenderer {
 
     private void drawCursor(
             final Canvas canvas,
-            final TerminalEmulator emulator,
+            final TerminalFrame frame,
             final float left,
             final float top,
             final float right,
             final float bottom) {
         mFillPaint.setColor(resolveColor(
-                emulator, TextStyle.COLOR_INDEX_CURSOR));
-        final int style = emulator.getCursorStyle();
+                    frame, TextStyle.COLOR_INDEX_CURSOR));
+        final int style = frame.cursorStyle;
         if (style == TerminalEmulator.TERMINAL_CURSOR_STYLE_UNDERLINE) {
             canvas.drawRect(left, bottom - 2.0f, right, bottom, mFillPaint);
         } else if (style == TerminalEmulator.TERMINAL_CURSOR_STYLE_BAR) {
@@ -268,11 +270,11 @@ public final class MagicDeskTerminalRenderer {
     }
 
     private static int resolveColor(
-            final TerminalEmulator emulator, final int encoded) {
+            final TerminalFrame frame, final int encoded) {
         if ((encoded & 0xFF000000) == 0xFF000000) {
             return encoded;
         }
-        final int[] colors = emulator.mColors.mCurrentColors;
+        final int[] colors = frame.colors;
         return encoded >= 0 && encoded < colors.length
                 ? colors[encoded] : colors[TextStyle.COLOR_INDEX_FOREGROUND];
     }

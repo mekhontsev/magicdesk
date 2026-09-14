@@ -103,6 +103,18 @@ public final class TerminalGraphics {
         return result;
     }
 
+    List<TerminalFrame.ImagePlacement> framePlacements(TerminalBuffer buffer, int top, int bottom) {
+        if (placements.isEmpty()) return List.of();
+        ArrayList<TerminalFrame.ImagePlacement> result = new ArrayList<>();
+        for (Placement p : placements) if (p.buffer == buffer
+                && (p.virtual || p.row + p.clipBottom > top && p.row + p.clipTop < bottom))
+            result.add(new TerminalFrame.ImagePlacement(p));
+        // Stable ordering also preserves the first-match rule for virtual placements.
+        result.sort(Comparator.comparingInt((TerminalFrame.ImagePlacement p) -> p.virtual ? 1 : 0)
+                .thenComparingInt(p -> p.virtual ? 0 : p.z).thenComparingLong(p -> p.virtual ? 0 : p.imageId));
+        return List.copyOf(result);
+    }
+
     public Placement virtualPlacement(TerminalBuffer buffer, long id, int placementId) {
         for (Placement p : placements) if (p.virtual && p.buffer == buffer && p.imageId == id
                 && (placementId == 0 || p.placementId == placementId)) return p;

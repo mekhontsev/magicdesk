@@ -8,17 +8,17 @@ public final class ConsoleToolbarTest {
                 public static void verify() {
                     var view = new Console();
                     view.mBackend = DesktopExecBackend.TERMUX;
-                    view.updateShellStatus();
+                    view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
                     check(view.mShellStatus.visibility == View.GONE, "persistent Termux label");
                     check(view.mSessions.tooltip.equals("Sessions\\nTermux"), "missing Termux identity");
                     view.mBackend = DesktopExecBackend.SHELL;
                     view.mSnapshot = new Snapshot(true, 2000, "");
-                    view.updateShellStatus();
+                    view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
                     check(view.mShellStatus.visibility == View.GONE, "persistent shell label");
                     check(view.mSessions.tooltip.equals("Sessions\\nShell UID 2000"), "missing shell UID");
                     check(view.mSessions.tint == Console.COLOR_TEXT, "shell marked as root");
                     view.mSnapshot = new Snapshot(true, 0, "");
-                    view.updateShellStatus();
+                    view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
                     check(view.mShellStatus.visibility == View.GONE, "persistent root label");
                     check(view.mSessions.tooltip.equals("Sessions\\nRoot UID 0"), "missing root UID");
                     check(view.mSessions.tint == Console.COLOR_AMBER, "root not distinguished");
@@ -33,26 +33,26 @@ public final class ConsoleToolbarTest {
                     var view = new Console();
                     view.mBackend = DesktopExecBackend.TERMUX;
                     view.mTerminalStatus = "Starting terminal";
-                    view.updateShellStatus();
+                    view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
                     check(view.mShellStatus.visibility == View.VISIBLE, "startup hidden");
                     check(view.mShellStatus.text.equals("Starting terminal"), "startup includes backend label");
                     view.mTerminalStatus = "Access denied";
                     view.mTerminalFailed = true;
-                    view.updateShellStatus();
+                    view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
                     check(view.mShellStatus.text.equals("Access denied"), "failure hidden");
                     check(view.mShellStatus.color == Console.COLOR_AMBER, "failure not distinguished");
                     view.mTerminalFailed = false;
                     view.mTerminalStatus = "";
                     view.mBackend = DesktopExecBackend.SHELL;
                     view.mSnapshot = new Snapshot(false, -1, "Permission required");
-                    view.updateShellStatus();
+                    view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
                     check(view.mShellStatus.visibility == View.VISIBLE, "access failure hidden");
                     check(view.mShellStatus.text.equals("Unavailable: Permission required"), "access reason lost");
                     view.mSnapshot = new Snapshot(true, 2000, "");
-                    view.updateShellStatus();
+                    view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
                     check(view.mShellStatus.visibility == View.GONE, "recovered session kept stale failure");
                     view.mSnapshot = null;
-                    view.updateShellStatus();
+                    view.updateStatus(view.mBackend,view.mSnapshot,view.mTerminalStatus,view.mTerminalFailed);
                     check(view.mShellStatus.text.equals("Unavailable: unavailable"), "unknown service failed");
                 }
                 """);
@@ -61,8 +61,12 @@ public final class ConsoleToolbarTest {
     private static String fixture() throws Exception {
         return """
                 enum DesktopExecBackend { SHELL, TERMUX }
-                static class ShellAccess { static final int ROOT_UID = 0; }
-                record Snapshot(boolean ready, int uid, String error) { boolean isReady() { return ready; } }
+                static class ShellAccess { static final int ROOT_UID = 0; static class Snapshot {
+                    boolean ready; int uid; String error;
+                    Snapshot(boolean ready,int uid,String error) { this.ready=ready;this.uid=uid;this.error=error; }
+                    boolean isReady() { return ready; }
+                } }
+                static class Snapshot extends ShellAccess.Snapshot { Snapshot(boolean r,int u,String e) { super(r,u,e); } }
                 static class R { static class string {
                     static final String terminal_sessions="Sessions", console_shell_termux="Termux",
                         console_title="Shell", console_shell_root="Root UID %d", console_shell_android="Shell UID %d",
@@ -80,6 +84,7 @@ public final class ConsoleToolbarTest {
                 }
                 static class ColorStateList { static int valueOf(int value) { return value; } }
                 static class Console {
+                    final Console mActivity=this;
                     static final int COLOR_AMBER=1, COLOR_TEXT=2, COLOR_MUTED=3;
                     View mShellStatus=new View(), mSessions=new View();
                     DesktopExecBackend mBackend;
@@ -87,6 +92,6 @@ public final class ConsoleToolbarTest {
                     String mTerminalStatus="";
                     boolean mTerminalFailed;
                     String getString(String template, Object... args) { return String.format(template, args); }
-                """ + RuntimeSourceFixture.methods("CommandConsoleActivity", "updateShellStatus") + "}";
+                """ + RuntimeSourceFixture.methods("ConsoleTerminalWindow", "updateStatus") + "}";
     }
 }

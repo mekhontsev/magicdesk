@@ -17,6 +17,11 @@ cell buffers with OSC 8 hyperlinks, OSC 9 notification/progress events and OSC
 133 shell command boundaries. Link attributes follow cells through editing and
 reflow; bounded command records reference buffer-owned markers rather than a
 second output transcript. OSC 0/2 titles use the existing title callback.
+An optional `ScrollListener` reports explicit vertical region edits before cell
+mutation, observes cell writes separately from scroll transport/blanking, and
+invalidates transient presentation on screen resets. Animation and
+departing-row drawing remain in the application; the parser never delays output
+or infers scrolling from arbitrary repaints.
 Unknown SGR codes use locale-independent diagnostic formatting.
 Static Sixel and inline Kitty decoders publish immutable `TerminalImage` rasters
 through a host-supplied factory. `TerminalGraphics` owns the raster quota and
@@ -36,6 +41,13 @@ clipboard Base64 behavior still requires device verification.
 Changes to parsing or buffer semantics belong here, not in a second parser
 around the PTY byte stream. Changes to this module's runtime sources contribute
 to the APK build identity.
+
+`TerminalFrame` exposes a viewport-bounded synchronous read for renderers:
+palette/cursor and immutable image-placement metadata are frozen, cell rows are
+borrowed until the next edit, and rasters are shared. Retained presentation cells
+must be explicit snapshots. Window geometry/selection and scroll reconciliation
+live in the app's `TerminalViewport` and `TerminalScrollRegion`; the emulator does
+not acquire a Canvas, animation clock, Android window or PTY owner.
 
 Opening links, posting notifications and shell startup hooks belong to the app.
 The module cannot execute an OSC payload or launch an Activity. See

@@ -3,6 +3,7 @@ package com.termux.terminal;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * A row in a terminal, composed of a fixed number of cells.
@@ -66,6 +67,48 @@ public final class TerminalRow {
 
     /** NOTE: The sourceX2 is exclusive. */
     public void copyInterval(TerminalRow line, int sourceX1, int sourceX2, int destinationX) {
+        copyInterval(line, sourceX1, sourceX2, destinationX, true);
+    }
+
+    /** Presentation copies never relocate command markers owned by the live buffer. */
+    void copyCells(TerminalRow line, int start, int end) {
+        copyInterval(line, start, end, start, false);
+    }
+
+    TerminalRow snapshot() {
+        TerminalRow copy = new TerminalRow(mColumns, 0);
+        copy.mText = mText.clone();
+        System.arraycopy(mStyle, 0, copy.mStyle, 0, mColumns);
+        copy.mSpaceUsed = mSpaceUsed;
+        copy.mLineWrap = mLineWrap;
+        copy.mHasNonOneWidthOrSurrogateChars = mHasNonOneWidthOrSurrogateChars;
+        copy.mLinks = mLinks == null ? null : mLinks.clone();
+        copy.mImagePlacementIds = mImagePlacementIds == null ? null : mImagePlacementIds.clone();
+        return copy;
+    }
+
+    int glyphStart(int column) {
+        return mHasNonOneWidthOrSurrogateChars && column > 0 && column < mColumns
+                && findStartOfColumn(column) == findStartOfColumn(column - 1) ? column - 1 : column;
+    }
+
+    int glyphEnd(int column) {
+        return glyphStart(column) != column ? column + 1 : column;
+    }
+
+    boolean sameCell(TerminalRow other, int column) {
+        if (mStyle[column] != other.mStyle[column]
+                || !Objects.equals(getHyperlink(column), other.getHyperlink(column))
+                || imagePlacementId(column) != other.imagePlacementId(column)) return false;
+        int a = findStartOfColumn(column), b = other.findStartOfColumn(column);
+        int endA = findStartOfColumn(glyphEnd(column + 1));
+        int endB = other.findStartOfColumn(other.glyphEnd(column + 1));
+        if (endA - a != endB - b || glyphStart(column) != other.glyphStart(column)) return false;
+        while (a < endA) if (mText[a++] != other.mText[b++]) return false;
+        return true;
+    }
+
+    private void copyInterval(TerminalRow line, int sourceX1, int sourceX2, int destinationX, boolean moveMarkers) {
         mHasNonOneWidthOrSurrogateChars |= line.mHasNonOneWidthOrSurrogateChars;
         final int x1 = line.findStartOfColumn(sourceX1);
         final int x2 = line.findStartOfColumn(sourceX2);
@@ -77,10 +120,12 @@ public final class TerminalRow {
         final TerminalHyperlink[] sourceLinks = line.mLinks == null ? null
                 : this == line ? line.mLinks.clone() : line.mLinks;
         final int destinationStart = destinationX;
-        final List<TerminalMarker> moving = line.markersIn(sourceX1, sourceX2);
-        for (TerminalMarker marker : moving) marker.release();
-        clearMarkers(destinationX, destinationX + sourceX2 - sourceX1);
-        for (TerminalMarker marker : moving) marker.move(this, destinationStart + marker.column - sourceX1);
+        if (moveMarkers) {
+            final List<TerminalMarker> moving = line.markersIn(sourceX1, sourceX2);
+            for (TerminalMarker marker : moving) marker.release();
+            clearMarkers(destinationX, destinationX + sourceX2 - sourceX1);
+            for (TerminalMarker marker : moving) marker.move(this, destinationStart + marker.column - sourceX1);
+        }
         int latestNonCombiningWidth = 0;
         for (int i = x1; i < x2; i++) {
             char sourceChar = sourceChars[i];

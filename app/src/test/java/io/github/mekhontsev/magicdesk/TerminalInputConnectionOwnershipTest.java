@@ -95,8 +95,12 @@ public final class TerminalInputConnectionOwnershipTest {
                     boolean sendKeyEvent(KeyEvent event);
                     void closeConnection();
                 }
-                static class BaseInputConnection { public void closeConnection() {} }
+                static class View { boolean dispatchKeyEvent(KeyEvent e) { return false; } }
+                static abstract class BaseInputConnection implements InputConnection {
+                    BaseInputConnection(View view,boolean fullEditor) {} public void closeConnection() {}
+                }
                 static class Emulator {
+                    void setScrollListener(Object listener) {} void removeScrollListener(Object listener) {}
                     boolean isCursorKeysApplicationMode() { return false; }
                     boolean isKeypadApplicationMode() { return false; }
                 }
@@ -106,22 +110,21 @@ public final class TerminalInputConnectionOwnershipTest {
                     void write(byte[] s) { for(byte b:s) output.append((char)b); }
                     Emulator emulator() { return new Emulator(); }
                 }
-                static class ConsoleTerminalView {
+                static class ConsoleTerminalView extends View {
+                    final Resettable mRegionScroll=new Resettable(); Object mScrollListener;
+                    static class Resettable { void reset() {} }
+                    boolean isAttachedToWindow() { return true; }
                     ConsoleTerminalSession mSession;
-                    Actions mClipboardActions;
+                    Actions mActions;
                     Object mInputAttachment;
+                    final TerminalViewport mViewport=new TerminalViewport();
                     int dispatchedKeys;
                     void resizeTerminal() {} void invalidate() {} void scrollToBottom() {}
                     void stopFling() {} void clearSelection() {}
                     boolean dispatchKeyEvent(KeyEvent event) { dispatchedKeys++; return true; }
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalView",
-                        "attach", "onCheckIsTextEditor", "onCreateInputConnection") + """
-                    private final class TerminalInputConnection extends BaseInputConnection implements InputConnection {
-                        final Object mAttachment=mInputAttachment;
-                        boolean mClosed;
-                        String mComposingText="";
-                """ + RuntimeSourceFixture.methods("ConsoleTerminalView", "isActive", "closeConnection",
-                        "commitText", "setComposingText", "finishComposingText", "replaceComposingText",
-                        "deleteSurroundingText", "sendKeyEvent", "performEditorAction") + "}}";
+                        "attach", "onCheckIsTextEditor", "onCreateInputConnection") + "}"
+                + "static " + RuntimeSourceFixture.nestedClass("TerminalViewport", "TerminalViewport")
+                + "static " + RuntimeSourceFixture.nestedClass("ConsoleTerminalInputConnection", "ConsoleTerminalInputConnection");
     }
 }

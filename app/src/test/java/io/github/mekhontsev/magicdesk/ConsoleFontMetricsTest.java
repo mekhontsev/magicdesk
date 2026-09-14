@@ -7,14 +7,14 @@ public final class ConsoleFontMetricsTest {
     @Test public void keyboardLayoutResizesAndRestoresTheSamePty() throws Exception {
         verify("""
                 View view=new View(); view.refreshFontMetrics(); Session original=view.mSession;
-                int rows=view.mRows, columns=view.mColumns, resizes=original.resizes;
+                int rows=view.mViewport.rows(), columns=view.mViewport.columns(), resizes=original.resizes;
                 view.height=220; view.onSizeChanged(view.width,view.height,view.width,400);
-                check(view.mRows<rows && view.mColumns==columns, "keyboard did not reduce terminal rows");
-                check(view.mSession==original && original.rows==view.mRows, "keyboard did not resize existing PTY");
+                check(view.mViewport.rows()<rows && view.mViewport.columns()==columns, "keyboard did not reduce terminal rows");
+                check(view.mSession==original && original.rows==view.mViewport.rows(), "keyboard did not resize existing PTY");
                 view.onSizeChanged(view.width,view.height,view.width,view.height);
                 check(original.resizes==resizes+1, "unchanged layout repeated PTY resize");
                 view.height=400; view.onSizeChanged(view.width,view.height,view.width,220);
-                check(view.mRows==rows && original.rows==rows && view.mColumns==columns,
+                check(view.mViewport.rows()==rows && original.rows==rows && view.mViewport.columns()==columns,
                         "hiding keyboard did not restore the grid");
                 check(view.mSession==original && original.resizes==resizes+2, "keyboard replaced PTY");
                 """);
@@ -23,11 +23,12 @@ public final class ConsoleFontMetricsTest {
     @Test public void changingFontResizesTheExistingSessionAndPreservesScrollback() throws Exception {
         verify("""
                 View view=new View(); view.refreshFontMetrics(); Session original=view.mSession;
-                int columns=view.mColumns, rows=view.mRows, resizes=original.resizes;
-                view.mTopRow=-5; view.setFontSizeSp(24);
+                int columns=view.mViewport.columns(), rows=view.mViewport.rows(), resizes=original.resizes;
+                view.mViewport.jumpTo(-5,20); view.mViewport.scroll(view.mRenderer.cellHeight()/4,20); view.setFontSizeSp(24);
                 check(view.mSession==original && original.resizes==resizes+1, "font size replaced or did not resize PTY");
-                check(view.mColumns<columns && view.mRows<rows, "larger font did not reduce rows and columns");
-                check(view.mTopRow==-5, "font resize reset scrollback");
+                check(view.mViewport.columns()<columns && view.mViewport.rows()<rows, "larger font did not reduce rows and columns");
+                check(view.mViewport.topRow()==-5, "font resize reset scrollback");
+                check(view.mViewport.rowOffset()==view.mRenderer.cellHeight()/4, "font resize lost fractional row position");
                 view.setFontSizeSp(24);
                 check(original.resizes==resizes+1, "same size repeated PTY resize");
                 check(TypedValue.lastUnit==TypedValue.COMPLEX_UNIT_SP, "font did not use Android sp conversion");
@@ -37,10 +38,10 @@ public final class ConsoleFontMetricsTest {
     @Test public void cellMetricChangesReachPtyEvenWhenRowsAndColumnsAreUnchanged() throws Exception {
         verify("""
                 View view=new View(); view.width=20; view.height=20; view.refreshFontMetrics();
-                check(view.mColumns==2 && view.mRows==2, "fixture must keep grid at minimum size");
+                check(view.mViewport.columns()==2 && view.mViewport.rows()==2, "fixture must keep grid at minimum size");
                 int resizes=view.mSession.resizes, cell=view.mAppliedCellHeight;
                 view.setFontSizeSp(20);
-                check(view.mColumns==2 && view.mRows==2 && view.mAppliedCellHeight!=cell, "fixture changed grid");
+                check(view.mViewport.columns()==2 && view.mViewport.rows()==2 && view.mAppliedCellHeight!=cell, "fixture changed grid");
                 check(view.mSession.resizes==resizes+1, "cell-only font change was dropped");
                 """);
     }
@@ -65,8 +66,9 @@ public final class ConsoleFontMetricsTest {
     }
 
     private static void verify(final String body) throws Exception {
-        RuntimeSourceFixture.verify("""
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 static class Configuration {}
+                static class BuildConfig { static final boolean DEBUG=false; }
                 static class Metrics { float density=1, fontScale=1; }
                 static class R { static class font { static final int console_mono=1; } }
                 static class Resources { final Metrics metrics=new Metrics(); Metrics getDisplayMetrics() { return metrics; }
@@ -100,16 +102,20 @@ public final class ConsoleFontMetricsTest {
                     void onSizeChanged(int w,int h,int oldW,int oldH) {}
                 }
                 static class View extends BaseView {
+                    final Resettable mRegionScroll=new Resettable();
+                    static class Resettable { void reset() {} }
                     final Resources resources=new Resources(); Session mSession=new Session();
                     MagicDeskTerminalRenderer mRenderer;
-                    int width=600,height=400,mFontSizeSp=14,mColumns=80,mRows=24,mTopRow;
+                    static final String SCROLL_TRACE="MDTerminalScroll";
+                    final TerminalViewport mViewport=new TerminalViewport();
+                    int width=600,height=400,mFontSizeSp=14;
                     int mAppliedCellWidth,mAppliedCellHeight,mContentPadding,mTouchSlop;
                     Resources getResources() { return resources; } Object getContext() { return this; }
                     int getWidth() { return width; } int getHeight() { return height; }
                     void invalidate() {} void clearSelection() {} void stopFling() {}
-                    void clampTopRow() { mTopRow=Math.min(0,Math.max(-20,mTopRow)); }
+                    void clampTopRow() { mViewport.clamp(20); }
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalView", "setFontSizeSp", "refreshFontMetrics",
                         "onConfigurationChanged", "onSizeChanged", "resizeTerminal", "cellWidth", "cellHeight")
-                + "}\npublic static void verify() {\n" + body + "\n}");
+                + "}\npublic static void verify() {\n" + body + "\n}", "TerminalViewport");
     }
 }

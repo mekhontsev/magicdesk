@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Point;
-import android.os.Bundle;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.GestureDetector;
@@ -15,7 +14,6 @@ import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
@@ -26,6 +24,8 @@ import com.termux.terminal.MagicDeskTerminalRenderer;
 import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalHyperlink;
 import com.termux.terminal.TerminalImage;
+import com.termux.terminal.TerminalFrame;
+import com.termux.terminal.TerminalScrollAnimation;
 
 /** Interactive MagicDesk terminal surface with its own renderer. */
 final class ConsoleTerminalView extends View {
@@ -39,10 +39,44 @@ final class ConsoleTerminalView extends View {
         void showImage(TerminalImage image);
     }
 
-    private static final int NO_SELECTION = Integer.MIN_VALUE;
     private static final int SCROLL_ROWS = 3;
 
     private MagicDeskTerminalRenderer mRenderer;
+    private final TerminalScrollAnimation mRegionScroll = new TerminalScrollAnimation();
+    private static final String SCROLL_TRACE = "MDTerminalScroll";
+    private int mTracedScrollEdits;
+    private long mTracedScrollStart;
+    private final TerminalEmulator.ScrollListener mScrollListener = new TerminalEmulator.ScrollListener() {
+        @Override public void onScroll(int left, int top, int right, int bottom, int rows) {
+            if (BuildConfig.DEBUG && android.util.Log.isLoggable(SCROLL_TRACE, android.util.Log.DEBUG)) {
+                if (mTracedScrollEdits++ == 0) mTracedScrollStart = android.os.SystemClock.uptimeMillis();
+                android.util.Log.d(SCROLL_TRACE, "edit rows=" + rows + " region=" + top + ":" + bottom
+                        + " view=" + mViewport.columns() + "x" + mViewport.rows() + " anchor=" + mViewport.topRow() + ":" + mViewport.rowOffset()
+                        + " selection=" + hasSelection() + " shown=" + isShown()
+                        + " frameMillis=" + (getDisplay() == null ? 0 : scrollFrameMillis()));
+            }
+            if (mSession == null || mViewport.topRow() != 0 || mViewport.rowOffset() != 0 || hasSelection() || !isShown()) {
+                mRegionScroll.reset();
+                return;
+            }
+            mRegionScroll.beforeScroll(mSession.emulator(), mRenderer,
+                    left, top, right, bottom, rows, scrollFrameMillis(), android.os.SystemClock.uptimeMillis());
+        }
+
+        @Override public void onCellsChanged(int left, int top, int right, int bottom) {
+            if (mSession != null) mRegionScroll.cellsChanged(mSession.emulator(), left, top, right, bottom);
+        }
+
+        @Override public void onScrollComplete() {
+            if (mSession != null) mRegionScroll.scrollComplete(mSession.emulator());
+        }
+
+        @Override public void onScreenReset() {
+            mRegionScroll.reset();
+            if (BuildConfig.DEBUG && android.util.Log.isLoggable(SCROLL_TRACE, android.util.Log.DEBUG))
+                android.util.Log.d(SCROLL_TRACE, "emulator reset");
+        }
+    };
     private final GestureDetector mGestures;
     private final ScaleGestureDetector mScaleGestures;
     private final OverScroller mScroller;
@@ -65,14 +99,8 @@ final class ConsoleTerminalView extends View {
 
     private ConsoleTerminalSession mSession;
     private Object mInputAttachment;
-    private Actions mClipboardActions;
-    private int mColumns = 80;
-    private int mRows = 24;
-    private int mTopRow;
-    private int mSelectionStartColumn = NO_SELECTION;
-    private int mSelectionStartRow = NO_SELECTION;
-    private int mSelectionEndColumn = NO_SELECTION;
-    private int mSelectionEndRow = NO_SELECTION;
+    private Actions mActions;
+    private final TerminalViewport mViewport = new TerminalViewport();
     private float mDownX;
     private float mDownY;
     private float mLastTouchY;
@@ -132,14 +160,18 @@ final class ConsoleTerminalView extends View {
 
     void attach(
             final ConsoleTerminalSession session,
-            final Actions clipboardActions) {
+            final Actions actions) {
         stopFling();
+        mRegionScroll.reset();
+        if (mSession != null) mSession.emulator().removeScrollListener(mScrollListener);
         if (mSession != session) {
             clearSelection();
+            mViewport.live();
             mInputAttachment = session == null ? null : new Object();
         }
         mSession = session;
-        mClipboardActions = clipboardActions;
+        if (mSession != null && isAttachedToWindow()) mSession.emulator().setScrollListener(mScrollListener);
+        mActions = actions;
         resizeTerminal();
         invalidate();
     }
@@ -162,10 +194,12 @@ final class ConsoleTerminalView extends View {
 
     private void refreshFontMetrics() {
         stopFling();
+        mRegionScroll.reset();
         // Android applies the current display density and nonlinear accessibility font scale.
         mRenderer = new MagicDeskTerminalRenderer(getResources().getFont(R.font.console_mono), TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_SP, mFontSizeSp, getResources().getDisplayMetrics()));
         mContentPadding = Math.round(6.0f * getResources().getDisplayMetrics().density);
+        mViewport.metrics(mRenderer.cellWidth(), mRenderer.cellHeight(), mContentPadding);
         mTouchSlop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
         resizeTerminal();
         clampTopRow();
@@ -173,11 +207,11 @@ final class ConsoleTerminalView extends View {
     }
 
     int columns() {
-        return mColumns;
+        return mViewport.columns();
     }
 
     int rows() {
-        return mRows;
+        return mViewport.rows();
     }
 
     int cellWidth() {
@@ -191,17 +225,10 @@ final class ConsoleTerminalView extends View {
     void onTerminalChanged() {
         if (mSession != null) {
             final TerminalEmulator emulator = mSession.emulator();
-            final int scrolled = emulator.getScrollCounter();
+            final boolean selected = hasSelection();
+            mViewport.outputChanged(emulator.getScrollCounter(), emulator.getScreen().getActiveTranscriptRows());
+            if (selected && !hasSelection()) clearSelection();
             emulator.clearScrollCounter();
-            if (mTopRow < 0 && scrolled > 0) {
-                mTopRow -= scrolled;
-            }
-            if (hasSelection() && scrolled > 0) {
-                mSelectionStartRow -= scrolled;
-                mSelectionEndRow -= scrolled;
-                final int oldest = -emulator.getScreen().getActiveTranscriptRows();
-                if (mSelectionStartRow < oldest || mSelectionEndRow < oldest) clearSelection();
-            }
         }
         clampTopRow();
         updateSelectionHandles();
@@ -209,43 +236,28 @@ final class ConsoleTerminalView extends View {
     }
 
     boolean hasSelection() {
-        return mSelectionStartRow != NO_SELECTION;
+        return mViewport.hasSelection();
     }
 
     String selectedText() {
-        if (!hasSelection() || mSession == null) {
-            return "";
-        }
-        int startColumn = mSelectionStartColumn;
-        int startRow = mSelectionStartRow;
-        int endColumn = mSelectionEndColumn;
-        int endRow = mSelectionEndRow;
-        if (position(startRow, startColumn) > position(endRow, endColumn)) {
-            final int swapColumn = startColumn;
-            final int swapRow = startRow;
-            startColumn = endColumn;
-            startRow = endRow;
-            endColumn = swapColumn;
-            endRow = swapRow;
-        }
-        return mSession.emulator().getSelectedText(
-                startColumn, startRow, endColumn, endRow);
+        if (!hasSelection() || mSession == null) return "";
+        final TerminalViewport.Selection selection = mViewport.selection();
+        return mSession.emulator().getSelectedText(selection.startColumn(), selection.startRow(),
+                selection.endColumn(), selection.endRow());
     }
 
     void clearSelection() {
         mTouchSelection = false;
         if (mSelectionHandles != null) mSelectionHandles.hide();
-        mSelectionStartColumn = NO_SELECTION;
-        mSelectionStartRow = NO_SELECTION;
-        mSelectionEndColumn = NO_SELECTION;
-        mSelectionEndRow = NO_SELECTION;
+        mViewport.clearSelection();
         mSelecting = false;
         invalidate();
     }
 
     void scrollToBottom() {
         stopFling();
-        mTopRow = 0;
+        mRegionScroll.reset();
+        mViewport.live();
         updateSelectionHandles();
         invalidate();
     }
@@ -253,9 +265,9 @@ final class ConsoleTerminalView extends View {
     void jumpTo(final com.termux.terminal.TerminalMarker.Position position) {
         if (position == null || mSession == null || mSession.emulator().isAlternateBufferActive()) { return; }
         stopFling();
+        mRegionScroll.reset();
         clearSelection();
-        mTopRow = position.row();
-        clampTopRow();
+        mViewport.jumpTo(position.row(), mSession.emulator().getScreen().getActiveTranscriptRows());
         invalidate();
     }
 
@@ -263,11 +275,10 @@ final class ConsoleTerminalView extends View {
         if (range == null || mSession == null || mSession.emulator().isAlternateBufferActive()) { return; }
         jumpTo(range.start());
         if (range.start().equals(range.end())) { return; }
-        mSelectionStartColumn = range.start().column();
-        mSelectionStartRow = range.start().row();
-        mSelectionEndColumn = range.end().column() - 1;
-        mSelectionEndRow = range.end().row();
-        if (mSelectionEndColumn < 0) { mSelectionEndColumn = mColumns - 1; mSelectionEndRow--; }
+        final boolean previousRow = range.end().column() == 0;
+        mViewport.select(range.start().column(), range.start().row(),
+                previousRow ? mViewport.columns() - 1 : range.end().column() - 1,
+                range.end().row() - (previousRow ? 1 : 0));
         mTouchSelection = true;
         updateSelectionHandles();
         invalidate();
@@ -278,26 +289,26 @@ final class ConsoleTerminalView extends View {
                 || event.getX() >= getWidth() - mContentPadding || event.getY() >= getHeight() - mContentPadding) {
             return null;
         }
-        final Point cell = cellAt(event);
-        return mSession.emulator().getScreen().getHyperlink(cell.x, mTopRow + cell.y);
+        final Point cell = transcriptCellAt(event);
+        return mSession.emulator().getScreen().getHyperlink(cell.x, cell.y);
     }
 
     private TerminalImage imageAt(final MotionEvent event) {
         if (mSession == null) return null;
-        final float column = (event.getX() - mContentPadding) / mRenderer.cellWidth();
-        final float row = (event.getY() - mContentPadding) / mRenderer.cellHeight();
-        if (column < 0 || column >= mColumns || row < 0 || row >= mRows) return null;
+        final float column = mViewport.columnPosition(event.getX());
+        if (column < 0 || column >= mViewport.columns() || event.getY() < mContentPadding
+                || event.getY() >= mContentPadding + mViewport.rows() * mRenderer.cellHeight()) return null;
         final TerminalEmulator emulator = mSession.emulator();
-        return emulator.getGraphics().imageAt(emulator.getScreen(), column, mTopRow + row,
+        return emulator.getGraphics().imageAt(emulator.getScreen(), column, mViewport.topRow() + viewportRowAt(event.getY()),
                 mRenderer.cellWidth(), mRenderer.cellHeight());
     }
 
     private boolean showImageAt(final MotionEvent event) {
         final TerminalImage image = imageAt(event);
-        if (image == null || mClipboardActions == null) return false;
+        if (image == null || mActions == null) return false;
         clearSelection();
         mImageGesture = true;
-        mClipboardActions.showImage(image);
+        mActions.showImage(image);
         return true;
     }
 
@@ -319,9 +330,9 @@ final class ConsoleTerminalView extends View {
         }
         return mSession.emulator().getSelectedText(
                 0,
-                mTopRow,
-                Math.max(0, mColumns - 1),
-                mTopRow + Math.max(0, mRows - 1));
+                mViewport.topRow(),
+                Math.max(0, mViewport.columns() - 1),
+                mViewport.topRow() + visibleRowCount() - 1);
     }
 
     boolean sendKey(final int keyCode, final int metaState) {
@@ -349,13 +360,24 @@ final class ConsoleTerminalView extends View {
             final int oldWidth,
             final int oldHeight) {
         super.onSizeChanged(width, height, oldWidth, oldHeight);
+        if (BuildConfig.DEBUG && android.util.Log.isLoggable(SCROLL_TRACE, android.util.Log.DEBUG))
+            android.util.Log.d(SCROLL_TRACE, "resize " + oldWidth + "x" + oldHeight + " -> " + width + "x" + height);
         stopFling();
+        mRegionScroll.reset();
         resizeTerminal();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (mSession != null) mSession.emulator().setScrollListener(mScrollListener);
     }
 
     @Override
     protected void onDetachedFromWindow() {
         stopFling();
+        mRegionScroll.reset();
+        if (mSession != null) mSession.emulator().removeScrollListener(mScrollListener);
         if (mSelectionHandles != null) mSelectionHandles.hide();
         super.onDetachedFromWindow();
     }
@@ -364,6 +386,7 @@ final class ConsoleTerminalView extends View {
     public void onWindowFocusChanged(final boolean focused) {
         super.onWindowFocusChanged(focused);
         if (!focused) stopFling();
+        if (!focused) mRegionScroll.reset();
         updateSelectionHandles();
     }
 
@@ -376,15 +399,27 @@ final class ConsoleTerminalView extends View {
         }
         canvas.save();
         canvas.translate(mContentPadding, mContentPadding);
-        mRenderer.draw(
+        if (mViewport.topRow() != 0 || mViewport.rowOffset() != 0 || hasSelection()) mRegionScroll.reset();
+        final long now = android.os.SystemClock.uptimeMillis();
+        final boolean animating = mRegionScroll.advance(now);
+        if (mTracedScrollEdits > 0) {
+            android.util.Log.d(SCROLL_TRACE, "frame animated=" + animating + " edits=" + mTracedScrollEdits
+                    + " elapsed=" + (now - mTracedScrollStart) + " anchor=" + mViewport.topRow() + ":" + mViewport.rowOffset());
+            mTracedScrollEdits = 0;
+        }
+        if (animating) {
+            mRegionScroll.draw(canvas, mSession.emulator(), mRenderer, hasFocus());
+            postInvalidateOnAnimation();
+        } else mRenderer.draw(
                 canvas,
-                mSession.emulator(),
-                mTopRow,
-                mRows,
-                mSelectionStartColumn,
-                mSelectionStartRow,
-                mSelectionEndColumn,
-                mSelectionEndRow,
+                TerminalFrame.capture(mSession.emulator(), mViewport.topRow(), visibleRowCount()),
+                mViewport.topRow(),
+                mViewport.rows(),
+                mViewport.rowOffset(),
+                mViewport.startColumn(),
+                mViewport.startRow(),
+                mViewport.endColumn(),
+                mViewport.endRow(),
                 hasFocus());
         canvas.restore();
     }
@@ -392,21 +427,22 @@ final class ConsoleTerminalView extends View {
     @Override
     public boolean onKeyDown(final int keyCode, final KeyEvent event) {
         stopFling();
+        mRegionScroll.reset();
         if (mSession == null || keyCode == KeyEvent.KEYCODE_BACK) {
             return super.onKeyDown(keyCode, event);
         }
         if (event.isShiftPressed() && !event.isCtrlPressed() && !event.isAltPressed()
                 && (keyCode == KeyEvent.KEYCODE_PAGE_UP || keyCode == KeyEvent.KEYCODE_PAGE_DOWN)) {
-            scrollRows(keyCode == KeyEvent.KEYCODE_PAGE_UP ? -mRows : mRows);
+            scrollRows(keyCode == KeyEvent.KEYCODE_PAGE_UP ? -mViewport.rows() : mViewport.rows());
             return true;
         }
         if (event.isCtrlPressed() && event.isShiftPressed()) {
-            if (keyCode == KeyEvent.KEYCODE_C && mClipboardActions != null) {
-                mClipboardActions.copySelection();
+            if (keyCode == KeyEvent.KEYCODE_C && mActions != null) {
+                mActions.copySelection();
                 return true;
             }
-            if (keyCode == KeyEvent.KEYCODE_V && mClipboardActions != null) {
-                mClipboardActions.pasteClipboard();
+            if (keyCode == KeyEvent.KEYCODE_V && mActions != null) {
+                mActions.pasteClipboard();
                 return true;
             }
         }
@@ -432,10 +468,15 @@ final class ConsoleTerminalView extends View {
         if (mSession == null) {
             return false;
         }
-        final boolean interruptedFling = event.getActionMasked() == MotionEvent.ACTION_DOWN
-                && mFlingEvent != null;
+        final boolean interruptedScroll = event.getActionMasked() == MotionEvent.ACTION_DOWN
+                && (mFlingEvent != null || mRegionScroll.advance(android.os.SystemClock.uptimeMillis()));
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN
                 || event.getActionMasked() == MotionEvent.ACTION_CANCEL) stopFling();
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            // Hit testing and application clicks use the terminal's committed cell positions.
+            mRegionScroll.reset();
+            invalidate();
+        }
         if (handleFontScaleGesture(event)) { return true; }
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN) mImageGesture = false;
         mGestures.onTouchEvent(event);
@@ -449,9 +490,9 @@ final class ConsoleTerminalView extends View {
                 mDownY = event.getY();
                 mLastTouchY = event.getY();
                 mTouchScrollRemainder = 0;
-                mTouchScrolling = interruptedFling;
+                mTouchScrolling = interruptedScroll;
                 // A finger is a scroll gesture until a tap completes, not a held mouse button.
-                if (!isTouch(event) && emulator.isMouseTrackingActive()
+                if (!interruptedScroll && !isTouch(event) && emulator.isMouseTrackingActive()
                         && !isShiftPressed(event)
                         && !((event.getMetaState() & KeyEvent.META_CTRL_ON) != 0
                                 && (linkAt(event) != null || imageAt(event) != null))) {
@@ -478,7 +519,7 @@ final class ConsoleTerminalView extends View {
                     return true;
                 }
                 if (mSelecting) {
-                    updateSelection(cell);
+                    updateSelection(transcriptCellAt(event));
                     return true;
                 }
                 if (isTouch(event)
@@ -497,6 +538,7 @@ final class ConsoleTerminalView extends View {
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                if (mFlingEvent == null) mRegionScroll.endInput(android.os.SystemClock.uptimeMillis());
                 if (mTerminalMousePress) {
                     emulator.sendMouseEvent(
                             mTerminalMouseButton,
@@ -505,7 +547,7 @@ final class ConsoleTerminalView extends View {
                             false);
                     mTerminalMousePress = false;
                 } else if (mSelecting) {
-                    updateSelection(cell);
+                    updateSelection(transcriptCellAt(event));
                     mSelecting = false;
                     updateSelectionHandles();
                 } else if (event.getActionMasked() == MotionEvent.ACTION_UP
@@ -515,9 +557,9 @@ final class ConsoleTerminalView extends View {
                             || (event.getMetaState() & KeyEvent.META_CTRL_ON) != 0)
                             && showImageAt(event)) return true;
                     final TerminalHyperlink link = linkAt(event);
-                    if (link != null && mClipboardActions != null && !isShiftPressed(event)
+                    if (link != null && mActions != null && !isShiftPressed(event)
                             && (!emulator.isMouseTrackingActive() || (event.getMetaState() & KeyEvent.META_CTRL_ON) != 0)) {
-                        mClipboardActions.showLink(link);
+                        mActions.showLink(link);
                         return true;
                     }
                     if (isTouch(event)) {
@@ -555,6 +597,11 @@ final class ConsoleTerminalView extends View {
             setFontSizeSp(mFontSizeSp + steps);
             return true;
         }
+        if (scrollsLocalHistory(event)) {
+            mWheelScrollRemainder = 0;
+            scrollHistoryPixels(-amount * SCROLL_ROWS * mRenderer.cellHeight());
+            return true;
+        }
         mWheelScrollRemainder -= amount * SCROLL_ROWS;
         final int rows = (int) mWheelScrollRemainder;
         mWheelScrollRemainder -= rows;
@@ -586,10 +633,20 @@ final class ConsoleTerminalView extends View {
     }
 
     private void scrollPixels(final float distance, final MotionEvent event) {
+        if (scrollsLocalHistory(event)) {
+            mTouchScrollRemainder = 0;
+            scrollHistoryPixels(distance);
+            return;
+        }
         mTouchScrollRemainder += distance / mRenderer.cellHeight();
         final int rows = (int) mTouchScrollRemainder;
         mTouchScrollRemainder -= rows;
         scrollTerminal(rows, event);
+    }
+
+    private boolean scrollsLocalHistory(final MotionEvent event) {
+        final TerminalEmulator emulator = mSession.emulator();
+        return isShiftPressed(event) || (!emulator.isMouseTrackingActive() && !emulator.isAlternateBufferActive());
     }
 
     private boolean startFling(final MotionEvent event, final float velocityY) {
@@ -625,7 +682,7 @@ final class ConsoleTerminalView extends View {
         // TUI scroll limits belong to the application; local history has known edges.
         if (isShiftPressed(mFlingEvent) || (!mFlingMouseTracking && !mFlingAlternateBuffer)) {
             final int oldest = -mSession.emulator().getScreen().getActiveTranscriptRows();
-            if ((distance < 0 && mTopRow <= oldest) || (distance > 0 && mTopRow >= 0)) {
+            if ((distance < 0 && mViewport.topRow() == oldest && mViewport.rowOffset() == 0) || (distance > 0 && mViewport.topRow() == 0)) {
                 stopFling();
                 return;
             }
@@ -636,6 +693,7 @@ final class ConsoleTerminalView extends View {
     private void stopFling() {
         mScroller.forceFinished(true);
         if (mFlingEvent != null) {
+            mRegionScroll.endInput(android.os.SystemClock.uptimeMillis());
             mFlingEvent.recycle();
             mFlingEvent = null;
         }
@@ -644,6 +702,10 @@ final class ConsoleTerminalView extends View {
     private void scrollTerminal(final int rows, final MotionEvent event) {
         if (rows == 0) { return; }
         final TerminalEmulator emulator = mSession.emulator();
+        if (!scrollsLocalHistory(event) && getDisplay() != null) {
+            mRegionScroll.input(rows, isTouch(event) && (mTouchScrolling || mFlingEvent != null),
+                    scrollFrameMillis(), android.os.SystemClock.uptimeMillis());
+        }
         if (emulator.isMouseTrackingActive() && !isShiftPressed(event)) {
             final Point cell = cellAt(event);
             final int button = rows < 0 ? TerminalEmulator.MOUSE_WHEELUP_BUTTON
@@ -660,19 +722,23 @@ final class ConsoleTerminalView extends View {
         }
     }
 
+    private double scrollFrameMillis() { return 1000.0 / getDisplay().getRefreshRate(); }
+
     @Override
     protected int computeVerticalScrollRange() {
-        return mRows + (mSession == null ? 0 : mSession.emulator().getScreen().getActiveTranscriptRows());
+        return Math.round((mViewport.rows() + (mSession == null ? 0 : mSession.emulator().getScreen().getActiveTranscriptRows()))
+                * mRenderer.cellHeight());
     }
 
     @Override
     protected int computeVerticalScrollExtent() {
-        return mRows;
+        return Math.round(mViewport.rows() * mRenderer.cellHeight());
     }
 
     @Override
     protected int computeVerticalScrollOffset() {
-        return computeVerticalScrollRange() - mRows + mTopRow;
+        return computeVerticalScrollRange() - computeVerticalScrollExtent()
+                + Math.round(mViewport.topRow() * mRenderer.cellHeight() + mViewport.rowOffset());
     }
 
     @Override
@@ -681,33 +747,27 @@ final class ConsoleTerminalView extends View {
     }
 
     @Override
-    public InputConnection onCreateInputConnection(
-            final EditorInfo editorInfo) {
-        if (mSession == null) { return null; }
+    public InputConnection onCreateInputConnection(final EditorInfo editorInfo) {
+        if (mSession == null) return null;
         editorInfo.inputType = InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
-        editorInfo.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI
-                | EditorInfo.IME_ACTION_NONE;
-        return new TerminalInputConnection();
+        editorInfo.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_ACTION_NONE;
+        final Object attachment = mInputAttachment;
+        return new ConsoleTerminalInputConnection(this, mSession,
+                () -> mSession != null && attachment == mInputAttachment, this::scrollToBottom);
     }
 
     private void resizeTerminal() {
-        final int availableWidth = Math.max(0, getWidth() - 2 * mContentPadding);
-        final int availableHeight = Math.max(0, getHeight() - 2 * mContentPadding);
         // Attaching an unmeasured View must not reflow a retained session to 2x2.
-        if (availableWidth == 0 || availableHeight == 0) { return; }
-        final int columns = Math.max(2,
-                (int) (availableWidth / mRenderer.cellWidth()));
-        final int rows = Math.max(2,
-                (int) (availableHeight / mRenderer.cellHeight()));
-        if (columns == mColumns && rows == mRows && (mSession == null
+        if (!mViewport.isMeasured(getWidth(), getHeight())) return;
+        final boolean changed = mViewport.resize(getWidth(), getHeight());
+        final int columns = mViewport.columns(), rows = mViewport.rows();
+        if (!changed && (mSession == null
                 || mSession.columns() == columns && mSession.rows() == rows)
                 && mAppliedCellWidth == cellWidth() && mAppliedCellHeight == cellHeight()) {
             return;
         }
-        mColumns = columns;
-        mRows = rows;
         clearSelection();
         mAppliedCellWidth = cellWidth();
         mAppliedCellHeight = cellHeight();
@@ -718,15 +778,14 @@ final class ConsoleTerminalView extends View {
                     cellWidth(),
                     cellHeight());
         }
+        clampTopRow();
     }
 
     private void beginSelection(final MotionEvent event) {
         stopFling();
-        final Point cell = cellAt(event);
-        mSelectionStartColumn = cell.x;
-        mSelectionStartRow = mTopRow + cell.y;
-        mSelectionEndColumn = cell.x;
-        mSelectionEndRow = mTopRow + cell.y;
+        mRegionScroll.reset();
+        final Point cell = transcriptCellAt(event);
+        mViewport.select(cell.x, cell.y, cell.x, cell.y);
         mSelecting = true;
         mTouchSelection = isTouch(event);
         updateSelectionHandles();
@@ -734,8 +793,7 @@ final class ConsoleTerminalView extends View {
     }
 
     private void updateSelection(final Point cell) {
-        mSelectionEndColumn = cell.x;
-        mSelectionEndRow = mTopRow + cell.y;
+        mViewport.extendSelection(cell.x, cell.y);
         updateSelectionHandles();
         invalidate();
     }
@@ -746,75 +804,50 @@ final class ConsoleTerminalView extends View {
             mSelectionHandles.hide();
             return;
         }
-        normalizeSelection();
+        mViewport.normalizeSelection();
         mSelectionHandles.update(
-                mContentPadding + mSelectionStartColumn * mRenderer.cellWidth(),
-                mContentPadding + (mSelectionStartRow - mTopRow + 1) * mRenderer.cellHeight(),
-                mContentPadding + (mSelectionEndColumn + 1) * mRenderer.cellWidth(),
-                mContentPadding + (mSelectionEndRow - mTopRow + 1) * mRenderer.cellHeight());
-    }
-
-    private void normalizeSelection() {
-        if (position(mSelectionStartRow, mSelectionStartColumn) <= position(mSelectionEndRow, mSelectionEndColumn)) return;
-        final int column = mSelectionStartColumn, row = mSelectionStartRow;
-        mSelectionStartColumn = mSelectionEndColumn;
-        mSelectionStartRow = mSelectionEndRow;
-        mSelectionEndColumn = column;
-        mSelectionEndRow = row;
+                mViewport.columnX(mViewport.startColumn()),
+                rowBottomY(mViewport.startRow()),
+                mViewport.columnX(mViewport.endColumn() + 1),
+                rowBottomY(mViewport.endRow()));
     }
 
     private void moveSelectionHandle(final boolean start, final float x, final float y) {
         if (!hasSelection() || mSession == null) return;
         stopFling();
-        normalizeSelection();
-        final float columnPosition = (x - mContentPadding) / mRenderer.cellWidth();
-        final int column = clamp(start ? (int) Math.floor(columnPosition)
-                : (int) Math.ceil(columnPosition) - 1, 0, mColumns - 1);
-        final int row = mTopRow + clamp((int) Math.ceil((y - mContentPadding) / mRenderer.cellHeight()) - 1,
-                0, mRows - 1);
-        if (start) {
-            final boolean beforeEnd = position(row, column) <= position(mSelectionEndRow, mSelectionEndColumn);
-            mSelectionStartColumn = beforeEnd ? column : mSelectionEndColumn;
-            mSelectionStartRow = beforeEnd ? row : mSelectionEndRow;
-        } else {
-            final boolean afterStart = position(row, column) >= position(mSelectionStartRow, mSelectionStartColumn);
-            mSelectionEndColumn = afterStart ? column : mSelectionStartColumn;
-            mSelectionEndRow = afterStart ? row : mSelectionStartRow;
-        }
+        mViewport.moveHandle(start, x, y);
         updateSelectionHandles();
         invalidate();
     }
 
     private Point cellAt(final MotionEvent event) {
-        final int column = clamp(
-                (int) ((event.getX() - mContentPadding)
-                        / mRenderer.cellWidth()),
-                0,
-                mColumns - 1);
-        final int row = clamp(
-                (int) ((event.getY() - mContentPadding)
-                        / mRenderer.cellHeight()),
-                0,
-                mRows - 1);
-        return new Point(column, row);
+        return new Point(mViewport.columnAt(event.getX()), mViewport.screenRowAt(event.getY()));
+    }
+
+    private float viewportRowAt(final float y) { return mViewport.viewportRowAt(y); }
+
+    private float rowBottomY(final int row) { return mViewport.rowBottomY(row); }
+
+    private int visibleRowCount() { return mViewport.visibleRows(); }
+
+    private Point transcriptCellAt(final MotionEvent event) {
+        return new Point(mViewport.columnAt(event.getX()), mViewport.transcriptRowAt(event.getY()));
     }
 
     private void scrollRows(final int delta) {
-        mTopRow += delta;
-        clampTopRow();
+        scrollHistoryPixels(delta * mRenderer.cellHeight());
+    }
+
+    private void scrollHistoryPixels(final float delta) {
+        mRegionScroll.reset();
+        mViewport.scroll(delta, mSession == null ? 0 : mSession.emulator().getScreen().getActiveTranscriptRows());
         clearSelection();
         awakenScrollBars();
         invalidate();
     }
 
     private void clampTopRow() {
-        if (mSession == null) {
-            mTopRow = 0;
-            return;
-        }
-        final int oldest = -mSession.emulator().getScreen()
-                .getActiveTranscriptRows();
-        mTopRow = clamp(mTopRow, oldest, 0);
+        mViewport.clamp(mSession == null ? 0 : mSession.emulator().getScreen().getActiveTranscriptRows());
     }
 
     private void writeCodePoint(final int codePoint, final boolean alt) {
@@ -837,7 +870,6 @@ final class ConsoleTerminalView extends View {
         }
     }
 
-
     private static int mouseButton(final MotionEvent event) {
         final int buttons = event.getButtonState();
         if ((buttons & MotionEvent.BUTTON_SECONDARY) != 0) {
@@ -857,108 +889,4 @@ final class ConsoleTerminalView extends View {
         return (event.getMetaState() & KeyEvent.META_SHIFT_ON) != 0;
     }
 
-    private static int clamp(final int value, final int minimum, final int maximum) {
-        return Math.max(minimum, Math.min(maximum, value));
-    }
-
-    private static long position(final int row, final int column) {
-        return ((long) row << 32) | (column & 0xFFFFFFFFL);
-    }
-
-    private final class TerminalInputConnection extends BaseInputConnection {
-        private final Object mAttachment = mInputAttachment;
-        private boolean mClosed;
-        private String mComposingText = "";
-
-        TerminalInputConnection() {
-            super(ConsoleTerminalView.this, false);
-        }
-
-        private boolean isActive() {
-            // Creating another connection does not close this one. Android owns its
-            // lifetime; the attachment token also rejects callbacks after detach/rebind.
-            return !mClosed && mAttachment == mInputAttachment && mSession != null;
-        }
-
-        @Override
-        public void closeConnection() {
-            mClosed = true;
-            super.closeConnection();
-        }
-
-        @Override
-        public boolean commitText(
-                final CharSequence text, final int newCursorPosition) {
-            if (!isActive()) { return false; }
-            replaceComposingText(text);
-            mComposingText = "";
-            return true;
-        }
-
-        @Override
-        public boolean setComposingText(
-                final CharSequence text, final int newCursorPosition) {
-            if (!isActive()) { return false; }
-            replaceComposingText(text);
-            mComposingText = text == null ? "" : text.toString();
-            return true;
-        }
-
-        @Override
-        public boolean finishComposingText() {
-            mComposingText = "";
-            return isActive();
-        }
-
-        private void replaceComposingText(final CharSequence text) {
-            final int previousCodePoints = mComposingText.codePointCount(
-                    0, mComposingText.length());
-            for (int index = 0; index < previousCodePoints; index++) {
-                mSession.write(new byte[]{0x7F});
-            }
-            if (text != null) {
-                mSession.write(text.toString());
-                scrollToBottom();
-            }
-        }
-
-        @Override
-        public boolean deleteSurroundingText(
-                final int beforeLength, final int afterLength) {
-            if (!isActive()) { return false; }
-            mComposingText = "";
-            for (int index = 0; index < beforeLength; index++) {
-                mSession.write(new byte[]{0x7F});
-            }
-            if (afterLength > 0) {
-                final String delete = KeyHandler.getCode(
-                        KeyEvent.KEYCODE_FORWARD_DEL,
-                        0,
-                        mSession.emulator().isCursorKeysApplicationMode(),
-                        mSession.emulator().isKeypadApplicationMode());
-                for (int index = 0; index < afterLength; index++) {
-                    mSession.write(delete);
-                }
-            }
-            return true;
-        }
-
-        @Override
-        public boolean sendKeyEvent(final KeyEvent event) {
-            return isActive() && dispatchKeyEvent(event);
-        }
-
-        @Override
-        public boolean performEditorAction(final int actionCode) {
-            if (!isActive()) { return false; }
-            mSession.write("\r");
-            return true;
-        }
-
-        @Override
-        public boolean performPrivateCommand(
-                final String action, final Bundle data) {
-            return super.performPrivateCommand(action, data);
-        }
-    }
 }

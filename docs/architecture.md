@@ -1535,13 +1535,67 @@ with `TerminalRequestScope` completing every pending response when the session
 closes, even if executor teardown discards its queued work. No additional thread
 or periodic query is involved. A resize received while the transport opens is
 applied to the PTY before sending input queued during startup.
+The registry delegates its optional Activity/View binding to
+`TerminalWindowAttachment`. Replacement revokes the previous surface before
+finishing its window; a stale Activity cannot detach a replacement. Attachment
+generations remain observable by automation. Notification throttling and cleanup
+belong to `TerminalNotifications.Session`, including while the PTY has no window.
+Neither component owns or replaces the terminal transport.
 The local [`terminal-emulator`](../terminal-emulator/README.md) module, based on
 Termux v0.118.3, parses escape sequences and models the main screen, alternate
 screen, cursor, colors, and scrollback. It owns terminal semantics and their
 upstream regression tests, independently of transport, windows, and Desktop.
 MagicDesk does not use Termux app session, JNI, or rendering code. Its own
-`ConsoleTerminalView` and `MagicDeskTerminalRenderer` provide Android input,
-mouse reporting, selection, clipboard operations, resize, and Canvas drawing.
+`ConsoleTerminalView` adapts Android gestures, mouse reporting, layout and frame
+scheduling. `ConsoleTerminalInputConnection` owns Android IME composition with
+the View's attachment validity check. `TerminalViewport` owns measured grid
+dimensions, cell transforms, selection and local history, independently of Android.
+Local scrollback has a row anchor plus a pixel offset, shared by touch dragging,
+inertial scrolling, high-resolution wheel input, hit testing, and selection handles.
+The `MagicDeskTerminalRenderer` consumes a `TerminalFrame`, not a live emulator.
+A frame borrows only visible cell rows for synchronous drawing on the emulator's
+owning thread, and freezes palette, cursor and immutable placement metadata once
+for all render passes. It is not an asynchronous snapshot or a second transcript.
+Moving rows are explicit presentation snapshots; image rasters are always shared.
+The renderer clips the viewport and draws both partial boundary rows with the
+same translation for text and graphics. New output preserves the history anchor;
+returning to live output or switching buffers resets the offset. Application-owned
+scrolling still receives discrete mouse-wheel or key input. Separately, the
+emulator's attached `ScrollListener` publishes explicit vertical region edits
+before mutation. The application-layer `TerminalScrollRegion` reconciles moving
+cells and fixed repaints without Android drawing or a clock. It does not change
+the parser's state. `TerminalScrollAnimation` owns fractional presentation and a
+region-height-bounded deque of outgoing-row Pictures. Its `TerminalScrollMotion`
+preserves velocity when more committed scroll distance arrives and follows the
+target with exact critically damped motion, independently of rendering cadence.
+Its response derives from the view's scroll-command cadence, seeded by the
+display frame interval, rather than a fixed per-packet duration. Gesture completion
+ends cadence tracking and lets the outstanding distance catch up promptly.
+It stops without overshoot or predicted output. Presentation never delays parsing,
+changes the grid, infers scrolling from repaints, or identifies applications.
+Buffer writes are observed separately from the atomic scroll transport/blanking.
+A region-bounded presentation grid transports text independently from in-place
+repaints. Incoming cells and text restored at displaced repaint positions update
+this moving grid; redundant writes leave its motion unchanged. Available writes
+are reconciled before drawing or the next transport, not at PTY packet boundaries.
+A region-bounded viewport snapshot also identifies complete rows restored in
+place, keeping adjacent fixed rows together. Frames without new writes do not
+repeat this reconciliation. Only actual
+in-place differences draw at fixed cell positions, without a swept-path mask.
+Cell snapshots do not own live command markers or copy image rasters. The grid
+and its freshness/origin metadata are discarded with the animation. Freshness
+describes only cells blanked by the current edit, never previously blank cells
+transported from earlier edits during a fling.
+All content outside the declared region stays fixed. Ordinary streaming output
+remains immediate. Detach unregisters the listener, while buffer/geometry changes
+and direct interaction discard transient presentation. Only active gestures,
+scroll animations, or content changes request redraws.
+The Activity delegates toolbar/layout/status presentation to
+`ConsoleTerminalWindow` and explicit copy/paste, links, command history, image
+exports and Files actions to `ConsoleTerminalActions`. Content actions share one
+window-owned worker; closing the window rejects late work without ending the PTY.
+The Activity retains launch, permission and lifecycle orchestration.
+
 Each terminal `InputConnection` remains valid until Android closes it or the
 View's session attachment changes. Another connection factory call does not
 revoke the connection currently used by the IME. An attachment token prevents

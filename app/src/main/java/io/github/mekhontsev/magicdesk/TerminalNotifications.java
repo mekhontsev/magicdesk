@@ -16,6 +16,17 @@ final class TerminalNotifications {
 
     private TerminalNotifications() { }
 
+    /** Notification policy belongs to the retained session, even while it has no window. */
+    static final class Session {
+        private final String id;
+        private final TerminalNotificationLimiter limiter = new TerminalNotificationLimiter();
+        Session(String id) { this.id = id; }
+        void post(ConsoleTerminalRegistry.Snapshot snapshot, String message) {
+            if (limiter.accept(android.os.SystemClock.elapsedRealtime())) show(snapshot, message);
+        }
+        void close() { cancel(id); }
+    }
+
     static void show(final ConsoleTerminalRegistry.Snapshot session, final String message) {
         final Context context = MagicDeskApplication.applicationContext();
         final NotificationManager manager = context.getSystemService(NotificationManager.class);

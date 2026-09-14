@@ -4,6 +4,31 @@ Console and Termux Console use the same local terminal emulator, retained PTY
 session model, UI and automation API. All features here work without Desktop.
 Terminal output is untrusted data, not authorization to execute an action.
 
+## Implementation Boundaries
+
+- `ConsoleTerminalSession` owns the transport, byte processing, emulator and
+  session metadata. Neither an Activity nor an MCP connection owns its lifetime.
+- `TerminalWindowAttachment` owns the optional window binding and its generation.
+  Stale window cleanup cannot revoke a replacement's input or resize ownership.
+- `TerminalViewport` owns window-local geometry, fractional history and selection.
+  `ConsoleTerminalView` adapts Android gestures and layout;
+  `ConsoleTerminalInputConnection` adapts IME composition.
+- `TerminalFrame` supplies one synchronous render read with frozen palette,
+  cursor and image-placement metadata. Cell rows are borrowed until the next
+  emulator edit; retained moving rows are snapshots, never a second transcript.
+- `TerminalScrollRegion` reconciles cell edits independently of Android drawing.
+  `TerminalScrollAnimation` owns motion and departing-row Pictures.
+- `ConsoleTerminalWindow` builds the toolbar/status surface.
+  `ConsoleTerminalActions` owns explicit content operations, not terminal state.
+
+Frame construction copies only bounded metadata and row references, not image
+rasters or scrollback. The parser, presentation and renderer remain on the same
+owning thread; no additional rendering thread or periodic refresh is introduced.
+Model tests exercise geometry, selection, scroll reconciliation and render reads
+directly. Android instrumentation additionally verifies real font/Canvas pixels.
+
+## Interaction
+
 The console layout reserves system-bar, cutout and visible keyboard insets.
 Showing or hiding the phone keyboard resizes the existing terminal grid and PTY,
 including a tmux client, without recreating its session. Toolbar actions use
@@ -16,6 +41,66 @@ same scroll route handles local history, tmux mouse reporting and alternate-scre
 arrow-key navigation. New input, selection, zoom, resize, focus loss or detach
 stops the animation; terminal mode changes prevent stale scroll input reaching
 a different screen. Idle terminals do not schedule scroll animation frames.
+Local history follows finger and high-resolution wheel movement in pixels,
+including partial rows. Text, images, links and selection handles share that
+offset. tmux and other fullscreen terminal programs still receive discrete
+wheel events or arrow keys and control their own scrolling.
+
+Explicit terminal region edits (IL/DL, SU/SD and reverse index) animate in the
+shared renderer, including tmux's full-width panes and vertically stacked panes.
+The emulator reports the exact region and displacement before changing cells;
+parsing, PTY input and transcript reads remain immediate. Only departing rows
+are briefly retained as Android Pictures, bounded by the region height, with
+existing image rasters shared rather than copied. Repeated edits preserve both
+the current fractional offset and velocity. An analytically integrated, critically
+damped follower approaches the committed position without overshoot, instead of
+restarting a deceleration curve for each packet. The response follows the cadence
+of wheel/key commands sent by the view, not PTY packet boundaries. Until that
+cadence is known, the display frame interval provides the initial response;
+finishing a touch gesture/fling returns to that response for prompt catch-up.
+There is no fixed per-packet animation duration. The integration is independent
+of rendering cadence and never extrapolates output, delays parsing, or accumulates
+an unbounded queue. Status bars and neighboring panes stay stationary. Buffer changes, clearing, resize,
+selection and direct interaction settle presentation to the committed grid.
+Different regions/directions start a new animation. Plain repaints, including
+tmux's side-by-side pane redraws and PageUp in the tested configuration, do not
+invent scrolling; ordinary streaming output remains immediate. No tmux options
+or application-specific detection are involved.
+This also limits scrolling with multiple tmux clients. If a pane is taller than
+another attached client's viewport, tmux can replace line edits with a pane
+redraw for all clients, including one where the pane fits. Hiding the IME can
+cross that boundary by increasing this console's height. The renderer receives
+only repaints in that case; resizing did not disable its animation. Client
+dimensions and raw PTY commands must be checked together when diagnosing this
+case. MagicDesk does not detach other clients or alter tmux sizing options to
+force a particular output encoding.
+Writes between scroll operations are tracked separately from cell transport and
+its blanking. Ordinary updates, including changed letters in existing text,
+follow their logical row's displacement. A write alone does not identify a
+stationary panel. Viewport-local restoration is inferred from a fully restored
+row band or a complete style span restored while its displaced copy is repaired
+(or leaves the region). Partial writes can retain an already established span,
+not discover a new panel from coincidentally matching letters. Comparing complete
+spans keeps a counter or panel together. Identical adjacent history rows alone
+are not evidence of a stationary band. Ambiguous ordinary updates stay moving.
+
+For each scroll edit, the pre-edit viewport and post-transport moving grid remain
+immutable. Presentation is rebuilt from those snapshots and the accumulated
+writes before drawing or another scroll, never from an earlier intermediate
+frame. Drawing between a clear and a rewrite cannot permanently reclassify text
+or change the outcome of later writes. Only the reconciled moving grid is
+transported by the next scroll; outgoing Pictures also use that grid. Restoration
+works in either update order and both scroll directions, including output-driven
+edits and kinetic scrolling. Snapshots and write masks are bounded to the active
+region; frames without new writes reuse the reconciled rows.
+In-place updates draw only at their current cells, never across a swept-path mask that
+could split a moving line. Cell snapshots retain styles, links and image placement
+identities without moving live command markers or duplicating image pixels.
+The mechanism does not depend on PTY read boundaries or application identity.
+Debug builds can trace edit regions, viewport geometry, presentation resets and
+the first following frame with `setprop log.tag.MDTerminalScroll DEBUG`.
+This opt-in log contains no terminal text. Disable it with
+`setprop log.tag.MDTerminalScroll INFO`.
 
 Touch selection has Android-themed start/end handles. Dragging either endpoint
 adjusts the same terminal-cell selection used by mouse selection and copying.
@@ -77,7 +162,8 @@ cursor, underlining and OSC 8 links use the same presentation path for both kind
 of glyph. Geometry never changes parsing, text width, hit testing or PTY output.
 
 The debug-only `com.termux.terminal.TerminalRenderingInstrumentation` exercises
-actual Android font faces and Bitmap rendering across cell sizes, then writes
+actual Android font faces and Bitmap rendering across cell sizes, including
+pixel-exact scrolling and clipping of text, selection and graphics, then writes
 `cache/terminal-rendering.png` for visual inspection. Run it with Android's
 `am instrument -w` when Desktop is closed and no terminal sessions need retaining:
 instrumentation restarts the application process. Host tests validate the bundled

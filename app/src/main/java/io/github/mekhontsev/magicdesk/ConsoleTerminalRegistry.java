@@ -5,7 +5,6 @@ import android.os.Handler;
 import android.os.Looper;
 
 import java.io.IOException;
-import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -69,15 +68,7 @@ final class ConsoleTerminalRegistry {
             if (entry == null || entry.session != session) {
                 throw new IllegalStateException("terminal session is not owned by the runtime");
             }
-            final Activity previous = entry.activity.get();
-            final ConsoleTerminalView previousView = entry.view.get();
-            if (previousView != null && previousView != view) { previousView.attach(null, null); }
-            entry.activity = new WeakReference<>(activity);
-            entry.view = new WeakReference<>(view);
-            entry.attachmentGeneration++;
-            if (previous != null && previous != activity && !previous.isDestroyed()) {
-                previous.finishAndRemoveTask();
-            }
+            entry.window.replace(activity, view);
             ENTRIES.notifyAll();
         }
         DesktopAutomationEventJournal.record(
@@ -90,7 +81,7 @@ final class ConsoleTerminalRegistry {
     static void focused(final String id, final Activity activity) {
         synchronized (ENTRIES) {
             final Entry entry = ENTRIES.get(id);
-            if (entry != null && entry.activity.get() == activity
+            if (entry != null && entry.window.owner() == activity
                     && !activity.isFinishing() && !activity.isDestroyed()) {
                 entry.lastFocusSequence = ++focusSequence;
             }
@@ -124,12 +115,7 @@ final class ConsoleTerminalRegistry {
         boolean disconnectClient;
         synchronized (ENTRIES) {
             final Entry entry = ENTRIES.get(id);
-            if (entry == null || entry.activity.get() != activity) { return; }
-            final ConsoleTerminalView view = entry.view.get();
-            // Release input and resize ownership before Android finishes the window.
-            if (view != null) { view.attach(null, null); }
-            entry.activity.clear();
-            entry.view.clear();
+            if (entry == null || !entry.window.detach(activity)) return;
             // Rotation and view transfer retain the client. A closed tmux window
             // releases its own controlling PTY; tmux retains the server session.
             disconnectClient = activity.isFinishing() && !entry.tmuxSessionId.isEmpty();
@@ -190,8 +176,7 @@ final class ConsoleTerminalRegistry {
         synchronized (ENTRIES) {
             int count = 0;
             for (final Entry entry : ENTRIES.values()) {
-                if (entry.activity.get() != null
-                        && entry.view.get() != null) {
+                if (entry.window.present()) {
                     count++;
                 }
             }
@@ -207,7 +192,7 @@ final class ConsoleTerminalRegistry {
     static long attachmentGeneration(final String id) {
         synchronized (ENTRIES) {
             final Entry entry = ENTRIES.get(id);
-            return entry == null ? 0L : entry.attachmentGeneration;
+            return entry == null ? 0L : entry.window.generation();
         }
     }
 
@@ -235,8 +220,8 @@ final class ConsoleTerminalRegistry {
 
     private static boolean hasWindowLocked(final String id, final long previousGeneration) {
         final Entry entry = ENTRIES.get(id);
-        return entry != null && entry.attachmentGeneration > previousGeneration
-                && entry.activity.get() != null && entry.view.get() != null;
+        return entry != null && entry.window.generation() > previousGeneration
+                && entry.window.present();
     }
 
     static Snapshot status(final String id) {
@@ -274,7 +259,7 @@ final class ConsoleTerminalRegistry {
             synchronized (ENTRIES) {
                 pruneLocked();
                 for (final Entry entry : ENTRIES.values()) {
-                    final Activity activity = entry.activity.get();
+                    final Activity activity = entry.window.owner();
                     final ConsoleTerminalSession session = entry.session;
                     if (activity != null
                             && session != null
@@ -345,7 +330,7 @@ final class ConsoleTerminalRegistry {
                 return null;
             }
             final ConsoleTerminalSession session = entry.session;
-            final ConsoleTerminalView view = entry.view.get();
+            final ConsoleTerminalView view = entry.window.view();
             return transcript ? session.transcript() : view != null ? view.visibleText()
                     : session.emulator().getSelectedText(0, 0, session.columns() - 1, session.rows() - 1);
         });
@@ -413,7 +398,7 @@ final class ConsoleTerminalRegistry {
         return callOnMain(() -> {
             final Entry entry = find(id);
             final ConsoleTerminalView view = entry == null
-                    ? null : entry.view.get();
+                    ? null : entry.window.view();
             return view != null ? view.sendKey(keyCode, metaState)
                     : entry != null && entry.session.sendKey(keyCode, metaState);
         });
@@ -427,14 +412,9 @@ final class ConsoleTerminalRegistry {
                 ENTRIES.notifyAll();
             }
             if (entry == null) { return false; }
-            final Activity activity = entry.activity.get();
-            final ConsoleTerminalView view = entry.view.get();
-            if (view != null) { view.attach(null, null); }
+            entry.window.close();
             entry.session.close();
-            TerminalNotifications.cancel(id);
-            if (activity != null && !activity.isDestroyed()) {
-                activity.finishAndRemoveTask();
-            }
+            entry.notifications.close();
             DesktopAutomationEventJournal.record("terminal", "closed", true, "terminalId=" + id);
             MagicDeskRuntime.refreshNotification();
             return true;
@@ -455,7 +435,7 @@ final class ConsoleTerminalRegistry {
             final Entry entry = find(id);
             if (entry == null) { return false; }
             if (!entry.tmuxSessionId.isEmpty()) { return close(id); }
-            final Activity activity = entry.activity.get();
+            final Activity activity = entry.window.owner();
             if (activity == null) { return true; }
             detach(id, activity);
             if (!activity.isDestroyed()) { activity.finishAndRemoveTask(); }
@@ -475,13 +455,7 @@ final class ConsoleTerminalRegistry {
     }
 
     private static void pruneLocked() {
-        for (final Entry entry : ENTRIES.values()) {
-            final Activity activity = entry.activity.get();
-            if (activity != null && activity.isDestroyed()) {
-                entry.activity.clear();
-                entry.view.clear();
-            }
-        }
+        for (final Entry entry : ENTRIES.values()) entry.window.prune();
     }
 
     private static <T> T callOnMain(final Callable<T> action) {
@@ -578,26 +552,23 @@ final class ConsoleTerminalRegistry {
 
     private static final class Entry implements ConsoleTerminalSession.Listener {
         final String id;
-        WeakReference<Activity> activity = new WeakReference<>(null);
-        WeakReference<ConsoleTerminalView> view = new WeakReference<>(null);
+        final TerminalWindowAttachment window = new TerminalWindowAttachment();
         final ConsoleTerminalSession session;
-        long attachmentGeneration;
         long lastFocusSequence;
         String userTitle = "";
         String tmuxSessionId = "";
         long tmuxCreatedSeconds;
-        final TerminalNotificationLimiter notifications = new TerminalNotificationLimiter();
+        final TerminalNotifications.Session notifications;
 
         Entry(final String id,
                 final Function<ConsoleTerminalSession.Listener, ConsoleTerminalSession> factory) {
             this.id = id;
+            notifications = new TerminalNotifications.Session(id);
             session = factory.apply(this);
         }
 
         private void notifyView(final java.util.function.Consumer<ConsoleTerminalSession.Listener> action) {
-            final Activity owner = activity.get();
-            if (owner instanceof ConsoleTerminalSession.Listener listener
-                    && !owner.isDestroyed() && !owner.isFinishing()) { action.accept(listener); }
+            window.notifyListener(action);
         }
 
         @Override public void onScreenChanged() { notifyView(ConsoleTerminalSession.Listener::onScreenChanged); }
@@ -613,14 +584,12 @@ final class ConsoleTerminalRegistry {
         @Override public void onBell() { notifyView(ConsoleTerminalSession.Listener::onBell); }
         @Override public void onMetadataChanged() { notifyView(ConsoleTerminalSession.Listener::onMetadataChanged); }
         @Override public void onNotification(final String message) {
-            if (notifications.accept(android.os.SystemClock.elapsedRealtime())) {
-                TerminalNotifications.show(snapshot(id), message);
-            }
+            notifications.post(snapshot(id), message);
             notifyView(listener -> listener.onNotification(message));
         }
 
         Snapshot snapshot(final String id) {
-            final Activity owner = activity.get();
+            final Activity owner = window.owner();
             final ConsoleTerminalSession terminal = session;
             final boolean attached = owner != null && !owner.isDestroyed();
             return new Snapshot(

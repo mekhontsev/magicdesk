@@ -15,7 +15,7 @@ import static org.junit.Assert.assertTrue;
 
 public final class UiActionIconResourcesTest {
     @Test public void consoleActionsShareOneVectorSizeAndStroke() throws Exception {
-        final String layout = RuntimeSourceFixture.methods("CommandConsoleActivity", "createContentView");
+        final String layout = RuntimeSourceFixture.methods("ConsoleTerminalWindow", "createContentView");
         assertFalse(layout.contains("android.R.drawable"));
         final var icons = Pattern.compile("R\\.drawable\\.(\\w+)").matcher(layout);
         final var factory = DocumentBuilderFactory.newInstance();

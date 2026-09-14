@@ -5,9 +5,8 @@ import org.junit.Test;
 public final class ConsoleTextSelectionTest {
     @Test public void handlesAdjustEitherBoundaryInScrolledText() throws Exception {
         verify("""
-                View view=new View(); view.mTopRow=-5; view.mTouchSelection=true;
-                view.mSelectionStartColumn=2; view.mSelectionStartRow=-4;
-                view.mSelectionEndColumn=5; view.mSelectionEndRow=-3;
+                View view=new View(); view.mViewport.jumpTo(-5,20); view.mTouchSelection=true;
+                view.mViewport.select(2,-4,5,-3);
                 view.updateSelectionHandles();
                 check(Arrays.equals(view.mSelectionHandles.anchors,new float[]{26,26,66,36}),
                         "handles do not point at terminal-cell boundaries");
@@ -22,8 +21,7 @@ public final class ConsoleTextSelectionTest {
     @Test public void handlesNormalizeReverseSelectionAndCannotCross() throws Exception {
         verify("""
                 View view=new View(); view.mTouchSelection=true;
-                view.mSelectionStartColumn=8; view.mSelectionStartRow=4;
-                view.mSelectionEndColumn=3; view.mSelectionEndRow=2;
+                view.mViewport.select(8,4,3,2);
                 view.updateSelectionHandles();
                 check(view.selectedText().equals("3,2:8,4"), "reverse drag not normalized");
                 view.moveSelectionHandle(true,1000,1000);
@@ -36,8 +34,7 @@ public final class ConsoleTextSelectionTest {
     @Test public void handlesHideWhileSelectingOrWhenWindowLosesFocus() throws Exception {
         verify("""
                 View view=new View(); view.mTouchSelection=true;
-                view.mSelectionStartColumn=1; view.mSelectionStartRow=1;
-                view.mSelectionEndColumn=5; view.mSelectionEndRow=1;
+                view.mViewport.select(1,1,5,1);
                 view.updateSelectionHandles(); check(view.mSelectionHandles.visible, "touch selection has no handles");
                 view.mSelecting=true; view.updateSelectionHandles();
                 check(!view.mSelectionHandles.visible, "handles steal initial drag");
@@ -49,8 +46,22 @@ public final class ConsoleTextSelectionTest {
                 """);
     }
 
+    @Test public void handlesShareTheFractionalTransformAndReachThePartialBottomRow() throws Exception {
+        verify("""
+                View view=new View(); view.mViewport.jumpTo(-5,20); view.mViewport.scroll(7,20); view.mTouchSelection=true;
+                view.mViewport.select(2,-5,5,-3);
+                view.updateSelectionHandles();
+                check(Arrays.equals(view.mSelectionHandles.anchors,new float[]{26,9,66,29}),
+                        "handles did not follow fractional content offset");
+                view.moveSelectionHandle(true,16,9);
+                check(view.selectedText().equals("1,-5:5,-3"), "top fragment cannot be selected");
+                view.moveSelectionHandle(false,66,105);
+                check(view.selectedText().equals("1,-5:5,5"), "bottom fragment cannot be selected");
+                """);
+    }
+
     private static void verify(final String body) throws Exception {
-        RuntimeSourceFixture.verify("""
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
                 static class Renderer { float cellWidth() { return 10; } float cellHeight() { return 10; } }
                 static class Session {
                     Session emulator() { return this; }
@@ -65,14 +76,14 @@ public final class ConsoleTextSelectionTest {
                     static final int NO_SELECTION=Integer.MIN_VALUE;
                     final Handles mSelectionHandles=new Handles(); final Session mSession=new Session();
                     final Renderer mRenderer=new Renderer();
-                    int mSelectionStartColumn=NO_SELECTION,mSelectionStartRow=NO_SELECTION;
-                    int mSelectionEndColumn=NO_SELECTION,mSelectionEndRow=NO_SELECTION;
-                    int mTopRow,mColumns=20,mRows=10,mContentPadding=6,stops;
+                    final TerminalViewport mViewport=new TerminalViewport();
+                    { mViewport.metrics(10,10,6); mViewport.resize(212,112); }
+                    int stops;
                     boolean mTouchSelection,mSelecting,focused=true;
                     boolean hasWindowFocus() { return focused; } void invalidate() {} void stopFling() { stops++; }
                 """ + RuntimeSourceFixture.methods("ConsoleTerminalView", "updateSelectionHandles",
-                        "normalizeSelection", "moveSelectionHandle", "selectedText", "hasSelection",
-                        "clearSelection", "position", "clamp")
-                + "}\npublic static void verify() {\n" + body + "\n}");
+                        "moveSelectionHandle", "selectedText", "hasSelection",
+                        "clearSelection", "rowBottomY", "viewportRowAt", "visibleRowCount")
+                + "}\npublic static void verify() {\n" + body + "\n}", "TerminalViewport");
     }
 }

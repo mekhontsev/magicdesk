@@ -270,6 +270,54 @@ public final class TerminalEmulator {
      */
     private int mScrollCounter = 0;
 
+    /** Presentation observes explicit vertical edits before cells are moved; parsing never waits for animation. */
+    public interface ScrollListener {
+        /** Exclusive right/bottom bounds; positive rows move content down, negative rows move it up. */
+        void onScroll(int left, int top, int right, int bottom, int rows);
+        /** The transported cells and incoming blanks are now committed. */
+        void onScrollComplete();
+        /** Writes other than the transport/blanking performed by onScroll. Bounds cover complete glyphs. */
+        void onCellsChanged(int left, int top, int right, int bottom);
+        void onScreenReset();
+    }
+
+    private ScrollListener mScrollListener;
+
+    public void setScrollListener(ScrollListener listener) {
+        resetScrollPresentation();
+        mScrollListener = listener;
+    }
+
+    public void removeScrollListener(ScrollListener listener) {
+        if (mScrollListener == listener) setScrollListener(null);
+    }
+
+    private void scrollRegion(int left, int top, int right, int bottom, int rows, boolean history) {
+        int count = Math.min(Math.abs(rows), bottom - top);
+        if (mScrollListener != null && count != 0)
+            mScrollListener.onScroll(left, top, right, bottom, Integer.signum(rows) * count);
+        // Scroll transport and its newly exposed blanks are one edit, not application repaints.
+        mScreen.cellChangeListener = null;
+        try {
+            if (history) {
+                for (int i = 0; i < Math.abs(rows); i++) scrollDownOneLineWithoutPresentationReset();
+            } else {
+                mScreen.moveLines(left, rows > 0 ? top : top + count, right - left,
+                        bottom - top - count, rows > 0 ? top + count : top);
+                blockClear(left, rows > 0 ? top : bottom - count, right - left, count);
+            }
+        } finally {
+            mScreen.cellChangeListener = mScrollListener == null ? null : mScrollListener::onCellsChanged;
+            if (mScrollListener != null) mScrollListener.onScrollComplete();
+        }
+    }
+
+    private void resetScrollPresentation() {
+        if (mMainBuffer != null) mMainBuffer.cellChangeListener = null;
+        if (mAltBuffer != null) mAltBuffer.cellChangeListener = null;
+        if (mScrollListener != null) mScrollListener.onScreenReset();
+    }
+
     private byte mUtf8ToFollow, mUtf8Index;
     private final byte[] mUtf8InputBuffer = new byte[4];
     private int mLastEmittedCodePoint = -1;
@@ -394,6 +442,7 @@ public final class TerminalEmulator {
     }
 
     public void resize(int columns, int rows, int cellWidthPixels, int cellHeightPixels) {
+        resetScrollPresentation();
         this.mCellWidthPixels = cellWidthPixels;
         this.mCellHeightPixels = cellHeightPixels;
 
@@ -1292,6 +1341,7 @@ public final class TerminalEmulator {
                 // Reset: Use Normal Screen Buffer and restore cursor as in DECRC.
                 TerminalBuffer newScreen = setting ? mAltBuffer : mMainBuffer;
                 if (newScreen != mScreen) {
+                    resetScrollPresentation();
                     boolean resized = !(newScreen.mColumns == mColumns && newScreen.mScreenRows == mRows);
                     if (setting) saveCursor();
                     mScreen = newScreen;
@@ -1503,8 +1553,7 @@ public final class TerminalEmulator {
                 // http://www.vt100.net/docs/vt100-ug/chapter3.html: "Move the active position to the same horizontal
                 // position on the preceding line. If the active position is at the top margin, a scroll down is performed".
                 if (mCursorRow <= mTopMargin) {
-                    mScreen.moveLines(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, mBottomMargin - (mTopMargin + 1), mTopMargin + 1);
-                    blockClear(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin);
+                    scrollRegion(mLeftMargin, mTopMargin, mRightMargin, mBottomMargin, 1, false);
                 } else {
                     mCursorRow--;
                 }
@@ -1668,21 +1717,19 @@ public final class TerminalEmulator {
                 break;
             case 'L': // "${CSI}{N}L" - insert ${N} lines (IL).
             {
+                if (mCursorRow < mTopMargin || mCursorRow >= mBottomMargin) break;
                 int linesAfterCursor = mBottomMargin - mCursorRow;
                 int linesToInsert = Math.min(getArg0(1), linesAfterCursor);
-                int linesToMove = linesAfterCursor - linesToInsert;
-                mScreen.moveLines(0, mCursorRow, mColumns, linesToMove, mCursorRow + linesToInsert);
-                blockClear(0, mCursorRow, mColumns, linesToInsert);
+                scrollRegion(0, mCursorRow, mColumns, mBottomMargin, linesToInsert, false);
             }
             break;
             case 'M': // "${CSI}${N}M" - delete N lines (DL).
             {
+                if (mCursorRow < mTopMargin || mCursorRow >= mBottomMargin) break;
                 mAboutToAutoWrap = false;
                 int linesAfterCursor = mBottomMargin - mCursorRow;
                 int linesToDelete = Math.min(getArg0(1), linesAfterCursor);
-                int linesToMove = linesAfterCursor - linesToDelete;
-                mScreen.moveLines(0, mCursorRow + linesToDelete, mColumns, linesToMove, mCursorRow);
-                blockClear(0, mCursorRow + linesToMove, mColumns, linesToDelete);
+                scrollRegion(0, mCursorRow, mColumns, mBottomMargin, -linesToDelete, false);
             }
             break;
             case 'P': // "${CSI}{N}P" - delete ${N} characters (DCH).
@@ -1702,8 +1749,7 @@ public final class TerminalEmulator {
             break;
             case 'S': { // "${CSI}${N}S" - scroll up ${N} lines (default = 1) (SU).
                 final int linesToScroll = getArg0(1);
-                for (int i = 0; i < linesToScroll; i++)
-                    scrollDownOneLine();
+                scrollRegion(mLeftMargin, mTopMargin, mRightMargin, mBottomMargin, -linesToScroll, true);
                 break;
             }
             case 'T':
@@ -1715,8 +1761,7 @@ public final class TerminalEmulator {
                     final int linesToScrollArg = getArg0(1);
                     final int linesBetweenTopAndBottomMargins = mBottomMargin - mTopMargin;
                     final int linesToScroll = Math.min(linesBetweenTopAndBottomMargins, linesToScrollArg);
-                    mScreen.moveLines(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, linesBetweenTopAndBottomMargins - linesToScroll, mTopMargin + linesToScroll);
-                    blockClear(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, linesToScroll);
+                    scrollRegion(mLeftMargin, mTopMargin, mRightMargin, mBottomMargin, linesToScroll, false);
                 } else {
                     // "${CSI}${func};${startx};${starty};${firstrow};${lastrow}T" - initiate highlight mouse tracking.
                     unimplementedSequence(b);
@@ -2236,6 +2281,7 @@ public final class TerminalEmulator {
     }
 
     private void blockClear(int sx, int sy, int w, int h) {
+        if (sx == 0 && sy == 0 && w == mColumns && h == mRows) resetScrollPresentation();
         mScreen.blockSet(sx, sy, w, h, ' ', getStyle());
     }
 
@@ -2280,6 +2326,12 @@ public final class TerminalEmulator {
     }
 
     private void scrollDownOneLine() {
+        // Ordinary output/autowrap updates immediately, rather than animating a stream of log lines.
+        resetScrollPresentation();
+        scrollDownOneLineWithoutPresentationReset();
+    }
+
+    private void scrollDownOneLineWithoutPresentationReset() {
         mScrollCounter++;
         long currentStyle = getStyle();
         if (mLeftMargin != 0 || mRightMargin != mColumns) {
@@ -2607,6 +2659,7 @@ public final class TerminalEmulator {
 
     /** Reset terminal state so user can interact with it regardless of present state. */
     public void reset() {
+        resetScrollPresentation();
         mUnderlineColor = mSavedStateMain.mSavedUnderlineColor = mSavedStateAlt.mSavedUnderlineColor = TextStyle.COLOR_INDEX_FOREGROUND;
         mGraphics.reset();
         mKitty.reset();
