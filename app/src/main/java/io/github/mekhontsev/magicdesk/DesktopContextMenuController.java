@@ -261,7 +261,7 @@ final class DesktopContextMenuController {
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 true,
                 view -> mActivity.openSettings());
-        positionAndShow(x, y);
+        positionAndShow(x, y, true);
     }
 
     void showForRegisteredView(final View view) {
@@ -1088,6 +1088,13 @@ final class DesktopContextMenuController {
     private void positionAndShow(
             final float pointerX,
             final float pointerY) {
+        positionAndShow(pointerX, pointerY, false);
+    }
+
+    private void positionAndShow(
+            final float pointerX,
+            final float pointerY,
+            final boolean inputMethodTarget) {
         final Rect workArea = mActivity.getDesktopViewport()
                 .workAreaBounds(mActivity.getTaskbarHeight());
         final int width = getWidth(workArea.width());
@@ -1137,8 +1144,8 @@ final class DesktopContextMenuController {
                                 top,
                                 width,
                                 menuHeight,
-                                mRequestKeyboardFocus,
-                                false,
+                                mRequestKeyboardFocus || inputMethodTarget,
+                                inputMethodTarget,
                                 "MagicDesk context menu"));
         if (!shown) {
             mActivity.setErrorStatus(

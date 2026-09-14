@@ -81,10 +81,7 @@ public final class DesktopContextMenuControllerTest {
         assertTrue(menu.contains("R.string.action_settings"));
         assertTrue(menu.contains("addCheckableAction(R.string.settings_taskbar_auto_hide"));
         assertTrue(menu.contains("addCheckableAction(R.string.settings_keyboard_on_app_display"));
-        assertTrue(menu.contains("positionAndShow(x, y)"));
-        final String placement = between(read("DesktopContextMenuController.java"),
-                "private void positionAndShow(", "private int getWidth(");
-        assertTrue(placement.matches("(?s).*mRequestKeyboardFocus,\\s*false,.*"));
+        assertTrue(menu.contains("positionAndShow(x, y, true)"));
         final String save = between(read("DesktopShellActivity.java"),
                 "private void saveTaskbarSetting(", "DesktopViewport getDesktopViewport(");
         assertTrue(save.contains("DesktopRuntimeBridge.refreshSettings()"));
@@ -100,6 +97,26 @@ public final class DesktopContextMenuControllerTest {
         final String factory = read("DesktopUiFactory.java");
         assertTrue(factory.contains("new android.widget.CheckBox(mContext)"));
         assertTrue(factory.contains("button.setChecked(checked)"));
+    }
+
+    @Test
+    public void onlyTaskbarMenuRequestsImeFocusIncludingForMouseOpening() throws IOException {
+        final String source = read("DesktopContextMenuController.java");
+        final String taskbar = between(source,
+                "private void populateTaskbarMenu(", "void showForRegisteredView(");
+        final String mouse = between(source,
+                "void handleSecondaryClick(", "void showStartButtonMenu(");
+        assertTrue(mouse.contains("mRequestKeyboardFocus = false;"));
+        assertTrue(mouse.contains("populateTaskbarMenu(x, y);"));
+        assertTrue(taskbar.contains("mRetainOwnerPanel = false;"));
+        assertTrue(taskbar.contains("positionAndShow(x, y, true);"));
+        assertTrue(source.indexOf("positionAndShow(x, y, true);")
+                == source.lastIndexOf("positionAndShow(x, y, true);"));
+        final String placement = between(source,
+                "private void positionAndShow(", "private int getWidth(");
+        assertTrue(placement.contains("positionAndShow(pointerX, pointerY, false);"));
+        assertTrue(placement.matches("(?s).*mRequestKeyboardFocus \\|\\| inputMethodTarget,"
+                + "\\s*inputMethodTarget,.*"));
     }
 
     private static String between(final String source, final String start, final String end) {
