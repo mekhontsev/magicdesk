@@ -4,8 +4,9 @@ import android.os.IBinder;
 
 import java.lang.reflect.Method;
 
-/** Owns one controlled display's temporary Android IME fallback and restoration. */
+/** Owns one controlled display's temporary Android IME placement and restoration. */
 final class DisplayImePolicyController implements AutoCloseable {
+    private static final int LOCAL = 0;
     private static final int FALLBACK_TO_DEFAULT_DISPLAY = 1;
 
     private static volatile Access sAccess;
@@ -18,7 +19,8 @@ final class DisplayImePolicyController implements AutoCloseable {
     private final Api mApi;
     private int mDisplayId = -1;
     private int mPreviousPolicy;
-    private boolean mApplied;
+    private int mAppliedPolicy = -1;
+    private int mPendingPolicy = -1;
 
     DisplayImePolicyController() {
         this(new Api() {
@@ -43,10 +45,11 @@ final class DisplayImePolicyController implements AutoCloseable {
         mApi = api;
     }
 
-    synchronized void configure(final int displayId)
+    synchronized void configure(final int displayId, final boolean onAppDisplay)
             throws ReflectiveOperationException {
         final int target = displayId > 0 ? displayId : -1;
-        if (target == mDisplayId && mApplied) {
+        final int policy = onAppDisplay ? LOCAL : FALLBACK_TO_DEFAULT_DISPLAY;
+        if (target == mDisplayId && mAppliedPolicy == policy && mPendingPolicy < 0) {
             return;
         }
         if (target != mDisplayId) {
@@ -61,23 +64,33 @@ final class DisplayImePolicyController implements AutoCloseable {
             // acknowledgement fails. Teardown can still undo our change.
             mDisplayId = target;
         }
-        if (mApi.get(target) != FALLBACK_TO_DEFAULT_DISPLAY) {
-            mApi.set(target, FALLBACK_TO_DEFAULT_DISPLAY);
+        // Keep both possible owned values until the write is acknowledged. A
+        // failed live switch must still restore the original, not the last mode.
+        final int current = mApi.get(target);
+        if (current == mPendingPolicy) mAppliedPolicy = current;
+        mPendingPolicy = policy;
+        if (current != policy) {
+            mApi.set(target, policy);
         }
-        if (mApi.get(target) != FALLBACK_TO_DEFAULT_DISPLAY) {
-            throw new IllegalStateException("display IME fallback was not applied");
+        if (mApi.get(target) != policy) {
+            throw new IllegalStateException("display IME placement was not applied");
         }
-        mApplied = true;
+        mAppliedPolicy = policy;
+        mPendingPolicy = -1;
     }
 
     private void restore() throws ReflectiveOperationException {
         // Do not overwrite a policy changed by another owner during the session.
-        if (mDisplayId > 0 && mPreviousPolicy != FALLBACK_TO_DEFAULT_DISPLAY
-                && mApi.get(mDisplayId) == FALLBACK_TO_DEFAULT_DISPLAY) {
-            mApi.set(mDisplayId, mPreviousPolicy);
+        if (mDisplayId > 0) {
+            final int current = mApi.get(mDisplayId);
+            if (current != mPreviousPolicy
+                    && (current == mAppliedPolicy || current == mPendingPolicy)) {
+                mApi.set(mDisplayId, mPreviousPolicy);
+            }
         }
         mDisplayId = -1;
-        mApplied = false;
+        mAppliedPolicy = -1;
+        mPendingPolicy = -1;
     }
 
     @Override

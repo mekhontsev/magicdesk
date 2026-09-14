@@ -26,13 +26,14 @@ public final class DisplayInputRoutingSession implements AutoCloseable {
         mImePolicy = new DisplayImePolicyController();
     }
 
-    static DisplayInputRoutingSession open(final int displayId, final boolean desktop) throws Exception {
+    static DisplayInputRoutingSession open(final int displayId, final boolean desktop,
+            final boolean keyboardOnAppDisplay) throws Exception {
         final DisplayInputRoutingSession session = new DisplayInputRoutingSession(displayId, desktop);
         try {
             session.mLease.recover();
             session.refresh();
             if (session.mShortcuts != null) { session.mShortcuts.acquire(); }
-            session.mImePolicy.configure(displayId);
+            session.setKeyboardPlacement(keyboardOnAppDisplay);
             return session;
         } catch (Exception error) {
             try {
@@ -50,6 +51,17 @@ public final class DisplayInputRoutingSession implements AutoCloseable {
 
     synchronized int associationCount() {
         return mLease.ports().size();
+    }
+
+    synchronized void setKeyboardPlacement(final boolean onAppDisplay) throws IOException {
+        if (mClosed || !mDisplayUniqueId.equals(mApi.displayUniqueId(mDisplayId))) {
+            throw new IOException("input routing display is no longer owned");
+        }
+        try {
+            mImePolicy.configure(mDisplayId, onAppDisplay);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            throw new IOException("cannot change display IME placement", error);
+        }
     }
 
     synchronized void refresh() throws IOException {

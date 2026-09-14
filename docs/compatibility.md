@@ -82,7 +82,11 @@ selection. Physical input uses shared Android location-to-display associations,
 not a compatibility preference. Diagnostics report actual routing and key-filter
 readiness. The phone touchpad uses its own relative virtual mouse; neither it
 nor physical right clicks require an absolute-position API. Software keyboard
-input is independent. Optional pointer
+input is independent. By default it appears on the phone; **Show keyboard on app
+display** selects Android's local-display IME policy for the controlled external
+display. The option is shared by Settings and the taskbar context menu, applies
+live, and does not require a vendor extension or a particular keyboard. Actual
+external-display presentation depends on the installed Android IME. Optional pointer
 observation and coordinate injection remain separate. Coordinate automation
 uses Android display-targeted mouse events; it does not move a global vendor
 cursor. A position query without a display identity is reported separately as

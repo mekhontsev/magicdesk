@@ -28,6 +28,7 @@ final class DisplayInputSession {
     private boolean mDesktopShortcuts;
     private volatile boolean mTransitioning;
     private volatile String mError = "";
+    private volatile boolean mKeyboardOnAppDisplay;
 
     DisplayInputSession(final Context context, final Handler handler, final Runnable changed) {
         mHandler = handler;
@@ -53,7 +54,8 @@ final class DisplayInputSession {
                     return;
                 }
                 InputSessionDiagnostics.noteAttempt(displayId);
-                mRouting = ShellAccess.openInputRouting(displayId, desktopShortcuts);
+                mRouting = ShellAccess.openInputRouting(
+                        displayId, desktopShortcuts, mKeyboardOnAppDisplay);
                 if (mGeneration != generation) {
                     release();
                     return;
@@ -77,6 +79,28 @@ final class DisplayInputSession {
                     mTransitioning = false;
                     mHandler.post(mChanged);
                 }
+            }
+        });
+    }
+
+    void setKeyboardOnAppDisplay(final boolean enabled,
+            final java.util.function.Consumer<String> failure) {
+        if (mDestroyed || mKeyboardOnAppDisplay == enabled) return;
+        mKeyboardOnAppDisplay = enabled;
+        final long generation = mGeneration;
+        // Serialize with acquisition and release without restarting pointer or
+        // shortcut ownership. Rapid toggles apply the latest preference.
+        mWorker.execute(() -> {
+            if (mGeneration != generation || mRouting == null
+                    || mRouting.displayId() != mRequestedDisplay) return;
+            try {
+                mRouting.setKeyboardPlacement(mKeyboardOnAppDisplay);
+            } catch (IOException error) {
+                CompatibilityDiagnostics.record("INPUT-IME-001",
+                        "Could not change keyboard placement", error.getMessage(), error);
+                mHandler.post(() -> {
+                    if (mGeneration == generation) failure.accept(ShellAccess.usefulMessage(error));
+                });
             }
         });
     }

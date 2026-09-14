@@ -182,11 +182,18 @@ display-targeted event injection stays inside the shell UserService.
 
 The user's Android IME connects directly to the focused display editor through
 its normal `InputConnection`. `DisplayImePolicyController` temporarily applies
-Android's fallback-to-default-display policy on controlled external displays.
+Android's fallback-to-default-display policy on controlled external displays by
+default. The shared `keyboardOnAppDisplay` preference selects Android's local IME
+policy instead, so the installed keyboard appears beside the editor on the
+controlled display (including a portable workspace's logical source display).
+Settings and the taskbar context menu expose the same live switch. It does not
+select an IME, relay text, or restart pointer, device-route or shortcut ownership.
 `DisplayInputRoutingSession` owns the policy together with device routes:
 release, close, and owner Binder death restore the previous policy if it still
 has our value. Repeated configuration of the same display does not query or
-write the policy. Phone desktop leaves display-0 policy unchanged.
+write the policy. A live change retains the original policy for release, including
+an unacknowledged write. Phone desktop leaves display-0 policy unchanged. A failed
+live policy change reports an error without releasing otherwise working input.
 
 The phone touchpad is an ordinary Activity with a non-focusable attached
 `PopupWindow` containing its controls and touch surface. Android's
@@ -218,7 +225,7 @@ There is no extra keyboard, polling loop, or software-keyboard selection.
 
 While an external input display is selected, the runtime temporarily enables Android's
 `show_ime_with_hard_keyboard` setting so the user can explicitly open the
-phone keyboard even when a physical keyboard is connected. It remembers the
+software keyboard even when a physical keyboard is connected. It remembers the
 previous value and restores it when external input is released; no persistent
 keyboard preference is imposed during setup.
 

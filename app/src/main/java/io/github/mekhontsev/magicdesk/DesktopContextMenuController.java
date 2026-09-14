@@ -251,15 +251,13 @@ final class DesktopContextMenuController {
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 true,
                 view -> mActivity.openTaskManager());
+        final MagicDeskSettings.Values settings = MagicDeskSettings.load();
+        addCheckableAction(R.string.settings_taskbar_auto_hide,
+                settings.taskbarAutoHide, mActivity::setTaskbarAutoHide);
+        addCheckableAction(R.string.settings_keyboard_on_app_display,
+                settings.keyboardOnAppDisplay, mActivity::setKeyboardOnAppDisplay);
         addAction(
-                mActivity.isTaskbarAutoHideEnabled()
-                        ? R.string.action_keep_taskbar_visible
-                        : R.string.settings_taskbar_auto_hide,
-                DesktopUiFactory.COLOR_PANEL_ALT,
-                true,
-                view -> mActivity.toggleTaskbarAutoHide());
-        addAction(
-                R.string.action_taskbar_settings,
+                R.string.action_settings,
                 DesktopUiFactory.COLOR_PANEL_ALT,
                 true,
                 view -> mActivity.openSettings());
@@ -994,6 +992,17 @@ final class DesktopContextMenuController {
                 text, icon, color, enabled, true, false, listener);
     }
 
+    private void addCheckableAction(final int textResId, final boolean checked,
+            final java.util.function.Consumer<Boolean> action) {
+        final android.widget.CheckBox button = mUi.menuCheckBox(
+                mActivity.getString(textResId), checked);
+        addMenuItem(button, null, true, true, false,
+                view -> action.accept(button.isChecked()));
+        mActivity.registerAutomationUiElement(button,
+                "context.action." + mActivity.getResources().getResourceEntryName(textResId),
+                "checkbox", button.getText());
+    }
+
     private Button addMenuItem(
             final String text,
             final Drawable icon,
@@ -1003,6 +1012,13 @@ final class DesktopContextMenuController {
             final boolean submenu,
             final View.OnClickListener listener) {
         final Button button = mUi.menuItem(text, color);
+        return addMenuItem(button, icon, enabled, dismissBeforeAction, submenu, listener);
+    }
+
+    private Button addMenuItem(final Button button, final Drawable icon,
+            final boolean enabled, final boolean dismissBeforeAction,
+            final boolean submenu, final View.OnClickListener listener) {
+        final String text = button.getText().toString();
         button.setEnabled(enabled);
         if (icon != null) {
             final Drawable menuIcon = icon.mutate();

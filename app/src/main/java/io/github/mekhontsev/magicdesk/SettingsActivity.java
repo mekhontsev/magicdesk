@@ -424,6 +424,11 @@ public final class SettingsActivity extends Activity
         AboutDialog.show(this);
     }
 
+    @Override
+    public void setKeyboardOnAppDisplay(final boolean enabled) {
+        saveSetting(MagicDeskSettings.setKeyboardOnAppDisplay(enabled));
+    }
+
     private void saveSetting(final boolean saved) {
         if (!saved) {
             Toast.makeText(

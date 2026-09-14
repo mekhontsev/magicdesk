@@ -15,8 +15,8 @@ public final class DisplayImePolicyControllerTest {
     public void phoneAndInactiveSessionsDoNotChangePolicy() throws Exception {
         final FakeApi api = new FakeApi();
         final DisplayImePolicyController policy = new DisplayImePolicyController(api);
-        policy.configure(0);
-        policy.configure(-1);
+        policy.configure(0, false);
+        policy.configure(-1, false);
         policy.close();
         assertEquals(0, api.reads);
         assertEquals(List.of(), api.writes);
@@ -26,11 +26,11 @@ public final class DisplayImePolicyControllerTest {
     public void restoresPreviousPolicyAndDoesNotPollAnActiveDisplay() throws Exception {
         final FakeApi api = new FakeApi();
         final DisplayImePolicyController policy = new DisplayImePolicyController(api);
-        policy.configure(2);
+        policy.configure(2, false);
         final int reads = api.reads;
-        policy.configure(2);
+        policy.configure(2, false);
         assertEquals(reads, api.reads);
-        policy.configure(-1);
+        policy.configure(-1, false);
         policy.close();
         assertEquals(List.of("2=1", "2=0"), api.writes);
     }
@@ -40,7 +40,7 @@ public final class DisplayImePolicyControllerTest {
         final FakeApi api = new FakeApi();
         api.values.put(2, 1);
         final DisplayImePolicyController policy = new DisplayImePolicyController(api);
-        policy.configure(2);
+        policy.configure(2, false);
         policy.close();
         assertEquals(List.of(), api.writes);
     }
@@ -50,8 +50,8 @@ public final class DisplayImePolicyControllerTest {
         final FakeApi api = new FakeApi();
         api.values.put(3, 2);
         final DisplayImePolicyController policy = new DisplayImePolicyController(api);
-        policy.configure(2);
-        policy.configure(3);
+        policy.configure(2, false);
+        policy.configure(3, false);
         policy.close();
         assertEquals(List.of("2=1", "2=0", "3=1", "3=2"), api.writes);
     }
@@ -60,9 +60,9 @@ public final class DisplayImePolicyControllerTest {
     public void preservesAChangeMadeByAnotherOwner() throws Exception {
         final FakeApi api = new FakeApi();
         final DisplayImePolicyController policy = new DisplayImePolicyController(api);
-        policy.configure(2);
+        policy.configure(2, false);
         api.values.put(2, 2);
-        policy.configure(2);
+        policy.configure(2, false);
         policy.close();
         assertEquals(Integer.valueOf(2), api.values.get(2));
         assertEquals(List.of("2=1"), api.writes);
@@ -73,8 +73,8 @@ public final class DisplayImePolicyControllerTest {
         final FakeApi api = new FakeApi();
         final DisplayImePolicyController policy = new DisplayImePolicyController(api);
         api.failAfterWrite = true;
-        assertThrows(ReflectiveOperationException.class, () -> policy.configure(2));
-        policy.configure(2);
+        assertThrows(ReflectiveOperationException.class, () -> policy.configure(2, false));
+        policy.configure(2, false);
         policy.close();
         assertEquals(List.of("2=1", "2=0"), api.writes);
     }
@@ -83,11 +83,71 @@ public final class DisplayImePolicyControllerTest {
     public void failedRestorationCanBeRetried() throws Exception {
         final FakeApi api = new FakeApi();
         final DisplayImePolicyController policy = new DisplayImePolicyController(api);
-        policy.configure(2);
+        policy.configure(2, false);
         api.failBeforeWrite = true;
         assertThrows(IllegalStateException.class, policy::close);
         policy.close();
         assertEquals(List.of("2=1", "2=0"), api.writes);
+    }
+
+    @Test public void switchingPlacementRetainsTheOriginalPolicy() throws Exception {
+        final FakeApi api = new FakeApi();
+        api.values.put(2, 2);
+        final DisplayImePolicyController policy = new DisplayImePolicyController(api);
+        policy.configure(2, true);
+        final int reads = api.reads;
+        policy.configure(2, true);
+        assertEquals(reads, api.reads);
+        policy.configure(2, false);
+        policy.configure(2, true);
+        policy.close();
+        assertEquals(List.of("2=0", "2=1", "2=0", "2=2"), api.writes);
+    }
+
+    @Test public void failedLiveSwitchRestoresEitherPossibleOwnedValue() throws Exception {
+        for (final boolean acknowledgementLost : new boolean[] {false, true}) {
+            final FakeApi api = new FakeApi();
+            api.values.put(2, 2);
+            final DisplayImePolicyController policy = new DisplayImePolicyController(api);
+            policy.configure(2, false);
+            api.failBeforeWrite = !acknowledgementLost;
+            api.failAfterWrite = acknowledgementLost;
+            assertThrows(ReflectiveOperationException.class, () -> policy.configure(2, true));
+            policy.close();
+            assertEquals(Integer.valueOf(2), api.values.get(2));
+        }
+    }
+
+    @Test public void appDisplayModeDoesNotOverwriteAnotherOwnerOnRelease() throws Exception {
+        final FakeApi api = new FakeApi();
+        api.values.put(2, 2);
+        final DisplayImePolicyController policy = new DisplayImePolicyController(api);
+        policy.configure(2, true);
+        api.values.put(2, 1);
+        policy.close();
+        assertEquals(Integer.valueOf(1), api.values.get(2));
+    }
+
+    @Test public void appDisplayModeLeavesThePhoneUntouched() throws Exception {
+        final FakeApi api = new FakeApi();
+        final DisplayImePolicyController policy = new DisplayImePolicyController(api);
+        policy.configure(0, true);
+        policy.configure(-1, true);
+        policy.close();
+        assertEquals(0, api.reads);
+    }
+
+    @Test public void successiveFailedSwitchesDoNotLoseRestorationOwnership() throws Exception {
+        final FakeApi api = new FakeApi();
+        api.values.put(2, 2);
+        final DisplayImePolicyController policy = new DisplayImePolicyController(api);
+        policy.configure(2, false);
+        api.failAfterWrite = true;
+        assertThrows(ReflectiveOperationException.class, () -> policy.configure(2, true));
+        api.failBeforeWrite = true;
+        assertThrows(ReflectiveOperationException.class, () -> policy.configure(2, false));
+        policy.close();
+        assertEquals(Integer.valueOf(2), api.values.get(2));
     }
 
     private static final class FakeApi implements DisplayImePolicyController.Api {

@@ -1224,7 +1224,8 @@ public final class ShellAccess {
     }
 
     static ShellInputRoutingHandle openInputRouting(
-            final int displayId, final boolean desktopShortcuts) throws IOException {
+            final int displayId, final boolean desktopShortcuts,
+            final boolean keyboardOnAppDisplay) throws IOException {
         if (displayId < 0) {
             throw new IOException(
                     "input routing requires an active display");
@@ -1235,6 +1236,7 @@ public final class ShellAccess {
             final int[] state = service.startInputRouting(
                     displayId,
                     desktopShortcuts,
+                    keyboardOnAppDisplay,
                     ownerToken);
             if (state == null || state.length != 2 || state[0] != displayId) {
                 service.stopInputRouting(ownerToken);

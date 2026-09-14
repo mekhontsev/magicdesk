@@ -204,6 +204,9 @@ final class DesktopAutomationUiRegistry {
         if (!entry.packageName.isEmpty()) {
             result.put("package", entry.packageName);
         }
+        if (view instanceof android.widget.CompoundButton checkable) {
+            result.put("checked", checkable.isChecked());
+        }
         if (entry.taskId >= 0) {
             result.put("taskId", entry.taskId);
         }

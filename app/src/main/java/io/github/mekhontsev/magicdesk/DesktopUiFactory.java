@@ -114,6 +114,19 @@ public final class DesktopUiFactory {
 
     Button menuItem(final String text, final int emphasisColor) {
         final Button button = new Button(mContext);
+        styleMenuItem(button, text, emphasisColor);
+        return button;
+    }
+
+    android.widget.CheckBox menuCheckBox(final String text, final boolean checked) {
+        final android.widget.CheckBox button = new android.widget.CheckBox(mContext);
+        styleMenuItem(button, text, COLOR_TEXT);
+        button.setButtonTintList(ColorStateList.valueOf(COLOR_TEXT));
+        button.setChecked(checked);
+        return button;
+    }
+
+    private void styleMenuItem(final Button button, final String text, final int emphasisColor) {
         button.setText(text);
         button.setAllCaps(false);
         button.setTextSize(15);
@@ -138,7 +151,6 @@ public final class DesktopUiFactory {
                 },
                 new int[] {COLOR_MUTED, enabledColor}));
         button.setBackground(menuItemBackground());
-        return button;
     }
 
     ImageButton menuIconButton(

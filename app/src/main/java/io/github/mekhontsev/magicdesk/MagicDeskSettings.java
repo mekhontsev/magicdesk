@@ -34,6 +34,10 @@ final class MagicDeskSettings {
                 state -> state.settings.openTouchpadAutomatically = enabled);
     }
 
+    static boolean setKeyboardOnAppDisplay(final boolean enabled) {
+        return DesktopStateStore.update(state -> state.settings.keyboardOnAppDisplay = enabled);
+    }
+
     static boolean setCompatibilityOption(
             final DesktopCompatibilityPolicy.Option option, final boolean enabled) {
         return DesktopStateStore.update(
@@ -68,6 +72,7 @@ final class MagicDeskSettings {
         private static final String OPEN_TOUCHPAD_AUTOMATICALLY =
                 "openTouchpadAutomatically";
         private static final String COMPATIBILITY = "compatibility";
+        private static final String KEYBOARD_ON_APP_DISPLAY = "keyboardOnAppDisplay";
         private static final String OPEN_FILES_WITH_SINGLE_CLICK =
                 "openFilesWithSingleClick";
         private static final String TERMUX_X11_STARTUP_COMMAND =
@@ -77,6 +82,7 @@ final class MagicDeskSettings {
         boolean keepDesktopAwake;
         boolean disableAdaptiveBrightnessOnExternalDesktop;
         boolean openTouchpadAutomatically;
+        boolean keyboardOnAppDisplay;
         // Unset follows the platform recommendation without persisting it.
         final java.util.EnumMap<DesktopCompatibilityPolicy.Option, Boolean> compatibility =
                 new java.util.EnumMap<>(DesktopCompatibilityPolicy.Option.class);
@@ -101,6 +107,7 @@ final class MagicDeskSettings {
                         json.optBoolean(DISABLE_ADAPTIVE_BRIGHTNESS, false);
                 values.openTouchpadAutomatically = json.optBoolean(
                         OPEN_TOUCHPAD_AUTOMATICALLY, true);
+                values.keyboardOnAppDisplay = json.optBoolean(KEYBOARD_ON_APP_DISPLAY, false);
                 final JSONObject options = json.optJSONObject(COMPATIBILITY);
                 if (options != null) {
                     for (final DesktopCompatibilityPolicy.Option option
@@ -132,6 +139,7 @@ final class MagicDeskSettings {
             copy.disableAdaptiveBrightnessOnExternalDesktop =
                     disableAdaptiveBrightnessOnExternalDesktop;
             copy.openTouchpadAutomatically = openTouchpadAutomatically;
+            copy.keyboardOnAppDisplay = keyboardOnAppDisplay;
             copy.compatibility.putAll(compatibility);
             copy.openFilesWithSingleClick = openFilesWithSingleClick;
             copy.termuxX11StartupCommand = termuxX11StartupCommand;
@@ -141,6 +149,7 @@ final class MagicDeskSettings {
         JSONObject toJson() throws JSONException {
             final JSONObject json = new JSONObject();
             json.put(TASKBAR_AUTO_HIDE, taskbarAutoHide);
+            json.put(KEYBOARD_ON_APP_DISPLAY, keyboardOnAppDisplay);
             json.put(KEEP_DESKTOP_AWAKE, keepDesktopAwake);
             json.put(
                     DISABLE_ADAPTIVE_BRIGHTNESS,

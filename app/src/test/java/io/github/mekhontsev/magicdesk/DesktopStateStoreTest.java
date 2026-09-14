@@ -73,6 +73,7 @@ public final class DesktopStateStoreTest {
         source.settings.keepDesktopAwake = true;
         source.settings.disableAdaptiveBrightnessOnExternalDesktop = true;
         source.settings.openTouchpadAutomatically = false;
+        source.settings.keyboardOnAppDisplay = true;
         source.settings.compatibility.put(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR, true);
         source.settings.openFilesWithSingleClick = true;
         source.settings.termuxX11StartupCommand =
@@ -111,6 +112,8 @@ public final class DesktopStateStoreTest {
         assertTrue(decoded.settings.keepDesktopAwake);
         assertTrue(decoded.settings.disableAdaptiveBrightnessOnExternalDesktop);
         assertFalse(decoded.settings.openTouchpadAutomatically);
+        assertTrue(decoded.settings.keyboardOnAppDisplay);
+        assertTrue(decoded.settings.copy().keyboardOnAppDisplay);
         assertEquals(Boolean.TRUE, decoded.settings.compatibility.get(DesktopCompatibilityPolicy.Option.FOCUS_REPAIR));
         assertTrue(decoded.settings.openFilesWithSingleClick);
         assertEquals(
@@ -157,6 +160,7 @@ public final class DesktopStateStoreTest {
         assertTrue(decoded.appPresentations.isEmpty());
         assertFalse(decoded.displayProfiles.containsKey("wrong-key"));
         assertTrue(decoded.settings.openTouchpadAutomatically);
+        assertFalse(decoded.settings.keyboardOnAppDisplay);
         assertFalse(
                 decoded.settings.disableAdaptiveBrightnessOnExternalDesktop);
         assertFalse(decoded.settings.openFilesWithSingleClick);

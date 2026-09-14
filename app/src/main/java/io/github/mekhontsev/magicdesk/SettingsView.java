@@ -24,6 +24,7 @@ final class SettingsView {
         void setDisableAdaptiveBrightnessOnExternalDesktop(boolean enabled);
 
         void setOpenTouchpadAutomatically(boolean enabled);
+        void setKeyboardOnAppDisplay(boolean enabled);
 
         void setCompatibilityOption(DesktopCompatibilityPolicy.Option option, boolean enabled);
 
@@ -77,6 +78,7 @@ final class SettingsView {
     private Switch mKeepDesktopAwake;
     private Switch mDisableAdaptiveBrightness;
     private Switch mOpenTouchpadAutomatically;
+    private Switch mKeyboardOnAppDisplay;
     private final java.util.EnumMap<DesktopCompatibilityPolicy.Option, Switch> mCompatibility =
             new java.util.EnumMap<>(DesktopCompatibilityPolicy.Option.class);
     private Switch mOpenFilesWithSingleClick;
@@ -153,6 +155,10 @@ final class SettingsView {
                         mActions.setOpenTouchpadAutomatically(checked);
                     }
                 });
+        mKeyboardOnAppDisplay = addSwitch(content, R.string.settings_keyboard_on_app_display);
+        mKeyboardOnAppDisplay.setOnCheckedChangeListener((button, checked) -> {
+            if (!mRendering) mActions.setKeyboardOnAppDisplay(checked);
+        });
         mKeepDesktopAwake = addSwitch(
                 content, R.string.settings_keep_desktop_awake);
         mKeepDesktopAwake.setOnCheckedChangeListener((button, checked) -> {
@@ -344,6 +350,7 @@ final class SettingsView {
         mTaskbarAutoHide.setChecked(settings.taskbarAutoHide);
         mOpenFilesWithSingleClick.setChecked(
                 settings.openFilesWithSingleClick);
+        mKeyboardOnAppDisplay.setChecked(settings.keyboardOnAppDisplay);
         mOpenTouchpadAutomatically.setChecked(
                 settings.openTouchpadAutomatically);
         final DesktopCompatibilityPolicy compatibility = settings.compatibilityPolicy(

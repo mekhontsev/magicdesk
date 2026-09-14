@@ -503,6 +503,7 @@ public final class MagicDeskRuntimeService extends Service
                 ControlActivity.refreshInputState();
                 MagicDeskTouchpadActivity.refreshInputControls();
             });
+            mDisplayInput.refreshSettings(MagicDeskSettings.load());
             mDisplayInput.start();
         }
     }
@@ -729,6 +730,7 @@ public final class MagicDeskRuntimeService extends Service
 
     private void refreshRuntimeSettings() {
         final MagicDeskSettings.Values settings = MagicDeskSettings.load();
+        if (mDisplayInput != null) mDisplayInput.refreshSettings(settings);
         mKeepDesktopAwake = settings.keepDesktopAwake;
         mDisableAdaptiveBrightness =
                 settings.disableAdaptiveBrightnessOnExternalDesktop;

@@ -1847,13 +1847,21 @@ public abstract class DesktopShellActivity extends Activity
         return mTaskbarAutoHide;
     }
 
-    void toggleTaskbarAutoHide() {
-        hideAllPanels();
-        if (!MagicDeskSettings.setTaskbarAutoHide(!mTaskbarAutoHide)) {
+    void setTaskbarAutoHide(final boolean enabled) {
+        saveTaskbarSetting(MagicDeskSettings.setTaskbarAutoHide(enabled));
+    }
+
+    void setKeyboardOnAppDisplay(final boolean enabled) {
+        saveTaskbarSetting(MagicDeskSettings.setKeyboardOnAppDisplay(enabled));
+    }
+
+    private void saveTaskbarSetting(final boolean saved) {
+        if (!saved) {
             setStatus(R.string.settings_save_failed);
             return;
         }
-        refreshSettings();
+        DesktopRuntimeBridge.refreshSettings();
+        MagicDeskRuntime.refreshSettings();
     }
 
     DesktopViewport getDesktopViewport() {

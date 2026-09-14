@@ -413,6 +413,8 @@ public final class CompatibilityDiagnostics {
                 .append(settings.taskbarAutoHide)
                 .append(", openTouchpadAutomatically=")
                 .append(settings.openTouchpadAutomatically)
+                .append(", keyboardOnAppDisplay=")
+                .append(settings.keyboardOnAppDisplay)
                 .append(", keepDesktopAwake=")
                 .append(settings.keepDesktopAwake)
                 .append(", disableAdaptiveBrightnessOnExternalDesktop=")

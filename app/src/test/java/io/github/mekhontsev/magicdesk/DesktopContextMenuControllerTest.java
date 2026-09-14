@@ -73,6 +73,23 @@ public final class DesktopContextMenuControllerTest {
         return Files.readString(Path.of("src/main/java/io/github/mekhontsev/magicdesk/" + name));
     }
 
+    @Test public void taskbarSettingsAreStableCheckableActionsAndRefreshEveryHost() throws Exception {
+        final String menu = between(read("DesktopContextMenuController.java"),
+                "private void populateTaskbarMenu(", "void showForRegisteredView(");
+        assertTrue(menu.contains("R.string.action_show_desktop"));
+        assertTrue(menu.contains("R.string.task_manager_title"));
+        assertTrue(menu.contains("R.string.action_settings"));
+        assertTrue(menu.contains("addCheckableAction(R.string.settings_taskbar_auto_hide"));
+        assertTrue(menu.contains("addCheckableAction(R.string.settings_keyboard_on_app_display"));
+        final String save = between(read("DesktopShellActivity.java"),
+                "private void saveTaskbarSetting(", "DesktopViewport getDesktopViewport(");
+        assertTrue(save.contains("DesktopRuntimeBridge.refreshSettings()"));
+        assertTrue(save.contains("MagicDeskRuntime.refreshSettings()"));
+        final String factory = read("DesktopUiFactory.java");
+        assertTrue(factory.contains("new android.widget.CheckBox(mContext)"));
+        assertTrue(factory.contains("button.setChecked(checked)"));
+    }
+
     private static String between(final String source, final String start, final String end) {
         final int first = source.indexOf(start);
         final int last = source.indexOf(end, first + start.length());

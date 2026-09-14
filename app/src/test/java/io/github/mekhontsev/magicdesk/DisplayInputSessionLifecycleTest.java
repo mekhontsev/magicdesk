@@ -66,6 +66,49 @@ public final class DisplayInputSessionLifecycleTest {
                 """);
     }
 
+    @Test public void keyboardPlacementDoesNotRestartInputAndUsesLatestPreference() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() throws Exception {
+                    Fixture f = new Fixture();
+                    f.reconcile(7, true);
+                    check(ShellAccess.entered.await(2, TimeUnit.SECONDS), "acquisition not reached");
+                    f.setKeyboardOnAppDisplay(true, error -> { throw new AssertionError(error); });
+                    ShellAccess.proceed.countDown();
+                    f.mWorker.submit(() -> {}).get(2, TimeUnit.SECONDS);
+                    check(ShellAccess.route.keyboardOnAppDisplay, "queued mode was lost");
+                    f.setKeyboardOnAppDisplay(false, error -> { throw new AssertionError(error); });
+                    f.mWorker.submit(() -> {}).get(2, TimeUnit.SECONDS);
+                    check(!ShellAccess.route.keyboardOnAppDisplay, "live switch ignored");
+                    check(ShellAccess.opens == 1 && f.mMouse.starts == 1 && f.isRoutingReady(7),
+                            "keyboard mode restarted input");
+                    f.stop(() -> {});
+                    f.mWorker.shutdown();
+                    check(f.mWorker.awaitTermination(2, TimeUnit.SECONDS), "worker leaked");
+                }
+                """);
+    }
+
+    @Test public void failedKeyboardSwitchRetainsWorkingPointer() throws Exception {
+        RuntimeSourceFixture.verify(fixture() + """
+                public static void verify() throws Exception {
+                    Fixture f = new Fixture();
+                    ShellAccess.proceed.countDown();
+                    f.reconcile(7, true);
+                    f.mWorker.submit(() -> {}).get(2, TimeUnit.SECONDS);
+                    ShellAccess.route.fail = true;
+                    CountDownLatch failed = new CountDownLatch(1);
+                    f.setKeyboardOnAppDisplay(true, error -> failed.countDown());
+                    check(failed.await(2, TimeUnit.SECONDS), "failure not reported");
+                    check(f.isRoutingReady(7) && f.mMouse.active && ShellAccess.route.active,
+                            "keyboard failure dropped working input");
+                    ShellAccess.route.fail = false;
+                    f.stop(() -> {});
+                    f.mWorker.shutdown();
+                    check(f.mWorker.awaitTermination(2, TimeUnit.SECONDS), "worker leaked");
+                }
+                """);
+    }
+
     private static String fixture() throws Exception {
         return """
                 static class Display { static final int INVALID_DISPLAY = -1, DEFAULT_DISPLAY = 0; }
@@ -77,6 +120,7 @@ public final class DisplayInputSessionLifecycleTest {
                 volatile int mRequestedDisplay = -1, mReadyDisplay = -1;
                 volatile long mGeneration;
                 boolean mDestroyed, mDesktopShortcuts, mTransitioning;
+                volatile boolean mKeyboardOnAppDisplay;
                 String mError = "";
                 ShellInputRoutingHandle mRouting;
                 static class Mouse {
@@ -86,6 +130,9 @@ public final class DisplayInputSessionLifecycleTest {
                     void stop() { active = false; }
                 }
                 static class DesktopShortcutService { static void setTargetDisplay(int id) {} }
+                static class CompatibilityDiagnostics {
+                    static void record(String code, String title, String detail, Throwable error) {}
+                }
                 static class InputSessionDiagnostics {
                     static void noteAttempt(int id) {}
                     static void noteReady() {}
@@ -93,8 +140,13 @@ public final class DisplayInputSessionLifecycleTest {
                 static class ShellInputRoutingHandle {
                     final int id;
                     volatile boolean active = true, fail;
+                    boolean keyboardOnAppDisplay;
                     ShellInputRoutingHandle(int id) { this.id = id; }
                     int displayId() { return id; }
+                    void setKeyboardPlacement(boolean enabled) throws IOException {
+                        if (fail) throw new IOException("policy failed");
+                        keyboardOnAppDisplay = enabled;
+                    }
                     void close() throws IOException {
                         if (fail) throw new IOException("restore failed");
                         active = false;
@@ -105,19 +157,21 @@ public final class DisplayInputSessionLifecycleTest {
                     static final CountDownLatch proceed = new CountDownLatch(1);
                     static ShellInputRoutingHandle route;
                     static int opens;
-                    static ShellInputRoutingHandle openInputRouting(int id, boolean shortcuts) throws IOException {
+                    static ShellInputRoutingHandle openInputRouting(int id, boolean shortcuts, boolean keyboard) throws IOException {
                         opens++;
                         entered.countDown();
                         try { check(proceed.await(2, TimeUnit.SECONDS), "fixture gate timed out"); }
                         catch (InterruptedException e) { throw new IOException(e); }
                         route = new ShellInputRoutingHandle(id);
+                        route.keyboardOnAppDisplay = keyboard;
                         return route;
                     }
                     static void cleanupInputRouting() throws IOException {}
                     static boolean isReady() { return true; }
+                    static String usefulMessage(Throwable error) { return error.getMessage(); }
                 }
                 static void report(String code, String title, IOException error) {}
                 """ + RuntimeSourceFixture.methods("DisplayInputSession",
-                        "reconcile", "stop", "release", "isRoutingReady");
+                        "reconcile", "stop", "release", "isRoutingReady", "setKeyboardOnAppDisplay");
     }
 }

@@ -16,6 +16,7 @@ final class RuntimeDisplayInputCoordinator {
             "show_ime_with_hard_keyboard";
 
     private final Runnable mHardwareKeyboardChanged;
+    private final Context mContext;
     private final RuntimeInputCoordinator mInputDevices;
     private final DisplayInputSession mInputSession;
     private final DisplayInputRequests mRequests;
@@ -37,10 +38,18 @@ final class RuntimeDisplayInputCoordinator {
             final DisplayInputRequests requests,
             final Runnable hardwareKeyboardChanged) {
         mRequests = requests;
+        mContext = context;
         mHardwareKeyboardChanged = hardwareKeyboardChanged;
         mInputDevices = new RuntimeInputCoordinator(
                 context, handler, this::handleInputStateChanged);
         mInputSession = new DisplayInputSession(context, handler, this::handleInputSessionStateChanged);
+    }
+
+    void refreshSettings(final MagicDeskSettings.Values settings) {
+        mInputSession.setKeyboardOnAppDisplay(settings.keyboardOnAppDisplay,
+                error -> android.widget.Toast.makeText(mContext,
+                        mContext.getString(R.string.keyboard_placement_failed, error),
+                        android.widget.Toast.LENGTH_LONG).show());
     }
 
     void start() {

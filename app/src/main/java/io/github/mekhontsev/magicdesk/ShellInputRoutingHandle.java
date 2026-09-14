@@ -40,6 +40,17 @@ final class ShellInputRoutingHandle implements Closeable {
         }
     }
 
+    synchronized void setKeyboardPlacement(final boolean onAppDisplay) throws IOException {
+        if (mClosed) {
+            throw new IOException("input routing is closed");
+        }
+        try {
+            mService.setInputKeyboardPlacement(mOwnerToken, onAppDisplay);
+        } catch (RemoteException | RuntimeException error) {
+            throw new IOException("keyboard placement failed", error);
+        }
+    }
+
     @Override
     public synchronized void close() throws IOException {
         if (mClosed) {

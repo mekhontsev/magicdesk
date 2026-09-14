@@ -975,6 +975,7 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     public int[] startInputRouting(
             final int displayId,
             final boolean desktopShortcuts,
+            final boolean keyboardOnAppDisplay,
             final IBinder ownerToken) {
         if (ownerToken == null) {
             throw new IllegalArgumentException(
@@ -986,7 +987,8 @@ public final class ShellCommandService extends IShellCommandService.Stub {
             IBinder.DeathRecipient ownerDeath = null;
             boolean ownerLinked = false;
             try {
-                session = DisplayInputRoutingSession.open(displayId, desktopShortcuts);
+                session = DisplayInputRoutingSession.open(
+                        displayId, desktopShortcuts, keyboardOnAppDisplay);
                 ownerDeath = () -> stopInputRoutingForOwner(ownerToken);
                 ownerToken.linkToDeath(ownerDeath, 0);
                 ownerLinked = true;
@@ -1027,6 +1029,21 @@ public final class ShellCommandService extends IShellCommandService.Stub {
                 mInputRoutingSession.refresh();
             } catch (IOException error) {
                 throw new IllegalStateException("cannot refresh input routing", error);
+            }
+        }
+    }
+
+    @Override
+    public void setInputKeyboardPlacement(final IBinder ownerToken, final boolean onAppDisplay) {
+        synchronized (mInputRoutingLock) {
+            if (ownerToken == null || !ownerToken.equals(mInputRoutingOwner)
+                    || mInputRoutingSession == null) {
+                throw new IllegalStateException("input routing owner is no longer active");
+            }
+            try {
+                mInputRoutingSession.setKeyboardPlacement(onAppDisplay);
+            } catch (IOException error) {
+                throw new IllegalStateException("cannot change keyboard placement", error);
             }
         }
     }

@@ -74,9 +74,12 @@ interface IShellCommandService {
     int[] startInputRouting(
         int displayId,
         boolean desktopShortcuts,
+        boolean keyboardOnAppDisplay,
         IBinder ownerToken) = 18;
 
     void refreshInputRouting(IBinder ownerToken) = 19;
+
+    void setInputKeyboardPlacement(IBinder ownerToken, boolean onAppDisplay) = 139;
 
     void stopInputRouting(IBinder ownerToken) = 20;
 
