@@ -354,6 +354,7 @@ final class DesktopWorkspaceController {
     }
 
     void removeWidget(final int appWidgetId) {
+        if (!mWidgets.owns(appWidgetId)) return;
         final String itemId = widgetItemId(appWidgetId);
         DesktopLayoutStore.remove(itemId);
         mWidgets.remove(appWidgetId);
@@ -363,6 +364,7 @@ final class DesktopWorkspaceController {
             final int appWidgetId,
             final int columnDelta,
             final int rowDelta) {
+        if (!mWidgets.owns(appWidgetId)) return;
         if (mGrid == null) {
             return;
         }
@@ -426,6 +428,7 @@ final class DesktopWorkspaceController {
     }
 
     void beginWidgetMove(final int appWidgetId) {
+        if (!mWidgets.owns(appWidgetId)) return;
         mEditingWidgetId = appWidgetId;
         render(mApps);
     }

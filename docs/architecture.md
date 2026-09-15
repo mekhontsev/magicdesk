@@ -933,8 +933,8 @@ runtime integration and are not distributed through the same release path.
 - `DesktopFolderController` owns asynchronous desktop-file operations and the
   lifecycle of an event-driven observer. `ShellDesktopDirectory` constrains
   typed UserService operations to `/storage/emulated/0/Desktop` and owns its
-  `FileObserver`. `DesktopWidgetController` owns the process-wide
-  `AppWidgetHost` lifecycle and widget binding/configuration.
+  `FileObserver`. Each `DesktopWidgetController` owns its workspace's
+  binding/configuration UI; `DesktopWidgetHosts` owns the Android host leases.
 - `ShellFileSystem` is the separate, general filesystem boundary used by the
   built-in Files task. It intentionally accepts any absolute path available to
   the connected UserService identity; this broader contract is not reused by
@@ -2766,9 +2766,9 @@ Each desktop target has a profile keyed by its Android display identity, never
 by the transient logical display ID. Profiles store DPI and wired output timing;
 created virtual displays also retain their creation size and flattened origin.
 The stored size describes creation, not a live resolution override. Files and `.desktop` shortcuts under
-`/storage/emulated/0/Desktop`, system-managed widget bindings, taskbar pins,
-desktop-item placement, application window state, and recent-app history are
-global across displays.
+`/storage/emulated/0/Desktop`, taskbar pins, file placement, application window state,
+and recent-app history are global across displays. Widget instances belong to
+individual workspaces, with independent provider configuration and size.
 Desktop items and freeform windows store fixed-point relative anchors rather
 than monitor pixels, so the same layout follows the user between the phone, a
 tablet, and every monitor while adapting to each viewport.
@@ -2866,12 +2866,36 @@ Android view with native accessibility and input behavior. Placements use
 logical cells and row/column spans rather than pixels, so DPI or resolution
 changes only reflow items that no longer fit.
 
-Widget IDs are owned by Android's `AppWidgetHost` and are therefore global to
-the MagicDesk installation. MagicDesk persists their global logical placement
-and cell span. Provider clicks remain native; widget movement is entered
+`DesktopWidgetHostIds` assigns a persistent Android host ID to each profile serial
+and logical workspace display unique ID. The private preference file stores only
+this mapping and its monotonic allocator; Android remains the authority for widget
+IDs, providers and configuration. Allocation requires a successful disk commit;
+a failed write removes the tentative in-memory mapping before a retry can use it.
+The scope never uses a session UUID, numeric
+display ID, output profile, display name, geometry or inherited origin. Reopening
+Desktop on the same logical screen recovers its widgets. Viewer attachment changes
+no bindings. Creating a new logical screen gives it a separate widget collection;
+this does not recreate deleted virtual displays or promise persistence of their
+Android identity across recreation.
+
+`DesktopWidgetHosts` is the process-wide owner of live host leases. Every workspace
+has a different `AppWidgetHost`; replacing an Activity retires its old lease before
+the new callback starts. Late stop/release calls from the old Activity cannot stop
+the replacement. Close releases subscriptions and views, not the Android bindings
+or the saved host ID. Other live workspaces continue receiving updates. Provider
+catalog/removal callbacks refresh only the current owner, without polling. Host
+views use the destination Activity's resources and retain native input behavior.
+
+`DesktopWidgetController` enumerates only its host's IDs. Configuration results,
+removal, resize and view creation check that ownership; a pending bind/configuration
+is retained across Activity recreation and an unfinished new widget is discarded
+when its owning Activity finishes. File layout remains shared; independently owned
+widget IDs keep their own logical placement and cell span in the layout store.
+No migration or automatic adoption of unscoped widget bindings is performed.
+Provider clicks remain native; widget movement is entered
 explicitly from the context menu so drag handling cannot steal controls or
 scroll gestures from the provider. Binding and optional configuration use the
-system widget activities and do not depend on shell access.
+system widget activities without privileged widget APIs.
 
 The fixed Desktop surface and the general Files task use separate typed AIDL
 contracts instead of interpolating filenames into shell commands.

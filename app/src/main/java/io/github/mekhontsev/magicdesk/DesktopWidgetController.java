@@ -1,20 +1,17 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.appwidget.AppWidgetHost;
 import android.appwidget.AppWidgetHostView;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProviderInfo;
-import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Process;
 import android.util.Log;
-import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
-import android.widget.FrameLayout;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -24,20 +21,18 @@ import java.util.Map;
 final class DesktopWidgetController {
     static final int REQUEST_BIND = 1101;
     static final int REQUEST_CONFIGURE = 1102;
-    private static final int HOST_ID = 0x4d44;
     private static final String TAG = "MagicDeskWidgets";
     private static final String STATE_PENDING_ID = "desktop_widget_pending_id";
     private static final String STATE_PENDING_NEW = "desktop_widget_pending_new";
 
     private final DesktopShellActivity mActivity;
     private final AppWidgetManager mManager;
-    private final AppWidgetHost mHost;
+    private DesktopWidgetHosts.Lease mLease;
     private final DesktopWidgetPickerController mPicker;
     private final Runnable mChanged;
     private final Map<Integer, AppWidgetHostView> mViews = new HashMap<>();
     private int mPendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
     private boolean mPendingNewWidget;
-    private boolean mListening;
 
     DesktopWidgetController(
             final DesktopShellActivity activity,
@@ -45,7 +40,6 @@ final class DesktopWidgetController {
             final Runnable changed) {
         mActivity = activity;
         mManager = AppWidgetManager.getInstance(activity);
-        mHost = new DesktopAppWidgetHost(activity, HOST_ID);
         mPicker = new DesktopWidgetPickerController(activity, ui);
         mChanged = changed;
     }
@@ -66,12 +60,9 @@ final class DesktopWidgetController {
     }
 
     void start() {
-        if (mListening) {
-            return;
-        }
+        if (!ensureHost()) return;
         try {
-            mHost.startListening();
-            mListening = true;
+            mLease.start();
         } catch (RuntimeException error) {
             Log.w(TAG, "Cannot start widget host", error);
             CompatibilityDiagnostics.record(
@@ -83,29 +74,50 @@ final class DesktopWidgetController {
     }
 
     void stop() {
-        if (!mListening) {
-            return;
-        }
+        if (mLease == null) return;
         try {
-            mHost.stopListening();
+            mLease.stop();
         } catch (RuntimeException error) {
             Log.w(TAG, "Cannot stop widget host", error);
         }
-        mListening = false;
     }
 
     void release() {
-        stop();
+        if (mActivity.isFinishing() && mPendingNewWidget) {
+            deleteWidgetId(mPendingWidgetId);
+            clearPendingWidget();
+        }
+        if (mLease != null) {
+            try { mLease.release(); }
+            catch (RuntimeException error) { Log.w(TAG, "Cannot release widget host", error); }
+        }
         mViews.clear();
     }
 
+    private boolean ensureHost() {
+        if (mLease != null) return mLease.isCurrent();
+        try {
+            mLease = DesktopWidgetHosts.acquire(mActivity, mChanged);
+            return true;
+        } catch (IOException | RuntimeException error) {
+            reportUnavailable("Cannot acquire workspace widget host", error);
+            return false;
+        }
+    }
+
+    boolean owns(final int appWidgetId) {
+        return ensureHost() && mLease.owns(appWidgetId);
+    }
+
     List<WidgetEntry> widgets() {
-        final int[] ids = mHost.getAppWidgetIds();
+        if (!ensureHost()) return Collections.emptyList();
+        final int[] ids = mLease.host.getAppWidgetIds();
         if (ids == null || ids.length == 0) {
             return Collections.emptyList();
         }
         final List<WidgetEntry> widgets = new ArrayList<>();
         for (final int appWidgetId : ids) {
+            if (appWidgetId == mPendingWidgetId && mPendingNewWidget) continue;
             final AppWidgetProviderInfo info =
                     mManager.getAppWidgetInfo(appWidgetId);
             if (info != null) {
@@ -118,10 +130,11 @@ final class DesktopWidgetController {
     }
 
     AppWidgetHostView createView(final WidgetEntry widget) {
+        if (!owns(widget.appWidgetId)) throw new IllegalArgumentException("widget belongs to another workspace");
         AppWidgetHostView view = mViews.get(
                 Integer.valueOf(widget.appWidgetId));
         if (view == null) {
-            view = mHost.createView(
+            view = mLease.host.createView(
                     mActivity, widget.appWidgetId, widget.info);
             mViews.put(Integer.valueOf(widget.appWidgetId), view);
         }
@@ -138,6 +151,7 @@ final class DesktopWidgetController {
         if (mPendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             return;
         }
+        if (!ensureHost()) return;
         mActivity.hideAllPanels();
         mPicker.show(mManager.getInstalledProviders(), this::bindWidget);
     }
@@ -150,6 +164,7 @@ final class DesktopWidgetController {
         if (mPendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             return;
         }
+        if (!ensureHost()) return;
         final List<AppWidgetProviderInfo> providers =
                 providersForPackage(packageName);
         if (providers.isEmpty()) {
@@ -192,9 +207,13 @@ final class DesktopWidgetController {
         if (mPendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             return;
         }
+        if (!ensureHost()) return;
         final int appWidgetId;
         try {
-            appWidgetId = mHost.allocateAppWidgetId();
+            appWidgetId = mLease.host.allocateAppWidgetId();
+            if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
+                throw new IllegalStateException("Android widget service is unavailable");
+            }
         } catch (RuntimeException error) {
             reportUnavailable("Cannot allocate widget ID", error);
             return;
@@ -238,6 +257,13 @@ final class DesktopWidgetController {
             return false;
         }
         final int appWidgetId = resolveResultId(data);
+        if (!owns(mPendingWidgetId)) {
+            clearPendingWidget();
+            return true;
+        }
+        if (appWidgetId != mPendingWidgetId) {
+            return true;
+        }
         if (resultCode != Activity.RESULT_OK
                 || appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
             if (mPendingNewWidget
@@ -270,7 +296,7 @@ final class DesktopWidgetController {
             return;
         }
         try {
-            mHost.startAppWidgetConfigureActivityForResult(
+            mLease.host.startAppWidgetConfigureActivityForResult(
                     mActivity,
                     appWidgetId,
                     0,
@@ -298,6 +324,7 @@ final class DesktopWidgetController {
         if (mPendingWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             return;
         }
+        if (!owns(appWidgetId)) return;
         final AppWidgetProviderInfo info =
                 mManager.getAppWidgetInfo(appWidgetId);
         if (info == null || info.configure == null) {
@@ -306,7 +333,7 @@ final class DesktopWidgetController {
         mPendingWidgetId = appWidgetId;
         mPendingNewWidget = false;
         try {
-            mHost.startAppWidgetConfigureActivityForResult(
+            mLease.host.startAppWidgetConfigureActivityForResult(
                     mActivity,
                     appWidgetId,
                     0,
@@ -330,6 +357,7 @@ final class DesktopWidgetController {
             final DesktopPlacement placement,
             final int cellWidth,
             final int cellHeight) {
+        if (!owns(view.getAppWidgetId())) return;
         final float density = mActivity.getResources()
                 .getDisplayMetrics().density;
         final int widthDp = Math.max(
@@ -357,12 +385,10 @@ final class DesktopWidgetController {
     }
 
     private void deleteWidgetId(final int appWidgetId) {
-        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
-            return;
-        }
         try {
+            if (mLease == null || !mLease.owns(appWidgetId)) return;
             mViews.remove(Integer.valueOf(appWidgetId));
-            mHost.deleteAppWidgetId(appWidgetId);
+            mLease.host.deleteAppWidgetId(appWidgetId);
         } catch (RuntimeException error) {
             Log.w(TAG, "Cannot delete widget " + appWidgetId, error);
         }
@@ -399,44 +425,4 @@ final class DesktopWidgetController {
         }
     }
 
-    private static final class DesktopAppWidgetHost extends AppWidgetHost {
-        DesktopAppWidgetHost(final Context context, final int hostId) {
-            super(context, hostId);
-        }
-
-        @Override
-        protected AppWidgetHostView onCreateView(
-                final Context context,
-                final int appWidgetId,
-                final AppWidgetProviderInfo info) {
-            return new DesktopAppWidgetHostView(context);
-        }
-    }
-
-    private static final class DesktopAppWidgetHostView
-            extends AppWidgetHostView {
-        DesktopAppWidgetHostView(final Context context) {
-            super(context);
-        }
-
-        @Override
-        protected void prepareView(final View view) {
-            super.prepareView(view);
-            final AppWidgetProviderInfo info = getAppWidgetInfo();
-            if (info == null) {
-                return;
-            }
-            final FrameLayout.LayoutParams params =
-                    (FrameLayout.LayoutParams) view.getLayoutParams();
-            if ((info.resizeMode & AppWidgetProviderInfo.RESIZE_HORIZONTAL) != 0
-                    && params.width == ViewGroup.LayoutParams.WRAP_CONTENT) {
-                params.width = ViewGroup.LayoutParams.MATCH_PARENT;
-            }
-            if ((info.resizeMode & AppWidgetProviderInfo.RESIZE_VERTICAL) != 0
-                    && params.height == ViewGroup.LayoutParams.WRAP_CONTENT) {
-                params.height = ViewGroup.LayoutParams.MATCH_PARENT;
-            }
-            view.setLayoutParams(params);
-        }
-    }
 }

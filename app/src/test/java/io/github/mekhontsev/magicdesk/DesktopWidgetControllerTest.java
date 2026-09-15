@@ -11,6 +11,81 @@ import java.nio.file.Path;
 
 public final class DesktopWidgetControllerTest {
     @Test
+    public void enumerationAndConfigurationResultsCannotCrossWorkspaceOwnership() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static final int REQUEST_BIND = 1101, REQUEST_CONFIGURE = 1102;
+                static final String TAG = "widgets";
+                static class AppWidgetManager {
+                    static final int INVALID_APPWIDGET_ID = -1;
+                    static final String EXTRA_APPWIDGET_ID = "id";
+                }
+                static class Activity { static final int RESULT_OK = -1; }
+                static class Intent {
+                    final int id;
+                    Intent(int id) { this.id = id; }
+                    int getIntExtra(String key, int fallback) { return id; }
+                }
+                static class Log { static void w(String tag, String message, Throwable error) {} }
+                static class AppWidgetProviderInfo {}
+                static class Host {
+                    final Set<Integer> ids = new LinkedHashSet<>();
+                    final List<Integer> deleted = new ArrayList<>();
+                    int[] getAppWidgetIds() { return ids.stream().mapToInt(Integer::intValue).toArray(); }
+                    void deleteAppWidgetId(int id) { ids.remove(id); deleted.add(id); }
+                }
+                static class Lease {
+                    final Host host = new Host();
+                    boolean current = true;
+                    boolean owns(int id) { return current && host.ids.contains(id); }
+                }
+                static class Manager {
+                    final Map<Integer, AppWidgetProviderInfo> infos = new HashMap<>();
+                    AppWidgetProviderInfo getAppWidgetInfo(int id) { return infos.get(id); }
+                }
+                private final Lease mLease = new Lease();
+                private final Manager mManager = new Manager();
+                private final Map<Integer, Object> mViews = new HashMap<>();
+                private int mPendingWidgetId = -1;
+                private boolean mPendingNewWidget;
+                private int completed, bound;
+                private final Runnable mChanged = () -> completed++;
+                boolean ensureHost() { return mLease.current; }
+                boolean owns(int id) { return mLease.owns(id); }
+                void finishInitialBinding(int id) { bound = id; }
+                public static void verify() {
+                    Fixture f = new Fixture();
+                    f.mLease.host.ids.addAll(List.of(10, 11, 12));
+                    f.mManager.infos.put(10, new AppWidgetProviderInfo());
+                    f.mManager.infos.put(20, new AppWidgetProviderInfo());
+                    f.mPendingWidgetId = 11; f.mPendingNewWidget = true;
+                    check(f.widgets().size() == 1 && f.widgets().get(0).appWidgetId == 10, "host-local enumeration");
+                    check(f.mLease.host.deleted.equals(List.of(12)), "pending ID is not stale");
+                    f.deleteWidgetId(20);
+                    check(!f.mLease.host.deleted.contains(20), "cannot delete another host's widget");
+                    check(!f.handleActivityResult(99, -1, null), "unrelated Activity result untouched");
+                    f.handleActivityResult(REQUEST_BIND, -1, new Intent(20));
+                    check(f.bound == 0 && f.mPendingWidgetId == 11, "foreign result cannot configure or cancel pending widget");
+                    f.handleActivityResult(REQUEST_BIND, -1, new Intent(11));
+                    check(f.bound == 11, "matching result continues binding");
+                    f.handleActivityResult(REQUEST_CONFIGURE, 0, null);
+                    check(f.mLease.host.deleted.equals(List.of(12, 11)), "cancel deletes only owned new widget");
+                    f.mPendingWidgetId = 10; f.mPendingNewWidget = false;
+                    f.handleActivityResult(REQUEST_CONFIGURE, 0, null);
+                    check(f.mLease.host.ids.contains(10), "cancel reconfiguration retains widget");
+                    f.mPendingWidgetId = 10;
+                    f.handleActivityResult(REQUEST_CONFIGURE, -1, null);
+                    check(f.completed == 1 && f.mPendingWidgetId == -1, "successful configuration publishes once");
+                    f.mLease.current = false; f.mPendingWidgetId = 10; f.mPendingNewWidget = true;
+                    f.handleActivityResult(REQUEST_CONFIGURE, 0, null);
+                    check(f.mLease.host.ids.contains(10), "stale Activity cannot delete replacement's widget");
+                }
+                """
+                + RuntimeSourceFixture.methods("DesktopWidgetController", "widgets", "deleteWidgetId",
+                        "handleActivityResult", "resolveResultId", "clearPendingWidget", "completePendingWidget")
+                + RuntimeSourceFixture.nestedClass("DesktopWidgetController", "WidgetEntry"));
+    }
+
+    @Test
     public void refreshingWidgetsDoesNotDeleteAnUnboundPendingId() throws IOException {
         final String source = source();
         final String widgets = source.substring(source.indexOf("List<WidgetEntry> widgets()"),
