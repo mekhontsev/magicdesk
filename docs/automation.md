@@ -1298,6 +1298,13 @@ the check requires a fresh frame acknowledgement, fullscreen geometry and input
 focus. Hardware configuration changes must not silently reset the fixture's
 toolbar while a previous instance's fullscreen marker remains on disk.
 
+The instrumented phone round-trip (`WINDOW-009`, `WINDOW-008`, `WINDOW-014`)
+tests native task placement and surface continuity without Desktop admission.
+`WINDOW-OWNERSHIP-001` and `002` require the task to remain independent on the
+phone and after the direct freeform return. `WINDOW-OWNERSHIP-003` explicitly
+admits it through the production Desktop gateway and verifies managed focus
+before continuing the window workflow. Moving a task is not implicit ownership.
+
 `INPUT-VIRTUAL-001` checks the production phone-pointer device and route readiness
 on external targets using existing input lifecycle events. Synthetic window-input
 checks bypass this device, so they cannot establish its readiness. This does not

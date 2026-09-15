@@ -225,6 +225,11 @@ final class DesktopSelfTestWindowSuite {
                                     targetFixtureTaskId,
                                     null))));
             samplePhoneUiBestEffort();
+            require(result,
+                    "WINDOW-OWNERSHIP-001",
+                    "Keep the transferred phone task independent",
+                    () -> verifyFixtureOwnership(
+                            Display.DEFAULT_DISPLAY, targetFixtureTaskId, false));
             final TaskTransferObservation taskTransfer = require(result,
                     "WINDOW-008",
                     "Move phone task directly to external freeform",
@@ -261,6 +266,16 @@ final class DesktopSelfTestWindowSuite {
                             + ", requested="
                             + DesktopSelfTestGeometry.format(windowBounds));
             }
+            require(result,
+                    "WINDOW-OWNERSHIP-002",
+                    "Keep a direct freeform transfer independent",
+                    () -> verifyFixtureOwnership(
+                            targetDisplayId, targetFixtureTaskId, false));
+            require(result,
+                    "WINDOW-OWNERSHIP-003",
+                    "Admit the transferred window to Desktop",
+                    () -> admitTransferredFixture(
+                            targetDisplayId, targetFixtureTaskId, windowBounds));
         }
         check(result,
                 "WINDOW-013",
@@ -1555,6 +1570,41 @@ final class DesktopSelfTestWindowSuite {
         final SurfaceReferenceResult surfaceReference =
                 captureSurfaceReferenceOutsideWindow(captureSource, geometry, bounds);
         return reopenTask(displayId, taskId, bounds, surfaceReference);
+    }
+
+    private static String verifyFixtureOwnership(
+            final int displayId, final int taskId, final boolean managed)
+            throws IOException {
+        final TaskRepository.Snapshot snapshot = TaskRepository.loadNow(displayId);
+        if (!snapshot.available) {
+            throw new IOException(snapshot.error);
+        }
+        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
+            if (task.taskId == taskId && task.displayId == displayId
+                    && DesktopSelfTestTasks.hasClass(task.componentName, FIXTURE_CLASS)) {
+                final boolean actual = ApplicationTaskPlacement.isManaged(task);
+                if (actual != managed) {
+                    throw new IOException("fixture ownership mismatch: task=" + taskId
+                            + ", expected=" + (managed ? "desktop" : "independent")
+                            + ", actual=" + (actual ? "desktop" : "independent"));
+                }
+                return "task=" + taskId + "/display=" + displayId
+                        + "/" + (managed ? "desktop" : "independent");
+            }
+        }
+        throw new IOException("fixture " + taskId + " is unavailable on display " + displayId);
+    }
+
+    private static String admitTransferredFixture(
+            final int displayId, final int taskId, final Rect bounds) throws IOException {
+        // The preceding instrumented transfer tests Android placement only.
+        // Desktop focus checks require the same explicit admission as Start.
+        if (!MagicDeskRuntime.attachWindowedTask(
+                displayId, taskId, bounds, DesktopTaskDensity.UNCHANGED)) {
+            throw new IOException("could not admit transferred fixture to Desktop");
+        }
+        DesktopSelfTestInputSuite.focusTaskThroughDesktop(displayId, taskId);
+        return verifyFixtureOwnership(displayId, taskId, true);
     }
 
     private static DesktopTaskLaunchProbe.Observation reopenTask(
