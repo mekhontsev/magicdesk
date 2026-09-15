@@ -1,6 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Validated form data for a terminal-backed Application desktop entry. */
+/** Validated form data for an executable Application desktop entry. */
 final class DesktopCommandApplicationDraft {
     enum FileArguments {
         NONE(""),
@@ -63,7 +63,7 @@ final class DesktopCommandApplicationDraft {
                 DesktopLaunchMode.AUTO,
                 false,
                 backend,
-                true,
+                backend != DesktopExecBackend.X11,
                 workingDirectory,
                 acceptedTypes);
     }

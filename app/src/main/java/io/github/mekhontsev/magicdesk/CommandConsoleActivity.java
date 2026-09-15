@@ -75,7 +75,7 @@ public final class CommandConsoleActivity extends Activity
             final DesktopExecBackend backend) {
         return new Intent(context, CommandConsoleActivity.class)
                 .putExtra(EXTRA_INITIAL_DIRECTORY, initialDirectory)
-                .putExtra(EXTRA_BACKEND, backend.wireName);
+                .putExtra(EXTRA_BACKEND, backend.requireConsole().wireName);
     }
 
     static Intent createPreparedCommandIntent(

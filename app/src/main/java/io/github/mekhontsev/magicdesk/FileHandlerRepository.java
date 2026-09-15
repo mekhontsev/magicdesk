@@ -76,7 +76,7 @@ final class FileHandlerRepository {
             for (final DesktopApplicationRepository.Entry handler
                     : DesktopApplicationRepository.queryHandlers(mimeType)) {
                 final DesktopApplicationShortcut shortcut = handler.shortcut;
-                final int detailsResource = shortcut.execBackend == DesktopExecBackend.TERMUX
+                final int detailsResource = shortcut.execBackend != DesktopExecBackend.SHELL
                         ? R.string.file_manager_termux_command : R.string.file_manager_shell_command;
                 targets.add(new Target(null, handler, shortcut.name,
                         context.getString(detailsResource),

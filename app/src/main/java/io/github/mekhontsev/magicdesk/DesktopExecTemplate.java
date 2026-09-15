@@ -14,8 +14,18 @@ final class DesktopExecTemplate {
             final String name,
             final String icon,
             final String desktopFilePath) {
+        return expand(command, arguments, name, icon, desktopFilePath, true);
+    }
+
+    static String expandArguments(String command, DesktopLaunchArguments arguments,
+            String name, String icon, String desktopFilePath) {
+        return expand(command, arguments, name, icon, desktopFilePath, false);
+    }
+
+    private static String expand(String command, DesktopLaunchArguments arguments,
+            String name, String icon, String desktopFilePath, boolean allowShell) {
         final String normalized = DesktopExecCommand.normalize(command);
-        if (!hasFieldCodes(normalized)) {
+        if (allowShell && !hasFieldCodes(normalized)) {
             return DesktopExecCommand.normalize(
                     normalized.replace("%%", "%"));
         }

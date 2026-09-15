@@ -23,7 +23,7 @@ public final class X11LaunchSpecTest {
 
     @Test public void serverOwnsDisplayAllocationAndDoesNotExposeTcp() {
         X11LaunchSpec spec = new X11LaunchSpec("/path with 'quote/app.apk", "/lib", "org.example.host", "/termux/home");
-        assertTrue(spec.serverCommand.contains("-displayfd 1 -nolisten tcp"));
+        assertTrue(spec.serverCommand.contains("-displayfd 1 -noreset -nolisten tcp"));
         assertTrue(spec.serverCommand.contains("CLASSPATH=" + ShellCommandLine.quote("/path with 'quote/app.apk")));
         assertTrue(spec.serverCommand.contains("MAGICDESK_X11_OWNER_REQUIRED=1"));
         assertTrue(spec.serverCommand.contains("MAGICDESK_X11_LIBRARY='/lib/libXlorie.so'"));
@@ -42,7 +42,17 @@ public final class X11LaunchSpecTest {
         assertNotEquals(a.token, b.token);
         assertNotEquals(a.authorityFile, b.authorityFile);
         assertEquals("export DISPLAY=':17' XAUTHORITY=" + ShellCommandLine.quote(a.authorityFile)
-                + "\n" + command, a.clientCommand("17", command));
+                + "\n" + X11LaunchSpec.boundedOutput(command), a.clientCommand("17", command));
+    }
+
+    @Test public void graphicalCommandsDrainOutputAndPreserveFailureStatus() throws Exception {
+        Process process = new ProcessBuilder("bash", "-c", X11LaunchSpec.boundedOutput(
+                "printf '%20000s' x; printf 'final error' >&2; exit 17")).start();
+        byte[] output = process.getErrorStream().readAllBytes();
+        assertEquals(17, process.waitFor());
+        assertEquals(16384, output.length);
+        assertTrue(new String(output, StandardCharsets.UTF_8).endsWith("final error"));
+        assertEquals(0, process.getInputStream().readAllBytes().length);
     }
 
     @Test public void rejectsInvalidDisplayAndEmptyCommands() {

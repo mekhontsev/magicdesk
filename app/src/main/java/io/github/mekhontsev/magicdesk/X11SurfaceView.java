@@ -62,6 +62,7 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
     @Override public void onWindowFocusChanged(boolean gain) {
         super.onWindowFocusChanged(gain);
         if (!gain) releaseInput();
+        else if (output != null) output.focus();
     }
 
     private boolean pointer(MotionEvent event) {

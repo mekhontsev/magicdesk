@@ -31,15 +31,25 @@ final class X11Sessions {
     interface Listener {
         void onChanged();
         default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
+        default void onClipboard(String text) { }
     }
 
     static Session start(Context context, String name, String command) {
+        return start(context, name, command, "", false);
+    }
+
+    static Session startApplication(Context context, String name, String command, String directory) {
+        if (command == null || command.isBlank()) throw new IllegalArgumentException("Missing X11 command");
+        return start(context, name, command, DesktopExecWorkingDirectory.normalize(directory), true);
+    }
+
+    private static Session start(Context context, String name, String command, String directory, boolean application) {
         Context app = context.getApplicationContext();
         TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(app);
         endpoint.requireAvailable();
         if (name == null || name.isBlank() || name.length() > 128)
             throw new IllegalArgumentException("X11 session name must contain 1 to 128 characters");
-        Session session = new Session(app, endpoint, name.trim(), command == null ? "" : command);
+        Session session = new Session(app, endpoint, name.trim(), command == null ? "" : command, directory, application);
         synchronized (SESSIONS) { SESSIONS.put(session.id(), session); }
         try {
             MagicDeskRuntime.startTools(app, false);
@@ -92,25 +102,36 @@ final class X11Sessions {
     static final class Session {
         final String name;
         final TermuxIntegration.Endpoint endpoint;
+        final boolean application;
         private final Context context;
         private final X11LaunchSpec launch;
         private final String startupCommand;
+        private final String startupDirectory;
+        private boolean hadWindows;
+        private final Runnable windowTimeout = this::windowReadinessExpired;
         private final IBinder lifetime = new Binder();
         private final List<Listener> listeners = new CopyOnWriteArrayList<>();
         private final Runnable timeout = this::readinessExpired;
         private final IBinder.DeathRecipient death = () -> fail(new IllegalStateException("X11 server exited"));
         private ICmdEntryInterface server;
         private boolean connecting;
+        private TermuxCommandResultReceiver.Registration startupResult;
         private volatile X11Session renderer;
         private volatile State state = State.STARTING;
         private volatile String error = "";
         private volatile String display = "";
+        private volatile List<X11Session.Window> windows = List.of();
+        private Listener clipboardOwner;
+        private final java.util.Set<Long> presentedWindows = new java.util.HashSet<>();
 
-        Session(Context context, TermuxIntegration.Endpoint endpoint, String name, String command) {
+        Session(Context context, TermuxIntegration.Endpoint endpoint, String name, String command,
+                String directory, boolean application) {
             this.context = context;
             this.endpoint = endpoint;
             this.name = name;
+            this.application = application;
             startupCommand = command;
+            startupDirectory = directory;
             launch = new X11LaunchSpec(context.getApplicationInfo().sourceDir,
                     context.getApplicationInfo().nativeLibraryDir, context.getPackageName(), endpoint.homeDirectory);
         }
@@ -122,6 +143,28 @@ final class X11Sessions {
         boolean stopped() { return state == State.CLOSED || state == State.FAILED; }
         void listen(Listener listener) { listeners.add(listener); }
         void unlisten(Listener listener) { listeners.remove(listener); }
+        List<X11Session.Window> windows() { return windows; }
+        boolean claimWindow(long id) { return presentedWindows.add(id); }
+        void releaseWindowClaim(long id) { presentedWindows.remove(id); }
+        void claimClipboard(Listener owner) {
+            clipboardOwner = owner;
+            X11Session current = renderer;
+            if (state == State.READY && current != null) current.setClipboardEnabled(true);
+        }
+        void releaseClipboard(Listener owner) {
+            if (clipboardOwner != owner) return;
+            clipboardOwner = null;
+            X11Session current = renderer;
+            if (state == State.READY && current != null) current.setClipboardEnabled(false);
+        }
+        void offerClipboard(Listener owner, String text) {
+            X11Session current = renderer;
+            if (clipboardOwner == owner && state == State.READY && current != null) current.offerClipboard(text);
+        }
+        void closeWindow(long id) {
+            X11Session current = renderer;
+            if (state == State.READY && current != null) current.closeWindow(id);
+        }
 
         X11Session.Output openOutput(long xid) {
             X11Session current = renderer;
@@ -130,18 +173,37 @@ final class X11Sessions {
         }
 
         void execute(String command) {
+            execute(command, "");
+        }
+
+        private void execute(String command, String directory) {
             if (state != State.READY) throw new IllegalStateException("X11 session is not ready");
             String script = launch.clientCommand(display, command);
             WORK.execute(() -> {
                 if (state != State.READY) return;
                 try {
                     TermuxIntegration.runBackgroundShellCommand(context, endpoint, script,
-                            name, endpoint.homeDirectory, null);
+                            name, directory.isEmpty() ? endpoint.homeDirectory : directory, null);
                 } catch (RuntimeException failure) {
                     error = ShellAccess.usefulMessage(failure);
                     changed();
                 }
             });
+        }
+
+        private void executeStartup() {
+            synchronized (this) {
+                if (state != State.READY) return;
+                startupResult = TermuxIntegration.runBackgroundShellCommandForResult(context, endpoint,
+                        launch.clientCommand(display, startupCommand), name,
+                        startupDirectory.isEmpty() ? endpoint.homeDirectory : startupDirectory, 0,
+                        (result, failure) -> {
+                            if (stopped()) return;
+                            if (failure != null) fail(failure);
+                            else if (result == null || !result.success()) fail(new IllegalStateException(
+                                    result == null ? "X11 command returned no result" : result.usefulMessage()));
+                        });
+            }
         }
 
         private void connect() {
@@ -154,6 +216,19 @@ final class X11Sessions {
                         for (Listener listener : listeners) listener.onFrame(output, width, height, available);
                     }
                     @Override public void onDisconnected() { fail(new IllegalStateException("X11 renderer disconnected")); }
+                    @Override public void onClipboard(String text) {
+                        if (clipboardOwner != null && !stopped()) clipboardOwner.onClipboard(text);
+                    }
+                    @Override public void onWindowsChanged(List<X11Session.Window> snapshot) {
+                        if (stopped()) return;
+                        windows = snapshot;
+                        presentedWindows.retainAll(snapshot.stream().map(X11Session.Window::id).toList());
+                        if (!snapshot.isEmpty()) {
+                            hadWindows = true;
+                            MAIN.removeCallbacks(windowTimeout);
+                        } else if (application && hadWindows) { close(); return; }
+                        changed();
+                    }
                 });
                 pending.connect(process.getXConnection());
                 synchronized (this) {
@@ -164,13 +239,21 @@ final class X11Sessions {
                     MAIN.removeCallbacks(timeout);
                 }
                 changed();
-                if (!startupCommand.isBlank()) execute(startupCommand);
+                if (!startupCommand.isBlank()) {
+                    if (application) MAIN.postDelayed(windowTimeout, START_TIMEOUT_MILLIS);
+                    executeStartup();
+                }
             } catch (RemoteException | RuntimeException failure) { fail(failure); }
             finally { if (pending != null) pending.close(); }
         }
 
         private synchronized void readinessExpired() {
             if (state == State.STARTING) fail(new IllegalStateException("X11 server readiness timed out"));
+        }
+
+        private void windowReadinessExpired() {
+            if (application && !hadWindows && !stopped())
+                fail(new IllegalStateException("X11 application did not create a window"));
         }
 
         void close() { finish(State.CLOSED, ""); }
@@ -186,7 +269,11 @@ final class X11Sessions {
                 process = server;
                 connection = renderer;
                 renderer = null;
+                windows = List.of();
                 MAIN.removeCallbacks(timeout);
+                MAIN.removeCallbacks(windowTimeout);
+                TermuxCommandResultReceiver.cancel(startupResult);
+                startupResult = null;
             }
             synchronized (SESSIONS) { SESSIONS.remove(id(), this); }
             // Revoke admission first: a delayed RUN_COMMAND request must fail before creating X sockets.

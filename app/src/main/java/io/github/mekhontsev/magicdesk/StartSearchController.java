@@ -172,7 +172,9 @@ final class StartSearchController implements AutoCloseable {
     private void collectEntries(final List<StartMenuEntry> entries) {
         final Set<AppLaunchTarget> targets = new LinkedHashSet<>();
         for (final StartMenuEntry entry : entries) {
-            if (matches(entry.label, entry.detail)) {
+            final String keywords = entry.desktopApplication == null ? entry.detail
+                    : entry.detail + " " + entry.desktopApplication.shortcut.exec;
+            if (matches(entry.label, keywords)) {
                 mLocalResults.add(entry);
             }
             if (entry.app != null) { targets.add(entry.app.launchTarget); }

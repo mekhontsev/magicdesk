@@ -113,6 +113,25 @@ as a retained terminal session. Closing its window detaches the view; explicit
 session termination closes the PTY. Desktop Entry command tracking does not own
 that lifetime.
 
+The embedded graphical executor uses `X-MagicDesk-ExecBackend=x11`:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Firefox (Termux)
+Exec=firefox %u
+Terminal=false
+X-MagicDesk-ExecBackend=x11
+```
+
+It starts an authenticated, independently owned X server and presents client
+windows through the ordinary Android launcher. Start also discovers installed
+Termux `.desktop` entries automatically. The standalone Termux:X11 APK is not
+required. This executor follows desktop-entry argument expansion even without
+field codes; shell constructs require explicit `sh -c`. `Terminal=true`
+selects the Termux Console path instead of starting an X server. See
+[Embedded X11](x11.md) for retention, multiple windows and container commands.
+
 Unknown backend names invalidate the entry instead of executing the command in
 an unintended environment.
 

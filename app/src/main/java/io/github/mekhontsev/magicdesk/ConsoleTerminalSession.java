@@ -146,7 +146,7 @@ final class ConsoleTerminalSession {
         mColumns = columns;
         mRows = rows;
         mBackend = backend == null
-                ? DesktopExecBackend.SHELL : backend;
+                ? DesktopExecBackend.SHELL : backend.requireConsole();
         mStartupCommand = startupCommand == null ? "" : startupCommand;
         if (transportFactory == null) {
             throw new IllegalArgumentException("missing terminal transport");

@@ -92,6 +92,17 @@ final class DesktopEntryFile {
         return null;
     }
 
+    static DesktopApplicationShortcut parseTermuxApplication(String encoded) {
+        Map<String, String> values = parseValues(encoded);
+        if (values == null || !"Application".equals(values.get("Type"))
+                || "true".equalsIgnoreCase(values.get("Hidden"))
+                || "true".equalsIgnoreCase(values.get("NoDisplay"))) return null;
+        // Installed Linux entries are commands, never Android launch descriptors.
+        values.keySet().removeIf(key -> key.startsWith("X-MagicDesk-"));
+        values.put("X-MagicDesk-ExecBackend", "x11");
+        return parseApplication(values);
+    }
+
     static String encodeLink(final String name, final String targetPath) {
         final String normalized =
                 ShellFilePathPolicy.normalizeShellAbsolute(targetPath);

@@ -358,6 +358,13 @@ owned by each desktop host. Screenshot capture returns PNG bytes as MCP image co
 does not create a file. Pixel sampling reads up to 64 coordinates in one shell
 capture operation and returns exact ARGB and component values.
 
+`get_state.x11[]` exposes retained X session identities, names, allocated
+`display`, lifecycle `state`, `error`, application ownership and the current
+window catalog (`id`, `title`, `mapped`). These are X11 identities, not Android
+display/task IDs. Tokens, Xauthority cookies and startup commands are omitted.
+`runtime.x11Sessions` is the live session count. The X11 built-in uses ordinary
+tool placement and remains available without Desktop.
+
 `get_state.windows` distinguishes Android's focused application record from
 the actual focused input window on each display. This matters when a crash,
 ANR, permission, or other system-owned window is above an application whose

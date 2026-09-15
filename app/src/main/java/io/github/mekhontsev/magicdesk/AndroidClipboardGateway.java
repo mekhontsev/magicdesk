@@ -202,6 +202,13 @@ final class AndroidClipboardGateway {
                 read.content == null ? "" : read.content.text);
     }
 
+    AutoCloseable observe(Runnable changed) {
+        if (mClipboard == null) return () -> { };
+        ClipboardManager.OnPrimaryClipChangedListener listener = changed::run;
+        mClipboard.addPrimaryClipChangedListener(listener);
+        return () -> mClipboard.removePrimaryClipChangedListener(listener);
+    }
+
     ContentReadResult readContent() {
         return readContent("read_content");
     }

@@ -1529,12 +1529,17 @@ desktop panels. Keep this split when adding vendor-specific behavior.
 ## Embedded X11
 
 `X11Sessions` retains independently owned Termux-hosted X servers and lazy
-native renderers. Ordinary `X11Activity` windows borrow outputs; closing a
-window does not stop its server. Admission requires the captured Termux UID
+native renderers. Ordinary `X11Activity` windows borrow outputs. A whole-session
+viewer retains its server when closed; an individual-client host requests X11
+window closure, and an application-owned server ends after its last window.
+Admission requires the captured Termux UID
 and a session nonce before Xorg starts. The server's owner Binder ties its
 lifetime to the MagicDesk process, while Xauthority isolates X clients.
 No Desktop coordinator, HOME lease or privileged service is initialized by
 this shared tool. Android placement still goes through `ToolApplications`.
+The read-only Termux `.desktop` catalog feeds the shared Start content.
+`X11ApplicationLaunch` turns its executor into a normal Android launch request;
+the native window model owns X relationships, never Android task topology.
 See [Embedded X11](x11.md) for lifecycle, build and current integration scope.
 
 ## Privileged Service Runtime

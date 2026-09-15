@@ -36,6 +36,9 @@ final class DesktopExecRunner {
     static StartResult prepareBackend(
             final Activity activity,
             final DesktopExecBackend backend) {
+        if (backend == DesktopExecBackend.X11) {
+            throw new IllegalArgumentException("X11 commands require an application window");
+        }
         if (backend == DesktopExecBackend.TERMUX) {
             if (!TermuxIntegration.isInstalled(activity)) {
                 return StartResult.UNAVAILABLE;

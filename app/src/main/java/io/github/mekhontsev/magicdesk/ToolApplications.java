@@ -40,4 +40,29 @@ final class ToolApplications {
         if (entry == null) { throw new IllegalArgumentException("unknown built-in application"); }
         BuiltInWindowLauncher.launch(context, intent, entry.launchTarget, target, uniqueId, presentation, callback);
     }
+
+    /** A child tool follows its source task, including an independent task over an active Desktop. */
+    static void openSibling(final android.app.Activity source, final Intent intent,
+            final BuiltInWindowLauncher.Callback callback) {
+        final int display = source.getDisplay() == null ? 0 : source.getDisplay().getDisplayId();
+        final int taskId = source.getTaskId();
+        TaskCommandQueue.execute(() -> {
+            try {
+                boolean managed = false;
+                if (DesktopRuntimeBridge.hasWorkspace(display)) {
+                    final var snapshot = TaskRepository.loadNow(display);
+                    if (!snapshot.available) { throw new java.io.IOException(snapshot.error); }
+                    final var task = snapshot.tasks.stream().filter(item -> item.taskId == taskId)
+                            .findFirst().orElseThrow(() -> new java.io.IOException("Source window has closed or moved"));
+                    final String ownership = ApplicationTaskPlacement.ownership(task, snapshot);
+                    if ("unknown".equals(ownership)) { throw new java.io.IOException("Source window ownership is unavailable"); }
+                    managed = "desktop".equals(ownership);
+                }
+                open(source, intent, ToolLaunchTarget.resolve(managed ? "desktop" : "display", display,
+                        DesktopRuntimeBridge.workspaceDisplayIds()), null, callback);
+            } catch (java.io.IOException | RuntimeException error) {
+                source.runOnUiThread(() -> { if (!source.isDestroyed() && !source.isFinishing()) callback.onComplete(error); });
+            }
+        });
+    }
 }

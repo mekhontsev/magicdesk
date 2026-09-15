@@ -1,5 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <string name="x11_title">X11</string>
+    <string name="x11_windows">X11 windows</string>
+    <string name="x11_waiting_application">Waiting for application window...</string>
+    <string name="x11_permission_required">Allow Termux RUN_COMMAND access, then open the application again.</string>
     <string name="x11_sessions">X11 sessions</string>
     <string name="x11_new_session">New X11 session</string>
     <string name="x11_stop_session">Stop X11 session?</string>
@@ -135,6 +138,7 @@
     <string-array name="command_app_backends">
         <item>Android shell</item>
         <item>Termux</item>
+        <item>Termux X11</item>
     </string-array>
     <string-array name="command_app_file_arguments_values">
         <item>None</item>

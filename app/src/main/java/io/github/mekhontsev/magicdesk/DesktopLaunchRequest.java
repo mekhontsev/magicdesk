@@ -128,12 +128,10 @@ final class DesktopLaunchRequest {
         if (exec == null) {
             return this;
         }
-        return withExec(exec.withCommand(DesktopExecTemplate.expand(
-                exec.command,
-                arguments,
-                name,
-                icon,
-                desktopFilePath)));
+        String command = exec.backend == DesktopExecBackend.X11
+                ? DesktopExecTemplate.expandArguments(exec.command, arguments, name, icon, desktopFilePath)
+                : DesktopExecTemplate.expand(exec.command, arguments, name, icon, desktopFilePath);
+        return withExec(exec.withCommand(command));
     }
 
     DesktopLaunchRequest withPresentation(final DesktopLaunchPresentation value) {

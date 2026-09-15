@@ -37,7 +37,8 @@ final class StartMenuEntry {
 
     static StartMenuEntry desktopApplication(DesktopApplicationRepository.Entry entry) {
         return new StartMenuEntry(Kind.DESKTOP_APPLICATION, entry.shortcut.name,
-                entry.shortcut.execBackend.wireName + ": " + entry.shortcut.exec,
+                entry.shortcut.execBackend == DesktopExecBackend.X11 ? "Termux" :
+                        entry.shortcut.execBackend.wireName + ": " + entry.shortcut.exec,
                 null, entry, null, null, null, null);
     }
 

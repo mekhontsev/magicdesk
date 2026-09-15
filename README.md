@@ -212,6 +212,22 @@ See [Workstation tools](docs/workstation-tools.md) and
 protocols and limits, and [Desktop Entry files](docs/desktop-entries.md) to turn
 commands into launchers.
 
+## Linux Applications Through Termux
+
+MagicDesk embeds its own Termux:X11 fork. Graphical applications installed in
+Termux appear in **Start** from their `.desktop` files and open in ordinary
+MagicDesk windows. Firefox and GIMP can run in separate X sessions at the same
+time; additional main windows, transient dialogs, keyboard/mouse input and
+text clipboard exchange are integrated. The standalone Termux:X11 APK is not
+required, and opening X11 on the phone does not require Desktop or root.
+
+The **X11** tool also retains whole X sessions for a window manager or Linux
+desktop. Closing that viewer leaves its session running; **Stop X11 session**
+ends it. Termux supplies applications and the execution environment, including
+any proot/chroot setup. Graphics retain upstream AHardwareBuffer/EGL support;
+some client drivers still use its CPU-copy fallback. See [Embedded X11](docs/x11.md)
+for setup, ownership and current limits.
+
 ## Shizuku Or Direct Root
 
 **Rooted devices can use MagicDesk without installing or running Shizuku.**

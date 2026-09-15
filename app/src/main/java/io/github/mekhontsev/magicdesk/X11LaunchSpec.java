@@ -25,7 +25,7 @@ final class X11LaunchSpec {
         String directory = termuxHome + "/.cache/magicdesk/x11/" + id;
         authorityFile = directory + "/Xauthority";
         stdin = Base64.getEncoder().encodeToString(authority(cookie)) + "\n";
-        serverCommand = "set -eu\numask 077\n"
+        serverCommand = boundedOutput("set -eu\numask 077\n"
                 + "mkdir -p " + q(termuxHome + "/.cache/magicdesk/x11") + "\n"
                 + "mkdir " + q(directory) + "\n"
                 + "trap 'rm -f -- \"$auth\"; rmdir -- \"$runtime\"' EXIT\n"
@@ -38,7 +38,7 @@ final class X11LaunchSpec {
                 + " MAGICDESK_X11_SESSION=" + q(id) + " MAGICDESK_X11_TOKEN=" + q(token)
                 + " TMPDIR=\"${PREFIX:?}/tmp\" XKB_CONFIG_ROOT=\"$PREFIX/share/X11/xkb\""
                 + " /system/bin/app_process -Xnoimage-dex2oat / --nice-name=" + q(id)
-                + " com.termux.x11.CmdEntryPoint -displayfd 1 -nolisten tcp -auth \"$auth\"\n";
+                + " com.termux.x11.CmdEntryPoint -displayfd 1 -noreset -nolisten tcp -auth \"$auth\"\n");
     }
 
     String clientCommand(String display, String command) {
@@ -46,7 +46,13 @@ final class X11LaunchSpec {
             throw new IllegalArgumentException("Invalid X11 display number");
         if (command == null || command.isBlank()) throw new IllegalArgumentException("X11 command is empty");
         return "export DISPLAY=" + q(":" + display) + " XAUTHORITY=" + q(authorityFile)
-                + "\n" + command;
+                + "\n" + boundedOutput(command);
+    }
+
+    // Termux accumulates RUN_COMMAND output until exit, even without a result callback.
+    // tail drains continuously without retaining the full stream or closing the application's pipe early.
+    static String boundedOutput(String command) {
+        return "set -o pipefail\n{\n" + command + "\n} 2>&1 | tail -c 16384 >&2\n";
     }
 
     static byte[] authority(byte[] cookie) {

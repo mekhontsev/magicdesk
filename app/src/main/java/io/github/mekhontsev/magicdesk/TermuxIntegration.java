@@ -187,7 +187,7 @@ final class TermuxIntegration {
                 .putExtra(EXTRA_BACKGROUND, true).putExtra(EXTRA_STDIN, stdin));
     }
 
-    static void runBackgroundShellCommandForResult(
+    static TermuxCommandResultReceiver.Registration runBackgroundShellCommandForResult(
             final Context context,
             final Endpoint endpoint,
             final String command,
@@ -195,11 +195,11 @@ final class TermuxIntegration {
             final String workingDirectory,
             final long timeoutMillis,
             final ResultCallback callback) {
-        runBackgroundShellCommandForResult(context, endpoint, command, label,
+        return runBackgroundShellCommandForResult(context, endpoint, command, label,
                 workingDirectory, timeoutMillis, null, callback);
     }
 
-    static void runBackgroundShellCommandForResult(
+    static TermuxCommandResultReceiver.Registration runBackgroundShellCommandForResult(
             final Context context, final Endpoint endpoint, final String command,
             final String label, final String workingDirectory, final long timeoutMillis,
             final String stdin, final ResultCallback callback) {
@@ -214,6 +214,7 @@ final class TermuxIntegration {
                     .putExtra(
                             EXTRA_RESULT_PENDING_INTENT,
                             registration.pendingIntent));
+            return registration;
         } catch (RuntimeException error) {
             TermuxCommandResultReceiver.cancel(registration);
             throw error;

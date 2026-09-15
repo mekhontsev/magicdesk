@@ -87,6 +87,7 @@ final class StartMenuContent {
     private String mSearchQuery = "";
     private int mColumns = 3;
     private int mRows = 3;
+    private boolean mPrepared, mReleased;
 
     StartMenuContent(
             final Activity activity,
@@ -179,7 +180,7 @@ final class StartMenuContent {
                 mSearchSelection = 0;
                 mSearchController.update(
                         mSearchQuery,
-                        mHost.searchEntries(mMode));
+                        entries(mMode, true));
                 renderBody();
             }
 
@@ -310,17 +311,43 @@ final class StartMenuContent {
         mFocusable = focusable;
         mSearch.setShowSoftInputOnFocus(false);
         mSearchController.update(
-                mSearchQuery, mHost.searchEntries(mMode));
+                mSearchQuery, entries(mMode, true));
+        if (!mPrepared) {
+            mPrepared = true;
+            TermuxApplicationCatalog.refresh(mActivity, error -> {
+                if (mReleased || !mPrepared) return;
+                mSearchController.update(mSearchQuery, entries(mMode, true));
+                render();
+            });
+        }
         render();
     }
 
+    private List<StartMenuEntry> entries(int section, boolean search) {
+        List<StartMenuEntry> result = new ArrayList<>(search ? mHost.searchEntries(section) : mHost.entries(section));
+        if (search || section == MENU_APPS) {
+            java.util.Set<String> keys = new java.util.HashSet<>();
+            for (StartMenuEntry entry : result) keys.add(entry.stableKey());
+            for (DesktopApplicationRepository.Entry application : TermuxApplicationCatalog.entries()) {
+                StartMenuEntry entry = StartMenuEntry.desktopApplication(application);
+                if (keys.add(entry.stableKey())) result.add(entry);
+            }
+            result.sort(Comparator.comparing((StartMenuEntry entry) -> entry.label, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(StartMenuEntry::stableKey));
+        }
+        return result;
+    }
+
     void pause() {
+        mPrepared = false;
         mLaunchControls.dismiss();
         mSearch.setShowSoftInputOnFocus(false);
         mSearchController.pause();
     }
 
     void release() {
+        mReleased = true;
+        mPrepared = false;
         mLaunchControls.dismiss();
         mSearchController.close();
     }
@@ -347,7 +374,7 @@ final class StartMenuContent {
             return;
         }
 
-        final List<StartMenuEntry> menuApps = mHost.entries(mMode);
+        final List<StartMenuEntry> menuApps = entries(mMode, false);
         final String recentError = mMode == MENU_RECENT ? mHost.recentAppsError() : "";
         if (menuApps.isEmpty() || !recentError.isEmpty()) {
             final TextView empty = new TextView(mActivity);

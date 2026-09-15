@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 
-/** Receives bounded results from Termux's documented RUN_COMMAND API. */
+/** Receives results from Termux's RUN_COMMAND API, bounded by a deadline or an explicit owner. */
 public final class TermuxCommandResultReceiver extends BroadcastReceiver {
     private static final String ACTION =
             BuildConfig.APPLICATION_ID + ".TERMUX_COMMAND_RESULT";
@@ -47,7 +47,8 @@ public final class TermuxCommandResultReceiver extends BroadcastReceiver {
                 requestId, pendingIntent, callback, timeout);
         synchronized (PENDING) {
             PENDING.put(requestId, registration);
-            MAIN.postDelayed(timeout, Math.max(1L, timeoutMillis));
+            // Zero is an explicitly retained command: its service owner cancels the registration on shutdown.
+            if (timeoutMillis != 0) MAIN.postDelayed(timeout, Math.max(1L, timeoutMillis));
         }
         return registration;
     }

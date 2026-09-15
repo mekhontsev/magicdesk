@@ -122,7 +122,7 @@ final class DesktopCommandApplicationDialog {
         final Spinner backend = spinner(
                 activity,
                 R.array.command_app_backends,
-                initial.backend == DesktopExecBackend.TERMUX ? 1 : 0);
+                initial.backend.ordinal());
         form.addView(backend, matchWrap());
 
         label(activity, form, R.string.command_app_file_arguments);
@@ -175,9 +175,7 @@ final class DesktopCommandApplicationDialog {
                             new DesktopCommandApplicationDraft(
                                     name.getText().toString(),
                                     command.getText().toString(),
-                                    backend.getSelectedItemPosition() == 1
-                                            ? DesktopExecBackend.TERMUX
-                                            : DesktopExecBackend.SHELL,
+                                    DesktopExecBackend.values()[backend.getSelectedItemPosition()],
                                     workingDirectory,
                                     DesktopCommandApplicationDraft.FileArguments
                                             .values()[arguments

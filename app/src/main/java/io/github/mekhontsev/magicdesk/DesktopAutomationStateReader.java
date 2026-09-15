@@ -85,6 +85,7 @@ final class DesktopAutomationStateReader {
                         .put("apiVersion", shell.version < 0 ? JSONObject.NULL : shell.version)
                         .put("error", shell.error))
                 .put("termux", TermuxIntegration.inspect(mContext).toJson())
+                .put("x11", x11Sessions())
                 .put("integrationPackages", integrationPackages())
                 .put("platform", new JSONObject()
                         .put("id", platform.id())
@@ -111,6 +112,19 @@ final class DesktopAutomationStateReader {
                 .put("mcp", MagicDeskMcpRuntime.snapshotJson())
                 .put("eventSequence",
                         DesktopAutomationEventJournal.latestId());
+        return result;
+    }
+
+    private static JSONArray x11Sessions() throws JSONException {
+        JSONArray result = new JSONArray();
+        for (X11Sessions.Session session : X11Sessions.list()) {
+            JSONArray windows = new JSONArray();
+            for (var window : session.windows()) windows.put(new JSONObject().put("id", window.id())
+                    .put("title", window.title()).put("mapped", window.mapped()));
+            result.put(new JSONObject().put("id", session.id()).put("name", session.name)
+                    .put("display", session.display()).put("state", session.state().name())
+                    .put("error", session.error()).put("application", session.application).put("windows", windows));
+        }
         return result;
     }
 
