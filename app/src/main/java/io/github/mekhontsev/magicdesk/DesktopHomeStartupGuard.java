@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.Application;
 import android.app.role.RoleManager;
 import android.content.Context;
 import android.content.Intent;
@@ -19,15 +18,9 @@ final class DesktopHomeStartupGuard {
     }
 
     static boolean relinquishStaleHome(final Context context) {
-        if (context == null || !isPrimaryProcess(
-                Application.getProcessName(),
-                context.getApplicationInfo().processName)) {
+        if (context == null) {
             return false;
         }
-        // Organizer backstops and self-test fixtures use isolated app
-        // processes. Their Application.onCreate() is not a MagicDesk runtime
-        // restart and must never release the HOME lease owned by the main
-        // process.
         final RoleManager roles = context.getSystemService(RoleManager.class);
         final boolean ownsRole = roles != null
                 && roles.isRoleAvailable(RoleManager.ROLE_HOME)
@@ -71,10 +64,4 @@ final class DesktopHomeStartupGuard {
         }
     }
 
-    static boolean isPrimaryProcess(
-            final String processName,
-            final String applicationProcessName) {
-        return processName != null
-                && processName.equals(applicationProcessName);
-    }
 }

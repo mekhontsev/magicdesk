@@ -2,6 +2,7 @@ package io.github.mekhontsev.magicdesk;
 
 import android.app.Application;
 import android.content.Context;
+import android.os.Process;
 
 public final class MagicDeskApplication extends Application {
     private static Context sApplicationContext;
@@ -10,6 +11,11 @@ public final class MagicDeskApplication extends Application {
     public void onCreate() {
         super.onCreate();
         sApplicationContext = getApplicationContext();
+        // Auxiliary Activity processes own only their UI. Runtime startup and
+        // recovery belong to the process hosting our service and Binder provider.
+        if (!isPrimaryProcess(getProcessName(), getApplicationInfo().processName)) {
+            return;
+        }
         AndroidActivityResultStore.releaseOrphanedPersistedUris(this);
         DesktopHomeStartupGuard.relinquishStaleHome(this);
         IntegrationPackage.active();
@@ -21,7 +27,12 @@ public final class MagicDeskApplication extends Application {
                 "process",
                 "started",
                 true,
-                "pid=" + android.os.Process.myPid());
+                "pid=" + Process.myPid());
+    }
+
+    static boolean isPrimaryProcess(
+            final String processName, final String applicationProcessName) {
+        return processName != null && processName.equals(applicationProcessName);
     }
 
     public static Context applicationContext() {

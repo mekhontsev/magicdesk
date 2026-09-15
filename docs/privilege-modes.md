@@ -65,6 +65,8 @@ DRM license policy or authorize extraction of protected video.
 
 Both transports expose `IShellCommandService` and the same operations. The app
 checks the connected service's UID and APK build before publishing readiness.
+Only the primary application process initializes the privilege transport;
+auxiliary Activity processes do not launch or bind another command service.
 The standalone process hands its Binder to a permission-protected provider;
 the app checks a one-use startup nonce, independently reported child PID,
 calling UID and build. Its command endpoint accepts only the exact app UID.

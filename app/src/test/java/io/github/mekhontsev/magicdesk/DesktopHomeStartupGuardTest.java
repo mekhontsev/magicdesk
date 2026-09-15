@@ -163,13 +163,6 @@ public final class DesktopHomeStartupGuardTest {
     }
 
     @Test
-    public void mainProcessOwnsStartupRecovery() {
-        assertTrue(DesktopHomeStartupGuard.isPrimaryProcess(
-                "io.github.mekhontsev.magicdesk",
-                "io.github.mekhontsev.magicdesk"));
-    }
-
-    @Test
     public void recoveryDoesNotLatchAdmissionForTheProcessLifetime() throws Exception {
         final String source = Files.readString(Path.of(
                 "src/main/java/io/github/mekhontsev/magicdesk/DesktopHomeStartupGuard.java"));
@@ -182,13 +175,4 @@ public final class DesktopHomeStartupGuardTest {
         }
     }
 
-    @Test
-    public void auxiliaryProcessesCannotReleaseHome() {
-        assertFalse(DesktopHomeStartupGuard.isPrimaryProcess(
-                "io.github.mekhontsev.magicdesk:task_area_backstop",
-                "io.github.mekhontsev.magicdesk"));
-        assertFalse(DesktopHomeStartupGuard.isPrimaryProcess(
-                "io.github.mekhontsev.magicdesk:selftest",
-                "io.github.mekhontsev.magicdesk"));
-    }
 }

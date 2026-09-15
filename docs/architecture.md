@@ -7,6 +7,12 @@ reviewers and users diagnosing compatibility problems.
 
 ## Runtime Layers
 
+`MagicDeskApplication` initializes shared runtime state only in the primary app
+process. Auxiliary Activity processes retain their application context but do not
+start privilege transports, recover HOME or URI grants, or open the shared
+diagnostics journal. The structural backstop uses its explicit input-policy
+Binder; self-test windows communicate through their fixture protocol.
+
 The APK requires Android 14 (API 34); managed Desktop requires Android 15
 (API 35). Shared services and ordinary built-in Activity windows do not require
 Desktop. The [API-level contract](runtime-api-levels.md) records OS-dependent
