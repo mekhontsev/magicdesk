@@ -33,31 +33,39 @@ final class BuiltInWindowLauncher {
     static void launch(final Context context, final Intent source,
             final AppLaunchTarget target, final ToolLaunchTarget placement,
             final String uniqueId, final Callback callback) {
-        final Intent intent = new Intent(source);
+        launch(context, source, target, placement, uniqueId, null, callback);
+    }
+
+    static void launch(final Context context, final Intent source,
+            final AppLaunchTarget target, final ToolLaunchTarget placement,
+            final String uniqueId, final DesktopLaunchPresentation presentation, final Callback callback) {
+        final Intent intent = presentation == null ? new Intent(source)
+                : presentation.instancePolicy.applyTo(source);
         final int displayId = placement.displayId;
         TaskCommandQueue.execute(() -> {
             try {
                 // Check again on the command queue: a session or display may have
                 // changed between a UI selection and execution.
-                if (placement.desktop != DesktopRuntimeBridge.hasWorkspace(displayId)) {
-                    throw new IOException("display ownership changed; select the launch destination again");
-                }
+                placement.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
                 if (displayId != 0 || uniqueId != null) {
                     DesktopDisplayCatalog.require(displayId, uniqueId);
                 }
                 if (!placement.desktop) {
+                    if (presentation != null) { OrdinaryActivityLaunch.requirePresentation(presentation); }
                     final BuiltInDesktopAppCatalog.Entry entry =
                             BuiltInDesktopAppCatalog.find(target);
                     if (entry == null) { throw new IllegalArgumentException("unknown built-in application"); }
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    if (entry.multipleWindows) {
+                    if (presentation == null && entry.multipleWindows) {
                         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-                    } else if (BuiltInWindowRegistry.needsSeparateTask(target, displayId)) {
+                    } else if (presentation == null && BuiltInWindowRegistry.needsSeparateTask(target, displayId)) {
                         // An ordinary tool launch must not steal an instance from
                         // another display, especially one owned by Desktop.
                         intent.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
                     }
                     if (context instanceof Activity sourceActivity && displayId == 0
+                            && presentation == null
+                            && !DesktopRuntimeBridge.hasWorkspace(displayId)
                             && sourceActivity.getDisplay() != null
                             && sourceActivity.getDisplay().getDisplayId() == 0) {
                         // Ordinary phone tasks inherit Android's normal fullscreen
@@ -75,9 +83,19 @@ final class BuiltInWindowLauncher {
                             }
                         });
                     } else {
-                        ShellAccess.launchActivityOnDisplay(intent, displayId, true);
+                        OrdinaryActivityLaunch.launch(context, intent,
+                                AndroidLaunchSpec.Delivery.SHELL_INTENT, displayId);
                         complete(context, callback, null);
                     }
+                    return;
+                }
+                if (presentation != null && presentation.mode == DesktopLaunchMode.FULLSCREEN) {
+                    final DesktopLaunchRequest request = new DesktopLaunchRequest(target.packageName, "",
+                            AndroidLaunchSpec.intent(target, intent.toUri(Intent.URI_INTENT_SCHEME)),
+                            null, null, presentation, DesktopLaunchArguments.empty(), "");
+                    DesktopRuntimeBridge.launchAutomationRequest(request, displayId,
+                            result -> complete(context, callback,
+                                    result.hasObservedTask() ? null : new IOException(result.error)));
                     return;
                 }
                 List<TaskRepository.TaskEntry> visibleTasks =
@@ -88,14 +106,21 @@ final class BuiltInWindowLauncher {
                                     TaskRepository.loadNow(displayId));
                 }
                 final WindowedAppLauncher.LaunchResult launch =
-                        WindowedAppLauncher.launchBuiltInWindow(
+                        presentation == null ? WindowedAppLauncher.launchBuiltInWindow(
                                 intent,
                                 target,
                                 displayId,
                                 taskIds(visibleTasks),
                                 () -> DesktopRuntimeBridge.syncTaskbarWithSnapshot(
                                         displayId,
-                                        TaskRepository.loadNow(displayId)));
+                                        TaskRepository.loadNow(displayId)))
+                                : WindowedAppLauncher.launch(intent, target, displayId,
+                                        taskIds(visibleTasks), true,
+                                        presentation.bounds == null ? BuiltInDesktopAppCatalog.defaultWindowBounds(target)
+                                                : presentation.bounds,
+                                        presentation.instancePolicy,
+                                        () -> DesktopRuntimeBridge.syncTaskbarWithSnapshot(displayId,
+                                                TaskRepository.loadNow(displayId)));
                 launch.whenReady(result -> complete(context, callback,
                         result.success ? null : new IOException(result.message)));
             } catch (IOException | RuntimeException error) {

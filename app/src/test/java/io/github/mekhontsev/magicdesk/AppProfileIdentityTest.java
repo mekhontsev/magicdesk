@@ -58,9 +58,9 @@ public final class AppProfileIdentityTest {
                 LaunchActivityIdentity.packageScoped(10, PACKAGE, null);
         final TaskRepository.TaskEntry work = task(10, 3);
         final TaskRepository.TaskEntry personalPhone = task(0, 0);
-        assertSame(work, DisplayAppLauncher.selectTransfer(identity,
+        assertSame(work, ApplicationTaskPlacement.selectExisting(identity,
                 new TaskRepository.Snapshot(List.of(work), List.of(personalPhone), true, ""), 0));
-        assertNull(DisplayAppLauncher.selectTransfer(identity,
+        assertNull(ApplicationTaskPlacement.selectExisting(identity,
                 new TaskRepository.Snapshot(List.of(task(0, 3)), true, ""), 0));
     }
 
@@ -78,7 +78,7 @@ public final class AppProfileIdentityTest {
     @Test
     public void parkedTaskIdentityRetainsUser() {
         final var parked = new DesktopTaskParkingController.ParkedTask(
-                41, 10, PACKAGE, false, true, null);
+                41, 10, 3, PACKAGE, false, true, null);
         final TaskRepository.TaskEntry work = task(10, 0);
         assertSame(work, DesktopTaskParkingController.findLiveTask(List.of(work), parked));
         assertNull(DesktopTaskParkingController.findLiveTask(List.of(task(0, 0)), parked));

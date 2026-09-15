@@ -475,6 +475,7 @@ interface IShellCommandService {
     void restoreSecondaryHome(int userId, String componentName) = 137;
     io.github.mekhontsev.magicdesk.IDisplayViewer openDisplayViewer(
         int sourceDisplayId, String sourceUniqueId, int outputDisplayId,
-        String outputUniqueId, IBinder displayOwner, IBinder viewerOwner) = 138;
+        String outputUniqueId, boolean direct, IBinder displayOwner, IBinder viewerOwner) = 138;
     boolean canCreateProtectedDisplay() = 141;
+    void releaseDesktopTasks(int displayId, in int[] taskIds) = 142;
 }

@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Keeps live desktop tasks parked on the phone while desktop mode is closed. */
+/** Retains workspace state while live tasks return to ordinary Android ownership. */
 final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     private static final String TAG = "MagicDeskTaskParking";
     private static final String RETURN_COMMAND =
@@ -61,14 +61,12 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             return;
         }
         final Set<Integer> ownership = copyTaskIds(ownedTaskIds);
-        final boolean filterByOwnership = displayId == Display.DEFAULT_DISPLAY;
-        final List<ParkedTask> observed = filterByOwnership
-                && !ownershipReady
+        final List<ParkedTask> observed = !ownershipReady
                         ? Collections.emptyList()
                         : captureTasks(
                                 tasks,
                                 workArea,
-                                filterByOwnership ? ownership : null);
+                                ownership);
         final DesktopDisplayTarget pendingTarget;
         synchronized (mLock) {
             mObservations.put(displayId, new Observation(observed, ownershipReady, ownership));
@@ -103,8 +101,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         final int saved;
         synchronized (mLock) {
             final Observation observation = mObservations.get(displayId);
-            if (observation == null || (displayId == Display.DEFAULT_DISPLAY
-                            && !observation.ownershipReady)) {
+            if (observation == null || !observation.ownershipReady) {
                 return;
             }
             cancelRestore(displayId);
@@ -123,15 +120,27 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                 .policy().restoreWorkspace) {
             return;
         }
+        final android.hardware.display.DisplayManager displays = MagicDeskApplication.applicationContext()
+                .getSystemService(android.hardware.display.DisplayManager.class);
+        if (displays == null) { return; }
+        final Set<Integer> liveDisplays = new HashSet<>();
+        for (final Display display : displays.getDisplays()) { liveDisplays.add(display.getDisplayId()); }
         synchronized (mLock) {
             if (mParked.isEmpty() || mRestores.containsKey(target.workspaceDisplayId)) {
                 return;
             }
-            mRestores.put(target.workspaceDisplayId,
-                    new Restore(target, new ArrayList<>(mParked.values())));
-            mParked.clear();
+            final List<ParkedTask> selected = mParked.values().stream()
+                    .filter(task -> canRestoreOnDisplay(task.sourceDisplayId, target.workspaceDisplayId, liveDisplays))
+                    .toList();
+            if (selected.isEmpty()) { return; }
+            mRestores.put(target.workspaceDisplayId, new Restore(target, selected));
+            for (final ParkedTask task : selected) { mParked.remove(task.taskId); }
         }
         restoreIfReady(target);
+    }
+
+    static boolean canRestoreOnDisplay(final int source, final int target, final Set<Integer> liveDisplays) {
+        return source == target || !liveDisplays.contains(source);
     }
 
     @Override
@@ -179,8 +188,6 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             complete(callback, false);
             return;
         }
-        final boolean filterByOwnership =
-                source.workspaceDisplayId == Display.DEFAULT_DISPLAY;
         final boolean ownershipReady;
         final Set<Integer> ownedTaskIds;
         synchronized (mLock) {
@@ -188,7 +195,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             ownershipReady = observation != null && observation.ownershipReady;
             ownedTaskIds = observation != null ? observation.ownedTaskIds : Collections.emptySet();
         }
-        if (filterByOwnership && !ownershipReady) {
+        if (!ownershipReady) {
             recordFailure(
                     "Could not inspect desktop task ownership",
                     "display=" + source.workspaceDisplayId);
@@ -198,7 +205,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         final List<ParkedTask> candidates = captureTasks(
                 snapshot.tasks,
                 workArea,
-                filterByOwnership ? ownedTaskIds : null);
+                ownedTaskIds);
         observe(
                 source.workspaceDisplayId,
                 snapshot.tasks,
@@ -210,7 +217,10 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             return;
         }
 
-        if (source.workspaceDisplayId == Display.DEFAULT_DISPLAY) {
+        try {
+            DesktopDisplayCatalog.require(source.workspaceDisplayId, null);
+            ShellAccess.releaseDesktopTasks(source.workspaceDisplayId,
+                    candidates.stream().mapToInt(task -> task.taskId).toArray());
             synchronized (mLock) {
                 if (remember && generation == mGeneration) {
                     mergePreservedTasks(mParked, candidates, true);
@@ -220,6 +230,19 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
                     + " display=" + source.workspaceDisplayId);
             complete(callback, true);
             return;
+        } catch (IOException | RuntimeException error) {
+            // A live display retains its applications; only display loss
+            // permits the existing return-to-phone recovery path.
+            boolean present = true;
+            try {
+                present = java.util.Arrays.stream(DesktopDisplayCatalog.read())
+                        .anyMatch(display -> display.id == source.workspaceDisplayId);
+            } catch (IOException | RuntimeException unavailable) { error.addSuppressed(unavailable); }
+            if (present) {
+                recordFailure("Could not release desktop tasks", error.getMessage());
+                complete(callback, false);
+                return;
+            }
         }
 
         final StringBuilder arguments = new StringBuilder("selected ")
@@ -427,9 +450,8 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             final DesktopDisplayTarget target) throws IOException {
         if (live.displayId != target.workspaceDisplayId) {
             moveToDesktop(live, parked, target);
-        } else {
-            restoreMode(live, parked, target);
         }
+        restoreMode(live, parked, target);
         if (parked.fullscreen
                 && !MagicDeskRuntime.attachFullscreenTask(
                         target.workspaceDisplayId,
@@ -451,7 +473,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             // The topology owns the fullscreen mode and parent transition.
             return;
         }
-        if (task.displayId == target.workspaceDisplayId && !task.isFreeform()) {
+        {
             final Rect bounds = FloatingWindowController.getWindowBounds(
                     target.workspaceDisplayId, parked.bounds);
             if (!MagicDeskRuntime.attachWindowedTask(
@@ -587,6 +609,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
             result.add(new ParkedTask(
                     task.taskId,
                     task.userId,
+                    task.displayId,
                     task.packageName,
                     !task.isFreeform(),
                     task.visible,
@@ -697,6 +720,7 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
     static final class ParkedTask {
         final int taskId;
         final int userId;
+        final int sourceDisplayId;
         final String packageName;
         final boolean fullscreen;
         final boolean visible;
@@ -705,12 +729,14 @@ final class DesktopTaskParkingController implements DesktopTaskParkingRuntime {
         ParkedTask(
                 final int taskId,
                 final int userId,
+                final int sourceDisplayId,
                 final String packageName,
                 final boolean fullscreen,
                 final boolean visible,
                 final RelativeWindowBounds bounds) {
             this.taskId = taskId;
             this.userId = userId;
+            this.sourceDisplayId = sourceDisplayId;
             this.packageName = packageName;
             this.fullscreen = fullscreen;
             this.visible = visible;

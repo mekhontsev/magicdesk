@@ -6,6 +6,7 @@ import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_RED;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_TEXT;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
@@ -19,11 +20,9 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 final class PhoneControlPanelController {
-    interface Actions extends DisplaySelectionView.Actions {
+    interface Actions extends DisplayTableView.Actions {
 
         void openWirelessSettings();
-
-        void closeDesktop();
 
         void openTouchpad();
 
@@ -33,10 +32,6 @@ final class PhoneControlPanelController {
 
         void requestAccess();
 
-        void openApplications();
-
-        void controlSelectedDisplay();
-
         void releaseInput();
 
         void exitMagicDesk();
@@ -44,7 +39,7 @@ final class PhoneControlPanelController {
 
     static final class State {
         final DesktopDisplayInfo[] displays;
-        final String selectedDisplayUniqueId;
+        final TaskRepository.Snapshot tasks;
         final java.util.Set<Integer> desktopDisplays;
         final boolean displayOperation;
         final boolean sessionOperationInProgress;
@@ -53,14 +48,13 @@ final class PhoneControlPanelController {
         final boolean phoneScreenOff;
         final boolean phoneScreenControlAvailable;
         final boolean externalOutputControlAvailable;
-        final PlatformProjectionDriver.ModeSelection externalModeSelection;
         final boolean wirelessConnectionUiAvailable;
         final String status;
         final String runtime;
 
         State(
                 final DesktopDisplayInfo[] displays,
-                final String selectedDisplayUniqueId,
+                final TaskRepository.Snapshot tasks,
                 final java.util.Set<Integer> desktopDisplays,
                 final boolean displayOperation,
                 final boolean sessionOperationInProgress,
@@ -69,12 +63,11 @@ final class PhoneControlPanelController {
                 final boolean phoneScreenOff,
                 final boolean phoneScreenControlAvailable,
                 final boolean externalOutputControlAvailable,
-                final PlatformProjectionDriver.ModeSelection externalModeSelection,
                 final boolean wirelessConnectionUiAvailable,
                 final String status,
                 final String runtime) {
             this.displays = displays;
-            this.selectedDisplayUniqueId = selectedDisplayUniqueId;
+            this.tasks = tasks;
             this.desktopDisplays = java.util.Set.copyOf(desktopDisplays);
             this.displayOperation = displayOperation;
             this.sessionOperationInProgress = sessionOperationInProgress;
@@ -84,7 +77,6 @@ final class PhoneControlPanelController {
             this.phoneScreenControlAvailable = phoneScreenControlAvailable;
             this.externalOutputControlAvailable =
                     externalOutputControlAvailable;
-            this.externalModeSelection = externalModeSelection;
             this.wirelessConnectionUiAvailable =
                     wirelessConnectionUiAvailable;
             this.status = status;
@@ -101,13 +93,11 @@ final class PhoneControlPanelController {
     private TextView mStatus;
     private Button mRuntime;
     private Button mConnectWirelessDisplay;
-    private DisplaySelectionView mDisplaySelection;
-    private Button mCloseDesktop;
+    private Button mCreateDisplay;
+    private DisplayTableView mDisplayTable;
     private Button mTouchpad;
     private Button mPhoneScreen;
-    private Button mControlDisplay;
     private Button mReleaseInput;
-    private Button mApplications;
 
     PhoneControlPanelController(
             final Activity activity,
@@ -156,33 +146,21 @@ final class PhoneControlPanelController {
         if (!MagicDeskRuntime.inputError().isEmpty()) { mStatus.setText(MagicDeskRuntime.inputError()); }
         mRuntime.setText(mActivity.getString(
                 R.string.control_runtime_status, state.runtime));
-        mDisplaySelection.render(state.displays, state.selectedDisplayUniqueId,
-                state.desktopDisplays, state.shellReady,
+        mDisplayTable.render(state.displays, state.desktopDisplays, state.shellReady,
                 state.sessionOperationInProgress || state.displayOperation,
-                state.externalOutputControlAvailable, state.externalModeSelection);
+                state.externalOutputControlAvailable, state.tasks);
         mConnectWirelessDisplay.setEnabled(state.wirelessConnectionUiAvailable
                 && !state.sessionOperationInProgress
                 && !state.displayOperation);
         final boolean canOpenTouchpad = MagicDeskRuntime.inputDisplayId() > 0
                 && MagicDeskRuntime.isPointerTransportReady() && state.shellReady;
         final boolean busy = state.sessionOperationInProgress || state.displayOperation;
+        mCreateDisplay.setEnabled(state.shellReady && !busy);
         mRuntime.setEnabled(!busy && (!state.shellReady || ShellPrivilegePolicy.restartRequired(mActivity)));
         final int inputDisplay = MagicDeskRuntime.inputDisplayId();
-        int selectedId = -1;
-        for (var display : state.displays) {
-            if (display.uniqueId.equals(state.selectedDisplayUniqueId)) selectedId = display.id;
-        }
-        mControlDisplay.setEnabled(state.shellReady && !busy && selectedId >= 0 && selectedId != inputDisplay);
         mReleaseInput.setEnabled(state.shellReady && !busy && inputDisplay >= 0);
-        mApplications.setEnabled(!busy);
-        mControlDisplay.setText(inputDisplay == selectedId && selectedId >= 0
-                ? MagicDeskRuntime.readyInputDisplayId() == selectedId
-                    ? R.string.display_input_active : R.string.display_input_starting
-                : R.string.display_control);
         final boolean canControlPhoneScreen = state.externalDesktopActive
                 && state.phoneScreenControlAvailable;
-        mCloseDesktop.setEnabled(canCloseDesktop(state.desktopDisplays.contains(selectedId),
-                state.shellReady, busy));
         mTouchpad.setEnabled(canOpenTouchpad);
         mPhoneScreen.setText(state.phoneScreenOff
                 ? R.string.action_phone_screen_on
@@ -237,44 +215,29 @@ final class PhoneControlPanelController {
     }
 
     private void addStatus(final LinearLayout parent) {
-        final LinearLayout row = new LinearLayout(mActivity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
         final LinearLayout status = new LinearLayout(mActivity);
-        status.setOrientation(LinearLayout.VERTICAL);
+        status.setOrientation(LinearLayout.HORIZONTAL);
+        status.setGravity(Gravity.CENTER_VERTICAL);
         mStatus = statusText(COLOR_TEXT, 14, true);
-        status.addView(mStatus);
+        status.addView(mStatus, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
         mRuntime = mUi.controlAction(R.string.control_runtime_status, R.drawable.ic_lock, COLOR_MUTED);
         mRuntime.setOnClickListener(view -> mActions.requestAccess());
         final LinearLayout.LayoutParams runtimeParams =
                 new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
                         dp(48));
-        runtimeParams.setMargins(0, dp(7), 0, 0);
+        runtimeParams.setMargins(dp(8), 0, 0, 0);
         status.addView(mRuntime, runtimeParams);
-        row.addView(status, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        mApplications = mUi.controlAction(R.string.section_apps, R.drawable.ic_sections, COLOR_TEXT);
-        mApplications.setOnClickListener(view -> mActions.openApplications());
-        final LinearLayout.LayoutParams appsParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, dp(ACTION_HEIGHT_DP));
-        appsParams.setMarginStart(dp(12));
-        row.addView(mApplications, appsParams);
-        parent.addView(row, fullWidthWrapParams(0));
+        parent.addView(status, fullWidthWrapParams(0));
     }
 
     private void addDesktopActions(final LinearLayout parent) {
-        mDisplaySelection = new DisplaySelectionView(mActivity, mUi, mActions, parent);
-        final GridLayout displayActions = actionGrid();
-        mControlDisplay = mUi.controlAction(R.string.display_control, R.drawable.ic_touchpad, COLOR_TEXT);
-        mControlDisplay.setOnClickListener(view -> mActions.controlSelectedDisplay());
-        addGridAction(displayActions, mControlDisplay);
+        mDisplayTable = new DisplayTableView(mActivity, mUi, mActions, parent);
+        final GridLayout sessionActions = actionGrid();
         mReleaseInput = mUi.controlAction(R.string.display_release_input, R.drawable.ic_close, COLOR_TEXT);
         mReleaseInput.setOnClickListener(view -> mActions.releaseInput());
-        addGridAction(displayActions, mReleaseInput);
-        parent.addView(displayActions, fullWidthWrapParams(dp(4)));
-        final GridLayout sessionActions = actionGrid();
+        addGridAction(sessionActions, mReleaseInput);
         mTouchpad = mUi.controlAction(
                 R.string.action_open_touchpad, R.drawable.ic_touchpad, COLOR_TEXT);
         mTouchpad.setOnClickListener(view -> mActions.openTouchpad());
@@ -284,23 +247,30 @@ final class PhoneControlPanelController {
                 R.string.action_phone_screen_off, R.drawable.ic_phone_screen_off, COLOR_TEXT);
         mPhoneScreen.setOnClickListener(view -> mActions.togglePhoneScreen());
         addGridAction(sessionActions, mPhoneScreen);
-        mCloseDesktop = mUi.controlAction(
-                R.string.action_close_desktop, R.drawable.ic_close, COLOR_TEXT);
-        mCloseDesktop.setOnClickListener(view -> mActions.closeDesktop());
-        addGridAction(sessionActions, mCloseDesktop);
 
         mConnectWirelessDisplay = mUi.controlAction(
                 R.string.action_connect_wireless_display, R.drawable.ic_cast, COLOR_TEXT);
         mConnectWirelessDisplay.setOnClickListener(view -> mActions.openWirelessSettings());
         addGridAction(sessionActions, mConnectWirelessDisplay);
-        addGridAction(sessionActions, mDisplaySelection.outputControl());
+        mCreateDisplay = mUi.controlAction(R.string.display_create, R.drawable.ic_add, COLOR_TEXT);
+        mCreateDisplay.setOnClickListener(view -> mDisplayTable.showCreationDialog());
+        addGridAction(sessionActions, mCreateDisplay);
         parent.addView(sessionActions, fullWidthWrapParams(dp(4)));
     }
 
     private void addSystemActions(final LinearLayout parent) {
         final Button exit = mUi.controlAction(R.string.action_exit, R.drawable.ic_exit, COLOR_RED);
-        exit.setOnClickListener(view -> mActions.exitMagicDesk());
+        exit.setOnClickListener(view -> confirmExit());
         parent.addView(exit, fullWidthActionParams());
+    }
+
+    private void confirmExit() {
+        new AlertDialog.Builder(mActivity)
+                .setTitle(R.string.action_exit)
+                .setMessage(R.string.confirm_exit_magicdesk)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.action_exit, (dialog, which) -> mActions.exitMagicDesk())
+                .show();
     }
 
     private View centered(final View view) {
@@ -309,7 +279,7 @@ final class PhoneControlPanelController {
             protected void onMeasure(final int widthMeasureSpec, final int heightMeasureSpec) {
                 // The parent already excludes page padding and system insets.
                 // Recompute after resize instead of retaining startup Configuration dimensions.
-                final int maxWidth = dp(540);
+                final int maxWidth = dp(900);
                 view.getLayoutParams().width = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED
                         ? maxWidth : Math.min(maxWidth, MeasureSpec.getSize(widthMeasureSpec));
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec);

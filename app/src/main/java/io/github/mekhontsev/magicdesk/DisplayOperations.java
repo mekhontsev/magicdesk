@@ -27,23 +27,24 @@ final class DisplayOperations {
     static void createDisplay(final VirtualDisplaySpec spec, final boolean preview,
             final DisplayCallback callback) {
         TaskCommandQueue.execute(() -> {
+            DesktopDisplayInfo display = null;
+            String failure = null;
             try {
                 if (preview) spec.requireOverlayCompatible();
-                final DesktopDisplayInfo display = preview
+                display = preview
                         ? DesktopDisplayCatalog.require(SimulatedDesktopDisplayController.create(spec), null)
                         : ShellAccess.createVirtualDisplay(spec);
-                final DisplayProfileStore.Profile profile = DisplayProfileStore.load(
-                        "display:simulated:" + display.uniqueId, spec.densityDpi);
-                profile.dpi = spec.densityDpi;
-                profile.dpiExplicit = true;
-                DisplayProfileStore.save(profile);
+                if (!DisplayProfileStore.save(DisplayProfiles.createdProfile(display, spec))) {
+                    throw new IOException("Display created, but its profile could not be saved; display retained: "
+                            + display.id + " [" + display.uniqueId + "]");
+                }
                 VirtualDisplayPreferences.save(MagicDeskApplication.applicationContext(), spec);
-                callback.onComplete(display, null);
             } catch (IOException | RuntimeException error) {
                 CompatibilityDiagnostics.record("DISPLAY-VIRTUAL-001",
                         "Could not create virtual display", error.getMessage(), error);
-                callback.onComplete(null, error.getMessage());
+                failure = error.getMessage();
             }
+            callback.onComplete(display, failure);
         });
     }
 

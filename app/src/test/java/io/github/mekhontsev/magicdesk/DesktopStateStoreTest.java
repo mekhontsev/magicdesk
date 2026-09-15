@@ -85,6 +85,9 @@ public final class DesktopStateStoreTest {
         profile.dpiExplicit = true;
         profile.outputTiming = "2560x1440@120";
         profile.resetOutputModePending = true;
+        profile.originProfileKey = "display:wired:monitor-A";
+        profile.width = 2560;
+        profile.height = 1440;
         source.displayProfiles.put(profile.key, profile);
 
         final DesktopStateStore.State decoded = DesktopStateStore.decode(
@@ -125,6 +128,9 @@ public final class DesktopStateStoreTest {
         assertTrue(decodedProfile.dpiExplicit);
         assertEquals("2560x1440@120", decodedProfile.outputTiming);
         assertTrue(decodedProfile.resetOutputModePending);
+        assertEquals(profile.originProfileKey, decodedProfile.originProfileKey);
+        assertEquals(2560, decodedProfile.width);
+        assertEquals(1440, decodedProfile.height);
     }
 
     @Test

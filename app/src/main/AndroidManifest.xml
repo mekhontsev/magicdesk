@@ -366,6 +366,7 @@
         <receiver android:name=".UserNotificationReceiver" android:exported="false" />
         <activity
             android:name=".DisplayViewerActivity"
+            android:icon="@drawable/ic_show_desktop"
             android:exported="true"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
             android:label="@string/display_viewer"

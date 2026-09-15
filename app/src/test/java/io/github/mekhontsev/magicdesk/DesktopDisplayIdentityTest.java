@@ -4,15 +4,26 @@ import static org.junit.Assert.*;
 import org.junit.Test;
 
 public final class DesktopDisplayIdentityTest {
+    @Test public void onlyKnownPublicUntrustedOutputsRequestPortableDesktop() {
+        for (String source : new String[]{"wired", "wireless", "virtual", "overlay"}) {
+            assertTrue(DesktopDisplayInfo.requiresPortableDesktop(7, source, true, false));
+            assertFalse(DesktopDisplayInfo.requiresPortableDesktop(7, source, true, true));
+            assertFalse(DesktopDisplayInfo.requiresPortableDesktop(7, source, false, false));
+        }
+        assertFalse(DesktopDisplayInfo.requiresPortableDesktop(0, "phone", true, false));
+        assertFalse(DesktopDisplayInfo.requiresPortableDesktop(1, "internal", true, false));
+        assertFalse(DesktopDisplayInfo.requiresPortableDesktop(7, "unknown", true, false));
+    }
+
     private static DesktopDisplayInfo display(final int id, final String source, final boolean owned) {
-        return new DesktopDisplayInfo(id, "id:" + id, source, source, 1280, 720, 160, false, owned, false);
+        return new DesktopDisplayInfo(id, "id:" + id, source, source, 1280, 720, 160, false, false, owned, false);
     }
 
     @Test public void protectedSourcePolicyIsDistinctFromOutputSecurityAndDesktopEligibility() {
         final DesktopDisplayInfo protectedSource = new DesktopDisplayInfo(7, "source", "Source", "virtual",
-                1280, 720, 160, true, true, true);
+                1280, 720, 160, true, false, true, true);
         final DesktopDisplayInfo secureOutput = new DesktopDisplayInfo(8, "output", "Output", "wireless",
-                1280, 720, 160, false, false, true);
+                1280, 720, 160, false, true, false, true);
         assertTrue(protectedSource.protectedContent());
         assertFalse(secureOutput.protectedContent());
         protectedSource.requirePresentationOutput(secureOutput);
@@ -21,7 +32,7 @@ public final class DesktopDisplayIdentityTest {
         display(10, "virtual", true).requirePresentationOutput(display(11, "wireless", false));
         secureOutput.requirePresentationOutput(display(11, "wireless", false));
         assertFalse(new DesktopDisplayInfo(12, "foreign", "Foreign", "virtual",
-                1280, 720, 160, true, false, true).protectedContent());
+                1280, 720, 160, true, false, false, true).protectedContent());
     }
 
     @Test public void builtInDoesNotMeanDefaultAndNonDefaultDoesNotMeanExternal() {

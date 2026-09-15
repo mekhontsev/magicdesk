@@ -406,11 +406,17 @@ Launch, task, UI and injected-input commands continue to address logical Android
 displays. Viewer presentation bindings are separate from these task targets.
 
 `list_displays` publishes source, uniqueId, dimensions, densityDpi,
-defaultDisplay, builtIn, canHostDesktop, owned and canRemove. Default-display
+defaultDisplay, builtIn, canHostDesktop, requiresPortableDesktop, owned and canRemove. Default-display
 identity is separate from built-in topology; additional built-in panels remain
 ineligible for Desktop until verified. These are live display identities, not
 desktop-session records. A wireless connection may already be listed before
 MagicDesk starts on it.
+
+`profileKey` identifies each display's own settings; `originProfileKey` identifies
+the transitive creation origin and does not follow Viewer attachment. `profile`
+contains explicit saved `densityDpi` and virtual creation `width`/`height`, with
+null for unspecified values. The top-level dimensions/density remain live Android
+state. A child profile can be changed without writing to the originating profile.
 
 Display metadata also reports `secure` (Android's output capability) and
 `protectedContent` (the protection policy of a MagicDesk-owned virtual source).
@@ -421,12 +427,32 @@ secure-output permission: true/false, or null when unavailable/unknown.
 `canHostDesktop=false` rejects only direct managed Desktop startup, not ordinary
 tool placement or Viewer output. In particular, untrusted public displays may
 accept a privileged Viewer launch but cannot host organizer-created task areas.
-Create a trusted virtual source, start Desktop there and use
-`attach_display_viewer` with the other display as its output; keep input addressed
-to the source. Viewer launch and attachment errors remain authoritative.
+`start_desktop(displayId=...)` uses the portable launcher when
+`requiresPortableDesktop=true`; `portable=true` explicitly requests it on other
+outputs and requires `displayId`. It keeps the existing output Viewer, otherwise selects
+an unassigned owned virtual source of the same resolution with the fewest managed
+applications (ties: matching origin, then lowest ID), or creates one. Existing
+DPI/origin are preserved. Portable completion returns the logical source as `id`
+and the requested output as `outputDisplayId`, plus `portable=true`. Desktop
+startup and visible Viewer attachment complete before success; a wait timeout
+does not cancel either. Inspect `workspaces` and `presentations` after uncertainty.
+Input and subsequent Desktop commands address the source, not the output. The
+explicit creation/start/`open_builtin(builtin="display_viewer")` workflow remains available.
+Viewer launch and attachment errors remain authoritative.
 
-- `create_display(width, height, densityDpi, type, protectedContent)` creates a `virtual`
+- `create_display(width, height, densityDpi, type, protectedContent, sourceDisplayId, sourceUniqueId)` creates a `virtual`
   (headless, default) or `overlay` (phone preview) display without starting HOME.
+  All parameters are optional. Without a reference the defaults are 1920x1080
+  at 160 DPI. `sourceDisplayId` supplies a creation reference, including display
+  0; optional `sourceUniqueId` rejects a stale reference and requires its ID.
+  Omitted dimensions inherit the reference's current logical resolution; omitted
+  density inherits its explicit saved DPI, otherwise its live density. Explicit
+  dimensions/DPI override that snapshot without losing origin. This neither
+  attaches a Viewer nor moves applications. The new display gets a separate
+  profile with the reference's flattened origin, so deleting an intermediate
+  source does not break future inheritance. A profile-save failure after
+  allocation returns `created=true` and the retained display identity; inspect
+  it rather than creating a duplicate.
   Several headless displays can coexist; only one Android overlay can be
   created without rewriting an existing overlay set.
   Owned virtual displays do not request system navigation decorations. Detaching
@@ -456,30 +482,43 @@ to the source. Viewer launch and attachment errors remain authoritative.
   It first closes any session on that display, releases its selected input and
   waits for window transitions.
   Then wait for `display_absent`; a removal request is not a display-loss event.
-- `attach_display_viewer(sourceDisplayId, outputDisplayId, fullscreen)` attaches
-  an output to a live source through an ordinary viewer window. MagicDesk-owned virtual
-  sources connect directly; existing screens are mirrored through WindowManager.
-  Built-in sources use their individual IDs, not an implicit display-0 selection.
-  It does not start Desktop or claim physical input. Completion confirms Surface
-  attachment, not the first rendered frame. Repeating the same source/output
-  reuses its live presentation and applies the requested fullscreen state;
-  another source on that output changes the viewer.
+- `open_builtin(builtin="display_viewer", displayId, placement, viewer)` uses
+  the ordinary built-in launch command. The optional `viewer` object contains
+  `sourceDisplayId`, `mode` and `immersive`; it is rejected for other built-ins.
+  Without options, Viewer opens its source selector. An explicit source waits
+  for Surface attachment, not the first rendered frame. Built-in sources use
+  their individual IDs, including 0. Neither mode starts Desktop or claims input.
+  `mode="mirror"` is the default and creates another Viewer window using normal
+  managed or independent placement. It mirrors even owned virtual sources,
+  without replacing another Viewer. `mode="output"` requires an explicit source
+  and independently resolved placement (`display` or `phone` guarantees it). It reuses the output's
+  fullscreen Viewer, connecting owned virtual sources directly and mirroring
+  other sources through WindowManager. Repeating an output request reuses its
+  binding and applies the requested immersive state. `immersive` hides Viewer
+  controls and requests immersive system bars; it does not change task ownership.
+  It requires a source and defaults to true in output mode, false in mirror mode.
+  Output `uniqueId` has the same stale-selection check as other built-in launches.
   Protected sources require a secure output and use a secure SurfaceView.
   An incompatible exchange is rejected before detaching either old binding.
 - `select_display_viewer(viewerId, sourceDisplayId)` changes only presentation.
-  If another viewer owns that source, the two sources are exchanged. Omitting
+  Output attachments exchange sources with another output attachment if needed;
+  ordinary mirror windows never exchange bindings or change physical input. Omitting
   `sourceDisplayId` selects the previous source. Completion commits both bindings,
   waits for visible participants' attachments and any already-acquired input
   handoff. A hidden viewer attaches when shown; it does not block the visible
   peer and remains `ready=false`. Task IDs, display IDs,
   window bounds and density do not change.
-- `detach_display_viewer(viewerId)` releases the viewer and its selected input,
-  keeping the source and its applications/optional Desktop alive. Direct sources
-  return to their own sink; closing a mirror removes only its copied scene.
-  Repeating an absent viewer ID succeeds. A disconnected output also detaches
-  the viewer; reconnect by choosing its fresh display catalog entry.
-  Pending viewer input acquisition is cancelled at the input runtime; a later
-  explicit selection of another display is preserved.
+- `close_task(taskId)` closes the Viewer window through normal task controls.
+  Its Activity lifecycle releases the presentation, retaining both displays,
+  applications and any Desktop. Direct sources return to their own sink;
+  a mirror releases only its copied scene. Output-mode cleanup cancels pending
+  Viewer input acquisition and releases its selected source without superseding
+  a later explicit input selection. Mirror windows do not change physical input.
+  Use `list_displays.presentations.taskId` or `list_tasks` to identify the window.
+  Closure acceptance is not a synchronous Surface-release guarantee: observe
+  `task_absent` and disappearance of its presentation before reusing its source.
+  An already absent task retains `close_task`'s task-not-found result; callers
+  can treat observed absence as their completed close condition.
 - `control_display(displayId)` explicitly routes phone-attached physical mice
   and keyboards and enables the phone touchpad for an external display. Use
   `-1` to release input and restore prior routing. Completion confirms routing,
@@ -494,9 +533,13 @@ to the source. Viewer launch and attachment errors remain authoritative.
   observation. This action never claims input. Built-ins retain `open_builtin`
   and terminal-session commands, using the same destination policy.
 
-`list_displays.presentations` reports each viewer's UUID, exact source/output
-display identities, `mode` (`direct` or `mirror`), attachment `ready`, fullscreen
-state, error and `protectedContent`. Protected Viewer surfaces can be black
+`list_displays.presentations` reports each viewer's binding UUID, Android `taskId`
+(-1 before Activity registration), exact source/output
+display identities, `mode` (`output` or `mirror`, matching launch options),
+`transport` (`direct` or `mirror`), attachment `ready`, `immersive`, error and
+`protectedContent`. Only output-mode Viewers
+participate in output attachment navigation and Show Desktop return destinations.
+Protected Viewer surfaces can be black
 in ordinary screenshots/recordings; this does not make protected video available
 through scrcpy. This is protected presentation support, not a guarantee that a
 particular DRM application or external output will accept playback. Viewer
@@ -510,25 +553,38 @@ Loss of the privileged viewer lease clears readiness and reports an error.
 Selecting the same source retries the binding; stale errors from a previous
 connection cannot invalidate a new one.
 
-The control panel's **Attach output...** and **Start portable desktop here**
-both request fullscreen output without Viewer controls. **Display Viewer**
-opens with its controls. Automation keeps the explicit `fullscreen` argument;
-use `fullscreen=true` to attach a reconnected output to a retained source in the
-same way as **Attach output...**. This does not reacquire released input.
-**Detach output: [name]** ends only that presentation, not its source display or
-Desktop, and does not disconnect the output's HDMI/wireless transport. The
-built-in CLI uses the same `attach_display_viewer` and
-`detach_display_viewer` commands from this catalog.
+The control panel's **Show another display...** selects a source for the chosen
+output; each source shows its name, ID and Desktop status. It and **Start portable
+desktop here** both request fullscreen output without Viewer controls, reusing
+the output's existing Viewer when present. **Display Viewer** is
+an ordinary built-in application, opened through Start or
+`open_builtin(builtin="display_viewer")` with the standard placement options.
+By default it starts with a source selector and mirrors, without taking over an
+output binding. Several windows may view the same source, subject to cycle and
+protection checks. Automation requests `viewer.mode="output"` to show a retained
+source like **Show another display...**. This does not reacquire released input.
+**Stop showing**, available among the selected output's direct actions, ends only that
+presentation, not its source display or Desktop, and does not disconnect the
+output's HDMI/wireless transport. It is optional before unplugging or switching
+sources. MCP and the built-in CLI use the same launch, source-selection and
+task-close commands. For example, show source 12 on output 3:
 
-The panel copies an existing-display command such as
-`scrcpy --display-id=3 --mouse-bind=++++ --shortcut-mod=rctrl`.
-Run it on the computer with its own scrcpy/ADB connection. This uses
-[scrcpy display selection](https://github.com/Genymobile/scrcpy/blob/master/doc/video.md#display),
-not `--new-display`: disconnecting the viewer does not remove MagicDesk's display.
-The mouse binding passes secondary buttons to applications; the shortcut modifier
-avoids scrcpy consuming Alt/Super desktop shortcuts. Host OS global shortcuts may
-still intercept them. MagicDesk does not install a PC client, start an ADB network
-listener, or implement another video/control protocol.
+```sh
+magicdesk open_builtin --builtin display_viewer --placement display --displayId 3 \
+  --viewer '{"sourceDisplayId":12,"mode":"output"}'
+magicdesk list_displays
+magicdesk close_task --taskId 123
+```
+
+Replace 123 with the returned Viewer's `taskId`. A launch observation timeout does
+not cancel it. Re-list presentations before retrying, particularly in mirror
+mode, where another launch intentionally creates another window.
+
+Use the display ID from the panel or `list_displays` with the
+[scrcpy example](../README.md#magicdesk-on-a-computer-with-scrcpy).
+This views an existing display, not `--new-display`: disconnecting the viewer
+does not remove MagicDesk's display. MagicDesk does not install a PC client,
+start an ADB network listener, or implement another video/control protocol.
 
 ## Desktop Commands
 
@@ -684,8 +740,9 @@ MCP commands use the same selection as the UI, never an independent backend.
 `display` (ordinary fullscreen on an explicit `displayId`), or `desktop`
 (the selected managed display). Multiple workspaces require an explicit
 `displayId`. An optional `uniqueId` validates display identity.
-An ordinary placement cannot bypass an active Desktop on that same display;
-choose `auto` or `desktop` instead. These launches never start Desktop implicitly.
+An ordinary placement is independent even if Desktop runs on that display.
+Reusing a Desktop-owned task explicitly releases its membership and fullscreen
+plane before ordinary placement. These launches never start Desktop implicitly.
 
 `terminal.detach` retains ordinary PTYs; repeating it on an already detached
 ordinary session succeeds. For a managed tmux connection it releases the client
@@ -931,14 +988,23 @@ Activity commands also share built-in tools' `placement` contract: `auto`
 selects the supplied `displayId`, otherwise the sole Desktop or phone when no
 Desktop exists. Multiple workspaces require an explicit destination; `phone`
 selects ordinary display 0; `display` requires a display id; `desktop` requires
-an active session. Ordinary placement cannot bypass Desktop ownership on the
-same display. This applies to application launches, Intents, URI/file/share
+an active session. Ordinary placement can coexist with Desktop on the same
+display without joining it. This applies to application launches, Intents, URI/file/share
 and clipboard actions, published shortcuts and notification Activity actions.
 Ordinary launches use fullscreen Activity options and do not acquire HOME,
 provision Desktop, or initialize its organizer/input/session coordinators.
 They reject windowed mode, relative bounds and exact managed-task reuse before
-dispatch. Android chooses ordinary task reuse according to the Intent and
-the application's manifest; this is not a managed cross-display task transfer.
+dispatch. Reusable explicit Activities are matched by application identity,
+preferring the destination display; an existing managed task is released by its
+owner before ordinary placement. Android's manifest and Intent semantics remain
+authoritative for creation and reuse.
+
+`move_task` reuses the exact task and accepts `placement=auto|desktop|display`
+and `mode=auto|windowed|fullscreen`, including ownership changes on the same
+display. It never routes input. `list_tasks` reports `ownership` as `desktop`,
+`independent`, `system` or `unknown`; window mode alone does not identify ownership.
+`close_desktop` releases only managed applications to independent fullscreen on
+their existing display. Only display-loss recovery moves them to the phone.
 
 An ordinary launch returns `accepted=true`, `taskObserved=false` and an
 observation hint, without inventing a task id or a reuse result. It means

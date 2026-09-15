@@ -65,6 +65,10 @@ final class ShellFreeformTaskCleanup implements Closeable {
         }
     }
 
+    synchronized void forget(final int taskId) {
+        mObserved.remove(taskId);
+    }
+
     @Override
     public synchronized void close() {
         mClosed = true;

@@ -269,7 +269,8 @@ final class DesktopAutomationStateReader {
         for (int index = Math.min(offset, filtered.size());
                 index < end; index++) {
             final TaskRepository.TaskEntry task = filtered.get(index);
-            tasks.put(taskJson(task, windows.health(task)));
+            tasks.put(taskJson(task, windows.health(task))
+                    .put("ownership", ApplicationTaskPlacement.ownership(task, snapshot)));
         }
         return new JSONObject()
                 .put("generatedAtMillis", System.currentTimeMillis())

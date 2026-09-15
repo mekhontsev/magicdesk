@@ -23,6 +23,7 @@ final class OrdinaryActivityLaunch {
 
     static void launch(final Context context, final Intent intent,
             final AndroidLaunchSpec.Delivery delivery, final int displayId) throws IOException {
+        ApplicationTaskPlacement.prepareIndependentLaunch(context, intent, displayId);
         if (delivery == AndroidLaunchSpec.Delivery.APP_PENDING_INTENT) {
             final PendingIntent token = AndroidPendingActivityLaunch.create(context, intent);
             try {

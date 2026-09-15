@@ -120,7 +120,7 @@ final class StartMenuController implements StartMenuContent.Host {
         return mActivity.handleDesktopMouseGenericEvent(event, true);
     }
     @Override public void appContext(final View view, final AppItem app) {
-        mActivity.registerStartContextTarget(view, app, mContent::destination);
+        mActivity.registerStartContextTarget(view, app, mContent::destination, mContent::presentation);
     }
     @Override public void fileContext(final View view, final DesktopFile file) {
         mActivity.registerFileContextTarget(view, file);
@@ -137,7 +137,7 @@ final class StartMenuController implements StartMenuContent.Host {
     @Override public void open(final StartMenuEntry result) {
         if (result.action == null) {
             StartEntryLauncher.open(mActivity, result, mContent.destination(),
-                    DesktopLaunchPresentation.automatic(), () -> !mActivity.isActivityUnavailable(),
+                    mContent.presentation(), () -> !mActivity.isActivityUnavailable(),
                     mActivity::hideAllPanels, error -> android.widget.Toast.makeText(mActivity,
                             ShellAccess.usefulMessage(error), android.widget.Toast.LENGTH_LONG).show());
             return;

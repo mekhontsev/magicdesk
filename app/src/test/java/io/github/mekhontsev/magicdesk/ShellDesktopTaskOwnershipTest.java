@@ -47,19 +47,19 @@ public final class ShellDesktopTaskOwnershipTest {
     private static final int WINDOWING_MODE_FREEFORM = 5;
 
     @Test
-    public void phoneOwnershipRequiresAnExplicitClaim() {
+    public void ownershipRequiresAnExplicitClaimOnItsDisplay() {
         assertTrue(ShellDesktopTaskOwnership.isDesktopOwnedTask(
-                false, true));
+                true, true));
         assertFalse(ShellDesktopTaskOwnership.isDesktopOwnedTask(
                 false, false));
     }
 
     @Test
-    public void everyStandardTaskOnActiveExternalDisplayIsDesktopOwned() {
-        assertTrue(ShellDesktopTaskOwnership.isDesktopOwnedTask(
+    public void displayAndRememberedIdentityAloneCannotClaimTasks() {
+        assertFalse(ShellDesktopTaskOwnership.isDesktopOwnedTask(
                 true, false));
         assertFalse(ShellDesktopTaskOwnership.isDesktopOwnedTask(
-                false, false));
+                false, true));
     }
 
     @Test
@@ -74,7 +74,7 @@ public final class ShellDesktopTaskOwnershipTest {
     }
 
     @Test
-    public void externalObservationPublishesEveryTaskMode() {
+    public void externalObservationNeverAdoptsIndependentTasks() {
         final ShellDesktopTaskOwnership ownership =
                 new ShellDesktopTaskOwnership();
 
@@ -83,7 +83,11 @@ public final class ShellDesktopTaskOwnershipTest {
                 4, 4, 41, WINDOWING_MODE_FULLSCREEN));
         assertNull(ownership.observeStandardTaskState(
                 4, 4, 42, WINDOWING_MODE_FREEFORM));
-        assertArrayEquals(new int[]{41, 42}, ownership.desktopTaskIds());
+        assertArrayEquals(new int[0], ownership.desktopTaskIds());
+        ownership.markDesktop(41);
+        assertArrayEquals(new int[]{41}, ownership.desktopTaskIds());
+        ownership.observeStandardTaskState(0, 0, 41, WINDOWING_MODE_FULLSCREEN);
+        assertArrayEquals(new int[0], ownership.desktopTaskIds());
     }
 
     @Test

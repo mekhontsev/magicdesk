@@ -25,12 +25,16 @@ final class ShellDisplayViewer extends IDisplayViewer.Stub {
     private MotionEvent mTouch;
     private boolean mClosed;
     final int outputDisplayId;
+    final boolean direct;
+
+    int sourceDisplayId() { return mSourceDisplayId; }
 
     ShellDisplayViewer(DisplayPresentationSurface presentation, int sourceDisplayId, int outputDisplayId,
-            IBinder owner) throws RemoteException {
+            boolean direct, IBinder owner) throws RemoteException {
         mPresentation = presentation;
         mSourceDisplayId = sourceDisplayId;
         this.outputDisplayId = outputDisplayId;
+        this.direct = direct;
         mOwner = owner;
         owner.linkToDeath(mDeath, 0);
     }

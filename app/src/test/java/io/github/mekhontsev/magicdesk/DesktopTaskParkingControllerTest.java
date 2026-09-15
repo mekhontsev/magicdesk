@@ -47,11 +47,20 @@ public final class DesktopTaskParkingControllerTest {
     }
 
     @Test
+    public void retainedTasksStayWithTheirLiveDisplay() {
+        assertTrue(DesktopTaskParkingController.canRestoreOnDisplay(3, 3, java.util.Set.of(0, 3, 5)));
+        assertFalse(DesktopTaskParkingController.canRestoreOnDisplay(3, 5, java.util.Set.of(0, 3, 5)));
+        assertFalse(DesktopTaskParkingController.canRestoreOnDisplay(0, 3, java.util.Set.of(0, 3)));
+        assertTrue(DesktopTaskParkingController.canRestoreOnDisplay(3, 5, java.util.Set.of(0, 5)));
+    }
+
+    @Test
     public void liveMatchRequiresSameTaskIdAndPackage() {
         final DesktopTaskParkingController.ParkedTask parked =
                 new DesktopTaskParkingController.ParkedTask(
                         20,
                         0,
+                        3,
                         "org.example.app",
                         false,
                         true,
@@ -92,6 +101,7 @@ public final class DesktopTaskParkingControllerTest {
                 new DesktopTaskParkingController.ParkedTask(
                         20,
                         0,
+                        3,
                         "org.example.app",
                         false,
                         true,
@@ -100,6 +110,7 @@ public final class DesktopTaskParkingControllerTest {
                 new DesktopTaskParkingController.ParkedTask(
                         20,
                         0,
+                        3,
                         "org.example.app",
                         false,
                         true,

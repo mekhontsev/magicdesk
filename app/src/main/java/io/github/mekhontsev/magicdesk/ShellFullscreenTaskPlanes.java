@@ -378,6 +378,50 @@ final class ShellFullscreenTaskPlanes implements AutoCloseable {
         }
     }
 
+    synchronized void releaseToAndroid(final Object service, final int displayId,
+            final int[] taskIds) throws ReflectiveOperationException {
+        if (displayId != mDisplayId) {
+            throw new IllegalArgumentException("fullscreen planes belong to another display");
+        }
+        final java.util.Set<Integer> selected = new java.util.LinkedHashSet<>();
+        for (final int taskId : taskIds) { selected.add(taskId); }
+        final FrameworkWindowingApi windowing = FrameworkRuntime.current().windowing();
+        final Object transaction = windowing.newTransaction();
+        final List<Integer> released = new ArrayList<>();
+        // One transition releases the selected workspace, without activating
+        // every application. Front-to-back insertion retains their relative order.
+        for (final FrameworkTaskSnapshot task : FrameworkTaskSnapshotSource.readWindowState(
+                service, displayId, 200)) {
+            if (!selected.remove(task.taskId)) { continue; }
+            final Object token = HiddenTaskApi.getTaskToken(task.task);
+            windowing.setWindowingMode(transaction, token, WINDOWING_MODE_FULLSCREEN);
+            windowing.setBounds(transaction, token, new Rect());
+            DesktopTaskDensity.apply(windowing, transaction, token, DesktopTaskDensity.INHERIT);
+            windowing.setForceTranslucent(transaction, token, false);
+            windowing.setHidden(transaction, token, false);
+            windowing.setFocusable(transaction, token, true);
+            if (ownsTask(task.taskId)) { windowing.reparent(transaction, token, null, false); }
+            windowing.reorder(transaction, token, false);
+            TaskCaptionInsetsCommand.addCaptionInsetOperation(transaction, token, true);
+            released.add(task.taskId);
+        }
+        if (!selected.isEmpty()) { throw new IllegalStateException("tasks left their display: " + selected); }
+        if (released.isEmpty()) { return; }
+        ShellWindowTransitionExecutor.startForShellAdoption(displayId,
+                ShellWindowTransitionExecutor.SystemTransition.CHANGE,
+                windowing.transactionClass(), transaction, "release-desktop-tasks");
+        FrameworkWindowCommitBarrier.awaitSystemTransitions();
+        for (final int taskId : released) {
+            TaskDisplayAreaLaunchCommand.waitForTaskWindowingMode(
+                    service, displayId, taskId, WINDOWING_MODE_FULLSCREEN);
+            final TaskDisplayAreaHandle plane = mPlanes.get(taskId);
+            if (plane != null) {
+                waitForTaskOutsidePlane(service, displayId, taskId, plane.featureId());
+                releasePlane(service, taskId);
+            }
+        }
+    }
+
     synchronized boolean restoreFreeform(
             final Object service,
             final int displayId,

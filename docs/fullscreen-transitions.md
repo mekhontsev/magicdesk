@@ -309,6 +309,18 @@ an explicit user disable remains effective for subsequent sessions.
 
 ## Window transition ownership
 
+Desktop membership is explicit on every display. Independent Android tasks may
+coexist with a workspace, but do not enter its taskbar or Alt+Tab. Moving between
+these ownership modes is an explicit placement operation, not a focus action.
+`ApplicationTaskPlacement` asks the source observer to release membership;
+`ShellFullscreenTaskPlanes.releaseToAndroid` owns the fullscreen/bounds/density
+reset and plane departure transaction. The observer clears mode/migration guards
+for released tasks and reconciles ownership if submission fails.
+
+Close Desktop releases managed applications together on their still-live
+display. It does not repeatedly focus them, include independent applications,
+or remove the display. Phone return is reserved for display loss.
+
 Shell-side WCT submission has one owner. Ordinary freeform focus submits one
 system `TO_FRONT` through `startForShellAdoption`; fullscreen-plane selection
 uses an atomic WCT. Neither path appends another task-focus submission. A cold

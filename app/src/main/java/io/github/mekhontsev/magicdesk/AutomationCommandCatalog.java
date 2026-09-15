@@ -106,10 +106,11 @@ final class AutomationCommandCatalog {
                 .put(actionTool(
                         "start_desktop",
                         "Start desktop",
-                        "Start MagicDesk on the requested available display target.",
+                        "Start MagicDesk on the requested display. Explicit untrusted public outputs use a portable workspace. Portable launch reuses its current output Viewer or selects a compatible unassigned owned virtual display before creating one. OUTCOME_UNKNOWN does not cancel startup; inspect workspaces and presentations.",
                         objectSchema(new JSONObject()
                                 .put("displayId", integerProperty("Exact display ID returned by list_displays."))
                                 .put("uniqueId", stringProperty("Optional exact display identity."))
+                                .put("portable", booleanProperty("Use a portable workspace even on a trusted output. Requires displayId; default false. Result id is the logical source, outputDisplayId is its presentation output."))
                                 .put("target", enumProperty(
                                         "Target display environment.",
                                         "auto", "phone", "simulated",
@@ -119,25 +120,16 @@ final class AutomationCommandCatalog {
                         "Create an owned display without starting a desktop or acquiring HOME. OUTCOME_UNKNOWN does not cancel creation; inspect list_displays before creating another display.",
                         objectSchema(new JSONObject()
                                 .put("type", enumProperty("Display creation mechanism.", "virtual", "overlay"))
-                                .put("width", integerProperty("Display width in pixels."))
-                                .put("height", integerProperty("Display height in pixels."))
+                                .put("sourceDisplayId", integerProperty("Optional creation reference, including 0; inherit its resolution, configured DPI and transitive origin. No task movement or presentation attachment."))
+                                .put("sourceUniqueId", stringProperty("Expected reference identity; requires sourceDisplayId."))
+                                .put("width", integerProperty("Width override in pixels; inherits the reference, otherwise 1920."))
+                                .put("height", integerProperty("Height override in pixels; inherits the reference, otherwise 1080."))
                                 .put("protectedContent", booleanProperty("Protected virtual source; default false. Requires secure-output permission in the current service and a secure Viewer output. Not available for overlay preview."))
-                                .put("densityDpi", integerProperty("Display density; default 160.")),
-                                "width", "height")))
-                .put(actionTool("attach_display_viewer", "Attach output",
-                        "Attach an output display to an existing source through a viewer, with aspect-fit scaling. Owned virtual sources connect directly; other sources, including the phone, are mirrored. Waits for Surface attachment, not a rendered frame. Does not start Desktop, move tasks or claim physical input. OUTCOME_UNKNOWN does not cancel attachment; observe list_displays.presentations before retrying.",
-                        objectSchema(new JSONObject()
-                                .put("sourceDisplayId", integerProperty("Existing source display, including display 0."))
-                                .put("outputDisplayId", integerProperty("Display on which to open the viewer."))
-                                .put("fullscreen", booleanProperty("Hide viewer controls and request immersive presentation.")),
-                                "sourceDisplayId", "outputDisplayId")))
+                                .put("densityDpi", integerProperty("Density override; inherits the reference's saved DPI or current density, otherwise 160.")))))
                 .put(actionTool("select_display_viewer", "Select viewer source",
-                        "Change a viewer's source without moving applications; if another viewer shows it, exchange both sources. Waits for visible viewers' attachments and acquired input handoff; hidden viewers attach when shown. Omit sourceDisplayId for the previous source. OUTCOME_UNKNOWN does not cancel switching; re-list presentations before retrying a previous-source command.",
+                        "Change a viewer's source without moving applications. Output attachments exchange sources with another output attachment when needed; ordinary mirror windows never change other bindings or physical input. Waits for visible attachments; hidden viewers attach when shown. Omit sourceDisplayId for the previous source. OUTCOME_UNKNOWN does not cancel switching; re-list presentations before retrying a previous-source command.",
                         objectSchema(new JSONObject().put("viewerId", stringProperty("Live presentation ID."))
                                 .put("sourceDisplayId", integerProperty("New source display; omitted means previous.")), "viewerId")))
-                .put(actionTool("detach_display_viewer", "Detach output",
-                        "Detach the viewer's output from its source by closing only the viewer and releasing its selected input. Retains the source display, applications and Desktop; does not remove the output display or disconnect its transport. Direct sources return to their own sink; mirrors release only the copied scene. Repeating an absent viewer ID succeeds.",
-                        objectSchema(new JSONObject().put("viewerId", stringProperty("Presentation ID.")), "viewerId")))
                 .put(actionTool(
                         "remove_display", "Remove display",
                         "Close any desktop on this display, then remove only the selected MagicDesk-owned display. Safe to repeat with the same displayId and uniqueId: retries join pending removal and absence succeeds. OUTCOME_UNKNOWN does not cancel removal. Observe display_absent for Android publication.",
@@ -150,14 +142,16 @@ final class AutomationCommandCatalog {
                         objectSchema(new JSONObject().put("displayId", integerProperty(
                                 "Destination display ID, or -1 to release input.")), "displayId")))
                 .put(actionTool("move_task", "Move task",
-                        "Move an existing task to a display: ordinary fullscreen or managed Desktop window. Same-display selection only activates the task. Does not route input.",
+                        "Place an existing task on a display with explicit Desktop or independent ownership. auto follows Desktop availability; mode selects windowed/fullscreen for Desktop. Can change ownership on the same display. Reuses the task; does not route input.",
                         objectSchema(new JSONObject().put("taskId", integerProperty("Existing task ID."))
                                 .put("uniqueId", stringProperty("Optional exact destination display identity."))
+                                .put("placement", enumProperty("Task owner; auto follows Desktop availability.", "auto", "desktop", "display"))
+                                .put("mode", enumProperty("Desktop window mode; independent tasks are fullscreen.", "auto", "windowed", "fullscreen"))
                                 .put("displayId", integerProperty("Destination display ID.")), "taskId", "displayId")))
                 .put(actionTool(
                         "close_desktop",
                         "Close desktop",
-                        "Close the selected desktop session without removing or disconnecting its display.",
+                        "Close the selected Desktop without removing its display. Managed apps become independent fullscreen on the same live display; display-loss recovery returns them to the phone.",
                         objectSchema(new JSONObject().put("displayId", integerProperty(
                                 "Desktop display ID. Required when multiple workspaces are active.")))))
                 .put(actionTool(
@@ -314,14 +308,18 @@ final class AutomationCommandCatalog {
                 .put(actionTool(
                         "open_builtin",
                         "Open built-in window",
-                        "Open a MagicDesk Files, Console, Task Manager, Settings, Application Profiles, Diagnostics, or Activity Explorer window.",
+                        "Open a built-in application without starting Desktop or claiming input. Viewer options choose a source and mirror or output mode; output mode reuses the output's independent Viewer. An explicit source waits for Surface attachment, not the first rendered frame. OUTCOME_UNKNOWN does not cancel launch: inspect list_displays.presentations before retrying. Close a Viewer with close_task using its taskId.",
                         objectSchema(toolPlacementProperties().put(
                                 "builtin", enumProperty(
                                         "Built-in window.",
                                         "files", "console", "termux",
                                         "task_manager", "settings",
                                         "app_profiles",
-                                        "diagnostics", "activity_explorer")),
+                                        "diagnostics", "activity_explorer", "display_viewer"))
+                                .put("viewer", objectSchema(new JSONObject()
+                                        .put("sourceDisplayId", integerProperty("Viewer source, including 0. Omit for interactive source selection."))
+                                        .put("mode", enumProperty("Viewer only: mirror (default) opens a separate copy using normal placement; output reuses one independent fullscreen Viewer per output and connects owned virtual sources directly. Output requires sourceDisplayId and independent placement; use placement=display to avoid inheriting Desktop.", "mirror", "output"))
+                                        .put("immersive", booleanProperty("Hide Viewer controls and system bars; requires sourceDisplayId. Defaults to true for output mode, false for mirror. Separate from managed/fullscreen task placement.")))),
                                 "builtin")))
                 .put(actionTool(
                         "arrange_task",
@@ -942,7 +940,7 @@ final class AutomationCommandCatalog {
 
     private static JSONObject activityPlacementProperties() throws JSONException {
         return new JSONObject().put("placement", enumProperty(
-                        "auto selects Desktop when present, otherwise phone; display and phone are ordinary fullscreen launches.",
+                        "auto uses Desktop on the destination when present, otherwise ordinary fullscreen; display and phone always launch independently of Desktop.",
                         "auto", "phone", "display", "desktop"))
                 .put("displayId", integerProperty("Destination display, including 0; defaults to active Desktop or phone. Required for display placement."));
     }
@@ -1376,9 +1374,20 @@ final class AutomationCommandCatalog {
             case "list_displays":
                 properties.put("displays", arrayProperty(
                         "Connected displays, including secure output capability and protectedContent source policy.", openObjectProperty("Display.")))
+                        .put("presentations", viewerPresentationsProperty())
                         .put("canCreateProtectedDisplay", booleanProperty("Current privileged service has secure-output permission; null if unavailable or unknown.")
                                 .put("type", new JSONArray().put("boolean").put("null")))
                         .put("protectedDisplayPermissionError", nullableStringProperty("Protected-display permission query error, if any."));
+                break;
+            case "open_builtin":
+                properties.put("accepted", booleanProperty("Launch completed; with an explicit Viewer source, its Surface attached."))
+                        .put("displayId", integerProperty("Application destination display."))
+                        .put("placement", enumProperty("Resolved task ownership.", "desktop", "display"))
+                        .put("presentations", viewerPresentationsProperty());
+                break;
+            case "select_display_viewer":
+                properties.put("viewerId", stringProperty("Selected Viewer binding."))
+                        .put("presentations", viewerPresentationsProperty());
                 break;
             case "list_tasks":
                 properties.put("tasks", arrayProperty(
@@ -1820,6 +1829,23 @@ final class AutomationCommandCatalog {
                 .put("title", toolName + " data")
                 .put("properties", properties)
                 .put("additionalProperties", true);
+    }
+
+    private static JSONObject viewerPresentationsProperty() throws JSONException {
+        return arrayProperty("Live Viewer bindings; taskId identifies the window for close_task.",
+                objectSchema(new JSONObject()
+                        .put("id", stringProperty("Binding identity for select_display_viewer."))
+                        .put("taskId", integerProperty("Android Viewer task, or -1 before its Activity registers."))
+                        .put("sourceDisplayId", integerProperty("Source logical display."))
+                        .put("sourceUniqueId", stringProperty("Exact source identity."))
+                        .put("outputDisplayId", integerProperty("Display containing the Viewer window."))
+                        .put("outputUniqueId", stringProperty("Exact output identity."))
+                        .put("mode", enumProperty("Viewer mode, matching the launch option.", "output", "mirror"))
+                        .put("transport", enumProperty("Actual presentation mechanism.", "direct", "mirror"))
+                        .put("ready", booleanProperty("Surface attached, not proof of the first rendered frame."))
+                        .put("immersive", booleanProperty("Viewer controls hidden and immersive bars requested."))
+                        .put("protectedContent", booleanProperty("Protected source policy."))
+                        .put("error", stringProperty("Last binding failure, empty otherwise."))));
     }
 
     private static void activityLaunchResultProperties(

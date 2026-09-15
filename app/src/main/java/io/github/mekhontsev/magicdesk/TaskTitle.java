@@ -9,9 +9,20 @@ final class TaskTitle {
     static String resolve(final Context context, final AppItem app,
             final TaskRepository.TaskEntry task) {
         final BuiltInDesktopAppCatalog.Entry builtIn = BuiltInDesktopAppCatalog.find(task);
-        final String fallback = builtIn == null ? app.label : context.getString(builtIn.fallbackLabelResId);
+        final String fallback = builtIn != null ? context.getString(builtIn.fallbackLabelResId)
+                : app != null ? app.label : task.packageName;
         final ConsoleTerminalRegistry.Snapshot terminal = ConsoleTerminalRegistry.snapshotForTask(task.taskId);
         return terminal == null ? fallback : terminal.taskLabel("termux".equals(terminal.backend)
                 ? context.getString(R.string.console_termux_title) : fallback);
+    }
+
+    static String detail(final Context context, final TaskRepository.TaskEntry task) {
+        final DisplayPresentations.Session viewer = DisplayPresentations.forTask(task.taskId);
+        if (viewer != null) {
+            final DesktopDisplayInfo source = viewer.source;
+            return context.getString(R.string.independent_viewer_source, source.name, source.id);
+        }
+        final ConsoleTerminalRegistry.Snapshot terminal = ConsoleTerminalRegistry.snapshotForTask(task.taskId);
+        return terminal == null ? "" : terminal.workingDirectory;
     }
 }

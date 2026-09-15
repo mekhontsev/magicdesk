@@ -252,6 +252,10 @@ final class DesktopStateStore {
         json.put("key", profile.key);
         json.put("dpi", profile.dpi);
         json.put("dpiExplicit", profile.dpiExplicit);
+        if (!profile.originProfileKey.isEmpty()) { json.put("originProfileKey", profile.originProfileKey); }
+        if (profile.width > 0 && profile.height > 0) {
+            json.put("width", profile.width).put("height", profile.height);
+        }
         if (profile.outputTiming != null && !profile.outputTiming.isEmpty()) {
             json.put("outputTiming", profile.outputTiming);
         }
@@ -274,6 +278,9 @@ final class DesktopStateStore {
                 new DisplayProfileStore.Profile(profileKey);
         profile.dpi = json.optInt("dpi", 192);
         profile.dpiExplicit = json.optBoolean("dpiExplicit", false);
+        profile.originProfileKey = json.optString("originProfileKey", "");
+        profile.width = json.optInt("width", 0);
+        profile.height = json.optInt("height", 0);
         final String outputTiming = json.optString("outputTiming", "");
         profile.outputTiming = outputTiming.isEmpty() ? null : outputTiming;
         profile.resetOutputModePending = json.optBoolean(

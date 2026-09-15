@@ -305,6 +305,13 @@ public final class ShellAccess {
         }
     }
 
+    static void releaseDesktopTasks(final int displayId, final int[] taskIds) throws IOException {
+        try { requireService().releaseDesktopTasks(displayId, taskIds); }
+        catch (android.os.RemoteException | RuntimeException error) {
+            throw new IOException("could not release desktop tasks", error);
+        }
+    }
+
     static void moveOrdinaryTask(final TaskRepository.TaskEntry task, final int displayId)
             throws IOException {
         try {
@@ -1238,10 +1245,10 @@ public final class ShellAccess {
     }
 
     static IDisplayViewer openDisplayViewer(DesktopDisplayInfo source, DesktopDisplayInfo output,
-            IBinder owner) throws IOException {
+            DisplayPresentationMode mode, IBinder owner) throws IOException {
         try {
             return requireService().openDisplayViewer(source.id, source.uniqueId,
-                    output.id, output.uniqueId, VIRTUAL_DISPLAY_OWNER, owner);
+                    output.id, output.uniqueId, mode == DisplayPresentationMode.DIRECT, VIRTUAL_DISPLAY_OWNER, owner);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("could not open display viewer: " + usefulMessage(error), error);

@@ -13,7 +13,7 @@ import java.util.Map;
 final class ShellVirtualDisplays implements AutoCloseable {
     private final Context mContext;
     private final Map<Integer, Entry> mDisplays = new LinkedHashMap<>();
-    private final Map<Integer, ShellDisplayViewer> mViewers = new LinkedHashMap<>();
+    private final java.util.List<ShellDisplayViewer> mViewers = new java.util.ArrayList<>();
 
     ShellVirtualDisplays(final Context context) { mContext = context; }
 
@@ -93,7 +93,8 @@ final class ShellVirtualDisplays implements AutoCloseable {
     }
 
     @Override public synchronized void close() {
-        for (int id : new java.util.ArrayList<>(mViewers.keySet())) closeViewer(id);
+        for (ShellDisplayViewer viewer : new java.util.ArrayList<>(mViewers)) closeViewer(viewer);
+        mViewers.clear();
         for (final Entry entry : mDisplays.values()) {
             entry.display.release();
             entry.owner.unlinkToDeath(entry.death, 0);
@@ -102,11 +103,12 @@ final class ShellVirtualDisplays implements AutoCloseable {
     }
 
     synchronized IDisplayViewer openViewer(int sourceId, String sourceUniqueId,
-            int outputId, String outputUniqueId, IBinder displayOwner, IBinder viewerOwner) {
+            int outputId, String outputUniqueId, boolean direct, IBinder displayOwner, IBinder viewerOwner) {
         final Entry entry = mDisplays.get(sourceId);
         if (entry != null && !entry.owner.equals(displayOwner)) {
             throw new IllegalArgumentException("virtual source belongs to another client");
         }
+        if (direct && entry == null) throw new IllegalArgumentException("direct output requires an owned virtual source");
         DesktopDisplayInfo source = null;
         DesktopDisplayInfo output = null;
         final DesktopDisplayInfo[] catalog = list();
@@ -120,25 +122,19 @@ final class ShellVirtualDisplays implements AutoCloseable {
         source.requirePresentationOutput(output);
         // Presentation edges are output -> source. A cycle would feed the
         // viewer's own window back into itself, even though all IDs are valid.
-        final Map<Integer, Integer> edges = new LinkedHashMap<>();
-        mViewers.values().removeIf(ShellDisplayViewer::isClosed);
-        for (var pair : mViewers.entrySet()) {
-            final ShellDisplayViewer viewer = pair.getValue();
-            if (!viewer.isClosed()) {
-                if (viewer.outputDisplayId == outputId) {
-                    throw new IllegalStateException("output already has a viewer");
-                }
-                edges.put(viewer.outputDisplayId, pair.getKey());
+        final java.util.List<DisplayPresentationGraph.Edge> edges = new java.util.ArrayList<>();
+        mViewers.removeIf(ShellDisplayViewer::isClosed);
+        for (ShellDisplayViewer viewer : mViewers) {
+            if (direct && viewer.direct && viewer.sourceDisplayId() == sourceId) {
+                throw new IllegalStateException("source already has a direct output");
             }
+            edges.add(new DisplayPresentationGraph.Edge(viewer.outputDisplayId, viewer.sourceDisplayId()));
         }
-        edges.put(outputId, sourceId);
+        edges.add(new DisplayPresentationGraph.Edge(outputId, sourceId));
         DisplayPresentationGraph.requireAcyclic(edges, java.util.Arrays.stream(catalog)
                 .filter(d -> "overlay".equals(d.source)).map(d -> d.id).toList());
-        if (mViewers.containsKey(sourceId)) {
-            throw new IllegalStateException("display already has a viewer");
-        }
         try {
-            final DisplayPresentationSurface presentation = entry == null
+            final DisplayPresentationSurface presentation = !direct
                     ? FrameworkRuntime.current().displayMirror().create(sourceId)
                     : new DisplayPresentationSurface() {
                         @Override public void attach(android.view.Surface surface,
@@ -146,20 +142,25 @@ final class ShellVirtualDisplays implements AutoCloseable {
                         @Override public void close() { entry.display.detachViewer(); }
                     };
             final ShellDisplayViewer viewer = new ShellDisplayViewer(
-                    presentation, sourceId, outputId, viewerOwner);
-            mViewers.put(sourceId, viewer);
+                    entry == null ? presentation : entry.display.presentation(presentation),
+                    sourceId, outputId, direct, viewerOwner);
+            mViewers.add(viewer);
             return viewer;
         } catch (RemoteException | ReflectiveOperationException error) {
             throw new IllegalStateException("could not open display presentation", error);
         }
     }
 
-    private void closeViewer(int sourceId) {
-        final ShellDisplayViewer viewer = mViewers.remove(sourceId);
-        if (viewer != null) {
-            try { viewer.close(); }
-            catch (RuntimeException error) { android.util.Log.w("MagicDeskDisplays", "Viewer cleanup failed", error); }
+    private void closeViewer(int displayId) {
+        for (ShellDisplayViewer viewer : new java.util.ArrayList<>(mViewers)) {
+            if (viewer.sourceDisplayId() == displayId || viewer.outputDisplayId == displayId) closeViewer(viewer);
         }
+        mViewers.removeIf(ShellDisplayViewer::isClosed);
+    }
+
+    private void closeViewer(ShellDisplayViewer viewer) {
+        try { viewer.close(); }
+        catch (RuntimeException error) { android.util.Log.w("MagicDeskDisplays", "Viewer cleanup failed", error); }
     }
 
     private static final class Entry {

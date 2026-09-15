@@ -93,16 +93,17 @@ public final class MagicDeskCliTest {
         assertEquals(10, arguments.optInt("limit"));
     }
 
-    @Test public void displayAttachmentUsesTheSharedCommandSchema() {
-        assertEquals(0, run("attach_display_viewer", "--sourceDisplayId", "12",
-                "--outputDisplayId", "11", "--fullscreen"));
-        assertEquals("attach_display_viewer", name);
-        assertEquals(12, arguments.optInt("sourceDisplayId"));
-        assertEquals(11, arguments.optInt("outputDisplayId"));
-        assertTrue(arguments.optBoolean("fullscreen"));
-        assertEquals(0, run("detach_display_viewer", "--viewerId", "presentation-id"));
-        assertEquals("detach_display_viewer", name);
-        assertEquals("presentation-id", arguments.optString("viewerId"));
+    @Test public void viewerUsesBuiltinOptionsAndTaskCloseWithoutSpecialCliCommands() {
+        assertEquals(0, run("open_builtin", "--builtin", "display_viewer", "--placement", "display",
+                "--displayId", "11", "--viewer", "{\"sourceDisplayId\":12,\"mode\":\"output\",\"immersive\":true}"));
+        assertEquals("open_builtin", name);
+        assertEquals(11, arguments.optInt("displayId"));
+        assertEquals(12, arguments.optJSONObject("viewer").optInt("sourceDisplayId"));
+        assertEquals("output", arguments.optJSONObject("viewer").optString("mode"));
+        assertTrue(arguments.optJSONObject("viewer").optBoolean("immersive"));
+        assertEquals(0, run("close_task", "--taskId", "123"));
+        assertEquals("close_task", name);
+        assertEquals(123, arguments.optInt("taskId"));
         assertEquals(2, calls.get());
     }
 

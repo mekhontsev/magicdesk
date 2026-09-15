@@ -245,6 +245,18 @@ The same arrangement can show independent fullscreen Files or terminal tools
 without starting managed Desktop. scrcpy is a separate application with its
 own connection requirements; an MCP connection does not provide its video stream.
 
+Run on the computer, replacing `3` with the display ID shown in MagicDesk
+(`0` is the phone screen):
+
+```sh
+scrcpy --display-id=3 --mouse-bind=++++ --shortcut-mod=rctrl
+```
+
+This views an existing display, without creating or owning it. The mouse and
+shortcut options leave right-click and Alt/Super combinations for Android.
+See the [scrcpy documentation](https://github.com/Genymobile/scrcpy#user-documentation)
+for installation and USB/Wi-Fi connection setup.
+
 ### Display Resources
 
 The display selector lists Android displays with their current identity,
@@ -254,15 +266,21 @@ exist before MagicDesk starts a session on it.
 **Create display** offers a virtual display or a display with a phone preview,
 with configurable dimensions and scale. Multiple headless virtual displays can
 coexist; the Android preview adapter has a single shared configuration.
-**Copy scrcpy command** supplies a viewer command for the selected display.
 
-**Attach output...** connects a screen for viewing the selected source display.
-For a MagicDesk-owned virtual source, **Detach output: [name]** releases that
-presentation while retaining the virtual display, its applications and Desktop.
-The HDMI or wireless connection itself stays connected. Attach another output
-to continue there. **Start portable desktop here** creates a virtual source,
-starts Desktop there and attaches the selected output to it. **Display Viewer**
-opens an ordinary viewer with its controls instead.
+Select an output and choose **Show another display...**, then pick the source
+by name, ID and Desktop status. This opens its independent fullscreen Viewer
+or changes the source in the existing one. **Stop showing** closes that fullscreen
+Viewer while retaining the source display, its applications and Desktop.
+The HDMI or wireless connection itself stays connected. This step is not
+required before unplugging a cable or switching sources. Select another output
+and the same source to continue there. **Start portable desktop here** keeps the existing output Viewer or
+reuses an available virtual source with matching resolution and the fewest
+managed applications, creating one only when needed. It starts Desktop there
+and attaches the selected output. **Start desktop** uses this path automatically
+for untrusted public external displays. **Display Viewer**
+opens from Start like other built-in applications: choose its destination and
+window mode there, then select the source inside the Viewer. It mirrors without
+taking over an output Viewer; several Viewer windows can show the same source.
 
 A viewer, display and Desktop session have independent lifetimes:
 
@@ -357,16 +375,22 @@ and the [API-level contract](docs/runtime-api-levels.md).
    create an Android-shell, Termux or tmux terminal without starting Desktop.
 4. For Desktop, open **Settings > Device setup**, complete the required changes,
    and reboot only when setup requests it. Restart Shizuku afterward as needed.
-5. Select the phone, a connected display, or a display created through
-   **Create display**, then press **Start desktop**.
+5. Find the phone, a connected display, or one created through **Create display**
+   in the display table, then press **Start desktop** in the shared toolbar.
 
 **Apps** opens fullscreen Start to launch an app or move a running task to its
-selected display, without requiring Desktop. **Control input**
+selected display, without requiring Desktop. Every Start offers **Current** or
+an explicit display, an app-default, Desktop window, Desktop fullscreen or
+independent launch, and an optional new-window request. Independent applications
+stay outside Desktop's taskbar and Alt+Tab; the control panel lists them per display.
+**Control input**
 selects where phone-attached mice and keyboards operate independently.
 
 **Show desktop** returns to the selected workspace without starting another
 session. **Close desktop** closes only that workspace while keeping other
-Desktops, the tools runtime and owned displays available. **Exit MagicDesk** also ends retained
+Desktops, the tools runtime and owned displays available. Its applications remain
+on that display as independent fullscreen tasks; if the display disappears, they
+return to the phone. **Exit MagicDesk** also ends retained
 terminals, closes built-in windows and stops the runtime. Neither action deletes
 the Desktop folder.
 

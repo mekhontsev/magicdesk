@@ -20,9 +20,11 @@ final class DisplayPresentations {
     static final class Session {
         final String id = UUID.randomUUID().toString();
         final DesktopDisplayInfo output;
+        final boolean outputAttachment;
         final List<DesktopDisplayInfo> history = new ArrayList<>();
         final List<BuiltInWindowLauncher.Callback> completions = new ArrayList<>();
         volatile DesktopDisplayInfo source;
+        volatile int taskId = -1;
         Listener listener;
         volatile boolean fullscreen;
         volatile boolean closed;
@@ -32,10 +34,11 @@ final class DisplayPresentations {
         volatile String error = "";
         long bindingGeneration;
         Change change;
-        Session(DesktopDisplayInfo source, DesktopDisplayInfo output, boolean fullscreen) {
+        Session(DesktopDisplayInfo source, DesktopDisplayInfo output, boolean fullscreen, boolean outputAttachment) {
             this.source = source;
             this.output = output;
             this.fullscreen = fullscreen;
+            this.outputAttachment = outputAttachment;
         }
     }
 
@@ -44,22 +47,82 @@ final class DisplayPresentations {
     private static final Map<String, Session> LAST_OUTPUTS = new LinkedHashMap<>();
     private DisplayPresentations() { }
 
-    /** Attach a fullscreen output to the source, whose lifetime remains independent. */
-    static void attachOutput(Context context, int sourceId, int outputId,
+    /** Launch options for the built-in Viewer; neither path acquires input or Desktop. */
+    static void openViewer(Context context, ToolLaunchTarget target, String outputUniqueId,
+            Integer sourceId, boolean outputAttachment, boolean fullscreen,
             BuiltInWindowLauncher.Callback callback) {
-        attach(context, sourceId, outputId, true, callback);
+        if (sourceId != null && sourceId < 0) throw new IllegalArgumentException("invalid source display");
+        if (sourceId == null && (outputAttachment || fullscreen)) {
+            throw new IllegalArgumentException("output mode and immersive viewing require sourceDisplayId");
+        }
+        if (outputAttachment) {
+            if (target.desktop) throw new IllegalArgumentException("output mode requires independent display placement");
+            attach(context, sourceId, target.displayId, fullscreen, null, outputUniqueId, null, callback);
+            return;
+        }
+        if (sourceId == null) {
+            ToolApplications.open(context, DisplayViewerActivity.createIntent(context), target, outputUniqueId, callback);
+            return;
+        }
+        TaskCommandQueue.execute(() -> {
+            try {
+                target.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
+                final DesktopDisplayInfo source = requireSource(sourceId, null);
+                final DesktopDisplayInfo output = DesktopDisplayCatalog.require(target.displayId, outputUniqueId);
+                MAIN.post(() -> {
+                    try {
+                        final Session session = mirror(source, output);
+                        session.fullscreen = fullscreen;
+                        session.completions.add(callback);
+                        launchViewer(context, session, target);
+                    } catch (RuntimeException error) { callback.onComplete(error); }
+                });
+            } catch (Exception error) { MAIN.post(() -> callback.onComplete(error)); }
+        });
     }
 
-    static void attach(Context context, int sourceId, int outputId, boolean fullscreen,
+    private static void launchViewer(Context context, Session session, ToolLaunchTarget target) {
+        try {
+            ToolApplications.open(context, DisplayViewerActivity.createIntent(context, session.id),
+                    target, session.output.uniqueId, error -> {
+                        if (error != null) { failed(session, error); detach(session); }
+                    });
+        } catch (RuntimeException error) { failed(session, error); detach(session); }
+    }
+
+    /** Attach a fullscreen output to the source, whose lifetime remains independent. */
+    static void attachOutput(Context context, DesktopDisplayInfo source, DesktopDisplayInfo output,
+            BuiltInWindowLauncher.Callback callback) {
+        attach(context, source.id, output.id, true, source.uniqueId, output.uniqueId, null, callback);
+    }
+
+    static void attachForDesktop(Context context, DesktopDisplayInfo source, DesktopDisplayInfo output,
+            Session previous, BuiltInWindowLauncher.Callback callback) {
+        attach(context, source.id, output.id, true, source.uniqueId, output.uniqueId,
+                new AttachmentExpectation(previous, source.uniqueId), callback);
+    }
+
+    private record AttachmentExpectation(Session session, String sourceUniqueId) {
+        void verify(Session current) {
+            if (current != session || current != null && (current.change != null
+                    || !current.source.uniqueId.equals(sourceUniqueId))) {
+                throw new IllegalStateException("Output attachment changed during startup");
+            }
+        }
+    }
+
+    private static void attach(Context context, int sourceId, int outputId, boolean fullscreen,
+            String sourceUniqueId, String outputUniqueId, AttachmentExpectation expected,
             BuiltInWindowLauncher.Callback callback) {
         TaskCommandQueue.execute(() -> {
             try {
-                final DesktopDisplayInfo source = requireSource(sourceId, null);
-                final DesktopDisplayInfo output = DesktopDisplayCatalog.require(outputId, null);
+                final DesktopDisplayInfo source = requireSource(sourceId, sourceUniqueId);
+                final DesktopDisplayInfo output = DesktopDisplayCatalog.require(outputId, outputUniqueId);
                 source.requirePresentationOutput(output);
                 MAIN.post(() -> {
                     try {
                         final Session existing = forOutput(output.id);
+                        if (expected != null) expected.verify(existing);
                         if (existing != null) {
                             if (!existing.output.uniqueId.equals(output.uniqueId)) {
                                 throw new IllegalStateException("viewer output identity changed");
@@ -69,19 +132,22 @@ final class DisplayPresentations {
                                 selectForAttachment(existing, source, callback);
                             } else existing.listener.show(error -> {
                                 if (error != null) callback.onComplete(error);
-                                else selectForAttachment(existing, source, callback);
+                                else {
+                                    try {
+                                        if (expected != null) expected.verify(forOutput(output.id));
+                                        selectForAttachment(existing, source, callback);
+                                    } catch (RuntimeException failure) { callback.onComplete(failure); }
+                                }
                             });
                             return;
                         }
-                        validate(source, output, null);
-                        final Session session = new Session(source, output, fullscreen);
+                        validate(source, output, true);
+                        final Session session = new Session(source, output, fullscreen, true);
                         session.completions.add(callback);
                         synchronized (SESSIONS) { SESSIONS.put(session.id, session); }
-                        ToolApplications.open(context, DisplayViewerActivity.createIntent(context, session.id),
-                                ToolLaunchTarget.resolve("auto", output.id,
-                                        DesktopRuntimeBridge.workspaceDisplayIds()), output.uniqueId, error -> {
-                                    if (error != null) { failed(session, error); detach(session); }
-                                });
+                        // Presentation belongs to Android, not the output's optional Desktop.
+                        launchViewer(context, session,
+                                ToolLaunchTarget.resolve("display", output.id, java.util.Set.of()));
                     } catch (RuntimeException error) { callback.onComplete(error); }
                 });
             } catch (Exception error) { MAIN.post(() -> callback.onComplete(error)); }
@@ -89,6 +155,29 @@ final class DisplayPresentations {
     }
 
     static Session find(String id) { synchronized (SESSIONS) { return SESSIONS.get(id); } }
+
+    static Session forTask(int taskId) {
+        if (taskId < 0) return null;
+        synchronized (SESSIONS) {
+            for (Session session : SESSIONS.values()) {
+                if (!session.closed && session.taskId == taskId) return session;
+            }
+        }
+        return null;
+    }
+
+    /** Register an already placed application window; do not launch or redirect an output. */
+    static Session mirror(DesktopDisplayInfo source, DesktopDisplayInfo output) {
+        validate(source, output, false);
+        final Session session = new Session(source, output, false, false);
+        synchronized (SESSIONS) { SESSIONS.put(session.id, session); }
+        return session;
+    }
+
+    static boolean canAttachOutput(DesktopDisplayInfo source, DesktopDisplayInfo output) {
+        try { validate(source, output, true); return true; }
+        catch (IllegalArgumentException | IllegalStateException unavailable) { return false; }
+    }
 
     /** Return through the source's current or last output, never creating a Viewer. */
     static void showForSource(int sourceId, BuiltInWindowLauncher.Callback callback) {
@@ -109,6 +198,7 @@ final class DisplayPresentations {
     }
 
     private static void rememberOutput(Session session) {
+        if (!session.outputAttachment) return;
         synchronized (SESSIONS) { LAST_OUTPUTS.put(session.source.uniqueId, session); }
     }
 
@@ -150,11 +240,14 @@ final class DisplayPresentations {
         synchronized (SESSIONS) {
             for (Session session : SESSIONS.values()) {
                 result.put(new org.json.JSONObject().put("id", session.id)
+                        .put("taskId", session.taskId)
                         .put("sourceDisplayId", session.source.id).put("sourceUniqueId", session.source.uniqueId)
                         .put("outputDisplayId", session.output.id).put("outputUniqueId", session.output.uniqueId)
-                        .put("mode", DisplayPresentationMode.forSource(session.source).id)
+                        .put("mode", session.outputAttachment ? "output" : "mirror")
+                        .put("transport", session.outputAttachment
+                                ? DisplayPresentationMode.forSource(session.source).id : DisplayPresentationMode.MIRROR.id)
                         .put("protectedContent", session.source.protectedContent())
-                        .put("ready", session.ready).put("fullscreen", session.fullscreen)
+                        .put("ready", session.ready).put("immersive", session.fullscreen)
                         .put("error", session.error));
             }
         }
@@ -169,7 +262,7 @@ final class DisplayPresentations {
         select(session, sourceId, null, completion);
     }
 
-    private static void select(Session session, int sourceId, String uniqueId,
+    static void select(Session session, int sourceId, String uniqueId,
             BuiltInWindowLauncher.Callback completion) {
         TaskCommandQueue.execute(() -> {
             try {
@@ -200,7 +293,7 @@ final class DisplayPresentations {
                         }
                         // Retrying a failed binding uses the same serialized
                         // detach/attach transaction as changing its source.
-                        final Session other = forSource(source.id);
+                        final Session other = session.outputAttachment ? forSource(source.id) : null;
                         final Map<Session, DesktopDisplayInfo> next = new LinkedHashMap<>();
                         next.put(session, source);
                         if (other != null && other != session) next.put(other, session.source);
@@ -233,7 +326,7 @@ final class DisplayPresentations {
     static Session forOutput(int outputId) {
         synchronized (SESSIONS) {
             for (Session session : SESSIONS.values()) {
-                if (!session.closed && session.output.id == outputId) return session;
+                if (!session.closed && session.outputAttachment && session.output.id == outputId) return session;
             }
         }
         return null;
@@ -242,7 +335,7 @@ final class DisplayPresentations {
     static Session forSource(int sourceId) {
         synchronized (SESSIONS) {
             for (Session session : SESSIONS.values()) {
-                if (!session.closed && session.source.id == sourceId) return session;
+                if (!session.closed && session.outputAttachment && session.source.id == sourceId) return session;
             }
         }
         return null;
@@ -279,9 +372,10 @@ final class DisplayPresentations {
             if (error != null) failure[0] = error;
             if (--pending[0] == 0) completion.onComplete(failure[0]);
         };
-        MagicDeskRuntime.releaseSelectedInput(session.source.id, result -> {
+        if (session.outputAttachment) MagicDeskRuntime.releaseSelectedInput(session.source.id, result -> {
             released.onComplete(result.success ? null : new IllegalStateException(result.message));
         });
+        else released.onComplete(null);
         if (session.listener != null) session.listener.detach(released);
         else released.onComplete(null);
         notify(session);
@@ -328,7 +422,7 @@ final class DisplayPresentations {
     }
 
     static void controlInput(Session session, TaskRepository.ActionCallback callback) {
-        if (session.closed || !session.ready || session.change != null) {
+        if (!session.outputAttachment || session.closed || !session.ready || session.change != null) {
             callback.onComplete(new TaskRepository.ActionResult(false, "viewer is not ready"));
             return;
         }
@@ -377,7 +471,7 @@ final class DisplayPresentations {
                     throw new IllegalArgumentException("source and output must differ");
                 }
                 pair.getValue().requirePresentationOutput(session.output);
-                if (session.source.id == selected && selected != pair.getValue().id) {
+                if (session.outputAttachment && session.source.id == selected && selected != pair.getValue().id) {
                     input = pair.getValue().id;
                     inputViewer = session;
                 }
@@ -484,7 +578,7 @@ final class DisplayPresentations {
     }
 
     private static void validateGraph(Map<Session, DesktopDisplayInfo> replacements) {
-        final Map<Integer, Integer> edges = new LinkedHashMap<>();
+        final List<DisplayPresentationGraph.Edge> edges = new ArrayList<>();
         final List<DesktopDisplayInfo> endpoints = new ArrayList<>();
         final java.util.Set<String> sources = new java.util.HashSet<>();
         synchronized (SESSIONS) {
@@ -492,10 +586,10 @@ final class DisplayPresentations {
                 if (session.closed) continue;
                 final DesktopDisplayInfo source = replacements.getOrDefault(session, reservedSource(session));
                 source.requirePresentationOutput(session.output);
-                if (!sources.add(source.uniqueId)) {
+                if (session.outputAttachment && !sources.add(source.uniqueId)) {
                     throw new IllegalStateException("source already has a viewer or pending binding");
                 }
-                edges.put(session.output.id, source.id);
+                edges.add(new DisplayPresentationGraph.Edge(session.output.id, source.id));
                 endpoints.add(source);
                 endpoints.add(session.output);
             }
@@ -512,12 +606,12 @@ final class DisplayPresentations {
         return DesktopDisplayCatalog.require(displayId, uniqueId);
     }
 
-    private static void validate(DesktopDisplayInfo source, DesktopDisplayInfo output, Session replacing) {
+    private static void validate(DesktopDisplayInfo source, DesktopDisplayInfo output, boolean outputAttachment) {
         if (source.id == output.id) throw new IllegalArgumentException("source and output must differ");
         source.requirePresentationOutput(output);
         synchronized (SESSIONS) {
             for (Session session : SESSIONS.values()) {
-                if (session == replacing || session.closed) continue;
+                if (!outputAttachment || !session.outputAttachment || session.closed) continue;
                 if (session.source.uniqueId.equals(source.uniqueId)
                         || reservedSource(session).uniqueId.equals(source.uniqueId)) {
                     throw new IllegalStateException("source already has a viewer; detach it first");
@@ -526,16 +620,16 @@ final class DisplayPresentations {
                     throw new IllegalStateException("output already has a viewer; select its source there");
                 }
             }
-            final Map<Integer, Integer> edges = new LinkedHashMap<>();
+            final List<DisplayPresentationGraph.Edge> edges = new ArrayList<>();
             final List<DesktopDisplayInfo> endpoints = new ArrayList<>(List.of(source, output));
             for (Session session : SESSIONS.values()) {
-                if (session != replacing && !session.closed) {
-                    edges.put(session.output.id, reservedSource(session).id);
+                if (!session.closed) {
+                    edges.add(new DisplayPresentationGraph.Edge(session.output.id, reservedSource(session).id));
                     endpoints.add(session.output);
                     endpoints.add(reservedSource(session));
                 }
             }
-            edges.put(output.id, source.id);
+            edges.add(new DisplayPresentationGraph.Edge(output.id, source.id));
             DisplayPresentationGraph.requireAcyclic(edges, endpoints.stream()
                     .filter(d -> "overlay".equals(d.source)).map(d -> d.id).toList());
         }

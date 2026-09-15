@@ -4,6 +4,24 @@ import org.junit.Test;
 
 /** Runs the actual binding transaction against explicitly scheduled UI/input boundaries. */
 public final class DisplayPresentationTransactionTest {
+    @Test public void mirrorDoesNotRedirectOrReleasePrimaryInputOrBecomeAReturnOutput() throws Exception {
+        verify("""
+                MagicDeskRuntime.display = 1;
+                Session primary = session(1, 3, true);
+                attached(primary);
+                Session mirror = session(1, 4, true, false);
+                attached(mirror);
+                check(LAST_OUTPUTS.get("display:1") == primary, "mirror replaced primary return output");
+                Change change = new Change(Map.of(mirror, new DesktopDisplayInfo(2)));
+                change.start(); attached(mirror); MAIN.drain();
+                check(change.finished && MagicDeskRuntime.display == 1, "mirror changed physical input");
+                check(primary.source.id == 1 && primary.ready, "mirror disturbed primary binding");
+                check(!LAST_OUTPUTS.containsKey("display:2"), "mirror created a return output");
+                new Change(Map.of(mirror, new DesktopDisplayInfo(1))).start(); attached(mirror); MAIN.drain();
+                detach(mirror, error -> check(error == null, "mirror detach failed")); MAIN.drain();
+                check(MagicDeskRuntime.display == 1 && primary.ready, "mirror close released primary input");
+                """);
+    }
     @Test public void committedSelectionRetainsBothReturnDestinationsUntilDetach() throws Exception {
         verify("""
                 Session a = session(1, 3, true);
@@ -184,7 +202,10 @@ public final class DisplayPresentationTransactionTest {
                     }
                     static void validateGraph(Map<Session, DesktopDisplayInfo> next) {}
                     static Session session(int source, int output, boolean visible) {
-                        Session s = new Session(new DesktopDisplayInfo(source), new DesktopDisplayInfo(output), false);
+                        return session(source, output, visible, true);
+                    }
+                    static Session session(int source, int output, boolean visible, boolean attachment) {
+                        Session s = new Session(new DesktopDisplayInfo(source), new DesktopDisplayInfo(output), false, attachment);
                         s.visible = visible;
                         s.listener = new Listener() {
                             public void changed() {}

@@ -430,8 +430,9 @@ final class DesktopContextMenuController {
     }
 
     void registerStartTarget(View view, AppItem app,
-            java.util.function.Supplier<StartDisplaySelector.Target> destination) {
-        registerTarget(view, ContextTarget.startApp(app, destination));
+            java.util.function.Supplier<StartDisplaySelector.Target> destination,
+            java.util.function.Supplier<DesktopLaunchPresentation> presentation) {
+        registerTarget(view, ContextTarget.startApp(app, destination, presentation));
     }
 
     private void showTargetMenu(
@@ -443,7 +444,8 @@ final class DesktopContextMenuController {
         if (target.app != null) {
             showAppMenu(
                     x, y, target.app, target.task, target.file,
-                    target.launchDestination == null ? null : target.launchDestination.get());
+                    target.launchDestination == null ? null : target.launchDestination.get(),
+                    target.launchPresentation == null ? DesktopLaunchPresentation.automatic() : target.launchPresentation.get());
         } else if (target.file != null) {
             showFileMenu(x, y, target.file);
         } else if (target.appWidgetId >= 0) {
@@ -611,15 +613,15 @@ final class DesktopContextMenuController {
             final AppItem app,
             final TaskRepository.TaskEntry exactTask,
             final DesktopFile desktopFile,
-            final StartDisplaySelector.Target destination) {
+            final StartDisplaySelector.Target destination,
+            final DesktopLaunchPresentation presentation) {
         final DesktopPanelWindowController panels = mActivity.panels();
         if (mPanel == null || panels == null) {
             return;
         }
         final TaskRepository.TaskEntry task = exactTask != null
                 ? exactTask
-                : destination == null || destination.displayId() == mActivity.getCurrentDisplayId()
-                        ? mActivity.findFirstTask(app) : null;
+                : destination == null ? mActivity.findFirstTask(app) : null;
         showAppMenu(new AppMenuState(
                 x,
                 y,
@@ -628,7 +630,7 @@ final class DesktopContextMenuController {
                 desktopFile,
                 List.of(),
                 List.of(),
-                false, destination));
+                false, destination, presentation));
         if (!panels.isRequested(mMenuRoot)) {
             return;
         }
@@ -644,7 +646,7 @@ final class DesktopContextMenuController {
                     ? DesktopLaunchIntegrationRegistry.actions(mActivity, app.launchTarget)
                     : List.of();
             return new AppMenuState(x, y, app, task, desktopFile,
-                    shortcuts, integrationActions, hasWidgets, destination);
+                    shortcuts, integrationActions, hasWidgets, destination, presentation);
         }, null).thenAccept(completion -> request.deliver(mActivity::runOnUiThread, () -> {
             if (request != mShortcutRequest) {
                 return;
@@ -680,7 +682,7 @@ final class DesktopContextMenuController {
                 true,
                 view -> {
                     if (state.task == null) {
-                        launchApp(state, DesktopLaunchPresentation.automatic());
+                        launchApp(state, state.presentation);
                     } else {
                         mActivity.focusTask(state.app, state.task);
                     }
@@ -688,7 +690,7 @@ final class DesktopContextMenuController {
         // A .desktop profile may carry a different companion command. Its
         // explicit launch remains authoritative; integration actions here
         // belong only to the ordinary application/task entry.
-        if (state.desktopFile == null) {
+        if (state.desktopFile == null && state.destination == null) {
             for (final DesktopLaunchIntegrationAction action
                     : state.integrationActions) {
                 addAction(
@@ -796,7 +798,7 @@ final class DesktopContextMenuController {
                             StartEntryLauncher.request(mActivity, new DesktopLaunchRequest(
                                     shortcut.label, state.app.packageName, null,
                                     new AndroidShortcutSpec(state.app.identity, state.app.launchTarget, shortcut.id),
-                                    null, DesktopLaunchPresentation.automatic(), DesktopLaunchArguments.empty(), ""),
+                                    null, DesktopLaunchPresentation.forMode(state.presentation.mode), DesktopLaunchArguments.empty(), ""),
                                     state.destination, () -> !mActivity.isActivityUnavailable(),
                                     mActivity::hideAllPanels, this::launchFailed);
                         }
@@ -883,7 +885,10 @@ final class DesktopContextMenuController {
             } else { mActivity.launchWindowed(state.app); }
             return;
         }
-        DisplayAppLauncher.launch(mActivity, state.app, state.destination.displayId(), state.destination.uniqueId(),
+        final StartDisplaySelector.Target destination = presentation.mode == DesktopLaunchMode.WINDOWED
+                ? new StartDisplaySelector.Target(state.destination.displayId(), state.destination.uniqueId(), "desktop")
+                : state.destination;
+        DisplayAppLauncher.launch(mActivity, state.app, StartEntryLauncher.placement(destination), destination.uniqueId(),
                 presentation, () -> !mActivity.isActivityUnavailable(),
                 mActivity::hideAllPanels, this::launchFailed);
     }
@@ -1171,6 +1176,7 @@ final class DesktopContextMenuController {
         final List<DesktopLaunchIntegrationAction> integrationActions;
         final boolean hasWidgets;
         final StartDisplaySelector.Target destination;
+        final DesktopLaunchPresentation presentation;
 
         AppMenuState(
                 final float x,
@@ -1180,7 +1186,8 @@ final class DesktopContextMenuController {
                 final DesktopFile desktopFile,
                 final List<AppShortcutAction> shortcuts,
                 final List<DesktopLaunchIntegrationAction> integrationActions,
-                final boolean hasWidgets, final StartDisplaySelector.Target destination) {
+                final boolean hasWidgets, final StartDisplaySelector.Target destination,
+                final DesktopLaunchPresentation presentation) {
             this.x = x;
             this.y = y;
             this.app = app;
@@ -1190,6 +1197,7 @@ final class DesktopContextMenuController {
             this.integrationActions = integrationActions;
             this.hasWidgets = hasWidgets;
             this.destination = destination;
+            this.presentation = presentation;
         }
     }
 }

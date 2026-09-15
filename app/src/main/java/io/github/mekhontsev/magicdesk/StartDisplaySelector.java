@@ -9,16 +9,26 @@ import android.widget.Toast;
 
 /** A Start-local destination choice, not an input or Desktop session selection. */
 final class StartDisplaySelector {
-    record Target(int displayId, String uniqueId) { }
+    record Target(int displayId, String uniqueId, String placement) {
+        Target(int displayId, String uniqueId) { this(displayId, uniqueId, "auto"); }
+    }
 
     private final Activity mActivity;
     private final Button mButton;
-    private DesktopDisplayInfo mSelected;
+    private Target mSelected;
+    private String mSelectedLabel;
     private PopupMenu mMenu;
     private int mGeneration;
 
     StartDisplaySelector(Activity activity, DesktopUiFactory ui) {
         mActivity = activity;
+        if (activity instanceof StartActivity && activity.getIntent().hasExtra("start.display_id")) {
+            final int id = activity.getIntent().getIntExtra("start.display_id", -1);
+            if (id >= 0) {
+                mSelected = new Target(id, activity.getIntent().getStringExtra("start.display_unique_id"));
+                mSelectedLabel = activity.getIntent().getStringExtra("start.display_name") + " [" + id + "]";
+            }
+        }
         mButton = ui.actionButton(R.string.start_current_display, DesktopUiFactory.COLOR_PANEL_ALT);
         mButton.setTextSize(13);
         mButton.setSingleLine(true);
@@ -42,7 +52,7 @@ final class StartDisplaySelector {
     Target target() {
         return mSelected == null
                 ? new Target(mActivity.getDisplay().getDisplayId(), null)
-                : new Target(mSelected.id, mSelected.uniqueId);
+                : mSelected;
     }
 
     void dismiss() {
@@ -66,12 +76,11 @@ final class StartDisplaySelector {
                             .setOnMenuItemClickListener(item -> { select(null); return true; });
                     int index = 1;
                     for (final DesktopDisplayInfo display : displays) {
-                        if (display.id == mActivity.getDisplay().getDisplayId()
-                                || "unknown".equals(display.source)) { continue; }
+                        if ("unknown".equals(display.source)) { continue; }
                         menu.getMenu().add(0, index, index++, displayLabel(display))
                                 .setCheckable(true)
-                                .setChecked(mSelected != null && mSelected.id == display.id
-                                        && mSelected.uniqueId.equals(display.uniqueId))
+                                .setChecked(mSelected != null && mSelected.displayId() == display.id
+                                        && java.util.Objects.equals(mSelected.uniqueId(), display.uniqueId))
                                 .setOnMenuItemClickListener(item -> { select(display); return true; });
                     }
                     menu.show();
@@ -87,13 +96,14 @@ final class StartDisplaySelector {
     }
 
     private void select(DesktopDisplayInfo display) {
-        mSelected = display;
+        mSelected = display == null ? null : new Target(display.id, display.uniqueId);
+        mSelectedLabel = display == null ? null : displayLabel(display);
         updateLabel();
     }
 
     private void updateLabel() {
         final String label = mSelected == null
-                ? mActivity.getString(R.string.start_current_display) : displayLabel(mSelected);
+                ? mActivity.getString(R.string.start_current_display) : mSelectedLabel;
         mButton.setText(label);
         final String description = mActivity.getString(R.string.start_launch_display, label);
         mButton.setContentDescription(description);

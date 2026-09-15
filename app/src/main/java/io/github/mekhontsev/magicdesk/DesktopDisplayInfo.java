@@ -13,12 +13,14 @@ public final class DesktopDisplayInfo implements Parcelable {
     public final int height;
     public final int densityDpi;
     public final boolean canHostDesktop;
+    public final boolean requiresPortableDesktop;
     public final boolean owned;
     public final boolean secure;
 
     DesktopDisplayInfo(final int id, final String uniqueId, final String name,
             final String source, final int width, final int height, final int densityDpi,
-            final boolean canHostDesktop, final boolean owned, final boolean secure) {
+            final boolean canHostDesktop, final boolean requiresPortableDesktop,
+            final boolean owned, final boolean secure) {
         this.id = id;
         this.uniqueId = uniqueId;
         this.name = name;
@@ -27,6 +29,7 @@ public final class DesktopDisplayInfo implements Parcelable {
         this.height = height;
         this.densityDpi = densityDpi;
         this.canHostDesktop = canHostDesktop;
+        this.requiresPortableDesktop = requiresPortableDesktop;
         this.owned = owned;
         this.secure = secure;
     }
@@ -80,10 +83,16 @@ public final class DesktopDisplayInfo implements Parcelable {
                 && (id == android.view.Display.DEFAULT_DISPLAY || (publicDisplay && trusted));
     }
 
+    static boolean requiresPortableDesktop(final int id, final String source,
+            final boolean publicDisplay, final boolean trusted) {
+        return id != android.view.Display.DEFAULT_DISPLAY && publicDisplay && !trusted
+                && !"internal".equals(source) && !"unknown".equals(source);
+    }
+
     private DesktopDisplayInfo(final Parcel in) {
         this(in.readInt(), in.readString(), in.readString(), in.readString(),
                 in.readInt(), in.readInt(), in.readInt(),
-                in.readInt() != 0, in.readInt() != 0, in.readInt() != 0);
+                in.readInt() != 0, in.readInt() != 0, in.readInt() != 0, in.readInt() != 0);
     }
 
     @Override public void writeToParcel(final Parcel out, final int flags) {
@@ -95,6 +104,7 @@ public final class DesktopDisplayInfo implements Parcelable {
         out.writeInt(height);
         out.writeInt(densityDpi);
         out.writeInt(canHostDesktop ? 1 : 0);
+        out.writeInt(requiresPortableDesktop ? 1 : 0);
         out.writeInt(owned ? 1 : 0);
         out.writeInt(secure ? 1 : 0);
     }

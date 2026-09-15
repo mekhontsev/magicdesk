@@ -85,6 +85,7 @@ final class FrameworkVirtualDisplayApi {
         private final ImageReader mOutput;
         private final Context mContext;
         private PowerManager.WakeLock mPresentationWakeLock;
+        private int mPresentations;
         private boolean mReleased;
 
         OwnedDisplay(final Context context, final VirtualDisplay display, final ImageReader output) {
@@ -102,16 +103,48 @@ final class FrameworkVirtualDisplayApi {
             if (surface == null || !surface.isValid()) {
                 throw new IllegalArgumentException("a live viewer surface is required");
             }
-            keepPresentationAwake();
-            try { mDisplay.setSurface(surface); }
-            catch (RuntimeException error) { releasePresentationWakeLock(); throw error; }
+            mDisplay.setSurface(surface);
         }
 
         synchronized void detachViewer() {
             // Keep a render target and task configuration when the viewer
             // disappears. Ordinary idle sleep is allowed while detached.
-            try { if (!mReleased) mDisplay.setSurface(mOutput.getSurface()); }
-            finally { releasePresentationWakeLock(); }
+            if (!mReleased) mDisplay.setSurface(mOutput.getSurface());
+        }
+
+        DisplayPresentationSurface presentation(DisplayPresentationSurface delegate) {
+            return new DisplayPresentationSurface() {
+                private boolean acquired;
+                private boolean closed;
+                @Override public synchronized void attach(android.view.Surface surface,
+                        android.view.SurfaceControl parent) {
+                    if (closed) throw new IllegalStateException("presentation was closed");
+                    if (!acquired) { acquirePresentation(); acquired = true; }
+                    try { delegate.attach(surface, parent); }
+                    catch (RuntimeException error) {
+                        try { close(); } catch (RuntimeException cleanup) { error.addSuppressed(cleanup); }
+                        throw error;
+                    }
+                }
+                @Override public synchronized void close() {
+                    if (closed) return;
+                    closed = true;
+                    try { delegate.close(); }
+                    finally {
+                        if (acquired) { acquired = false; releasePresentation(); }
+                    }
+                }
+            };
+        }
+
+        private synchronized void acquirePresentation() {
+            if (mReleased) throw new IllegalStateException("virtual display was removed");
+            if (mPresentations == 0) keepPresentationAwake();
+            mPresentations++;
+        }
+
+        private synchronized void releasePresentation() {
+            if (--mPresentations == 0) releasePresentationWakeLock();
         }
 
         @SuppressWarnings("deprecation")
@@ -164,12 +197,13 @@ final class FrameworkVirtualDisplayApi {
                 : type == mInternal ? "internal" : "unknown";
         final DisplayMetrics metrics = new DisplayMetrics();
         display.getRealMetrics(metrics);
-        final boolean supported = DesktopDisplayInfo.supportsDesktop(id, source,
-                (display.getFlags() & Display.FLAG_PRIVATE) == 0,
-                (display.getFlags() & mTrusted) != 0);
+        final boolean publicDisplay = (display.getFlags() & Display.FLAG_PRIVATE) == 0;
+        final boolean trusted = (display.getFlags() & mTrusted) != 0;
+        final boolean supported = DesktopDisplayInfo.supportsDesktop(id, source, publicDisplay, trusted);
         return new DesktopDisplayInfo(id, (String) mUniqueId.invoke(display), display.getName(),
                 source, metrics.widthPixels, metrics.heightPixels, metrics.densityDpi,
-                supported, owned, (display.getFlags() & Display.FLAG_SECURE) != 0);
+                supported, DesktopDisplayInfo.requiresPortableDesktop(id, source, publicDisplay, trusted),
+                owned, (display.getFlags() & Display.FLAG_SECURE) != 0);
     }
 
     private static int displayConstant(final String name) throws ReflectiveOperationException {

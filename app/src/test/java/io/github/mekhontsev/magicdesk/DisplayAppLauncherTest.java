@@ -15,7 +15,7 @@ public final class DisplayAppLauncherTest {
     @Test
     public void transfersAnExistingExternalTask() {
         final TaskRepository.TaskEntry external = task(1, 3, "com.example.app", false);
-        assertSame(external, DisplayAppLauncher.selectTransfer(APP,
+        assertSame(external, ApplicationTaskPlacement.selectExisting(APP,
                 new TaskRepository.Snapshot(Collections.singletonList(external), true, ""), 0));
     }
 
@@ -23,20 +23,20 @@ public final class DisplayAppLauncherTest {
     public void phoneInstanceLeavesExternalTaskAlone() {
         final TaskRepository.TaskEntry external = task(1, 3, "com.example.app", false);
         final TaskRepository.TaskEntry phone = task(2, 0, "com.example.app", false);
-        assertNull(DisplayAppLauncher.selectTransfer(APP, new TaskRepository.Snapshot(
-                Collections.singletonList(external), Collections.singletonList(phone), true, ""), 0));
+        assertSame(phone, ApplicationTaskPlacement.selectExisting(APP, new TaskRepository.Snapshot(
+                Arrays.asList(external, phone), true, ""), 0));
     }
 
     @Test
     public void doesNotMoveHomeOrUnrelatedApplications() {
-        assertNull(DisplayAppLauncher.selectTransfer(APP, new TaskRepository.Snapshot(
+        assertNull(ApplicationTaskPlacement.selectExisting(APP, new TaskRepository.Snapshot(
                 Arrays.asList(task(1, 3, "com.example.app", true),
                         task(2, 3, "com.example.other", false)), true, ""), 0));
     }
 
     @Test
     public void newAppNeedsNoTransfer() {
-        assertNull(DisplayAppLauncher.selectTransfer(APP, new TaskRepository.Snapshot(
+        assertNull(ApplicationTaskPlacement.selectExisting(APP, new TaskRepository.Snapshot(
                 Collections.emptyList(), true, ""), 0));
     }
 

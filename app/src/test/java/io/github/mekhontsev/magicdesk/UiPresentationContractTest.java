@@ -51,7 +51,7 @@ public final class UiPresentationContractTest {
     @Test
     public void unavailableControlStateInvalidatesAlreadyRunningDisplayProbes()
             throws IOException {
-        final String probe = RuntimeSourceFixture.methods("ControlActivity", "refreshSelectedOutput");
+        final String probe = RuntimeSourceFixture.methods("ControlActivity", "openOutputSettings");
         final int unavailable = probe.indexOf("if (display == null");
         assertTrue(unavailable >= 0);
         final int generation = probe.indexOf("++mOutputGeneration");

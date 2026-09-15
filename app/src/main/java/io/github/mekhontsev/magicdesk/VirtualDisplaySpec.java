@@ -9,6 +9,7 @@ final class VirtualDisplaySpec {
     final int height;
     final int densityDpi;
     final boolean protectedContent;
+    final String originProfileKey;
 
     VirtualDisplaySpec(final int width, final int height, final int densityDpi) {
         this(width, height, densityDpi, false);
@@ -16,6 +17,11 @@ final class VirtualDisplaySpec {
 
     VirtualDisplaySpec(final int width, final int height, final int densityDpi,
             final boolean protectedContent) {
+        this(width, height, densityDpi, protectedContent, "");
+    }
+
+    private VirtualDisplaySpec(final int width, final int height, final int densityDpi,
+            final boolean protectedContent, final String originProfileKey) {
         if (width < 320 || height < 320 || width > 8192 || height > 8192
                 || (long) width * height > 33_554_432L
                 || densityDpi < 80 || densityDpi > 640) {
@@ -25,6 +31,12 @@ final class VirtualDisplaySpec {
         this.height = height;
         this.densityDpi = densityDpi;
         this.protectedContent = protectedContent;
+        this.originProfileKey = originProfileKey;
+    }
+
+    VirtualDisplaySpec withOrigin(final String profileKey) {
+        return new VirtualDisplaySpec(width, height, densityDpi, protectedContent,
+                java.util.Objects.requireNonNull(profileKey));
     }
 
     void requireOverlayCompatible() {

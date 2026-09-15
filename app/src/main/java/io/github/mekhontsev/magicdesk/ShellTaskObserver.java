@@ -135,6 +135,7 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
         mMigrationGuard = new ShellExternalTaskMigrationGuard(
                 mService,
                 membership,
+                mDesktopOwnership::isRememberedDesktopTask,
                 this::refreshFullscreenCaption,
                 new ShellExternalTaskMigrationGuard.Listener() {
                     @Override
@@ -208,8 +209,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                                     taskSnapshots) {
                         mProcessFailureTracker.observeTasks(
                                 displayId, taskSnapshots);
-                        mTaskActivityModeGuard.observeTasks(
-                                displayId, taskSnapshots);
+                        final java.util.List<FrameworkTaskSnapshot> managed = taskSnapshots.stream()
+                                .filter(task -> mDesktopOwnership.isRememberedDesktopTask(task.taskId))
+                                .toList();
+                        mTaskActivityModeGuard.observeTasks(displayId, managed);
                         mFocusController.onTasksSampled(taskSnapshots);
                         for (final Integer taskId
                                 : mDesktopOwnership.observeTasks(
@@ -220,7 +223,8 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                         reconcileFocusAfterTaskRemoval(
                                 displayId, taskSnapshots);
                         reportDesktopTaskOwnership();
-                        mFreeformCleanup.observeTasks(displayId, tasks);
+                        mFreeformCleanup.observeTasks(displayId,
+                                managed.stream().map(task -> task.task).toList());
                     }
 
                     @Override
@@ -692,12 +696,10 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
             // observer otherwise treats a previously fullscreen phone task as
             // an accidental WMShell migration and immediately restores it.
             mDesktopOwnership.markDesktop(taskId);
-            ShellPreparedTaskTransition.applyFreeform(
-                    mService,
-                    displayId,
-                    taskId,
-                    new Rect(bounds),
-                    densityDpi);
+            if (!mFullscreenTaskArea.restoreTask(mService, displayId, taskId,
+                    new Rect(bounds), densityDpi)) {
+                throw new IllegalStateException("could not enter the windowed workspace");
+            }
             reportDesktopTaskOwnership();
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -921,6 +923,47 @@ final class ShellTaskObserver extends TaskStackListener implements Closeable {
                     "cannot launch pending Activity: "
                             + usefulMessage(error),
                     error);
+        }
+    }
+
+    void releaseDesktopTasks(final int[] taskIds) {
+        if (mClosed || mConfiguredDisplayId < 0 || taskIds == null) {
+            throw new IllegalStateException("desktop task ownership is unavailable");
+        }
+        for (final int taskId : taskIds) {
+            if (mDesktopOwnership.isDesktopHostTask(taskId)
+                    || !mDesktopOwnership.isRememberedDesktopTask(taskId)) {
+                throw new IllegalArgumentException("task is not owned by this Desktop: " + taskId);
+            }
+        }
+        // Suppress native re-adoption during this explicit ownership handoff.
+        // Publish only after the topology owner completes or reconciles it.
+        for (final int taskId : taskIds) {
+            mDesktopOwnership.forget(taskId);
+            mMigrationGuard.forget(taskId);
+            mTaskActivityModeGuard.onTaskRemoved(taskId);
+            mFreeformCleanup.forget(taskId);
+        }
+        try {
+            mFullscreenTaskArea.releaseToAndroid(mService, mConfiguredDisplayId, taskIds);
+        } catch (ReflectiveOperationException | RuntimeException error) {
+            for (final int taskId : taskIds) {
+                try {
+                    final Object live = HiddenTaskApi.findTask(mService, mConfiguredDisplayId, taskId);
+                    if (live != null && (mFullscreenTaskArea.ownsFullscreenTask(taskId)
+                            || HiddenTaskApi.getTaskWindowingMode(live)
+                                    != FrameworkTaskSnapshot.WINDOWING_MODE_FULLSCREEN)) {
+                        mDesktopOwnership.markDesktop(taskId);
+                    }
+                } catch (ReflectiveOperationException | RuntimeException unavailable) {
+                    mDesktopOwnership.markDesktop(taskId);
+                    error.addSuppressed(unavailable);
+                }
+            }
+            throw new IllegalStateException("could not release desktop tasks", error);
+        } finally {
+            reportDesktopTaskOwnership();
+            signalChange("desktop task ownership released");
         }
     }
 

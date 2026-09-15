@@ -658,10 +658,26 @@ public final class MagicDeskRuntime {
     static void closeTask(
             final TaskRepository.TaskEntry task,
             final TaskRepository.ActionCallback callback) {
-        final DesktopTaskRuntime tasks = desktopTasks(task == null ? -1 : task.displayId);
-        if (tasks == null || !tasks.closeTask(task, callback)) {
-            TaskRepository.closeTask(task, callback);
-        }
+        TaskCommandQueue.execute(() -> {
+            try {
+                if (task == null || DesktopOperations.isSessionTransitionInProgress()) {
+                    throw new IOException("task unavailable or desktop transition in progress");
+                }
+                final TaskRepository.TaskEntry live = ApplicationTaskPlacement.requireLive(task);
+                if (!ApplicationTaskPlacement.isManaged(live)) {
+                    final TaskRepository.ActionResult result = TaskRepository.closeTaskNow(live);
+                    if (callback != null) callback.onComplete(result);
+                    return;
+                }
+                final DesktopTaskRuntime tasks = desktopTasks(live.displayId);
+                if (tasks == null || !tasks.closeTask(live, callback)) {
+                    throw new IOException("desktop task owner is unavailable");
+                }
+            } catch (IOException | RuntimeException error) {
+                if (callback != null) callback.onComplete(new TaskRepository.ActionResult(
+                        false, ShellAccess.usefulMessage(error)));
+            }
+        });
     }
 
     static boolean makeTaskFullscreen(

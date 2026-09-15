@@ -9,7 +9,6 @@ import android.util.Log;
 import android.view.Display;
 
 import java.io.IOException;
-import java.util.Locale;
 
 public final class DisplayProfileController {
     private static final String TAG = "MagicDeskDisplayProfile";
@@ -199,17 +198,8 @@ public final class DisplayProfileController {
             final String uniqueId,
             final String name,
             final Display.Mode mode) {
-        final String scope = kind == null
-                ? "local" : kind.name().toLowerCase(Locale.ROOT);
-        if (uniqueId != null && !uniqueId.trim().isEmpty()) {
-            return "display:" + scope + ":" + uniqueId.trim();
-        }
-        final String resolution = mode == null
-                ? "unknown"
-                : mode.getPhysicalWidth() + "x" + mode.getPhysicalHeight();
-        final String displayName = name == null || name.trim().isEmpty()
-                ? "unknown" : name.trim();
-        return "display:" + scope + ":" + displayName + "|" + resolution;
+        return DisplayProfiles.key(kind, uniqueId, name,
+                mode == null ? 0 : mode.getPhysicalWidth(), mode == null ? 0 : mode.getPhysicalHeight());
     }
 
     private static String readDisplayUniqueId(final int displayId) {

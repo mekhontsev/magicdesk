@@ -3,7 +3,7 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class DisplayViewerActivationTest {
-    @Test public void reopenActivatesExistingTaskThroughItsCurrentOwner() throws Exception {
+    @Test public void reopenStaysIndependentOfDesktopOnTheOutput() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class BuiltInWindowLauncher { interface Callback { void onComplete(Throwable error); } }
                 static class Session { boolean closed; final Display output = new Display(); }
@@ -39,7 +39,8 @@ public final class DisplayViewerActivationTest {
                 final Session mSession = new Session();
                 final Display display = new Display();
                 final android.app.ActivityManager manager = new android.app.ActivityManager();
-                boolean isFinishing() { return false; }
+                boolean finishing;
+                boolean isFinishing() { return finishing; }
                 Display getDisplay() { return display; }
                 int getTaskId() { return 7; }
                 android.app.ActivityManager getSystemService(Class<?> type) { return manager; }
@@ -54,11 +55,24 @@ public final class DisplayViewerActivationTest {
                             "ordinary viewer did not activate its exact AppTask");
                     DesktopRuntimeBridge.managed = true;
                     f.show(results::add);
-                    check(viewer.moves == 1 && MagicDeskRuntime.focused == 7 && results.get(1) == null,
-                            "managed viewer bypassed Desktop focus gateway");
+                    check(viewer.moves == 2 && MagicDeskRuntime.focused == -1 && results.get(1) == null,
+                            "output Desktop took ownership of Viewer activation");
                     f.display.id = 0;
                     f.show(results::add);
-                    check(results.get(2) != null && viewer.moves == 1, "migrated viewer was raised");
+                    check(results.get(2) != null && viewer.moves == 2, "migrated viewer was raised");
+                    f.display.id = 3;
+                    f.finishing = true;
+                    f.show(results::add);
+                    check(results.get(3) != null && viewer.moves == 2, "finishing viewer was raised");
+                    f.finishing = false;
+                    f.mSession.closed = true;
+                    f.show(results::add);
+                    check(results.get(4) != null && viewer.moves == 2, "detached viewer was raised");
+                    f.mSession.closed = false;
+                    f.manager.tasks.remove(viewer);
+                    f.show(results::add);
+                    check(results.size() == 6 && results.get(5) != null && other.moves == 0,
+                            "missing Viewer raised another task or completed twice");
                 }
                 """ + RuntimeSourceFixture.methods("DisplayViewerActivity", "show"));
     }

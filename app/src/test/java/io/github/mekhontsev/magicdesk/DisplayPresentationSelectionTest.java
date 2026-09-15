@@ -50,7 +50,7 @@ public final class DisplayPresentationSelectionTest {
                 static class Session {
                     DesktopDisplayInfo source = new DesktopDisplayInfo(1);
                     DesktopDisplayInfo output = new DesktopDisplayInfo(3);
-                    boolean closed, ready, visible = true;
+                    boolean closed, ready, visible = true, outputAttachment = true;
                     Object listener;
                     String error = "attach failed";
                     Change change;
@@ -74,7 +74,10 @@ public final class DisplayPresentationSelectionTest {
                 static DesktopDisplayInfo requireSource(int id, String uniqueId) {
                     return new DesktopDisplayInfo(id);
                 }
-                static Session forSource(int id) { return current.source.id == id ? current : null; }
+                static Session forSource(int id) {
+                    check(current.outputAttachment, "mirror selection looked up an output attachment to exchange");
+                    return current.source.id == id ? current : null;
+                }
                 static void reportSelection(Session session, Throwable error) { }
                 static void notify(Session session) { }
                 static Session current;
@@ -97,6 +100,10 @@ public final class DisplayPresentationSelectionTest {
                     select(current, 1, results::add);
                     check(current.error.isEmpty() && results.get(1) == null,
                             "valid selection retained a previous error");
+                    current.outputAttachment = false;
+                    select(current, 2, results::add);
+                    check(current.change.next.size() == 1 && current.change.next.get(current).id == 2,
+                            "mirror selection exchanged another binding");
                 }
                 """ + RuntimeSourceFixture.methods("DisplayPresentations", "select"));
     }
@@ -111,7 +118,7 @@ public final class DisplayPresentationSelectionTest {
                 }
                 static class Session {
                     DesktopDisplayInfo source, output;
-                    boolean closed;
+                    boolean closed, outputAttachment = true;
                     Change change;
                     Session(int source, int output) {
                         this.source = new DesktopDisplayInfo(source);
@@ -134,15 +141,23 @@ public final class DisplayPresentationSelectionTest {
                     a.change = new Change();
                     a.change.next.put(a, new DesktopDisplayInfo(2));
                     SESSIONS.put("a", a);
-                    rejects(() -> validate(new DesktopDisplayInfo(2), new DesktopDisplayInfo(4), null));
-                    rejects(() -> validate(new DesktopDisplayInfo(3), new DesktopDisplayInfo(2), null));
+                    rejects(() -> validate(new DesktopDisplayInfo(2), new DesktopDisplayInfo(4), true));
+                    check(!canAttachOutput(new DesktopDisplayInfo(2), new DesktopDisplayInfo(4)),
+                            "portable selection ignored a pending source reservation");
+                    check(canAttachOutput(new DesktopDisplayInfo(6), new DesktopDisplayInfo(7)),
+                            "unused source/output pair was rejected");
+                    rejects(() -> validate(new DesktopDisplayInfo(3), new DesktopDisplayInfo(2), true));
                     Session b = new Session(5, 4);
                     SESSIONS.put("b", b);
                     rejects(() -> validateGraph(Map.of(b, new DesktopDisplayInfo(2))));
                     validateGraph(Map.of(b, new DesktopDisplayInfo(1)));
+                    validate(new DesktopDisplayInfo(2), new DesktopDisplayInfo(4), false);
+                    b.outputAttachment = false;
+                    validateGraph(Map.of(b, new DesktopDisplayInfo(2)));
+                    rejects(() -> validate(new DesktopDisplayInfo(3), new DesktopDisplayInfo(2), false));
                 }
                 """ + RuntimeSourceFixture.methods("DisplayPresentations",
-                        "reservedSource", "validateGraph", "validate"),
+                        "reservedSource", "validateGraph", "validate", "canAttachOutput"),
                 "DisplayPresentationGraph");
     }
 }

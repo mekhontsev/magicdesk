@@ -48,6 +48,8 @@ public final class ShellFullscreenTaskAreaTest {
         final ShellDesktopTaskOwnership ownership = new ShellDesktopTaskOwnership();
         ownership.configure(4);
         ownership.markDesktopHost(10);
+        ownership.markDesktop(21);
+        ownership.markDesktop(22);
         return new ShellFullscreenTaskArea(ownership, new ShellDesktopSurfaceOrder());
     }
 

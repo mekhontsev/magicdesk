@@ -50,6 +50,9 @@ public final class DisplayProfileStore {
         copy.dpiExplicit = source.dpiExplicit;
         copy.outputTiming = source.outputTiming;
         copy.resetOutputModePending = source.resetOutputModePending;
+        copy.originProfileKey = source.originProfileKey;
+        copy.width = source.width;
+        copy.height = source.height;
         return copy;
     }
 
@@ -59,6 +62,10 @@ public final class DisplayProfileStore {
         public boolean dpiExplicit;
         public String outputTiming;
         public boolean resetOutputModePending;
+        public String originProfileKey = "";
+        // Virtual creation size, not a physical output timing or a live display override.
+        public int width;
+        public int height;
         Profile(final String key) {
             this.key = key;
         }

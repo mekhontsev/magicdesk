@@ -17,12 +17,19 @@ final class ToolApplications {
             case "app_profiles" -> AppPresentationSettingsActivity.createIntent(context);
             case "diagnostics" -> DiagnosticsActivity.createIntent(context);
             case "activity_explorer" -> ActivityExplorerActivity.createIntent(context);
+            case "display_viewer" -> DisplayViewerActivity.createIntent(context);
             default -> throw new IllegalArgumentException("unknown built-in application: " + name);
         };
     }
 
     static void open(final Context context, final Intent intent, final ToolLaunchTarget target,
             final String uniqueId, final BuiltInWindowLauncher.Callback callback) {
+        open(context, intent, target, uniqueId, null, callback);
+    }
+
+    static void open(final Context context, final Intent intent, final ToolLaunchTarget target,
+            final String uniqueId, final DesktopLaunchPresentation presentation,
+            final BuiltInWindowLauncher.Callback callback) {
         final android.content.ComponentName component = intent.getComponent();
         if (component == null || !context.getPackageName().equals(component.getPackageName())) {
             throw new IllegalArgumentException("built-in application must belong to MagicDesk");
@@ -30,6 +37,6 @@ final class ToolApplications {
         final BuiltInDesktopAppCatalog.Entry entry =
                 BuiltInDesktopAppCatalog.findComponent(component.getClassName());
         if (entry == null) { throw new IllegalArgumentException("unknown built-in application"); }
-        BuiltInWindowLauncher.launch(context, intent, entry.launchTarget, target, uniqueId, callback);
+        BuiltInWindowLauncher.launch(context, intent, entry.launchTarget, target, uniqueId, presentation, callback);
     }
 }

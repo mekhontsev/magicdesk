@@ -30,12 +30,12 @@ final class ToolLaunchTarget {
                 if (requestedDisplay > 0) {
                     throw new IllegalArgumentException("phone placement requires display 0");
                 }
-                return ordinary(0, desktops);
+                return new ToolLaunchTarget(0, false);
             case "display":
                 if (requestedDisplay < 0) {
                     throw new IllegalArgumentException("display placement requires displayId");
                 }
-                return ordinary(requestedDisplay, desktops);
+                return new ToolLaunchTarget(requestedDisplay, false);
             default:
                 throw new IllegalArgumentException("unknown tool placement: " + placement);
         }
@@ -48,16 +48,9 @@ final class ToolLaunchTarget {
         return desktops.isEmpty() ? 0 : desktops.iterator().next();
     }
 
-    private static ToolLaunchTarget ordinary(final int display, final java.util.Set<Integer> desktops) {
-        if (desktops.contains(display)) {
-            throw new IllegalStateException("display belongs to Desktop; use desktop placement");
-        }
-        return new ToolLaunchTarget(display, false);
-    }
-
     void requireCurrent(final java.util.Set<Integer> desktops) {
-        if (desktop != desktops.contains(displayId)) {
-            throw new IllegalStateException("display ownership changed; select the launch destination again");
+        if (desktop && !desktops.contains(displayId)) {
+            throw new IllegalStateException("the selected Desktop is no longer running");
         }
     }
 }

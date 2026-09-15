@@ -371,8 +371,15 @@ final class DesktopUiGateway {
         }
         final DesktopActivityLaunchResult.Awaiter completion =
                 new DesktopActivityLaunchResult.Awaiter();
+        launchAutomationRequest(request, displayId, completion);
+        return completion.await(timeoutMillis);
+    }
+
+    void launchAutomationRequest(final DesktopLaunchRequest request, final int displayId,
+            final DesktopActivityLaunchResult.Completion completion) {
+        final DesktopShellActivity activity = usableDesktop(displayId, false);
         mMainHandler.post(() -> {
-            if (!isCurrentHost(activity)
+            if (activity == null || request == null || !isCurrentHost(activity)
                     || activity.getCurrentDisplayId() != displayId) {
                 completion.onComplete(DesktopActivityLaunchResult.failed(
                         "desktop host became unavailable"));
@@ -380,7 +387,6 @@ final class DesktopUiGateway {
             }
             activity.launchAutomationRequest(request, completion);
         });
-        return completion.await(timeoutMillis);
     }
 
     boolean openFilesAt(final String path, final int displayId) {

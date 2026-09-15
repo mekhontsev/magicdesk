@@ -35,6 +35,7 @@ final class ShellExternalTaskMigrationGuard implements
 
     private final Object mService;
     private final ShellWorkspaceMembership mMembership;
+    private final java.util.function.IntPredicate mOwnsTask;
     private final Listener mListener;
     private final java.util.function.BooleanSupplier mRefreshFullscreenCaption;
     private final Map<Integer, TaskState> mDesktopTasks = new HashMap<>();
@@ -52,10 +53,12 @@ final class ShellExternalTaskMigrationGuard implements
     ShellExternalTaskMigrationGuard(
             final Object service,
             final ShellWorkspaceMembership membership,
+            final java.util.function.IntPredicate ownsTask,
             final java.util.function.BooleanSupplier refreshFullscreenCaption,
             final Listener listener) {
         mService = service;
         mMembership = membership;
+        mOwnsTask = ownsTask;
         mRefreshFullscreenCaption = refreshFullscreenCaption;
         mListener = listener;
     }
@@ -154,7 +157,7 @@ final class ShellExternalTaskMigrationGuard implements
             for (final Object task : HiddenTaskApi.getTasks(
                     mService, displayId)) {
                 final TaskState state = createTaskState(task);
-                if (state != null) {
+                if (state != null && mOwnsTask.test(state.taskId)) {
                     observed.put(Integer.valueOf(state.taskId), state);
                 }
             }
@@ -172,7 +175,7 @@ final class ShellExternalTaskMigrationGuard implements
             final int displayId) {
         try {
             final TaskState state = createTaskState(task);
-            if (state == null) {
+            if (state == null || !mOwnsTask.test(state.taskId)) {
                 return;
             }
             synchronized (this) {

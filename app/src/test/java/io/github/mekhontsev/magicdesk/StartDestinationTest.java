@@ -4,6 +4,31 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class StartDestinationTest {
+    @Test public void modesSeparatePlacementFromWindowingAndRequireDesktopOnlyWhenManaged() throws Exception {
+        RuntimeSourceFixture.verify("""
+                enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
+                static class R {
+                    static class string {
+                        static final int start_mode_default = 1, start_mode_windowed = 2,
+                                start_mode_fullscreen = 3, start_mode_independent = 4;
+                    }
+                }
+                public static void verify() {
+                    check(Mode.DEFAULT.placement.equals("auto"), "default lost destination policy");
+                    check(Mode.WINDOWED.placement.equals("desktop"), "window is not managed");
+                    check(Mode.FULLSCREEN.placement.equals("desktop"), "fullscreen is not managed");
+                    check(Mode.INDEPENDENT.placement.equals("display"), "independent claims Desktop");
+                    check(Mode.INDEPENDENT.windowMode == DesktopLaunchMode.FULLSCREEN,
+                            "independent task requests floating mode");
+                    for (Mode mode : Mode.values()) { check(mode.available(true), "active Desktop choice missing"); }
+                    check(Mode.DEFAULT.available(false) && Mode.INDEPENDENT.available(false),
+                            "ordinary launches require Desktop");
+                    check(!Mode.WINDOWED.available(false) && !Mode.FULLSCREEN.available(false),
+                            "managed choice available without Desktop");
+                }
+                """ + RuntimeSourceFixture.nestedClass("StartLaunchControls", "Mode"));
+    }
+
     @Test public void sameNamedDisplaysHaveDistinctLabels() throws Exception {
         RuntimeSourceFixture.verify("""
                 record DesktopDisplayInfo(int id, String name) { }
@@ -17,7 +42,7 @@ public final class StartDestinationTest {
         final String show = RuntimeSourceFixture.methods("StartDisplaySelector", "show");
         final String selected = RuntimeSourceFixture.methods("StartDisplaySelector", "updateLabel");
         assertTrue(show.contains("displayLabel(display)"));
-        assertTrue(selected.contains("displayLabel(mSelected)"));
+        assertTrue(selected.contains("mSelectedLabel"));
     }
 
     @Test public void visibleStartRemainsAddressableWhenAnotherDisplayHasKeyboardFocus() throws Exception {
@@ -88,7 +113,9 @@ public final class StartDestinationTest {
                     DesktopDisplayInfo(int id, String uniqueId) { this.id = id; this.uniqueId = uniqueId; }
                 }
                 Activity mActivity = new Activity();
-                DesktopDisplayInfo mSelected;
+                Target mSelected;
+                String mSelectedLabel;
+                static String displayLabel(DesktopDisplayInfo d) { return Integer.toString(d.id); }
                 int labelUpdates;
                 void updateLabel() { labelUpdates++; }
                 public static void verify() {
@@ -137,7 +164,7 @@ public final class StartDestinationTest {
         assertFalse(start.contains("DesktopOperations"));
         assertFalse(start.contains("DesktopHomeRoleLease"));
         final String panel = RuntimeSourceFixture.methods("ControlActivity", "openApplications");
-        assertTrue(panel.contains("StartActivity.open(this)"));
+        assertTrue(panel.contains("StartActivity.open(this, display)"));
         assertFalse(panel.contains("selectedDisplay"));
         final String selection = RuntimeSourceFixture.methods("StartDisplaySelector", "select");
         assertFalse(selection.contains("showSection"));

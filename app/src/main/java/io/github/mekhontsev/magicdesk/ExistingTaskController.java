@@ -144,6 +144,11 @@ final class ExistingTaskController {
             boolean movedAsFreeform = false;
             boolean movedDisplay = false;
             if (task.displayId != targetDisplayId) {
+                final TaskRepository.Snapshot source = TaskRepository.loadNow(task.displayId);
+                if (!source.available) { throw new IOException(source.error); }
+                for (final var entry : source.tasks) {
+                    if (entry.taskId == task.taskId) { ApplicationTaskPlacement.release(entry); break; }
+                }
                 final Rect bounds = targetFreeform
                         ? resolveTargetBounds(targetDisplayId, targetBounds)
                         : null;
@@ -203,6 +208,21 @@ final class ExistingTaskController {
                 waitForTaskState(task.taskId, targetDisplayId, MODE_FREEFORM);
             }
 
+            if (targetFreeform) {
+                final TaskRepository.Snapshot current = TaskRepository.loadNow(targetDisplayId);
+                if (!current.available) { throw new IOException(current.error); }
+                TaskRepository.TaskEntry reused = null;
+                for (final var entry : current.tasks) {
+                    if (entry.taskId == task.taskId) { reused = entry; break; }
+                }
+                if (reused == null) { throw new IOException("reused task disappeared"); }
+                if (!ApplicationTaskPlacement.isManaged(reused)
+                        && !MagicDeskRuntime.attachWindowedTask(targetDisplayId, task.taskId,
+                                reused.hasBounds() ? reused.bounds : resolveTargetBounds(targetDisplayId, targetBounds),
+                                densityDpi)) {
+                    throw new IOException("could not claim reused window");
+                }
+            }
             return ReuseResult.reused(
                     task.taskId, task.packageName, originalDisplayId);
         } finally {

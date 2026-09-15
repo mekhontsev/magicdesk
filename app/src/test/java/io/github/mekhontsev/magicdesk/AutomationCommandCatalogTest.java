@@ -12,19 +12,33 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class AutomationCommandCatalogTest {
-    @Test public void displayAttachmentCommandsExposeSourceOutputAndPresentationIdentity() throws Exception {
+    @Test public void viewerUsesBuiltinLaunchAndOrdinaryTaskClose() throws Exception {
         final JSONArray tools = AutomationCommandCatalog.create();
-        final JSONObject attach = tool(tools, "attach_display_viewer").getJSONObject("inputSchema");
-        assertEquals("[\"sourceDisplayId\",\"outputDisplayId\"]", attach.getJSONArray("required").toString());
-        assertEquals(3, attach.getJSONObject("properties").length());
-        assertTrue(attach.getJSONObject("properties").has("fullscreen"));
-        final JSONObject detach = tool(tools, "detach_display_viewer").getJSONObject("inputSchema");
-        assertEquals("[\"viewerId\"]", detach.getJSONArray("required").toString());
-        assertEquals(1, detach.getJSONObject("properties").length());
-        assertEquals(DesktopAutomationAction.ATTACH_DISPLAY_VIEWER,
-                DesktopAutomationAction.parse("attach_display_viewer"));
-        assertEquals(DesktopAutomationAction.DETACH_DISPLAY_VIEWER,
-                DesktopAutomationAction.parse("detach_display_viewer"));
+        final JSONObject launch = tool(tools, "open_builtin").getJSONObject("inputSchema");
+        final JSONObject viewer = launch.getJSONObject("properties").getJSONObject("viewer");
+        assertEquals("[\"builtin\"]", launch.getJSONArray("required").toString());
+        assertEquals(3, viewer.getJSONObject("properties").length());
+        assertTrue(viewer.getJSONObject("properties").has("sourceDisplayId"));
+        assertTrue(viewer.getJSONObject("properties").has("immersive"));
+        assertEquals("[\"mirror\",\"output\"]", viewer.getJSONObject("properties")
+                .getJSONObject("mode").getJSONArray("enum").toString());
+        assertFalse(viewer.getBoolean("additionalProperties"));
+        assertEquals("[\"taskId\"]", tool(tools, "close_task").getJSONObject("inputSchema")
+                .getJSONArray("required").toString());
+        for (int index = 0; index < tools.length(); index++) {
+            final String name = tools.getJSONObject(index).getString("name");
+            assertFalse(name.equals("attach_display_viewer") || name.equals("detach_display_viewer"));
+        }
+        for (final String name : Set.of("list_displays", "open_builtin", "select_display_viewer")) {
+            final JSONObject properties = dataProperties(tools, name).getJSONObject("presentations")
+                    .getJSONObject("items").getJSONObject("properties");
+            assertTrue(properties.has("id"));
+            assertTrue(properties.has("taskId"));
+            assertTrue(properties.has("ready"));
+            assertTrue(properties.has("transport"));
+            assertTrue(properties.has("immersive"));
+            assertEquals("[\"output\",\"mirror\"]", properties.getJSONObject("mode").getJSONArray("enum").toString());
+        }
     }
 
     @Test public void captureUsesOneOptionalRectangleWithoutSelectorModes() throws Exception {
@@ -84,8 +98,9 @@ public final class AutomationCommandCatalogTest {
         final JSONObject remove = tool(tools, "remove_display");
         assertFalse(create.getJSONObject("annotations").getBoolean("readOnlyHint"));
         assertFalse(remove.getJSONObject("annotations").getBoolean("readOnlyHint"));
-        assertEquals("[\"width\",\"height\"]",
-                create.getJSONObject("inputSchema").getJSONArray("required").toString());
+        assertFalse(create.getJSONObject("inputSchema").has("required"));
+        assertTrue(create.getJSONObject("inputSchema").getJSONObject("properties").has("sourceDisplayId"));
+        assertTrue(create.getJSONObject("inputSchema").getJSONObject("properties").has("sourceUniqueId"));
         assertEquals("[\"displayId\",\"uniqueId\"]",
                 remove.getJSONObject("inputSchema").getJSONArray("required").toString());
         assertEquals("[\"virtual\",\"overlay\"]", create.getJSONObject("inputSchema")
@@ -99,7 +114,7 @@ public final class AutomationCommandCatalogTest {
         assertTrue(conditions.toString().contains("\"display_present\""));
         assertTrue(conditions.toString().contains("\"display_absent\""));
         assertTrue(tool(tools, "close_desktop").getString("description")
-                .contains("without removing or disconnecting"));
+                .contains("without removing its display"));
     }
 
     @Test

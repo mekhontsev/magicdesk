@@ -25,22 +25,39 @@ final class AutomationToolWindows {
                 completed.countDown();
             };
             final String uniqueId = args.has("uniqueId") ? args.getString("uniqueId") : null;
+            final JSONObject viewer = args.has("viewer") ? args.getJSONObject("viewer") : null;
+            if (viewer != null && (intent.getComponent() == null || !DisplayViewerActivity.class.getName()
+                    .equals(intent.getComponent().getClassName()))) {
+                throw new IllegalArgumentException("viewer options require builtin=display_viewer");
+            }
             if (intent.getComponent() != null && CommandConsoleActivity.class.getName()
                     .equals(intent.getComponent().getClassName())) {
                 TerminalSessions.open(context, intent, target, uniqueId, callback);
+            } else if (viewer != null) {
+                final boolean output = switch (viewer.optString("mode", "mirror")) {
+                    case "mirror" -> false;
+                    case "output" -> true;
+                    default -> throw new IllegalArgumentException("unknown Viewer mode");
+                };
+                DisplayPresentations.openViewer(context, target, uniqueId,
+                        viewer.has("sourceDisplayId") ? AutomationJsonArguments.requiredInt(viewer, "sourceDisplayId") : null,
+                        output, viewer.optBoolean("immersive", output), callback);
             } else ToolApplications.open(context, intent, target, uniqueId, callback);
             // Bound the launch-completion callback; there is no display/task polling here.
             final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
-                    20_000L, "application launch", false,
+                    20_000L, viewer != null && viewer.has("sourceDisplayId")
+                            ? "display viewer Surface attachment" : "application launch", false,
                     new JSONObject().put("displayId", target.displayId));
             if (pending != null) return pending;
             if (failure[0] != null) {
                 return DesktopAutomationResult.failure(DesktopAutomationErrorCode.ACTION_FAILED,
                         ShellAccess.usefulMessage(failure[0]), true);
             }
-            return DesktopAutomationResult.success("application launch accepted", new JSONObject()
+            final JSONObject result = new JSONObject()
                     .put("accepted", true).put("displayId", target.displayId)
-                    .put("placement", target.desktop ? "desktop" : "display"));
+                    .put("placement", target.desktop ? "desktop" : "display");
+            if (viewer != null) result.put("presentations", DisplayPresentations.snapshot());
+            return DesktopAutomationResult.success("application launch accepted", result);
         } catch (IllegalArgumentException | JSONException error) {
             return DesktopAutomationResult.failure(DesktopAutomationErrorCode.INVALID_ARGUMENT,
                     ShellAccess.usefulMessage(error), false);

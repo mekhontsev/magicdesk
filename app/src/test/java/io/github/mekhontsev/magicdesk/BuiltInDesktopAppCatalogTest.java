@@ -14,6 +14,14 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class BuiltInDesktopAppCatalogTest {
+    @Test public void viewerIsAnOrdinaryLaunchableMultiWindowTool() {
+        final var viewer = BuiltInDesktopAppCatalog.findComponent(DisplayViewerActivity.class.getName());
+        assertNotNull(viewer);
+        assertTrue(BuiltInDesktopAppCatalog.launcherEntries().contains(viewer));
+        assertTrue(BuiltInDesktopAppCatalog.searchEntries().contains(viewer));
+        assertTrue(viewer.multipleWindows);
+        assertTrue(viewer.pinnable);
+    }
     @Test
     public void builtInsDeclareMultipleWindowPolicy() {
         assertTrue(BuiltInDesktopAppCatalog.supportsMultipleWindows(

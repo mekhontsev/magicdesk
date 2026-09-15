@@ -66,6 +66,15 @@ final class ShellTaskObserverManager implements Closeable {
         }
     }
 
+    void releaseDesktopTasks(final int displayId, final int[] taskIds) {
+        final Session session;
+        synchronized (mLock) {
+            session = mSessions.values().stream().filter(value -> value.displayId == displayId)
+                    .findFirst().orElseThrow(() -> new IllegalStateException("Desktop is not running"));
+        }
+        session.observer.releaseDesktopTasks(taskIds);
+    }
+
     void configure(
             final ITaskObserverCallback callback,
             final int displayId,

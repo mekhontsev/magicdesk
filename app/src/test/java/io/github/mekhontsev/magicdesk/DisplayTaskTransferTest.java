@@ -2,87 +2,158 @@ package io.github.mekhontsev.magicdesk;
 
 import org.junit.Test;
 
-/** Exercise the shared production dispatcher without an Android organizer. */
+/** Exercise shared placement and ownership without an Android organizer. */
 public final class DisplayTaskTransferTest {
-    @Test public void transferUsesDestinationOwnershipAndRejectsStaleTasks() throws Exception {
-        RuntimeSourceFixture.verify("""
-                static class TaskEntry { int taskId = 5, displayId = 0; }
-                static class RelativeWindowBounds { }
-                static class AppIdentity { }
-                static class ActionResult { boolean success; String message;
-                    ActionResult(boolean s, String m) { success=s; message=m; } }
-                interface ActionCallback { void onComplete(ActionResult r); }
-                static TaskEntry live = new TaskEntry();
-                static String route = "";
-                static boolean success, transition, profile = true;
-                static int desktop = -1;
-                static class Snapshot { boolean available = true; String error = "";
-                    List<TaskEntry> tasks = List.of(live); }
-                static boolean isTransferable(TaskEntry t) { return t != null; }
-                static Snapshot loadAllNow() throws IOException { return new Snapshot(); }
-                static TaskEntry findMatchingTask(List<TaskEntry> tasks, TaskEntry t) {
-                    return tasks.get(0).taskId == t.taskId ? tasks.get(0) : null;
+    @Test public void transferUsesExplicitOwnershipAndRejectsStaleTasks() throws Exception {
+        RuntimeSourceFixture.verify("io.github.mekhontsev.magicdesk", """
+                static Set<Integer> desktops = new HashSet<>();
+                static Set<Integer> owned = new HashSet<>();
+                static List<String> events = new ArrayList<>();
+                static boolean transition, ownershipReady = true, profile = true;
+                static TaskRepository.TaskEntry live = new TaskRepository.TaskEntry();
+                static class Rect {
+                    Rect() {} Rect(Rect b) {}
                 }
-                static void complete(ActionCallback c, boolean s, String m) {
-                    c.onComplete(new ActionResult(s,m));
+                static class RelativeWindowBounds {}
+                enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
+                static class DesktopLaunchPresentation {
+                    DesktopLaunchMode mode = DesktopLaunchMode.AUTO;
+                    RelativeWindowBounds bounds;
                 }
-                static String usefulMessage(Exception e) { return e.getMessage(); }
-                static class TaskCommandQueue { static void execute(Runnable r) { r.run(); } }
+                static class TaskRepository {
+                    static class TaskEntry {
+                        int taskId = 5, displayId, userId;
+                        String packageName = "app";
+                        boolean freeform;
+                        Rect bounds = new Rect();
+                        boolean isFreeform() { return freeform; }
+                        boolean hasBounds() { return true; }
+                    }
+                    static class Snapshot {
+                        boolean available = true;
+                        String error = "unavailable";
+                        List<TaskEntry> tasks = List.of(live);
+                    }
+                    static Snapshot loadNow(int d) { return new Snapshot(); }
+                    static Snapshot loadAllNow() { return new Snapshot(); }
+                    static boolean isTransferable(TaskEntry t) { return profile && t.userId == 0; }
+                }
+                static class DesktopRuntimeBridge {
+                    static boolean hasWorkspace(int d) { return desktops.contains(d); }
+                    static Set<Integer> workspaceDisplayIds() { return desktops; }
+                }
+                static class MagicDeskRuntime {
+                    static TaskRepository.Snapshot selectDesktopTaskSnapshot(int d, TaskRepository.Snapshot all) {
+                        TaskRepository.Snapshot s = new TaskRepository.Snapshot();
+                        s.available = ownershipReady;
+                        s.tasks = owned.contains(live.taskId) ? List.of(live) : List.of();
+                        return s;
+                    }
+                    static boolean attachFullscreenTask(int d, int t, int dpi) {
+                        events.add("attach-fullscreen"); owned.add(t); live.freeform = false; return true;
+                    }
+                    static boolean attachWindowedTask(int d, int t, Rect b, int dpi) {
+                        events.add("attach-windowed"); owned.add(t); live.freeform = true; return true;
+                    }
+                }
                 static class DesktopOperations {
                     static boolean isSessionTransitionInProgress() { return transition; }
                 }
-                static class DesktopDisplayCatalog { static void require(int d,String id) { } }
-                static class DesktopDisplayDrivers {
-                    static boolean hasActiveWorkspace(int id) { return desktop == id; }
-                }
-                static class MagicDeskApplication { static Object applicationContext() { return null; } }
+                static class DesktopDisplayCatalog { static void require(int d, String id) throws IOException {
+                    if ("stale".equals(id)) { throw new IOException("stale display"); }
+                } }
+                static class AppIdentity {}
                 static class AppProfile {
                     static AppProfile current(Object c) { return new AppProfile(); }
-                    AppIdentity application(TaskEntry t) { return profile ? new AppIdentity() : null; }
+                    AppIdentity application(TaskRepository.TaskEntry t) { return profile ? new AppIdentity() : null; }
                 }
-                static class MagicDeskRuntime {
-                    static void focusDesktopTask(int d,int t,ActionCallback c) {
-                        route="focus"; complete(c,true,route);
+                static class MagicDeskApplication { static Object applicationContext() { return null; } }
+                static class DesktopTaskPresentationPolicy {
+                    static int resolveDensityDpi(AppIdentity a, int d) { return 240; }
+                }
+                static class FloatingWindowController {
+                    static Rect getWindowBounds(int d, Object b) { return new Rect(); }
+                }
+                static class OrdinaryActivityLaunch {
+                    static void requirePresentation(DesktopLaunchPresentation p) {
+                        if (p.mode == DesktopLaunchMode.WINDOWED) { throw new IllegalArgumentException("windowed"); }
+                    }
+                }
+                static class ShellAccess {
+                    static void releaseDesktopTasks(int d, int[] tasks) {
+                        check(d == live.displayId, "released another display");
+                        events.add("release"); owned.remove(live.taskId); live.freeform = false;
+                    }
+                    static void moveOrdinaryTask(TaskRepository.TaskEntry task, int d) {
+                        events.add("ordinary"); live.displayId = d; live.freeform = false;
                     }
                 }
                 static class DesktopTaskTransfer {
-                    static String moveFreeform(int t,int s,int d,Object b,int dpi) {
-                        return route="freeform";
+                    static String moveFreeform(int t, int s, int d, Rect b, int dpi) {
+                        events.add("move-windowed"); live.displayId = d; live.freeform = true; return "";
                     }
-                    static String moveFullscreen(int t,int s,int d,int dpi) {
-                        check(dpi == -1,"retained Desktop density"); return route="fullscreen";
+                    static String moveFullscreen(int t, int s, int d, int dpi) {
+                        events.add("move-fullscreen"); live.displayId = d; live.freeform = false; return "";
                     }
                 }
-                static class FloatingWindowController {
-                    static Object getWindowBounds(int d,Object b) { return b; }
+                static void reset(int source, boolean managed, Integer... workspaces) {
+                    desktops = new HashSet<>(Arrays.asList(workspaces));
+                    owned.clear(); events.clear(); transition = false; ownershipReady = true; profile = true;
+                    live = new TaskRepository.TaskEntry(); live.displayId = source;
+                    if (managed) { owned.add(live.taskId); }
                 }
-                static class DesktopTaskPresentationPolicy {
-                    static int resolveDensityDpi(AppIdentity a,int d) { return 240; }
+                static void place(int display, String placement, DesktopLaunchMode mode) throws IOException {
+                    DesktopLaunchPresentation p = new DesktopLaunchPresentation(); p.mode = mode;
+                    prepare(live, ToolLaunchTarget.resolve(placement, display, desktops), null, p);
                 }
-                static class DesktopTaskDensity { static int INHERIT=-1; }
-                static class ShellAccess {
-                    static void moveOrdinaryTask(TaskEntry t,int d) { route="ordinary"; }
+                public static void verify() throws Exception {
+                    reset(0, false);
+                    place(7, "display", DesktopLaunchMode.AUTO);
+                    check(events.equals(List.of("ordinary")), "ordinary placement required Desktop");
+                    reset(0, false, 7);
+                    place(7, "desktop", DesktopLaunchMode.WINDOWED);
+                    check(events.equals(List.of("move-windowed", "attach-windowed")), "destination never claimed task");
+                    reset(7, true, 7);
+                    place(8, "display", DesktopLaunchMode.AUTO);
+                    check(events.equals(List.of("release", "ordinary")), "departure bypassed owner");
+                    reset(7, true, 7);
+                    place(7, "display", DesktopLaunchMode.FULLSCREEN);
+                    check(events.equals(List.of("release", "ordinary")), "same-display release ignored");
+                    reset(7, false, 7);
+                    place(7, "desktop", DesktopLaunchMode.FULLSCREEN);
+                    check(events.equals(List.of("attach-fullscreen")), "independent fullscreen never claimed");
+                    reset(7, true, 7);
+                    place(7, "desktop", DesktopLaunchMode.AUTO);
+                    check(events.isEmpty(), "managed selection changed topology");
+                    place(7, "desktop", DesktopLaunchMode.WINDOWED);
+                    check(events.equals(List.of("attach-windowed")), "fullscreen restore bypassed owner");
+                    reset(7, false, 7);
+                    place(7, "display", DesktopLaunchMode.AUTO);
+                    check(events.equals(List.of("ordinary")) && owned.isEmpty(), "independent app became managed");
+                    reset(7, true, 7, 8);
+                    place(8, "desktop", DesktopLaunchMode.FULLSCREEN);
+                    check(events.equals(List.of("release", "move-fullscreen", "attach-fullscreen")), "workspace transfer mixed owners");
+                    reset(7, true, 7);
+                    ownershipReady = false;
+                    try { place(7, "display", DesktopLaunchMode.AUTO); throw new AssertionError("unknown ownership guessed"); }
+                    catch (IOException expected) { check(events.isEmpty(), "mutated unknown ownership"); }
+                    reset(0, false);
+                    transition = true;
+                    try { place(7, "display", DesktopLaunchMode.AUTO); throw new AssertionError("transfer during close"); }
+                    catch (IOException expected) { check(events.isEmpty(), "mutated during close"); }
+                    transition = false; profile = false;
+                    try { place(7, "display", DesktopLaunchMode.AUTO); throw new AssertionError("profile escaped"); }
+                    catch (IOException expected) { check(events.isEmpty(), "mutated another profile"); }
+                    reset(0, false);
+                    TaskRepository.TaskEntry stale = new TaskRepository.TaskEntry(); stale.displayId = 3;
+                    try { prepare(stale, ToolLaunchTarget.resolve("display", 7, desktops), null,
+                            new DesktopLaunchPresentation()); throw new AssertionError("stale task"); }
+                    catch (IOException expected) { check(events.isEmpty(), "stale source mutated"); }
+                    try { prepare(live, ToolLaunchTarget.resolve("display", 7, desktops), "stale",
+                            new DesktopLaunchPresentation()); throw new AssertionError("stale display"); }
+                    catch (IOException expected) { check(events.isEmpty(), "stale display mutated"); }
                 }
-                static void run(int source,int destination,int owner) {
-                    route=""; success=false; desktop=owner;
-                    live.displayId=source;
-                    TaskEntry request=new TaskEntry(); request.displayId=source;
-                    moveTaskToDisplay(request,destination,null,null,r -> success=r.success);
-                }
-                public static void verify() {
-                    run(0,7,-1); check(success && route.equals("ordinary"),"ordinary launch required Desktop");
-                    run(7,0,-1); check(success && route.equals("ordinary"),"ordinary return required Desktop");
-                    run(0,7,7); check(success && route.equals("freeform"),"Desktop destination bypassed owner");
-                    run(7,8,7); check(success && route.equals("fullscreen"),"Desktop departure bypassed owner");
-                    run(7,7,7); check(success && route.equals("focus"),"same-display selection changed mode");
-                    run(0,0,-1); check(success && route.equals("focus"),"ordinary activation transferred task");
-                    transition=true; run(0,7,-1); check(!success && route.isEmpty(),"transfer during close");
-                    transition=false; profile=false; run(0,7,-1);
-                    check(!success && route.isEmpty(),"cross-profile transfer"); profile=true;
-                    route=""; live.displayId=8;
-                    moveTaskToDisplay(new TaskEntry(),7,null,null,r -> success=r.success);
-                    check(!success && route.isEmpty(),"stale source accepted");
-                }
-                """ + RuntimeSourceFixture.methods("TaskRepository", "moveTaskToDisplay"));
+                """ + RuntimeSourceFixture.methods("ApplicationTaskPlacement", "prepare", "requireLive", "isManaged"),
+                "ToolLaunchTarget");
     }
 }

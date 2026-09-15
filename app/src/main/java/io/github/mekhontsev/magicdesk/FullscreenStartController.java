@@ -274,18 +274,22 @@ final class FullscreenStartController implements StartMenuContent.Host {
         view.setOnLongClickListener(anchor -> {
             final android.widget.PopupMenu menu = new android.widget.PopupMenu(mActivity, anchor);
             final StartDisplaySelector.Target target = mStart.destination();
+            final DesktopLaunchPresentation selected = mStart.presentation();
             menu.getMenu().add(R.string.action_open).setOnMenuItemClickListener(item -> {
-                launch(StartMenuEntry.app(app), target, DesktopLaunchPresentation.automatic()); return true;
+                launch(StartMenuEntry.app(app), target, selected); return true;
             });
             menu.getMenu().add(R.string.action_open_fullscreen).setOnMenuItemClickListener(item -> {
                 launch(StartMenuEntry.app(app), target,
-                        DesktopLaunchPresentation.forMode(DesktopLaunchMode.FULLSCREEN)); return true;
+                        DesktopLaunchPresentation.forMode(DesktopLaunchMode.FULLSCREEN)
+                                .withInstancePolicy(selected.instancePolicy)); return true;
             });
             menu.getMenu().add(R.string.action_open_floating)
                     .setEnabled(DesktopRuntimeBridge.hasWorkspace(target.displayId()))
                     .setOnMenuItemClickListener(item -> {
-                        launch(StartMenuEntry.app(app), target,
-                                DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED)); return true;
+                        launch(StartMenuEntry.app(app), new StartDisplaySelector.Target(
+                                target.displayId(), target.uniqueId(), "desktop"),
+                                DesktopLaunchPresentation.forMode(DesktopLaunchMode.WINDOWED)
+                                        .withInstancePolicy(selected.instancePolicy)); return true;
                     });
             menu.show();
             return true;
@@ -294,7 +298,7 @@ final class FullscreenStartController implements StartMenuContent.Host {
 
     @Override
     public void open(final StartMenuEntry result) {
-        launch(result, mStart.destination(), DesktopLaunchPresentation.automatic());
+        launch(result, mStart.destination(), mStart.presentation());
     }
 
     private void launch(StartMenuEntry result, StartDisplaySelector.Target target,

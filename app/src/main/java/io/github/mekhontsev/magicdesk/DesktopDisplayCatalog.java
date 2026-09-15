@@ -12,7 +12,7 @@ final class DesktopDisplayCatalog {
             final DesktopDisplayInfo d = displays[i];
             if (SimulatedDesktopDisplayController.owns(d)) {
                 displays[i] = new DesktopDisplayInfo(d.id, d.uniqueId, d.name, d.source,
-                        d.width, d.height, d.densityDpi, d.canHostDesktop, true, d.secure);
+                        d.width, d.height, d.densityDpi, d.canHostDesktop, d.requiresPortableDesktop, true, d.secure);
             }
         }
         return displays;
@@ -43,10 +43,17 @@ final class DesktopDisplayCatalog {
     }
 
     static org.json.JSONObject json(final DesktopDisplayInfo display) throws org.json.JSONException {
+        final String profileKey = DisplayProfiles.key(display);
+        final DisplayProfileStore.Profile profile = DisplayProfileStore.load(profileKey, display.densityDpi);
         return new org.json.JSONObject().put("id", display.id).put("uniqueId", display.uniqueId)
+                .put("profileKey", profileKey).put("originProfileKey", DisplayProfiles.origin(profile))
+                .put("profile", new org.json.JSONObject().put("densityDpi", profile.dpiExplicit ? profile.dpi : org.json.JSONObject.NULL)
+                        .put("width", profile.width > 0 ? profile.width : org.json.JSONObject.NULL)
+                        .put("height", profile.height > 0 ? profile.height : org.json.JSONObject.NULL))
                 .put("name", display.name).put("source", display.source)
                 .put("width", display.width).put("height", display.height)
                 .put("densityDpi", display.densityDpi).put("canHostDesktop", display.canHostDesktop)
+                .put("requiresPortableDesktop", display.requiresPortableDesktop)
                 .put("owned", display.owned).put("canRemove", display.canRemove())
                 .put("secure", display.secure).put("protectedContent", display.protectedContent())
                 .put("defaultDisplay", display.isDefaultDisplay()).put("builtIn", display.isBuiltIn())

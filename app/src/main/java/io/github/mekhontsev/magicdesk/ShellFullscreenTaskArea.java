@@ -144,6 +144,14 @@ final class ShellFullscreenTaskArea implements AutoCloseable {
                 service, displayId, starter, densityDpi, mOwnership);
     }
 
+    synchronized void releaseToAndroid(final Object service, final int displayId, final int[] taskIds)
+            throws ReflectiveOperationException {
+        mPlanes.releaseToAndroid(service, displayId, taskIds);
+        for (final int taskId : taskIds) { mAppRestoreBounds.remove(taskId); }
+    }
+
+    synchronized boolean ownsFullscreenTask(final int taskId) { return mPlanes.ownsTask(taskId); }
+
     synchronized boolean restoreTask(
             final Object service,
             final int displayId,

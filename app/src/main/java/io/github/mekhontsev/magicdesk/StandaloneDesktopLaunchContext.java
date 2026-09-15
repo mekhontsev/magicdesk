@@ -42,29 +42,16 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
                 ToolLaunchTarget.resolve("display", mDisplayId, DesktopRuntimeBridge.workspaceDisplayIds());
                 DesktopDisplayCatalog.require(mDisplayId, mUniqueId);
                 if (request.androidShortcut != null) {
+                    AndroidIntegrationGateway.requireShortcutPresentation(request.presentation);
                     final AndroidShortcutSpec shortcut = request.androidShortcut;
                     AppProfile.requireCurrent(mActivity, shortcut.application);
                     ShellAccess.sendActivityOnDisplay(ShellAccess.getShortcutLaunchIntent(
                             shortcut.publisher.packageName, shortcut.shortcutId), mDisplayId);
                 } else {
-                    final Intent intent = request.androidLaunch.resolve(mActivity.getPackageManager());
-                    if (intent == null) { throw new IllegalStateException("Activity is unavailable"); }
+                    final Intent source = request.androidLaunch.resolve(mActivity.getPackageManager());
+                    if (source == null) { throw new IllegalStateException("Activity is unavailable"); }
+                    final Intent intent = request.presentation.instancePolicy.applyTo(source);
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    if (mDisplayId == 0 && mActivity.getDisplay() != null
-                            && mActivity.getDisplay().getDisplayId() == 0) {
-                        mActivity.runOnUiThread(() -> {
-                            if (isUnavailable()) { return; }
-                            try {
-                                ToolLaunchTarget.resolve("display", mDisplayId,
-                                        DesktopRuntimeBridge.workspaceDisplayIds());
-                                final android.app.ActivityOptions options = android.app.ActivityOptions.makeBasic();
-                                options.setLaunchDisplayId(mDisplayId);
-                                mActivity.startActivity(intent, options.toBundle());
-                                launched(onPrepared, completion);
-                            } catch (RuntimeException error) { failed(request, error, completion); }
-                        });
-                        return;
-                    }
                     OrdinaryActivityLaunch.launch(mActivity, intent, request.androidLaunch.delivery, mDisplayId);
                 }
                 mActivity.runOnUiThread(() -> launched(onPrepared, completion));
@@ -100,7 +87,7 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
                         request.exec.backend),
                 CommandConsoleActivity.launchTarget(),
                 ToolLaunchTarget.resolve("display", mDisplayId, DesktopRuntimeBridge.workspaceDisplayIds()),
-                mUniqueId, error -> {
+                mUniqueId, request.presentation.withInstancePolicy(DesktopTaskInstancePolicy.CREATE_NEW), error -> {
                     if (error != null) { onFailure(request, error); }
                 });
     }

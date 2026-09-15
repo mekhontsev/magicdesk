@@ -55,9 +55,20 @@ See [Workstation tools](workstation-tools.md).
 
 ## Choose Or Create A Display
 
-The control panel lists live displays by identity, source and geometry.
-Select the phone, an existing wired/wireless display, or a MagicDesk-owned
-virtual display. Availability is checked again when an action runs.
+Once privileged access is ready, the control panel lists every live display
+with its status. Select the radio
+button for the phone, a wired/wireless display, or a MagicDesk-owned virtual
+display, then use the two-column grid of labeled icon actions below the list.
+Selecting a row does not
+redirect input; **Control this display** does. Availability and display identity
+are checked again when an action runs.
+Newly connected or created displays are selected automatically without starting
+Desktop or claiming input. On first opening, already connected external or virtual
+displays take priority over built-in screens.
+**Apps** opens the shared Start with that destination selected. Start can also
+choose **Current** or another display, managed window/fullscreen or independent
+placement, and request a new window where the application supports it.
+Independent tasks appear in that display's application list, not Desktop Alt+Tab.
 
 **Create display** offers:
 
@@ -66,10 +77,34 @@ virtual display. Availability is checked again when an action runs.
 - **Display with phone preview:** Android's preview surface on the phone.
   Its shared overlay configuration cannot replace an existing overlay set.
 
-Choose dimensions and scale. Creation requires the privileged service but does not acquire
-HOME or start Desktop. **Copy scrcpy command** copies a command for viewing
-that existing display from a computer; MagicDesk does not bundle or start the
-computer-side viewer.
+Dimensions and scale initially follow the selected display, using its saved DPI
+when configured. You can override them before creation. A virtual display keeps
+its own settings and the original display's profile identity, even when created
+from another virtual display. Changing its scale or attaching it to a different
+output does not change the original display's settings. Protection remains an
+explicit choice, not an inherited setting.
+
+Creation requires the privileged service but does not acquire
+HOME or start Desktop. To view an existing display from a computer, use its ID
+with the [scrcpy example](../README.md#magicdesk-on-a-computer-with-scrcpy).
+MagicDesk does not bundle or start the computer-side viewer.
+
+**Display Viewer** in Start opens another display inside a normal application
+window. Select the destination and window mode using the same Start controls as
+other applications, then choose the source inside Viewer. It mirrors the source
+without changing its existing output attachment. In the display panel, select
+an output and use **Show another display...** to choose a source by name, ID and
+Desktop status. This opens an independent fullscreen Viewer or changes the
+existing Viewer's source without moving applications. **Stop showing** appears
+among the selected output's buttons and closes only that Viewer, retaining the source.
+It is not required before unplugging the output or switching sources.
+
+**Start desktop** on an untrusted public external display automatically uses a
+portable workspace. **Start portable desktop here** does the same on other
+outputs. An existing output Viewer is kept; otherwise MagicDesk reuses an available
+virtual display with matching resolution and the fewest managed applications,
+or creates one. Its existing scale and applications are preserved. The table
+shows Desktop on the virtual source and the Viewer connection on the output.
 
 **Connect wireless display** opens the available Android Cast settings or
 platform connection UI. Complete the connection there and return to MagicDesk.
@@ -119,8 +154,9 @@ notification center and popups are wanted.
 ## Close, Exit And Recovery
 
 **Close desktop** closes the selected workspace, releases its selected input and
-other session-owned changes, and returns its surviving managed applications to
-phone fullscreen. It records the workspace for a later session, restoring
+other session-owned changes. Surviving managed applications become independent
+fullscreen tasks on the same display. Only loss of that display returns them
+to phone fullscreen. It records the workspace for a later session, restoring
 only tasks that are still alive. It keeps independent tools, retained terminals
 and owned displays available. Other Desktops keep running; only closing the last
 one returns HOME to its previous role state.

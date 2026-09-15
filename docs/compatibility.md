@@ -190,9 +190,10 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
   surfaces may be black in screenshots and recordings. `TRUSTED` and `SECURE`
   are independent Android properties.
 - A display without Android's `TRUSTED` flag cannot directly host MagicDesk's
-  organizer task areas. **No direct desktop** does not mean the output is
-  unusable: **Display actions > Start portable desktop here** can present a
-  trusted virtual workspace there, if Android allows the Viewer Activity.
+  organizer task areas. On public external outputs, **Start desktop** therefore
+  uses a trusted portable workspace automatically, if Android allows the Viewer
+  Activity. **Start portable desktop here** also offers this path on trusted
+  outputs. It reuses a compatible available virtual display before creating one.
   Google Cast receivers can expose this kind of public, untrusted display;
   it is distinct from a Miracast connection.
 - Android 14 installation is the chosen APK baseline, but device and native

@@ -175,13 +175,21 @@ public final class TaskRepository {
     }
 
     static void closeTask(final TaskEntry task, final ActionCallback callback) {
-        if (!isUsableTask(task)
-                || !DesktopManagedTaskPolicy
-                        .isControllableApplicationTask(task)) {
-            complete(callback, false, "invalid task");
-            return;
-        }
-        runAction(createTaskControlCommand("remove", task.taskId), callback);
+        TaskCommandQueue.execute(() -> {
+            final ActionResult result = closeTaskNow(task);
+            if (callback != null) callback.onComplete(result);
+        });
+    }
+
+    static ActionResult closeTaskNow(final TaskEntry task) {
+        return TaskCommandQueue.call(() -> {
+            if (!isUsableTask(task)
+                    || !DesktopManagedTaskPolicy.isControllableApplicationTask(task)) {
+                return new ActionResult(false, "invalid task");
+            }
+            final CommandResult result = runCommand(createTaskControlCommand("remove", task.taskId));
+            return new ActionResult(result.success, result.output.trim());
+        });
     }
 
     static void setFullscreen(final TaskEntry task,
@@ -234,48 +242,12 @@ public final class TaskRepository {
             complete(callback, false, "invalid task or target display");
             return;
         }
-        TaskCommandQueue.execute(() -> {
-            try {
-                if (DesktopOperations.isSessionTransitionInProgress()) {
-                    throw new IllegalStateException("desktop transition is in progress");
-                }
-                DesktopDisplayCatalog.require(targetDisplayId, targetUniqueId);
-                final Snapshot snapshot = loadAllNow();
-                if (!snapshot.available) { throw new IOException(snapshot.error); }
-                final TaskEntry live = findMatchingTask(snapshot.tasks, task);
-                if (live == null || live.displayId != task.displayId) {
-                    throw new IOException("task moved or closed before transfer");
-                }
-                final AppIdentity application = AppProfile.current(
-                        MagicDeskApplication.applicationContext()).application(live);
-                if (application == null) { throw new IOException("task belongs to another profile"); }
-                if (live.displayId == targetDisplayId) {
-                    // Selection is not a mode change, including on a Desktop.
-                    MagicDeskRuntime.focusDesktopTask(targetDisplayId, live.taskId, callback);
-                    return;
-                }
-                final boolean targetDesktop = DesktopDisplayDrivers.hasActiveWorkspace(targetDisplayId);
-                final boolean sourceDesktop = DesktopDisplayDrivers.hasActiveWorkspace(live.displayId);
-                final String output;
-                if (targetDesktop) {
-                    output = DesktopTaskTransfer.moveFreeform(live.taskId, live.displayId,
-                            targetDisplayId, FloatingWindowController.getWindowBounds(
-                                    targetDisplayId, preferredBounds),
-                            DesktopTaskPresentationPolicy.resolveDensityDpi(application, targetDisplayId));
-                } else if (sourceDesktop) {
-                    // Exit through the established topology owner, resetting
-                    // presentation overrides before returning to ordinary Android.
-                    output = DesktopTaskTransfer.moveFullscreen(live.taskId, live.displayId,
-                            targetDisplayId, DesktopTaskDensity.INHERIT);
-                } else {
-                    ShellAccess.moveOrdinaryTask(live, targetDisplayId);
-                    output = "task transfer accepted";
-                }
-                complete(callback, true, output.trim());
-            } catch (IOException | RuntimeException error) {
-                complete(callback, false, usefulMessage(error));
-            }
-        });
+        final ToolLaunchTarget target = ToolLaunchTarget.resolve("auto", targetDisplayId,
+                DesktopRuntimeBridge.workspaceDisplayIds());
+        ApplicationTaskPlacement.place(task, target, targetUniqueId,
+                preferredBounds == null ? DesktopLaunchPresentation.automatic()
+                        : new DesktopLaunchPresentation(DesktopLaunchMode.WINDOWED, preferredBounds,
+                                DesktopTaskInstancePolicy.REUSE_EXISTING, -1), callback);
     }
 
     static boolean isTransferable(final TaskEntry task) {
@@ -347,7 +319,7 @@ public final class TaskRepository {
         });
     }
 
-    private static String createTaskControlCommand(final String action, final int taskId) {
+    static String createTaskControlCommand(final String action, final int taskId) {
         return createTaskControlCommand(action + " " + taskId);
     }
 

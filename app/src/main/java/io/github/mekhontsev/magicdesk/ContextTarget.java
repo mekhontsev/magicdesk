@@ -9,6 +9,7 @@ final class ContextTarget {
     final boolean widgetConfigurable;
     final int widgetResizeMode;
     final java.util.function.Supplier<StartDisplaySelector.Target> launchDestination;
+    final java.util.function.Supplier<DesktopLaunchPresentation> launchPresentation;
 
     private ContextTarget(
             final AppItem app,
@@ -18,7 +19,8 @@ final class ContextTarget {
             final String widgetLabel,
             final boolean widgetConfigurable,
             final int widgetResizeMode,
-            final java.util.function.Supplier<StartDisplaySelector.Target> launchDestination) {
+            final java.util.function.Supplier<StartDisplaySelector.Target> launchDestination,
+            final java.util.function.Supplier<DesktopLaunchPresentation> launchPresentation) {
         this.app = app;
         this.task = task;
         this.file = file;
@@ -27,30 +29,32 @@ final class ContextTarget {
         this.widgetConfigurable = widgetConfigurable;
         this.widgetResizeMode = widgetResizeMode;
         this.launchDestination = launchDestination;
+        this.launchPresentation = launchPresentation;
     }
 
     static ContextTarget app(
             final AppItem app,
             final TaskRepository.TaskEntry task) {
         return new ContextTarget(
-                app, task, null, -1, null, false, 0, null);
+                app, task, null, -1, null, false, 0, null, null);
     }
 
     static ContextTarget startApp(AppItem app,
-            java.util.function.Supplier<StartDisplaySelector.Target> destination) {
-        return new ContextTarget(app, null, null, -1, null, false, 0, destination);
+            java.util.function.Supplier<StartDisplaySelector.Target> destination,
+            java.util.function.Supplier<DesktopLaunchPresentation> presentation) {
+        return new ContextTarget(app, null, null, -1, null, false, 0, destination, presentation);
     }
 
     static ContextTarget desktopApp(
             final AppItem app,
             final DesktopFile file) {
         return new ContextTarget(
-                app, null, file, -1, null, false, 0, null);
+                app, null, file, -1, null, false, 0, null, null);
     }
 
     static ContextTarget file(final DesktopFile file) {
         return new ContextTarget(
-                null, null, file, -1, null, false, 0, null);
+                null, null, file, -1, null, false, 0, null, null);
     }
 
     static ContextTarget widget(
@@ -60,6 +64,6 @@ final class ContextTarget {
             final int resizeMode) {
         return new ContextTarget(
                 null, null, null, appWidgetId, label, configurable,
-                resizeMode, null);
+                resizeMode, null, null);
     }
 }

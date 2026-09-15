@@ -71,25 +71,26 @@ public final class QuickControlsPresentationTest {
         final String render = RuntimeSourceFixture.methods("PhoneControlPanelController", "render");
         assertFalse(render.contains("setVisibility"));
         assertFalse(render.contains("removeView"));
-        assertTrue(render.contains("mCloseDesktop.setEnabled(canCloseDesktop("));
+        assertTrue(render.contains("mDisplayTable.render(state.displays, state.desktopDisplays"));
         final String create = RuntimeSourceFixture.methods("PhoneControlPanelController", "createView");
         assertTrue(create.indexOf("addDesktopActions(content)") < create.indexOf("addSystemActions(content)"));
         final String controller = source("PhoneControlPanelController");
         assertTrue(controller.contains("mActions.openSettings()"));
-        assertTrue(controller.contains("mActions.closeDesktop()"));
+        assertTrue(source("DisplayTableView").contains("mActions.closeDesktop(display)"));
         assertTrue(controller.contains("mActions.exitMagicDesk()"));
-        assertTrue(controller.contains("mActions.openApplications()"));
-        assertTrue(controller.contains("mActions.controlSelectedDisplay()"));
+        assertFalse(controller.contains("mActions.openApplications()"));
+        assertTrue(source("DisplayTableView").contains("mActions.openApplications(display)"));
+        assertTrue(source("DisplayTableView").contains("mActions.controlDisplay(display)"));
         assertTrue(controller.contains("mActions.releaseInput()"));
     }
 
     @Test
-    public void phoneWirelessActionSharesTheCloseDesktopRow() throws Exception {
+    public void phoneWirelessActionSharesTheGlobalActionsGrid() throws Exception {
         final String header = RuntimeSourceFixture.methods("PhoneControlPanelController", "createHeader");
         assertFalse(header.contains("mConnectWirelessDisplay"));
         final String desktop = RuntimeSourceFixture.methods("PhoneControlPanelController", "addDesktopActions");
         assertTrue(desktop.contains("mActions.openWirelessSettings()"));
-        assertTrue(desktop.contains("addGridAction(sessionActions, mCloseDesktop)"));
+        assertTrue(desktop.contains("addGridAction(sessionActions, mReleaseInput)"));
         assertTrue(desktop.contains("addGridAction(sessionActions, mConnectWirelessDisplay)"));
         assertFalse(desktop.contains("parent.addView(mConnectWirelessDisplay"));
         assertFalse(desktop.contains("parent.addView(mCloseDesktop"));

@@ -20,6 +20,7 @@ final class TerminalSessionsDialog {
     private final Activity activity;
     private final ToolLaunchTarget target;
     private final String uniqueId;
+    private final DesktopLaunchPresentation presentation;
     private final SessionsAdapter adapter = new SessionsAdapter();
     private final TextView status;
     private final AlertDialog dialog;
@@ -27,10 +28,12 @@ final class TerminalSessionsDialog {
     private TmuxSessionProvider.Snapshot tmux;
     private boolean loading;
 
-    private TerminalSessionsDialog(Activity activity, ToolLaunchTarget target, String uniqueId) {
+    private TerminalSessionsDialog(Activity activity, ToolLaunchTarget target, String uniqueId,
+            DesktopLaunchPresentation presentation) {
         this.activity = activity;
         this.target = target;
         this.uniqueId = uniqueId;
+        this.presentation = presentation;
         status = new TextView(activity);
         status.setTextSize(13);
         status.setPadding(dp(24), dp(8), dp(24), dp(8));
@@ -47,7 +50,11 @@ final class TerminalSessionsDialog {
     }
 
     static void show(Activity activity, ToolLaunchTarget target, String uniqueId) {
-        final var picker = new TerminalSessionsDialog(activity, target, uniqueId);
+        show(activity, target, uniqueId, DesktopLaunchPresentation.automatic());
+    }
+
+    static void show(Activity activity, ToolLaunchTarget target, String uniqueId, DesktopLaunchPresentation presentation) {
+        final var picker = new TerminalSessionsDialog(activity, target, uniqueId, presentation);
         picker.dialog.show();
         picker.dialog.getListView().addFooterView(picker.status, null, false);
         picker.dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> picker.create());
@@ -96,7 +103,7 @@ final class TerminalSessionsDialog {
 
     private void openIntent(Intent intent) {
         dialog.dismiss();
-        TerminalSessions.open(activity, intent, target, uniqueId, this::result);
+        TerminalSessions.open(activity, intent, target, uniqueId, presentation, this::result);
     }
 
     private void prepareTmux(String id, String name) {

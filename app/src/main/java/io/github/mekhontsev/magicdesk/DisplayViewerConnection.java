@@ -24,7 +24,8 @@ final class DisplayViewerConnection {
         mFailure = failure;
     }
 
-    void attach(DesktopDisplayInfo source, DesktopDisplayInfo output, Surface surface, SurfaceControl parent,
+    void attach(DesktopDisplayInfo source, DesktopDisplayInfo output, DisplayPresentationMode mode,
+            Surface surface, SurfaceControl parent,
             BuiltInWindowLauncher.Callback completion) {
         final long generation = ++mGeneration;
         // Retain our own native reference across SurfaceView destruction and queueing.
@@ -42,7 +43,7 @@ final class DisplayViewerConnection {
             try {
                 release();
                 if (generation != mGeneration) return;
-                mLease = ShellAccess.openDisplayViewer(source, output, new Binder());
+                mLease = ShellAccess.openDisplayViewer(source, output, mode, new Binder());
                 mDeathRecipient = () -> WORKER.execute(() -> failed(generation,
                         new android.os.DeadObjectException()));
                 mLease.asBinder().linkToDeath(mDeathRecipient, 0);

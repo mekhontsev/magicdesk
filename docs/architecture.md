@@ -41,17 +41,79 @@ behavior, static verification and remaining device coverage.
   service promotion. A direct service Intent cannot promote Desktop or crash
   independent tools and automation on an unsupported SDK.
 
-The control panel has independent **Apps**, input and Desktop actions. Apps
-opens fullscreen Start with its own destination selector. The shared grid lists launchable apps
-and built-in tools, retained shell/Termux and tmux sessions, plus a separate list
-of current-profile application tasks. `TaskRepository`
-revalidates exact task identity before transfer. An ordinary destination uses
-fullscreen; a Desktop destination uses managed freeform. Leaving Desktop goes
-through its existing topology owner. Ordinary-to-ordinary transfer uses
-`FrameworkActivityLaunchApi` without initializing an organizer. Selecting a task
-already on the destination only activates it. An explicit ordinary-display
-request cannot bypass Desktop ownership. Input selection is independent of all
-these launch and transfer actions.
+The control panel uses `DisplayTableView`: one row per Android display with its
+identity, Desktop status, independent applications and Viewer links. The display list
+follows the compact status/access row without an extra section heading.
+**Create display** belongs to the lower general-action grid and uses the table's
+current selection for creation defaults. **Exit MagicDesk** asks for confirmation
+before invoking the existing exit controller. Radio selection
+is local to this view and survives catalog refresh by display unique ID. Newly
+connected or created displays are selected when they appear in the catalog;
+status or resolution changes preserve manual selection. Initial selection prefers
+a non-built-in display in list order, otherwise the panel's host display. The
+first catalog is a baseline, not an arrival event. A shared two-column
+action grid addresses the selected display: Start/Show, Close, Apps, independent
+applications, input control, output settings, removal and presentation actions.
+All actions are direct buttons, with no presentation overflow menu. Its labeled
+icon buttons use the same `DesktopUiFactory.controlAction` styling
+as the session controls below, with equal-width columns and stable action slots.
+Rows retain their View identity for each live display ID/unique-ID pair, and the
+toolbar is created once. Status refreshes update existing controls without
+detaching them, preserving in-progress touch and accessibility interactions.
+The entire display section requires a ready privileged service. Apps appears
+only in its toolbar and opens Start with the selected display. Access setup and
+Settings remain available while the service is unavailable.
+Selecting a row does not claim input or change a session. Commands capture the
+selected identity; creation uses its resolution as a default. Creation and output
+configuration have separate dialogs. A Viewer remains an application; it does not
+own either display.
+
+The independent-application picker keeps one row per Android task on the selected
+display. `LauncherAppRepository`, profile-scoped `AppReference` and `TaskTitle`
+provide the same icons and names as Start and task overview. Details identify
+terminal directories and Viewer sources; task numbers distinguish repeated
+titles instead of exposing package IDs as primary labels. Row activation and
+the separate close icon use `ApplicationTaskPlacement.controlIndependent`,
+retaining its live identity and ownership checks. Successful activation dismisses
+the picker; closing refreshes its task snapshot without closing the picker or
+adding a task observer. Empty and failed results remain explicit.
+
+`DisplayProfiles` owns shared profile identity and creation snapshots. The panel,
+portable launcher and automation inherit a reference display's current logical
+resolution and explicitly saved DPI (otherwise its live density). Each created
+display has its own profile, including its creation size and DPI, and a flattened
+`originProfileKey`: the reference's origin or its own profile key. A creation with
+no reference becomes its own origin. A descendant needs neither its parent nor
+the originating monitor to remain connected. Profile updates write only to the
+display's own key; they do not propagate to ancestors or other descendants.
+Viewer attachment, detachment and output switching never alter profile origin.
+Physical output timing and protected-content policy are not inherited. A missing
+profile-save receipt after creation reports the retained display identity; callers
+must not mistake that partial result for either no allocation or a ready portable
+workspace. Shared creation does not initialize Desktop or acquire HOME/input.
+
+Every shared Start surface uses the same grid and `StartLaunchControls`: Current
+or an explicit display, App default / Desktop window / Desktop fullscreen /
+Independent, and an optional New window request. Desktop choices require an
+existing workspace on the destination. Independent applications are ordinary
+fullscreen tasks, even on a display hosting Desktop. Explicit selection of a
+recent task or terminal session reuses it. New window requests another Android
+task subject to the application's manifest, not another account or process.
+
+`ApplicationTaskPlacement` revalidates task identity and coordinates ownership
+handoffs. Android remains the source of all live tasks and their displays;
+MagicDesk tracks only its explicit Desktop membership. An unavailable membership
+snapshot is unknown, not independent. Leaving Desktop uses its existing topology
+owner to release the task; ordinary-to-ordinary placement uses
+`FrameworkActivityLaunchApi` without initializing an organizer. Same-display
+selection preserves the topology unless the requested ownership or mode changes.
+Ordinary Android launches from `.desktop` entries use the same preparation and
+delivery boundary as Start and automation, including on the phone. They do not
+bypass task release or replace an app-owned PendingIntent with a shell launch.
+Input selection is independent of every launch and transfer.
+Shared task closure also checks live ownership: independent tasks close through
+Android without preparing Desktop focus. Managed tasks retain their topology
+owner; unknown or rejected ownership never falls back to an ordinary close.
 
 ## Design Principles
 
@@ -439,11 +501,12 @@ runtime integration and are not distributed through the same release path.
 
 - `ControlActivity` and `PhoneControlPanelController` provide the compact phone
   control surface. They do not create taskbar, wallpaper, or app-catalog UI.
-  `DisplaySelectionView` owns the display picker and its output control.
-  The resolution/refresh-rate button has a permanent slot in the display action
-  grid and is enabled only for a supported selected wired output. Its dialog
-  shows the current mode, read-only while that display has a Desktop session. Choosing a display or
-  opening the dialog does not apply a mode or switch an active session.
+  `DisplayTableView` gives each display a selectable status row and shares one
+  responsive action toolbar across the list.
+  `DisplayCreationDialog` owns creation choices; `DisplayOutputDialog` shows
+  the addressed output's current mode, read-only while it has a Desktop session.
+  The output button keeps a permanent slot and is enabled only for supported
+  wired outputs. Opening a dialog does not change a mode or switch a session.
 - `FileManagerActivity` is an ordinary tool Activity, fullscreen outside Desktop
   or a managed window inside it. The activity owns
   navigation and selection; `FileManagerView` renders them and routes user actions.
@@ -1057,7 +1120,8 @@ by this foundation.
 - `DesktopTaskParkingController` continuously derives a lightweight workspace
   snapshot from the task state already read by `DesktopTaskController`; it does
   not run a second task poll. A normal desktop close refreshes that snapshot
-  before external tasks are parked on display 0. Host replacement
+  before releasing managed tasks as independent fullscreen tasks on the same
+  live display. Confirmed display loss returns them to display 0. Host replacement
   and sudden display removal preserve the latest complete snapshot before
   session teardown, including when the disappearing display can no longer be
   queried. A later desktop host restores only the same still-live task IDs on
@@ -1892,25 +1956,51 @@ presentation outputs. Android rejects organizer-created task areas on untrusted
 displays even for privileged callers. Such a display can still receive an
 ordinary Viewer through the privileged Activity launcher: a portable workspace
 keeps its HOME, task areas and input on MagicDesk's trusted virtual source.
-The selector's **No direct desktop** label does not disable presentation actions.
+The catalog publishes `requiresPortableDesktop` separately from direct eligibility:
+a known public external output lacking TRUSTED uses the portable launch path when
+Start Desktop is requested. Private, unknown and unverified additional built-in
+displays are not automatically admitted this way. Other direct-start failures
+are reported without falling back to portable startup.
 
 `DisplayPresentations` maps a live source display to an ordinary
 `DisplayViewerActivity` on another live display. This is a separate presentation
 edge, not a mutation of the workspace's immutable `DesktopDisplayTarget`, HOME
 lease or task ownership. The existing direct target continues to describe the
 Android display containing those tasks. A source need not host Desktop.
+Output attachment placement is explicitly independent and fullscreen, even
+when the output has a managed workspace. Reopening uses its exact Android
+AppTask, never the output's Desktop focus gateway. Ordinary Display Viewer
+applications instead use the shared Start/tool placement, including managed
+windows or independent fullscreen. They can choose a source inside the window
+or receive it through `open_builtin`'s `viewer` options. Mirror mode creates
+another copy, including for owned virtual sources, without taking over an output
+attachment. Output mode uses the existing independent-output transaction and
+reuses that output's Viewer; it rejects managed placement. `immersive` controls
+the toolbar and system bars, not task ownership. `AutomationToolWindows` adapts
+these options to `DisplayPresentations.openViewer`; launch, binding readiness
+and cleanup stay with the existing shared services. A supplied source completes
+only after its Surface attaches, while an interactive selector retains ordinary
+launch acceptance. No timeout cancels an accepted launch.
+The presentation snapshot includes the Viewer's Android task ID, populated by
+its Activity, so automation closes it with the standard `close_task` operation.
+Activity teardown releases the binding; there is no separate MCP attach/detach
+protocol or CLI implementation. `select_display_viewer` remains the operation
+for changing a live binding's source or returning to its previous source.
 
 `DisplayPresentationMode` distinguishes direct presentation of a MagicDesk-owned
-virtual source from mirroring another existing display. Every built-in panel is
+virtual source from mirroring an existing display, including an owned virtual
+source. Every built-in panel is
 addressed by its own display ID and unique ID; mirroring is not restricted to
 display 0 and does not require that panel to support managed Desktop.
 `DisplayPresentationSurface` owns only the presentation lifetime. Direct
 presentation returns the source to its existing sink on close. The mirrored
 implementation uses Android's `IWindowManager.mirrorDisplay` under
 `READ_FRAME_BUFFER` through `FrameworkDisplayMirrorApi`; it attaches the copied
-scene below the viewer's SurfaceView and releases only that copy. It creates no
-additional display, changes no source power state and leaves applications in
-place. Missing framework support or permission fails only the viewer operation.
+scene below the viewer's SurfaceView and releases only that copy. The mirror API
+creates no additional display, changes no source power state and leaves
+applications in place. Owned virtual sources additionally use the scoped power
+lease described below. Missing framework support or permission fails only the
+viewer operation.
 
 `FrameworkVirtualDisplayApi.OwnedDisplay` uses `VirtualDisplay.setSurface` to
 present to the viewer's `SurfaceView`. Its buffer retains the source dimensions;
@@ -1933,17 +2023,24 @@ the display flags are not playback certification.
 `ShellDisplayViewer` is a revocable Binder lease, independent of the source's
 resource owner. It serializes source-addressed input and releases held keys and
 touch streams before detaching. The framework injection adapter is shared with
-the existing test pointer injector. Detach returns the virtual display to its
-existing non-null ImageReader sink with unchanged task IDs, logical dimensions,
-density and configuration. While presented, a display-scoped Android wake lock
-wakes and retains only the source's own power group. Detach releases it and
-allows ordinary idle sleep; attaching again wakes that source, without changing
-the phone's screen timeout or holding unrelated displays awake. Closing the viewer or losing
-its output does not close that source's Desktop or move applications.
+the existing test pointer injector. Detaching a direct output returns the virtual
+display to its existing non-null ImageReader sink with unchanged task IDs,
+logical dimensions, density and configuration. Every attached presentation of
+an owned virtual source, direct or mirrored, shares its display-scoped Android
+wake lock. The first acquires it; the last releases it and allows ordinary idle
+sleep. Detaching a direct output therefore does not put a source to sleep while
+a mirror still needs it. This does not change the phone's screen timeout or hold
+unrelated displays awake. Closing a viewer or losing its output does not close
+that source's Desktop or move applications.
 
-The process-local registry admits one viewer per source and output and rejects
-presentation cycles at both the app and privileged boundaries. Selecting a source
-already shown by another viewer exchanges the two bindings. Both old leases are
+The process-local registry admits one output attachment per source and output,
+plus independent mirror windows, including several on the same output or source.
+The privileged owner enforces one direct Surface consumer per virtual source.
+Both boundaries validate the complete multi-edge presentation graph, including
+implicit Android overlay previews. Selecting a source already shown by another
+output attachment exchanges those two bindings. Ordinary mirror selection never
+exchanges attachments, becomes a Show Desktop return destination, or changes
+physical-input routing. Both old attachment leases are
 released before either new attachment; completion includes acquired physical
 input handoff. A hidden peer commits its logical binding without waiting for a
 Surface; it remains unready until Android shows its window and attachment
@@ -1988,33 +2085,58 @@ Explicit detach or output loss clears its remembered destinations. A workspace
 without such an output does not create a Viewer implicitly. Internal session
 recovery does not raise output windows, and a pending user return cannot activate
 a replacement workspace after Close.
-The display selector distinguishes **Attach output...**, a fullscreen output
-without Viewer controls, from **Display Viewer**, an explicitly opened viewer
-with its controls. `DisplayPresentations.attachOutput` is shared by
-**Attach output...** and **Start portable desktop here**, so detaching and
+The display selector's **Show another display...** treats the selected row as
+the output. Its source chooser excludes that output and lists other displays
+with their name, ID and Desktop status. The existing attachment transaction opens
+a fullscreen Viewer without controls or changes the source in that output's
+existing Viewer; graph and protection checks stay with the presentation owner.
+**Show another display...**, **Stop showing** and **Start portable desktop here**
+are direct buttons in that same grid. **Stop showing** is visible only for an output with
+an active Attach, resolved through `DisplayPresentations.forOutput`; its grid
+slot remains reserved while hidden. It closes
+that Viewer through the existing detach operation. It is not a source-display
+action or a prerequisite for unplugging or switching sources.
+**Display Viewer** is a normal built-in application
+in Start, search and `open_builtin`; there is no duplicate display-menu launcher.
+It chooses a live source by exact identity. Losing or detaching that source
+returns the window to selection; moving the window rebinds its mirror on the new
+output with cycle validation. Closing it releases only its own presentation.
+Both **Show another display...** and **Start portable desktop here** use the same
+attachment transaction with captured source/output identities, so detaching and
 choosing a reconnected output
 does not turn the portable Desktop into a windowed viewer. The choice belongs
 to the command, not stored display metadata; input remains explicitly acquired.
-`DesktopPresentationLauncher` creates a virtual
-source using the selected output's size/density, runs normal Desktop startup on
-the source, then opens its viewer. HOME acquisition and automatic phone UI finish
+`DesktopPresentationLauncher` first retains the output's existing Attach. Otherwise
+it selects a MagicDesk-owned headless virtual source with the same current logical
+resolution, no other output attachment, and compatible protection/cycle constraints.
+The fewest managed application tasks wins, followed by matching profile origin and
+ascending display ID. Infrastructure is excluded; unavailable membership is an
+error, not zero. One shared task snapshot serves the selection, with no new observer
+or polling. Existing source DPI, origin and tasks are unchanged; ordinary mirror
+windows do not reserve the source. With no candidate, it creates a source using
+the output's current resolution and configured density.
+The launcher runs normal Desktop startup or shows the existing workspace, then
+attaches the output. Concurrent repeats for the same exact output join that launch;
+another portable launch is rejected until completion. The presentation owner
+revalidates exact identities and the expected output attachment before committing,
+so a changed output is not overwritten. HOME acquisition and automatic phone UI finish
 before this final presentation, so they cannot cover a viewer opened on the phone.
 Provisioning retains the exact chosen
-launch action. Failure retains the created display and reports its identity.
+launch action. Failure retains the selected or created display and reports its identity.
 The normal transition gate explicitly accepts or rejects startup. Driver results
 propagate through it, so the portable launch callback reports the Desktop launch
 result, not just a successfully attached viewer.
 
 Owned virtual displays are named **MagicDesk** and distinguished by their display
 IDs. The control panel's creation dialog initially selects **Default**, a snapshot
-of the selected display's current width and height; scale remains independently
-editable. Without a selected display it uses the saved creation parameters.
+of the table's selected display's current resolution and configured DPI. Without
+a selection it uses the saved creation parameters; scale remains editable.
 Fixed resolutions and custom dimensions remain available. This choice does not
 link the created display's configuration to later changes or loss of its output.
 
 Attach connects an output to a source, not the source's lifetime to an output.
-Detach changes only presentation; **Detach output: [name]** names the actual
-output for both direct virtual sources and mirrored sources. Neither action
+Detach changes only presentation; **Stop showing** acts on the selected output
+for both direct virtual sources and mirrored sources. Neither action
 disconnects Android's physical or wireless display transport. Close Desktop
 and Remove Display remain separate commands. Reconnecting
 an output requires selecting its current catalog identity and attaching a viewer
@@ -2086,8 +2208,8 @@ close operation; transport-specific code stops at target preparation.
 
 - An already connected wired or wireless secondary display enters
   `DesktopSessionController` directly on every platform. Closing the desktop
-  returns its application tasks to the phone but does not disconnect or
-  reconfigure the system-owned transport.
+  releases its application tasks as independent fullscreen tasks on that output;
+  it does not disconnect or reconfigure the system-owned transport.
 - The Nubia projection extension may configure physical HDMI timing and
   native caption visibility. These are independent capabilities and
   do not create or own a second logical display.
@@ -2616,20 +2738,20 @@ its target display, so its own phone task and every other display remain
 untouched. `PRESENT_DESKTOP` remains the separate command that conceals all
 application windows to expose bare wallpaper.
 
-The control panel uses one display selector and **Start desktop** action.
-For an active target it offers **Show desktop**. Another display can start its
-own workspace without closing the current one. Start and Close operations are
-serialized; the UI is disabled only while such an operation is in progress.
-**Close desktop** addresses the selected workspace. Ordinary tool placement
+The control-panel toolbar offers **Start desktop**, or **Show desktop**
+for the selected row's existing workspace. Another display can start its own workspace without
+closing the current one. Start and Close operations are serialized.
+**Close desktop** addresses only that row's workspace. Application placement
 and input selection remain independent.
 
-Task mode is not an ownership signal on display 0. MagicDesk claims a task
+Neither task mode nor display identity is an ownership signal. MagicDesk claims a task
 before submitting a desktop launch or window transition, and only claimed
 tasks publish immersive, orientation, mode, and bounds changes to the desktop
 window controller. This prevents a SystemUI launch that briefly reports
-freeform from being restored or resized by MagicDesk. The active external
-display remains an ownership boundary of its own, so every standard task
-observed there is published regardless of mode.
+freeform from being restored or resized by MagicDesk. The same rule applies to
+phone, simulated, wired and wireless workspaces. Independent tasks remain
+visible to whole-display diagnostics and foreground/chrome policy, but are
+excluded from Desktop's taskbar, Alt+Tab, mode guard and cleanup.
 
 Task snapshots and windowing commands issued through `TaskRepository` share a
 single `TaskCommandQueue` with phone-task recovery. Recovery checks session
@@ -2641,8 +2763,9 @@ explicit Close still returns the closing workspace's tasks in fullscreen.
 Ordinary taskbar operations cannot interleave with recovery commands.
 
 Each desktop target has a profile keyed by its Android display identity, never
-by the transient logical display ID. Profiles store only DPI and wired output
-timing. Files and `.desktop` shortcuts under
+by the transient logical display ID. Profiles store DPI and wired output timing;
+created virtual displays also retain their creation size and flattened origin.
+The stored size describes creation, not a live resolution override. Files and `.desktop` shortcuts under
 `/storage/emulated/0/Desktop`, system-managed widget bindings, taskbar pins,
 desktop-item placement, application window state, and recent-app history are
 global across displays.
@@ -3190,12 +3313,16 @@ do not acquire this vendor state.
 
 ### Teardown
 
-**Close desktop** first captures live managed application tasks. External tasks
-move to display 0 in fullscreen mode; phone-desktop tasks remain on display 0
-and are normalized by the normal phone cleanup. The in-memory parking record is
-consumed when the next desktop host becomes ready. Restoration matches both
-task ID and package, so it never creates a replacement for a task Android
-closed. The same record is captured from the latest observed task snapshot when
+**Close desktop** first captures live managed application tasks. If the display
+still exists, its topology owner releases them in one transaction as ordinary
+fullscreen tasks on that display, resets Desktop presentation overrides and
+releases fullscreen planes without activating every app in sequence. Existing
+independent tasks are not included. Confirmed display loss uses the existing
+phone-fullscreen recovery; failure to query a display is not evidence of removal.
+The in-memory workspace record is restored only on its own still-live display;
+records from a removed display can be restored to a new workspace. Restoration
+matches task ID, Android user and package, so it never recreates a closed task.
+The same record is captured from the latest observed task snapshot when
 a display disappears or a desktop host is replaced before an explicit close can
 query it. An explicit **Exit MagicDesk** clears this record and closes built-in
 MagicDesk windows instead.
@@ -3210,8 +3337,7 @@ target may still finish cleanup after its host or display disappeared.
 The plan ends only the selected workspace and releases input if that workspace
 still owns the selection. It is not an output detach or a transfer to another
 active workspace. The existing
-task-return path either returns tasks to the default display and remembers their
-layout, or returns them without retaining layout for Exit. No destination
+task-release path retains layout for Close, but not for Exit. No destination
 display is removed by this plan. Retaining a workspace after output loss uses
 the separate virtual-source presentation path: Detach is not a Close operation.
 Both Close destinations park tasks before releasing the desktop host; showing

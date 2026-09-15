@@ -116,9 +116,9 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override public IDisplayViewer openDisplayViewer(int sourceDisplayId, String sourceUniqueId,
-            int outputDisplayId, String outputUniqueId, IBinder displayOwner, IBinder viewerOwner) {
+            int outputDisplayId, String outputUniqueId, boolean direct, IBinder displayOwner, IBinder viewerOwner) {
         return mVirtualDisplays.openViewer(sourceDisplayId, sourceUniqueId,
-                outputDisplayId, outputUniqueId, displayOwner, viewerOwner);
+                outputDisplayId, outputUniqueId, direct, displayOwner, viewerOwner);
     }
 
     @Override
@@ -265,6 +265,10 @@ public final class ShellCommandService extends IShellCommandService.Stub {
         } catch (ReflectiveOperationException | android.app.PendingIntent.CanceledException error) {
             throw new IllegalStateException("shell pending Activity launch failed", error);
         }
+    }
+
+    @Override public void releaseDesktopTasks(final int displayId, final int[] taskIds) {
+        mTaskObserverManager.releaseDesktopTasks(displayId, taskIds);
     }
 
     @Override public void moveOrdinaryTask(final int taskId, final int sourceDisplayId,

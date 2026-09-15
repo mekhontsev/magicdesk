@@ -81,6 +81,9 @@ final class DesktopAutomationController {
             final DesktopAutomationResult result;
             switch (action) {
                 case START_DESKTOP:
+                    if (args.has("portable") && !args.has("displayId")) {
+                        throw new IllegalArgumentException("portable requires displayId");
+                    }
                     result = args.has("displayId")
                             ? startDesktopOnDisplay(args)
                             : startDesktop(optionalString(args, "target", "auto"));
@@ -88,12 +91,8 @@ final class DesktopAutomationController {
                 case CREATE_DISPLAY:
                     result = createDisplay(args);
                     break;
-                case ATTACH_DISPLAY_VIEWER:
-                    result = attachDisplayViewer(args);
-                    break;
                 case SELECT_DISPLAY_VIEWER:
-                case DETACH_DISPLAY_VIEWER:
-                    result = changeDisplayViewer(args, action);
+                    result = selectDisplayViewer(args);
                     break;
                 case REMOVE_DISPLAY:
                     result = removeDisplay(args);
@@ -106,9 +105,13 @@ final class DesktopAutomationController {
                     break;
                 case MOVE_TASK:
                     final TaskRepository.TaskEntry moving = findTask(requiredInt(args, "taskId"));
+                    final ToolLaunchTarget moveTarget = mAndroid.launchTarget(args);
+                    final DesktopLaunchPresentation movePresentation = AndroidIntegrationRequest.parsePresentation(
+                            args, DesktopTaskInstancePolicy.REUSE_EXISTING);
                     result = moving == null ? taskNotFound(requiredInt(args, "taskId"))
-                            : awaitTaskAction(callback -> TaskRepository.moveTaskToDisplay(moving,
-                                    requiredInt(args, "displayId"), optionalString(args, "uniqueId", null), null, callback));
+                            : awaitTaskAction(callback -> ApplicationTaskPlacement.place(moving,
+                                    moveTarget, optionalString(args, "uniqueId", null), movePresentation,
+                                    callback));
                     if (result.success) {
                         result.data.put("accepted", true).put("taskId", moving.taskId)
                                 .put("displayId", requiredInt(args, "displayId"));
@@ -433,13 +436,32 @@ final class DesktopAutomationController {
     }
 
     private DesktopAutomationResult startDesktopOnDisplay(final JSONObject args)
-            throws IOException, JSONException {
+            throws IOException, JSONException, InterruptedException {
         RuntimeCapabilities.requireDesktop();
         if (args.has("target")) {
             throw new IllegalArgumentException("use displayId or target, not both");
         }
         final DesktopDisplayInfo display = DesktopDisplayCatalog.require(
                 requiredInt(args, "displayId"), args.has("uniqueId") ? args.getString("uniqueId") : null);
+        if (display.requiresPortableDesktop || args.optBoolean("portable", false)) {
+            final CountDownLatch completed = new CountDownLatch(1);
+            final DesktopDisplayInfo[] source = new DesktopDisplayInfo[1];
+            final String[] failure = new String[1];
+            DesktopPresentationLauncher.start(MagicDeskApplication.applicationContext(), display, (value, error) -> {
+                source[0] = value;
+                failure[0] = error;
+                completed.countDown();
+            });
+            final JSONObject output = new JSONObject().put("outputDisplayId", display.id)
+                    .put("outputUniqueId", display.uniqueId).put("portable", true);
+            final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
+                    ACTION_TIMEOUT_MILLIS, "portable desktop launch", false, output);
+            if (pending != null) return pending;
+            final JSONObject data = source[0] == null ? output : DesktopDisplayCatalog.json(source[0])
+                    .put("outputDisplayId", display.id).put("outputUniqueId", display.uniqueId).put("portable", true);
+            return failure[0] == null ? DesktopAutomationResult.success("portable desktop presented", data)
+                    : DesktopAutomationResult.failure(failure[0], data);
+        }
         if (!display.canHostDesktop) {
             throw new IllegalArgumentException("display cannot host a desktop");
         }
@@ -450,9 +472,17 @@ final class DesktopAutomationController {
     }
 
     private DesktopAutomationResult createDisplay(final JSONObject args)
-            throws JSONException, InterruptedException {
-        final VirtualDisplaySpec spec = new VirtualDisplaySpec(requiredInt(args, "width"),
-                requiredInt(args, "height"), args.optInt("densityDpi", 160),
+            throws JSONException, InterruptedException, IOException {
+        if (args.has("sourceUniqueId") && !args.has("sourceDisplayId")) {
+            throw new IllegalArgumentException("sourceUniqueId requires sourceDisplayId");
+        }
+        final DesktopDisplayInfo reference = args.has("sourceDisplayId") ? DesktopDisplayCatalog.require(
+                requiredInt(args, "sourceDisplayId"), args.has("sourceUniqueId") ? args.getString("sourceUniqueId") : null) : null;
+        final DisplayProfiles.CreationDefaults defaults = DisplayProfiles.creationDefaults(reference,
+                new VirtualDisplaySpec(1920, 1080, 160));
+        final VirtualDisplaySpec spec = defaults.spec(args.has("width") ? requiredInt(args, "width") : defaults.width,
+                args.has("height") ? requiredInt(args, "height") : defaults.height,
+                args.has("densityDpi") ? requiredInt(args, "densityDpi") : defaults.densityDpi,
                 args.has("protectedContent") && args.getBoolean("protectedContent"));
         final String type = optionalString(args, "type", "virtual");
         if (!type.equals("virtual") && !type.equals("overlay")) {
@@ -469,30 +499,14 @@ final class DesktopAutomationController {
         final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
                 ACTION_TIMEOUT_MILLIS, "display creation", false, null);
         if (pending != null) return pending;
+        if (failure[0] != null) return DesktopAutomationResult.failure(failure[0], display[0] == null
+                ? null : DesktopDisplayCatalog.json(display[0]).put("created", true));
         return display[0] == null ? DesktopAutomationResult.failure(failure[0])
                 : DesktopAutomationResult.success("display created; desktop not started",
                         DesktopDisplayCatalog.json(display[0]));
     }
 
-    private DesktopAutomationResult attachDisplayViewer(JSONObject args) throws JSONException {
-        final CountDownLatch completed = new CountDownLatch(1);
-        final Throwable[] failure = new Throwable[1];
-        DisplayPresentations.attach(mContext, requiredInt(args, "sourceDisplayId"),
-                requiredInt(args, "outputDisplayId"), args.optBoolean("fullscreen", false), error -> {
-                    failure[0] = error;
-                    completed.countDown();
-                });
-        final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
-                ACTION_TIMEOUT_MILLIS, "display viewer attachment", false,
-                new JSONObject().put("sourceDisplayId", args.getInt("sourceDisplayId"))
-                        .put("outputDisplayId", args.getInt("outputDisplayId")));
-        if (pending != null) return pending;
-        return failure[0] == null ? DesktopAutomationResult.success("viewer attached",
-                new JSONObject().put("accepted", true).put("presentations", DisplayPresentations.snapshot()))
-                : DesktopAutomationResult.failure(ShellAccess.usefulMessage(failure[0]));
-    }
-
-    private DesktopAutomationResult changeDisplayViewer(JSONObject args, DesktopAutomationAction action)
+    private DesktopAutomationResult selectDisplayViewer(JSONObject args)
             throws JSONException {
         final String id = args.getString("viewerId");
         final Integer source = args.has("sourceDisplayId") ? requiredInt(args, "sourceDisplayId") : null;
@@ -505,14 +519,12 @@ final class DesktopAutomationController {
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             final DisplayPresentations.Session session = DisplayPresentations.find(id);
             if (session == null) {
-                callback.onComplete(action == DesktopAutomationAction.DETACH_DISPLAY_VIEWER ? null
-                        : new IllegalArgumentException("viewer does not exist"));
-            } else if (action == DesktopAutomationAction.DETACH_DISPLAY_VIEWER) DisplayPresentations.detach(session, callback);
-            else if (source == null) DisplayPresentations.previous(session, callback);
+                callback.onComplete(new IllegalArgumentException("viewer does not exist"));
+            } else if (source == null) DisplayPresentations.previous(session, callback);
             else DisplayPresentations.select(session, source, callback);
         });
         final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
-                ACTION_TIMEOUT_MILLIS, "display viewer change", action == DesktopAutomationAction.DETACH_DISPLAY_VIEWER,
+                ACTION_TIMEOUT_MILLIS, "display viewer source selection", false,
                 new JSONObject().put("viewerId", id));
         if (pending != null) return pending;
         return failure[0] == null ? DesktopAutomationResult.success("viewer change completed",

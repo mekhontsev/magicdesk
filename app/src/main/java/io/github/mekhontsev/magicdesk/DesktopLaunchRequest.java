@@ -135,4 +135,9 @@ final class DesktopLaunchRequest {
                 icon,
                 desktopFilePath)));
     }
+
+    DesktopLaunchRequest withPresentation(final DesktopLaunchPresentation value) {
+        return new DesktopLaunchRequest(name, icon, androidLaunch, androidShortcut, exec,
+                value, arguments, desktopFilePath, application);
+    }
 }

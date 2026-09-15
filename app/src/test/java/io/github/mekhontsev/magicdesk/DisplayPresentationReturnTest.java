@@ -20,7 +20,7 @@ public final class DisplayPresentationReturnTest {
                     DesktopDisplayInfo source = new DesktopDisplayInfo(2);
                     DesktopDisplayInfo output = new DesktopDisplayInfo(0);
                     Listener listener = new Listener();
-                    boolean closed, ready;
+                    boolean closed, ready, outputAttachment = true;
                     String error = "";
                     long bindingGeneration;
                     Object change;
@@ -122,7 +122,7 @@ public final class DisplayPresentationReturnTest {
                 }
                 static class Session {
                     DesktopDisplayInfo source;
-                    boolean closed;
+                    boolean closed, outputAttachment = true;
                     Session(DesktopDisplayInfo source) { this.source = source; }
                 }
                 static final Map<String, Session> SESSIONS = new LinkedHashMap<>();

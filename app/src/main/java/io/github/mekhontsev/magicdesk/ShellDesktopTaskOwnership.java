@@ -8,7 +8,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Tracks session-wide desktop ownership independently of display drivers. */
+/** Explicit workspace membership; a display and a windowing mode never claim a task. */
 final class ShellDesktopTaskOwnership {
     private static final String TAG = "MagicDeskTasks";
     private static final int WINDOWING_MODE_FULLSCREEN = 1;
@@ -108,12 +108,10 @@ final class ShellDesktopTaskOwnership {
         }
         try {
             final int taskId = HiddenTaskApi.getTaskId(task);
-            final boolean activeExternalDisplayTask =
-                    mDesktopDisplayId > Display.DEFAULT_DISPLAY
-                            && HiddenTaskApi.getTaskDisplayId(task)
-                                    == mDesktopDisplayId;
+            final boolean onWorkspaceDisplay = HiddenTaskApi.getTaskDisplayId(task)
+                    == mDesktopDisplayId;
             return isDesktopOwnedTask(
-                    activeExternalDisplayTask,
+                    onWorkspaceDisplay,
                     mDesktopTaskIds.contains(Integer.valueOf(taskId)));
         } catch (ReflectiveOperationException | RuntimeException error) {
             Log.w(TAG, "could not inspect desktop task ownership", error);
@@ -122,14 +120,9 @@ final class ShellDesktopTaskOwnership {
     }
 
     static boolean isDesktopOwnedTask(
-            final boolean activeExternalDisplayTask,
+            final boolean onWorkspaceDisplay,
             final boolean rememberedDesktopTask) {
-        // Every standard task on the active external display belongs to that
-        // desktop session, including tasks launched directly in fullscreen.
-        // Display 0 is shared with ordinary Android tasks, so a sampled mode
-        // can never establish ownership there. MagicDesk claims those tasks
-        // before submitting its explicit launch or window transition.
-        return activeExternalDisplayTask || rememberedDesktopTask;
+        return onWorkspaceDisplay && rememberedDesktopTask;
     }
 
     static boolean shouldRestoreKnownPhoneFreeform(
@@ -174,14 +167,7 @@ final class ShellDesktopTaskOwnership {
             return null;
         }
         final Integer taskKey = Integer.valueOf(taskId);
-        if (mDesktopDisplayId > Display.DEFAULT_DISPLAY
-                && displayId == mDesktopDisplayId) {
-            // The external display itself is the ownership boundary. Publish
-            // every standard task there, regardless of its current mode.
-            mDesktopTaskIds.add(taskKey);
-            mPhoneFullscreenTaskIds.remove(taskKey);
-            return null;
-        }
+        if (taskDisplayId != mDesktopDisplayId) { mDesktopTaskIds.remove(taskKey); }
         if (mode == WINDOWING_MODE_FREEFORM) {
             final boolean restorePhoneTask =
                     shouldRestoreKnownPhoneFreeform(

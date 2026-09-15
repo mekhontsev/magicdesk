@@ -79,7 +79,7 @@ final class StartMenuContent {
     private LinearLayout mBody;
     private EditText mSearch;
     private LinearLayout mSearchRow;
-    private StartDisplaySelector mDisplaySelector;
+    private StartLaunchControls mLaunchControls;
     private boolean mFocusable = true;
     private int mMode = MENU_RECENT;
     private int mPage;
@@ -209,12 +209,7 @@ final class StartMenuContent {
         mSearchRow = new LinearLayout(mActivity);
         mSearchRow.setGravity(Gravity.CENTER_VERTICAL);
         mSearchRow.addView(mSearch, new LinearLayout.LayoutParams(0, dp(48), 1));
-        mDisplaySelector = new StartDisplaySelector(mActivity, mUi);
-        final LinearLayout.LayoutParams destinationParams = new LinearLayout.LayoutParams(dp(112), dp(48));
-        destinationParams.setMarginStart(dp(6));
-        mSearchRow.addView(mDisplaySelector.view(), destinationParams);
-        mHost.automation().register(mDisplaySelector.view(), "start.display", "button",
-                mActivity.getString(R.string.display_selector));
+        mLaunchControls = new StartLaunchControls(mActivity, mUi, mHost.automation());
         mContent.setOrientation(LinearLayout.VERTICAL);
         final LinearLayout.LayoutParams contentParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
@@ -270,6 +265,7 @@ final class StartMenuContent {
                             LinearLayout.LayoutParams.WRAP_CONTENT);
             searchParams.setMargins(0, dp(10), 0, 0);
             mContent.addView(mSearchRow, searchParams);
+            mContent.addView(mLaunchControls.view(), new LinearLayout.LayoutParams(-1, dp(52)));
         }
 
         mBody = new LinearLayout(mActivity);
@@ -319,17 +315,18 @@ final class StartMenuContent {
     }
 
     void pause() {
-        mDisplaySelector.dismiss();
+        mLaunchControls.dismiss();
         mSearch.setShowSoftInputOnFocus(false);
         mSearchController.pause();
     }
 
     void release() {
-        mDisplaySelector.dismiss();
+        mLaunchControls.dismiss();
         mSearchController.close();
     }
 
-    StartDisplaySelector.Target destination() { return mDisplaySelector.target(); }
+    StartDisplaySelector.Target destination() { return mLaunchControls.target(); }
+    DesktopLaunchPresentation presentation() { return mLaunchControls.presentation(); }
 
     void focusSearch() {
         if (!mFocusable || isUtilityMode(mMode) || mSearch == null) {

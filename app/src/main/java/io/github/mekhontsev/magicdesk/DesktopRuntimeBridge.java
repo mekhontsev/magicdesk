@@ -171,6 +171,11 @@ public final class DesktopRuntimeBridge {
                 request, displayId, timeoutMillis);
     }
 
+    static void launchAutomationRequest(final DesktopLaunchRequest request, final int displayId,
+            final DesktopActivityLaunchResult.Completion completion) {
+        UI.launchAutomationRequest(request, displayId, completion);
+    }
+
     static boolean openFilesAt(final String path, final int displayId) {
         return UI.openFilesAt(path, displayId);
     }

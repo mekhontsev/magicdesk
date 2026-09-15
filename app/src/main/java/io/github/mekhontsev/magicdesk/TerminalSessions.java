@@ -1,6 +1,5 @@
 package io.github.mekhontsev.magicdesk;
 
-import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 
@@ -56,29 +55,48 @@ final class TerminalSessions {
 
     static void open(Context context, Intent intent, ToolLaunchTarget target, String uniqueId,
             BuiltInWindowLauncher.Callback callback) {
-        final String id = CommandConsoleActivity.terminalId(intent);
-        final var session = id == null ? null : ConsoleTerminalRegistry.status(id);
-        if (session != null && session.taskId >= 0 && session.displayId == target.displayId) {
+        open(context, intent, target, uniqueId, DesktopLaunchPresentation.automatic(), callback);
+    }
+
+    static void open(Context context, Intent intent, ToolLaunchTarget target, String uniqueId,
+            DesktopLaunchPresentation presentation, BuiltInWindowLauncher.Callback callback) {
+        TaskCommandQueue.execute(() -> {
             try {
-                if (uniqueId != null) DesktopDisplayCatalog.require(target.displayId, uniqueId);
-                if (target.desktop != DesktopRuntimeBridge.hasWorkspace(target.displayId)) {
-                    throw new IOException("display ownership changed");
-                }
-                if (target.desktop) {
-                    MagicDeskRuntime.focusDesktopTask(target.displayId, session.taskId,
-                            result -> callback.onComplete(result.success ? null : new IOException(result.message)));
-                    return;
-                }
-                final ActivityManager manager = context.getSystemService(ActivityManager.class);
-                for (final var task : manager.getAppTasks()) {
-                    if (task.getTaskInfo().taskId == session.taskId) {
-                        task.moveToFront();
-                        callback.onComplete(null);
-                        return;
+                target.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
+                final String id = CommandConsoleActivity.terminalId(intent);
+                final var session = id == null ? null : ConsoleTerminalRegistry.status(id);
+                if (session != null && session.taskId >= 0) {
+                    if (!ShellAccess.isReady() && !target.desktop
+                            && !DesktopRuntimeBridge.hasWorkspaces() && session.displayId == target.displayId) {
+                        final android.app.ActivityManager manager = context.getSystemService(android.app.ActivityManager.class);
+                        if (manager != null) {
+                            for (final var appTask : manager.getAppTasks()) {
+                                if (appTask.getTaskInfo().taskId == session.taskId) {
+                                    appTask.moveToFront();
+                                    callback.onComplete(null);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    final var snapshot = TaskRepository.loadAllNow();
+                    if (!snapshot.available) { throw new IOException(snapshot.error); }
+                    for (final var task : snapshot.tasks) {
+                        if (task.taskId == session.taskId
+                                && BuildConfig.APPLICATION_ID.equals(task.packageName)
+                                && AppProfile.current(context).owns(task.userId)) {
+                            ApplicationTaskPlacement.place(task, target, uniqueId,
+                                    presentation.withInstancePolicy(DesktopTaskInstancePolicy.REUSE_EXISTING),
+                                    result -> callback.onComplete(result.success ? null : new IOException(result.message)));
+                            return;
+                        }
                     }
                 }
-            } catch (IOException | RuntimeException error) { callback.onComplete(error); return; }
-        }
-        ToolApplications.open(context, intent, target, uniqueId, callback);
+                // A retained PTY without a window needs a new Activity, not an
+                // unrelated console instance selected by Android's task affinity.
+                ToolApplications.open(context, intent, target, uniqueId,
+                        presentation.withInstancePolicy(DesktopTaskInstancePolicy.CREATE_NEW), callback);
+            } catch (IOException | RuntimeException error) { callback.onComplete(error); }
+        });
     }
 }

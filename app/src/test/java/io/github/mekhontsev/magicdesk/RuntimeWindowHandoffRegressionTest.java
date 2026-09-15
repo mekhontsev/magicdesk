@@ -154,6 +154,8 @@ public final class RuntimeWindowHandoffRegressionTest {
                 static class Display { static int id=7; int getDisplayId() { return id; } }
                 static class Intent {
                     static final int FLAG_ACTIVITY_NEW_TASK=1,FLAG_ACTIVITY_NEW_DOCUMENT=2,FLAG_ACTIVITY_MULTIPLE_TASK=4;
+                    static final int URI_INTENT_SCHEME = 1;
+                    String toUri(int mode) { return ""; }
                     int flags;
                     Intent() {} Intent(Intent source) { flags=source.flags; }
                     void addFlags(int value) { flags|=value; }
@@ -164,7 +166,34 @@ public final class RuntimeWindowHandoffRegressionTest {
                     void setLaunchDisplayId(int d) { display=d; }
                     Object toBundle() { return display; }
                 }
-                static class AppLaunchTarget {}
+                static class AppLaunchTarget { String packageName = "magicdesk"; }
+                enum DesktopLaunchMode { AUTO, WINDOWED, FULLSCREEN }
+                static class DesktopTaskInstancePolicy { Intent applyTo(Intent i) { return new Intent(i); } }
+                static class DesktopLaunchPresentation {
+                    DesktopLaunchMode mode = DesktopLaunchMode.AUTO;
+                    Object bounds;
+                    DesktopTaskInstancePolicy instancePolicy = new DesktopTaskInstancePolicy();
+                }
+                static class DesktopLaunchArguments { static Object empty() { return null; } }
+                static class AndroidLaunchSpec {
+                    enum Delivery { SHELL_INTENT }
+                    static Object intent(AppLaunchTarget t, String s) { return s; }
+                }
+                static class DesktopLaunchRequest {
+                    DesktopLaunchRequest(String n, String i, Object a, Object b, Object e,
+                            DesktopLaunchPresentation p, Object args, String f) {}
+                }
+                static class DesktopActivityLaunchResult {
+                    interface Completion { void onComplete(DesktopActivityLaunchResult result); }
+                    String error = "";
+                    boolean hasObservedTask() { return true; }
+                }
+                static class OrdinaryActivityLaunch {
+                    static void requirePresentation(DesktopLaunchPresentation p) {}
+                    static void launch(Context c, Intent i, AndroidLaunchSpec.Delivery delivery, int d) {
+                        ShellAccess.launchActivityOnDisplay(i, d, true);
+                    }
+                }
                 static class ShellAccess {
                     static boolean ready=true; static int calls,display;
                     static boolean isReady() { return ready; }
@@ -175,6 +204,7 @@ public final class RuntimeWindowHandoffRegressionTest {
                 static class BuiltInDesktopAppCatalog {
                     static class Entry { boolean multipleWindows=true; }
                     static Entry find(AppLaunchTarget target) { return new Entry(); }
+                    static Object defaultWindowBounds(AppLaunchTarget target) { return null; }
                 }
                 static class DesktopDisplayCatalog { static void require(int display,String unique) {} }
                 static class BuiltInWindowRegistry { static boolean needsSeparateTask(AppLaunchTarget t,int d) { return false; } }
@@ -197,6 +227,8 @@ public final class RuntimeWindowHandoffRegressionTest {
                     static List<TaskRepository.TaskEntry> selectVisibleFreeformTasks(Object snapshot) { return List.of(); }
                 }
                 static class DesktopRuntimeBridge {
+                    static void launchAutomationRequest(DesktopLaunchRequest r, int d,
+                            DesktopActivityLaunchResult.Completion c) { c.onComplete(new DesktopActivityLaunchResult()); }
                     static Set<Integer> workspaceDisplayIds() { return MagicDeskRuntime.active < 0 ? Set.of() : Set.of(MagicDeskRuntime.active); }
                     static boolean hasWorkspace(int id) { return MagicDeskRuntime.active == id; }
                     static void syncTaskbarWithSnapshot(int displayId,Object snapshot) {} }
@@ -208,6 +240,10 @@ public final class RuntimeWindowHandoffRegressionTest {
                         final CompletableFuture<TaskRepository.ActionResult> mReady=ready;
                 """ + RuntimeSourceFixture.methods("WindowedAppLauncher", "whenReady") + "}\n"
                 + """
+                    static LaunchResult launch(Intent i, AppLaunchTarget t, int d, int[] tasks, boolean w,
+                            Object bounds, DesktopTaskInstancePolicy policy, TaskReadyCallback callback) throws IOException {
+                        return launchBuiltInWindow(i, t, d, tasks, callback);
+                    }
                     static LaunchResult launchBuiltInWindow(Intent intent,AppLaunchTarget target,int display,
                             int[] tasks,TaskReadyCallback callback) throws IOException {
                         calls++; preserved=tasks;

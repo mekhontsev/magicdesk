@@ -1,6 +1,6 @@
 package io.github.mekhontsev.magicdesk;
 
-/** Source capability, independent of viewer placement and Desktop residency. */
+/** Surface mechanism; output attachments prefer direct, ordinary viewers explicitly mirror. */
 enum DisplayPresentationMode {
     DIRECT("direct"), MIRROR("mirror");
 

@@ -23,9 +23,12 @@ public final class ToolLaunchTargetTest {
         assertFalse(target.desktop);
     }
 
-    @Test public void rejectsBypassingDesktopOwnership() {
-        assertThrows(IllegalStateException.class, () -> ToolLaunchTarget.resolve("display", 3, java.util.Set.of(3)));
-        assertThrows(IllegalStateException.class, () -> ToolLaunchTarget.resolve("phone", -1, java.util.Set.of(0)));
+    @Test public void independentAppsCanShareDisplayWithDesktop() {
+        assertFalse(ToolLaunchTarget.resolve("display", 3, java.util.Set.of(3)).desktop);
+        assertFalse(ToolLaunchTarget.resolve("phone", -1, java.util.Set.of(0)).desktop);
+    }
+
+    @Test public void managedLaunchRequiresDesktop() {
         assertThrows(IllegalStateException.class, () -> ToolLaunchTarget.resolve("desktop", 3, java.util.Set.of(4)));
         assertThrows(IllegalStateException.class, () -> ToolLaunchTarget.resolve("desktop", -1, java.util.Set.of()));
     }
@@ -41,7 +44,7 @@ public final class ToolLaunchTargetTest {
         final var ordinary = ToolLaunchTarget.resolve("auto", 0, java.util.Set.of());
         ordinary.requireCurrent(java.util.Set.of());
         ordinary.requireCurrent(java.util.Set.of(3));
-        assertThrows(IllegalStateException.class, () -> ordinary.requireCurrent(java.util.Set.of(0)));
+        ordinary.requireCurrent(java.util.Set.of(0));
         final var desktop = ToolLaunchTarget.resolve("desktop", 3, java.util.Set.of(3));
         desktop.requireCurrent(java.util.Set.of(3));
         assertThrows(IllegalStateException.class, () -> desktop.requireCurrent(java.util.Set.of()));

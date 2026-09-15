@@ -38,6 +38,10 @@ public final class OrdinaryActivityLaunchTest {
 
     @Test public void dispatchPreservesIdentityAndRevokesOnlyItsOwnToken() throws Exception {
         RuntimeSourceFixture.verify("""
+                    static class ApplicationTaskPlacement {
+                        static int preparations;
+                        static void prepareIndependentLaunch(Context c, Intent i, int d) { preparations++; }
+                    }
                     static class Context {}
                     static class Intent {}
                     static class PendingIntent { int cancellations; void cancel() { cancellations++; } }
