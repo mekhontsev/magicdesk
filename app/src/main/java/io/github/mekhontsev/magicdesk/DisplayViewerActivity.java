@@ -158,6 +158,7 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
             mFrame.removeView(mSurface);
         }
         mSurface = new SurfaceView(this);
+        mSurface.setSecure(mSession.source.protectedContent());
         mSurface.setFocusableInTouchMode(true);
         mSurface.setContentDescription(getString(R.string.display_viewer));
         mSurface.getHolder().setFixedSize(mSession.source.width, mSession.source.height);

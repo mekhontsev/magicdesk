@@ -117,6 +117,7 @@ final class ShellVirtualDisplays implements AutoCloseable {
         if (source == null || output == null || sourceId == outputId || viewerOwner == null) {
             throw new IllegalArgumentException("invalid or disconnected viewer endpoint");
         }
+        source.requirePresentationOutput(output);
         // Presentation edges are output -> source. A cycle would feed the
         // viewer's own window back into itself, even though all IDs are valid.
         final Map<Integer, Integer> edges = new LinkedHashMap<>();

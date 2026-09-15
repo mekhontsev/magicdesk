@@ -1,4 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="display_protected_content">Protected content</string>
+    <string name="display_protected_content_unavailable">Secure-output permission is unavailable in the current privileged service.</string>
     <string name="script_dialog">MagicDesk script dialog</string>
     <string name="script_notifications">Script notifications</string>
     <string name="start_current_display">Current</string>

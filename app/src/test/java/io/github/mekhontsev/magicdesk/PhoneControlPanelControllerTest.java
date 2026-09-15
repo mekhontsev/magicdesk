@@ -91,12 +91,12 @@ public final class PhoneControlPanelControllerTest {
         final VirtualDisplaySpec previous = new VirtualDisplaySpec(1920, 1080, 200);
         for (final String source : new String[] {"wired", "wireless", "phone", "internal", "virtual"}) {
             final DesktopDisplayInfo selected = new DesktopDisplayInfo(7, "display:7", "Display", source,
-                    2560, 1080, 320, true, false);
+                    2560, 1080, 320, true, false, false);
             assertArrayEquals(new int[] {2560, 1080},
                     DisplaySelectionView.creationResolution(selected, previous));
         }
         final DesktopDisplayInfo portrait = new DesktopDisplayInfo(0, "display:0", "Phone", "phone",
-                1216, 2688, 520, true, false);
+                1216, 2688, 520, true, false, true);
         assertArrayEquals(new int[] {1216, 2688}, DisplaySelectionView.creationResolution(portrait, previous));
         assertEquals(1920, previous.width);
         assertEquals(1080, previous.height);
@@ -107,7 +107,7 @@ public final class PhoneControlPanelControllerTest {
         final VirtualDisplaySpec previous = new VirtualDisplaySpec(1280, 720, 160);
         assertArrayEquals(new int[] {1280, 720}, DisplaySelectionView.creationResolution(null, previous));
         final DesktopDisplayInfo small = new DesktopDisplayInfo(7, "display:7", "Display", "virtual",
-                240, 240, 160, false, false);
+                240, 240, 160, false, false, false);
         assertArrayEquals(new int[] {240, 240}, DisplaySelectionView.creationResolution(small, previous));
     }
 
@@ -230,6 +230,6 @@ public final class PhoneControlPanelControllerTest {
     static DesktopDisplayInfo display(final int id, final String source,
             final boolean supported, final boolean owned) {
         return new DesktopDisplayInfo(id, "display:" + id, "Display", source,
-                1920, 1080, 160, supported, owned);
+                1920, 1080, 160, supported, owned, false);
     }
 }

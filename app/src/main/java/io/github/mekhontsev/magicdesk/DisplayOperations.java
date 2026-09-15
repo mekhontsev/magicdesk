@@ -28,6 +28,7 @@ final class DisplayOperations {
             final DisplayCallback callback) {
         TaskCommandQueue.execute(() -> {
             try {
+                if (preview) spec.requireOverlayCompatible();
                 final DesktopDisplayInfo display = preview
                         ? DesktopDisplayCatalog.require(SimulatedDesktopDisplayController.create(spec), null)
                         : ShellAccess.createVirtualDisplay(spec);

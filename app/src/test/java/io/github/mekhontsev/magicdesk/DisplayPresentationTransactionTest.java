@@ -4,6 +4,22 @@ import org.junit.Test;
 
 /** Runs the actual binding transaction against explicitly scheduled UI/input boundaries. */
 public final class DisplayPresentationTransactionTest {
+    @Test public void incompatibleProtectedSwapIsRejectedBeforeEitherLeaseIsReleased() throws Exception {
+        verify("""
+                Session a = session(1, 3, true), b = session(2, 4, true);
+                a.ready = true; b.ready = true;
+                a.source.protectedMode = true;
+                a.output.secure = true;
+                try { swap(a, b); throw new AssertionError("unsafe swap accepted"); }
+                catch (IllegalArgumentException expected) { }
+                check(a.source.id == 1 && b.source.id == 2, "rejected swap changed bindings");
+                check(a.ready && b.ready && a.change == null && b.change == null, "rejected swap released a lease");
+                b.output.secure = true;
+                Change change = swap(a, b);
+                attached(a); attached(b);
+                check(change.finished && b.source.protectedMode, "compatible swap failed");
+                """);
+    }
     @Test public void hiddenPeerDoesNotBlockVisibleOutput() throws Exception {
         verify("""
                 Session a = session(1, 3, true), b = session(2, 4, false);
@@ -134,7 +150,10 @@ public final class DisplayPresentationTransactionTest {
                 }
                 static class DesktopDisplayInfo {
                     final int id; final String uniqueId;
+                    boolean secure, protectedMode;
                     DesktopDisplayInfo(int id) { this.id = id; uniqueId = "display:" + id; }
+                    boolean protectedContent() { return protectedMode; }
+                """ + RuntimeSourceFixture.methods("DesktopDisplayInfo", "requirePresentationOutput") + """
                 }
                 static class DisplayPresentations {
                 """ + RuntimeSourceFixture.nestedClass("DisplayPresentations", "Listener")

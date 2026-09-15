@@ -121,6 +121,7 @@ final class AutomationCommandCatalog {
                                 .put("type", enumProperty("Display creation mechanism.", "virtual", "overlay"))
                                 .put("width", integerProperty("Display width in pixels."))
                                 .put("height", integerProperty("Display height in pixels."))
+                                .put("protectedContent", booleanProperty("Protected virtual source; default false. Requires secure-output permission in the current service and a secure Viewer output. Not available for overlay preview."))
                                 .put("densityDpi", integerProperty("Display density; default 160.")),
                                 "width", "height")))
                 .put(actionTool("attach_display_viewer", "Attach output",
@@ -1374,7 +1375,10 @@ final class AutomationCommandCatalog {
                 break;
             case "list_displays":
                 properties.put("displays", arrayProperty(
-                        "Connected displays.", openObjectProperty("Display.")));
+                        "Connected displays, including secure output capability and protectedContent source policy.", openObjectProperty("Display.")))
+                        .put("canCreateProtectedDisplay", booleanProperty("Current privileged service has secure-output permission; null if unavailable or unknown.")
+                                .put("type", new JSONArray().put("boolean").put("null")))
+                        .put("protectedDisplayPermissionError", nullableStringProperty("Protected-display permission query error, if any."));
                 break;
             case "list_tasks":
                 properties.put("tasks", arrayProperty(

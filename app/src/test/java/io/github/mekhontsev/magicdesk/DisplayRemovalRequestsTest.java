@@ -71,7 +71,7 @@ public final class DisplayRemovalRequestsTest {
     @Test public void cannotDeleteForeignOrBuiltInDisplays() {
         assertThrows(IOException.class, () -> submit(display("owned", false)));
         assertThrows(IOException.class, () -> submit(new DesktopDisplayInfo(
-                7, "owned", "Internal", "internal", 800, 600, 160, false, true)));
+                7, "owned", "Internal", "internal", 800, 600, 160, false, true, false)));
         assertThrows(IllegalArgumentException.class, () -> requests.submit(0, "phone",
                 new DesktopDisplayInfo[0], ignored -> fail()));
         assertThrows(IllegalArgumentException.class, () -> requests.submit(-1, "owned",
@@ -91,6 +91,6 @@ public final class DisplayRemovalRequestsTest {
     }
 
     private static DesktopDisplayInfo display(String uniqueId, boolean owned) {
-        return new DesktopDisplayInfo(7, uniqueId, "Test", "virtual", 800, 600, 160, true, owned);
+        return new DesktopDisplayInfo(7, uniqueId, "Test", "virtual", 800, 600, 160, true, owned, false);
     }
 }

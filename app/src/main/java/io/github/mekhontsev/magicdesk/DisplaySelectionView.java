@@ -7,6 +7,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
@@ -305,6 +306,18 @@ final class DisplaySelectionView {
         final EditText width = number(content, R.string.display_width, resolution[0]);
         final EditText height = number(content, R.string.display_height, resolution[1]);
         final EditText scale = number(content, R.string.display_scale, defaults.densityDpi * 100 / 160);
+        final CheckBox protection = new CheckBox(mActivity);
+        protection.setText(R.string.display_protected_content);
+        protection.setEnabled(false);
+        content.addView(protection);
+        final boolean[] protectionAllowed = {false};
+        kind.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> p, View v, int position, long id) {
+                protection.setEnabled(position == 0 && protectionAllowed[0]);
+                if (position != 0) protection.setChecked(false);
+            }
+            @Override public void onNothingSelected(AdapterView<?> p) { }
+        });
         preset.setSelection(0);
         preset.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(final AdapterView<?> p, final View v,
@@ -332,7 +345,8 @@ final class DisplaySelectionView {
                         if (percent < 50 || percent > 400) { throw new IllegalArgumentException(); }
                         final VirtualDisplaySpec spec = new VirtualDisplaySpec(
                                 Integer.parseInt(width.getText().toString()),
-                                Integer.parseInt(height.getText().toString()), percent * 160 / 100);
+                                Integer.parseInt(height.getText().toString()), percent * 160 / 100,
+                                protection.isChecked());
                         final boolean preview = kind.getSelectedItemPosition() == 1;
                         if (preview) { spec.requireOverlayCompatible(); }
                         mActions.createDisplay(spec, preview);
@@ -342,6 +356,21 @@ final class DisplaySelectionView {
                     }
                 }));
         dialog.show();
+        TaskCommandQueue.execute(() -> {
+            boolean allowed = false;
+            String error = null;
+            try { allowed = ShellAccess.canCreateProtectedDisplay(); }
+            catch (java.io.IOException failure) { error = ShellAccess.usefulMessage(failure); }
+            final boolean permission = allowed;
+            final String failure = error;
+            mActivity.runOnUiThread(() -> {
+                if (!dialog.isShowing() || mActivity.isDestroyed()) return;
+                protectionAllowed[0] = permission;
+                protection.setEnabled(permission && kind.getSelectedItemPosition() == 0);
+                protection.setTooltipText(failure != null ? failure : permission ? null
+                        : mActivity.getString(R.string.display_protected_content_unavailable));
+            });
+        });
     }
 
     private Spinner spinner(final LinearLayout parent, final String[] labels) {

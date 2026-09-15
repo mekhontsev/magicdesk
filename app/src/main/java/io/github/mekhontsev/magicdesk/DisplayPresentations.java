@@ -55,6 +55,7 @@ final class DisplayPresentations {
             try {
                 final DesktopDisplayInfo source = requireSource(sourceId, null);
                 final DesktopDisplayInfo output = DesktopDisplayCatalog.require(outputId, null);
+                source.requirePresentationOutput(output);
                 MAIN.post(() -> {
                     try {
                         final Session existing = forOutput(output.id);
@@ -104,6 +105,7 @@ final class DisplayPresentations {
                         .put("sourceDisplayId", session.source.id).put("sourceUniqueId", session.source.uniqueId)
                         .put("outputDisplayId", session.output.id).put("outputUniqueId", session.output.uniqueId)
                         .put("mode", DisplayPresentationMode.forSource(session.source).id)
+                        .put("protectedContent", session.source.protectedContent())
                         .put("ready", session.ready).put("fullscreen", session.fullscreen)
                         .put("error", session.error));
             }
@@ -124,7 +126,7 @@ final class DisplayPresentations {
         TaskCommandQueue.execute(() -> {
             try {
                 final DesktopDisplayInfo source = requireSource(sourceId, uniqueId);
-                DesktopDisplayCatalog.require(session.output.id, session.output.uniqueId);
+                source.requirePresentationOutput(DesktopDisplayCatalog.require(session.output.id, session.output.uniqueId));
                 MAIN.post(() -> {
                     if (session.closed) { completion.onComplete(new IllegalStateException("viewer was detached")); return; }
                     try {
@@ -323,6 +325,7 @@ final class DisplayPresentations {
                 if (session.output.id == pair.getValue().id) {
                     throw new IllegalArgumentException("source and output must differ");
                 }
+                pair.getValue().requirePresentationOutput(session.output);
                 if (session.source.id == selected && selected != pair.getValue().id) {
                     input = pair.getValue().id;
                     inputViewer = session;
@@ -436,6 +439,7 @@ final class DisplayPresentations {
             for (Session session : SESSIONS.values()) {
                 if (session.closed) continue;
                 final DesktopDisplayInfo source = replacements.getOrDefault(session, reservedSource(session));
+                source.requirePresentationOutput(session.output);
                 if (!sources.add(source.uniqueId)) {
                     throw new IllegalStateException("source already has a viewer or pending binding");
                 }
@@ -458,6 +462,7 @@ final class DisplayPresentations {
 
     private static void validate(DesktopDisplayInfo source, DesktopDisplayInfo output, Session replacing) {
         if (source.id == output.id) throw new IllegalArgumentException("source and output must differ");
+        source.requirePresentationOutput(output);
         synchronized (SESSIONS) {
             for (Session session : SESSIONS.values()) {
                 if (session == replacing || session.closed) continue;

@@ -8,8 +8,14 @@ final class VirtualDisplaySpec {
     final int width;
     final int height;
     final int densityDpi;
+    final boolean protectedContent;
 
     VirtualDisplaySpec(final int width, final int height, final int densityDpi) {
+        this(width, height, densityDpi, false);
+    }
+
+    VirtualDisplaySpec(final int width, final int height, final int densityDpi,
+            final boolean protectedContent) {
         if (width < 320 || height < 320 || width > 8192 || height > 8192
                 || (long) width * height > 33_554_432L
                 || densityDpi < 80 || densityDpi > 640) {
@@ -18,9 +24,13 @@ final class VirtualDisplaySpec {
         this.width = width;
         this.height = height;
         this.densityDpi = densityDpi;
+        this.protectedContent = protectedContent;
     }
 
     void requireOverlayCompatible() {
+        if (protectedContent) {
+            throw new IllegalArgumentException("protected content requires an owned virtual display, not overlay preview");
+        }
         // OverlayDisplayAdapter limits preview displays more tightly than VirtualDisplay.
         if (width > 4096 || height > 4096 || densityDpi < 120) {
             throw new IllegalArgumentException("phone preview requires size <= 4096 and density >= 120");

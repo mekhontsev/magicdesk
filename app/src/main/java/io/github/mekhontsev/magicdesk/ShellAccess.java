@@ -1213,10 +1213,18 @@ public final class ShellAccess {
     static DesktopDisplayInfo createVirtualDisplay(final VirtualDisplaySpec spec) throws IOException {
         try {
             return requireService().createVirtualDisplay(
-                    spec.width, spec.height, spec.densityDpi, VIRTUAL_DISPLAY_OWNER);
+                    spec.width, spec.height, spec.densityDpi, spec.protectedContent, VIRTUAL_DISPLAY_OWNER);
         } catch (RemoteException | RuntimeException error) {
             handleServiceFailure(error);
             throw new IOException("virtual display creation failed: " + usefulMessage(error), error);
+        }
+    }
+
+    static boolean canCreateProtectedDisplay() throws IOException {
+        try { return requireService().canCreateProtectedDisplay(); }
+        catch (RemoteException | RuntimeException error) {
+            handleServiceFailure(error);
+            throw new IOException("protected display permission check failed: " + usefulMessage(error), error);
         }
     }
 

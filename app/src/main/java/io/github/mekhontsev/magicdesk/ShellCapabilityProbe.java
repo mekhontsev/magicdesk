@@ -41,6 +41,7 @@ public final class ShellCapabilityProbe {
             "android.permission.STATUS_BAR",
             "android.permission.SET_ORIENTATION",
             "android.permission.CAPTURE_VIDEO_OUTPUT",
+            "android.permission.CAPTURE_SECURE_VIDEO_OUTPUT",
             "android.permission.RECORD_AUDIO",
             "android.permission.READ_FRAME_BUFFER",
             "android.permission.REBOOT",

@@ -12,7 +12,7 @@ final class DesktopDisplayCatalog {
             final DesktopDisplayInfo d = displays[i];
             if (SimulatedDesktopDisplayController.owns(d)) {
                 displays[i] = new DesktopDisplayInfo(d.id, d.uniqueId, d.name, d.source,
-                        d.width, d.height, d.densityDpi, d.canHostDesktop, true);
+                        d.width, d.height, d.densityDpi, d.canHostDesktop, true, d.secure);
             }
         }
         return displays;
@@ -48,6 +48,7 @@ final class DesktopDisplayCatalog {
                 .put("width", display.width).put("height", display.height)
                 .put("densityDpi", display.densityDpi).put("canHostDesktop", display.canHostDesktop)
                 .put("owned", display.owned).put("canRemove", display.canRemove())
+                .put("secure", display.secure).put("protectedContent", display.protectedContent())
                 .put("defaultDisplay", display.isDefaultDisplay()).put("builtIn", display.isBuiltIn())
                 .put("scrcpyCommand", scrcpyCommand(display));
     }

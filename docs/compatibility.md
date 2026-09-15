@@ -182,6 +182,13 @@ in-APK catalog recognition must not use its reused stock fingerprint alone.
 
 ## Known Limitations
 
+- **Protected content** on owned virtual displays requires secure-output
+  permission in the current privileged service (normally root), a protected
+  graphics path and a secure presentation output. Ordinary displays do not
+  require root. Secure display creation does not guarantee DRM service policy,
+  HDCP compatibility or playback on a particular receiver. Protected Viewer
+  surfaces may be black in screenshots and recordings. `TRUSTED` and `SECURE`
+  are independent Android properties.
 - A display without Android's `TRUSTED` flag cannot directly host MagicDesk's
   organizer task areas. **No direct desktop** does not mean the output is
   unusable: **Display actions > Start portable desktop here** can present a

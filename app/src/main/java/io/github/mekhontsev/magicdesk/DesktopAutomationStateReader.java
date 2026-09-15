@@ -184,10 +184,14 @@ final class DesktopAutomationStateReader {
         final DisplayManager manager =
                 mContext.getSystemService(DisplayManager.class);
         String catalogError = null;
+        Boolean protectedPermission = null;
+        String protectedPermissionError = null;
         DesktopDisplayInfo[] catalog = new DesktopDisplayInfo[0];
         if (ShellAccess.isReady()) {
             try { catalog = DesktopDisplayCatalog.read(); }
             catch (java.io.IOException error) { catalogError = error.getMessage(); }
+            try { protectedPermission = ShellAccess.canCreateProtectedDisplay(); }
+            catch (java.io.IOException error) { protectedPermissionError = error.getMessage(); }
         }
         if (manager != null) {
             for (final Display display : manager.getDisplays()) {
@@ -208,6 +212,8 @@ final class DesktopAutomationStateReader {
                 .put("generatedAtMillis", System.currentTimeMillis())
                 .put("displays", displays)
                 .put("presentations", DisplayPresentations.snapshot())
+                .put("canCreateProtectedDisplay", protectedPermission == null ? JSONObject.NULL : protectedPermission)
+                .put("protectedDisplayPermissionError", protectedPermissionError == null ? JSONObject.NULL : protectedPermissionError)
                 .put("catalogError", catalogError == null ? JSONObject.NULL : catalogError);
     }
 

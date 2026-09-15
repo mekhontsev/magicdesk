@@ -1870,6 +1870,21 @@ another output.
 Android's optional forced external desktop mode or a system display override can
 still enable system decorations; MagicDesk does not change those settings here.
 
+Virtual-display creation optionally accepts `protectedContent`, off by default
+and not inherited from creation preferences. The current privileged service must
+hold `CAPTURE_SECURE_VIDEO_OUTPUT`; this is a permission query, not a vendor or
+UID selector and never triggers per-operation elevation. Missing permission
+rejects creation before allocating resources. Ordinary UID-2000 displays and
+independent API-34 services retain their existing prerequisites.
+
+`FrameworkVirtualDisplayApi` creates such a source with `SECURE` and a PRIVATE
+ImageReader with GPU-sampled/protected usage. Detach returns to that same
+protected sink; the callback only releases frames, never maps their pixels.
+System overlay previews do not implement this contract and reject the option.
+The live catalog distinguishes Android's `secure` output capability from the
+`protectedContent` policy of an owned virtual source. `TRUSTED` and managed
+Desktop eligibility remain independent.
+
 ### Display Presentations
 
 `DesktopDisplayInfo.canHostDesktop` admits direct managed workspaces, not
@@ -1904,6 +1919,16 @@ composition and scaling, without frame copies, a Java rendering loop, vendor
 display tokens or additional libraries. Letterbox margins do not accept source
 input. A source change gets a new Surface consumer: returning from `setSurface`
 does not certify that the previous compositor producer has disconnected.
+
+For a protected virtual source the new SurfaceView is marked secure before
+attachment. Both the presentation registry and the privileged lease owner
+require a secure output. An incompatible source exchange is rejected before
+either old lease is detached, including its peer's destination. No operation
+silently downgrades protection. Ordinary mirrored displays keep Android's
+per-layer protection semantics; a secure physical panel is not automatically
+a protected-source policy. Protected decoder buffers and end-to-end DRM/HDCP
+support still depend on the graphics stack, output and playing application;
+the display flags are not playback certification.
 
 `ShellDisplayViewer` is a revocable Binder lease, independent of the source's
 resource owner. It serializes source-addressed input and releases held keys and

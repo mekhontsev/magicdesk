@@ -5,7 +5,23 @@ import org.junit.Test;
 
 public final class DesktopDisplayIdentityTest {
     private static DesktopDisplayInfo display(final int id, final String source, final boolean owned) {
-        return new DesktopDisplayInfo(id, "id:" + id, source, source, 1280, 720, 160, false, owned);
+        return new DesktopDisplayInfo(id, "id:" + id, source, source, 1280, 720, 160, false, owned, false);
+    }
+
+    @Test public void protectedSourcePolicyIsDistinctFromOutputSecurityAndDesktopEligibility() {
+        final DesktopDisplayInfo protectedSource = new DesktopDisplayInfo(7, "source", "Source", "virtual",
+                1280, 720, 160, true, true, true);
+        final DesktopDisplayInfo secureOutput = new DesktopDisplayInfo(8, "output", "Output", "wireless",
+                1280, 720, 160, false, false, true);
+        assertTrue(protectedSource.protectedContent());
+        assertFalse(secureOutput.protectedContent());
+        protectedSource.requirePresentationOutput(secureOutput);
+        assertThrows(IllegalArgumentException.class,
+                () -> protectedSource.requirePresentationOutput(display(9, "wired", false)));
+        display(10, "virtual", true).requirePresentationOutput(display(11, "wireless", false));
+        secureOutput.requirePresentationOutput(display(11, "wireless", false));
+        assertFalse(new DesktopDisplayInfo(12, "foreign", "Foreign", "virtual",
+                1280, 720, 160, true, false, true).protectedContent());
     }
 
     @Test public void builtInDoesNotMeanDefaultAndNonDefaultDoesNotMeanExternal() {

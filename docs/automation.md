@@ -412,6 +412,12 @@ ineligible for Desktop until verified. These are live display identities, not
 desktop-session records. A wireless connection may already be listed before
 MagicDesk starts on it.
 
+Display metadata also reports `secure` (Android's output capability) and
+`protectedContent` (the protection policy of a MagicDesk-owned virtual source).
+`list_displays.canCreateProtectedDisplay` reports the current privileged service's
+secure-output permission: true/false, or null when unavailable/unknown.
+`protectedDisplayPermissionError` contains any permission-query failure.
+
 `canHostDesktop=false` rejects only direct managed Desktop startup, not ordinary
 tool placement or Viewer output. In particular, untrusted public displays may
 accept a privileged Viewer launch but cannot host organizer-created task areas.
@@ -419,12 +425,17 @@ Create a trusted virtual source, start Desktop there and use
 `attach_display_viewer` with the other display as its output; keep input addressed
 to the source. Viewer launch and attachment errors remain authoritative.
 
-- `create_display(width, height, densityDpi, type)` creates a `virtual`
+- `create_display(width, height, densityDpi, type, protectedContent)` creates a `virtual`
   (headless, default) or `overlay` (phone preview) display without starting HOME.
   Several headless displays can coexist; only one Android overlay can be
   created without rewriting an existing overlay set.
   Owned virtual displays do not request system navigation decorations. Detaching
   or reattaching a viewer preserves the source's original creation flags.
+  `protectedContent` defaults to false and is only supported for `virtual`.
+  It requires `CAPTURE_SECURE_VIDEO_OUTPUT` in the current privileged service
+  and creates a secure source with a protected detached sink. Creation fails
+  explicitly if unavailable; it never elevates the service or falls back to
+  an ordinary source. The UI exposes the same option as **Protected content**.
 - `start_desktop(displayId, uniqueId)` starts on exactly the selected display.
   The optional uniqueId prevents stale selection after hotplug. Do not combine
   this form with the target convenience selector. Wait for `desktop_active`;
@@ -448,6 +459,8 @@ to the source. Viewer launch and attachment errors remain authoritative.
   attachment, not the first rendered frame. Repeating the same source/output
   reuses its live presentation and applies the requested fullscreen state;
   another source on that output changes the viewer.
+  Protected sources require a secure output and use a secure SurfaceView.
+  An incompatible exchange is rejected before detaching either old binding.
 - `select_display_viewer(viewerId, sourceDisplayId)` changes only presentation.
   If another viewer owns that source, the two sources are exchanged. Omitting
   `sourceDisplayId` selects the previous source. Completion commits both bindings,
@@ -478,7 +491,10 @@ to the source. Viewer launch and attachment errors remain authoritative.
 
 `list_displays.presentations` reports each viewer's UUID, exact source/output
 display identities, `mode` (`direct` or `mirror`), attachment `ready`, fullscreen
-state and error. Viewer
+state, error and `protectedContent`. Protected Viewer surfaces can be black
+in ordinary screenshots/recordings; this does not make protected video available
+through scrcpy. This is protected presentation support, not a guarantee that a
+particular DRM application or external output will accept playback. Viewer
 operations publish `display/presentation_changed` events. `OUTCOME_UNKNOWN`
 means only the callback observation expired; it never cancels an operation.
 Re-list presentations after an uncertain switch, especially before repeating

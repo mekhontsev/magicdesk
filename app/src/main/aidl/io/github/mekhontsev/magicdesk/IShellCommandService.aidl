@@ -443,7 +443,7 @@ interface IShellCommandService {
     DesktopDisplayInfo[] listDesktopDisplays() = 121;
 
     DesktopDisplayInfo createVirtualDisplay(int width, int height, int densityDpi,
-        IBinder ownerToken) = 122;
+        boolean protectedContent, IBinder ownerToken) = 122;
 
     void removeVirtualDisplay(int displayId, String uniqueId, IBinder ownerToken) = 123;
 
@@ -476,4 +476,5 @@ interface IShellCommandService {
     io.github.mekhontsev.magicdesk.IDisplayViewer openDisplayViewer(
         int sourceDisplayId, String sourceUniqueId, int outputDisplayId,
         String outputUniqueId, IBinder displayOwner, IBinder viewerOwner) = 138;
+    boolean canCreateProtectedDisplay() = 141;
 }

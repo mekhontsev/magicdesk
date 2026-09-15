@@ -452,7 +452,8 @@ final class DesktopAutomationController {
     private DesktopAutomationResult createDisplay(final JSONObject args)
             throws JSONException, InterruptedException {
         final VirtualDisplaySpec spec = new VirtualDisplaySpec(requiredInt(args, "width"),
-                requiredInt(args, "height"), args.optInt("densityDpi", 160));
+                requiredInt(args, "height"), args.optInt("densityDpi", 160),
+                args.has("protectedContent") && args.getBoolean("protectedContent"));
         final String type = optionalString(args, "type", "virtual");
         if (!type.equals("virtual") && !type.equals("overlay")) {
             throw new IllegalArgumentException("type must be virtual or overlay");

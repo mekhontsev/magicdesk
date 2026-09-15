@@ -102,8 +102,12 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override public DesktopDisplayInfo createVirtualDisplay(final int width,
-            final int height, final int densityDpi, final IBinder ownerToken) {
-        return mVirtualDisplays.create(new VirtualDisplaySpec(width, height, densityDpi), ownerToken);
+            final int height, final int densityDpi, final boolean protectedContent, final IBinder ownerToken) {
+        return mVirtualDisplays.create(new VirtualDisplaySpec(width, height, densityDpi, protectedContent), ownerToken);
+    }
+
+    @Override public boolean canCreateProtectedDisplay() {
+        return FrameworkVirtualDisplayApi.canCreateProtectedDisplay(mContext);
     }
 
     @Override public void removeVirtualDisplay(final int displayId,

@@ -45,6 +45,7 @@ public final class DisplayPresentationSelectionTest {
                 static class DesktopDisplayInfo {
                     final int id; final String uniqueId;
                     DesktopDisplayInfo(int id) { this.id = id; uniqueId = "display:" + id; }
+                    void requirePresentationOutput(DesktopDisplayInfo output) { }
                 }
                 static class Session {
                     DesktopDisplayInfo source = new DesktopDisplayInfo(1);
@@ -68,7 +69,7 @@ public final class DisplayPresentationSelectionTest {
                 static class Main { void post(Runnable r) { r.run(); } }
                 static final Main MAIN = new Main();
                 static class DesktopDisplayCatalog {
-                    static void require(int id, String uniqueId) { }
+                    static DesktopDisplayInfo require(int id, String uniqueId) { return new DesktopDisplayInfo(id); }
                 }
                 static DesktopDisplayInfo requireSource(int id, String uniqueId) {
                     return new DesktopDisplayInfo(id);
@@ -106,6 +107,7 @@ public final class DisplayPresentationSelectionTest {
                     final int id; final String uniqueId;
                     final String source = "virtual";
                     DesktopDisplayInfo(int id) { this.id = id; uniqueId = "display:" + id; }
+                    void requirePresentationOutput(DesktopDisplayInfo output) { }
                 }
                 static class Session {
                     DesktopDisplayInfo source, output;

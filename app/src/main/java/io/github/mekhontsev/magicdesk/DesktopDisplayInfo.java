@@ -14,10 +14,11 @@ public final class DesktopDisplayInfo implements Parcelable {
     public final int densityDpi;
     public final boolean canHostDesktop;
     public final boolean owned;
+    public final boolean secure;
 
     DesktopDisplayInfo(final int id, final String uniqueId, final String name,
             final String source, final int width, final int height, final int densityDpi,
-            final boolean canHostDesktop, final boolean owned) {
+            final boolean canHostDesktop, final boolean owned, final boolean secure) {
         this.id = id;
         this.uniqueId = uniqueId;
         this.name = name;
@@ -27,6 +28,16 @@ public final class DesktopDisplayInfo implements Parcelable {
         this.densityDpi = densityDpi;
         this.canHostDesktop = canHostDesktop;
         this.owned = owned;
+        this.secure = secure;
+    }
+
+    /** An output capability is not a protection policy for ordinary mirrored screens. */
+    boolean protectedContent() { return owned && "virtual".equals(source) && secure; }
+
+    void requirePresentationOutput(final DesktopDisplayInfo output) {
+        if (protectedContent() && !output.secure) {
+            throw new IllegalArgumentException("Protected content requires a secure output display: " + output.id);
+        }
     }
 
     DesktopDisplayTarget target() {
@@ -72,7 +83,7 @@ public final class DesktopDisplayInfo implements Parcelable {
     private DesktopDisplayInfo(final Parcel in) {
         this(in.readInt(), in.readString(), in.readString(), in.readString(),
                 in.readInt(), in.readInt(), in.readInt(),
-                in.readInt() != 0, in.readInt() != 0);
+                in.readInt() != 0, in.readInt() != 0, in.readInt() != 0);
     }
 
     @Override public void writeToParcel(final Parcel out, final int flags) {
@@ -85,6 +96,7 @@ public final class DesktopDisplayInfo implements Parcelable {
         out.writeInt(densityDpi);
         out.writeInt(canHostDesktop ? 1 : 0);
         out.writeInt(owned ? 1 : 0);
+        out.writeInt(secure ? 1 : 0);
     }
 
     @Override public int describeContents() { return 0; }

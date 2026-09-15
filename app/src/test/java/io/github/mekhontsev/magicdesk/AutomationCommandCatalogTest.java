@@ -79,6 +79,8 @@ public final class AutomationCommandCatalogTest {
     public void displayLifecycleIsSeparateFromDesktopSession() throws Exception {
         final JSONArray tools = AutomationCommandCatalog.create();
         final JSONObject create = tool(tools, "create_display");
+        assertEquals("boolean", create.getJSONObject("inputSchema").getJSONObject("properties")
+                .getJSONObject("protectedContent").getString("type"));
         final JSONObject remove = tool(tools, "remove_display");
         assertFalse(create.getJSONObject("annotations").getBoolean("readOnlyHint"));
         assertFalse(remove.getJSONObject("annotations").getBoolean("readOnlyHint"));

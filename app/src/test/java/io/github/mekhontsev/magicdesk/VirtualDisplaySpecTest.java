@@ -2,9 +2,17 @@ package io.github.mekhontsev.magicdesk;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class VirtualDisplaySpecTest {
+    @Test public void protectedContentIsExplicitAndCannotUseOverlayPreview() {
+        assertFalse(new VirtualDisplaySpec(1280, 720, 160).protectedContent);
+        final VirtualDisplaySpec protectedSpec = new VirtualDisplaySpec(1280, 720, 160, true);
+        assertTrue(protectedSpec.protectedContent);
+        assertThrows(IllegalArgumentException.class, protectedSpec::requireOverlayCompatible);
+    }
     @Test public void validatesBeforeAllocatingDisplayResources() {
         assertEquals(2560, new VirtualDisplaySpec(2560, 1080, 160).width);
         assertThrows(IllegalArgumentException.class, () -> new VirtualDisplaySpec(0, 1080, 160));

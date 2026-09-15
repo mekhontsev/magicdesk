@@ -4,6 +4,8 @@ import android.content.Context;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.graphics.PixelFormat;
+import android.graphics.ImageFormat;
+import android.hardware.HardwareBuffer;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Handler;
@@ -14,8 +16,15 @@ import android.view.Display;
 
 import java.lang.reflect.Method;
 
-/** Android 15+ display primitives used by the shell-owned display catalog. */
+/** Shared display primitives used by the privileged display resource owner. */
 final class FrameworkVirtualDisplayApi {
+    private static final String SECURE_OUTPUT_PERMISSION = "android.permission.CAPTURE_SECURE_VIDEO_OUTPUT";
+
+    static boolean canCreateProtectedDisplay(final Context context) {
+        return context.checkPermission(SECURE_OUTPUT_PERMISSION,
+                android.os.Process.myPid(), android.os.Process.myUid())
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
     private final Method mType = Display.class.getMethod("getType");
     private final Method mUniqueId = Display.class.getMethod("getUniqueId");
     private final int mInternal = displayConstant("TYPE_INTERNAL");
@@ -40,9 +49,17 @@ final class FrameworkVirtualDisplayApi {
             throws ReflectiveOperationException {
         final DisplayManager manager = context.getSystemService(DisplayManager.class);
         if (manager == null) { throw new IllegalStateException("display service unavailable"); }
-        final int flags = creationFlags();
-        final ImageReader output = ImageReader.newInstance(
-                spec.width, spec.height, PixelFormat.RGBA_8888, 2);
+        if (spec.protectedContent && !canCreateProtectedDisplay(context)) {
+            throw new SecurityException("Protected content requires " + SECURE_OUTPUT_PERMISSION
+                    + " in the current privileged service");
+        }
+        final int flags = creationFlags() | (spec.protectedContent
+                ? DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE : 0);
+        // A secure source must never return to a CPU-readable consumer on Detach.
+        final ImageReader output = spec.protectedContent
+                ? ImageReader.newInstance(spec.width, spec.height, ImageFormat.PRIVATE, 2,
+                        HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE | HardwareBuffer.USAGE_PROTECTED_CONTENT)
+                : ImageReader.newInstance(spec.width, spec.height, PixelFormat.RGBA_8888, 2);
         VirtualDisplay display = null;
         try {
             // Android 16 requires a Surface for an ON virtual display. Use the
@@ -52,6 +69,9 @@ final class FrameworkVirtualDisplayApi {
                     "MagicDesk", spec.width, spec.height, spec.densityDpi,
                     output.getSurface(), flags);
             if (display == null) { throw new IllegalStateException("Android did not create the virtual display"); }
+            if (spec.protectedContent && (display.getDisplay().getFlags() & Display.FLAG_SECURE) == 0) {
+                throw new IllegalStateException("Android did not create a secure virtual display");
+            }
             return new OwnedDisplay(context, display, output);
         } catch (RuntimeException error) {
             if (display != null) { display.release(); }
@@ -149,7 +169,7 @@ final class FrameworkVirtualDisplayApi {
                 (display.getFlags() & mTrusted) != 0);
         return new DesktopDisplayInfo(id, (String) mUniqueId.invoke(display), display.getName(),
                 source, metrics.widthPixels, metrics.heightPixels, metrics.densityDpi,
-                supported, owned);
+                supported, owned, (display.getFlags() & Display.FLAG_SECURE) != 0);
     }
 
     private static int displayConstant(final String name) throws ReflectiveOperationException {

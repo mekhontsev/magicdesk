@@ -57,6 +57,12 @@ client with arbitrary shell/input access is not confined by an application
 sandbox. Root does not grant SystemUI identity, ownership of other apps' window
 tokens, or a guarantee that a firmware operation works.
 
+Optional **Protected content** virtual displays require the current service's
+`CAPTURE_SECURE_VIDEO_OUTPUT` permission. Creation is explicit, paired with a
+protected detached sink and secure Viewer output, and fails without that
+permission. The request never changes backend or identity. It does not bypass
+DRM license policy or authorize extraction of protected video.
+
 Both transports expose `IShellCommandService` and the same operations. The app
 checks the connected service's UID and APK build before publishing readiness.
 The standalone process hands its Binder to a permission-protected provider;
