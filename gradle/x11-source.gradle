@@ -1,0 +1,17 @@
+// Source archives retain the same pinned dependency identity without requiring Git metadata.
+def x11Directory = rootProject.file('vendor/magicdesk-x11')
+def revision
+if (new File(x11Directory, '.git').exists()) {
+    revision = providers.exec {
+        workingDir x11Directory
+        commandLine 'git', 'rev-parse', 'HEAD'
+    }.standardOutput.asText.get().trim()
+} else {
+    def revisions = rootProject.file('SOURCE_REVISIONS.txt')
+    revision = revisions.exists() ? revisions.readLines('UTF-8')
+            .find { it.startsWith('MagicDesk/vendor/magicdesk-x11/ ') }?.tokenize()?.last() : null
+}
+if (!(revision ==~ /[0-9a-f]{40}/)) {
+    throw new GradleException('Initialize vendor/magicdesk-x11 recursively or use a complete corresponding-source archive')
+}
+ext.magicDeskX11SourceRevision = revision

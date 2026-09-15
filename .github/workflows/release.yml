@@ -50,6 +50,12 @@ jobs:
             > "$RUNNER_TEMP/magicdesk-signing/release.jks"
           chmod 600 "$RUNNER_TEMP/magicdesk-signing/release.jks"
 
+      - name: X11 native host tools
+        run: sudo apt-get install -y bison ninja-build patch
+
+      - name: Package corresponding source
+        run: python3 scripts/package-source.py "$RUNNER_TEMP/MagicDesk-source.tar.gz"
+
       - name: Build signed release APK
         env:
           ORG_GRADLE_PROJECT_MAGICDESK_RELEASE_STORE_FILE: ${{ runner.temp }}/magicdesk-signing/release.jks
@@ -92,7 +98,7 @@ jobs:
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk \
             "dist/MagicDesk-${version}.apk"
-          python3 scripts/package-source.py "dist/MagicDesk-${version}-source.tar.gz"
+          cp "$RUNNER_TEMP/MagicDesk-source.tar.gz" "dist/MagicDesk-${version}-source.tar.gz"
           (
             cd dist
             sha256sum ./*.apk ./*-source.tar.gz > SHA256SUMS

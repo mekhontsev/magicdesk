@@ -107,6 +107,12 @@
             android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
+        <receiver android:name=".X11SessionReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="com.termux.x11.CmdEntryPoint.ACTION_START" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name=".DesktopFileProvider"
             android:authorities="${applicationId}.desktop-files"
@@ -372,6 +378,16 @@
             android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.displayviewer"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize" />
+        <activity
+            android:name=".X11Activity"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:icon="@drawable/ic_show_desktop"
+            android:label="@string/x11_title"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.x11"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".CommandConsoleActivity"
             android:configChanges="density|fontScale|keyboard|keyboardHidden|layoutDirection|locale|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"

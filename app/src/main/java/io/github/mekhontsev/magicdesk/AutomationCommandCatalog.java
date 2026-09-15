@@ -305,7 +305,7 @@ final class AutomationCommandCatalog {
                                         "files", "console", "termux",
                                         "task_manager", "settings",
                                         "app_profiles",
-                                        "diagnostics", "activity_explorer", "display_viewer"))
+                                        "diagnostics", "activity_explorer", "display_viewer", "x11"))
                                 .put("viewer", objectSchema(new JSONObject()
                                         .put("sourceDisplayId", integerProperty("Viewer source, including 0. Omit for interactive source selection."))
                                         .put("mode", enumProperty("Viewer only: mirror (default) opens a separate copy using normal placement; output reuses one independent fullscreen Viewer per output and connects owned virtual sources directly. Output requires sourceDisplayId and independent placement; use placement=display to avoid inheriting Desktop.", "mirror", "output"))

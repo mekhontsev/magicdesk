@@ -23,3 +23,6 @@ include ':app'
 include ':hidden-api-stubs'
 include ':kernel-fixes'
 include ':terminal-emulator'
+include ':x11-runtime', ':x11-stubs'
+project(':x11-runtime').projectDir = file('vendor/magicdesk-x11/embedded')
+project(':x11-stubs').projectDir = file('vendor/magicdesk-x11/shell-loader/stub')

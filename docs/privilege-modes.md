@@ -11,6 +11,7 @@ boundaries. A missing Desktop capability does not disable an independent tool.
 | Ordinary UI and Android content integration | MagicDesk app UID and its Android permissions |
 | Privileged files, shell, display, task and input operations | One authorized command service, normally shell UID 2000; started through Shizuku or optional `su` |
 | Termux commands and PTYs | Termux UID, with its external-command configuration and MagicDesk's `RUN_COMMAND` grant |
+| Embedded X11 servers and clients | Selected Termux UID; per-session Xauthority and Binder lifetime. MagicDesk renders with its own app UID. No root or Shizuku prerequisite for the server. |
 | MCP request | Listener token and grants, followed by the operation's service and Android permission checks |
 | Built-in CLI | Private channel inherited by a MagicDesk-launched shell; the same service prerequisites and operation implementation as MCP |
 | Optional Kernel Fixes APK | Separate application with an explicit root workflow; never a main-APK dependency |

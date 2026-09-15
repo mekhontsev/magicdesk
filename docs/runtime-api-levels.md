@@ -14,6 +14,7 @@ device validation on that release is still pending.
 | Script dialogs and notifications | API 34; MCP content grant or inherited CLI channel. Background dialog placement requires the shared privileged launcher; notifications require Android notification permission/channel access. No Desktop or Termux prerequisite. |
 | Files, shell commands and transfers | API 34 plus authorized privileged service for shell-backed operations. |
 | Termux sessions and viewers | API 34 plus installed Termux, external-command configuration and `RUN_COMMAND` permission. The PTY and its window have separate lifetimes. |
+| Embedded X11 | API 34 plus the selected Termux endpoint, `RUN_COMMAND` permission and XKB data. Server runs under the Termux UID; renderer loads only on explicit session startup. No installed Termux:X11 APK, Desktop, HOME or privileged service prerequisite for an ordinary phone window. |
 | APK replacement | API 34 plus authorized privileged service and the update grant. Android's PackageInstaller and its shell callback own replacement; the update worker survives replacement and reconnect is observed by update ID. |
 | Display resources and ordinary tool placement | API 34 plus authorized privileged service and working framework capabilities. Creating a display or placing a fullscreen tool there does not acquire HOME or initialize WMShell Desktop. |
 | Display Viewer | API 34 plus authorized privileged service. Owned virtual sources use VirtualDisplay/SurfaceView; existing screens use the framework mirrorDisplay capability and READ_FRAME_BUFFER permission. Shared privileged input adapter. No Desktop, vendor token lookup or root requirement. Virtual-first managed Desktop still requires API 35. |
@@ -74,6 +75,8 @@ separate from these feature requirements.
 ### Native Build Boundary
 
 The native helpers are currently packaged only for `arm64-v8a`.
+The embedded X11 library additionally builds `x86_64` with the NDK, but this
+does not supply the missing helper ABI for the rest of the application.
 The desktop-host NDK path in `gradle/native-helpers.gradle` still compiles with
 `--target=aarch64-linux-android35`; the Termux path uses its installed compiler.
 Neither establishes API 34 native compatibility merely because the manifest's

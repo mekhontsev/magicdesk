@@ -18,7 +18,8 @@ The APK requires Android 14 (API 34); managed Desktop requires Android 15
 Desktop. The [API-level contract](runtime-api-levels.md) records OS-dependent
 behavior, static verification and remaining device coverage.
 
-- Shared services own files, profiles, content, shell execution and Termux PTYs.
+- Shared services own files, profiles, content, shell execution, Termux PTYs
+  and embedded X11 sessions.
   MCP is an authorized adapter to these services, not their lifetime owner.
 - `ToolApplications` and `ToolLaunchTarget` select ordinary fullscreen Activity
   placement or the existing managed Desktop launch path. Phone control-panel
@@ -1525,6 +1526,17 @@ Repositories perform package, task, and document queries. View controllers do
 not construct arbitrary shell commands. Platform controllers do not construct
 desktop panels. Keep this split when adding vendor-specific behavior.
 
+## Embedded X11
+
+`X11Sessions` retains independently owned Termux-hosted X servers and lazy
+native renderers. Ordinary `X11Activity` windows borrow outputs; closing a
+window does not stop its server. Admission requires the captured Termux UID
+and a session nonce before Xorg starts. The server's owner Binder ties its
+lifetime to the MagicDesk process, while Xauthority isolates X clients.
+No Desktop coordinator, HOME lease or privileged service is initialized by
+this shared tool. Android placement still goes through `ToolApplications`.
+See [Embedded X11](x11.md) for lifecycle, build and current integration scope.
+
 ## Privileged Service Runtime
 
 `IntegrationPackage` captures the configured Shizuku manager and Termux package
@@ -1655,7 +1667,7 @@ The local [`terminal-emulator`](../terminal-emulator/README.md) module, based on
 Termux v0.118.3, parses escape sequences and models the main screen, alternate
 screen, cursor, colors, and scrollback. It owns terminal semantics and their
 upstream regression tests, independently of transport, windows, and Desktop.
-MagicDesk does not use Termux app session, JNI, or rendering code. Its own
+The terminal does not use Termux app session, JNI, or rendering code. Its own
 `ConsoleTerminalView` adapts Android gestures, mouse reporting, layout and frame
 scheduling. `ConsoleTerminalInputConnection` owns Android IME composition with
 the View's attachment validity check. `TerminalViewport` owns measured grid

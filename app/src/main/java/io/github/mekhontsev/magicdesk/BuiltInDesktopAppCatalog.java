@@ -134,6 +134,10 @@ final class BuiltInDesktopAppCatalog {
             AppLaunchTarget.explicit(PACKAGE_NAME, DisplayViewerActivity.class.getName(), ""),
             R.string.display_viewer, true, true, true, true,
             new RelativeWindowBounds(5000, 5000, 7000, 8000));
+    private static final Entry X11 = new Entry(
+            AppLaunchTarget.explicit(PACKAGE_NAME, X11Activity.class.getName(), ""),
+            R.string.x11_title, true, true, true, true,
+            new RelativeWindowBounds(5000, 5000, 7000, 8000));
     private static final List<Entry> ENTRIES = Collections.unmodifiableList(
             Arrays.asList(
                     FILES,
@@ -144,7 +148,7 @@ final class BuiltInDesktopAppCatalog {
                     DIAGNOSTICS,
                     LOG_VIEWER,
                     ACTIVITY_EXPLORER,
-                    USER_PROMPT, DISPLAY_VIEWER));
+                    USER_PROMPT, DISPLAY_VIEWER, X11));
 
     private BuiltInDesktopAppCatalog() {
     }

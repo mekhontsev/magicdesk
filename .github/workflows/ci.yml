@@ -67,6 +67,12 @@ jobs:
           test -x "$ANDROID_SDK_ROOT/build-tools/37.0.0/aapt2"
           test -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android35-clang"
 
+      - name: X11 native host tools
+        run: sudo apt-get install -y bison ninja-build patch
+
+      - name: Package corresponding source
+        run: python3 scripts/package-source.py dist/MagicDesk-source.tar.gz
+
       - name: Verify development version
         shell: bash
         run: |
@@ -167,9 +173,6 @@ jobs:
             app/build/outputs/apk/release/app-release-unsigned.apk \
             kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk
 
-      - name: Package corresponding source
-        run: python3 scripts/package-source.py dist/MagicDesk-source.tar.gz
-
       - name: Prepare signed main artifact
         if: github.event_name == 'push'
         shell: bash
@@ -252,6 +255,17 @@ jobs:
               throw "Required Android SDK component not found: $path"
             }
           }
+
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
+        with:
+          msystem: UCRT64
+          install: bison patch mingw-w64-ucrt-x86_64-gcc
+
+      - name: X11 native host tools
+        shell: msys2 {0}
+        run: |
+          cygpath -w /ucrt64/bin >> "$GITHUB_PATH"
+          cygpath -w /usr/bin >> "$GITHUB_PATH"
 
       - name: Verify Windows build
         shell: pwsh

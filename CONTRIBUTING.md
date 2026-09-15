@@ -23,6 +23,13 @@ Diagnostics.
 - JDK 17 or newer
 - Android SDK platform and build tools 37
 - Android NDK 27.3.13750724, installed as **NDK (Side by side)**
+- CMake 3.22+, Ninja, Python 3, Bison, patch and a host C compiler for embedded X11
+
+Initialize source dependencies with `git submodule update --init --recursive`.
+On Windows, the X11 host generators use MSYS2 Bison/patch and UCRT64 GCC;
+put their `usr/bin` and `ucrt64/bin` directories on `PATH`. Android native
+libraries still use the NDK, not the host compiler. Termux uses its packaged
+CMake, Ninja, Python, Bison, patch and Clang.
 
 Android Studio can install the SDK and NDK components from SDK Manager. Gradle
 finds a side-by-side NDK through the configured Android SDK. An explicit

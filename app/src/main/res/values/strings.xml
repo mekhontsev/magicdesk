@@ -1,4 +1,13 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="x11_title">X11</string>
+    <string name="x11_sessions">X11 sessions</string>
+    <string name="x11_new_session">New X11 session</string>
+    <string name="x11_stop_session">Stop X11 session?</string>
+    <string name="x11_run_command">Run command</string>
+    <string name="x11_no_session">No X11 session selected</string>
+    <string name="x11_session_name">Session name</string>
+    <string name="x11_command_optional">Startup command (optional)</string>
+    <string name="x11_start">Start</string>
     <string name="display_no_independent_apps">No independent applications on this display.</string>
     <string name="independent_window_id">Window %1$d</string>
     <string name="independent_close_window">Close %1$s</string>

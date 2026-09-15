@@ -9,11 +9,17 @@ def baseVersionCode = providers.gradleProperty(
 def versionSuffix = providers.gradleProperty(
         'MAGICDESK_VERSION_SUFFIX').orNull
 // Stable source identity distinguishes local APKs sharing a version number.
+apply from: rootProject.file('gradle/x11-source.gradle')
 def sourceDigest = java.security.MessageDigest.getInstance('SHA-256')
+sourceDigest.update(magicDeskX11SourceRevision.getBytes('UTF-8'))
 def sourceFiles = rootProject.fileTree('.') {
     include 'app/src/main/**', 'hidden-api-stubs/src/main/**', 'gradle/**', 'native/**'
     include 'terminal-emulator/src/main/**', 'terminal-emulator/*.gradle'
     include '*.gradle', 'app/*.gradle', 'gradle.properties'
+    include 'vendor/magicdesk-x11/embedded/src/main/**', 'vendor/magicdesk-x11/embedded/*.gradle'
+    include 'vendor/magicdesk-x11/lorie/src/main/java/**', 'vendor/magicdesk-x11/lorie/src/main/aidl/**'
+    include 'vendor/magicdesk-x11/lorie/src/main/cpp/lorie/**', 'vendor/magicdesk-x11/lorie/src/main/cpp/recipes/**'
+    include 'vendor/magicdesk-x11/lorie/src/main/cpp/patches/**', 'vendor/magicdesk-x11/lorie/src/main/cpp/CMakeLists.txt'
 }.files.sort { rootProject.relativePath(it) }
 sourceFiles.each { file ->
     sourceDigest.update(rootProject.relativePath(file).getBytes('UTF-8'))
@@ -131,6 +137,7 @@ dependencies {
         exclude group: 'androidx.annotation', module: 'annotation'
     }
     implementation project(':terminal-emulator')
+    implementation project(':x11-runtime')
     compileOnly project(':hidden-api-stubs')
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'

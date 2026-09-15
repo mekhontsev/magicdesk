@@ -25,6 +25,11 @@ Initialize submodules recursively before building or packaging. The source
 archive includes their contents, not just Git links. It excludes Git metadata,
 untracked files, local credentials, signing keys and build output. Recipients
 can build and sign their own APK; our private signing key is not included.
+Package the clean checkout before native compilation: X11's CMake recipes apply
+the fork's tracked patches to pinned upstream dependency worktrees. Both the
+original sources and these patches belong in the source archive. Build identity
+reads the pinned X11 revision from Git, or `SOURCE_REVISIONS.txt` when building
+the extracted archive without Git metadata.
 
 Personalized test APKs have the same source-availability requirement. A support
 bot must deliver the matching source archive or a durable link to it together

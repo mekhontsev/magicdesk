@@ -3,6 +3,36 @@ package io.github.mekhontsev.magicdesk;
 import org.junit.Test;
 
 public final class RuntimeLayerSdkTest {
+    @Test public void independentToolStartupDoesNotRequestShellAccess() throws Exception {
+        RuntimeSourceFixture.verify("""
+                static final String ACTION_START_TOOLS = "tools";
+                static class MagicDeskRuntimeService {}
+                static class Intent {
+                    String action;
+                    Intent(Object context, Class<?> type) {}
+                    Intent setAction(String value) { action = value; return this; }
+                }
+                static class Context {
+                    int starts;
+                    void startForegroundService(Intent intent) {
+                        check("tools".equals(intent.action), "independent tool requested Desktop");
+                        starts++;
+                    }
+                }
+                static class ShellAccess { static int resumes; static void resume() { resumes++; } }
+                """ + RuntimeSourceFixture.methods("MagicDeskRuntime", "startTools") + """
+                public static void verify() {
+                    Context context = new Context();
+                    startTools(context, false);
+                    check(context.starts == 1 && ShellAccess.resumes == 0,
+                            "independent X11 requested shell access");
+                    startTools(context);
+                    check(context.starts == 2 && ShellAccess.resumes == 1,
+                            "explicit shell tool lost access setup");
+                }
+                """);
+    }
+
     @Test public void displayRemovalCompletionDoesNotRequireDesktop() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class Session {
@@ -125,6 +155,12 @@ public final class RuntimeLayerSdkTest {
                     check(automation.stopped, "disabled automation stayed alive");
                     service.onStartCommand(new Intent("desktop"), 0, 4);
                     check(service.mInitialized, "supported Desktop did not initialize");
+                    Input input = service.mDisplayInput;
+                    Session session = service.mDesktopSession;
+                    service.onStartCommand(new Intent("tools"), 0, 5);
+                    check(service.mInitialized && service.mDisplayInput == input
+                            && service.mDesktopSession == session,
+                            "opening an independent tool replaced the active Desktop runtime");
                 }
                 """);
     }

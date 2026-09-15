@@ -22,6 +22,22 @@ selection, and rendering; it does not package Termux's native `libtermux.so`.
 - License: Apache License 2.0; see
   [`third_party/termux-terminal-emulator/LICENSE`](third_party/termux-terminal-emulator/LICENSE)
 
+## Embedded Termux:X11
+
+MagicDesk embeds the server, renderer and Binder entry point from its
+[MagicDesk X11 fork](https://github.com/mekhontsev/magicdesk-x11), pinned by
+the `vendor/magicdesk-x11` submodule. It does not require the standalone
+Termux:X11 Android application.
+
+- Upstream: https://github.com/termux/termux-x11
+- License: GNU GPL version 3; see
+  [`vendor/magicdesk-x11/LICENSE`](vendor/magicdesk-x11/LICENSE).
+- X server and graphics dependencies retain their individual copyright and
+  license notices. The library packages their `COPYING` and `LICENSE` files
+  under `assets/licenses/magicdesk-x11` in the APK.
+- Corresponding source archives include the fork, recursively pinned native
+  dependencies, modifications and build scripts; see [licensing](docs/licensing.md).
+
 ## JetBrains Mono Nerd Font Mono
 
 Console bundles the unmodified regular, bold, italic and bold-italic faces of

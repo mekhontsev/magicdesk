@@ -105,7 +105,8 @@ final class DesktopAutomationStateReader {
                                 DesktopSelfTestController.isRunning())
                         .put("terminalWindows",
                                 ConsoleTerminalRegistry.windowCount())
-                        .put("terminalSessions", ConsoleTerminalRegistry.registeredCount()))
+                        .put("terminalSessions", ConsoleTerminalRegistry.registeredCount())
+                        .put("x11Sessions", X11Sessions.count()))
                 .put("windows", windows.toJson())
                 .put("mcp", MagicDeskMcpRuntime.snapshotJson())
                 .put("eventSequence",

@@ -178,9 +178,13 @@ final class TermuxIntegration {
             final String command,
             final String label,
             final String workingDirectory) {
-        activity.startForegroundService(commandIntent(inspect(activity),
-                command, label, workingDirectory)
-                .putExtra(EXTRA_BACKGROUND, true));
+        runBackgroundShellCommand(activity, inspect(activity), command, label, workingDirectory, null);
+    }
+
+    static void runBackgroundShellCommand(final Context context, final Endpoint endpoint,
+            final String command, final String label, final String workingDirectory, final String stdin) {
+        context.startForegroundService(commandIntent(endpoint, command, label, workingDirectory)
+                .putExtra(EXTRA_BACKGROUND, true).putExtra(EXTRA_STDIN, stdin));
     }
 
     static void runBackgroundShellCommandForResult(
