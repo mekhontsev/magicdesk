@@ -22,7 +22,7 @@ final class StartDisplaySelector {
         mButton = ui.actionButton(R.string.start_current_display, DesktopUiFactory.COLOR_PANEL_ALT);
         mButton.setTextSize(13);
         mButton.setSingleLine(true);
-        mButton.setEllipsize(TextUtils.TruncateAt.END);
+        mButton.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         mButton.setMinWidth(0);
         mButton.setMinimumWidth(0);
         mButton.setPadding(ui.dp(8), 0, ui.dp(8), 0);
@@ -68,7 +68,7 @@ final class StartDisplaySelector {
                     for (final DesktopDisplayInfo display : displays) {
                         if (display.id == mActivity.getDisplay().getDisplayId()
                                 || "unknown".equals(display.source)) { continue; }
-                        menu.getMenu().add(0, index, index++, display.name)
+                        menu.getMenu().add(0, index, index++, displayLabel(display))
                                 .setCheckable(true)
                                 .setChecked(mSelected != null && mSelected.id == display.id
                                         && mSelected.uniqueId.equals(display.uniqueId))
@@ -93,10 +93,14 @@ final class StartDisplaySelector {
 
     private void updateLabel() {
         final String label = mSelected == null
-                ? mActivity.getString(R.string.start_current_display) : mSelected.name;
+                ? mActivity.getString(R.string.start_current_display) : displayLabel(mSelected);
         mButton.setText(label);
         final String description = mActivity.getString(R.string.start_launch_display, label);
         mButton.setContentDescription(description);
         mButton.setTooltipText(description);
+    }
+
+    private static String displayLabel(DesktopDisplayInfo display) {
+        return display.name + " [" + display.id + "]";
     }
 }

@@ -147,20 +147,44 @@ final class DesktopSessionController {
         }
     }
 
-    static boolean presentExistingSession(
+    static boolean showExistingSession(
             final DesktopDisplayTarget target,
             final TaskRepository.ActionCallback callback) {
-        final DesktopSessionSnapshot session =
+        final DesktopSessionSnapshot current =
                 DesktopRuntimeBridge.getSessionSnapshot(target == null ? -1 : target.workspaceDisplayId);
-        return presentExistingSession(target, session.policy(), callback);
+        final DesktopSessionSnapshot session = matchingSession(target, current.policy());
+        if (session == null) { return false; }
+        DisplayPresentations.showForSource(target.workspaceDisplayId, error -> {
+            final DesktopSessionSnapshot live =
+                    DesktopRuntimeBridge.getSessionSnapshot(target.workspaceDisplayId);
+            if (error == null && session.workspace().id.equals(live.workspace().id)
+                    && presentExistingSession(target, session.policy(), callback)) { return; }
+            if (callback != null) callback.onComplete(new TaskRepository.ActionResult(false,
+                    error == null ? "desktop session changed while showing its output"
+                            : ShellAccess.usefulMessage(error)));
+        });
+        return true;
     }
 
+    /** Internal startup/recovery must not raise another display's Viewer. */
     static boolean presentExistingSession(
             final DesktopDisplayTarget target,
             final DesktopSessionPolicy policy,
             final TaskRepository.ActionCallback callback) {
+        final DesktopSessionSnapshot session = matchingSession(target, policy);
+        if (session == null) { return false; }
+        MagicDeskRuntime.presentDesktopWorkspace(
+                target.workspaceDisplayId, session.hostTaskId(), callback);
+        Log.i(TAG, "presenting existing desktop kind=" + target.output.kind
+                + " display=" + target.workspaceDisplayId
+                + " task=" + session.hostTaskId());
+        return true;
+    }
+
+    private static DesktopSessionSnapshot matchingSession(
+            final DesktopDisplayTarget target, final DesktopSessionPolicy policy) {
         if (target == null || policy == null) {
-            return false;
+            return null;
         }
         final DesktopSessionSnapshot session =
                 DesktopRuntimeBridge.getSessionSnapshot(target.workspaceDisplayId);
@@ -175,14 +199,9 @@ final class DesktopSessionController {
                 || lease == null
                 || lease.phase != DesktopHomeRoleLease.Phase.ACTIVE
                 || !lease.matches(target)) {
-            return false;
+            return null;
         }
-        MagicDeskRuntime.presentDesktopWorkspace(
-                target.workspaceDisplayId, session.hostTaskId(), callback);
-        Log.i(TAG, "presenting existing desktop kind=" + target.output.kind
-                + " display=" + target.workspaceDisplayId
-                + " task=" + session.hostTaskId());
-        return true;
+        return session;
     }
 
     private static ShowResult showPrimaryHome(

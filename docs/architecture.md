@@ -1976,6 +1976,18 @@ application Alt+Tab is unchanged. Fullscreen hides viewer controls and requests
 immersive system bars; Back returns to the controls before detaching the viewer.
 Reattaching an existing output applies the requested fullscreen state too; Attach
 waits for that output's attachment even if source selection committed while hidden.
+An explicit **Show Desktop** returns the source's current or last Viewer to the
+front and waits for Surface attachment before presenting the workspace. Each
+successfully committed source remembers its last output for that Viewer's
+lifetime, independently of the output's currently selected source and Back
+history. Returning a replaced source selects it through the existing binding
+transaction, including its conditional input handoff. The Viewer mode and
+workspace identities stay unchanged. Active bindings take precedence over
+remembered outputs; display unique IDs prevent reused IDs from inheriting them.
+Explicit detach or output loss clears its remembered destinations. A workspace
+without such an output does not create a Viewer implicitly. Internal session
+recovery does not raise output windows, and a pending user return cannot activate
+a replacement workspace after Close.
 The display selector distinguishes **Attach output...**, a fullscreen output
 without Viewer controls, from **Display Viewer**, an explicitly opened viewer
 with its controls. `DisplayPresentations.attachOutput` is shared by

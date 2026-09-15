@@ -42,10 +42,13 @@ public final class DesktopOperations {
     }
 
     static boolean showDesktop(final DesktopDisplayInfo display) {
-        return TRANSITIONS.showDesktop(display);
+        return showDesktop(display, null);
     }
 
     static boolean showDesktop(final DesktopDisplayInfo display, final TaskRepository.ActionCallback callback) {
+        if (display != null && DesktopSessionController.showExistingSession(display.target(), callback)) {
+            return true;
+        }
         return TRANSITIONS.showDesktop(display, callback);
     }
 
@@ -115,7 +118,7 @@ public final class DesktopOperations {
                 callback.onComplete(result != null && result.success);
             }
         };
-        return DesktopSessionController.presentExistingSession(
+        return DesktopSessionController.showExistingSession(
                 target, actionCallback);
     }
 

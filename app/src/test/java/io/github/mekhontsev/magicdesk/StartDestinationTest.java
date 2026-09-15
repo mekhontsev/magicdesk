@@ -4,6 +4,22 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class StartDestinationTest {
+    @Test public void sameNamedDisplaysHaveDistinctLabels() throws Exception {
+        RuntimeSourceFixture.verify("""
+                record DesktopDisplayInfo(int id, String name) { }
+                public static void verify() {
+                    check(displayLabel(new DesktopDisplayInfo(3, "MagicDesk")).equals("MagicDesk [3]"),
+                            "first display has no visible identity");
+                    check(displayLabel(new DesktopDisplayInfo(4, "MagicDesk")).equals("MagicDesk [4]"),
+                            "same-named display is ambiguous");
+                }
+                """ + RuntimeSourceFixture.methods("StartDisplaySelector", "displayLabel"));
+        final String show = RuntimeSourceFixture.methods("StartDisplaySelector", "show");
+        final String selected = RuntimeSourceFixture.methods("StartDisplaySelector", "updateLabel");
+        assertTrue(show.contains("displayLabel(display)"));
+        assertTrue(selected.contains("displayLabel(mSelected)"));
+    }
+
     @Test public void visibleStartRemainsAddressableWhenAnotherDisplayHasKeyboardFocus() throws Exception {
         RuntimeSourceFixture.verify("""
                 static class View {

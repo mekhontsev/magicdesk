@@ -41,6 +41,7 @@ final class DisplayPresentations {
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final Map<String, Session> SESSIONS = new LinkedHashMap<>();
+    private static final Map<String, Session> LAST_OUTPUTS = new LinkedHashMap<>();
     private DisplayPresentations() { }
 
     /** Attach a fullscreen output to the source, whose lifetime remains independent. */
@@ -88,6 +89,53 @@ final class DisplayPresentations {
     }
 
     static Session find(String id) { synchronized (SESSIONS) { return SESSIONS.get(id); } }
+
+    /** Return through the source's current or last output, never creating a Viewer. */
+    static void showForSource(int sourceId, BuiltInWindowLauncher.Callback callback) {
+        TaskCommandQueue.execute(() -> {
+            try {
+                final DesktopDisplayInfo source = requireSource(sourceId, null);
+                MAIN.post(() -> showSource(source, callback));
+            } catch (Exception error) { MAIN.post(() -> callback.onComplete(error)); }
+        });
+    }
+
+    private static Session returnOutput(DesktopDisplayInfo source) {
+        synchronized (SESSIONS) {
+            final Session active = forSource(source.id);
+            return active != null && active.source.uniqueId.equals(source.uniqueId)
+                    ? active : LAST_OUTPUTS.get(source.uniqueId);
+        }
+    }
+
+    private static void rememberOutput(Session session) {
+        synchronized (SESSIONS) { LAST_OUTPUTS.put(session.source.uniqueId, session); }
+    }
+
+    private static void showSource(DesktopDisplayInfo source, BuiltInWindowLauncher.Callback callback) {
+        try {
+            final Session session = returnOutput(source);
+            if (session == null) { callback.onComplete(null); return; }
+            if (session.closed || session.listener == null || session.change != null) {
+                callback.onComplete(new IllegalStateException("viewer is not available for presentation"));
+                return;
+            }
+            source.requirePresentationOutput(session.output);
+            final long binding = session.bindingGeneration;
+            final BuiltInWindowLauncher.Callback checked = error -> callback.onComplete(
+                    error != null ? error : session.closed || !session.source.uniqueId.equals(source.uniqueId)
+                            ? new IllegalStateException("viewer binding changed while showing it") : null);
+            session.listener.show(error -> {
+                if (error != null || session.closed || session.bindingGeneration != binding || session.change != null) {
+                    callback.onComplete(error != null ? error
+                            : new IllegalStateException("viewer binding changed while showing it"));
+                    return;
+                }
+                // moveToFront is only a request. Resume/Surface attachment owns readiness.
+                selectForAttachment(session, source, checked);
+            });
+        } catch (RuntimeException error) { callback.onComplete(error); }
+    }
 
     private static void selectForAttachment(Session session, DesktopDisplayInfo source,
             BuiltInWindowLauncher.Callback callback) {
@@ -220,7 +268,10 @@ final class DisplayPresentations {
         if (session.inputRequest != null) session.inputRequest.cancel();
         session.closed = true;
         session.ready = false;
-        synchronized (SESSIONS) { SESSIONS.remove(session.id); }
+        synchronized (SESSIONS) {
+            SESSIONS.remove(session.id);
+            LAST_OUTPUTS.values().removeIf(output -> output == session);
+        }
         complete(session, new IllegalStateException("viewer was detached"));
         final int[] pending = {2};
         final Throwable[] failure = {null};
@@ -256,7 +307,7 @@ final class DisplayPresentations {
         if (session.closed) return;
         session.ready = true;
         if (session.change != null) session.change.attached(session);
-        else { session.error = ""; notify(session); complete(session, null); }
+        else { session.error = ""; rememberOutput(session); notify(session); complete(session, null); }
     }
 
     static void setFullscreen(Session session, boolean fullscreen) {
@@ -413,6 +464,7 @@ final class DisplayPresentations {
             for (Session session : next.keySet()) {
                 session.change = null;
                 session.error = "";
+                rememberOutput(session);
                 DisplayPresentations.notify(session);
                 DisplayPresentations.complete(session, null);
             }

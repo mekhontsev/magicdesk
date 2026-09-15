@@ -442,6 +442,11 @@ to the source. Viewer launch and attachment errors remain authoritative.
   command acceptance does not mean the host has appeared. The active/inactive
   conditions also wait for the shared startup/cleanup operation to finish,
   so a matched result permits the next session command.
+  Repeating an explicit display request for an active workspace also returns
+  its current or last Viewer output, selecting that source again when another
+  source replaced it. This does not create a Viewer or change its fullscreen
+  setting. `desktop_active` alone does not establish Viewer readiness; inspect
+  `list_displays.presentations` and the output UI after this navigation request.
 - `close_desktop(displayId)` closes only that workspace and leaves its display
   connected and reusable. HOME is returned when the last workspace closes.
   Omitting a Desktop destination is permitted only when exactly one workspace

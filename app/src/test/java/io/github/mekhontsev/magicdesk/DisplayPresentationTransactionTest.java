@@ -4,6 +4,20 @@ import org.junit.Test;
 
 /** Runs the actual binding transaction against explicitly scheduled UI/input boundaries. */
 public final class DisplayPresentationTransactionTest {
+    @Test public void committedSelectionRetainsBothReturnDestinationsUntilDetach() throws Exception {
+        verify("""
+                Session a = session(1, 3, true);
+                attached(a);
+                Change change = new Change(Map.of(a, new DesktopDisplayInfo(2)));
+                change.start();
+                check(!LAST_OUTPUTS.containsKey("display:2"), "pending selection remembered as committed");
+                attached(a);
+                check(change.finished && LAST_OUTPUTS.get("display:1") == a
+                        && LAST_OUTPUTS.get("display:2") == a, "selection lost previous return destination");
+                detach(a, error -> check(error == null, "detach failed")); MAIN.drain();
+                check(LAST_OUTPUTS.isEmpty(), "detached output retained return destinations");
+                """);
+    }
     @Test public void incompatibleProtectedSwapIsRejectedBeforeEitherLeaseIsReleased() throws Exception {
         verify("""
                 Session a = session(1, 3, true), b = session(2, 4, true);
@@ -160,8 +174,9 @@ public final class DisplayPresentationTransactionTest {
                 + RuntimeSourceFixture.nestedClass("DisplayPresentations", "Session")
                 + RuntimeSourceFixture.nestedClass("DisplayPresentations", "Change")
                 + RuntimeSourceFixture.topLevelMethods("DisplayPresentations", "detach", "attached", "visibilityChanged",
-                        "setFullscreen", "controlInput") + """
+                        "setFullscreen", "controlInput", "rememberOutput") + """
                     static final Map<String, Session> SESSIONS = new LinkedHashMap<>();
+                    static final Map<String, Session> LAST_OUTPUTS = new LinkedHashMap<>();
                     static void notify(Session s) { if (s.listener != null) s.listener.changed(); }
                     static void complete(Session s, Throwable e) {
                         var callbacks = new ArrayList<>(s.completions); s.completions.clear();
