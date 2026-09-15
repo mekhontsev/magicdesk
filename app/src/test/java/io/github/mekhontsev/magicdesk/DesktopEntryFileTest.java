@@ -251,18 +251,18 @@ public final class DesktopEntryFileTest {
         final DesktopEntry parsed = DesktopEntryFile.parse(
                 "[Desktop Entry]\n"
                         + "Type=Application\n"
-                        + "Name=X11 desktop\n"
-                        + "Icon=com.termux.x11\n"
-                        + "Exec=termux-x11 :1\n"
+                        + "Name=Project viewer\n"
+                        + "Icon=org.example.viewer\n"
+                        + "Exec=prepare-project --preview\n"
                         + "Path=/data/data/com.termux/files/home/project\n"
-                        + "X-MagicDesk-Package=com.termux.x11\n"
+                        + "X-MagicDesk-Package=org.example.viewer\n"
                         + "X-MagicDesk-ExecBackend=termux\n"
                         + "X-MagicDesk-WindowMode=windowed\n");
 
         assertTrue(parsed instanceof DesktopApplicationShortcut);
         final DesktopApplicationShortcut app =
                 (DesktopApplicationShortcut) parsed;
-        assertEquals("termux-x11 :1", app.exec);
+        assertEquals("prepare-project --preview", app.exec);
         assertEquals(DesktopExecBackend.TERMUX, app.execBackend);
         assertEquals(
                 "/data/data/com.termux/files/home/project",
@@ -273,11 +273,11 @@ public final class DesktopEntryFileTest {
                 "[Desktop Entry]\n"
                         + "Version=1.5\n"
                         + "Type=Application\n"
-                        + "Name=X11 desktop\n"
-                        + "Icon=com.termux.x11\n"
-                        + "Exec=termux-x11 :1\n"
+                        + "Name=Project viewer\n"
+                        + "Icon=org.example.viewer\n"
+                        + "Exec=prepare-project --preview\n"
                         + "Path=/data/data/com.termux/files/home/project\n"
-                        + "X-MagicDesk-Package=com.termux.x11\n"
+                        + "X-MagicDesk-Package=org.example.viewer\n"
                         + "X-MagicDesk-WindowMode=windowed\n"
                         + "X-MagicDesk-ExecBackend=termux\n",
                 DesktopEntryFile.encodeApplication(app));

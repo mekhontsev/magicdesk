@@ -795,17 +795,6 @@ client. Reopening the same tmux session reuses an existing MagicDesk connection;
 the returned tmux id is resolved even for a newly created session.
 These tools do not expose ordinary Termux application tabs.
 
-`magicdesk.get_termux_x11_status` performs a bounded, non-destructive probe of
-the configured display. It reports the matching Termux process, reconnect
-listener, and Android viewer task as separate fields. The same typed snapshot
-is included under `runtime.termuxX11` in `get_state`; that embedded copy is
-cached and does not launch an external command during a state read.
-
-`magicdesk.reconnect_termux_x11` sends the standard viewer handshake to the
-configured running display. It never starts or stops the X server. Both tools
-require Termux, Termux:X11, the Termux external-command setting, and the
-`RUN_COMMAND` permission.
-
 ## Android UI Automation
 
 These commands work without Desktop on Android 14+. UI access and injected

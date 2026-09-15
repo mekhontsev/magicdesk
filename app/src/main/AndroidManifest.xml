@@ -12,7 +12,6 @@
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
         <package android:name="com.termux" />
-        <package android:name="com.termux.x11" />
         <intent>
             <action android:name="com.termux.RUN_COMMAND" />
         </intent>

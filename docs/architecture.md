@@ -1617,8 +1617,7 @@ custom permission is reported as incompatible, not bypassed. Shell paths use
 the protocol's `$PREFIX/` expansion; helper installation uses Termux's own
 `HOME`/`PREFIX` environment. Absolute initial directories use the selected
 application's Android data directory and Termux's `files/home` layout, including
-the current Android user. X11 shell diagnostics filter processes and listeners
-by that application's UID; the separate Termux:X11 viewer package is unchanged.
+the current Android user.
 
 The native relay owns both directions in one nonblocking poll loop, with
 bounded input/output buffers and incremental control-frame decoding. A partial
@@ -2835,12 +2834,11 @@ UserService-backed Android shell PTY or a Termux-hosted PTY. PTY transport is an
 implementation detail of the backend and therefore requires no additional
 Desktop Entry format or migration.
 
-`DesktopLaunchIntegrationRegistry` is intentionally a small in-process list,
-not a plugin framework. An integration recognizes an Android companion target,
-contributes its default `DesktopExecSpec`, and may prepare that command before
-delegation. The coordinator contains no Termux:X11 package checks. A composite
-request with both an Android target and `Exec` first prepares the normal
-Android task, then runs its companion command.
+An explicit composite request with both an Android target and `Exec` first
+prepares the normal Android task, then runs its companion command. The
+coordinator does not supply implicit commands or rewrite them according to
+the application's package. Ordinary application icons and generated default
+shortcuts launch Android only.
 
 `DesktopExecTemplate` expands the supported Desktop Entry file, URI, name,
 icon, and source-file field codes. `DesktopLaunchArguments` remains independent
@@ -2861,8 +2859,7 @@ fails, before any part of the user script can run in a different directory.
 Backend capabilities describe background, terminal, working-directory, and
 completion-result support. `DesktopExecSessionTracker` keeps only a bounded
 observational state for delegated commands. It provides stable IDs and
-diagnostics but does not own, kill, or recreate external Termux or X11
-processes.
+diagnostics but does not own, kill, or recreate external Termux commands.
 
 ## Desktop Surface And Widgets
 
@@ -3188,42 +3185,11 @@ the relay's loopback connection before any terminal bytes are accepted.
 MagicDesk does not mirror or mutate the Termux application's own PTY registry.
 When tmux is installed, its independent session registry is queried only by an
 explicit session picker or automation request.
-Optional Termux:X11 integration uses the same permission boundary. MagicDesk
-intercepts the ordinary default launch of the exported Termux:X11 viewer, then
-prepares it through the same `AppTaskController` path as any other application.
-It starts the configured X server command only after that task is ready, or
-uses Termux:X11's loopback handshake to reconnect the prepared viewer to an
-existing server with the same explicit `:N` display argument. A disappearing
-listener falls through to the configured startup command instead of turning a
-failed reconnect into a successful no-op. The viewer therefore remains a
-single Android task governed
-by normal window state, focus, taskbar, and session parking. There is no
-separate Tools action, fixed startup delay, or duplicate server process.
-MagicDesk neither embeds the GPL-licensed X server nor models individual X11
-client windows as Android tasks. Closing or parking the viewer does not claim
-ownership of the independently running X server.
-
-The reconnect command uses Termux's documented `RUN_COMMAND_PENDING_INTENT`
+Bounded Termux commands use its documented `RUN_COMMAND_PENDING_INTENT`
 result channel. The result receiver is explicit, non-exported, one-shot, and
-bounded by a timeout; long-running X11 startup and PTY commands remain
-fire-and-forget and do not wait for process exit. The non-destructive status
-probe runs through MagicDesk's shell service because Android hides socket
-tables from the ordinary Termux app UID. Runtime status keeps the server
-process, reconnect socket, requested display, and Android viewer task as
-separate typed fields. The application integration
-contributes its reconnect context action through
-`DesktopLaunchIntegrationRegistry`, so desktop UI code contains no
-Termux:X11 package branch.
-A `Type=Application` entry with a Termux:X11 Android package, no Android Intent,
-an `Exec` command, and `X-MagicDesk-ExecBackend=termux` uses the same lifecycle
-with the entry's command and requested window mode. The ordinary Start icon
-continues to use the global command from Settings. Desktop Entry files are the
-launch-preset representation; MagicDesk does not maintain a parallel X11
-profile database. Creating the default Termux:X11 desktop shortcut captures
-the current Settings command in that file, so later global changes do not
-silently alter an existing preset.
-The user-visible file format and examples are documented in
-[Desktop Entry files](desktop-entries.md).
+bounded by a timeout; long-running PTY commands do not wait for process exit.
+Explicit commands and composite Android launches use the shared
+[Desktop Entry format](desktop-entries.md).
 The explicit **Run script** action in Files opens Console with a safely quoted
 initial command. Console submits that authorized command once its PTY is ready.
 Ordinary file opening uses the selected file handler and does not take the

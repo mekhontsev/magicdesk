@@ -23,7 +23,7 @@ final class McpAccessPolicy {
     private static final Set<String> OBSERVATIONS = Set.of(
             "get_state", "get_pointer_state", "list_displays", "list_tasks", "list_apps",
             "get_app_presentation", "list_ui_elements", "get_events", "get_diagnostics",
-            "get_self_test", "get_termux_x11_status", "wait_for_state",
+            "get_self_test", "wait_for_state",
             "query_intent_handlers", "list_android_actions", "list_app_actions",
             "search_app_functions", "get_recording_status", "begin_trace", "end_trace",
             "app.update_status");
@@ -75,7 +75,7 @@ final class McpAccessPolicy {
                     "launch_intent", "open_uri", "open_file", "share", "invoke_android_action",
                     "invoke_app_action", "invoke_notification", "execute_app_function", "focus_task",
                     "close_task", "set_window_mode", "set_window_bounds", "arrange_task", "show_start",
-                    "show_desktop", "open_settings", "open_builtin", "reconnect_termux_x11",
+                    "show_desktop", "open_settings", "open_builtin",
                     "invoke_ui_action" -> Permission.CONTROL;
             default -> null;
         };

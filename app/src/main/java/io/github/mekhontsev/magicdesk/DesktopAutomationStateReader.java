@@ -105,24 +105,12 @@ final class DesktopAutomationStateReader {
                                 DesktopSelfTestController.isRunning())
                         .put("terminalWindows",
                                 ConsoleTerminalRegistry.windowCount())
-                        .put("terminalSessions", ConsoleTerminalRegistry.registeredCount())
-                        .put("termuxX11",
-                                TermuxX11Integration.cachedStatusJson(
-                                        mContext, null)))
+                        .put("terminalSessions", ConsoleTerminalRegistry.registeredCount()))
                 .put("windows", windows.toJson())
                 .put("mcp", MagicDeskMcpRuntime.snapshotJson())
                 .put("eventSequence",
                         DesktopAutomationEventJournal.latestId());
         return result;
-    }
-
-    JSONObject termuxX11Status() throws JSONException {
-        final TaskRepository.Snapshot tasks = TaskRepository.loadAllNow();
-        return new JSONObject()
-                .put("generatedAtMillis", System.currentTimeMillis())
-                .put("termuxX11",
-                        TermuxX11Integration.refreshedStatusJson(
-                                mContext, tasks));
     }
 
     JSONObject pointerState(final JSONObject arguments) throws JSONException {

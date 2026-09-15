@@ -429,9 +429,6 @@ public final class CompatibilityDiagnostics {
                     .append(", configured=").append(integration.configured(context))
                     .append('\n');
         }
-        report.append("Termux:X11 integration: ")
-                .append(TermuxX11Integration.diagnostics(context))
-                .append('\n');
         report.append("Embedded Termux PTY: ")
                 .append(TermuxPtyTransport.diagnostics(context))
                 .append('\n');

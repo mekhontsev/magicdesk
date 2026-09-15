@@ -13,6 +13,36 @@ public final class DesktopLaunchRequestTest {
             AppLaunchTarget.packageDefault("example.application");
 
     @Test
+    public void defaultApplicationLaunchDoesNotRunACompanionCommand() {
+        final DesktopLaunchRequest request = DesktopLaunchRequest.from(
+                new DesktopApplicationShortcut(
+                        "Application", "example.application", "prepare-preview",
+                        TARGET, "", DesktopLaunchMode.AUTO, true,
+                        DesktopExecBackend.TERMUX, false)).prepareExec();
+
+        assertEquals(AndroidLaunchSpec.Kind.DEFAULT, request.androidLaunch.kind);
+        assertEquals(TARGET, request.androidLaunch.target);
+        assertNull(request.exec);
+    }
+
+    @Test
+    public void explicitTermuxCommandRetainsItsBackendDirectoryAndShellSyntax() {
+        final String command = "prepare-preview --title 'A B' && notify-preview";
+        final DesktopLaunchRequest request = DesktopLaunchRequest.from(
+                new DesktopApplicationShortcut(
+                        "Preview", "example.application", command,
+                        TARGET, "", DesktopLaunchMode.WINDOWED, false,
+                        DesktopExecBackend.TERMUX, false,
+                        "/data/user/0/com.termux/files/home/project")).prepareExec();
+
+        assertEquals(TARGET, request.androidLaunch.target);
+        assertEquals(command, request.exec.command);
+        assertEquals(DesktopExecBackend.TERMUX, request.exec.backend);
+        assertEquals("/data/user/0/com.termux/files/home/project", request.exec.workingDirectory);
+        assertEquals(DesktopLaunchMode.WINDOWED, request.presentation.mode);
+    }
+
+    @Test
     public void intentSuppressesPortableExecFallback() {
         final DesktopLaunchRequest request = DesktopLaunchRequest.from(
                 new DesktopApplicationShortcut(

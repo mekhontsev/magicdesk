@@ -629,7 +629,6 @@ final class DesktopContextMenuController {
                 task,
                 desktopFile,
                 List.of(),
-                List.of(),
                 false, destination, presentation));
         if (!panels.isRequested(mMenuRoot)) {
             return;
@@ -642,11 +641,8 @@ final class DesktopContextMenuController {
                 return null;
             }
             final boolean hasWidgets = mActivity.hasDesktopWidgets(app.packageName);
-            final List<DesktopLaunchIntegrationAction> integrationActions = desktopFile == null
-                    ? DesktopLaunchIntegrationRegistry.actions(mActivity, app.launchTarget)
-                    : List.of();
             return new AppMenuState(x, y, app, task, desktopFile,
-                    shortcuts, integrationActions, hasWidgets, destination, presentation);
+                    shortcuts, hasWidgets, destination, presentation);
         }, null).thenAccept(completion -> request.deliver(mActivity::runOnUiThread, () -> {
             if (request != mShortcutRequest) {
                 return;
@@ -687,20 +683,6 @@ final class DesktopContextMenuController {
                         mActivity.focusTask(state.app, state.task);
                     }
                 });
-        // A .desktop profile may carry a different companion command. Its
-        // explicit launch remains authoritative; integration actions here
-        // belong only to the ordinary application/task entry.
-        if (state.desktopFile == null && state.destination == null) {
-            for (final DesktopLaunchIntegrationAction action
-                    : state.integrationActions) {
-                addAction(
-                        action.labelResource,
-                        DesktopUiFactory.COLOR_PANEL_ALT,
-                        action.enabled,
-                        view -> mActivity.invokeLaunchIntegrationAction(
-                                state.app, action));
-            }
-        }
         if (!state.shortcuts.isEmpty()) {
             addSubmenuAction(
                     R.string.action_app_actions,
@@ -1173,7 +1155,6 @@ final class DesktopContextMenuController {
         final TaskRepository.TaskEntry task;
         final DesktopFile desktopFile;
         final List<AppShortcutAction> shortcuts;
-        final List<DesktopLaunchIntegrationAction> integrationActions;
         final boolean hasWidgets;
         final StartDisplaySelector.Target destination;
         final DesktopLaunchPresentation presentation;
@@ -1185,7 +1166,6 @@ final class DesktopContextMenuController {
                 final TaskRepository.TaskEntry task,
                 final DesktopFile desktopFile,
                 final List<AppShortcutAction> shortcuts,
-                final List<DesktopLaunchIntegrationAction> integrationActions,
                 final boolean hasWidgets, final StartDisplaySelector.Target destination,
                 final DesktopLaunchPresentation presentation) {
             this.x = x;
@@ -1194,7 +1174,6 @@ final class DesktopContextMenuController {
             this.task = task;
             this.desktopFile = desktopFile;
             this.shortcuts = shortcuts;
-            this.integrationActions = integrationActions;
             this.hasWidgets = hasWidgets;
             this.destination = destination;
             this.presentation = presentation;

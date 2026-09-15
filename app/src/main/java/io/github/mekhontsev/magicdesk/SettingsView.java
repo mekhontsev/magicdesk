@@ -50,7 +50,6 @@ final class SettingsView {
 
         void regenerateMcpNetworkToken();
 
-        void configureTermuxX11();
 
         void configureIntegrationPackage(IntegrationPackage integration);
 
@@ -92,7 +91,6 @@ final class SettingsView {
     private boolean mRendering;
     private final java.util.EnumMap<IntegrationPackage, TextView> mIntegrationPackages =
             new java.util.EnumMap<>(IntegrationPackage.class);
-    private View mTermuxX11Action;
     private TextView mConsoleFontSize;
     private TextView mShellBackend;
     private Switch mForceShell;
@@ -273,11 +271,6 @@ final class SettingsView {
                     () -> mActions.configureIntegrationPackage(integration), value);
             mIntegrationPackages.put(integration, value);
         }
-        mTermuxX11Action = addAction(
-                    content,
-                    R.drawable.ic_file_rename,
-                    R.string.settings_termux_x11_command,
-                    mActions::configureTermuxX11);
 
         addSection(content, R.string.settings_section_support);
         addAction(content,
@@ -346,7 +339,6 @@ final class SettingsView {
             mIntegrationPackages.get(integration).setText(saved.equals(integration.selected()) ? saved
                     : mActivity.getString(R.string.settings_integration_restart_pending, saved));
         }
-        mTermuxX11Action.setVisibility(TermuxX11Integration.isAvailable(mActivity) ? View.VISIBLE : View.GONE);
         mTaskbarAutoHide.setChecked(settings.taskbarAutoHide);
         mOpenFilesWithSingleClick.setChecked(
                 settings.openFilesWithSingleClick);

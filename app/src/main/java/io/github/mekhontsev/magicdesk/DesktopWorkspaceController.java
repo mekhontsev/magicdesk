@@ -269,10 +269,7 @@ final class DesktopWorkspaceController {
                     && (shortcut.application == null
                             || app.identity.equals(shortcut.application))
                     && app.launchTarget.equals(shortcut.launchTarget)
-                    && (shortcut.defaultLaunch
-                            || DesktopLaunchIntegrationRegistry
-                                    .isDefaultShortcut(
-                                            mActivity, app, shortcut))) {
+                    && shortcut.defaultLaunch) {
                 return file;
             }
         }
@@ -287,23 +284,17 @@ final class DesktopWorkspaceController {
         if (app == null || intent == null) {
             return;
         }
-        DesktopApplicationShortcut shortcut = defaultLaunch
-                ? DesktopLaunchIntegrationRegistry.defaultShortcut(
-                        mActivity, app, name)
-                : null;
-        if (shortcut == null) {
-            final String intentUri = intent.toUri(Intent.URI_INTENT_SCHEME);
-            shortcut = new DesktopApplicationShortcut(
-                    name,
-                    app.packageName,
-                    DesktopEntryFile.applicationExec(intentUri),
-                    app.launchTarget,
-                    intentUri,
-                    DesktopLaunchMode.AUTO,
-                    defaultLaunch,
-                    DesktopExecBackend.SHELL,
-                    false);
-        }
+        final String intentUri = intent.toUri(Intent.URI_INTENT_SCHEME);
+        final DesktopApplicationShortcut shortcut = new DesktopApplicationShortcut(
+                name,
+                app.packageName,
+                DesktopEntryFile.applicationExec(intentUri),
+                app.launchTarget,
+                intentUri,
+                DesktopLaunchMode.AUTO,
+                defaultLaunch,
+                DesktopExecBackend.SHELL,
+                false);
         storeApplicationShortcut(shortcut.withApplication(app.identity));
     }
 

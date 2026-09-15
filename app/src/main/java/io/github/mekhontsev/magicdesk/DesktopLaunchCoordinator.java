@@ -34,13 +34,6 @@ final class DesktopLaunchCoordinator {
         }
     }
 
-    boolean launchIntegratedDefault(final AppItem app) {
-        final DesktopLaunchRequest request =
-                DesktopLaunchIntegrationRegistry.defaultRequest(
-                        mContext.activity(), app);
-        return request != null && launch(request);
-    }
-
     boolean launch(final DesktopLaunchRequest source) {
         return launch(source, null);
     }
@@ -58,8 +51,7 @@ final class DesktopLaunchCoordinator {
             if (source.application != null) {
                 source.application.requireProfile(AppProfile.current(mContext.activity()));
             }
-            request = DesktopLaunchIntegrationRegistry.prepare(
-                    mContext.activity(), source.prepareExec());
+            request = source.prepareExec();
         } catch (IllegalArgumentException error) {
             mContext.onFailure(source, error);
             complete(completion, DesktopActivityLaunchResult.failed(error));

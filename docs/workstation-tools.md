@@ -189,7 +189,7 @@ The explicit **Run script** context action opens Console and submits the quoted
 command once its PTY is ready. Ordinary file opening uses the selected handler
 and does not execute the script through this action.
 
-## Termux And Termux:X11
+## Termux
 
 **Settings > Integrations** accepts a compatible Termux application's package
 name, defaulting to `com.termux`. The Shizuku manager package is configurable in
@@ -197,8 +197,7 @@ the same section. Both choices apply only after restarting the MagicDesk
 process; saving a choice does not switch active connections or terminals.
 There is no built-in list of forks. A Termux fork must retain the standard
 `RUN_COMMAND` protocol and a supported service permission. Changing the package
-name cannot make an incompatible command API compatible. Termux:X11 remains a
-separate companion application.
+name cannot make an incompatible command API compatible.
 
 When Termux is installed and external application commands are enabled,
 MagicDesk can open an independent Termux-backed Console at the current Files
@@ -229,27 +228,10 @@ when explicitly opened.
 Directories under Termux's private home cannot be opened in Files when the
 authorized Android shell identity cannot read them.
 
-When Termux:X11 is available, its Start item launches or reconnects the X
-server through Termux's documented command service and opens the viewer as an
-ordinary MagicDesk task. Its startup command is configurable in Settings.
-MagicDesk extracts an explicit `:N` display from that command and reconnects
-only the matching Termux:X11 process. If the process exists but its reconnect
-listener is unavailable, the normal Start action continues with the configured
-startup command instead of reporting a false success.
-
-The ordinary Termux:X11 Start/task context menu also provides **Reconnect
-Termux:X11**. This action only sends the viewer handshake for the Settings
-command; it does not start, restart, or stop an X server. A `.desktop` profile
-keeps its own command authoritative and therefore does not inherit this global
-action. Diagnostics and MCP report the configured display, matching server
-process, reconnect-listener readiness, and Android viewer task separately. A
-custom wrapper script still launches normally, but these display-specific
-operations require a direct `termux-x11 :N` argument in the configured command.
-
-A `.desktop` entry can combine a Termux command with the Termux:X11 Android
-package to create a named launch preset. These presets coordinate the Android
-viewer and command launch; they do not claim ownership of the X server or
-create a separate MagicDesk container format.
+A `.desktop` entry can run a command through Termux or combine it with an
+Android application launch. The entry owns its command; MagicDesk does not
+replace it with a package-specific startup or reconnect script. See
+[Desktop Entry files](desktop-entries.md).
 
 ## Task Manager And Desktop Controls
 
@@ -319,7 +301,6 @@ The Settings window controls persistent MagicDesk behavior, including:
 - keeping an active desktop session awake;
 - remembered application launch mode;
 - application-specific interface scale;
-- Termux:X11 startup command;
 - loopback and optional network MCP, with separate tokens and permission sets;
 - common compatibility policies and the optional Android system desktop-mode
   setting.

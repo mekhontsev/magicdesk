@@ -136,9 +136,6 @@ final class AutomationCommands implements AutoCloseable {
             case "get_self_test":
                 data = mAutomation.stateReader().selfTest(args.optBoolean("includeReport", false));
                 return DesktopAutomationResult.success("ok", data);
-            case "get_termux_x11_status":
-                data = mAutomation.stateReader().termuxX11Status();
-                return DesktopAutomationResult.success("ok", data);
             case "wait_for_state":
                 return mAutomation.waitFor(args);
             default:

@@ -203,8 +203,7 @@ neither is required for the ordinary Console.
 
 Multiple Termux-backed windows are ordinary Android tasks, not tabs inside the
 Termux app or windows confined to an X11 server. MagicDesk cannot import an
-ordinary Termux tab's PTY. Termux:X11 remains a separate optional viewer/server
-integration.
+ordinary Termux tab's PTY.
 
 ![Independent Termux terminals running nvim and Midnight Commander](docs/images/magicdesk-termux-windows.png)
 

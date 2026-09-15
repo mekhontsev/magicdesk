@@ -22,7 +22,6 @@ public final class DesktopContextMenuControllerTest {
         assertTrue(discovery.indexOf("mShortcuts.load(app)") >= 0);
         assertTrue(discovery.indexOf("mShortcuts.load(app)") < delivery);
         assertTrue(discovery.indexOf("mActivity.hasDesktopWidgets(app.packageName)") < delivery);
-        assertTrue(discovery.indexOf("DesktopLaunchIntegrationRegistry.actions(") < delivery);
         assertTrue(discovery.contains("if (request != mShortcutRequest)"));
         assertTrue(discovery.contains("mActivity.isActivityUnavailable() || !panels.isRequested(mMenuRoot)"));
     }

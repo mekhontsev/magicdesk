@@ -98,11 +98,6 @@ final class AutomationCommandCatalog {
                         "Read current-run checks separately from the last saved result; each carries its run id.",
                         objectSchema(new JSONObject().put("includeReport",
                                 booleanProperty("Include bounded text in the saved result; default false.")))))
-                .put(readTool(
-                        "get_termux_x11_status",
-                        "Get Termux:X11 status",
-                        "Probe the configured Termux:X11 display, reconnect listener, and Android viewer task.",
-                        emptySchema()))
                 .put(actionTool(
                         "start_desktop",
                         "Start desktop",
@@ -276,11 +271,6 @@ final class AutomationCommandCatalog {
                         "open_settings",
                         "Open settings",
                         "Open MagicDesk settings on the active desktop or phone.",
-                        emptySchema()))
-                .put(actionTool(
-                        "reconnect_termux_x11",
-                        "Reconnect Termux:X11",
-                        "Reconnect the Android viewer to the running configured Termux:X11 display.",
                         emptySchema()))
                 .put(readTool(
                         "capture_screenshot",
@@ -1497,11 +1487,6 @@ final class AutomationCommandCatalog {
                         "Cancellation request outcome.",
                         "accepted", "already_requested", "not_active",
                         "run_mismatch", "cleanup_started"));
-                break;
-            case "get_termux_x11_status":
-            case "reconnect_termux_x11":
-                properties.put("termuxX11", openObjectProperty(
-                        "Typed Termux:X11 runtime status."));
                 break;
             case "capture_screenshot":
                 properties.put("displayId", integerProperty("Display id."))

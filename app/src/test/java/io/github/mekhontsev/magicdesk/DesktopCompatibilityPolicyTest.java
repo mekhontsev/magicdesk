@@ -91,7 +91,6 @@ public final class DesktopCompatibilityPolicyTest {
         preferences.keepDesktopAwake = true;
         preferences.taskbarAutoHide = true;
         preferences.openTouchpadAutomatically = false;
-        preferences.termuxX11StartupCommand = "termux-x11 :2";
         final var all = DesktopCompatibilityPolicy.Option.values();
         DesktopCompatibilityPolicy platform = DesktopCompatibilityPolicy.NONE;
         for (final var option : all) {

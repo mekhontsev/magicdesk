@@ -33,13 +33,8 @@ final class DisplayAppLauncher {
                 target.requireCurrent(DesktopRuntimeBridge.workspaceDisplayIds());
                 if (!canLaunch.getAsBoolean()) { return; }
                 if (target.desktop) {
-                    final DesktopLaunchRequest integrated = presentation.mode == DesktopLaunchMode.AUTO
-                            && presentation.instancePolicy == DesktopTaskInstancePolicy.REUSE_EXISTING
-                            ? DesktopLaunchIntegrationRegistry.defaultRequest(activity, app) : null;
-                    final boolean accepted = integrated != null
-                            ? DesktopRuntimeBridge.launchAutomationRequest(integrated, target.displayId)
-                            : DesktopRuntimeBridge.launchApplication(app.identity, app.launchTarget,
-                                    presentation, target.displayId);
+                    final boolean accepted = DesktopRuntimeBridge.launchApplication(
+                            app.identity, app.launchTarget, presentation, target.displayId);
                     if (!accepted) { throw new IllegalStateException("desktop launch was rejected"); }
                 } else {
                     OrdinaryActivityLaunch.requirePresentation(presentation);

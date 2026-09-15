@@ -122,7 +122,7 @@ assigns a stable bounded session ID to each command and records its latest
 means that Console or an external backend accepted the command but does not
 provide a completion event to the launch tracker. This state is diagnostic:
 Console still owns its PTY, while MagicDesk does not claim ownership of
-independently running background Termux or X11 processes.
+independently running background Termux commands.
 
 ## Android applications
 
@@ -209,39 +209,9 @@ They do not alter a generic background shell process.
 An entry with both `X-MagicDesk-Package` and executable `Exec`, but without
 `X-MagicDesk-Intent` or `X-MagicDesk-Default=true`, is a composite launch.
 MagicDesk first prepares the package's Android task, then delegates `Exec`.
-This is the generic mechanism used by viewer/server integrations.
-
-## Termux:X11 profiles
-
-A Termux:X11 profile combines a Termux command with the Android viewer package:
-
-```ini
-[Desktop Entry]
-Type=Application
-Name=X11 desktop
-Icon=com.termux.x11
-Exec=termux-x11 :1
-X-MagicDesk-Package=com.termux.x11
-X-MagicDesk-ExecBackend=termux
-X-MagicDesk-WindowMode=windowed
-```
-
-MagicDesk prepares the Termux:X11 viewer through its normal task-transition
-path, then starts or reconnects the X server using `Exec`. Creating a desktop
-shortcut for Termux:X11 captures the current startup command from Settings;
-the ordinary Start-menu icon continues to use the live Settings value.
-
-For direct `termux-x11 :N` commands, an existing process is matched by the
-same display number. A failed reconnect falls through to `Exec`, while the
-global Termux:X11 context-menu reconnect action fails without starting another
-server. That action follows the Settings command and is intentionally not
-shown on a profile with its own `Exec`.
-Commands that hide the display inside a wrapper script remain valid launch
-commands, but MagicDesk does not guess which process belongs to them.
-
-The current integration reconnects to an already running X11 server. These
-entries are launch presets, not ownership records for X11 processes and not a
-multi-server session manager.
+The command is explicit and is not rewritten according to the Android package.
+An ordinary Start application icon launches only its Android application;
+creating its default shortcut does not add a companion command.
 
 ## Launch precedence
 
