@@ -75,7 +75,7 @@ final class AboutDialog {
                         R.string.about_github,
                         (dialog, which) -> open(activity, PROJECT_URL))
                 .setNegativeButton(
-                        R.string.about_mit_license,
+                        R.string.about_gpl_license,
                         (dialog, which) -> open(activity, LICENSE_URL))
                 .setPositiveButton(R.string.action_close, null)
                 .show();

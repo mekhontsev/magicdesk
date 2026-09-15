@@ -563,4 +563,4 @@ API 34 native validation and other ABIs remain in the
 - Package: `io.github.mekhontsev.magicdesk`
 - Minimum APK SDK: 34; managed Desktop: 35
 - Target SDK: 37
-- License: [MIT](LICENSE)
+- License: [GNU GPLv3](LICENSE); see [licensing and source availability](docs/licensing.md).

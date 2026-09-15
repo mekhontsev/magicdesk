@@ -91,6 +91,15 @@ android {
     }
 }
 
+def packageProjectLicenses = tasks.register('packageProjectLicenses', Sync) {
+    from(rootProject.projectDir) {
+        include 'LICENSE', 'LICENSES/**', 'THIRD_PARTY_NOTICES.md'
+    }
+    into layout.buildDirectory.dir('generated/projectLicenses/licenses/magicdesk')
+}
+android.sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/projectLicenses').get().asFile
+tasks.named('preBuild').configure { dependsOn packageProjectLicenses }
+
 apply from: rootProject.file('gradle/native-helpers.gradle')
 
 def compileTestSupport = tasks.register('compileTestSupport', JavaCompile) {

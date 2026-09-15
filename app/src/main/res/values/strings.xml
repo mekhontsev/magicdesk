@@ -319,9 +319,9 @@
     <string name="about_version">Version %1$s (%2$d)</string>
     <string name="about_author">Developed by Dmitry Mekhontsev</string>
     <string name="about_copyright">Copyright &#169; 2026 Dmitry Mekhontsev</string>
-    <string name="about_license">Open source under the MIT License.</string>
+    <string name="about_license">Open source under the GNU GPLv3.</string>
     <string name="about_github">GitHub</string>
-    <string name="about_mit_license">MIT License</string>
+    <string name="about_gpl_license">GNU GPLv3</string>
     <string name="about_link_unavailable">No application can open this link.</string>
     <string name="audio_section_title">Audio</string>
     <string name="audio_status">Connected output: %1$s</string>

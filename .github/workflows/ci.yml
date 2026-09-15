@@ -34,6 +34,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Reject tracked local files
         shell: bash
@@ -166,6 +167,9 @@ jobs:
             app/build/outputs/apk/release/app-release-unsigned.apk \
             kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk
 
+      - name: Package corresponding source
+        run: python3 scripts/package-source.py dist/MagicDesk-source.tar.gz
+
       - name: Prepare signed main artifact
         if: github.event_name == 'push'
         shell: bash
@@ -181,7 +185,7 @@ jobs:
             > dist/BUILD.txt
           (
             cd dist
-            sha256sum ./*.apk > SHA256SUMS
+            sha256sum ./*.apk ./*-source.tar.gz > SHA256SUMS
           )
 
       - name: Upload signed development APKs
@@ -203,6 +207,7 @@ jobs:
           path: |
             app/build/outputs/apk/release/app-release-unsigned.apk
             kernel-fixes/build/outputs/apk/release/kernel-fixes-release-unsigned.apk
+            dist/MagicDesk-source.tar.gz
             app/build/reports/lint-results-release.html
             kernel-fixes/build/reports/lint-results-release.html
 
@@ -224,6 +229,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          submodules: recursive
 
       - name: Set up JDK
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95
@@ -301,12 +308,13 @@ jobs:
 
           mkdir -p dist
           cp "$source_apk" dist/MagicDesk-development.apk
+          cp download/MagicDesk-source.tar.gz dist/MagicDesk-development-source.tar.gz
           printf 'version=%s\ncommit=%s\nrun=%s\n' \
             "$version" "$GITHUB_SHA" "$GITHUB_RUN_ID" \
             > dist/BUILD.txt
           (
             cd dist
-            sha256sum ./*.apk > SHA256SUMS
+            sha256sum ./*.apk ./*-source.tar.gz > SHA256SUMS
           )
           cat > development-notes.md <<EOF
           This is the latest release-signed development build from \`main\`.

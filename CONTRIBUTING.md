@@ -189,6 +189,13 @@ transactions in their existing executors. Extend `PlatformSourceIsolationTest`
 when adding a new vendor package so vendor identifiers cannot leak into shared
 runtime code.
 
+## Licensing
+
+MagicDesk is distributed under GNU GPL version 3 (`GPL-3.0-only`).
+Contributions to MagicDesk use that license unless a file explicitly retains
+another compatible third-party license. Preserve upstream copyright and
+license notices. See [licensing and source availability](docs/licensing.md).
+
 ## Repository Hygiene
 
 Do not commit IDE metadata, `local.properties`, generated build output,
