@@ -7,6 +7,11 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class RuntimeSourceFixtureTest {
+    @Test public void extractionPreservesInferredLocalTypes() throws Exception {
+        final String methods = RuntimeSourceFixture.methods("TaskManagerActivity", "allTasks");
+        assertTrue(methods.contains("final var tasks"));
+        assertTrue(methods.contains("for (var task"));
+    }
     @Test
     public void extractedOverridesCompileWithEitherHostLineEnding() throws Exception {
         for (final String newline : new String[] {"\n", "\r\n"}) {

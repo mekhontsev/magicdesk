@@ -1,297 +1,116 @@
 package io.github.mekhontsev.magicdesk;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
+import android.os.SystemClock;
+import android.system.Os;
+import android.system.OsConstants;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-/** Reads bounded resource data while running under the shell service identity. */
+/** Bounded procfs observation under the already selected service identity. */
 final class SystemMonitorReader {
-    private static final String DUMPSYS = "/system/bin/dumpsys";
-    private static final long COMMAND_TIMEOUT_MILLIS = 5_000L;
-    private static final int MAX_OUTPUT_BYTES = 512 * 1024;
-    private static final Pattern CPU_PROCESS = Pattern.compile(
-            "^\\s*([0-9]+(?:\\.[0-9]+)?)%\\s+[0-9]+/(.+?):\\s.*$");
-    private static final Pattern MEMORY_PROCESS = Pattern.compile(
-            "^\\s*([0-9,]+)K:\\s+(.+?)\\s+\\(pid\\s+[0-9]+.*$");
+    private static final int MAX_PROCESSES = 2048;
+    private static final int MAX_FILE_BYTES = 16 * 1024;
 
-    private SystemMonitorReader() {
-    }
-
-    static SystemMonitorSnapshot read(final boolean includeProcessMemory) {
+    static SystemMonitorSnapshot read() {
         try {
-            final Memory memory = readMemory();
-            final Cpu cpu = readCpu();
-            final float load = readLoadAverage();
-            final Map<String, MutableProcess> processes = new LinkedHashMap<>();
-            String warning = "";
-            try {
-                parseCpuInfo(runDumpsys("cpuinfo"), processes);
-            } catch (IOException error) {
-                warning = "process CPU unavailable: " + usefulMessage(error);
-            }
-            if (includeProcessMemory) {
-                try {
-                    parseProcessMemory(
-                            runDumpsys("meminfo", "--local"),
-                            processes);
-                } catch (IOException error) {
-                    final String message = "process memory unavailable: "
-                            + usefulMessage(error);
-                    warning = warning.isEmpty()
-                            ? message : warning + "; " + message;
+            final String memory = read(Path.of("/proc/meminfo"));
+            final Cpu cpu = parseCpuStat(read(Path.of("/proc/stat")).split("\n", 2)[0]);
+            final float load = Float.parseFloat(read(Path.of("/proc/loadavg")).split(" ", 2)[0]);
+            final long pageKb = Os.sysconf(OsConstants._SC_PAGESIZE) / 1024;
+            final long ticks = Os.sysconf(OsConstants._SC_CLK_TCK);
+            if (pageKb <= 0 || ticks <= 0) throw new IOException("process counter units unavailable");
+            final var processes = new ArrayList<SystemProcessSnapshot>();
+            int denied = 0;
+            boolean truncated = false;
+            try (var dirs = Files.newDirectoryStream(Path.of("/proc"), p -> p.getFileName().toString().matches("[0-9]+"))) {
+                for (Path dir : dirs) {
+                    if (processes.size() == MAX_PROCESSES) { truncated = true; break; }
+                    try {
+                        final int pid = Integer.parseInt(dir.getFileName().toString());
+                        final String stat = read(dir.resolve("stat"));
+                        final String status = read(dir.resolve("status"));
+                        String command = "";
+                        try { command = read(dir.resolve("cmdline")).split("\u0000", 2)[0]; }
+                        catch (IOException ignored) { /* comm remains a valid display label. */ }
+                        final var row = parseProcess(pid, stat, status, command, pageKb);
+                        // A reused PID must not combine metadata from different processes.
+                        if (parseStat(pid, read(dir.resolve("stat"))).startTicks == row.startTicks) processes.add(row);
+                    } catch (java.nio.file.NoSuchFileException disappeared) {
+                        // Processes may exit during observation.
+                    } catch (IOException | IllegalArgumentException error) { denied++; }
                 }
             }
-            final List<SystemProcessSnapshot> result = new ArrayList<>();
-            for (final Map.Entry<String, MutableProcess> entry
-                    : processes.entrySet()) {
-                result.add(new SystemProcessSnapshot(
-                        entry.getKey(),
-                        entry.getValue().cpuPercent,
-                        entry.getValue().pssKb));
-            }
-            return new SystemMonitorSnapshot(
-                    true,
-                    memory.totalKb,
-                    memory.availableKb,
-                    cpu.total,
-                    cpu.idle,
-                    load,
-                    result.toArray(new SystemProcessSnapshot[0]),
-                    warning);
+            final String warning = (denied == 0 ? "" : "Unreadable processes: " + denied)
+                    + (truncated ? "; process list truncated" : "");
+            return new SystemMonitorSnapshot(true, counter(memory, "MemTotal:"), counter(memory, "MemAvailable:"),
+                    cpu.total, cpu.idle, load, SystemClock.elapsedRealtime(), ticks,
+                    processes.toArray(new SystemProcessSnapshot[0]), warning);
         } catch (IOException | RuntimeException error) {
-            return SystemMonitorSnapshot.unavailable(usefulMessage(error));
+            return SystemMonitorSnapshot.unavailable(ShellAccess.usefulMessage(error));
         }
     }
 
-    static void parseCpuInfo(
-            final String output,
-            final Map<String, MutableProcess> processes) {
-        if (output == null) {
-            return;
-        }
-        for (final String line : output.split("\\r?\\n")) {
-            final Matcher matcher = CPU_PROCESS.matcher(line);
-            if (!matcher.matches()) {
-                continue;
-            }
-            try {
-                final float cpu = Float.parseFloat(matcher.group(1));
-                final String name = matcher.group(2).trim();
-                if (!name.isEmpty() && Float.isFinite(cpu)) {
-                    process(processes, name).addCpu(cpu);
-                }
-            } catch (NumberFormatException ignored) {
-                // One malformed process row must not discard the snapshot.
-            }
-        }
+    static SystemProcessSnapshot parseProcess(int pid, String stat, String status, String command, long pageKb)
+            throws IOException {
+        final Stat s = parseStat(pid, stat);
+        final long uid = counter(status, "Uid:");
+        if (uid < 0 || uid > Integer.MAX_VALUE || pageKb <= 0) throw new IOException("invalid process owner/units");
+        final String name = (command == null || command.isEmpty() ? s.name : command)
+                .replaceAll("[\\p{Cntrl}]", " ");
+        return new SystemProcessSnapshot(pid, (int) uid, s.parent, s.startTicks, s.cpuTicks,
+                s.rssPages < 0 ? -1 : Math.multiplyExact(s.rssPages, pageKb),
+                name.substring(0, Math.min(256, name.length())), s.state);
     }
 
-    static void parseProcessMemory(
-            final String output,
-            final Map<String, MutableProcess> processes) {
-        if (output == null) {
-            return;
-        }
-        boolean inProcessSection = false;
-        for (final String line : output.split("\\r?\\n")) {
-            if ("Total PSS by process:".equals(line.trim())) {
-                inProcessSection = true;
-                continue;
-            }
-            if (inProcessSection && line.startsWith("Total PSS by ")) {
-                break;
-            }
-            if (!inProcessSection) {
-                continue;
-            }
-            final Matcher matcher = MEMORY_PROCESS.matcher(line);
-            if (!matcher.matches()) {
-                continue;
-            }
-            try {
-                final long pssKb = Long.parseLong(
-                        matcher.group(1).replace(",", ""));
-                final String name = matcher.group(2).trim();
-                if (!name.isEmpty()) {
-                    process(processes, name).addPss(pssKb);
-                }
-            } catch (NumberFormatException ignored) {
-                // One malformed process row must not discard the snapshot.
-            }
-        }
-    }
+    record Stat(String name, String state, int parent, long startTicks, long cpuTicks, long rssPages) { }
 
-    private static Memory readMemory() throws IOException {
-        long total = -1L;
-        long available = -1L;
-        try (BufferedReader reader = new BufferedReader(
-                new FileReader("/proc/meminfo"))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.startsWith("MemTotal:")) {
-                    total = parseFirstLong(line);
-                } else if (line.startsWith("MemAvailable:")) {
-                    available = parseFirstLong(line);
-                }
-                if (total >= 0L && available >= 0L) {
-                    break;
-                }
-            }
-        }
-        if (total < 0L || available < 0L) {
-            throw new IOException("incomplete /proc/meminfo");
-        }
-        return new Memory(total, available);
-    }
-
-    private static Cpu readCpu() throws IOException {
-        try (BufferedReader reader = new BufferedReader(
-                new FileReader("/proc/stat"))) {
-            return parseCpuStat(reader.readLine());
-        }
-    }
-
-    static Cpu parseCpuStat(final String line) throws IOException {
-        if (line == null) {
-            throw new IOException("missing aggregate /proc/stat row");
-        }
+    static Stat parseStat(int pid, String line) throws IOException {
         try {
-            final String[] fields = line.trim().split("\\s+");
-            if (fields.length < 5 || !"cpu".equals(fields[0])) {
-                throw new IOException("incomplete aggregate /proc/stat row");
+            final int open = line.indexOf('('), close = line.lastIndexOf(')');
+            if (open < 1 || close <= open || Integer.parseInt(line.substring(0, open).trim()) != pid)
+                throw new IllegalArgumentException();
+            final String[] f = line.substring(close + 1).trim().split("\\s+");
+            if (f.length < 22) throw new IllegalArgumentException();
+            final long start = Long.parseLong(f[19]);
+            final long user = Long.parseLong(f[11]), system = Long.parseLong(f[12]);
+            if (start < 0 || user < 0 || system < 0) throw new IllegalArgumentException();
+            return new Stat(line.substring(open + 1, close), f[0], Integer.parseInt(f[1]),
+                    start, Math.addExact(user, system), Long.parseLong(f[21]));
+        } catch (RuntimeException error) { throw new IOException("invalid process stat", error); }
+    }
+
+    static long counter(String text, String key) throws IOException {
+        for (String line : text.split("\n")) {
+            if (line.startsWith(key)) {
+                try { return Long.parseLong(line.substring(key.length()).trim().split("\\s+", 2)[0]); }
+                catch (NumberFormatException error) { throw new IOException("invalid " + key, error); }
             }
-            long total = 0L;
-            // guest and guest_nice (fields 9/10) are already included in user/nice.
-            for (int index = 1; index < Math.min(fields.length, 9); index++) {
-                final long value = Long.parseLong(fields[index]);
-                if (value < 0L) {
-                    throw new IOException("negative /proc/stat counter");
-                }
+        }
+        throw new IOException("missing " + key);
+    }
+
+    static Cpu parseCpuStat(String line) throws IOException {
+        try {
+            String[] f = line.trim().split("\\s+");
+            if (f.length < 5 || !"cpu".equals(f[0])) throw new IllegalArgumentException();
+            long total = 0;
+            for (int i = 1; i < Math.min(f.length, 9); i++) {
+                long value = Long.parseLong(f[i]);
+                if (value < 0) throw new IllegalArgumentException();
                 total = Math.addExact(total, value);
             }
-            final long idle = Long.parseLong(fields[4])
-                    + (fields.length > 5 ? Long.parseLong(fields[5]) : 0L);
-            return new Cpu(total, idle);
-        } catch (NumberFormatException | ArithmeticException error) {
-            throw new IOException("invalid /proc/stat", error);
-        }
+            return new Cpu(total, Math.addExact(Long.parseLong(f[4]), f.length > 5 ? Long.parseLong(f[5]) : 0));
+        } catch (RuntimeException error) { throw new IOException("invalid aggregate /proc/stat", error); }
     }
 
-    private static float readLoadAverage() throws IOException {
-        try (BufferedReader reader = new BufferedReader(
-                new FileReader("/proc/loadavg"))) {
-            final String line = reader.readLine();
-            if (line == null) {
-                throw new IOException("empty /proc/loadavg");
-            }
-            return Float.parseFloat(line.trim().split("\\s+")[0]);
-        } catch (NumberFormatException error) {
-            throw new IOException("invalid /proc/loadavg", error);
+    private static String read(Path file) throws IOException {
+        try (var in = Files.newInputStream(file)) {
+            return new String(in.readNBytes(MAX_FILE_BYTES), StandardCharsets.UTF_8);
         }
     }
-
-    private static long parseFirstLong(final String line) throws IOException {
-        final String[] fields = line.trim().split("\\s+");
-        if (fields.length < 2) {
-            throw new IOException("invalid memory counter: " + line);
-        }
-        try {
-            return Long.parseLong(fields[1]);
-        } catch (NumberFormatException error) {
-            throw new IOException("invalid memory counter: " + line, error);
-        }
-    }
-
-    private static String runDumpsys(final String... arguments)
-            throws IOException {
-        final String[] command = new String[arguments.length + 1];
-        command[0] = DUMPSYS;
-        System.arraycopy(arguments, 0, command, 1, arguments.length);
-        Process process = null;
-        try {
-            process = new ProcessBuilder(command)
-                    .redirectErrorStream(true)
-                    .start();
-            final BoundedProcessRunner.Result result = BoundedProcessRunner.run(
-                    process,
-                    COMMAND_TIMEOUT_MILLIS,
-                    MAX_OUTPUT_BYTES);
-            if (result.exitCode != 0) {
-                throw new IOException(String.format(
-                        Locale.ROOT,
-                        "dumpsys %s failed %d: %s",
-                        arguments.length == 0 ? "" : arguments[0],
-                        result.exitCode,
-                        result.output.trim()));
-            }
-            if (result.truncated) {
-                throw new IOException("dumpsys output exceeded the snapshot limit");
-            }
-            return result.output;
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            throw new IOException("dumpsys interrupted", error);
-        } finally {
-            if (process != null) {
-                process.destroy();
-            }
-        }
-    }
-
-    private static MutableProcess process(
-            final Map<String, MutableProcess> processes,
-            final String name) {
-        MutableProcess process = processes.get(name);
-        if (process == null) {
-            process = new MutableProcess();
-            processes.put(name, process);
-        }
-        return process;
-    }
-
-    private static String usefulMessage(final Throwable error) {
-        final String message = error.getMessage();
-        return message == null || message.trim().isEmpty()
-                ? error.getClass().getSimpleName() : message.trim();
-    }
-
-    static final class MutableProcess {
-        float cpuPercent = -1f;
-        long pssKb = -1L;
-
-        void addCpu(final float value) {
-            cpuPercent = cpuPercent < 0f ? value : cpuPercent + value;
-        }
-
-        void addPss(final long value) {
-            pssKb = pssKb < 0L ? value : pssKb + value;
-        }
-    }
-
-    private static final class Memory {
-        final long totalKb;
-        final long availableKb;
-
-        Memory(final long totalKb, final long availableKb) {
-            this.totalKb = totalKb;
-            this.availableKb = availableKb;
-        }
-    }
-
-    static final class Cpu {
-        final long total;
-        final long idle;
-
-        Cpu(final long total, final long idle) {
-            this.total = total;
-            this.idle = idle;
-        }
-    }
+    record Cpu(long total, long idle) { }
+    private SystemMonitorReader() { }
 }

@@ -30,7 +30,8 @@ final class TmuxSessionProvider {
             + "#{session_id}\t#{session_name}\t#{session_windows}"
             + "\t#{session_attached}\t#{session_created}' "
             + "2>/dev/null || true\n"
-            + "tmux list-clients -F 'CLIENT\t#{client_pid}\t#{session_id}' 2>/dev/null || true";
+            + "tmux list-clients -F 'CLIENT\t#{client_pid}\t#{session_id}' 2>/dev/null || true\n"
+            + "tmux list-panes -a -F 'PANE\t#{pane_pid}\t#{session_id}' 2>/dev/null || true";
 
     private TmuxSessionProvider() {
     }
@@ -130,11 +131,18 @@ final class TmuxSessionProvider {
         }
         final List<Session> sessions = new ArrayList<>();
         final java.util.Map<Long, String> clients = new java.util.LinkedHashMap<>();
+        final java.util.Map<String, java.util.Set<Integer>> panes = new java.util.LinkedHashMap<>();
         for (int index = 1; index < lines.length; index++) {
             if (lines[index].isEmpty()) {
                 continue;
             }
             final String[] fields = lines[index].split("\t", -1);
+            if (fields.length == 3 && "PANE".equals(fields[0])) {
+                final int pid = Integer.parseInt(fields[1]);
+                if (pid <= 0 || !isSessionId(fields[2])) throw new IllegalArgumentException("invalid tmux pane");
+                panes.computeIfAbsent(fields[2], ignored -> new java.util.HashSet<>()).add(pid);
+                continue;
+            }
             if (fields.length == 3 && "CLIENT".equals(fields[0])) {
                 final long pid = Long.parseLong(fields[1]);
                 if (pid <= 0 || !isSessionId(fields[2])) throw new IllegalArgumentException("invalid tmux client");
@@ -164,7 +172,7 @@ final class TmuxSessionProvider {
                         "invalid tmux session metadata", error);
             }
         }
-        return new Snapshot(true, "", sessions, clients);
+        return new Snapshot(true, "", sessions, clients, panes);
     }
 
     static String attachCommand(final String sessionId) {
@@ -279,20 +287,25 @@ final class TmuxSessionProvider {
         final String detail;
         final List<Session> sessions;
         final java.util.Map<Long, String> clients;
+        final java.util.Map<String, java.util.Set<Integer>> panes;
 
         private Snapshot(
                 final boolean available,
                 final String detail,
-                final List<Session> sessions, final java.util.Map<Long, String> clients) {
+                final List<Session> sessions, final java.util.Map<Long, String> clients,
+                final java.util.Map<String, java.util.Set<Integer>> panes) {
             this.available = available;
             this.detail = detail == null ? "" : detail;
             this.sessions = Collections.unmodifiableList(
                     new ArrayList<>(sessions));
             this.clients = java.util.Map.copyOf(clients);
+            final var copied = new java.util.LinkedHashMap<String, java.util.Set<Integer>>();
+            panes.forEach((id, pids) -> copied.put(id, java.util.Set.copyOf(pids)));
+            this.panes = java.util.Map.copyOf(copied);
         }
 
         static Snapshot unavailable(final String detail) {
-            return new Snapshot(false, detail, Collections.emptyList(), java.util.Map.of());
+            return new Snapshot(false, detail, Collections.emptyList(), java.util.Map.of(), java.util.Map.of());
         }
 
         Session findName(String name) {

@@ -165,6 +165,7 @@ final class X11Sessions {
         }
         synchronized void releaseHost(int taskId) { hosts.remove(taskId); }
         synchronized int hostTaskId() { int id = -1; for (int task : hosts) id = task; return id; }
+        synchronized List<Integer> hostTaskIds() { return List.copyOf(hosts); }
         void recordUse() {
             if (recipe != null && state == State.READY && (!application || hadWindows))
                 RecentApplications.record(context, recipe.usedAt(System.currentTimeMillis()));

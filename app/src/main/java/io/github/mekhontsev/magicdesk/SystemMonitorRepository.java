@@ -1,193 +1,77 @@
 package io.github.mekhontsev.magicdesk;
 
-import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 
-/** Converts raw shell counters into UI-ready resource snapshots. */
+/** Sampling and rate calculation are independent of windows, packages and session ownership. */
 final class SystemMonitorRepository implements AutoCloseable {
-    static final class ProcessResources {
-        static final ProcessResources UNAVAILABLE =
-                new ProcessResources(-1f, -1L);
-
-        final float cpuPercent;
-        final long pssKb;
-
-        ProcessResources(final float cpuPercent, final long pssKb) {
-            this.cpuPercent = cpuPercent;
-            this.pssKb = pssKb;
+    record ProcessEntry(SystemProcessSnapshot process, float cpuPercent) { }
+    record Resources(float cpuPercent, long rssKb) {
+        static final Resources UNKNOWN = new Resources(-1, -1);
+    }
+    record Snapshot(boolean available, long totalMemoryKb, long availableMemoryKb,
+            float cpuPercent, float loadAverage, List<ProcessEntry> processes, String error) {
+        static Snapshot unavailable(String error) { return new Snapshot(false, -1, -1, -1, -1, List.of(), error); }
+        Resources resources(java.util.Set<SystemProcessSnapshot.Identity> ids) {
+            float cpu = 0; long memory = 0; int found = 0; boolean cpuKnown = true, memoryKnown = true;
+            for (var entry : processes) {
+                if (!ids.contains(entry.process.identity())) continue;
+                found++;
+                if (entry.cpuPercent < 0) cpuKnown = false; else cpu += entry.cpuPercent;
+                if (entry.process.rssKb < 0) memoryKnown = false; else memory += entry.process.rssKb;
+            }
+            if (found == 0 || found != ids.size()) return Resources.UNKNOWN;
+            return new Resources(cpuKnown ? cpu : -1, memoryKnown ? memory : -1);
         }
     }
 
-    static final class Snapshot {
-        final boolean available;
-        final long totalMemoryKb;
-        final long availableMemoryKb;
-        final float cpuPercent;
-        final float loadAverage;
-        final String error;
-        private final Map<String, ProcessResources> mProcesses;
+    private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> new Thread(r, "MagicDeskSystemMonitor"));
+    private Map<SystemProcessSnapshot.Identity, Long> previous = Map.of();
+    private long previousTime = -1, previousTotal = -1, previousIdle = -1, previousTicks = -1;
+    private volatile boolean closed;
 
-        Snapshot(
-                final boolean available,
-                final long totalMemoryKb,
-                final long availableMemoryKb,
-                final float cpuPercent,
-                final float loadAverage,
-                final Map<String, ProcessResources> processes,
-                final String error) {
-            this.available = available;
-            this.totalMemoryKb = totalMemoryKb;
-            this.availableMemoryKb = availableMemoryKb;
-            this.cpuPercent = cpuPercent;
-            this.loadAverage = loadAverage;
-            mProcesses = new LinkedHashMap<>(processes);
-            this.error = error == null ? "" : error;
-        }
-
-        ProcessResources forPackage(final String packageName) {
-            if (packageName == null || packageName.isEmpty()) {
-                return ProcessResources.UNAVAILABLE;
-            }
-            float cpu = -1f;
-            long memory = -1L;
-            for (final Map.Entry<String, ProcessResources> entry
-                    : mProcesses.entrySet()) {
-                final String processName = entry.getKey();
-                if (!processName.equals(packageName)
-                        && !processName.startsWith(packageName + ":")) {
-                    continue;
-                }
-                final ProcessResources value = entry.getValue();
-                if (value.cpuPercent >= 0f) {
-                    cpu = cpu < 0f
-                            ? value.cpuPercent : cpu + value.cpuPercent;
-                }
-                if (value.pssKb >= 0L) {
-                    memory = memory < 0L ? value.pssKb : memory + value.pssKb;
-                }
-            }
-            return new ProcessResources(cpu, memory);
-        }
-
-        static Snapshot unavailable(final String error) {
-            return new Snapshot(
-                    false,
-                    -1L,
-                    -1L,
-                    -1f,
-                    -1f,
-                    new LinkedHashMap<>(),
-                    error);
-        }
-    }
-
-    private final ExecutorService mWorker =
-            Executors.newSingleThreadExecutor(runnable -> {
-                final Thread thread = new Thread(
-                        runnable, "MagicDeskSystemMonitor");
-                thread.setDaemon(true);
-                return thread;
-            });
-    private final Map<String, Long> mProcessMemory = new LinkedHashMap<>();
-
-    private long mPreviousCpuTotal = -1L;
-    private long mPreviousCpuIdle = -1L;
-    private volatile boolean mClosed;
-
-    void load(
-            final boolean includeProcessMemory,
-            final Consumer<Snapshot> callback) {
-        if (mClosed) {
-            return;
-        }
+    void load(Consumer<Snapshot> callback) {
+        if (closed) return;
         try {
-            mWorker.execute(() -> {
+            worker.execute(() -> {
                 Snapshot snapshot;
-                try {
-                    snapshot = convert(ShellAccess.readSystemMonitorSnapshot(
-                            includeProcessMemory), includeProcessMemory);
-                } catch (IOException | RuntimeException error) {
-                    snapshot = convert(SystemMonitorSnapshot.unavailable(
-                            ShellAccess.usefulMessage(error)), includeProcessMemory);
-                }
-                if (!mClosed) {
-                    callback.accept(snapshot);
-                }
+                try { snapshot = convert(ShellAccess.readSystemMonitorSnapshot()); }
+                catch (Exception error) { snapshot = convert(SystemMonitorSnapshot.unavailable(ShellAccess.usefulMessage(error))); }
+                if (!closed) callback.accept(snapshot);
             });
-        } catch (RejectedExecutionException ignored) {
-            // close() won the scheduling race.
-        }
+        } catch (RejectedExecutionException ignored) { /* close won scheduling. */ }
     }
 
-    Snapshot convert(final SystemMonitorSnapshot raw, final boolean includeProcessMemory) {
-        // CPU-only samples reuse the last memory measurement, but the next
-        // memory attempt replaces it, including unavailable process values.
-        if (includeProcessMemory) {
-            mProcessMemory.clear();
-        }
+    Snapshot convert(SystemMonitorSnapshot raw) {
         if (!raw.available) {
+            previous = Map.of(); previousTime = previousTotal = previousIdle = previousTicks = -1;
             return Snapshot.unavailable(raw.error);
         }
-        final float totalCpu = cpuPercent(raw.cpuTotal, raw.cpuIdle);
-        final Map<String, Float> processCpu = new LinkedHashMap<>();
-        if (raw.processes != null) {
-            for (final SystemProcessSnapshot process : raw.processes) {
-                if (process == null || process.processName.isEmpty()) {
-                    continue;
-                }
-                if (process.cpuPercent >= 0f) {
-                    processCpu.put(process.processName, process.cpuPercent);
-                }
-                if (process.pssKb >= 0L) {
-                    mProcessMemory.put(process.processName, process.pssKb);
-                }
-            }
+        float total = -1;
+        if (previousTotal >= 0 && raw.cpuTotal > previousTotal && raw.cpuIdle >= previousIdle)
+            total = Math.max(0, Math.min(100, 100f * (1 - (float) (raw.cpuIdle - previousIdle) / (raw.cpuTotal - previousTotal))));
+        final var next = new LinkedHashMap<SystemProcessSnapshot.Identity, Long>();
+        final var rows = new ArrayList<ProcessEntry>();
+        final long elapsed = raw.sampledAtMillis - previousTime;
+        for (var p : raw.processes) {
+            float cpu = -1;
+            final Long before = previous.get(p.identity());
+            if (before != null && p.cpuTicks >= before && elapsed > 0 && raw.ticksPerSecond > 0
+                    && raw.ticksPerSecond == previousTicks)
+                cpu = (float) ((p.cpuTicks - before) * 100000.0 / (raw.ticksPerSecond * (double) elapsed));
+            next.put(p.identity(), p.cpuTicks);
+            rows.add(new ProcessEntry(p, cpu));
         }
-        final Map<String, ProcessResources> processes = new LinkedHashMap<>();
-        for (final Map.Entry<String, Float> entry : processCpu.entrySet()) {
-            final Long memory = mProcessMemory.get(entry.getKey());
-            processes.put(entry.getKey(), new ProcessResources(
-                    entry.getValue(),
-                    memory == null ? -1L : memory.longValue()));
-        }
-        for (final Map.Entry<String, Long> entry : mProcessMemory.entrySet()) {
-            if (!processes.containsKey(entry.getKey())) {
-                processes.put(entry.getKey(), new ProcessResources(
-                        -1f, entry.getValue()));
-            }
-        }
-        return new Snapshot(
-                true,
-                raw.totalMemoryKb,
-                raw.availableMemoryKb,
-                totalCpu,
-                raw.loadAverage,
-                processes,
-                raw.error);
+        previous = next; previousTime = raw.sampledAtMillis; previousTicks = raw.ticksPerSecond;
+        previousTotal = raw.cpuTotal; previousIdle = raw.cpuIdle;
+        return new Snapshot(true, raw.totalMemoryKb, raw.availableMemoryKb, total, raw.loadAverage, List.copyOf(rows), raw.error);
     }
 
-    private float cpuPercent(final long total, final long idle) {
-        float result = -1f;
-        if (mPreviousCpuTotal >= 0L && total > mPreviousCpuTotal) {
-            final long totalDelta = total - mPreviousCpuTotal;
-            final long idleDelta = Math.max(0L, idle - mPreviousCpuIdle);
-            result = Math.max(
-                    0f,
-                    Math.min(100f, (totalDelta - idleDelta) * 100f / totalDelta));
-        }
-        mPreviousCpuTotal = total;
-        mPreviousCpuIdle = idle;
-        return result;
-    }
-
-    @Override
-    public void close() {
-        mClosed = true;
-        mWorker.shutdownNow();
-    }
+    @Override public void close() { closed = true; worker.shutdownNow(); }
 }

@@ -25,6 +25,7 @@ public final class SystemMonitorSnapshot implements Parcelable {
     public final long cpuTotal;
     public final long cpuIdle;
     public final float loadAverage;
+    public final long sampledAtMillis, ticksPerSecond;
     public final SystemProcessSnapshot[] processes;
     public final String error;
 
@@ -35,6 +36,7 @@ public final class SystemMonitorSnapshot implements Parcelable {
             final long cpuTotal,
             final long cpuIdle,
             final float loadAverage,
+            final long sampledAtMillis, final long ticksPerSecond,
             final SystemProcessSnapshot[] processes,
             final String error) {
         this.available = available;
@@ -43,6 +45,8 @@ public final class SystemMonitorSnapshot implements Parcelable {
         this.cpuTotal = cpuTotal;
         this.cpuIdle = cpuIdle;
         this.loadAverage = loadAverage;
+        this.sampledAtMillis = sampledAtMillis;
+        this.ticksPerSecond = ticksPerSecond;
         this.processes = processes == null
                 ? new SystemProcessSnapshot[0]
                 : processes.clone();
@@ -56,6 +60,8 @@ public final class SystemMonitorSnapshot implements Parcelable {
         cpuTotal = source.readLong();
         cpuIdle = source.readLong();
         loadAverage = source.readFloat();
+        sampledAtMillis = source.readLong();
+        ticksPerSecond = source.readLong();
         final SystemProcessSnapshot[] readProcesses =
                 source.createTypedArray(SystemProcessSnapshot.CREATOR);
         processes = readProcesses == null
@@ -78,6 +84,8 @@ public final class SystemMonitorSnapshot implements Parcelable {
         destination.writeLong(cpuTotal);
         destination.writeLong(cpuIdle);
         destination.writeFloat(loadAverage);
+        destination.writeLong(sampledAtMillis);
+        destination.writeLong(ticksPerSecond);
         destination.writeTypedArray(processes, flags);
         destination.writeString(error);
     }
@@ -90,6 +98,7 @@ public final class SystemMonitorSnapshot implements Parcelable {
                 -1L,
                 -1L,
                 -1f,
+                -1L, -1L,
                 new SystemProcessSnapshot[0],
                 error);
     }

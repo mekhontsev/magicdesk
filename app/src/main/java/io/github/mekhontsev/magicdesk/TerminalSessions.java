@@ -34,7 +34,7 @@ final class TerminalSessions {
         return result;
     }
 
-    private static boolean belongsTo(ConsoleTerminalRegistry.Snapshot terminal,
+    static boolean belongsTo(ConsoleTerminalRegistry.Snapshot terminal,
             TmuxSessionProvider.Session session, TmuxSessionProvider.Snapshot tmux) {
         if (terminal.tmuxSessionId.isEmpty()) return false;
         final String current = tmux.clients.get(terminal.processId);

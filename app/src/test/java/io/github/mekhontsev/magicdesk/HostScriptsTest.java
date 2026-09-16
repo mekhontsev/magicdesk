@@ -112,6 +112,7 @@ public final class HostScriptsTest {
                 "magicdesk_pty_working_directory_test:cwd",
                 "magicdesk_pty_peer_output_test:cwd",
                 "magicdesk_pipe_shell_test:cwd",
+                "magicdesk_process_signal_test:cwd",
                 "magicdesk_pty_lifecycle_test:pressure",
                 "magicdesk_pty_lifecycle_test:fragmented",
                 "magicdesk_pty_lifecycle_test:metadata",
@@ -125,7 +126,7 @@ public final class HostScriptsTest {
         expected.add("x11_window_icon_test:cwd");
         expected.add("x11_density_settings_test:cwd");
         assertEquals(expected, Files.readAllLines(fixture.log));
-        assertTrue(result.output.contains("verified (15 runs)"));
+        assertTrue(result.output.contains("verified (16 runs)"));
         assertEmptyDirectory(fixture.output);
     }
 
@@ -141,26 +142,26 @@ public final class HostScriptsTest {
         final var testFailure = nativeVerifierFixture();
         final var testResult = nativeVerifier(testFailure, "fragmented", false);
         assertEquals(testResult.output, 9, testResult.exitCode);
-        assertEquals(5, Files.readAllLines(testFailure.log).size());
-        assertTrue(!testResult.output.contains("verified (15 runs)"));
+        assertEquals(6, Files.readAllLines(testFailure.log).size());
+        assertTrue(!testResult.output.contains("verified (16 runs)"));
         assertEmptyDirectory(testFailure.output);
 
         final var inputFailure = nativeVerifierFixture();
         final var inputResult = nativeVerifier(inputFailure, "magicdesk_virtual_mouse_test", false);
         assertEquals(inputResult.output, 9, inputResult.exitCode);
-        assertEquals(12, Files.readAllLines(inputFailure.log).size());
+        assertEquals(13, Files.readAllLines(inputFailure.log).size());
         assertEmptyDirectory(inputFailure.output);
 
         final var iconFailure = nativeVerifierFixture();
         final var iconResult = nativeVerifier(iconFailure, "x11_window_icon_test", false);
         assertEquals(iconResult.output, 9, iconResult.exitCode);
-        assertEquals(14, Files.readAllLines(iconFailure.log).size());
+        assertEquals(15, Files.readAllLines(iconFailure.log).size());
         assertEmptyDirectory(iconFailure.output);
 
         final var densityFailure = nativeVerifierFixture();
         final var densityResult = nativeVerifier(densityFailure, "x11_density_settings_test", false);
         assertEquals(densityResult.output, 9, densityResult.exitCode);
-        assertEquals(15, Files.readAllLines(densityFailure.log).size());
+        assertEquals(16, Files.readAllLines(densityFailure.log).size());
         assertEmptyDirectory(densityFailure.output);
     }
 

@@ -1,297 +1,134 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.widget.Toast;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
-public final class TaskManagerActivity extends Activity
-        implements ShellAccess.StateListener {
-    private static final long REFRESH_INTERVAL_MILLIS = 3_000L;
-    private static final int PROCESS_MEMORY_REFRESH_CYCLES = 4;
-
-    private TaskManagerView mView;
+/** Lifecycle-scoped observation; resource sampling never creates a Desktop task observer. */
+public final class TaskManagerActivity extends Activity implements ShellAccess.StateListener {
+    private static final long REFRESH_INTERVAL_MILLIS = 3000;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
-    private final SystemMonitorRepository mMonitor =
-            new SystemMonitorRepository();
+    private final SystemMonitorRepository mMonitor = new SystemMonitorRepository();
     private final Runnable mScheduledRefresh = () -> refresh(false);
+    private TaskManagerView mView;
+    private TaskManagerActions mActions;
     private TaskRepository.Snapshot mStandaloneSnapshot;
-    private boolean mDestroyed;
-    private boolean mStarted;
-    private boolean mLoading;
-    private boolean mHasRenderedContent;
+    private TmuxSessionProvider.Snapshot mTmux;
+    private String mTmuxError = "";
+    private boolean mStarted, mDestroyed, mLoading, mTmuxLoading;
     private int mLoadGeneration;
-    private int mRefreshCycle;
+    private int mSessionGeneration;
 
-    static Intent createIntent(final Context context) {
-        return new Intent(context, TaskManagerActivity.class);
-    }
+    static Intent createIntent(Context context) { return new Intent(context, TaskManagerActivity.class); }
+    static AppLaunchTarget launchTarget() { return BuiltInDesktopAppCatalog.taskManagerTarget(); }
 
-    static AppLaunchTarget launchTarget() {
-        return BuiltInDesktopAppCatalog.taskManagerTarget();
-    }
-
-    @Override
-    protected void onCreate(final Bundle state) {
+    @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        DesktopTaskDescription.apply(
-                this,
-                R.string.task_manager_title,
-                R.drawable.ic_magicdesk);
+        DesktopTaskDescription.apply(this, R.string.task_manager_title, R.drawable.ic_magicdesk);
         BuiltInWindowRegistry.register(this);
-        mView = new TaskManagerView(
-                this,
-                this::refresh,
-                new TaskManagerView.Actions() {
-                    @Override
-                    public void focus(final TaskRepository.TaskEntry task) {
-                        TaskManagerActivity.this.focus(task);
-                    }
-
-                    @Override
-                    public void openLogs(final TaskRepository.TaskEntry task) {
-                        TaskManagerActivity.this.openLogs(task);
-                    }
-
-                    @Override
-                    public void close(final TaskRepository.TaskEntry task) {
-                        closeTask(task);
-                    }
-
-                    @Override
-                    public void forceStop(
-                            final TaskRepository.TaskEntry task) {
-                        confirmForceStop(task);
-                    }
-                });
+        mActions = new TaskManagerActions(this, this::refresh, entry -> mView.showProcesses(entry.processes(), entry.title()));
+        mView = new TaskManagerView(this, this::refresh, mActions);
         setContentView(mView.root());
     }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-        mStarted = true;
-        ShellAccess.addStateListener(this);
+    @Override protected void onStart() {
+        super.onStart(); mStarted = true; mSessionGeneration++; ShellAccess.addStateListener(this);
     }
-
-    @Override
-    protected void onStop() {
-        mStarted = false;
-        mLoading = false;
-        mStandaloneSnapshot = null;
-        mLoadGeneration++;
+    @Override protected void onStop() {
+        mStarted = false; mLoading = false; mTmuxLoading = false;
+        mStandaloneSnapshot = null; mLoadGeneration++; mSessionGeneration++;
         mHandler.removeCallbacks(mScheduledRefresh);
         ShellAccess.removeStateListener(this);
         super.onStop();
     }
-
-    @Override
-    protected void onDestroy() {
-        mDestroyed = true;
-        mLoadGeneration++;
+    @Override protected void onDestroy() {
+        mDestroyed = true; mLoadGeneration++;
         mHandler.removeCallbacks(mScheduledRefresh);
-        mMonitor.close();
-        BuiltInWindowRegistry.unregister(this);
-        super.onDestroy();
+        mMonitor.close(); BuiltInWindowRegistry.unregister(this); super.onDestroy();
     }
-
-    @Override
-    public void onShellStateChanged(final ShellAccess.Snapshot snapshot) {
+    @Override public void onShellStateChanged(ShellAccess.Snapshot snapshot) {
         runOnUiThread(() -> {
-            if (mDestroyed || !mStarted) {
-                return;
-            }
-            if (snapshot != null && snapshot.isReady()) {
-                refresh();
-            } else {
-                mLoading = false;
-                mStandaloneSnapshot = null;
-                mLoadGeneration++;
+            if (!mStarted || mDestroyed) return;
+            if (snapshot != null && snapshot.isReady()) refresh();
+            else {
+                mLoading = false; mLoadGeneration++; mSessionGeneration++; mTmuxLoading = false; mStandaloneSnapshot = null;
                 mHandler.removeCallbacks(mScheduledRefresh);
-                mView.showUnavailable(
-                        snapshot == null ? "unknown" : snapshot.error);
+                mView.showUnavailable(snapshot == null ? "unknown" : snapshot.error);
             }
         });
     }
 
-    private void refresh() {
-        refresh(true);
-    }
-
-    private void refresh(final boolean requestTasks) {
+    private void refresh() { refresh(true); }
+    private void refresh(boolean requestTasks) {
         mHandler.removeCallbacks(mScheduledRefresh);
-        if (!mStarted || mDestroyed) {
-            return;
-        }
-        if (!ShellAccess.isReady()) {
-            mView.showWaiting();
-            return;
-        }
-        if (mLoading) {
-            return;
-        }
+        if (!mStarted || mDestroyed || mLoading) return;
+        if (!ShellAccess.isReady()) { mView.showUnavailable("Shell access unavailable"); return; }
         mLoading = true;
-        if (!mHasRenderedContent) {
-            mView.showInitialLoading();
-        }
         final int generation = ++mLoadGeneration;
-        final boolean includeProcessMemory =
-                !mHasRenderedContent
-                        || ++mRefreshCycle
-                        % PROCESS_MEMORY_REFRESH_CYCLES == 0;
-        final int displayId = observationDisplayId();
-        if (displayId >= 0) {
-            mStandaloneSnapshot = null;
-        }
-        if (requestTasks && displayId < 0) {
+        if (requestTasks) refreshTmux();
+        if (requestTasks && DesktopRuntimeBridge.workspaceDisplayIds().isEmpty()) {
             TaskRepository.load(-1, snapshot -> runOnUiThread(() -> {
-                if (!mStarted || mDestroyed || generation != mLoadGeneration) {
-                    return;
-                }
-                mStandaloneSnapshot = observationDisplayId() < 0 ? snapshot : null;
-                refreshMonitor(generation, includeProcessMemory);
+                if (!current(generation)) return;
+                mStandaloneSnapshot = DesktopRuntimeBridge.workspaceDisplayIds().isEmpty() ? snapshot : null;
+                refreshMonitor(generation);
             }));
-        } else {
-            refreshMonitor(generation, includeProcessMemory);
-        }
+        } else refreshMonitor(generation);
     }
 
-    private void refreshMonitor(final int generation, final boolean includeProcessMemory) {
-        mMonitor.load(includeProcessMemory, monitor -> runOnUiThread(() -> {
-            if (!mStarted || mDestroyed || generation != mLoadGeneration) {
-                return;
-            }
-            final int displayId = observationDisplayId();
-            final TaskRepository.Snapshot snapshot;
-            if (displayId >= 0) {
-                mStandaloneSnapshot = null;
-                snapshot = MagicDeskRuntime.observedTaskSnapshot(displayId);
-            } else {
-                snapshot = mStandaloneSnapshot;
-            }
-            if (snapshot == null || !snapshot.available) {
-                mView.showUnavailable(snapshot == null ? "unknown" : snapshot.error);
-            } else {
-                render(allTasks(snapshot), monitor);
-            }
-            finishRefresh();
+    private void refreshTmux() {
+        if (mTmuxLoading) return;
+        final var endpoint = TermuxIntegration.inspect(this);
+        if (!endpoint.available()) { mTmux = null; mTmuxError = ""; return; }
+        mTmuxLoading = true;
+        final int generation = mSessionGeneration;
+        TmuxSessionProvider.list(this, (snapshot, error) -> runOnUiThread(() -> {
+            if (!mStarted || mDestroyed || generation != mSessionGeneration) return;
+            mTmuxLoading = false;
+            mTmux = snapshot;
+            mTmuxError = error == null ? "" : "tmux: " + ShellAccess.usefulMessage(error);
         }));
     }
 
-    private int observationDisplayId() {
-        final DesktopSessionSnapshot session = DesktopRuntimeBridge.getSessionSnapshot(
-                getDisplay() == null ? 0 : getDisplay().getDisplayId());
-        // A prepared target survives host recreation; it is not a standalone query path.
-        return session.hasHost() ? session.activeWorkspaceDisplayId()
-                : session.target() == null ? -1 : session.target().workspaceDisplayId;
+    private void refreshMonitor(int generation) {
+        mMonitor.load(monitor -> runOnUiThread(() -> {
+            if (!current(generation)) return;
+            final TaskRepository.Snapshot tasks = taskSnapshot();
+            final var entries = TaskManagerApplications.collect(this,
+                    tasks != null && tasks.available ? allTasks(tasks) : List.of(),
+                    ConsoleTerminalRegistry.list(), mTmux, monitor, getTaskId());
+            final String taskError = tasks == null ? "Window observation unavailable"
+                    : tasks.available ? "" : tasks.error;
+            mView.render(entries, monitor, String.join(" ", taskError, mTmuxError).trim());
+            mLoading = false;
+            mHandler.postDelayed(mScheduledRefresh, REFRESH_INTERVAL_MILLIS);
+        }));
     }
 
-    static List<TaskRepository.TaskEntry> allTasks(final TaskRepository.Snapshot snapshot) {
-        final Map<Integer, TaskRepository.TaskEntry> tasks = new LinkedHashMap<>();
-        for (final TaskRepository.TaskEntry task : snapshot.tasks) {
-            tasks.put(Integer.valueOf(task.taskId), task);
+    private boolean current(int generation) { return mStarted && !mDestroyed && generation == mLoadGeneration; }
+
+    private TaskRepository.Snapshot taskSnapshot() {
+        final var displays = DesktopRuntimeBridge.workspaceDisplayIds();
+        if (displays.isEmpty()) return mStandaloneSnapshot;
+        mStandaloneSnapshot = null;
+        final var tasks = new LinkedHashMap<Integer, TaskRepository.TaskEntry>();
+        for (int display : displays) {
+            final var observed = MagicDeskRuntime.observedTaskSnapshot(display);
+            if (observed == null || !observed.available)
+                return new TaskRepository.Snapshot(List.of(), false, observed == null ? "Window observation unavailable" : observed.error);
+            for (var task : allTasks(observed)) tasks.put(task.taskId, task);
         }
-        for (final TaskRepository.TaskEntry task : snapshot.phoneTasks) {
-            tasks.putIfAbsent(Integer.valueOf(task.taskId), task);
-        }
+        return new TaskRepository.Snapshot(new ArrayList<>(tasks.values()), true, "");
+    }
+
+    static List<TaskRepository.TaskEntry> allTasks(TaskRepository.Snapshot snapshot) {
+        final var tasks = new LinkedHashMap<Integer, TaskRepository.TaskEntry>();
+        for (var task : snapshot.tasks) tasks.put(task.taskId, task);
+        for (var task : snapshot.phoneTasks) tasks.putIfAbsent(task.taskId, task);
         return new ArrayList<>(tasks.values());
-    }
-
-    private void finishRefresh() {
-        mLoading = false;
-        if (mStarted && ShellAccess.isReady()) {
-            mHandler.postDelayed(
-                    mScheduledRefresh,
-                    REFRESH_INTERVAL_MILLIS);
-        }
-    }
-
-    private void render(
-            final List<TaskRepository.TaskEntry> rawTasks,
-            final SystemMonitorRepository.Snapshot monitor) {
-        final List<TaskRepository.TaskEntry> tasks = new ArrayList<>();
-        for (final TaskRepository.TaskEntry task : rawTasks) {
-            if (DesktopManagedTaskPolicy.isManagedApplicationTask(task)
-                    && task.taskId != getTaskId()) {
-                tasks.add(task);
-            }
-        }
-        mView.render(tasks, monitor);
-        mHasRenderedContent = true;
-    }
-
-    private void focus(final TaskRepository.TaskEntry task) {
-        TaskRepository.bringToFront(task, this::showActionResult);
-    }
-
-    private void closeTask(final TaskRepository.TaskEntry task) {
-        final TaskRepository.ActionCallback callback = result -> {
-            showActionResult(result);
-            if (result.success) {
-                runOnUiThread(this::refresh);
-            }
-        };
-        MagicDeskRuntime.closeTask(task, callback);
-    }
-
-    private void confirmForceStop(final TaskRepository.TaskEntry task) {
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.task_manager_force_stop)
-                .setMessage(getString(
-                        R.string.task_manager_force_stop_message,
-                        mView.labelForPackage(task.packageName)))
-                .setPositiveButton(R.string.task_manager_force_stop,
-                        (dialog, which) -> MagicDeskRuntime.forceStopApplication(
-                                AppProfile.current(this).application(task),
-                                result -> {
-                                    showActionResult(result);
-                                    if (result.success) {
-                                        runOnUiThread(this::refresh);
-                                    }
-                                }))
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
-    }
-
-    private void openLogs(final TaskRepository.TaskEntry task) {
-        BuiltInWindowLauncher.launch(
-                this,
-                AppLogViewerActivity.createIntent(
-                        this,
-                        task.packageName,
-                        mView.labelForPackage(task.packageName)),
-                AppLogViewerActivity.launchTarget(),
-                error -> {
-                    if (error != null) {
-                        Toast.makeText(
-                                this,
-                                getString(
-                                        R.string.task_manager_action_failed,
-                                        ShellAccess.usefulMessage(error)),
-                                Toast.LENGTH_LONG).show();
-                    }
-                });
-    }
-
-    private void showActionResult(final TaskRepository.ActionResult result) {
-        runOnUiThread(() -> {
-            if (!mDestroyed && !result.success) {
-                Toast.makeText(
-                        this,
-                        getString(
-                                R.string.task_manager_action_failed,
-                                result.message),
-                        Toast.LENGTH_LONG).show();
-            }
-        });
     }
 }

@@ -142,9 +142,8 @@ public final class ShellCommandService extends IShellCommandService.Stub {
     }
 
     @Override
-    public SystemMonitorSnapshot readSystemMonitorSnapshot(
-            final boolean includeProcessMemory) {
-        return SystemMonitorReader.read(includeProcessMemory);
+    public SystemMonitorSnapshot readSystemMonitorSnapshot() {
+        return SystemMonitorReader.read();
     }
 
     @Override

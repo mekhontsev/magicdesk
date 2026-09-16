@@ -1541,6 +1541,49 @@ Repositories perform package, task, and document queries. View controllers do
 not construct arbitrary shell commands. Platform controllers do not construct
 desktop panels. Keep this split when adding vendor-specific behavior.
 
+## Task Manager
+
+Task Manager is an independent shared tool, not a Desktop session owner.
+`SystemMonitorReader` publishes bounded procfs snapshots through the existing
+privileged service. `SystemMonitorRepository` calculates rates between samples;
+`ProcessCatalog` projects identities and process trees without knowing about
+Android windows, Termux, or X11. Identity is PID, UID and process start ticks,
+never a command name. Exited processes and failed observations discard old
+counters. Inaccessible processes remain explicitly reported as incomplete
+observation, not zero consumption.
+
+`TaskManagerApplications` joins Android tasks, retained PTYs, tmux sessions and
+X11 sessions without taking ownership of their lifetimes. Session host tasks are
+claimed once; multiple tmux clients remain one session entry. Android resource
+figures are package-process totals and can be shared by multiple windows. tmux
+resources come from pane processes and their same-UID descendants. X11 entries
+label server-only resources; clients remain visible in Processes. The Termux
+filter includes processes started outside MagicDesk as well.
+Applications and Processes share name, CPU and memory ordering through
+`TaskManagerSort`; processes additionally offer PID ordering and a collapsible
+tree. Resource sorts place unknown samples last and use stable identity/name
+tie-breaks. Application resource totals are calculated once per delivered
+snapshot, not inside sorting comparisons.
+
+CPU for a process or session uses 100 percent per CPU core; aggregate system CPU
+uses 100 percent for the whole device. Memory is resident set size (RSS), not
+PSS or private memory: adding processes may count shared pages more than once.
+The first CPU sample is unknown. Resource sampling uses the visible Activity's
+three-second refresh cycle and stops with it. Desktop task lists reuse the
+existing framework observer; standalone task and tmux discovery run on opening
+or explicit refresh, not on the resource-sampling timer.
+
+`TaskManagerActions` delegates window activation/close, terminal detachment,
+session termination and package force-stop to their existing owners. Managed
+focus uses `DesktopTaskController`; independent focus uses
+`ApplicationTaskPlacement`. `ProcessControl` sends TERM or KILL to one captured
+process incarnation, never a process group. The native helper pins a proc
+directory, validates UID/start time and uses `pidfd_send_signal`; an unsupported
+kernel reports an error instead of falling back to a racy `kill(pid)`. The
+selected privileged identity stays unchanged. Termux-owned processes can use
+the already authorized RUN_COMMAND endpoint under their own UID. No Desktop,
+root requirement, new daemon, or automatic privilege escalation is introduced.
+
 ## Embedded X11
 
 `X11Sessions` retains independently owned Termux-hosted X servers and lazy

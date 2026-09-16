@@ -44,11 +44,14 @@ final class RuntimeSourceFixture {
         final JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         final List<String> requested = Arrays.asList(names);
         final StringBuilder methods = new StringBuilder();
+        final Path path = Path.of(MAIN + file + ".java");
+        final String source = Files.readString(path);
         try (StandardJavaFileManager files = compiler.getStandardFileManager(
                 null, null, StandardCharsets.UTF_8)) {
             final JavacTask task = (JavacTask) compiler.getTask(null, files, null,
                     List.of("-proc:none"), null,
-                    files.getJavaFileObjects(Path.of(MAIN + file + ".java").toFile()));
+                    files.getJavaFileObjects(path.toFile()));
+            final var positions = Trees.instance(task).getSourcePositions();
             for (final CompilationUnitTree unit : task.parse()) {
                 new TreeScanner<Void, Void>() {
                     @Override public Void visitClass(final ClassTree node, final Void unused) {
@@ -57,7 +60,9 @@ final class RuntimeSourceFixture {
                     }
                     @Override public Void visitMethod(final MethodTree method, final Void unused) {
                         if (requested.contains(method.getName().toString())) {
-                            methods.append(standaloneMethod(method.toString()))
+                            methods.append(standaloneMethod(source.substring(
+                                    (int) positions.getStartPosition(unit, method),
+                                    (int) positions.getEndPosition(unit, method))))
                                     .append('\n');
                         }
                         return super.visitMethod(method, unused);
@@ -69,8 +74,7 @@ final class RuntimeSourceFixture {
     }
 
     static String standaloneMethod(final String source) {
-        // Javac's tree printer uses host line endings even for LF source files.
-        return source.replace("\r\n", "\n").replace("@Override\n", "");
+        return source.replace("\r\n", "\n").replaceAll("@Override\\s+", "");
     }
 
     static String nestedClass(final String file, final String name) throws IOException {

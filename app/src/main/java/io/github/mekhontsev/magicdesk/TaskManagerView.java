@@ -1,539 +1,255 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import android.content.res.ColorStateList;
-import android.graphics.Paint;
-import android.graphics.Typeface;
+import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.Drawable;
+import android.text.Editable;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.text.format.Formatter;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.HorizontalScrollView;
-import android.widget.ImageButton;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
+import android.widget.*;
+import java.util.*;
+import java.util.function.Predicate;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-
-/** Stable tabular presentation for the task manager. */
+/** Compact applications/processes views; recycled rows never own runtime resources. */
 final class TaskManagerView {
-    interface Actions {
-        void focus(TaskRepository.TaskEntry task);
+    private final Activity activity;
+    private final TaskManagerActions actions;
+    private final LinearLayout root;
+    private final TextView status, warning, empty;
+    private final Spinner filter, sort, applicationSort;
+    private final EditText search;
+    private final ListView list;
+    private final Rows adapter = new Rows();
+    private final Set<SystemProcessSnapshot.Identity> expanded = new HashSet<>();
+    private List<TaskManagerApplications.Entry> applications = List.of();
+    private SystemMonitorRepository.Snapshot monitor = SystemMonitorRepository.Snapshot.unavailable("");
+    private List<TaskManagerApplications.Entry> shownApps = List.of();
+    private List<ProcessCatalog.Row> shownProcesses = List.of();
+    private final Map<String, SystemMonitorRepository.Resources> applicationResources = new HashMap<>();
+    private Set<SystemProcessSnapshot.Identity> selectedProcesses = Set.of();
+    private String selectedTitle = "";
+    private boolean processes;
+    private final RadioButton processTab;
 
-        void openLogs(TaskRepository.TaskEntry task);
+    TaskManagerView(Activity activity, Runnable refresh, TaskManagerActions actions) {
+        this.activity = activity; this.actions = actions;
+        root = new LinearLayout(activity); root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(DesktopUiFactory.COLOR_BACKGROUND);
+        root.setPadding(dp(12), dp(8), dp(12), dp(8));
+        SystemBarInsets.addToPadding(root);
 
-        void close(TaskRepository.TaskEntry task);
+        final LinearLayout header = horizontal();
+        final RadioGroup tabs = new RadioGroup(activity); tabs.setOrientation(LinearLayout.HORIZONTAL);
+        final RadioButton apps = tab(R.string.task_manager_applications);
+        processTab = tab(R.string.task_manager_processes);
+        tabs.addView(apps); tabs.addView(processTab); apps.setChecked(true);
+        header.addView(tabs, new LinearLayout.LayoutParams(0, -2, 1));
+        header.addView(button(R.drawable.ic_file_refresh, R.string.action_refresh, v -> refresh.run()), square(44));
+        root.addView(header);
+        status = text(12, true); status.setPadding(0, dp(6), 0, dp(6)); root.addView(status);
+        warning = text(12, false); warning.setMaxLines(2); warning.setTextColor(0xFFFFC857); root.addView(warning);
 
-        void forceStop(TaskRepository.TaskEntry task);
+        search = new EditText(activity);
+        search.setTextSize(14); search.setSingleLine(true); search.setHint(R.string.task_manager_search);
+        search.setTextColor(DesktopUiFactory.COLOR_TEXT); search.setHintTextColor(DesktopUiFactory.COLOR_MUTED);
+        root.addView(search, new LinearLayout.LayoutParams(-1, dp(44)));
+
+        final LinearLayout options = horizontal();
+        filter = spinner(new String[]{activity.getString(R.string.task_manager_user_processes), "Termux",
+                activity.getString(R.string.task_manager_all_processes), activity.getString(R.string.task_manager_selection)});
+        final String[] ordering = {activity.getString(R.string.command_app_name), "CPU",
+                activity.getString(R.string.task_manager_memory), "PID", activity.getString(R.string.task_manager_tree)};
+        applicationSort = spinner(Arrays.copyOf(ordering, 3));
+        sort = spinner(ordering); sort.setSelection(TaskManagerSort.TREE.ordinal());
+        final View spacer = new View(activity);
+        options.addView(filter, new LinearLayout.LayoutParams(0, dp(44), 1));
+        options.addView(spacer, new LinearLayout.LayoutParams(0, dp(44), 1));
+        options.addView(sort, new LinearLayout.LayoutParams(dp(136), dp(44)));
+        options.addView(applicationSort, new LinearLayout.LayoutParams(dp(136), dp(44)));
+        filter.setVisibility(View.GONE); sort.setVisibility(View.GONE);
+        root.addView(options);
+
+        final View divider = new View(activity); divider.setBackgroundColor(DesktopUiFactory.COLOR_MUTED);
+        root.addView(divider, new LinearLayout.LayoutParams(-1, dp(1)));
+        empty = text(14, true); empty.setText(R.string.task_manager_empty); empty.setGravity(Gravity.CENTER);
+        root.addView(empty, new LinearLayout.LayoutParams(-1, dp(64)));
+        list = new ListView(activity); list.setAdapter(adapter); list.setEmptyView(empty);
+        list.setDivider(new ColorDrawable(0xFF39424D)); list.setDividerHeight(dp(1));
+        root.addView(list, new LinearLayout.LayoutParams(-1, 0, 1));
+        tabs.setOnCheckedChangeListener((group, id) -> {
+            processes = id == processTab.getId();
+            filter.setVisibility(processes ? View.VISIBLE : View.GONE);
+            sort.setVisibility(processes ? View.VISIBLE : View.GONE);
+            spacer.setVisibility(processes ? View.GONE : View.VISIBLE);
+            applicationSort.setVisibility(processes ? View.GONE : View.VISIBLE);
+            rebuild();
+        });
+        search.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { rebuild(); }
+            @Override public void afterTextChanged(Editable e) { }
+        });
+        final AdapterView.OnItemSelectedListener selection = new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) { rebuild(); }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        };
+        filter.setOnItemSelectedListener(selection); sort.setOnItemSelectedListener(selection);
+        applicationSort.setOnItemSelectedListener(selection);
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            if (processes) actions.processMenu(view, shownProcesses.get(position).entry().process());
+            else actions.open(shownApps.get(position));
+        });
     }
 
-    private static final int COLOR_BACKGROUND = 0xFF090D14;
-    private static final int COLOR_SURFACE = 0xFF141B26;
-    private static final int COLOR_ACTIVE = 0xFF1F2C3A;
-    private static final int COLOR_DIVIDER = 0xFF26303D;
-    private static final int COLOR_TEXT = 0xFFE8EEF5;
-    private static final int COLOR_MUTED = 0xFF9DAAB8;
-    private static final int TABLE_MIN_WIDTH_DP = 820;
-    private static final int APPLICATION_MIN_WIDTH_DP = 232;
-    private static final int APPLICATION_MAX_WIDTH_DP = 360;
-    private static final int APPLICATION_IDENTITY_CHROME_DP = 58;
-    private static final int DISPLAY_WIDTH_DP = 72;
-    private static final int MODE_WIDTH_DP = 96;
-    private static final int TASK_WIDTH_DP = 72;
-    private static final int CPU_WIDTH_DP = 72;
-    private static final int MEMORY_WIDTH_DP = 96;
-    private static final int ACTIONS_WIDTH_DP = 168;
+    View root() { return root; }
 
-    private final Activity mActivity;
-    private final Actions mActions;
-    private final Runnable mRefresh;
-    private final LinearLayout mRows;
-    private final TextView mStatus;
-    private final ImageButton mRefreshButton;
-    private final View mRoot;
-    private TextView mApplicationHeader;
-    private int mApplicationColumnWidthPx;
-    private final Map<Integer, TaskRow> mTaskRows = new LinkedHashMap<>();
-    private final Map<String, AppResources> mAppResources =
-            new LinkedHashMap<>();
-    private List<Integer> mOrder = new ArrayList<>();
-
-    TaskManagerView(
-            final Activity activity,
-            final Runnable refresh,
-            final Actions actions) {
-        mActivity = activity;
-        mRefresh = refresh;
-        mActions = actions;
-        mApplicationColumnWidthPx = dp(APPLICATION_MIN_WIDTH_DP);
-        mRows = new LinearLayout(activity);
-        mRows.setOrientation(LinearLayout.VERTICAL);
-        mStatus = statusView();
-        mRefreshButton = iconButton(
-                R.drawable.ic_file_refresh,
-                R.string.action_refresh,
-                view -> mRefresh.run());
-        mRoot = createContent();
+    void showUnavailable(String error) {
+        render(List.of(), SystemMonitorRepository.Snapshot.unavailable(error), "");
     }
 
-    View root() {
-        return mRoot;
+    void render(List<TaskManagerApplications.Entry> apps, SystemMonitorRepository.Snapshot snapshot, String error) {
+        applications = apps; monitor = snapshot;
+        applicationResources.clear();
+        for (var entry : apps) applicationResources.put(entry.id(), snapshot.resources(entry.processes()));
+        expanded.retainAll(snapshot.processes().stream().map(e -> e.process().identity()).collect(java.util.stream.Collectors.toSet()));
+        final String details = String.join(" ", snapshot.error(), error).trim();
+        warning.setText(details); warning.setVisibility(details.isEmpty() ? View.GONE : View.VISIBLE);
+        rebuild();
     }
 
-    void showWaiting() {
-        mStatus.setText(R.string.task_manager_waiting);
+    void showProcesses(Set<SystemProcessSnapshot.Identity> ids, String title) {
+        selectedProcesses = Set.copyOf(ids); selectedTitle = title;
+        search.setText(""); filter.setSelection(3); sort.setSelection(TaskManagerSort.CPU.ordinal());
+        processTab.setChecked(true); rebuild();
     }
 
-    void showInitialLoading() {
-        mStatus.setText(R.string.task_manager_loading);
+    private void rebuild() {
+        if (list == null) return;
+        final String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+        shownApps = applications.stream().filter(e -> query.isEmpty()
+                || (e.title() + " " + e.detail()).toLowerCase(Locale.ROOT).contains(query))
+                .sorted(TaskManagerSort.values()[applicationSort.getSelectedItemPosition()]
+                        .applications(e -> applicationResources.get(e.id()))).toList();
+        final int termuxUid = TermuxIntegration.inspect(activity).uid;
+        final int user = AppProfile.current(activity).userId;
+        final int selectedFilter = filter.getSelectedItemPosition();
+        final Predicate<SystemProcessSnapshot> accept = p -> {
+            boolean owner = switch (selectedFilter) {
+                case 1 -> p.uid == termuxUid && termuxUid >= 0;
+                case 2 -> true;
+                case 3 -> selectedProcesses.contains(p.identity());
+                default -> p.uid / 100000 == user && p.uid % 100000 >= 10000;
+            };
+            return owner && (query.isEmpty() || (p.name + " " + p.pid + " " + p.uid).toLowerCase(Locale.ROOT).contains(query));
+        };
+        final TaskManagerSort order = TaskManagerSort.values()[sort.getSelectedItemPosition()];
+        final var comparator = order.processes();
+        shownProcesses = order == TaskManagerSort.TREE && query.isEmpty()
+                ? new ProcessCatalog(monitor.processes()).tree(accept, expanded, comparator)
+                : monitor.processes().stream().filter(e -> accept.test(e.process())).sorted(comparator)
+                    .map(e -> new ProcessCatalog.Row(e, 0, false)).toList();
+        final int count = processes ? shownProcesses.size() : shownApps.size();
+        final String summary = activity.getString(R.string.task_manager_resources, count,
+                percent(monitor.cpuPercent()), memory(monitor.availableMemoryKb()));
+        status.setText(processes && selectedFilter == 3
+                ? activity.getString(R.string.task_manager_selection_summary, summary, selectedTitle) : summary);
+        adapter.notifyDataSetChanged();
     }
 
-    void showUnavailable(final String error) {
-        mStatus.setText(mActivity.getString(
-                R.string.task_manager_unavailable,
-                error == null || error.isEmpty() ? "unknown" : error));
-    }
-
-    void render(
-            final List<TaskRepository.TaskEntry> sourceTasks,
-            final SystemMonitorRepository.Snapshot monitor) {
-        final List<TaskRepository.TaskEntry> tasks =
-                new ArrayList<>(sourceTasks);
-        tasks.sort(Comparator
-                .comparingInt((TaskRepository.TaskEntry task) -> task.displayId)
-                .thenComparing(
-                        task -> resourcesFor(task.packageName).label,
-                        String.CASE_INSENSITIVE_ORDER)
-                .thenComparingInt(task -> task.taskId));
-        updateApplicationColumnWidth(tasks);
-        updateRows(tasks, monitor);
-        updateSummary(tasks.size(), monitor);
-    }
-
-    String labelForPackage(final String packageName) {
-        return resourcesFor(packageName).label;
-    }
-
-    private View createContent() {
-        final LinearLayout page = new LinearLayout(mActivity);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setBackgroundColor(COLOR_BACKGROUND);
-        page.setPadding(dp(12), dp(8), dp(12), dp(8));
-        SystemBarInsets.addToPadding(page);
-
-        final LinearLayout header = new LinearLayout(mActivity);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        final TextView title = new TextView(mActivity);
-        title.setText(R.string.task_manager_title);
-        title.setTextColor(COLOR_TEXT);
-        title.setTextSize(20f);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        header.addView(title, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        header.addView(mRefreshButton, new LinearLayout.LayoutParams(
-                dp(44), dp(44)));
-        page.addView(header, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        mStatus.setText(R.string.task_manager_waiting);
-        page.addView(mStatus, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(28)));
-
-        final HorizontalScrollView horizontal =
-                new HorizontalScrollView(mActivity);
-        horizontal.setFillViewport(true);
-        horizontal.setHorizontalScrollBarEnabled(true);
-
-        final LinearLayout table = new LinearLayout(mActivity);
-        table.setOrientation(LinearLayout.VERTICAL);
-        table.setMinimumWidth(dp(TABLE_MIN_WIDTH_DP));
-        table.addView(createHeaderRow(), new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
-
-        final ScrollView vertical = new ScrollView(mActivity);
-        vertical.setFillViewport(true);
-        vertical.addView(mRows, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-        table.addView(vertical, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        horizontal.addView(table, new HorizontalScrollView.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.MATCH_PARENT));
-        page.addView(horizontal, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        return page;
-    }
-
-    private View createHeaderRow() {
-        final LinearLayout row = new LinearLayout(mActivity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setBackgroundColor(COLOR_SURFACE);
-        mApplicationHeader = headerCell(
-                R.string.task_manager_column_application,
-                Gravity.START | Gravity.CENTER_VERTICAL);
-        row.addView(mApplicationHeader, applicationColumn());
-        row.addView(headerCell(
-                R.string.task_manager_column_cpu,
-                Gravity.END | Gravity.CENTER_VERTICAL),
-                fixedColumn(CPU_WIDTH_DP));
-        row.addView(headerCell(
-                R.string.task_manager_column_memory,
-                Gravity.END | Gravity.CENTER_VERTICAL),
-                fixedColumn(MEMORY_WIDTH_DP));
-        row.addView(headerCell(
-                R.string.task_manager_column_display,
-                Gravity.CENTER), fixedColumn(DISPLAY_WIDTH_DP));
-        row.addView(headerCell(
-                R.string.task_manager_column_mode,
-                Gravity.CENTER), fixedColumn(MODE_WIDTH_DP));
-        row.addView(headerCell(
-                R.string.task_manager_column_task,
-                Gravity.CENTER), fixedColumn(TASK_WIDTH_DP));
-        row.addView(new View(mActivity), flexibleColumn());
-        row.addView(headerCell(
-                R.string.task_manager_column_actions,
-                Gravity.CENTER), fixedColumn(ACTIONS_WIDTH_DP));
-        return row;
-    }
-
-    private TextView headerCell(final int text, final int gravity) {
-        final TextView cell = new TextView(mActivity);
-        cell.setText(text);
-        cell.setTextColor(COLOR_MUTED);
-        cell.setTextSize(11f);
-        cell.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        cell.setGravity(gravity);
-        cell.setSingleLine(true);
-        cell.setPadding(dp(8), 0, dp(8), 0);
-        return cell;
-    }
-
-    private TextView statusView() {
-        final TextView status = new TextView(mActivity);
-        status.setTextColor(COLOR_MUTED);
-        status.setTextSize(12f);
-        status.setGravity(Gravity.CENTER_VERTICAL);
-        status.setSingleLine(true);
-        status.setEllipsize(TextUtils.TruncateAt.END);
-        return status;
-    }
-
-    private void updateRows(
-            final List<TaskRepository.TaskEntry> tasks,
-            final SystemMonitorRepository.Snapshot monitor) {
-        final Set<Integer> present = new HashSet<>();
-        final List<Integer> order = new ArrayList<>();
-        boolean rowsChanged = false;
-        for (final TaskRepository.TaskEntry task : tasks) {
-            final Integer taskId = Integer.valueOf(task.taskId);
-            present.add(taskId);
-            order.add(taskId);
-            TaskRow row = mTaskRows.get(taskId);
-            if (row == null || !row.packageName.equals(task.packageName)) {
-                row = new TaskRow(task);
-                mTaskRows.put(taskId, row);
-                rowsChanged = true;
+    private final class Rows extends BaseAdapter {
+        @Override public int getCount() { return processes ? shownProcesses.size() : shownApps.size(); }
+        @Override public Object getItem(int pos) { return processes ? shownProcesses.get(pos) : shownApps.get(pos); }
+        @Override public long getItemId(int pos) { return pos; }
+        @Override public View getView(int position, View recycled, ViewGroup parent) {
+            final Row row;
+            if (recycled == null) { row = new Row(); recycled = row.root; recycled.setTag(row); }
+            else row = (Row) recycled.getTag();
+            if (processes) {
+                final var item = shownProcesses.get(position);
+                final var p = item.entry().process();
+                row.title.setText(TaskManagerSort.processName(p));
+                row.detail.setText(activity.getString(R.string.task_manager_process_identity, p.pid, p.uid, p.state));
+                row.metrics.setText(activity.getString(R.string.task_manager_process_resources,
+                        percent(item.entry().cpuPercent()), memory(p.rssKb)));
+                row.expand.setVisibility(item.children() ? View.VISIBLE : View.INVISIBLE);
+                row.expand.setImageResource(expanded.contains(p.identity()) ? R.drawable.ic_arrow_down : R.drawable.ic_chevron_right);
+                row.expand.setContentDescription(activity.getString(R.string.task_manager_tree) + " " + p.pid);
+                row.expand.setOnClickListener(v -> {
+                    if (!expanded.remove(p.identity())) expanded.add(p.identity()); rebuild();
+                });
+                row.root.setPadding(dp(Math.min(item.depth(), 6) * 12), 0, 0, 0);
+                row.more.setOnClickListener(v -> actions.processMenu(v, p));
+            } else {
+                final var entry = shownApps.get(position);
+                row.title.setText(entry.title());
+                final String displays = entry.windows().stream().map(t -> "[" + t.displayId + "]")
+                        .distinct().collect(java.util.stream.Collectors.joining(" "));
+                row.detail.setText(activity.getString(R.string.task_manager_entry_detail, entry.detail(), displays.isEmpty()
+                        ? activity.getString(R.string.terminal_window_closed) : displays));
+                final var resources = applicationResources.get(entry.id());
+                row.metrics.setText(activity.getString(R.string.task_manager_process_resources,
+                        percent(resources.cpuPercent()), memory(resources.rssKb())));
+                row.expand.setVisibility(View.GONE); row.root.setPadding(0, 0, 0, 0);
+                row.more.setOnClickListener(v -> actions.menu(v, entry));
             }
-            row.bind(task, monitor.forPackage(task.packageName));
-        }
-        if (mTaskRows.keySet().removeIf(
-                taskId -> !present.contains(taskId))) {
-            rowsChanged = true;
-        }
-        if (rowsChanged || !order.equals(mOrder)) {
-            mRows.removeAllViews();
-            for (final Integer taskId : order) {
-                mRows.addView(mTaskRows.get(taskId).container,
-                        new LinearLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.WRAP_CONTENT));
-            }
-            mOrder = order;
+            row.title.setTooltipText(row.title.getText()); row.detail.setTooltipText(row.detail.getText());
+            return recycled;
         }
     }
 
-    private void updateSummary(
-            final int taskCount,
-            final SystemMonitorRepository.Snapshot monitor) {
-        if (!monitor.available) {
-            mStatus.setText(mActivity.getString(
-                    R.string.task_manager_count, taskCount));
-            return;
-        }
-        final long usedMemory = Math.max(
-                0L, monitor.totalMemoryKb - monitor.availableMemoryKb);
-        mStatus.setText(mActivity.getString(
-                R.string.task_manager_summary,
-                taskCount,
-                formatPercent(monitor.cpuPercent),
-                formatMemory(usedMemory),
-                formatMemory(monitor.totalMemoryKb),
-                monitor.loadAverage));
-    }
-
-    private void updateApplicationColumnWidth(
-            final List<TaskRepository.TaskEntry> tasks) {
-        final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        int preferredWidth = dp(APPLICATION_MIN_WIDTH_DP);
-        for (final TaskRepository.TaskEntry task : tasks) {
-            final AppResources resources = resourcesFor(task.packageName);
-            paint.setTextSize(sp(14f));
-            final float labelWidth = paint.measureText(resources.label);
-            paint.setTextSize(sp(10f));
-            final float packageWidth = paint.measureText(task.packageName);
-            final int identityWidth = dp(APPLICATION_IDENTITY_CHROME_DP)
-                    + (int) Math.ceil(Math.max(labelWidth, packageWidth));
-            preferredWidth = Math.max(preferredWidth, identityWidth);
-        }
-        preferredWidth = Math.min(
-                preferredWidth, dp(APPLICATION_MAX_WIDTH_DP));
-        // Keep periodic process refreshes from shifting every later column.
-        if (preferredWidth <= mApplicationColumnWidthPx) {
-            return;
-        }
-        mApplicationColumnWidthPx = preferredWidth;
-        if (mApplicationHeader != null) {
-            mApplicationHeader.setLayoutParams(applicationColumn());
-        }
-        for (final TaskRow row : mTaskRows.values()) {
-            row.identity.setLayoutParams(applicationColumn());
+    private final class Row {
+        final LinearLayout root = horizontal();
+        final TextView title = text(14, false), detail = text(11, false), metrics = text(11, false);
+        final ImageButton expand = button(R.drawable.ic_chevron_right, R.string.task_manager_tree, null);
+        final ImageButton more = button(R.drawable.ic_more, R.string.terminal_session_actions_generic, null);
+        Row() {
+            root.setMinimumHeight(dp(78));
+            root.addView(expand, square(32));
+            final LinearLayout identity = new LinearLayout(activity); identity.setOrientation(LinearLayout.VERTICAL);
+            identity.setPadding(dp(4), dp(6), dp(6), dp(6));
+            title.setSingleLine(true); title.setEllipsize(TextUtils.TruncateAt.END);
+            detail.setTextColor(DesktopUiFactory.COLOR_MUTED); detail.setMaxLines(2); detail.setEllipsize(TextUtils.TruncateAt.END);
+            identity.addView(title); identity.addView(detail);
+            root.addView(identity, new LinearLayout.LayoutParams(0, -2, 1));
+            metrics.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            root.addView(metrics, new LinearLayout.LayoutParams(dp(98), -1));
+            root.addView(more, square(44));
         }
     }
 
-    private AppResources resourcesFor(final String packageName) {
-        AppResources resources = mAppResources.get(packageName);
-        if (resources != null) {
-            return resources;
-        }
-        String label = packageName;
-        Drawable icon = mActivity.getDrawable(R.drawable.ic_magicdesk);
-        try {
-            final ApplicationInfo info = mActivity.getPackageManager()
-                    .getApplicationInfo(packageName, 0);
-            label = mActivity.getPackageManager()
-                    .getApplicationLabel(info).toString();
-            icon = mActivity.getPackageManager().getApplicationIcon(info);
-        } catch (PackageManager.NameNotFoundException ignored) {
-            // Keep the package name and fallback icon for a disappearing app.
-        }
-        resources = new AppResources(label, icon);
-        mAppResources.put(packageName, resources);
-        return resources;
+    private RadioButton tab(int label) {
+        final RadioButton button = new RadioButton(activity);
+        button.setId(View.generateViewId()); button.setText(label); button.setTextSize(14);
+        button.setTextColor(DesktopUiFactory.COLOR_TEXT); return button;
     }
-
-    private String formatPercent(final float value) {
-        return value < 0f
-                ? "--"
-                : String.format(Locale.getDefault(), "%.1f%%", value);
+    private Spinner spinner(String[] values) {
+        final Spinner spinner = new Spinner(activity);
+        final ArrayAdapter<String> choices = new ArrayAdapter<>(activity, android.R.layout.simple_spinner_item, values);
+        choices.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(choices); return spinner;
     }
-
-    private String formatMemory(final long valueKb) {
-        return valueKb < 0L
-                ? "--"
-                : Formatter.formatShortFileSize(mActivity, valueKb * 1024L);
+    private LinearLayout horizontal() {
+        final LinearLayout row = new LinearLayout(activity); row.setGravity(Gravity.CENTER_VERTICAL); return row;
     }
-
-    private ImageButton iconButton(
-            final int drawable,
-            final int description,
-            final View.OnClickListener listener) {
-        final ImageButton button = new ImageButton(mActivity);
-        button.setImageResource(drawable);
-        button.setImageTintList(new ColorStateList(
-                new int[][]{new int[0]}, new int[]{COLOR_TEXT}));
-        button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        button.setPadding(dp(9), dp(9), dp(9), dp(9));
-        button.setBackground(new ColorDrawable(COLOR_SURFACE));
-        button.setContentDescription(mActivity.getString(description));
-        button.setTooltipText(mActivity.getString(description));
-        button.setOnClickListener(listener);
-        return button;
+    private TextView text(int size, boolean single) {
+        final TextView text = new TextView(activity); text.setTextSize(size);
+        text.setTextColor(DesktopUiFactory.COLOR_TEXT);
+        if (single) { text.setSingleLine(true); text.setEllipsize(TextUtils.TruncateAt.END); }
+        return text;
     }
-
-    private LinearLayout.LayoutParams flexibleColumn() {
-        return new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+    private ImageButton button(int icon, int label, View.OnClickListener click) {
+        final ImageButton button = new ImageButton(activity); button.setImageResource(icon);
+        button.setImageTintList(android.content.res.ColorStateList.valueOf(DesktopUiFactory.COLOR_TEXT));
+        button.setBackgroundColor(Color.TRANSPARENT); button.setPadding(dp(8), dp(8), dp(8), dp(8));
+        button.setContentDescription(activity.getString(label)); button.setTooltipText(button.getContentDescription());
+        button.setFocusable(false); button.setOnClickListener(click); return button;
     }
-
-    private LinearLayout.LayoutParams applicationColumn() {
-        return new LinearLayout.LayoutParams(
-                mApplicationColumnWidthPx,
-                ViewGroup.LayoutParams.MATCH_PARENT);
-    }
-
-    private LinearLayout.LayoutParams fixedColumn(final int widthDp) {
-        return new LinearLayout.LayoutParams(
-                dp(widthDp), ViewGroup.LayoutParams.MATCH_PARENT);
-    }
-
-    private int dp(final int value) {
-        return Math.round(value
-                * mActivity.getResources().getDisplayMetrics().density);
-    }
-
-    private float sp(final float value) {
-        return value * mActivity.getResources()
-                .getDisplayMetrics().scaledDensity;
-    }
-
-    private final class TaskRow {
-        final String packageName;
-        final LinearLayout container;
-        final LinearLayout row;
-        final TextView display;
-        final TextView mode;
-        final TextView taskId;
-        final TextView cpu;
-        final TextView memory;
-        final View identity;
-        TaskRepository.TaskEntry task;
-
-        TaskRow(final TaskRepository.TaskEntry initialTask) {
-            packageName = initialTask.packageName;
-            container = new LinearLayout(mActivity);
-            container.setOrientation(LinearLayout.VERTICAL);
-            row = new LinearLayout(mActivity);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(4), dp(3), dp(4), dp(3));
-            row.setOnClickListener(view -> mActions.focus(task));
-
-            identity = createIdentity(initialTask);
-            row.addView(identity, applicationColumn());
-            cpu = valueCell(Gravity.END | Gravity.CENTER_VERTICAL);
-            row.addView(cpu, fixedColumn(CPU_WIDTH_DP));
-            memory = valueCell(Gravity.END | Gravity.CENTER_VERTICAL);
-            row.addView(memory, fixedColumn(MEMORY_WIDTH_DP));
-            display = valueCell(Gravity.CENTER);
-            row.addView(display, fixedColumn(DISPLAY_WIDTH_DP));
-            mode = valueCell(Gravity.CENTER);
-            row.addView(mode, fixedColumn(MODE_WIDTH_DP));
-            taskId = valueCell(Gravity.CENTER);
-            row.addView(taskId, fixedColumn(TASK_WIDTH_DP));
-            row.addView(new View(mActivity), flexibleColumn());
-            row.addView(createActions(initialTask),
-                    fixedColumn(ACTIONS_WIDTH_DP));
-
-            container.addView(row, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
-            final View divider = new View(mActivity);
-            divider.setBackgroundColor(COLOR_DIVIDER);
-            container.addView(divider, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, 1));
-        }
-
-        void bind(
-                final TaskRepository.TaskEntry currentTask,
-                final SystemMonitorRepository.ProcessResources resources) {
-            task = currentTask;
-            row.setBackgroundColor(
-                    currentTask.active ? COLOR_ACTIVE : COLOR_BACKGROUND);
-            display.setText(Integer.toString(currentTask.displayId));
-            mode.setText(currentTask.windowingMode);
-            taskId.setText(Integer.toString(currentTask.taskId));
-            cpu.setText(formatPercent(resources.cpuPercent));
-            memory.setText(formatMemory(resources.pssKb));
-        }
-
-        private View createIdentity(final TaskRepository.TaskEntry value) {
-            final AppResources resources = resourcesFor(value.packageName);
-            final LinearLayout identity = new LinearLayout(mActivity);
-            identity.setGravity(Gravity.CENTER_VERTICAL);
-            identity.setPadding(dp(6), 0, dp(8), 0);
-
-            final ImageView icon = new ImageView(mActivity);
-            icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-            icon.setImageDrawable(resources.icon);
-            identity.addView(icon, new LinearLayout.LayoutParams(
-                    dp(36), dp(36)));
-
-            final LinearLayout labels = new LinearLayout(mActivity);
-            labels.setOrientation(LinearLayout.VERTICAL);
-            labels.setPadding(dp(8), 0, 0, 0);
-            final TextView name = new TextView(mActivity);
-            name.setText(resources.label);
-            name.setTextColor(COLOR_TEXT);
-            name.setTextSize(14f);
-            name.setSingleLine(true);
-            name.setEllipsize(TextUtils.TruncateAt.END);
-            final TextView packageNameView = new TextView(mActivity);
-            packageNameView.setText(value.packageName);
-            packageNameView.setTextColor(COLOR_MUTED);
-            packageNameView.setTextSize(10f);
-            packageNameView.setSingleLine(true);
-            packageNameView.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-            labels.addView(name);
-            labels.addView(packageNameView);
-            identity.addView(labels, new LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-            return identity;
-        }
-
-        private View createActions(final TaskRepository.TaskEntry value) {
-            final LinearLayout actions = new LinearLayout(mActivity);
-            actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-            actions.addView(iconButton(
-                    R.drawable.ic_eye,
-                    R.string.task_manager_focus,
-                    view -> mActions.focus(task)), square(40));
-            actions.addView(iconButton(
-                    R.drawable.ic_logs,
-                    R.string.task_manager_logs,
-                    view -> mActions.openLogs(task)), square(40));
-            actions.addView(iconButton(
-                    R.drawable.ic_close,
-                    R.string.task_manager_close,
-                    view -> mActions.close(task)), square(40));
-            if (!BuildConfig.APPLICATION_ID.equals(value.packageName)) {
-                actions.addView(iconButton(
-                        R.drawable.ic_file_delete,
-                        R.string.task_manager_force_stop,
-                        view -> mActions.forceStop(task)), square(40));
-            }
-            return actions;
-        }
-
-        private TextView valueCell(final int gravity) {
-            final TextView cell = new TextView(mActivity);
-            cell.setTextColor(COLOR_TEXT);
-            cell.setTextSize(12f);
-            cell.setGravity(gravity);
-            cell.setSingleLine(true);
-            cell.setEllipsize(TextUtils.TruncateAt.END);
-            cell.setPadding(dp(8), 0, dp(8), 0);
-            return cell;
-        }
-
-        private LinearLayout.LayoutParams square(final int sizeDp) {
-            return new LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp));
-        }
-    }
-
-    private static final class AppResources {
-        final String label;
-        final Drawable icon;
-
-        AppResources(final String label, final Drawable icon) {
-            this.label = label;
-            this.icon = icon;
-        }
-    }
+    private String memory(long kb) { return kb < 0 ? "--" : Formatter.formatShortFileSize(activity, kb * 1024); }
+    private static String percent(float value) { return value < 0 ? "--" : String.format(Locale.ROOT, "%.1f%%", value); }
+    private int dp(int value) { return Math.round(value * activity.getResources().getDisplayMetrics().density); }
+    private LinearLayout.LayoutParams square(int size) { return new LinearLayout.LayoutParams(dp(size), dp(size)); }
 }

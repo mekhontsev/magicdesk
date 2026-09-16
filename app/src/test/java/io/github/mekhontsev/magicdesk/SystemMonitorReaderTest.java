@@ -1,94 +1,37 @@
 package io.github.mekhontsev.magicdesk;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
-
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 import org.junit.Test;
+import java.io.IOException;
+import static org.junit.Assert.*;
 
 public final class SystemMonitorReaderTest {
-    @Test
-    public void cpuTotalDoesNotCountGuestTimeTwice() throws Exception {
-        final SystemMonitorReader.Cpu cpu = SystemMonitorReader.parseCpuStat(
-                "cpu 100 20 30 400 5 6 7 8 40 10");
-        assertEquals(576L, cpu.total);
-        assertEquals(405L, cpu.idle);
+    @Test public void cpuExcludesGuestAndAcceptsWhitespace() throws Exception {
+        var cpu = SystemMonitorReader.parseCpuStat(" cpu 100 20 30 400 5 6 7 8 40 10 ");
+        assertEquals(576, cpu.total()); assertEquals(405, cpu.idle());
     }
-
-    @Test
-    public void cpuStatAcceptsBaseCountersAndWhitespace() throws Exception {
-        final SystemMonitorReader.Cpu cpu = SystemMonitorReader.parseCpuStat(
-                "  cpu\t1 2 3 4  ");
-        assertEquals(10L, cpu.total);
-        assertEquals(4L, cpu.idle);
+    @Test public void invalidCountersRemainUnknown() {
+        for (String row : new String[]{null, "", "cpu0 1 2 3 4", "cpu 1 2 3", "cpu 1 2 -3 4",
+                "cpu x 2 3 4", "cpu 9223372036854775807 1 0 0"})
+            assertThrows(IOException.class, () -> SystemMonitorReader.parseCpuStat(row));
     }
-
-    @Test
-    public void malformedCpuCountersRemainUnavailable() {
-        for (String row : new String[]{null, "", "cpu0 1 2 3 4", "cpu 1 2 3",
-                "cpu 1 2 -3 4", "cpu x 2 3 4", "cpu 9223372036854775807 1 0 0"}) {
-            assertThrows(java.io.IOException.class, () -> SystemMonitorReader.parseCpuStat(row));
-        }
+    static String stat(int pid, String name, int parent, long start, long cpu, long rss) {
+        return pid + " (" + name + ") S " + parent + " 1 1 0 0 0 0 0 0 0 "
+                + cpu + " 2 0 0 20 0 1 0 " + start + " 1000 " + rss + " 0";
     }
-
-    @Test
-    public void overflowingProcessCpuIsNotPublishedAsInfinity() {
-        final Map<String, SystemMonitorReader.MutableProcess> processes = new LinkedHashMap<>();
-        SystemMonitorReader.parseCpuInfo("9".repeat(400) + "% 100/com.example.app: user", processes);
-        assertTrue(processes.isEmpty());
+    @Test public void namesWithSpacesAndParenthesesKeepFieldOffsets() throws Exception {
+        var p = SystemMonitorReader.parseProcess(12, stat(12, "a ) b (c)", 8, 77, 9, 4),
+                "Name: ignored\nUid:\t10601\t10601\t10601\t10601\n", "", 4);
+        assertEquals("a ) b (c)", p.name); assertEquals(8, p.parentPid); assertEquals(77, p.startTicks);
+        assertEquals(11, p.cpuTicks); assertEquals(16, p.rssKb); assertEquals(10601, p.uid);
     }
-
-    @Test
-    public void parsesCpuForMainAndNamedProcesses() {
-        final Map<String, SystemMonitorReader.MutableProcess> processes =
-                new LinkedHashMap<>();
-
-        SystemMonitorReader.parseCpuInfo(
-                "CPU usage from 100ms to 0ms ago:\n"
-                        + "  12% 100/com.example.app: 8% user + 4% kernel\n"
-                        + "  3.5% 101/com.example.app:worker: 2% user\n"
-                        + "  malformed row\n",
-                processes);
-
-        assertEquals(12f, processes.get("com.example.app").cpuPercent, 0.001f);
-        assertEquals(
-                3.5f,
-                processes.get("com.example.app:worker").cpuPercent,
-                0.001f);
+    @Test public void commandNameIsBoundedAndControlsAreRemoved() throws Exception {
+        var p = SystemMonitorReader.parseProcess(12, stat(12, "sh", 8, 77, 9, 4),
+                "Uid: 2000 2000", "/bin/a\nb" + "x".repeat(400), 4);
+        assertEquals(256, p.name.length()); assertFalse(p.name.contains("\n"));
     }
-
-    @Test
-    public void parsesOnlyTotalPssProcessSection() {
-        final Map<String, SystemMonitorReader.MutableProcess> processes =
-                new LinkedHashMap<>();
-
-        SystemMonitorReader.parseProcessMemory(
-                "Total RSS by process:\n"
-                        + "  900,000K: com.example.app (pid 100)\n"
-                        + "Total PSS by process:\n"
-                        + "  123,456K: com.example.app (pid 100 / activities)\n"
-                        + "   10,000K: com.example.app:worker (pid 101)\n"
-                        + "Total PSS by OOM adjustment:\n"
-                        + "  999,999K: com.example.app (pid 100)\n",
-                processes);
-
-        assertEquals(123456L, processes.get("com.example.app").pssKb);
-        assertEquals(10000L, processes.get("com.example.app:worker").pssKb);
-        assertEquals(2, processes.size());
-    }
-
-    @Test
-    public void ignoresMissingSectionsAndMalformedRows() {
-        final Map<String, SystemMonitorReader.MutableProcess> processes =
-                new LinkedHashMap<>();
-
-        SystemMonitorReader.parseProcessMemory(
-                "Applications Memory Usage\nnot a process row\n",
-                processes);
-
-        assertTrue(processes.isEmpty());
+    @Test public void invalidIdentityAndMissingOwnerFail() {
+        assertThrows(IOException.class, () -> SystemMonitorReader.parseStat(9, stat(12, "sh", 8, 77, 0, 1)));
+        assertThrows(IOException.class, () -> SystemMonitorReader.parseStat(12, stat(12, "sh", 8, -1, 0, 1)));
+        assertThrows(IOException.class, () -> SystemMonitorReader.parseProcess(12, stat(12, "sh", 8, 77, 0, 1), "", "", 4));
     }
 }

@@ -344,11 +344,10 @@ public final class ShellAccess {
         }
     }
 
-    static SystemMonitorSnapshot readSystemMonitorSnapshot(
-            final boolean includeProcessMemory) throws IOException {
+    static SystemMonitorSnapshot readSystemMonitorSnapshot() throws IOException {
         try {
             final SystemMonitorSnapshot snapshot = requireService()
-                    .readSystemMonitorSnapshot(includeProcessMemory);
+                    .readSystemMonitorSnapshot();
             if (snapshot == null) {
                 throw new IOException(
                         "Shell service returned no system snapshot");

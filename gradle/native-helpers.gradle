@@ -105,7 +105,11 @@ def serviceTask = registerNativeHelper(
         'buildMagicDeskServiceLauncher',
         'magicdesk_service_launcher.c',
         'libmagicdesk_service_launcher.so')
+def processSignalTask = registerNativeHelper(
+        'buildMagicDeskProcessSignal',
+        'magicdesk_process_signal.c',
+        'libmagicdesk_process_signal.so')
 
 tasks.named('preBuild').configure {
-    dependsOn uinputTask, ptyTask, serviceTask
+    dependsOn uinputTask, ptyTask, serviceTask, processSignalTask
 }

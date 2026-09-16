@@ -8,6 +8,16 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public final class TmuxSessionProviderTest {
+    @Test public void paneRootsAreDeduplicatedAndOwnedBySession() {
+        final var snapshot = TmuxSessionProvider.parse("__MAGICDESK_TMUX_AVAILABLE__\n"
+                + "$0\twork\t2\t1\t1234\n$1\tother\t1\t0\t1235\n"
+                + "PANE\t42\t$0\nPANE\t42\t$0\nPANE\t43\t$0\nPANE\t44\t$1\n");
+        assertEquals(java.util.Set.of(42,43), snapshot.panes.get("$0"));
+        assertEquals(java.util.Set.of(44), snapshot.panes.get("$1"));
+        assertThrows(UnsupportedOperationException.class, () -> snapshot.panes.get("$0").add(100));
+        assertThrows(IllegalArgumentException.class, () -> TmuxSessionProvider.parse(
+                "__MAGICDESK_TMUX_AVAILABLE__\nPANE\t0\t$0\n"));
+    }
     @Test
     public void unavailableTmuxIsAValidEmptySnapshot() {
         final TmuxSessionProvider.Snapshot snapshot =

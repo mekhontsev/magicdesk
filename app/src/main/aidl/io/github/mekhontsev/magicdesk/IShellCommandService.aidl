@@ -230,8 +230,7 @@ interface IShellCommandService {
 
     oneway void cancelShellFileSearch(long searchId) = 69;
 
-    SystemMonitorSnapshot readSystemMonitorSnapshot(
-        boolean includeProcessMemory) = 70;
+    SystemMonitorSnapshot readSystemMonitorSnapshot() = 70;
 
     boolean beginAppFullscreenTask(
         ITaskObserverCallback callback,
