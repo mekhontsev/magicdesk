@@ -117,14 +117,14 @@ public final class QuickControlsPresentationTest {
 
     @Test
     public void x11SessionSelectionLeavesOpeningToExplicitActions() throws Exception {
-        final String selection = RuntimeSourceFixture.methods("X11Activity", "chooseSession");
+        final String selection = RuntimeSourceFixture.methods("X11ManagerActivity", "chooseSession");
         assertTrue(selection.contains("select(items.get(which))"));
         assertFalse(selection.contains("openWindow("));
-        final String controls = RuntimeSourceFixture.methods("X11Activity", "createSessionControls")
+        final String controls = RuntimeSourceFixture.methods("X11ManagerActivity", "createSessionControls")
                 .replaceAll("\\s+", "");
         assertTrue(controls.contains("R.string.x11_open_session,()->openWindow(0)"));
         assertTrue(controls.contains("R.string.x11_windows,this::chooseWindow"));
-        assertTrue(RuntimeSourceFixture.methods("X11Activity", "chooseWindow")
+        assertTrue(RuntimeSourceFixture.methods("X11ManagerActivity", "chooseWindow")
                 .contains("openWindow(windows.get(which).id())"));
     }
 

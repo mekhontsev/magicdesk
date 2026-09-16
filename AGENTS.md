@@ -39,6 +39,9 @@ borrow outputs; whole-desktop viewer closure retains the session, whereas an
 individual-client host requests that client's closure. Keep clipboard, drag URI
 grants and Android placement in the host, not the native renderer. Read
 `docs/x11.md` and the fork's `docs/embedding.md` before changing this boundary.
+`HostedSurfaceView` and `HostedContentExchange` are Android adapters: keep X11
+button codes, target names, window IDs and XDND in their X11 backends. The X11
+manager must not acquire viewer outputs, clipboard ownership or density ownership.
 
 Do not retain obsolete internal APIs, persisted-data formats or MCP protocols
 solely for backward compatibility unless explicitly requested. Remove replaced

@@ -92,18 +92,6 @@ final class X11ContentTransfer {
         };
     }
 
-    AndroidContentPayload dragPayload(AndroidContentPayload payload) throws IOException {
-        // Drag events broadcast ClipData to multiple windows, sharing Binder's async buffer.
-        // Our gesture owner retains inline formats; other apps receive a readable document.
-        if ((long) payload.text.length() + payload.htmlText.length() <= 32 * 1024) return payload;
-        boolean html = !payload.htmlText.isEmpty();
-        byte[] bytes = (html ? payload.htmlText : payload.text).getBytes(StandardCharsets.UTF_8);
-        Uri uri = GeneratedContentProvider.publish(context, html ? "selection.html" : "selection.txt", out -> out.write(bytes));
-        List<AndroidContentPayload.UriItem> items = new ArrayList<>(payload.uriItems);
-        items.add(new AndroidContentPayload.UriItem(uri, html ? X11ContentFormats.HTML : "text/plain"));
-        return AndroidContentPayload.uris(payload.label, items, List.of(), payload.origin);
-    }
-
     static List<String> formats(AndroidContentPayload payload) {
         List<String> result = new ArrayList<>();
         if (!payload.text.isEmpty()) { result.add("UTF8_STRING"); result.add("text/plain;charset=utf-8"); result.add("text/plain"); }

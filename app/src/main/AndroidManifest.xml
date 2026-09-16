@@ -379,6 +379,16 @@
             android:taskAffinity="${applicationId}.displayviewer"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize" />
         <activity
+            android:name=".X11ManagerActivity"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_ACTIVITY_TASKS"
+            android:icon="@drawable/ic_show_desktop"
+            android:label="@string/x11_title"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.x11manager"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".X11Activity"
             android:exported="true"
             android:permission="android.permission.MANAGE_ACTIVITY_TASKS"

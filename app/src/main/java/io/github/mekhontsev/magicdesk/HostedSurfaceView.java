@@ -10,11 +10,11 @@ import android.view.SurfaceView;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
-import com.termux.x11.X11Session;
 
-/** Public Android input and Surface lifetime for one borrowed X output. */
-final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback {
-    private X11Session.Output output;
+/** Android input, IME and Surface lifetime, independent of the guest display protocol. */
+final class HostedSurfaceView extends SurfaceView implements SurfaceHolder.Callback {
+    private static final HostedSurfaceOutput.Button[] POINTER_BUTTONS = HostedSurfaceOutput.Button.values();
+    private HostedSurfaceOutput output;
     private int frameWidth, frameHeight, buttons;
     private boolean touching;
     private boolean contentDrag;
@@ -22,14 +22,14 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
     private final SparseIntArray keys = new SparseIntArray();
     private float lastX, lastY;
 
-    X11SurfaceView(Context context) {
+    HostedSurfaceView(Context context) {
         super(context);
         setFocusable(true);
         setFocusableInTouchMode(true);
         getHolder().addCallback(this);
     }
 
-    void bind(X11Session.Output next) {
+    void bind(HostedSurfaceOutput next) {
         release();
         output = next;
         if (output != null && getHolder().getSurface().isValid() && getWidth() > 0 && getHeight() > 0)
@@ -48,7 +48,7 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
     private void releaseInput() {
         if (!contentDrag) {
             mouseButtons(0);
-            if (touching && output != null) output.pointer(lastX, lastY, 1, false);
+            if (touching && output != null) output.button(lastX, lastY, HostedSurfaceOutput.Button.PRIMARY, false);
             touching = false;
         }
         if (output != null) {
@@ -74,7 +74,7 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
         android.graphics.PointF point = contentPoint(event.getX(), event.getY());
         lastX = point.x;
         lastY = point.y;
-        output.pointer(lastX, lastY, 0, false);
+        output.pointer(lastX, lastY);
         return true;
     }
 
@@ -92,11 +92,14 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
     void endContentDrag() { contentDrag = false; touching = false; buttons = 0; }
 
     private void mouseButtons(int next) {
-        for (int button = 1; button <= 3; button++) {
-            int mask = button == 1 ? MotionEvent.BUTTON_PRIMARY
-                    : button == 2 ? MotionEvent.BUTTON_TERTIARY : MotionEvent.BUTTON_SECONDARY;
+        for (HostedSurfaceOutput.Button button : POINTER_BUTTONS) {
+            int mask = switch (button) {
+                case PRIMARY -> MotionEvent.BUTTON_PRIMARY;
+                case MIDDLE -> MotionEvent.BUTTON_TERTIARY;
+                case SECONDARY -> MotionEvent.BUTTON_SECONDARY;
+            };
             if (output != null && ((buttons ^ next) & mask) != 0)
-                output.pointer(lastX, lastY, button, (next & mask) != 0);
+                output.button(lastX, lastY, button, (next & mask) != 0);
         }
         buttons = next;
     }
@@ -111,9 +114,9 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
             mouseButtons(action == MotionEvent.ACTION_CANCEL ? 0 : event.getButtonState());
         } else if (action == MotionEvent.ACTION_DOWN) {
             touching = true;
-            output.pointer(lastX, lastY, 1, true);
+            output.button(lastX, lastY, HostedSurfaceOutput.Button.PRIMARY, true);
         } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            if (touching) output.pointer(lastX, lastY, 1, false);
+            if (touching) output.button(lastX, lastY, HostedSurfaceOutput.Button.PRIMARY, false);
             touching = false;
             if (action == MotionEvent.ACTION_UP) performClick();
         }
@@ -129,19 +132,10 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
         if (event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS) requestFocus();
         mouseButtons(event.getButtonState());
         if (event.getActionMasked() == MotionEvent.ACTION_SCROLL) {
-            wheel(event.getAxisValue(MotionEvent.AXIS_VSCROLL), 4, 5);
-            wheel(event.getAxisValue(MotionEvent.AXIS_HSCROLL), 7, 6);
+            output.scroll(lastX, lastY, event.getAxisValue(MotionEvent.AXIS_HSCROLL),
+                    event.getAxisValue(MotionEvent.AXIS_VSCROLL));
         }
         return true;
-    }
-
-    private void wheel(float amount, int positive, int negative) {
-        int count = Math.min(32, (int) Math.ceil(Math.abs(amount)));
-        int button = amount > 0 ? positive : negative;
-        for (int i = 0; i < count; i++) {
-            output.pointer(lastX, lastY, button, true);
-            output.pointer(lastX, lastY, button, false);
-        }
     }
 
     @Override public boolean onKeyDown(int key, KeyEvent event) { return key(event, true) || super.onKeyDown(key, event); }
@@ -151,8 +145,6 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
         if (output == null || event.getKeyCode() == KeyEvent.KEYCODE_BACK || event.getKeyCode() == KeyEvent.KEYCODE_VOLUME_UP
                 || event.getKeyCode() == KeyEvent.KEYCODE_VOLUME_DOWN) return false;
         int scan = event.getScanCode();
-        // X11 keycodes are eight-bit; unsupported evdev codes use the Android mapping.
-        if (scan < 0 || scan > 247) scan = 0;
         if (down) keys.put(event.getKeyCode(), scan);
         else keys.delete(event.getKeyCode());
         output.key(event.getKeyCode(), scan, down);

@@ -1607,7 +1607,16 @@ file access: Termux launches resolve an exact freshly queried catalog path.
 the native window model owns X relationships, never Android task topology.
 Clipboard and copy drag-and-drop reuse the shared Android content boundary;
 the fork owns selection/XDND negotiation, while the host owns focus and URI grants.
-The session manager is separate from content-only client/desktop viewers.
+`X11ManagerActivity` only selects and controls sessions; `X11Activity` hosts
+content-only client/desktop viewers. The manager never acquires an output,
+clipboard ownership or density ownership. `HostedSurfaceView` owns Android
+Surface/input/IME lifecycle through `HostedSurfaceOutput`; `X11SurfaceOutput`
+owns X11 input encoding. `HostedContentExchange` owns Android clipboard focus,
+drag gesture lifetime and URI grants through `HostedContentBackend`;
+`X11ContentExchange` owns protocol targets, output IDs and selection/XDND
+transactions. These host contracts do not impose X11's session-global density
+or root-window model on other renderers. Session bootstrap and rendering remain
+X11-specific; no second protocol or generalized session engine is introduced.
 Individual outputs retain Android Surface geometry; root outputs leave Linux
 window placement to its window manager. Window titles and bounded EWMH icons
 flow through the existing X catalog into Android task descriptions and
@@ -1858,7 +1867,7 @@ Termux-backed Console windows therefore share the same Android system
 clipboard as shell-backed Console and ordinary Android applications; MagicDesk
 does not maintain a terminal clipboard mirror. Sensitive MCP connection data
 is marked for protected Android clipboard previews. Clipboard access is
-request-driven outside focused X11 hosts. `X11HostExchange` subscribes through
+request-driven outside focused guest hosts. `HostedContentExchange` subscribes through
 the gateway only while its Android window has focus; no clipboard history or
 polling loop is introduced. Session-origin tags prevent clipboard feedback.
 

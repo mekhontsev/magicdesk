@@ -6,15 +6,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import com.termux.x11.X11Session;
-import java.util.List;
 
 /** An ordinary Android window onto a retained X server or one selected X client window. */
 public final class X11Activity extends Activity implements X11Sessions.Listener, BuiltInWindowRegistry.PresentationSource {
@@ -28,17 +23,13 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     private static final String DIRECTORY = "x11_directory";
     private X11Sessions.Session session;
     private X11Session.Output output;
-    private X11SurfaceView surface;
-    private DesktopUiFactory ui;
-    private Button sessions;
+    private HostedSurfaceView surface;
     private TextView status;
-    private ImageButton open, windows, execute, scale, stop;
     private long window;
     private boolean seenWindow;
     private boolean application;
-    private boolean manager;
     private volatile BuiltInWindowRegistry.Presentation presentation;
-    private X11HostExchange exchange;
+    private HostedContentExchange exchange;
 
     static Intent createIntent(Context context) { return new Intent(context, X11Activity.class); }
 
@@ -49,22 +40,18 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        manager = !getIntent().hasExtra(SESSION) && !getIntent().hasExtra(WINDOW)
-                && !getIntent().hasExtra(COMMAND);
         BuiltInWindowRegistry.register(this);
         DesktopTaskDescription.apply(this, R.string.x11_title, R.drawable.ic_show_desktop);
-        ui = new DesktopUiFactory(this);
+        DesktopUiFactory ui = new DesktopUiFactory(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(DesktopUiFactory.COLOR_BACKGROUND);
         SystemBarInsets.addToPadding(root, true);
-        if (manager) root.addView(createSessionControls());
         status = new TextView(this);
         status.setTextColor(DesktopUiFactory.COLOR_MUTED);
         status.setPadding(ui.dp(12), ui.dp(6), ui.dp(12), ui.dp(6));
         root.addView(status);
-        surface = new X11SurfaceView(this);
-        surface.setVisibility(manager ? View.GONE : View.VISIBLE);
+        surface = new HostedSurfaceView(this);
         root.addView(surface, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
         window = state == null ? getIntent().getLongExtra(WINDOW, 0) : state.getLong(WINDOW);
@@ -89,36 +76,6 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
         select(X11Sessions.find(id));
     }
 
-    private LinearLayout createSessionControls() {
-        LinearLayout toolbar = new LinearLayout(this);
-        toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        sessions = ui.menuItem(R.string.x11_sessions, DesktopUiFactory.COLOR_TEXT);
-        sessions.setSingleLine(true);
-        sessions.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        sessions.setOnClickListener(v -> chooseSession());
-        toolbar.addView(sessions, new LinearLayout.LayoutParams(0, ui.dp(48), 1));
-        addAction(toolbar, R.drawable.ic_add, R.string.x11_new_session, this::newSession);
-        open = addAction(toolbar, R.drawable.ic_show_desktop, R.string.x11_open_session, () -> openWindow(0));
-        windows = addAction(toolbar, R.drawable.ic_file_new_window, R.string.x11_windows, this::chooseWindow);
-        execute = addAction(toolbar, R.drawable.ic_play, R.string.x11_run_command, this::command);
-        scale = addAction(toolbar, R.drawable.ic_quick_controls, R.string.app_presentation_scale,
-                () -> { if (session != null) X11ScaleDialog.show(this, session); });
-        stop = addAction(toolbar, R.drawable.ic_close, R.string.x11_stop_session, () -> {
-            X11Sessions.Session selected = session;
-            if (selected != null) new AlertDialog.Builder(this).setTitle(R.string.x11_stop_session)
-                    .setMessage(selected.name).setNegativeButton(android.R.string.cancel, null)
-                    .setPositiveButton(android.R.string.ok, (dialog, which) -> selected.close()).show();
-        });
-        return toolbar;
-    }
-
-    private ImageButton addAction(LinearLayout toolbar, int icon, int title, Runnable action) {
-        ImageButton button = ui.menuIconButton(icon, title);
-        button.setOnClickListener(v -> action.run());
-        toolbar.addView(button, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(48)));
-        return button;
-    }
-
     private void select(X11Sessions.Session next) {
         releaseExchange();
         if (session != null) { session.unlisten(this); session.releaseDensity(this); session.releaseHost(getTaskId()); }
@@ -128,7 +85,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
         seenWindow = false;
         if (session != null) {
             session.listen(this);
-            if (!manager) session.host(getTaskId(), hasWindowFocus());
+            session.host(getTaskId(), hasWindowFocus());
             updateDensity();
         }
         onChanged();
@@ -144,11 +101,11 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
         if (ready && window != 0) {
             session.claimWindow(window);
         }
-        if (!manager && ready && session.application && hasWindowFocus()) for (X11Session.Window item : session.windows()) {
-            if (item.mapped() && session.claimWindow(item.id())) openWindow(item.id());
+        if (ready && session.application && hasWindowFocus()) for (X11Session.Window item : session.windows()) {
+            if (item.mapped() && session.claimWindow(item.id())) openWindow(this, session, item.id());
         }
         if (application && session != null && session.state() == X11Sessions.State.CLOSED) { finish(); return; }
-        if (!manager && window == 0 && session != null) {
+        if (window == 0 && session != null) {
             present(session.name, null);
         }
         if (window != 0 && session != null) {
@@ -159,23 +116,15 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
                 present(title, info.icon());
             } else if (seenWindow) { finish(); return; }
         }
-        if (manager) {
-            sessions.setText(session == null ? getString(R.string.x11_sessions) : session.name + " " + session.display());
-            open.setEnabled(ready);
-            windows.setEnabled(ready);
-            execute.setEnabled(ready);
-            scale.setEnabled(ready);
-            stop.setEnabled(session != null && !session.stopped());
-        }
         status.setText(session == null ? getString(R.string.x11_no_session)
                 : !session.error().isEmpty() ? session.error()
                 : ready && application && window == 0 ? getString(R.string.x11_waiting_application) : session.state().name());
-        status.setVisibility(!manager && ready && session.error().isEmpty() && (!application || window != 0) ? View.GONE : View.VISIBLE);
-        if (!manager && ready && output == null && (!application || window != 0)) {
+        status.setVisibility(ready && session.error().isEmpty() && (!application || window != 0) ? View.GONE : View.VISIBLE);
+        if (ready && output == null && (!application || window != 0)) {
             try {
                 output = session.openOutput(window);
-                surface.bind(output);
-                exchange = new X11HostExchange(this, session, this, surface, output);
+                surface.bind(new X11SurfaceOutput(output));
+                exchange = new HostedContentExchange(this, surface, new X11ContentExchange(this, session, output));
                 surface.requestFocus();
             } catch (RuntimeException error) { status.setText(ShellAccess.usefulMessage(error)); status.setVisibility(View.VISIBLE); }
         } else if (!ready && output != null) { releaseExchange(); surface.release(); output = null; }
@@ -196,7 +145,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     @Override public void onWindowFocusChanged(boolean focused) {
         super.onWindowFocusChanged(focused);
         updateDensity();
-        if (!manager && session != null) {
+        if (session != null) {
             session.host(getTaskId(), focused);
             if (focused) session.recordUse();
         }
@@ -210,20 +159,12 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     }
 
     private void updateDensity() {
-        if (!manager && session != null) session.hostDensity(this,
+        if (session != null) session.hostDensity(this,
                 getResources().getConfiguration().densityDpi, hasWindowFocus());
     }
 
     private void updateExchangeFocus() {
         if (exchange != null) exchange.focus(hasWindowFocus());
-    }
-
-    @Override public void onDataOffer(com.termux.x11.X11DataExchange.Offer offer) {
-        if (exchange != null) exchange.offer(offer);
-    }
-
-    @Override public void onDragEvent(int operation, int outputId, boolean accepted) {
-        if (exchange != null) exchange.dragEvent(operation, outputId, accepted);
     }
 
     private void releaseExchange() {
@@ -235,76 +176,15 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
         if (source == output) surface.frame(available ? width : 0, available ? height : 0);
     }
 
-    private void chooseSession() {
-        List<X11Sessions.Session> items = X11Sessions.list();
-        String[] labels = items.stream().map(item -> item.name + " " + item.display()).toArray(String[]::new);
-        new AlertDialog.Builder(this).setTitle(R.string.x11_sessions).setItems(labels, (dialog, which) -> {
-            window = 0;
-            application = false;
-            select(items.get(which));
-        }).setPositiveButton(R.string.x11_new_session, (dialog, which) -> newSession())
-                .setNegativeButton(android.R.string.cancel, null).show();
-    }
-
-    private void chooseWindow() {
-        if (session == null) return;
-        X11Sessions.Session selected = session;
-        List<X11Session.Window> windows = selected.windows();
-        String[] labels = windows.stream().map(item -> item.title().isBlank()
-                ? "X11 " + Long.toUnsignedString(item.id()) : item.title()).toArray(String[]::new);
-        new AlertDialog.Builder(this).setTitle(R.string.x11_windows).setItems(labels, (dialog, which) -> {
-            openWindow(windows.get(which).id());
-        }).setNegativeButton(android.R.string.cancel, null).show();
-    }
-
-    private void openWindow(long id) {
-        X11Sessions.Session selected = session;
-        ToolApplications.openSibling(this, createIntent(this).putExtra(SESSION, selected.id()).putExtra(WINDOW, id),
+    static void openWindow(Activity source, X11Sessions.Session selected, long id) {
+        ToolApplications.openSibling(source, createIntent(source).putExtra(SESSION, selected.id()).putExtra(WINDOW, id),
                 error -> {
-                    if (error != null) { selected.releaseWindowClaim(id); showError(error); }
+                    if (error != null) {
+                        selected.releaseWindowClaim(id);
+                        new AlertDialog.Builder(source).setMessage(ShellAccess.usefulMessage(error))
+                                .setPositiveButton(android.R.string.ok, null).show();
+                    }
                 });
-    }
-
-    private EditText field(LinearLayout parent, int hint) {
-        EditText field = new EditText(this);
-        field.setHint(hint);
-        field.setSingleLine(true);
-        parent.addView(field, new LinearLayout.LayoutParams(-1, -2));
-        return field;
-    }
-
-    private void newSession() {
-        if (!TermuxIntegration.ensureRunCommandPermission(this)) return;
-        LinearLayout fields = new LinearLayout(this);
-        fields.setOrientation(LinearLayout.VERTICAL);
-        fields.setPadding(ui.dp(16), 0, ui.dp(16), 0);
-        EditText name = field(fields, R.string.x11_session_name);
-        EditText command = field(fields, R.string.x11_command_optional);
-        new AlertDialog.Builder(this).setTitle(R.string.x11_new_session).setView(fields)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.x11_start, (dialog, which) -> {
-                    try {
-                        window = 0;
-                        application = false;
-                        select(X11Sessions.start(this, name.getText().toString().isBlank()
-                                ? "X11" : name.getText().toString(), command.getText().toString()));
-                        openWindow(0);
-                    } catch (RuntimeException error) { showError(error); }
-                }).show();
-    }
-
-    private void command() {
-        if (session == null) return;
-        EditText command = new EditText(this);
-        command.setSingleLine(true);
-        command.setHint(R.string.x11_run_command);
-        X11Sessions.Session selected = session;
-        new AlertDialog.Builder(this).setTitle(R.string.x11_run_command).setView(command)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.x11_start, (dialog, which) -> {
-                    try { selected.execute(command.getText().toString()); }
-                    catch (RuntimeException error) { showError(error); }
-                }).show();
     }
 
     private void showError(Throwable error) {
