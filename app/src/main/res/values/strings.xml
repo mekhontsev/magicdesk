@@ -86,6 +86,10 @@
     <string name="display_viewer_source">Source display</string>
     <string name="display_viewer_no_sources">No other displays connected</string>
     <string name="display_previous">Previous display</string>
+    <string name="display_switch">Switch display and input</string>
+    <string name="display_switch_this">This display: %1$s [%2$d]</string>
+    <string name="display_switch_apps">Apps: %1$d</string>
+    <string name="display_switch_failed">Could not switch displays: %1$s</string>
     <string name="display_stop_showing">Stop showing</string>
     <string name="display_show_another">Show another display...</string>
     <string name="display_start_portable">Start portable desktop here</string>

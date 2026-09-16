@@ -76,7 +76,7 @@ public final class DisplayViewerLaunchTest {
                     check(source.id != output.id, "cannot view itself");
                 }
                 static void setFullscreen(Session s, boolean full) { s.fullscreen = full; }
-                static void selectForAttachment(Session s, DesktopDisplayInfo source,
+                static void selectForAttachment(Session s, DesktopDisplayInfo source, boolean followInput,
                         BuiltInWindowLauncher.Callback callback) {
                     s.source = source;
                     if (s.ready) callback.onComplete(null);

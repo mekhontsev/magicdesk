@@ -59,7 +59,10 @@ public final class DisplayPresentationSelectionTest {
                 static class Change {
                     static int starts;
                     final Map<Session, DesktopDisplayInfo> next;
-                    Change(Map<Session, DesktopDisplayInfo> next) { this.next = next; }
+                    Change(Map<Session, DesktopDisplayInfo> next, boolean followInput) {
+                        check(followInput, "ordinary selection lost conditional input handoff");
+                        this.next = next;
+                    }
                     void start() {
                         starts++;
                         next.keySet().forEach(s -> { s.change = this; s.error = ""; });

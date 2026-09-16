@@ -42,7 +42,8 @@ public final class DisplayPresentationReturnTest {
                     s.completions.clear();
                     callbacks.forEach(c -> c.onComplete(null));
                 }
-                static void select(Session s, int id, String uniqueId, BuiltInWindowLauncher.Callback callback) {
+                static void select(Session s, int id, String uniqueId, boolean followInput, BuiltInWindowLauncher.Callback callback) {
+                    check(followInput, "ordinary return lost conditional input handoff");
                     if (!s.source.uniqueId.equals(uniqueId)) {
                         rememberOutput(s);
                         s.source = new DesktopDisplayInfo(id);
@@ -68,7 +69,7 @@ public final class DisplayPresentationReturnTest {
                     current.listener.pending.onComplete(null);
                     check(results.size() == 1 && results.remove(0) == null, "ready output blocked");
                     rememberOutput(current);
-                    select(current, 3, "display:3", error -> {});
+                    select(current, 3, "display:3", true, error -> {});
                     showForSource(2, results::add);
                     current.listener.pending.onComplete(null);
                     check(current.source.id == 2 && results.isEmpty(), "first source was not selected again");

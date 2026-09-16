@@ -37,7 +37,7 @@ final class ShortcutCatalog {
         new Entry(R.string.shortcut_next,
                 R.string.shortcut_next_action),
         new Entry(R.string.shortcut_display,
-                R.string.display_previous)
+                R.string.display_switch)
     };
 
     private ShortcutCatalog() {

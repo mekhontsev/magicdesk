@@ -4,6 +4,16 @@ import org.junit.Test;
 
 /** Runs the actual binding transaction against explicitly scheduled UI/input boundaries. */
 public final class DisplayPresentationTransactionTest {
+    @Test public void explicitSwitchOwnsInputSeparatelyFromBindingTransaction() throws Exception {
+        verify("""
+                MagicDeskRuntime.display = 1;
+                Session a = session(1, 3, true);
+                new Change(Map.of(a, new DesktopDisplayInfo(2)), false).start();
+                attached(a); MAIN.drain();
+                check(a.ready && a.source.id == 2, "binding failed");
+                check(MagicDeskRuntime.display == 1, "binding stole explicit switch input ownership");
+                """);
+    }
     @Test public void mirrorDoesNotRedirectOrReleasePrimaryInputOrBecomeAReturnOutput() throws Exception {
         verify("""
                 MagicDeskRuntime.display = 1;

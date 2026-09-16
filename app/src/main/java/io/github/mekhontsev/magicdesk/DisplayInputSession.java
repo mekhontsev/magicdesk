@@ -55,7 +55,7 @@ final class DisplayInputSession {
                 }
                 InputSessionDiagnostics.noteAttempt(displayId);
                 mRouting = ShellAccess.openInputRouting(
-                        displayId, desktopShortcuts, mKeyboardOnAppDisplay);
+                        displayId, true, mKeyboardOnAppDisplay);
                 if (mGeneration != generation) {
                     release();
                     return;
@@ -67,7 +67,7 @@ final class DisplayInputSession {
                 }
                 mHandler.post(() -> {
                     if (mGeneration == generation && mReadyDisplay == displayId) {
-                        DesktopShortcutService.setTargetDisplay(desktopShortcuts ? displayId : -1);
+                        DesktopShortcutService.setTargetDisplay(displayId, desktopShortcuts);
                         mChanged.run();
                     }
                 });
@@ -133,7 +133,7 @@ final class DisplayInputSession {
             }
             mHandler.post(() -> {
                 if (mGeneration == generation) {
-                    DesktopShortcutService.setTargetDisplay(mDesktopShortcuts ? mReadyDisplay : -1);
+                    DesktopShortcutService.setTargetDisplay(mReadyDisplay, mDesktopShortcuts);
                     mChanged.run();
                 }
             });

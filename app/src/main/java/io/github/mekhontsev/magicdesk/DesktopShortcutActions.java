@@ -59,8 +59,15 @@ final class DesktopShortcutActions {
             case SHOW_DESKTOP:
                 DesktopOperations.toggleDesktopWorkspace();
                 break;
-            case SWITCH_DISPLAY:
-                DisplayPresentations.previousForInput();
+            case DISPLAY_FORWARD:
+            case DISPLAY_REVERSE:
+                DisplaySwitchController.advanceForInput(action == KeyboardShortcutStateMachine.Action.DISPLAY_REVERSE);
+                break;
+            case DISPLAY_COMMIT:
+                DisplaySwitchController.commit();
+                break;
+            case DISPLAY_CANCEL:
+                DisplaySwitchController.cancel();
                 break;
             case SCREENSHOT:
                 DesktopOperations.captureScreenshot(MagicDeskRuntime.inputDisplayId());

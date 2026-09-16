@@ -214,10 +214,11 @@ survive reboot. Binder owner death releases routes; interrupted cleanup remains
 retryable. Unknown or incomplete input inventory is an error, not an empty list.
 
 Existing input-device callbacks reconcile hot-plugged locations. There is no
-periodic input inventory query. Only when the selected display owns a prepared
-Desktop does a key-only Accessibility service receive
-confirmed desktop keyboard IDs, observed through device-generation callbacks.
-It consumes MagicDesk combinations and dispatches them through the same
+periodic input inventory query. While input is explicitly acquired, a key-only
+Accessibility service receives confirmed routed keyboard IDs, observed through
+device-generation callbacks. Outside a prepared Desktop it handles display
+switching only; Android retains application shortcuts, including Alt+Tab and
+Meta. With Desktop it also consumes MagicDesk combinations through the same
 `DesktopOperations` and task-controller gateways as the UI. Ordinary key
 events continue through Android unchanged. Service enablement has its own
 shell-owned journal and preserves other Accessibility services.
@@ -2122,9 +2123,29 @@ coordinates together. Refresh-rate and power notifications do not query the
 privileged catalog when dimensions/density are unchanged. Source geometry
 changes do not release and reacquire unchanged physical-input routing.
 
-The viewer source menu and previous-source action share this registry. Desktop
-`Ctrl+Alt+Tab` addresses the viewer showing the selected input source; ordinary
-application Alt+Tab is unchanged. Fullscreen hides viewer controls and requests
+The viewer source menu and previous-source action share this registry.
+`Ctrl+Alt+Tab` opens a display switcher on the output currently showing the input
+source, or on that display itself when there is no visible output attachment.
+Repeated Tab cycles valid live sources, Shift reverses, releasing Alt confirms,
+and Escape cancels. Selection does not change presentation, focus or input.
+The non-focusable picker uses the existing Accessibility service's display-local
+overlay, or a child popup in an ordinary Viewer. It requests neither window
+content nor accessibility events. No Desktop host or task plane is created.
+Names include IDs, Desktop state and a one-shot application count; unavailable
+task observation remains unknown. Exact-identity, per-output MRU makes a quick
+chord return to the previous screen. The output's **This display** entry closes
+its output Viewer instead of creating a self-mirror.
+
+`DisplaySwitchOperation` explicitly acquires input after the fullscreen
+presentation is ready. Its binding transaction does not separately redirect
+input. An input failure restores the earlier binding and input selection when
+still owned; a later explicit selection wins. Failure is reported, not treated
+as a successful image-only switch. A requested phone touchpad follows external
+output switching without covering a Viewer on the phone itself. Ordinary Viewer
+opening/selection keeps its existing conditional input policy and never acquires
+devices just because a window opened. No task changes display ID, mode or owner.
+The picker disappears before commit; the resulting Viewer has no toolbar or
+frame. Ordinary application Alt+Tab is unchanged. Fullscreen hides viewer controls and requests
 immersive system bars; Back returns to the controls before detaching the viewer.
 Reattaching an existing output applies the requested fullscreen state too; Attach
 waits for that output's attachment even if source selection committed while hidden.
@@ -3900,7 +3921,8 @@ These constraints define the supported implementation paths:
 - Asynchronous add/remove of the replacement inset source can be coalesced by
   Nubia before the client observes it; both stages require sync callbacks.
 - Physical devices keep their original Android event streams and identities.
-  The key-only shortcut filter is restricted to confirmed desktop keyboards.
+  The key-only shortcut filter is restricted to confirmed routed keyboards;
+  outside Desktop only the display-switch gesture is consumed.
   Phone pointer injection is a separate virtual device, not physical relay.
 - Phone-screen-off process protection uses only the transient vendor
   service-working heartbeat; no persistent freezer whitelist is installed.

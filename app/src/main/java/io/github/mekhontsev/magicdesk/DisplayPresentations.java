@@ -96,6 +96,15 @@ final class DisplayPresentations {
         attach(context, source.id, output.id, true, source.uniqueId, output.uniqueId, null, callback);
     }
 
+    /** The encompassing switch operation owns input and its rollback, not the binding change. */
+    static void attachForSwitch(Context context, DesktopDisplayInfo source, DesktopDisplayInfo output,
+            BuiltInWindowLauncher.Callback callback) {
+        final Session previous = forOutput(output.id);
+        attach(context, source.id, output.id, true, source.uniqueId, output.uniqueId,
+                new AttachmentExpectation(previous, previous == null ? source.uniqueId : previous.source.uniqueId),
+                false, callback);
+    }
+
     static void attachForDesktop(Context context, DesktopDisplayInfo source, DesktopDisplayInfo output,
             Session previous, BuiltInWindowLauncher.Callback callback) {
         attach(context, source.id, output.id, true, source.uniqueId, output.uniqueId,
@@ -114,6 +123,12 @@ final class DisplayPresentations {
     private static void attach(Context context, int sourceId, int outputId, boolean fullscreen,
             String sourceUniqueId, String outputUniqueId, AttachmentExpectation expected,
             BuiltInWindowLauncher.Callback callback) {
+        attach(context, sourceId, outputId, fullscreen, sourceUniqueId, outputUniqueId, expected, true, callback);
+    }
+
+    private static void attach(Context context, int sourceId, int outputId, boolean fullscreen,
+            String sourceUniqueId, String outputUniqueId, AttachmentExpectation expected, boolean followInput,
+            BuiltInWindowLauncher.Callback callback) {
         TaskCommandQueue.execute(() -> {
             try {
                 final DesktopDisplayInfo source = requireSource(sourceId, sourceUniqueId);
@@ -129,13 +144,13 @@ final class DisplayPresentations {
                             }
                             setFullscreen(existing, fullscreen);
                             if (existing.listener == null) {
-                                selectForAttachment(existing, source, callback);
+                                selectForAttachment(existing, source, followInput, callback);
                             } else existing.listener.show(error -> {
                                 if (error != null) callback.onComplete(error);
                                 else {
                                     try {
                                         if (expected != null) expected.verify(forOutput(output.id));
-                                        selectForAttachment(existing, source, callback);
+                                        selectForAttachment(existing, source, followInput, callback);
                                     } catch (RuntimeException failure) { callback.onComplete(failure); }
                                 }
                             });
@@ -229,7 +244,12 @@ final class DisplayPresentations {
 
     private static void selectForAttachment(Session session, DesktopDisplayInfo source,
             BuiltInWindowLauncher.Callback callback) {
-        select(session, source.id, source.uniqueId, error -> {
+        selectForAttachment(session, source, true, callback);
+    }
+
+    private static void selectForAttachment(Session session, DesktopDisplayInfo source, boolean followInput,
+            BuiltInWindowLauncher.Callback callback) {
+        select(session, source.id, source.uniqueId, followInput, error -> {
             if (error != null || session.ready) callback.onComplete(error);
             else session.completions.add(callback);
         });
@@ -264,6 +284,11 @@ final class DisplayPresentations {
 
     static void select(Session session, int sourceId, String uniqueId,
             BuiltInWindowLauncher.Callback completion) {
+        select(session, sourceId, uniqueId, true, completion);
+    }
+
+    private static void select(Session session, int sourceId, String uniqueId, boolean followInput,
+            BuiltInWindowLauncher.Callback completion) {
         TaskCommandQueue.execute(() -> {
             try {
                 final DesktopDisplayInfo source = requireSource(sourceId, uniqueId);
@@ -297,7 +322,7 @@ final class DisplayPresentations {
                         final Map<Session, DesktopDisplayInfo> next = new LinkedHashMap<>();
                         next.put(session, source);
                         if (other != null && other != session) next.put(other, session.source);
-                        final Change change = new Change(next);
+                        final Change change = new Change(next, followInput);
                         session.completions.add(completion);
                         change.start();
                     } catch (RuntimeException error) { completion.onComplete(error); }
@@ -341,11 +366,24 @@ final class DisplayPresentations {
         return null;
     }
 
-    static void previousForInput() {
-        MAIN.post(() -> {
-            final Session session = forSource(MagicDeskRuntime.inputDisplayId());
-            if (session != null) previous(session);
-        });
+    static boolean canSwitchOutput(DesktopDisplayInfo source, DesktopDisplayInfo output) {
+        final Session session = forOutput(output.id);
+        if (session != null && (session.closed || session.change != null || session.listener == null)) return false;
+        if (source.uniqueId.equals(output.uniqueId)) return true;
+        try {
+            if (session == null) validate(source, output, true);
+            else {
+                final Map<Session, DesktopDisplayInfo> next = new LinkedHashMap<>();
+                next.put(session, source);
+                final Session other = forSource(source.id);
+                if (other != null && other != session) {
+                    if (other.change != null || other.listener == null) return false;
+                    next.put(other, session.source);
+                }
+                validateGraph(next);
+            }
+            return true;
+        } catch (IllegalArgumentException | IllegalStateException unavailable) { return false; }
     }
 
     static void detach(Session session) {
@@ -458,6 +496,9 @@ final class DisplayPresentations {
         boolean published;
         boolean inputPending;
         Change(Map<Session, DesktopDisplayInfo> next) {
+            this(next, true);
+        }
+        Change(Map<Session, DesktopDisplayInfo> next, boolean followInput) {
             this.next = next;
             waiting = new java.util.HashSet<>();
             int input = -1;
@@ -471,7 +512,7 @@ final class DisplayPresentations {
                     throw new IllegalArgumentException("source and output must differ");
                 }
                 pair.getValue().requirePresentationOutput(session.output);
-                if (session.outputAttachment && session.source.id == selected && selected != pair.getValue().id) {
+                if (followInput && session.outputAttachment && session.source.id == selected && selected != pair.getValue().id) {
                     input = pair.getValue().id;
                     inputViewer = session;
                 }

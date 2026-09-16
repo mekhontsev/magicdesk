@@ -184,7 +184,10 @@ public final class DisplayInputSessionLifecycleTest {
                     void start() { active = true; starts++; }
                     void stop() { active = false; }
                 }
-                static class DesktopShortcutService { static void setTargetDisplay(int id) {} }
+                static class DesktopShortcutService {
+                    static void setTargetDisplay(int id) {}
+                    static void setTargetDisplay(int id, boolean desktop) {}
+                }
                 static class CompatibilityDiagnostics {
                     static void record(String code, String title, String detail, Throwable error) {}
                 }

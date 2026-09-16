@@ -25,7 +25,10 @@ final class KeyboardShortcutStateMachine {
         SNAP_LEFT,
         SNAP_RIGHT,
         SHOW_DESKTOP,
-        SWITCH_DISPLAY,
+        DISPLAY_FORWARD,
+        DISPLAY_REVERSE,
+        DISPLAY_COMMIT,
+        DISPLAY_CANCEL,
         SCREENSHOT,
         SCREEN_RECORDING,
         SHORTCUT_HELP
@@ -43,11 +46,29 @@ final class KeyboardShortcutStateMachine {
 
     private final Set<Integer> mConsumed = new HashSet<>();
     private boolean mAltTabActive;
+    private boolean mDisplayActive;
+
+    Result accept(final int key, final boolean down, final int repeats,
+            final boolean ctrl, final boolean alt, final boolean shift, final boolean meta,
+            final boolean desktop) {
+        return acceptInternal(key, down, repeats, ctrl, alt, shift, meta, desktop);
+    }
 
     Result accept(final int key, final boolean down, final int repeats,
             final boolean ctrl, final boolean alt, final boolean shift, final boolean meta) {
+        return acceptInternal(key, down, repeats, ctrl, alt, shift, meta, true);
+    }
+
+    private Result acceptInternal(final int key, final boolean down, final int repeats,
+            final boolean ctrl, final boolean alt, final boolean shift, final boolean meta,
+            final boolean desktop) {
         if (!down) {
             final boolean consumed = mConsumed.remove(key);
+            if ((key == KeyEvent.KEYCODE_ALT_LEFT || key == KeyEvent.KEYCODE_ALT_RIGHT)
+                    && !alt && mDisplayActive) {
+                mDisplayActive = false;
+                return new Result(consumed, Action.DISPLAY_COMMIT);
+            }
             if ((key == KeyEvent.KEYCODE_ALT_LEFT || key == KeyEvent.KEYCODE_ALT_RIGHT)
                     && !alt && mAltTabActive) {
                 mAltTabActive = false;
@@ -58,6 +79,18 @@ final class KeyboardShortcutStateMachine {
         if (mConsumed.contains(key)) {
             return new Result(true, Action.NONE);
         }
+        if (mDisplayActive && key == KeyEvent.KEYCODE_ESCAPE) {
+            mDisplayActive = false;
+            mConsumed.add(key);
+            return new Result(true, Action.DISPLAY_CANCEL);
+        }
+        if (!mAltTabActive && !meta && alt && key == KeyEvent.KEYCODE_TAB
+                && (ctrl || mDisplayActive)) {
+            mDisplayActive = true;
+            mConsumed.add(key);
+            return new Result(true, shift ? Action.DISPLAY_REVERSE : Action.DISPLAY_FORWARD);
+        }
+        if (!desktop || mDisplayActive) return new Result(false, Action.NONE);
         // Suppress the system's standalone Meta action along with our Meta chords.
         if (key == KeyEvent.KEYCODE_META_LEFT || key == KeyEvent.KEYCODE_META_RIGHT) {
             mConsumed.add(key);
@@ -79,17 +112,15 @@ final class KeyboardShortcutStateMachine {
     }
 
     boolean reset() {
-        final boolean cancel = mAltTabActive;
+        final boolean cancel = mAltTabActive || mDisplayActive;
         mAltTabActive = false;
+        mDisplayActive = false;
         mConsumed.clear();
         return cancel;
     }
 
     private static Action action(final int key, final boolean ctrl, final boolean alt,
             final boolean shift, final boolean meta) {
-        if (ctrl && alt && !shift && !meta && key == KeyEvent.KEYCODE_TAB) {
-            return Action.SWITCH_DISPLAY;
-        }
         if (alt && !ctrl && !meta) {
             if (key == KeyEvent.KEYCODE_TAB) {
                 return shift ? Action.ALT_TAB_REVERSE : Action.ALT_TAB_FORWARD;

@@ -20,7 +20,7 @@ device validation on that release is still pending.
 | Display Viewer | API 34 plus authorized privileged service. Owned virtual sources use VirtualDisplay/SurfaceView; existing screens use the framework mirrorDisplay capability and READ_FRAME_BUFFER permission. Shared privileged input adapter. No Desktop, vendor token lookup or root requirement. Virtual-first managed Desktop still requires API 35. |
 | Protected virtual display (optional) | Same API-34 display boundary, plus CAPTURE_SECURE_VIDEO_OUTPUT in the current service, protected graphics buffers and a secure Viewer output. No automatic elevation or new prerequisite for ordinary displays. Per-release/device protected playback still needs verification. |
 | Ordinary Android Activity automation | API 34 plus authorized privileged service for background/display placement. Intent authorization, content grants and Activity results are independent of Desktop. Dispatch acceptance is verified separately through UI observation. |
-| Display input control and task transfer | API 34 plus working privileged framework capabilities. Explicit input control and ordinary fullscreen transfers do not start Desktop. Desktop shortcuts remain API 35+ and require its prepared workspace. |
+| Display input control and task transfer | API 34 plus working privileged framework capabilities. Explicit input control and ordinary fullscreen transfers do not start Desktop. Display switching is shared; Desktop window shortcuts remain API 35+ and require its prepared workspace. |
 | Managed Desktop and its self-tests | API 35 plus Desktop provisioning and the required task/window/input APIs. Ordinary tool availability does not imply Desktop availability. |
 
 ## Boundary Enforcement

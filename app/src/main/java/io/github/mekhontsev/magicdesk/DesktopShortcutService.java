@@ -21,14 +21,20 @@ public final class DesktopShortcutService extends AccessibilityService
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static volatile DesktopShortcutService sInstance;
     private static volatile int sTargetDisplay = Display.INVALID_DISPLAY;
+    private static volatile boolean sDesktop;
     private final Map<Integer, KeyboardShortcutStateMachine> mKeyboards = new HashMap<>();
     private volatile long mShortcutCount;
     private volatile Set<Integer> mRoutedKeyboards = Set.of();
     private int mDeviceGeneration;
 
     static void setTargetDisplay(final int displayId) {
-        final boolean changed = sTargetDisplay != displayId;
+        setTargetDisplay(displayId, false);
+    }
+
+    static void setTargetDisplay(final int displayId, final boolean desktop) {
+        final boolean changed = sTargetDisplay != displayId || sDesktop != desktop;
         sTargetDisplay = displayId;
+        sDesktop = desktop;
         final Runnable update = () -> {
             final DesktopShortcutService service = sInstance;
             if (service != null) {
@@ -41,16 +47,24 @@ public final class DesktopShortcutService extends AccessibilityService
     }
 
     static boolean isReady() {
-        return sInstance != null && sTargetDisplay >= 0;
+        return sInstance != null && sTargetDisplay >= 0 && sDesktop;
+    }
+
+    static android.content.Context switcherContext(int displayId) {
+        final DesktopShortcutService service = sInstance;
+        if (service == null) return null;
+        final Display display = service.getSystemService(android.hardware.display.DisplayManager.class).getDisplay(displayId);
+        return display == null ? null : service.createDisplayContext(display)
+                .createWindowContext(android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, null);
     }
 
     static DesktopInputDiagnostics.BridgeSnapshot captureDiagnostics() {
         final DesktopShortcutService service = sInstance;
         return new DesktopInputDiagnostics.BridgeSnapshot(
-                service != null, isReady(), 0,
+                service != null, service != null && sTargetDisplay >= 0, 0,
                 "mechanism=accessibility-key-filter, devices="
                         + (service == null ? Set.of() : service.mRoutedKeyboards)
-                        + ", shortcuts="
+                        + ", mode=" + (sDesktop ? "desktop" : "display-switch") + ", shortcuts="
                         + (service == null ? 0 : service.mShortcutCount),
                 service == null ? "service not connected" : "");
     }
@@ -75,7 +89,7 @@ public final class DesktopShortcutService extends AccessibilityService
         final KeyboardShortcutStateMachine.Result result = keyboard.accept(
                 event.getKeyCode(), event.getAction() == KeyEvent.ACTION_DOWN,
                 event.getRepeatCount(), event.isCtrlPressed(), event.isAltPressed(),
-                event.isShiftPressed(), event.isMetaPressed());
+                event.isShiftPressed(), event.isMetaPressed(), sDesktop);
         if (result.action != KeyboardShortcutStateMachine.Action.NONE) {
             mShortcutCount++;
             DesktopShortcutActions.dispatch(result.action);
@@ -91,7 +105,7 @@ public final class DesktopShortcutService extends AccessibilityService
     @Override
     public void onInputDeviceRemoved(final int id) {
         final KeyboardShortcutStateMachine keyboard = mKeyboards.remove(id);
-        if (keyboard != null && keyboard.reset()) DesktopOperations.cancelAltTab();
+        if (keyboard != null && keyboard.reset()) cancelSelections();
         refreshRouting();
     }
 
@@ -109,7 +123,12 @@ public final class DesktopShortcutService extends AccessibilityService
             cancel |= keyboard.reset();
         }
         mKeyboards.clear();
-        if (cancel) DesktopOperations.cancelAltTab();
+        if (cancel) cancelSelections();
+    }
+
+    private static void cancelSelections() {
+        DesktopOperations.cancelAltTab();
+        DisplaySwitchController.cancel();
     }
 
     private void refreshRouting() {

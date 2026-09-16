@@ -31,6 +31,7 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
     private static final String SESSION = "display_viewer_session";
     private final DisplayViewerConnection mConnection = new DisplayViewerConnection(this::connectionFailed);
     private DisplayPresentations.Session mSession;
+    private final KeyboardShortcutStateMachine mDisplayKeys = new KeyboardShortcutStateMachine();
     private DisplayManager mDisplays;
     private DesktopUiFactory mUi;
     private LinearLayout mToolbar;
@@ -313,13 +314,17 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
-        if (mSession != null && event.getKeyCode() == KeyEvent.KEYCODE_TAB
-                && event.isCtrlPressed() && event.isAltPressed()) {
-            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
-                DisplayPresentations.previous(mSession);
-            }
-            return true;
+        final var shortcut = mDisplayKeys.accept(event.getKeyCode(), event.getAction() == KeyEvent.ACTION_DOWN,
+                event.getRepeatCount(), event.isCtrlPressed(), event.isAltPressed(),
+                event.isShiftPressed(), event.isMetaPressed(), false);
+        switch (shortcut.action) {
+            case DISPLAY_FORWARD, DISPLAY_REVERSE -> DisplaySwitchController.advance(getDisplay().getDisplayId(),
+                    this, shortcut.action == KeyboardShortcutStateMachine.Action.DISPLAY_REVERSE);
+            case DISPLAY_COMMIT -> DisplaySwitchController.commit();
+            case DISPLAY_CANCEL -> DisplaySwitchController.cancel();
+            default -> { }
         }
+        if (shortcut.consumed) return true;
         if (mSession != null && mSession.ready && mSurface != null && mSurface.hasFocus()
                 && event.getKeyCode() != KeyEvent.KEYCODE_BACK
                 && event.getKeyCode() != KeyEvent.KEYCODE_VOLUME_UP
@@ -435,6 +440,8 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
     }
 
     @Override protected void onStop() {
+        mDisplayKeys.reset();
+        DisplaySwitchController.cancelFor(this);
         mStarted = false;
         if (mSession != null) DisplayPresentations.visibilityChanged(mSession, false);
         super.onStop();
@@ -456,6 +463,7 @@ public final class DisplayViewerActivity extends Activity implements SurfaceHold
     }
 
     @Override protected void onDestroy() {
+        DisplaySwitchController.cancelFor(this);
         mSelectionGeneration++;
         if (mSourceDialog != null) mSourceDialog.dismiss();
         mConnection.close();

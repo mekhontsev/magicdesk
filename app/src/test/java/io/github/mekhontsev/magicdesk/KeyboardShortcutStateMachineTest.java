@@ -8,12 +8,41 @@ import static io.github.mekhontsev.magicdesk.KeyboardShortcutStateMachine.Action
 public final class KeyboardShortcutStateMachineTest {
     @Test public void displaySwitchDoesNotStartAnApplicationAltTabCycle() {
         final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
-        assertEquals(SWITCH_DISPLAY, s.accept(KeyEvent.KEYCODE_TAB, true, 0,
+        assertEquals(DISPLAY_FORWARD, s.accept(KeyEvent.KEYCODE_TAB, true, 0,
                 true, true, false, false).action);
         assertTrue(s.accept(KeyEvent.KEYCODE_TAB, false, 0, true, true, false, false).consumed);
-        assertEquals(NONE, s.accept(KeyEvent.KEYCODE_ALT_LEFT, false, 0,
+        assertEquals(DISPLAY_COMMIT, s.accept(KeyEvent.KEYCODE_ALT_LEFT, false, 0,
                 true, false, false, false).action);
         assertFalse(s.reset());
+    }
+    @Test public void displaySwitchWorksWithoutDesktopAndDoesNotTakeApplicationShortcuts() {
+        final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
+        assertFalse(s.accept(KeyEvent.KEYCODE_META_LEFT, true, 0, false, false, false, true, false).consumed);
+        assertFalse(s.accept(KeyEvent.KEYCODE_TAB, true, 0, false, true, false, false, false).consumed);
+        assertEquals(DISPLAY_REVERSE, s.accept(KeyEvent.KEYCODE_TAB, true, 0, true, true, true, false, false).action);
+        assertEquals(NONE, s.accept(KeyEvent.KEYCODE_TAB, true, 1, true, true, true, false, false).action);
+        assertTrue(s.accept(KeyEvent.KEYCODE_TAB, false, 0, true, true, true, false, false).consumed);
+        // Releasing Ctrl first must not turn the next Tab into application Alt+Tab.
+        assertEquals(DISPLAY_FORWARD, s.accept(KeyEvent.KEYCODE_TAB, true, 0, false, true, false, false, false).action);
+        assertTrue(s.accept(KeyEvent.KEYCODE_TAB, false, 0, false, true, false, false, false).consumed);
+        assertEquals(DISPLAY_COMMIT, s.accept(KeyEvent.KEYCODE_ALT_RIGHT, false, 0, false, false, false, false, false).action);
+    }
+
+    @Test public void escapeWithModifiersCancelsAndCannotCommitOnRelease() {
+        final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
+        s.accept(KeyEvent.KEYCODE_TAB, true, 0, true, true, false, false);
+        final var cancel = s.accept(KeyEvent.KEYCODE_ESCAPE, true, 0, true, true, false, false);
+        assertTrue(cancel.consumed);
+        assertEquals(DISPLAY_CANCEL, cancel.action);
+        assertTrue(s.accept(KeyEvent.KEYCODE_ESCAPE, false, 0, true, true, false, false).consumed);
+        assertEquals(NONE, s.accept(KeyEvent.KEYCODE_ALT_LEFT, false, 0, true, false, false, false).action);
+    }
+
+    @Test public void deviceLossCancelsDisplayPicker() {
+        final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
+        s.accept(KeyEvent.KEYCODE_TAB, true, 0, true, true, false, false);
+        assertTrue(s.reset());
+        assertEquals(NONE, s.accept(KeyEvent.KEYCODE_ALT_LEFT, false, 0, false, false, false, false).action);
     }
     @Test public void altTabConsumesBothTabEdgesAndCommitsOnlyOnFinalAltRelease() {
         final KeyboardShortcutStateMachine s = new KeyboardShortcutStateMachine();
