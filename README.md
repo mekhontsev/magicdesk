@@ -2,16 +2,16 @@
 
 **An open-source Android workstation.**
 
-MagicDesk combines **native Android app windows, graphical terminals and
-independent desktops on multiple displays**. Add a real file-based desktop,
-per-app interface scaling and programmable automation, and your phone becomes
-a workstation. Work on its own screen, on external displays, or from a computer
-through scrcpy.
+MagicDesk combines **native Android app windows, Linux graphical applications,
+full-featured terminals and independent desktops on multiple displays**. Add a
+real file-based desktop, per-app interface scaling and programmable automation,
+and your phone becomes a workstation. Work on its own screen, on external
+displays, or from a computer through scrcpy.
 
-Run Android apps and command-line tools side by side. Move content between
-Files, terminals and Android apps. Let an authorized AI client use the same
-services you use interactively. Desktop is one way to work with these tools,
-not a requirement for using them.
+Run Android apps, Termux X11 applications and command-line tools side by side.
+Move content between Files, terminals and Android apps. Let an authorized AI
+client use the same services you use interactively. Desktop is one way to work
+with these tools, not a requirement for using them.
 
 The APK requires **Android 14+**. Managed **Desktop requires Android 15+**.
 Use [Shizuku](https://github.com/RikkaApps/Shizuku) on an unrooted device, or
@@ -39,7 +39,12 @@ MagicDesk's strength is how its parts work together:
 - **Each screen can have its own desktop.** Keep a workspace on the phone and
   another on an external or virtual display. Each has its own windows, taskbar
   and Start. Launch apps on a chosen screen, move running tasks, and close one
-  Desktop without closing the others.
+  Desktop without closing the others. A [portable workspace](#portable-workspaces-and-parking)
+  keeps its apps on a virtual display while you disconnect or change monitors.
+- **Linux graphical apps join the workspace.** Launch installed Termux apps
+  such as GIMP and Firefox from Start into separate windows alongside Android
+  apps. Or open a complete Linux desktop from a configured proot/chroot
+  environment. The X11 server is built in; no separate Termux:X11 APK is needed.
 - **A terminal worth using on its own.** Run Android shell, root shell or
   Termux tools in independent windows with a bundled Nerd Font, clickable
   links, Sixel/Kitty images, touch scrolling and a unified terminal/tmux picker.
@@ -103,14 +108,17 @@ lists phone recent tasks. Each Desktop Start remains independent and can be
 open at the same time. Every Start has a display selector beside search:
 **Current** launches on its own screen; another selection sends apps there.
 The same Start is available through **Apps** even with no Desktop running.
-The target screen determines placement: managed windows on a Desktop, ordinary
-fullscreen apps elsewhere. Opening an app does not redirect the keyboard or mouse;
+Choose app-default placement, a Desktop window, Desktop fullscreen, or an
+independent fullscreen app; request a new window where the app supports it.
+Independent apps stay outside Desktop's taskbar and Alt+Tab, even on a screen
+with an active Desktop. Opening an app does not redirect the keyboard or mouse;
 input routing has its own control.
 
-Close records the selected workspace and returns its surviving application
-tasks to phone fullscreen, leaving other Desktops running. A later session
-restores the same still-live tasks, not applications that Android or the user
-has closed. Closing Desktop does not remove its display.
+Close records the selected workspace and releases its surviving applications
+as independent fullscreen tasks on the same live display, leaving other
+Desktops running. If the display disappears, its tasks return to the phone.
+A later session can restore the same still-live tasks, not applications that
+Android or the user has closed. Closing Desktop does not remove its display.
 
 ![MagicDesk with overlapping Termux and Firefox windows](docs/images/magicdesk-multitasking.png)
 
@@ -183,12 +191,19 @@ optional root console running the built-in `magicdesk` CLI.*
 - **Shell integration:** clickable OSC 8 links, window titles, notifications,
   progress and shell-marked command history. Supported shell hooks let you
   revisit a command and copy its output without selecting the whole transcript.
-- **Phone-friendly interaction:** kinetic touch scrolling, selection handles,
-  a layout that resizes for the on-screen keyboard, and **Copy as paragraph**
-  to join unwanted terminal line breaks when copying prose.
+- **Phone-friendly interaction:** smooth local scrollback and kinetic touch
+  scrolling, selection handles, a layout that resizes for the on-screen
+  keyboard, and **Copy as paragraph** to join unwanted terminal line breaks
+  when copying prose.
 - **One session picker:** retained Android-shell and Termux terminals alongside
   discovered tmux sessions. Create, attach, rename, detach or explicitly end a
   session from Phone Control Panel or any console toolbar.
+- **Quick return:** the runtime notification's **Terminal** action reopens a
+  retained terminal, including when no Desktop is running.
+
+Application-controlled scrolling, including tmux, is smoothed when its redraws
+describe a coherent scroll. Other updates retain normal terminal behavior;
+MagicDesk does not require application-specific scrolling hooks.
 
 Closing an ordinary terminal window detaches the view and retains its shell and
 programs. Closing a managed tmux window detaches its client; tmux keeps its server
@@ -212,21 +227,69 @@ See [Workstation tools](docs/workstation-tools.md) and
 protocols and limits, and [Desktop Entry files](docs/desktop-entries.md) to turn
 commands into launchers.
 
+### Task Manager
+
+See Android applications, retained terminals, tmux and X11 sessions in one
+**Applications** list. Switch to **Processes** for CPU and resident-memory use,
+process trees and a Termux filter. Sort by name, CPU or memory, find a busy
+process, return to its window or end a session explicitly. Available process
+details and actions depend on the connected service's permissions.
+
 ## Linux Applications Through Termux
 
-MagicDesk embeds its own Termux:X11 fork. Graphical applications installed in
-Termux appear in **Start** from their `.desktop` files and open in ordinary
-MagicDesk windows. Firefox and GIMP can run in separate X sessions at the same
-time; additional main windows, transient dialogs, keyboard/mouse input and
-text clipboard exchange are integrated. The standalone Termux:X11 APK is not
-required, and opening X11 on the phone does not require Desktop or root.
+**Run Linux graphical applications beside Android apps, not just inside one
+large Linux desktop window.** MagicDesk embeds its own Termux:X11 fork and
+presents individual X11 application windows as Android tasks. GIMP and the
+Termux version of Firefox can run simultaneously, each with its own window,
+taskbar entry and X session. No separate Termux:X11 APK or Linux window manager
+is needed for this mode.
 
-The **X11** tool also retains whole X sessions for a window manager or Linux
-desktop. Closing that viewer leaves its session running; **Stop X11 session**
-ends it. Termux supplies applications and the execution environment, including
-any proot/chroot setup. Graphics retain upstream AHardwareBuffer/EGL support;
-some client drivers still use its CPU-copy fallback. See [Embedded X11](docs/x11.md)
-for setup, ownership and current limits.
+![GIMP and Termux Firefox in separate MagicDesk windows, with Task Manager showing their X11 sessions](docs/images/magicdesk-x11.png)
+
+*GIMP, the Linux build of Firefox and MagicDesk Task Manager running together
+on one desktop. Both graphical applications are supplied by Termux.*
+
+### Installed Apps In Start
+
+1. Enable Termux external commands and grant MagicDesk its `RUN_COMMAND`
+   permission, as described in [setup](docs/getting-started.md).
+2. Install `xkeyboard-config` and the graphical applications you want in Termux.
+3. Open **Start** and search for the application. MagicDesk reads Termux's
+   installed `.desktop` launchers whenever Start opens; no manual launcher is
+   needed for applications that provide one.
+
+Choose the destination display and window mode using the same Start controls
+as Android apps. Mouse, keyboard, text clipboard, app titles and icons are
+integrated. Windows show the application content without an extra MagicDesk
+toolbar. Launching again returns to the existing window; **New window** requests
+another session, subject to the application's own instance/profile rules.
+Recent remembers Android and X11 launch recipes without accumulating duplicate
+entries, and can relaunch an X11 command after its previous session ends.
+
+X11 scale follows the host display's density. Adjust an app's **Interface scale**
+from **50% to 200%** in its Start context menu, or adjust a session in the X11
+manager. Linux toolkits retain their own scaling behavior; some applications
+need a restart to pick up a density change.
+
+### Whole Linux Desktops Too
+
+Use the **X11** tool to create and manage multiple retained sessions, run a
+window manager or launch a configured proot/chroot Linux desktop. Open the whole
+desktop in one window, or choose individual clients through **X11 windows**.
+A custom `.desktop` launcher can bring that environment into Start as well.
+MagicDesk supplies the X server and windows; Termux and your container setup
+supply the programs. It does not install or configure a Linux distribution for you.
+
+Closing a whole-session viewer keeps its Linux session running; **Stop X11
+session** ends it. Closing an individual app window requests the app's normal
+close action, including any save confirmation. **Close Desktop** ends neither
+kind of X11 session: its surviving windows become independent fullscreen tasks.
+
+Termux applications and proot do not require root, and X11 can run on the phone
+without managed Desktop. A chroot environment needs its own privileged setup.
+Graphics retain upstream AHardwareBuffer/EGL support, with optional Vulkan
+acceleration for supported buffer paths and a CPU-copy fallback where needed.
+See [Embedded X11](docs/x11.md) for setup, container launchers and current limits.
 
 ## Shizuku Or Direct Root
 
@@ -272,15 +335,50 @@ shortcut options leave right-click and Alt/Super combinations for Android.
 See the [scrcpy documentation](https://github.com/Genymobile/scrcpy#user-documentation)
 for installation and USB/Wi-Fi connection setup.
 
-### Display Resources
+## Displays And Portable Workspaces
 
-The display selector lists Android displays with their current identity,
-dimensions, source and available actions. A connected wireless display can
-exist before MagicDesk starts a session on it.
+Phone Control Panel lists built-in, wired, wireless and MagicDesk-created
+displays in one table, with their IDs, dimensions, Desktop state and Viewer
+connections. Select a row to act on that screen. Each display can have its own
+Desktop or simply host independent fullscreen apps; starting or closing one
+Desktop does not start or close the others. A wireless connection can already
+exist before MagicDesk starts Desktop on it.
 
 **Create display** offers a virtual display or a display with a phone preview,
-with configurable dimensions and scale. Multiple headless virtual displays can
-coexist; the Android preview adapter has a single shared configuration.
+with configurable dimensions and scale, initially based on the selected screen.
+Multiple headless virtual displays can coexist; the Android preview adapter has
+a single shared configuration. Display settings are remembered, and a virtual
+display keeps its own configuration when shown on another output.
+
+### Portable Workspaces And Parking
+
+A **direct Desktop** lives on the Android display exposed by the monitor or
+wireless receiver. A **portable Desktop** lives on a MagicDesk virtual display;
+the monitor only shows it through a fullscreen Display Viewer. This separates
+the workspace from the cable: applications keep their Android display ID and
+stay on the same virtual screen when the output disconnects.
+
+For example, keep GIMP, a browser and terminals open between monitors:
+
+1. Select the connected HDMI or wireless output and choose **Start portable
+   desktop here**. MagicDesk uses a suitable virtual display or creates one,
+   starts Desktop there, and shows it on the selected output.
+2. Open your applications on that virtual Desktop and work normally.
+3. Unplug the monitor, disconnect casting, or choose **Stop showing** on the
+   output. The virtual Desktop and its applications remain running: this is
+   parking, not **Close Desktop**.
+4. Connect a monitor again, select it, choose **Show another display...**, and
+   pick the existing virtual display by its name and ID. Continue the same
+   workspace without relaunching or transferring its applications. Use
+   **Control input** on the source display when you want to direct your
+   phone-connected keyboard and mouse there.
+
+Start with a portable Desktop for this workflow: unplugging a direct Desktop's
+physical screen does not convert it into a parked virtual one. Parking is a
+live session, not a saved machine image; keep MagicDesk running and do not use
+**Close desktop**, **Remove display** or **Exit MagicDesk** to park it.
+
+### Viewing And Switching Screens
 
 Select an output and choose **Show another display...**, then pick the source
 by name, ID and Desktop status. This opens its independent fullscreen Viewer
@@ -288,14 +386,17 @@ or changes the source in the existing one. **Stop showing** closes that fullscre
 Viewer while retaining the source display, its applications and Desktop.
 The HDMI or wireless connection itself stays connected. This step is not
 required before unplugging a cable or switching sources. Select another output
-and the same source to continue there. **Start portable desktop here** keeps the existing output Viewer or
-reuses an available virtual source with matching resolution and the fewest
-managed applications, creating one only when needed. It starts Desktop there
-and attaches the selected output. **Start desktop** uses this path automatically
-for untrusted public external displays. **Display Viewer**
+and the same source to continue there. **Start desktop** automatically uses a
+portable workspace on public external displays that Android does not mark as
+trusted for direct Desktop hosting. **Display Viewer**
 opens from Start like other built-in applications: choose its destination and
 window mode there, then select the source inside the Viewer. It mirrors without
 taking over an output Viewer; several Viewer windows can show the same source.
+
+During Desktop, **Ctrl+Alt+Tab** switches what the current output shows and
+routes keyboard/mouse input to the selected source together. Applications stay
+on their original displays; this is display switching, not window migration.
+Ordinary Viewer opening is view-only and does not claim input routing.
 
 A viewer, display and Desktop session have independent lifetimes:
 
@@ -317,6 +418,8 @@ The optional MCP server exposes the same services used by the UI:
 - Device, runtime, display and task state, events and exact-operation waits.
 - Desktop lifecycle, task focus, window transitions and semantic UI actions.
 - Independent tool placement and retained terminal control.
+- Discovery and launch of Desktop and Termux `.desktop` entries, including X11
+  applications, with or without a managed Desktop.
 - Android intents, handlers, shortcuts, Activity results and App Functions.
 - Screen capture, clipboard and notification operations.
 - Rectangular screenshots and scoped Android UI inspection with element bounds,
@@ -346,6 +449,10 @@ post notifications with buttons or inline replies. Responses return through the
 same CLI/MCP commands, so a build script can offer to open its output folder or
 ask a question without keeping the terminal in front. CLI `--field` extracts a
 result field without an external JSON parser.
+
+Command output can also stream directly into a retained terminal or tmux PTY,
+including terminal graphics, without an intermediate file. This shares the
+terminal output stream; a running full-screen application may redraw over it.
 
 See [Automation and MCP](docs/automation.md) for configuration, permissions,
 transfer/update protocols and test control.
@@ -378,6 +485,7 @@ and the [API-level contract](docs/runtime-api-levels.md).
 | Control panel, Settings, MCP observation | Ordinary app access; explicitly enable MCP for clients |
 | Files, Android shell, privileged capture and device actions | An authorized privileged service and the operation's actual capabilities |
 | Termux terminals | Termux, external commands enabled, MagicDesk's `RUN_COMMAND` permission |
+| Linux graphical applications and desktops | The same Termux integration, `xkeyboard-config`, and installed X11 applications or a configured Linux environment; no standalone Termux:X11 APK |
 | Owned virtual displays | An authorized privileged service and working framework display APIs |
 | Managed Desktop | Android 15+, an authorized privileged service, Desktop setup, working framework windowing |
 | Wired/wireless output | Hardware and firmware that expose a usable Android secondary display |
@@ -405,9 +513,9 @@ selects where phone-attached mice and keyboards operate independently.
 session. **Close desktop** closes only that workspace while keeping other
 Desktops, the tools runtime and owned displays available. Its applications remain
 on that display as independent fullscreen tasks; if the display disappears, they
-return to the phone. **Exit MagicDesk** also ends retained
-terminals, closes built-in windows and stops the runtime. Neither action deletes
-the Desktop folder.
+return to the phone. **Exit MagicDesk** also ends retained terminals and X11
+sessions, releases owned displays, closes built-in windows and stops the
+runtime. Neither action deletes the Desktop folder.
 
 **[Getting started](docs/getting-started.md)** is the step-by-step guide from
 installation to your first workspace. It explains Shizuku authorization,
@@ -429,6 +537,12 @@ normal Android IME connects directly to a focused external editor; MagicDesk
 does not capture editor text, choose a replacement IME or relay it through a
 vendor text bridge.
 
+**Show keyboard on app display**, available in Settings and the taskbar's
+context menu, requests the on-screen keyboard beside the app instead of on the
+phone. This is useful with XR glasses or a distant monitor while the phone
+serves as a touchpad. Keyboard placement still depends on the IME and Android's
+display policy.
+
 Output timing, phone-screen power, charging separation, cooling, thermal
 readings and internal recording audio depend on separately probed capabilities.
 Unsupported optional features do not disable unrelated tools or Desktop.
@@ -443,6 +557,7 @@ Shared compatibility policies can be selected in Settings on every vendor.
 | `Win+Down` | Restore fullscreen/maximized task; press again to minimize |
 | `Win+Left` / `Win+Right` | Snap to either half |
 | `Alt+Tab` / `Alt+Shift+Tab` | Switch exact tasks |
+| `Ctrl+Alt+Tab` | Switch the displayed screen and its input together |
 | `Alt+F4` | Close active task |
 | `Win+Backspace` | Send Android Back to the desktop display |
 | `Win+L` | Lock phone |
@@ -539,9 +654,11 @@ Self-tests are explicit, interactive checks, not background monitoring or a
 universal firmware guarantee.
 
 The project uses JDK 17+, Android SDK/build-tools 37 and NDK
-`27.3.13750724`:
+`27.3.13750724`, plus the embedded X11 build tools listed in
+[Contributing](CONTRIBUTING.md#build-environment):
 
 ```sh
+git submodule update --init --recursive
 ./gradlew verifyDevelopment
 ```
 
@@ -559,6 +676,7 @@ API 34 native validation and other ABIs remain in the
 - [Getting started](docs/getting-started.md)
 - [Workstation tools](docs/workstation-tools.md)
 - [Terminal integration](docs/terminal-integration.md)
+- [Embedded X11 and Linux applications](docs/x11.md)
 - [Architecture](docs/architecture.md)
 - [Automation and MCP](docs/automation.md)
 - [Runtime API levels](docs/runtime-api-levels.md)
