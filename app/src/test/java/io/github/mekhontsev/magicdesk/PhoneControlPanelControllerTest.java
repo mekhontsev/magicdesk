@@ -64,10 +64,10 @@ public final class PhoneControlPanelControllerTest {
     @Test
     public void appsExistsOnlyInTheDisplayToolbarWithItsSharedPrerequisites() throws Exception {
         final String status = RuntimeSourceFixture.methods("PhoneControlPanelController", "addStatus");
-        assertTrue(status.contains("status.setOrientation(LinearLayout.HORIZONTAL)"));
-        assertTrue(status.contains("status.setGravity(Gravity.CENTER_VERTICAL)"));
-        assertTrue(status.contains("status.addView(mStatus, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))"));
-        assertTrue(status.contains("status.addView(mRuntime, runtimeParams)"));
+        assertTrue(status.contains("parent.addView(mStatus, fullWidthWrapParams(0))"));
+        assertTrue(status.contains("integrations.setOrientation(LinearLayout.HORIZONTAL)"));
+        assertTrue(status.contains("integrations.addView(mRuntime, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))"));
+        assertTrue(status.contains("integrations.addView(mTermux, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1))"));
         assertFalse(status.contains("R.string.section_apps"));
         assertFalse(status.contains("openApplications"));
         final String commands = RuntimeSourceFixture.methods("DisplayTableView", "renderCommands");
@@ -90,7 +90,47 @@ public final class PhoneControlPanelControllerTest {
         assertTrue(RuntimeSourceFixture.methods("PhoneControlPanelController", "createHeader")
                 .contains("mActions.openSettings()"));
         assertTrue(RuntimeSourceFixture.methods("PhoneControlPanelController", "addStatus")
-                .contains("mActions.requestAccess()"));
+                .contains("mActions.showAccessInfo()"));
+    }
+
+    @Test
+    public void integrationDetailsRemainClickableWithoutRequestingAccessOnRender() throws Exception {
+        final String status = RuntimeSourceFixture.methods("PhoneControlPanelController", "addStatus");
+        assertTrue(status.contains("mActions.showAccessInfo()"));
+        assertTrue(status.contains("mActions.showTermuxInfo()"));
+        assertFalse(status.contains("requestAccess()"));
+        final String render = RuntimeSourceFixture.methods("PhoneControlPanelController", "render");
+        assertFalse(render.contains("mRuntime.setEnabled"));
+        assertFalse(render.contains("mTermux.setEnabled"));
+        assertTrue(render.contains("IntegrationStatusDialogs.termuxStatus(state.termux)"));
+        final String button = RuntimeSourceFixture.methods("PhoneControlPanelController", "integrationButton");
+        assertTrue(button.contains("setSingleLine(false)"));
+        assertTrue(button.contains("setEllipsize(null)"));
+        assertTrue(button.contains("setTextColor(COLOR_CYAN)"));
+        assertTrue(button.contains("Paint.UNDERLINE_TEXT_FLAG"));
+        assertFalse(button.contains("controlAction"));
+        assertTrue(RuntimeSourceFixture.methods("ControlActivity", "onRequestPermissionsResult")
+                .contains("if (requestCode == TermuxIntegration.PERMISSION_REQUEST_CODE) {\n            refresh();"));
+    }
+
+    @Test public void actionsArePairedByPurposeWithDisplayShutdownLast() throws Exception {
+        final String display = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/io/github/mekhontsev/magicdesk/DisplayTableView.java"));
+        int previous = -1;
+        for (String name : new String[]{"mStart", "mPortable", "mApps", "mIndependent", "mShowDisplay",
+                "mStopShowing", "mInput", "mOutput", "mClose", "mRemove"}) {
+            final int position = display.indexOf(name + " = button(commands,");
+            assertTrue(name, position > previous);
+            previous = position;
+        }
+        final String general = RuntimeSourceFixture.methods("PhoneControlPanelController", "addDesktopActions");
+        previous = -1;
+        for (String name : new String[]{"mConnectWirelessDisplay", "mCreateDisplay", "mTouchpad",
+                "mReleaseInput", "mPhoneScreen"}) {
+            final int position = general.indexOf("addGridAction(sessionActions, " + name + ")");
+            assertTrue(name, position > previous);
+            previous = position;
+        }
     }
 
     @Test
@@ -335,8 +375,8 @@ public final class PhoneControlPanelControllerTest {
                             "presentation action used source instead of selected output");
                     check(DisplayPresentations.detached == DisplayPresentations.active, "stopped another presentation");
                     f.renderPresentationActions(source, true, 35);
-                    check(!f.mStopShowing.enabled && f.mStopShowing.visibility == View.INVISIBLE,
-                            "Stop showing appeared on source or removed its grid slot");
+                    check(!f.mStopShowing.enabled && f.mStopShowing.visibility == View.VISIBLE,
+                            "unavailable Stop showing must stay visible but disabled");
                     check(!f.mPortable.enabled, "portable action enabled for a direct virtual source");
                     f.renderPresentationActions(output, true, 34);
                     check(f.mShowDisplay.enabled && f.mStopShowing.enabled && !f.mPortable.enabled,
@@ -344,7 +384,8 @@ public final class PhoneControlPanelControllerTest {
                     f.renderPresentationActions(output, false, 35);
                     check(!f.mShowDisplay.enabled && !f.mStopShowing.enabled && !f.mPortable.enabled, "busy/unavailable actions enabled");
                     f.renderPresentationActions(null, false, 35);
-                    check(f.mStopShowing.visibility == View.INVISIBLE, "empty selection retained Stop showing");
+                    check(!f.mStopShowing.enabled && f.mStopShowing.visibility == View.VISIBLE,
+                            "empty selection changed the action grid");
                     f.mDisplays = new DesktopDisplayInfo[]{output};
                     f.renderPresentationActions(output, true, 35);
                     check(!f.mShowDisplay.enabled, "Show offered a nonexistent source");

@@ -152,6 +152,9 @@ public final class ControlActivity extends Activity
         if (requestCode == REQUEST_NOTIFICATIONS) {
             finishStartup();
         }
+        if (requestCode == TermuxIntegration.PERMISSION_REQUEST_CODE) {
+            refresh();
+        }
     }
 
     private void initializeControlPanel() {
@@ -497,7 +500,19 @@ public final class ControlActivity extends Activity
     }
 
     @Override
-    public void requestAccess() {
+    public void showAccessInfo() {
+        IntegrationStatusDialogs.showAccess(this,
+                !mDisplayOperation && !mSessionController.isOperationInProgress(),
+                this::requestAccess, this::openSettings);
+    }
+
+    @Override
+    public void showTermuxInfo() {
+        IntegrationStatusDialogs.showTermux(this, this::openSettings);
+    }
+
+    private void requestAccess() {
+        if (mDisplayOperation || mSessionController.isOperationInProgress()) { return; }
         if (ShellPrivilegePolicy.restartRequired(this)) {
             new android.app.AlertDialog.Builder(this)
                     .setMessage(R.string.access_restart_required)
@@ -536,7 +551,7 @@ public final class ControlActivity extends Activity
                 mWirelessConnectionUiAvailable,
                 ShellPrivilegePolicy.restartRequired(this) ? getString(R.string.access_restart_required)
                         : !ShellAccess.isReady() ? ShellAccess.currentSnapshot().error : mStatus,
-                ShellAccess.currentSnapshot().accessLabel()));
+                ShellAccess.currentSnapshot().accessLabel(), TermuxIntegration.inspect(this)));
     }
 
     private void registerDisplayListener() {

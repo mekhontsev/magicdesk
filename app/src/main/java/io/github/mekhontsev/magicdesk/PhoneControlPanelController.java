@@ -1,12 +1,14 @@
 package io.github.mekhontsev.magicdesk;
 
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_BACKGROUND;
+import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_CYAN;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_MUTED;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_RED;
 import static io.github.mekhontsev.magicdesk.DesktopUiFactory.COLOR_TEXT;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
@@ -30,7 +32,9 @@ final class PhoneControlPanelController {
 
         void openSettings();
 
-        void requestAccess();
+        void showAccessInfo();
+
+        void showTermuxInfo();
 
         void releaseInput();
 
@@ -51,6 +55,7 @@ final class PhoneControlPanelController {
         final boolean wirelessConnectionUiAvailable;
         final String status;
         final String runtime;
+        final TermuxIntegration.Endpoint termux;
 
         State(
                 final DesktopDisplayInfo[] displays,
@@ -65,7 +70,8 @@ final class PhoneControlPanelController {
                 final boolean externalOutputControlAvailable,
                 final boolean wirelessConnectionUiAvailable,
                 final String status,
-                final String runtime) {
+                final String runtime,
+                final TermuxIntegration.Endpoint termux) {
             this.displays = displays;
             this.tasks = tasks;
             this.desktopDisplays = java.util.Set.copyOf(desktopDisplays);
@@ -81,6 +87,7 @@ final class PhoneControlPanelController {
                     wirelessConnectionUiAvailable;
             this.status = status;
             this.runtime = runtime;
+            this.termux = termux;
         }
     }
 
@@ -92,6 +99,7 @@ final class PhoneControlPanelController {
 
     private TextView mStatus;
     private Button mRuntime;
+    private Button mTermux;
     private Button mConnectWirelessDisplay;
     private Button mCreateDisplay;
     private DisplayTableView mDisplayTable;
@@ -146,6 +154,8 @@ final class PhoneControlPanelController {
         if (!MagicDeskRuntime.inputError().isEmpty()) { mStatus.setText(MagicDeskRuntime.inputError()); }
         mRuntime.setText(mActivity.getString(
                 R.string.control_runtime_status, state.runtime));
+        mTermux.setText(mActivity.getString(R.string.control_termux_status,
+                mActivity.getString(IntegrationStatusDialogs.termuxStatus(state.termux))));
         mDisplayTable.render(state.displays, state.desktopDisplays, state.shellReady,
                 state.sessionOperationInProgress || state.displayOperation,
                 state.externalOutputControlAvailable, state.tasks);
@@ -156,7 +166,6 @@ final class PhoneControlPanelController {
                 && MagicDeskRuntime.isPointerTransportReady() && state.shellReady;
         final boolean busy = state.sessionOperationInProgress || state.displayOperation;
         mCreateDisplay.setEnabled(state.shellReady && !busy);
-        mRuntime.setEnabled(!busy && (!state.shellReady || ShellPrivilegePolicy.restartRequired(mActivity)));
         final int inputDisplay = MagicDeskRuntime.inputDisplayId();
         mReleaseInput.setEnabled(state.shellReady && !busy && inputDisplay >= 0);
         final boolean canControlPhoneScreen = state.externalDesktopActive
@@ -215,38 +224,37 @@ final class PhoneControlPanelController {
     }
 
     private void addStatus(final LinearLayout parent) {
-        final LinearLayout status = new LinearLayout(mActivity);
-        status.setOrientation(LinearLayout.HORIZONTAL);
-        status.setGravity(Gravity.CENTER_VERTICAL);
         mStatus = statusText(COLOR_TEXT, 14, true);
-        status.addView(mStatus, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        parent.addView(mStatus, fullWidthWrapParams(0));
 
-        mRuntime = mUi.controlAction(R.string.control_runtime_status, R.drawable.ic_lock, COLOR_MUTED);
-        mRuntime.setOnClickListener(view -> mActions.requestAccess());
-        final LinearLayout.LayoutParams runtimeParams =
-                new LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        dp(48));
-        runtimeParams.setMargins(dp(8), 0, 0, 0);
-        status.addView(mRuntime, runtimeParams);
-        parent.addView(status, fullWidthWrapParams(0));
+        final LinearLayout integrations = new LinearLayout(mActivity);
+        integrations.setOrientation(LinearLayout.HORIZONTAL);
+        integrations.setGravity(Gravity.CENTER_VERTICAL);
+        mRuntime = integrationButton(R.string.control_access_title);
+        mRuntime.setOnClickListener(view -> mActions.showAccessInfo());
+        mTermux = integrationButton(R.string.console_shell_termux);
+        mTermux.setOnClickListener(view -> mActions.showTermuxInfo());
+        integrations.addView(mRuntime, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        integrations.addView(mTermux, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        parent.addView(integrations, fullWidthWrapParams(dp(4)));
+    }
+
+    private Button integrationButton(final int title) {
+        final Button button = mUi.menuItem(title, COLOR_TEXT);
+        button.setTextSize(14);
+        button.setTextColor(COLOR_CYAN);
+        button.setPaintFlags(button.getPaintFlags() | Paint.UNDERLINE_TEXT_FLAG);
+        button.setSingleLine(false);
+        button.setMaxLines(2);
+        button.setEllipsize(null);
+        button.setMinHeight(dp(48));
+        button.setPadding(dp(8), dp(6), dp(8), dp(6));
+        return button;
     }
 
     private void addDesktopActions(final LinearLayout parent) {
         mDisplayTable = new DisplayTableView(mActivity, mUi, mActions, parent);
         final GridLayout sessionActions = actionGrid();
-        mReleaseInput = mUi.controlAction(R.string.display_release_input, R.drawable.ic_close, COLOR_TEXT);
-        mReleaseInput.setOnClickListener(view -> mActions.releaseInput());
-        addGridAction(sessionActions, mReleaseInput);
-        mTouchpad = mUi.controlAction(
-                R.string.action_open_touchpad, R.drawable.ic_touchpad, COLOR_TEXT);
-        mTouchpad.setOnClickListener(view -> mActions.openTouchpad());
-        addGridAction(sessionActions, mTouchpad);
-
-        mPhoneScreen = mUi.controlAction(
-                R.string.action_phone_screen_off, R.drawable.ic_phone_screen_off, COLOR_TEXT);
-        mPhoneScreen.setOnClickListener(view -> mActions.togglePhoneScreen());
-        addGridAction(sessionActions, mPhoneScreen);
 
         mConnectWirelessDisplay = mUi.controlAction(
                 R.string.action_connect_wireless_display, R.drawable.ic_cast, COLOR_TEXT);
@@ -255,6 +263,20 @@ final class PhoneControlPanelController {
         mCreateDisplay = mUi.controlAction(R.string.display_create, R.drawable.ic_add, COLOR_TEXT);
         mCreateDisplay.setOnClickListener(view -> mDisplayTable.showCreationDialog());
         addGridAction(sessionActions, mCreateDisplay);
+
+        mTouchpad = mUi.controlAction(
+                R.string.action_open_touchpad, R.drawable.ic_touchpad, COLOR_TEXT);
+        mTouchpad.setOnClickListener(view -> mActions.openTouchpad());
+        addGridAction(sessionActions, mTouchpad);
+        mReleaseInput = mUi.controlAction(R.string.display_release_input, R.drawable.ic_close, COLOR_TEXT);
+        mReleaseInput.setOnClickListener(view -> mActions.releaseInput());
+        addGridAction(sessionActions, mReleaseInput);
+
+        mPhoneScreen = mUi.controlAction(
+                R.string.action_phone_screen_off, R.drawable.ic_phone_screen_off, COLOR_TEXT);
+        mPhoneScreen.setOnClickListener(view -> mActions.togglePhoneScreen());
+        addGridAction(sessionActions, mPhoneScreen);
+
         parent.addView(sessionActions, fullWidthWrapParams(dp(4)));
     }
 

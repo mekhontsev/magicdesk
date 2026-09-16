@@ -555,6 +555,23 @@
     <string name="control_status_ready">Ready</string>
     <string name="control_status_desktop_active">Desktop active</string>
     <string name="control_runtime_status">Access: %1$s</string>
+    <string name="control_access_title">Access</string>
+    <string name="control_access_backend">Startup method: %1$s</string>
+    <string name="control_access_uid">Service UID: %1$d</string>
+    <string name="control_access_limited">Limit to shell UID 2000: enabled</string>
+    <string name="control_access_unlimited">Limit to shell UID 2000: disabled</string>
+    <string name="control_access_setup">Set up access</string>
+    <string name="control_termux_status">Termux: %1$s</string>
+    <string name="control_termux_not_installed">Not installed</string>
+    <string name="control_termux_setup_required">Setup required</string>
+    <string name="control_termux_ready_details">RUN_COMMAND service and permission are available. External commands must also be enabled in Termux (allow-external-apps=true).</string>
+    <string name="control_termux_external_commands">External commands also require allow-external-apps=true in Termux.</string>
+    <string name="control_integration_package">Package: %1$s</string>
+    <string name="control_integration_settings">Settings</string>
+    <string name="control_grant_permission">Grant permission</string>
+    <string name="control_app_permissions">App permissions</string>
+    <string name="control_app_settings">App settings</string>
+    <string name="control_open_termux">Open Termux</string>
     <string name="access_restart_required">Exit MagicDesk and reopen it to apply privileged-service settings.</string>
     <string name="control_external_display_status">Output: %1$s</string>
     <string name="search_apps_hint">Search apps, files and actions</string>

@@ -40,7 +40,9 @@ change the UID of Shizuku itself.
 The control panel exposes the same authorization request independently of
 Desktop setup. **Access: shell / root / none** describes the connected service's
 effective UID, not the selected launcher or its installation status. It updates
-on service events. A pending startup-policy change asks the user to Exit and
+on service events. Tapping **Access** shows the startup method, effective UID
+and active UID-limit policy; requesting access is an explicit dialog action.
+A pending startup-policy change asks the user to Exit and
 reopen MagicDesk. Full Exit performs normal cleanup first, suppresses rebinding,
 and always ends the app process. Reopening captures all saved startup settings,
 including integration packages; a Desktop Close does neither.

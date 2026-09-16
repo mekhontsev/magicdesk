@@ -72,14 +72,14 @@ final class DisplayTableView {
         final GridLayout commands = new GridLayout(mActivity);
         commands.setColumnCount(2);
         mStart = button(commands, R.drawable.ic_play, R.string.display_start);
-        mClose = button(commands, R.drawable.ic_close, R.string.action_close_desktop);
+        mPortable = button(commands, R.drawable.ic_file_new_window, R.string.display_start_portable);
         mApps = button(commands, R.drawable.ic_sections, R.string.section_apps);
         mIndependent = button(commands, R.drawable.ic_history, R.string.display_independent_apps);
-        mInput = button(commands, R.drawable.ic_touchpad, R.string.display_control);
-        mOutput = button(commands, R.drawable.ic_show_desktop, R.string.external_display_resolution);
         mShowDisplay = button(commands, R.drawable.ic_eye, R.string.display_show_another);
         mStopShowing = button(commands, R.drawable.ic_close, R.string.display_stop_showing);
-        mPortable = button(commands, R.drawable.ic_file_new_window, R.string.display_start_portable);
+        mInput = button(commands, R.drawable.ic_touchpad, R.string.display_control);
+        mOutput = button(commands, R.drawable.ic_show_desktop, R.string.external_display_resolution);
+        mClose = button(commands, R.drawable.ic_close, R.string.action_close_desktop);
         mRemove = button(commands, R.drawable.ic_file_delete, R.string.display_remove);
         mCommands.addView(commands, new LinearLayout.LayoutParams(-1, -2));
         separator(mCommands);
@@ -223,7 +223,6 @@ final class DisplayTableView {
         updateButton(mShowDisplay, R.drawable.ic_eye, R.string.display_show_another,
                 enabled && Arrays.stream(mDisplays).anyMatch(d -> d.id != display.id),
                 () -> DisplaySourceDialog.show(mActivity, display, mDisplays));
-        mStopShowing.setVisibility(session == null ? View.INVISIBLE : View.VISIBLE);
         updateButton(mStopShowing, R.drawable.ic_close, R.string.display_stop_showing,
                 enabled && session != null, () -> DisplayPresentations.detach(session));
         updateButton(mPortable, R.drawable.ic_file_new_window, R.string.display_start_portable,
