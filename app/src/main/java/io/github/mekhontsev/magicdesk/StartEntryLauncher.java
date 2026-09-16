@@ -31,11 +31,7 @@ final class StartEntryLauncher {
             } else if (entry.desktopApplication != null) {
                 final DesktopLaunchRequest request = DesktopLaunchRequest.from(entry.desktopApplication.shortcut,
                         DesktopLaunchArguments.empty(), entry.desktopApplication.desktopFilePath);
-                final DesktopLaunchPresentation selected = presentation.mode != DesktopLaunchMode.AUTO ? presentation
-                        : placement(destination).desktop ? request.presentation.withInstancePolicy(presentation.instancePolicy)
-                        : DesktopLaunchPresentation.forMode(DesktopLaunchMode.FULLSCREEN)
-                                .withInstancePolicy(presentation.instancePolicy);
-                request(activity, request.withPresentation(selected),
+                request(activity, ApplicationEntryLauncher.present(request, placement(destination), presentation),
                         destination, alive, started, failed);
             } else {
                 final Intent intent;
@@ -60,31 +56,7 @@ final class StartEntryLauncher {
 
     static void request(Activity activity, DesktopLaunchRequest request, StartDisplaySelector.Target destination,
             BooleanSupplier alive, Runnable started, Consumer<Throwable> failed) {
-        TaskCommandQueue.execute(() -> {
-            try {
-                DesktopDisplayCatalog.require(destination.displayId(), destination.uniqueId());
-                if (!alive.getAsBoolean()) { return; }
-                if (placement(destination).desktop) {
-                    final boolean accepted = DesktopRuntimeBridge.launchAutomationRequest(request, destination.displayId());
-                    activity.runOnUiThread(() -> {
-                        if (!alive.getAsBoolean()) { return; }
-                        if (accepted) { started.run(); }
-                        else { failed.accept(new IllegalStateException("application launch was rejected")); }
-                    });
-                    return;
-                }
-                activity.runOnUiThread(() -> {
-                    if (!alive.getAsBoolean()) { return; }
-                    try {
-                        final boolean accepted = new DesktopLaunchCoordinator(new StandaloneDesktopLaunchContext(
-                                activity, destination.displayId(), destination.uniqueId())).launch(request);
-                        if (accepted) { started.run(); }
-                        else { failed.accept(new IllegalStateException("application launch was rejected")); }
-                    } catch (RuntimeException error) { failed.accept(error); }
-                });
-            } catch (java.io.IOException | RuntimeException error) {
-                activity.runOnUiThread(() -> { if (alive.getAsBoolean()) { failed.accept(error); } });
-            }
-        });
+        ApplicationEntryLauncher.launch(activity, request, placement(destination), destination.uniqueId(), alive,
+                error -> { if (error == null) started.run(); else failed.accept(error); });
     }
 }

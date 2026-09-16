@@ -49,7 +49,7 @@ final class DesktopLaunchCoordinator {
         final DesktopLaunchRequest request;
         try {
             if (source.application != null) {
-                source.application.requireProfile(AppProfile.current(mContext.activity()));
+                source.application.requireProfile(AppProfile.current(mContext.context()));
             }
             if (X11ApplicationLaunch.reuse(mContext, source, completion)) return true;
             request = X11ApplicationLaunch.prepare(mContext, source.prepareExec());
@@ -73,7 +73,7 @@ final class DesktopLaunchCoordinator {
             }
             final DesktopExecRunner.StartResult availability =
                     DesktopExecRunner.prepareBackend(
-                            mContext.activity(), request.exec.backend);
+                            mContext.context(), request.exec.backend);
             if (availability == DesktopExecRunner.StartResult.UNAVAILABLE) {
                 mContext.onUnavailable(request);
                 complete(completion, DesktopActivityLaunchResult.failed(
@@ -91,14 +91,14 @@ final class DesktopLaunchCoordinator {
         final String sessionId = prepared.exec == null
                 ? "" : DesktopExecSessionTracker.begin(prepared);
         final Runnable execute = prepared.exec == null
-                ? null : () -> mContext.activity().runOnUiThread(
+                ? null : () -> mContext.onMain(
                         () -> execute(prepared, sessionId));
         if (prepared.androidLaunch != null
                 || prepared.androidShortcut != null) {
             try {
                 if (!mContext.launchAndroid(
                         prepared, execute, result -> {
-                            if (result.succeeded() && source.exec == null) RecentApplications.record(mContext.activity(), source);
+                            if (result.succeeded() && source.exec == null) RecentApplications.record(mContext.context(), source);
                             complete(completion, result);
                         })) {
                     DesktopExecSessionTracker.failed(sessionId);
@@ -146,14 +146,14 @@ final class DesktopLaunchCoordinator {
                 mContext.launchConsole(request);
                 DesktopExecSessionTracker.delegated(sessionId);
                 mContext.onStarted(request);
-                RecentApplications.record(mContext.activity(), request);
+                RecentApplications.record(mContext.context(), request);
                 return;
             }
             final WeakReference<DesktopLaunchContext> context =
                     new WeakReference<>(mContext);
             final DesktopExecRunner.StartResult result =
                     DesktopExecRunner.runBackground(
-                            mContext.activity(),
+                            mContext.context(),
                             request.exec.backend,
                             request.exec.command,
                             request.exec.workingDirectory,
@@ -210,7 +210,7 @@ final class DesktopLaunchCoordinator {
                 DesktopExecSessionTracker.delegated(sessionId);
             }
             mContext.onStarted(request);
-            RecentApplications.record(mContext.activity(), request);
+            RecentApplications.record(mContext.context(), request);
         }
     }
 }

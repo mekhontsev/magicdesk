@@ -1,24 +1,25 @@
 package io.github.mekhontsev.magicdesk;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.widget.Toast;
 
 /** Launch context for an ordinary destination, independent of the displaying Activity. */
 final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
-    private final Activity mActivity;
+    private final Context mContext;
     private final int mDisplayId;
     private final String mUniqueId;
 
-    StandaloneDesktopLaunchContext(Activity activity, int displayId, String uniqueId) {
-        mActivity = activity;
+    StandaloneDesktopLaunchContext(Context activity, int displayId, String uniqueId) {
+        mContext = activity;
         mDisplayId = displayId;
         mUniqueId = uniqueId;
     }
 
     @Override
-    public Activity activity() {
-        return mActivity;
+    public Context context() {
+        return mContext;
     }
 
     @Override public ToolLaunchTarget destination() {
@@ -50,19 +51,19 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
                 if (request.androidShortcut != null) {
                     AndroidIntegrationGateway.requireShortcutPresentation(request.presentation);
                     final AndroidShortcutSpec shortcut = request.androidShortcut;
-                    AppProfile.requireCurrent(mActivity, shortcut.application);
+                    AppProfile.requireCurrent(mContext, shortcut.application);
                     ShellAccess.sendActivityOnDisplay(ShellAccess.getShortcutLaunchIntent(
                             shortcut.publisher.packageName, shortcut.shortcutId), mDisplayId);
                 } else {
-                    final Intent source = request.androidLaunch.resolve(mActivity.getPackageManager());
+                    final Intent source = request.androidLaunch.resolve(mContext.getPackageManager());
                     if (source == null) { throw new IllegalStateException("Activity is unavailable"); }
                     final Intent intent = request.presentation.instancePolicy.applyTo(source);
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    OrdinaryActivityLaunch.launch(mActivity, intent, request.androidLaunch.delivery, mDisplayId);
+                    OrdinaryActivityLaunch.launch(mContext, intent, request.androidLaunch.delivery, mDisplayId);
                 }
-                mActivity.runOnUiThread(() -> launched(onPrepared, completion));
+                onMain(() -> launched(onPrepared, completion));
             } catch (java.io.IOException | RuntimeException error) {
-                mActivity.runOnUiThread(() -> failed(request, error, completion));
+                onMain(() -> failed(request, error, completion));
             }
         });
         return true;
@@ -85,9 +86,9 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
     @Override
     public void launchConsole(
             final DesktopLaunchRequest request) {
-        BuiltInWindowLauncher.launch(mActivity,
+        BuiltInWindowLauncher.launch(mContext,
                 CommandConsoleActivity.createPreparedCommandIntent(
-                        mActivity,
+                        mContext,
                         request.exec.command,
                         request.exec.workingDirectory,
                         request.exec.backend),
@@ -100,7 +101,8 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
 
     @Override
     public boolean isUnavailable() {
-        return mActivity.isFinishing() || mActivity.isDestroyed();
+        return mContext instanceof Activity activity
+                && (activity.isFinishing() || activity.isDestroyed());
     }
 
     @Override
@@ -113,7 +115,7 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
 
     @Override
     public void onUnavailable(final DesktopLaunchRequest request) {
-        show(mActivity.getString(
+        show(mContext.getString(
                 R.string.status_desktop_launch_unavailable,
                 request.name));
     }
@@ -122,7 +124,7 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
     public void onFailure(
             final DesktopLaunchRequest request,
             final Throwable error) {
-        show(mActivity.getString(
+        show(mContext.getString(
                 R.string.status_desktop_exec_failed,
                 request.name));
     }
@@ -130,7 +132,7 @@ final class StandaloneDesktopLaunchContext implements DesktopLaunchContext {
     private void show(final String message) {
         if (!isUnavailable()) {
             Toast.makeText(
-                    mActivity, message, Toast.LENGTH_LONG).show();
+                    mContext, message, Toast.LENGTH_LONG).show();
         }
     }
 }

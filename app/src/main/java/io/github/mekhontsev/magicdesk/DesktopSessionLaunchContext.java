@@ -13,7 +13,7 @@ final class DesktopSessionLaunchContext implements DesktopLaunchContext {
     }
 
     @Override
-    public Activity activity() {
+    public Activity context() {
         return mActivity;
     }
 

@@ -200,6 +200,9 @@ final class DesktopAutomationController {
                 case LAUNCH_DESKTOP_ENTRY:
                     result = launchDesktopEntry(args);
                     break;
+                case LIST_DESKTOP_ENTRIES:
+                    result = listDesktopEntries(args);
+                    break;
                 case FOCUS_TASK:
                     result = focusTask(requiredInt(args, "taskId"));
                     break;
@@ -681,51 +684,63 @@ final class DesktopAutomationController {
     private DesktopAutomationResult launchDesktopEntry(final JSONObject args)
             throws IOException, JSONException {
         final String desktopPath = requiredString(args, "desktopPath");
-        if (!ShellAccess.isReady()) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.SHELL_UNAVAILABLE,
-                    "shell command service is unavailable", true);
-        }
-        final int displayId = optionalDisplayId(args);
-        final boolean launched;
-        final String kind;
-        final ShellFileInfo file = ShellAccess.getShellFileInfo(desktopPath);
-        final DesktopEntry entry = DesktopEntryFile.read(file);
-        if (entry == null) {
-            throw new IllegalArgumentException(
-                    "unsupported or invalid .desktop file");
-        }
+        final DesktopEntrySource source = DesktopEntrySource.parse(optionalString(args, "source", "desktop"));
+        final ToolLaunchTarget target = mAndroid.launchTarget(args);
+        final DesktopEntry entry = source.read(mContext, desktopPath);
         if (entry instanceof DesktopFolderShortcut) {
-            launched = DesktopRuntimeBridge.openFilesAt(
-                    ((DesktopFolderShortcut) entry).targetPath,
-                    displayId);
-            kind = "folder";
-        } else if (entry instanceof DesktopWebShortcut) {
-            launched = DesktopRuntimeBridge.launchDesktopWebShortcut(
-                    (DesktopWebShortcut) entry, displayId);
-            kind = "web";
-        } else if (entry instanceof DesktopApplicationShortcut) {
-            final DesktopLaunchRequest request = DesktopLaunchRequest.from(
-                    (DesktopApplicationShortcut) entry,
-                    launchArguments(args),
-                    desktopPath);
-            launched = DesktopRuntimeBridge.launchAutomationRequest(
-                    request, displayId);
-            kind = "application";
-        } else {
-            throw new IllegalArgumentException(
-                    "unsupported .desktop entry type");
+            JSONObject launch = new JSONObject(args.toString()).put("intentUri",
+                    FileManagerActivity.createIntent(mContext, ((DesktopFolderShortcut) entry).targetPath)
+                            .toUri(Intent.URI_INTENT_SCHEME));
+            DesktopAutomationResult result = mAndroid.launchIntent(launch);
+            result.data.put("kind", "folder");
+            return result;
         }
-        if (!launched) {
-            return DesktopAutomationResult.failure(
-                    DesktopAutomationErrorCode.HOST_UNAVAILABLE,
-                    "desktop launch request was not accepted", true);
+        if (entry instanceof DesktopWebShortcut web) {
+            DesktopAutomationResult result = mAndroid.openUri(new JSONObject(args.toString()).put("uri", web.url));
+            result.data.put("kind", "web");
+            return result;
         }
-        return DesktopAutomationResult.success(
-                "desktop launch request accepted",
-                new JSONObject()
-                        .put("kind", kind)
-                        .put("displayId", displayId));
+        if (!(entry instanceof DesktopApplicationShortcut application))
+            throw new IllegalArgumentException("unsupported .desktop entry type");
+        final DesktopLaunchRequest request = ApplicationEntryLauncher.present(
+                DesktopLaunchRequest.from(application, launchArguments(args), desktopPath), target,
+                AndroidIntegrationRequest.parsePresentation(args, DesktopTaskInstancePolicy.REUSE_EXISTING));
+        final CountDownLatch completed = new CountDownLatch(1);
+        final Throwable[] failure = new Throwable[1];
+        final String uniqueId = DesktopDisplayCatalog.require(target.displayId, null).uniqueId;
+        ApplicationEntryLauncher.launch(mContext, request, target, uniqueId, () -> true, error -> {
+            failure[0] = error;
+            completed.countDown();
+        });
+        final JSONObject data = new JSONObject().put("kind", "application").put("source", source.wireName)
+                .put("desktopPath", desktopPath).put("displayId", target.displayId)
+                .put("placement", target.desktop ? "desktop" : "display");
+        EventDrivenWaits.noteFrameworkWait(EventDrivenWaits.Reason.ACTIVITY_LAUNCH_RESULT);
+        final DesktopAutomationResult pending = AutomationCallbackWait.await(completed,
+                ACTION_TIMEOUT_MILLIS, "desktop entry launch", false, data);
+        if (pending != null) return pending;
+        if (failure[0] != null) return DesktopAutomationResult.failure(ShellAccess.usefulMessage(failure[0]), data);
+        return DesktopAutomationResult.success("desktop entry launch accepted", data.put("accepted", true)
+                .put("nextAction", "Observe list_tasks and get_state; acceptance does not prove that the application is ready."));
+    }
+
+    private DesktopAutomationResult listDesktopEntries(JSONObject args) throws IOException, JSONException {
+        DesktopEntrySource source = DesktopEntrySource.parse(optionalString(args, "source", "desktop"));
+        String query = optionalString(args, "query", "").toLowerCase(Locale.ROOT);
+        int limit = args.has("limit") ? requiredInt(args, "limit") : 100;
+        if (limit < 1 || limit > 256) throw new IllegalArgumentException("limit must be between 1 and 256");
+        var entries = source.load(mContext).stream().filter(entry -> query.isEmpty()
+                || entry.shortcut.name.toLowerCase(Locale.ROOT).contains(query)
+                || entry.desktopFilePath.toLowerCase(Locale.ROOT).contains(query)).toList();
+        var values = new org.json.JSONArray();
+        for (var entry : entries.stream().limit(limit).toList()) {
+            values.put(new JSONObject().put("name", entry.shortcut.name).put("source", source.wireName)
+                    .put("desktopPath", entry.desktopFilePath).put("backend", entry.shortcut.execBackend.wireName)
+                    .put("terminal", entry.shortcut.terminal).put("x11Desktop", entry.shortcut.x11Desktop));
+        }
+        return DesktopAutomationResult.success("desktop application catalog", new JSONObject()
+                .put("entries", values).put("source", source.wireName).put("total", entries.size())
+                .put("truncated", entries.size() > limit));
     }
 
     private static DesktopLaunchArguments launchArguments(

@@ -971,6 +971,22 @@ Package filters and generic Intent routing retain their separate semantics.
 An Android Desktop Entry that explicitly references a different profile fails
 before execution instead of falling back to the current profile.
 
+`list_desktop_entries` discovers launchable `.desktop` applications with
+`source=desktop|termux`, an optional `query` and a bounded `limit`. `desktop`
+reads the Desktop folder; `termux` refreshes the installed application catalog
+through the selected Termux endpoint's `RUN_COMMAND`. Both require the MCP
+`shell` grant, not a running Desktop. Unavailable Termux access is an error,
+not an empty catalog or a fallback to another identity.
+
+Pass a returned `source` and `desktopPath` to `launch_desktop_entry`, with
+optional `files`, `placement`, `displayId`, `mode`, `instance` and `bounds`.
+Termux paths must match its current catalog; private files are never read through
+Android shell. Start and automation share the recipe coordinator and destination
+policy. Ordinary placement does not acquire HOME or start Desktop. An accepted
+recipe is not proof of application readiness: observe `list_tasks` and, for X11,
+the session/window catalog in `get_state`. A callback timeout is an uncertain
+launch outcome and must not trigger an automatic duplicate launch.
+
 `list_android_actions` and `invoke_android_action` expose the same bounded
 semantic action catalog used by desktop UI and Android App Functions. It
 currently includes document open/create, application details, notification

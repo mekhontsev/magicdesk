@@ -9,8 +9,7 @@ public final class StandaloneDesktopLaunchContextTest {
                     static final int FLAG_ACTIVITY_NEW_TASK = 1;
                     void addFlags(int flags) { }
                 }
-                static class Activity {
-                    void runOnUiThread(Runnable action) { action.run(); }
+                static class Context {
                     Object getPackageManager() { return null; }
                 }
                 enum Delivery { SHELL_INTENT, APP_PENDING_INTENT }
@@ -29,7 +28,7 @@ public final class StandaloneDesktopLaunchContextTest {
                     Object application; Publisher publisher; String shortcutId;
                 }
                 static class Publisher { String packageName; }
-                static class AppProfile { static void requireCurrent(Activity a, Object p) { } }
+                static class AppProfile { static void requireCurrent(Context a, Object p) { } }
                 static class AndroidIntegrationGateway { static void requireShortcutPresentation(Presentation p) { } }
                 static class DesktopActivityLaunchResult { interface Completion { void onComplete(Object result); } }
                 static class TaskCommandQueue { static void execute(Runnable action) { action.run(); } }
@@ -48,12 +47,13 @@ public final class StandaloneDesktopLaunchContextTest {
                 static class OrdinaryActivityLaunch {
                     static int calls, display; static Delivery delivery;
                     static void requirePresentation(Presentation p) { }
-                    static void launch(Activity a, Intent i, Delivery d, int id) {
+                    static void launch(Context a, Intent i, Delivery d, int id) {
                         calls++; display = id; delivery = d;
                     }
                 }
                 static class FixtureContext {
-                    final Activity mActivity = new Activity();
+                    final Context mContext = new Context();
+                    void onMain(Runnable action) { action.run(); }
                     int mDisplayId; String mUniqueId;
                     boolean unavailable; int completions; Throwable failure;
                     boolean isUnavailable() { return unavailable; }

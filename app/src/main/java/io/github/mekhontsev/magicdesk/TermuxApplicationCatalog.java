@@ -3,9 +3,12 @@ package io.github.mekhontsev.magicdesk;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /** Read-only, profile-local catalog through the selected Termux RUN_COMMAND endpoint. */
 final class TermuxApplicationCatalog {
@@ -17,6 +20,35 @@ final class TermuxApplicationCatalog {
     private static final List<Consumer<String>> waiting = new ArrayList<>();
 
     static List<DesktopApplicationRepository.Entry> entries() { return entries; }
+
+    static List<DesktopApplicationRepository.Entry> load(Context context) throws IOException {
+        if (Looper.myLooper() == Looper.getMainLooper())
+            throw new IOException("Termux catalog query cannot block the UI");
+        CountDownLatch ready = new CountDownLatch(1);
+        var result = new java.util.concurrent.atomic.AtomicReference<List<DesktopApplicationRepository.Entry>>();
+        var failure = new java.util.concurrent.atomic.AtomicReference<String>();
+        MAIN.post(() -> {
+            if (!TermuxIntegration.isAvailable(context)) {
+                failure.set("Termux RUN_COMMAND is unavailable");
+                ready.countDown();
+                return;
+            }
+            refresh(context, error -> {
+                result.set(List.copyOf(entries));
+                failure.set(error);
+                ready.countDown();
+            });
+        });
+        try {
+            EventDrivenWaits.noteFrameworkWait(EventDrivenWaits.Reason.APPLICATION_CATALOG);
+            if (!ready.await(16_000, TimeUnit.MILLISECONDS)) throw new IOException("Termux catalog query timed out");
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Termux catalog query was interrupted", error);
+        }
+        if (failure.get() != null && !failure.get().isEmpty()) throw new IOException(failure.get());
+        return result.get();
+    }
 
     static void refresh(Context context, Consumer<String> complete) {
         TermuxIntegration.Endpoint endpoint = TermuxIntegration.inspect(context);

@@ -409,10 +409,18 @@ final class AutomationCommandCatalog {
                         "Execute App Function",
                         "Execute an Android App Function through the shell-authorized framework service.",
                         appFunctionExecuteSchema()))
+                .put(readTool(
+                        "list_desktop_entries",
+                        "List desktop applications",
+                        "Discover .desktop applications from the Desktop directory or the selected Termux installation. Does not require an active Desktop.",
+                        objectSchema(new JSONObject()
+                                .put("source", enumProperty("Catalog source; defaults to desktop.", "desktop", "termux"))
+                                .put("query", stringProperty("Optional name or desktop-file path filter."))
+                                .put("limit", integerProperty("Maximum entries, 1..256; defaults to 100.")))))
                 .put(actionTool(
                         "launch_desktop_entry",
                         "Launch desktop entry",
-                        "Launch one .desktop file through the shared coordinator.",
+                        "Launch a .desktop recipe through the same coordinator as Start. Termux entries come from list_desktop_entries, not the shell filesystem. Does not require Desktop; acceptance is not application readiness.",
                         desktopEntrySchema()))
                 .put(readTool(
                         "get_recording_status",
@@ -1159,11 +1167,14 @@ final class AutomationCommandCatalog {
     }
 
     private static JSONObject desktopEntrySchema() throws JSONException {
-        return objectSchema(new JSONObject()
-                .put("displayId", integerProperty(
-                        "Optional active desktop display id."))
+        return objectSchema(activityPlacementProperties()
+                .put("source", enumProperty("File authority; defaults to desktop. Termux requires an exact catalog path.",
+                        "desktop", "termux"))
                 .put("desktopPath", stringProperty(
                         "Absolute .desktop file path."))
+                .put("mode", enumProperty("Launch mode; windowed requires Desktop.", "auto", "windowed", "fullscreen"))
+                .put("instance", enumProperty("Instance policy.", "reuse", "new"))
+                .put("bounds", relativeBoundsProperty("Initial managed window bounds."))
                 .put("files", arrayProperty(
                         "File arguments for Desktop Entry field codes.",
                         stringProperty("Absolute file path."))),
@@ -1647,7 +1658,23 @@ final class AutomationCommandCatalog {
                 break;
             case "launch_desktop_entry":
                 properties.put("kind", stringProperty("Desktop entry kind."))
-                        .put("displayId", integerProperty("Display id."));
+                        .put("displayId", integerProperty("Display id."))
+                        .put("accepted", booleanProperty("Launch was accepted; observe readiness separately."))
+                        .put("source", stringProperty("File authority."))
+                        .put("desktopPath", stringProperty("Desktop file path."))
+                        .put("placement", stringProperty("Resolved placement."));
+                break;
+            case "list_desktop_entries":
+                properties.put("entries", arrayProperty("Installed applications.", objectSchema(new JSONObject()
+                                .put("name", stringProperty("Application name."))
+                                .put("source", stringProperty("File authority for launch_desktop_entry."))
+                                .put("desktopPath", stringProperty("Desktop file path for launch_desktop_entry."))
+                                .put("backend", stringProperty("Execution backend."))
+                                .put("terminal", booleanProperty("Launches a terminal."))
+                                .put("x11Desktop", booleanProperty("Launches a whole Linux desktop.")))))
+                        .put("source", stringProperty("Catalog source."))
+                        .put("total", integerProperty("Matching application count."))
+                        .put("truncated", booleanProperty("More entries matched than returned."));
                 break;
             case "begin_trace":
                 properties.put("traceId", stringProperty("Trace id."))

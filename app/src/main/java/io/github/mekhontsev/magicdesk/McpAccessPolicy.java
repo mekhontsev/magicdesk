@@ -61,7 +61,7 @@ final class McpAccessPolicy {
                     "ui.perform", "ui.release", "input.gesture", "input.key_chord",
                     "device.keep_awake", "device.release_awake",
                     "force_stop_app" -> Permission.INPUT_TESTS;
-            case "send_broadcast", "start_service", "launch_desktop_entry" -> Permission.SHELL;
+            case "send_broadcast", "start_service", "launch_desktop_entry", "list_desktop_entries" -> Permission.SHELL;
             case "capture_screenshot", "sample_pixels", "start_recording", "stop_recording",
                     "dialog.show", "notification.post", "interaction.result", "interaction.close",
                     "clipboard.read_text", "clipboard.write_text", "clipboard.clear",

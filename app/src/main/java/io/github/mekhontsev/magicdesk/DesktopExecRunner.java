@@ -34,7 +34,7 @@ final class DesktopExecRunner {
     }
 
     static StartResult prepareBackend(
-            final Activity activity,
+            final Context activity,
             final DesktopExecBackend backend) {
         if (backend == DesktopExecBackend.X11) {
             throw new IllegalArgumentException("X11 commands require an application window");
@@ -43,16 +43,17 @@ final class DesktopExecRunner {
             if (!TermuxIntegration.isInstalled(activity)) {
                 return StartResult.UNAVAILABLE;
             }
-            return TermuxIntegration.ensureRunCommandPermission(activity)
-                    ? StartResult.STARTED
-                    : StartResult.PERMISSION_REQUESTED;
+            if (TermuxIntegration.isAvailable(activity)) return StartResult.STARTED;
+            if (!(activity instanceof Activity host)) return StartResult.UNAVAILABLE;
+            return TermuxIntegration.ensureRunCommandPermission(host)
+                    ? StartResult.STARTED : StartResult.PERMISSION_REQUESTED;
         }
         return ShellAccess.isReady()
                 ? StartResult.STARTED : StartResult.UNAVAILABLE;
     }
 
     static StartResult runBackground(
-            final Activity activity,
+            final Context activity,
             final DesktopExecBackend backend,
             final String command,
             final String workingDirectory,

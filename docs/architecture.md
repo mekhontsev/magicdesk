@@ -1595,7 +1595,9 @@ and a session nonce before Xorg starts. The server's owner Binder ties its
 lifetime to the MagicDesk process, while Xauthority isolates X clients.
 No Desktop coordinator, HOME lease or privileged service is initialized by
 this shared tool. Android placement still goes through `ToolApplications`.
-The read-only Termux `.desktop` catalog feeds the shared Start content.
+The read-only Termux `.desktop` catalog feeds shared Start content and MCP/CLI
+application discovery. `DesktopEntrySource` separates its authority from shell
+file access: Termux launches resolve an exact freshly queried catalog path.
 `X11ApplicationLaunch` turns its executor into a normal Android launch request;
 the native window model owns X relationships, never Android task topology.
 The session manager is separate from content-only client/desktop viewers.
@@ -2927,7 +2929,11 @@ Every launch surface converts the entry into one immutable
 capability validation, optional Android-task preparation, and command
 delegation. `DesktopSessionLaunchContext` maps that sequence onto the live
 desktop's existing `AppTaskController`; `StandaloneDesktopLaunchContext` maps
-the same request onto a regular Files Activity. Neither context reimplements
+the same request onto ordinary Android placement. Its caller may be an Activity
+or the application context; neither automation nor background launch requires
+a foreground Files or Start window. `ApplicationEntryLauncher` shares captured
+destination validation, presentation defaults and dispatch between Start and
+automation. Neither context reimplements
 request resolution or backend selection. The coordinator deliberately leaves
 the established WMShell transition controllers unchanged.
 

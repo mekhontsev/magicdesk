@@ -35,6 +35,7 @@ enum DesktopAutomationAction {
     SHARE_CLIPBOARD_CONTENT("clipboard.share", true),
     CLEAR_CLIPBOARD("clipboard.clear", true),
     LAUNCH_DESKTOP_ENTRY("launch_desktop_entry", false),
+    LIST_DESKTOP_ENTRIES("list_desktop_entries", false),
     FOCUS_TASK("focus_task", false),
     CLOSE_TASK("close_task", false),
     FORCE_STOP_APP("force_stop_app", true),

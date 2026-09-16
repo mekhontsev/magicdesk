@@ -12,6 +12,24 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class AutomationCommandCatalogTest {
+    @Test public void desktopEntriesExposeDiscoveryAndIndependentPlacement() throws Exception {
+        var tools = AutomationCommandCatalog.create();
+        var list = tool(tools, "list_desktop_entries");
+        assertTrue(list.getJSONObject("annotations").getBoolean("readOnlyHint"));
+        assertEquals(McpAccessPolicy.Permission.SHELL, McpAccessPolicy.required("list_desktop_entries"));
+        assertEquals(DesktopAutomationAction.LIST_DESKTOP_ENTRIES, DesktopAutomationAction.parse("list_desktop_entries"));
+        var launch = tool(tools, "launch_desktop_entry").getJSONObject("inputSchema");
+        assertEquals("[\"desktopPath\"]", launch.getJSONArray("required").toString());
+        var input = launch.getJSONObject("properties");
+        for (String key : Set.of("source", "placement", "displayId", "mode", "instance", "bounds", "files"))
+            assertTrue(key, input.has(key));
+        var entry = dataProperties(tools, "list_desktop_entries").getJSONObject("entries")
+                .getJSONObject("items").getJSONObject("properties");
+        assertTrue(entry.has("desktopPath"));
+        assertTrue(entry.has("source"));
+        assertTrue(dataProperties(tools, "launch_desktop_entry").has("accepted"));
+    }
+
     @Test public void viewerUsesBuiltinLaunchAndOrdinaryTaskClose() throws Exception {
         final JSONArray tools = AutomationCommandCatalog.create();
         final JSONObject launch = tool(tools, "open_builtin").getJSONObject("inputSchema");

@@ -174,7 +174,7 @@ final class TermuxIntegration {
     }
 
     static void runBackgroundShellCommand(
-            final Activity activity,
+            final Context activity,
             final String command,
             final String label,
             final String workingDirectory) {
