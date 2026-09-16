@@ -21,6 +21,7 @@ final class AndroidClipboardGateway {
     private static final String EXTRA_FILE_CLIP_GENERATION =
             "io.github.mekhontsev.magicdesk.FILE_CLIP_GENERATION";
     private static final String FILE_CLIP_OWNER = "magicdesk";
+    private static final String EXTRA_CONTENT_SOURCE = "io.github.mekhontsev.magicdesk.CONTENT_SOURCE";
     private static final String PROCESS_SESSION = UUID.randomUUID().toString();
     private static final Object INSTANCE_LOCK = new Object();
     private static final Object RUNTIME_LOCK = new Object();
@@ -110,12 +111,18 @@ final class AndroidClipboardGateway {
     static final class ContentReadResult {
         final Metadata metadata;
         final AndroidContentPayload content;
+        final String source;
 
         ContentReadResult(
                 final Metadata metadata,
                 final AndroidContentPayload content) {
+            this(metadata, content, "");
+        }
+
+        ContentReadResult(Metadata metadata, AndroidContentPayload content, String source) {
             this.metadata = metadata;
             this.content = content;
+            this.source = source;
         }
     }
 
@@ -211,6 +218,17 @@ final class AndroidClipboardGateway {
 
     ContentReadResult readContent() {
         return readContent("read_content");
+    }
+
+    OperationResult writeContent(AndroidContentPayload content, String source) {
+        try {
+            ClipData clip = content.toClipData();
+            PersistableBundle extras = clip.getDescription().getExtras();
+            extras = extras == null ? new PersistableBundle() : new PersistableBundle(extras);
+            extras.putString(EXTRA_CONTENT_SOURCE, source);
+            clip.getDescription().setExtras(extras);
+            return setPrimaryClip(clip, "write_content", !content.uriItems.isEmpty());
+        } catch (RuntimeException error) { return failure("write_content", error); }
     }
 
     Metadata metadata() {
@@ -319,7 +337,9 @@ final class AndroidClipboardGateway {
                     read.metadata,
                     AndroidContentPayload.fromClipData(
                             read.clip,
-                            AndroidContentPayload.Origin.CLIPBOARD));
+                            AndroidContentPayload.Origin.CLIPBOARD),
+                    read.clip.getDescription().getExtras() == null ? "" :
+                            read.clip.getDescription().getExtras().getString(EXTRA_CONTENT_SOURCE, ""));
         } catch (SecurityException error) {
             return new ContentReadResult(denied(operation, error), null);
         } catch (RuntimeException error) {

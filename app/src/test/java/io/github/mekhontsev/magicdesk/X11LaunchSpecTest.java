@@ -29,6 +29,8 @@ public final class X11LaunchSpecTest {
         assertTrue(spec.serverCommand.contains("MAGICDESK_X11_OWNER_REQUIRED=1"));
         assertTrue(spec.serverCommand.contains("MAGICDESK_X11_LIBRARY='/lib/libXlorie.so'"));
         assertTrue(spec.serverCommand.contains("trap "));
+        assertTrue(spec.serverCommand.contains("MAGICDESK_X11_CONTENT_DIR=\"$runtime/content\""));
+        assertTrue(spec.serverCommand.contains("rm -rf -- \"$runtime/content\""));
         assertFalse(spec.serverCommand.contains(" -ac"));
         assertFalse(spec.serverCommand.contains("su "));
         assertFalse(spec.serverCommand.contains("com.termux.x11/."));

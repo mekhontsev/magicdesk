@@ -9,6 +9,7 @@ import android.os.Looper;
 import android.os.RemoteException;
 import com.termux.x11.ICmdEntryInterface;
 import com.termux.x11.X11Session;
+import com.termux.x11.X11DataExchange;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -31,7 +32,8 @@ final class X11Sessions {
     interface Listener {
         void onChanged();
         default void onFrame(X11Session.Output output, int width, int height, boolean available) { }
-        default void onClipboard(String text) { }
+        default void onDataOffer(X11DataExchange.Offer offer) { }
+        default void onDragEvent(int operation, int output, boolean accepted) { }
     }
 
     static Session start(Context context, String name, String command) {
@@ -202,17 +204,22 @@ final class X11Sessions {
         void claimClipboard(Listener owner) {
             clipboardOwner = owner;
             X11Session current = renderer;
-            if (state == State.READY && current != null) current.setClipboardEnabled(true);
+            if (state == State.READY && current != null) current.dataExchange().clipboardActive(true);
         }
         void releaseClipboard(Listener owner) {
             if (clipboardOwner != owner) return;
             clipboardOwner = null;
             X11Session current = renderer;
-            if (state == State.READY && current != null) current.setClipboardEnabled(false);
+            if (state == State.READY && current != null) current.dataExchange().clipboardActive(false);
         }
-        void offerClipboard(Listener owner, String text) {
+        X11DataExchange dataExchange() {
             X11Session current = renderer;
-            if (clipboardOwner == owner && state == State.READY && current != null) current.offerClipboard(text);
+            if (state != State.READY || current == null) throw new IllegalStateException("X11 session is not ready");
+            return current.dataExchange();
+        }
+        synchronized ICmdEntryInterface contentFiles() {
+            if (state != State.READY || server == null) throw new IllegalStateException("X11 session is not ready");
+            return server;
         }
         void closeWindow(long id) {
             X11Session current = renderer;
@@ -269,8 +276,14 @@ final class X11Sessions {
                         for (Listener listener : listeners) listener.onFrame(output, width, height, available);
                     }
                     @Override public void onDisconnected() { fail(new IllegalStateException("X11 renderer disconnected")); }
-                    @Override public void onClipboard(String text) {
-                        if (clipboardOwner != null && !stopped()) clipboardOwner.onClipboard(text);
+                    @Override public void onDataOffer(X11DataExchange.Offer offer) {
+                        if (stopped()) return;
+                        if (offer.channel() == X11DataExchange.CLIPBOARD) {
+                            if (clipboardOwner != null) clipboardOwner.onDataOffer(offer);
+                        } else for (Listener listener : listeners) listener.onDataOffer(offer);
+                    }
+                    @Override public void onDragEvent(int operation, int output, boolean accepted) {
+                        if (!stopped()) for (Listener listener : listeners) listener.onDragEvent(operation, output, accepted);
                     }
                     @Override public void onWindowsChanged(List<X11Session.Window> snapshot) {
                         if (stopped()) return;

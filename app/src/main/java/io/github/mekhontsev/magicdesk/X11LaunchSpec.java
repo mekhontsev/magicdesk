@@ -30,13 +30,14 @@ final class X11LaunchSpec {
         serverCommand = boundedOutput("set -eu\numask 077\n"
                 + "mkdir -p " + q(termuxHome + "/.cache/magicdesk/x11") + "\n"
                 + "mkdir " + q(directory) + "\n"
-                + "trap 'rm -f -- \"$auth\"; rmdir -- \"$runtime\"' EXIT\n"
+                + "trap 'rm -rf -- \"$runtime/content\"; rm -f -- \"$auth\"; rmdir -- \"$runtime\"' EXIT\n"
                 + "runtime=" + q(directory) + "\nauth=" + q(authorityFile) + "\n"
                 + "base64 -d > \"$auth\"\n"
                 + "env -u LD_PRELOAD -u LD_LIBRARY_PATH CLASSPATH=" + q(apk)
                 + " MAGICDESK_X11_LIBRARY=" + q(nativeLibraryDirectory + "/libXlorie.so")
                 + " MAGICDESK_X11_PACKAGE=" + q(hostPackage)
                 + " MAGICDESK_X11_OWNER_REQUIRED=1"
+                + " MAGICDESK_X11_CONTENT_DIR=\"$runtime/content\""
                 + " MAGICDESK_X11_XSETTINGS=" + (application ? "1" : "0")
                 + " MAGICDESK_X11_SESSION=" + q(id) + " MAGICDESK_X11_TOKEN=" + q(token)
                 + " TMPDIR=\"${PREFIX:?}/tmp\" XKB_CONFIG_ROOT=\"$PREFIX/share/X11/xkb\""

@@ -38,8 +38,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     private boolean application;
     private boolean manager;
     private volatile BuiltInWindowRegistry.Presentation presentation;
-    private AutoCloseable clipboardObserver;
-    private X11Sessions.Session clipboardSession;
+    private X11HostExchange exchange;
 
     static Intent createIntent(Context context) { return new Intent(context, X11Activity.class); }
 
@@ -121,6 +120,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     }
 
     private void select(X11Sessions.Session next) {
+        releaseExchange();
         if (session != null) { session.unlisten(this); session.releaseDensity(this); session.releaseHost(getTaskId()); }
         surface.release();
         output = null;
@@ -175,10 +175,11 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
             try {
                 output = session.openOutput(window);
                 surface.bind(output);
+                exchange = new X11HostExchange(this, session, this, surface, output);
                 surface.requestFocus();
             } catch (RuntimeException error) { status.setText(ShellAccess.usefulMessage(error)); status.setVisibility(View.VISIBLE); }
-        } else if (!ready && output != null) { surface.release(); output = null; }
-        updateClipboard();
+        } else if (!ready && output != null) { releaseExchange(); surface.release(); output = null; }
+        updateExchangeFocus();
     }
 
     @Override public BuiltInWindowRegistry.Presentation taskPresentation() { return presentation; }
@@ -200,7 +201,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
             if (focused) session.recordUse();
         }
         if (focused && surface != null) onChanged();
-        else updateClipboard();
+        else updateExchangeFocus();
     }
 
     @Override public void onConfigurationChanged(android.content.res.Configuration configuration) {
@@ -213,40 +214,21 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
                 getResources().getConfiguration().densityDpi, hasWindowFocus());
     }
 
-    private void updateClipboard() {
-        X11Sessions.Session next = !manager && hasWindowFocus() && session != null && session.state() == X11Sessions.State.READY
-                ? session : null;
-        if (clipboardSession == next) return;
-        releaseClipboard();
-        clipboardSession = next;
-        if (next != null) {
-            next.claimClipboard(this);
-            clipboardObserver = AndroidClipboardGateway.get(this).observe(this::publishClipboard);
-            publishClipboard();
-        }
+    private void updateExchangeFocus() {
+        if (exchange != null) exchange.focus(hasWindowFocus());
     }
 
-    private void publishClipboard() {
-        if (clipboardSession == null || !hasWindowFocus()) return;
-        var value = AndroidClipboardGateway.get(this).readText();
-        if (value.metadata.access == AndroidClipboardGateway.Access.AVAILABLE
-                || value.metadata.access == AndroidClipboardGateway.Access.EMPTY) {
-            try { clipboardSession.offerClipboard(this, value.text); }
-            catch (IllegalArgumentException tooLarge) { android.util.Log.w("MagicDesk", tooLarge.getMessage()); }
-        }
+    @Override public void onDataOffer(com.termux.x11.X11DataExchange.Offer offer) {
+        if (exchange != null) exchange.offer(offer);
     }
 
-    @Override public void onClipboard(String text) {
-        if (clipboardSession == session && hasWindowFocus()) AndroidClipboardGateway.get(this).writeText("X11", text, false);
+    @Override public void onDragEvent(int operation, int outputId, boolean accepted) {
+        if (exchange != null) exchange.dragEvent(operation, outputId, accepted);
     }
 
-    private void releaseClipboard() {
-        if (clipboardObserver != null) {
-            try { clipboardObserver.close(); } catch (Exception error) { android.util.Log.w("MagicDesk", "X11 clipboard observer", error); }
-            clipboardObserver = null;
-        }
-        if (clipboardSession != null) clipboardSession.releaseClipboard(this);
-        clipboardSession = null;
+    private void releaseExchange() {
+        if (exchange != null) exchange.close();
+        exchange = null;
     }
 
     @Override public void onFrame(X11Session.Output source, int width, int height, boolean available) {
@@ -338,7 +320,7 @@ public final class X11Activity extends Activity implements X11Sessions.Listener,
     }
 
     @Override public void onDestroy() {
-        releaseClipboard();
+        releaseExchange();
         if (isFinishing() && application && window == 0 && session != null) session.close();
         if (isFinishing() && window != 0 && session != null) session.closeWindow(window);
         if (session != null) { session.unlisten(this); session.releaseDensity(this); session.releaseHost(getTaskId()); }

@@ -331,7 +331,7 @@ final class AndroidContentPayload {
         return url == null ? null : Uri.parse(url);
     }
 
-    private static AndroidContentPayload empty(final Origin origin) {
+    static AndroidContentPayload empty(final Origin origin) {
         return new AndroidContentPayload(
                 origin,
                 "",

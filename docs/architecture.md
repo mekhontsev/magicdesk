@@ -1851,12 +1851,21 @@ Termux-backed Console windows therefore share the same Android system
 clipboard as shell-backed Console and ordinary Android applications; MagicDesk
 does not maintain a terminal clipboard mirror. Sensitive MCP connection data
 is marked for protected Android clipboard previews. Clipboard access is
-request-driven and has no listener, history, or polling loop.
+request-driven outside focused X11 hosts. `X11HostExchange` subscribes through
+the gateway only while its Android window has focus; no clipboard history or
+polling loop is introduced. Session-origin tags prevent clipboard feedback.
 
 `AndroidContentPayload` is the immutable content contract shared by clipboard,
 Android share/view Intents, external drag-and-drop, Files, and Desktop. It
 preserves bounded URI items, declared MIME types, text/HTML, sensitivity, and
 origin without carrying executable clipboard Intents.
+The embedded X11 content adapter reuses this contract for text, HTML, PNG and
+file selections. The native runtime owns X11 selection/XDND negotiation, while
+the Android host owns focus, drag gestures and provider grants. Payloads stream
+through owned file descriptors; the X server opens/imports files under the
+selected Termux UID rather than borrowing shell/root access. Session-private
+imports and finite-lived Android exports have distinct cleanup owners. See
+[X11 content exchange](x11.md#clipboard-and-drag-and-drop) for formats and bounds.
 Incoming Share parsing inspects at most 64 entries from each of `ClipData`
 and `EXTRA_STREAM`, retaining at most 64 distinct URIs across both. Limiting
 only the final result would still allow an arbitrarily long duplicate list

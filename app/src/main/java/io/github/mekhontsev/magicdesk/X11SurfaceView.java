@@ -17,6 +17,8 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
     private X11Session.Output output;
     private int frameWidth, frameHeight, buttons;
     private boolean touching;
+    private boolean contentDrag;
+    private Runnable beforeInteraction;
     private final SparseIntArray keys = new SparseIntArray();
     private float lastX, lastY;
 
@@ -44,9 +46,11 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
     }
 
     private void releaseInput() {
-        mouseButtons(0);
-        if (touching && output != null) output.pointer(lastX, lastY, 1, false);
-        touching = false;
+        if (!contentDrag) {
+            mouseButtons(0);
+            if (touching && output != null) output.pointer(lastX, lastY, 1, false);
+            touching = false;
+        }
         if (output != null) {
             for (int i = 0; i < keys.size(); i++) output.key(keys.keyAt(i), keys.valueAt(i), false);
         }
@@ -67,13 +71,25 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
 
     private boolean pointer(MotionEvent event) {
         if (output == null || frameWidth < 1 || frameHeight < 1 || getWidth() < 1 || getHeight() < 1) return false;
-        float scale = Math.min(getWidth() / (float) frameWidth, getHeight() / (float) frameHeight);
-        float width = frameWidth * scale, height = frameHeight * scale;
-        lastX = (event.getX() - (getWidth() - width) / 2) / width;
-        lastY = (event.getY() - (getHeight() - height) / 2) / height;
+        android.graphics.PointF point = contentPoint(event.getX(), event.getY());
+        lastX = point.x;
+        lastY = point.y;
         output.pointer(lastX, lastY, 0, false);
         return true;
     }
+
+    android.graphics.PointF contentPoint(float x, float y) {
+        if (frameWidth < 1 || frameHeight < 1 || getWidth() < 1 || getHeight() < 1) return new android.graphics.PointF();
+        float scale = Math.min(getWidth() / (float) frameWidth, getHeight() / (float) frameHeight);
+        float width = frameWidth * scale, height = frameHeight * scale;
+        return new android.graphics.PointF((x - (getWidth() - width) / 2) / width,
+                (y - (getHeight() - height) / 2) / height);
+    }
+
+    boolean canStartContentDrag() { return output != null && !contentDrag && (touching || (buttons & MotionEvent.BUTTON_PRIMARY) != 0); }
+    void beforeInteraction(Runnable action) { beforeInteraction = action; }
+    void beginContentDrag() { contentDrag = true; }
+    void endContentDrag() { contentDrag = false; touching = false; buttons = 0; }
 
     private void mouseButtons(int next) {
         for (int button = 1; button <= 3; button++) {
@@ -86,6 +102,8 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
+        if (contentDrag) return true;
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && beforeInteraction != null) beforeInteraction.run();
         if (!pointer(event)) return false;
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) requestFocus();
@@ -105,6 +123,8 @@ final class X11SurfaceView extends SurfaceView implements SurfaceHolder.Callback
     @Override public boolean performClick() { super.performClick(); return true; }
 
     @Override public boolean onGenericMotionEvent(MotionEvent event) {
+        if (contentDrag) return true;
+        if (event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS && beforeInteraction != null) beforeInteraction.run();
         if (!pointer(event)) return super.onGenericMotionEvent(event);
         if (event.getActionMasked() == MotionEvent.ACTION_BUTTON_PRESS) requestFocus();
         mouseButtons(event.getButtonState());
